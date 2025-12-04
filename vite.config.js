@@ -3,6 +3,5 @@ import { defineConfig } from 'vite'
 
     // https://vitejs.dev/config/
     export default defineConfig({
-      plugins: [react()],
-      base: '/OFRN-WebApp/', // <--- IMPORTANTE: El nombre exacto de tu repo entre barras
+      plugins: [react()]
     })
