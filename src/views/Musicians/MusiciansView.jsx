@@ -166,7 +166,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                 <div className="flex flex-col md:flex-row gap-4">
                     <form onSubmit={handleSearch} className="flex-1 relative">
                         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><IconSearch size={18} /></div>
-                        <input type="text" className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded hover:border-indigo-500 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="Buscar por nombre o apellido..." value={searchText} onChange={(e) => setSearchText(e.target.value)} />
+                        <input type="text" className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded hover:border-indigo-500 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="Buscá por nombre o apellido..." value={searchText} onChange={(e) => setSearchText(e.target.value)} />
                     </form>
                     <div className="w-full md:w-auto min-w-[200px]">
                         <InstrumentFilter catalogo={catalogoInstrumentos} selectedIds={selectedInstruments} onChange={handleInstrumentChange} />
