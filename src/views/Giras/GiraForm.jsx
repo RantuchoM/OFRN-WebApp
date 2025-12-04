@@ -1,7 +1,18 @@
 import React from 'react';
 import { IconPlus, IconX, IconCheck } from '../../components/ui/Icons';
+import LocationMultiSelect from '../../components/filters/LocationMultiSelect'; // IMPORTAR
 
-export default function GiraForm({ formData, setFormData, onCancel, onSave, loading, isNew = false }) {
+export default function GiraForm({ 
+    formData, 
+    setFormData, 
+    onCancel, 
+    onSave, 
+    loading, 
+    isNew = false,
+    locationsList = [], // Nueva prop
+    selectedLocations = new Set(), // Nueva prop
+    setSelectedLocations // Nueva prop
+}) {
     return (
         <div className={`p-4 rounded-xl border shadow-sm animate-in fade-in zoom-in-95 duration-200 ${isNew ? 'bg-indigo-50 border-indigo-200' : 'bg-white ring-2 ring-indigo-500 border-indigo-500 z-10 relative'}`}>
             {isNew && <h3 className="text-indigo-900 font-bold mb-4 flex items-center gap-2 border-b border-indigo-100 pb-2"><IconPlus size={18}/> Nueva Gira</h3>}
@@ -36,6 +47,15 @@ export default function GiraForm({ formData, setFormData, onCancel, onSave, load
                         className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white" 
                         value={formData.fecha_hasta} 
                         onChange={(e) => setFormData({...formData, fecha_hasta: e.target.value})}
+                    />
+                </div>
+
+                {/* SELECTOR DE LOCALIDADES (OCUPA TODO EL ANCHO) */}
+                <div className="md:col-span-2 pt-2 border-t border-slate-100 mt-2">
+                    <LocationMultiSelect 
+                        locations={locationsList} 
+                        selectedIds={selectedLocations} 
+                        onChange={setSelectedLocations} 
                     />
                 </div>
             </div>

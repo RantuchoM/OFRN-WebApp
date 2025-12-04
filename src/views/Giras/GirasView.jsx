@@ -1,62 +1,130 @@
 import React, { useState, useEffect } from 'react';
-import { IconPlus, IconAlertCircle, IconMap, IconEdit, IconTrash, IconUsers, IconLoader } from '../../components/ui/Icons';
+import { IconPlus, IconAlertCircle, IconMap, IconEdit, IconTrash, IconUsers, IconLoader, IconMapPin, IconCalendar } from '../../components/ui/Icons';
 import GiraForm from './GiraForm';
-import GiraRoster from './GiraRoster'; // Importamos el nuevo componente
+import GiraRoster from './GiraRoster';
+import GiraAgenda from './GiraAgenda';
 
 export default function GirasView({ supabase }) {
     const [giras, setGiras] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     
-    // Estados de navegación interna
-    const [selectedGira, setSelectedGira] = useState(null); // Si tiene valor, mostramos el Roster
-    const [editingId, setEditingId] = useState(null); // Si tiene valor, mostramos el form de edición
-    const [isAdding, setIsAdding] = useState(false); // Si es true, mostramos form de creación
-
+    // --- ESTADOS DE NAVEGACIÓN INTERNA ---
+    const [selectedGira, setSelectedGira] = useState(null); // Para ver el Roster (Integrantes)
+    const [selectedGiraAgenda, setSelectedGiraAgenda] = useState(null); // Para ver la Agenda (Eventos)
+    
+    // --- ESTADOS DE EDICIÓN/CREACIÓN ---
+    const [editingId, setEditingId] = useState(null);
+    const [isAdding, setIsAdding] = useState(false);
+    
+    // --- ESTADOS DEL FORMULARIO ---
     const [formData, setFormData] = useState({ nombre_gira: '', fecha_desde: '', fecha_hasta: '' });
+    // Localidades seleccionadas en el form (N:N)
+    const [selectedLocations, setSelectedLocations] = useState(new Set());
+    // Lista completa para el dropdown
+    const [locationsList, setLocationsList] = useState([]);
 
-    useEffect(() => { fetchGiras(); }, []);
+    useEffect(() => { 
+        fetchGiras(); 
+        fetchLocationsList();
+    }, []);
 
+    // Cargar giras y sus localidades asociadas
     const fetchGiras = async () => {
         setLoading(true);
-        const { data, error } = await supabase.from('giras').select('*').order('fecha_desde', { ascending: false });
-        if (error) setError(error.message); else setGiras(data || []);
+        const { data, error } = await supabase
+            .from('giras')
+            .select('*, giras_localidades(localidades(localidad))') 
+            .order('fecha_desde', { ascending: false });
+        
+        if (error) setError(error.message); 
+        else setGiras(data || []);
         setLoading(false);
     };
 
+    // Cargar catálogo de localidades
+    const fetchLocationsList = async () => {
+        const { data } = await supabase.from('localidades').select('id, localidad').order('localidad');
+        if (data) setLocationsList(data);
+    };
+
+    // Helper para guardar relaciones N:N en giras_localidades
+    const updateGiraLocations = async (giraId, locationIds) => {
+        // 1. Borrar anteriores
+        await supabase.from('giras_localidades').delete().eq('id_gira', giraId);
+        
+        // 2. Insertar nuevas
+        if (locationIds.size > 0) {
+            const inserts = Array.from(locationIds).map(locId => ({
+                id_gira: giraId,
+                id_localidad: parseInt(locId)
+            }));
+            await supabase.from('giras_localidades').insert(inserts);
+        }
+    };
+
+    // Guardar (Crear o Editar)
     const handleSave = async () => {
         if (!formData.nombre_gira) return alert("El nombre es obligatorio");
         setLoading(true);
         try {
+            let targetId = editingId;
+
             if (editingId) {
+                // UPDATE
                 const { error } = await supabase.from('giras').update(formData).eq('id', editingId);
                 if (error) throw error;
             } else {
-                const { error } = await supabase.from('giras').insert([formData]);
+                // INSERT
+                const { data, error } = await supabase.from('giras').insert([formData]).select();
                 if (error) throw error;
+                if (data && data.length > 0) targetId = data[0].id;
             }
+
+            // Actualizar relaciones de localidades si tenemos ID
+            if (targetId) {
+                await updateGiraLocations(targetId, selectedLocations);
+            }
+
             await fetchGiras();
             closeForm();
-        } catch (err) { alert("Error: " + err.message); } finally { setLoading(false); }
+        } catch (err) { 
+            alert("Error: " + err.message); 
+        } finally { 
+            setLoading(false); 
+        }
     };
 
+    // Eliminar Gira
     const handleDelete = async (e, id) => {
-        e.stopPropagation(); // Evitar entrar al roster al hacer click en borrar
-        if(!confirm("¿Eliminar esta gira?")) return;
+        e.stopPropagation();
+        if(!confirm("¿Eliminar esta gira? Se borrarán también sus eventos y lista de integrantes.")) return;
         setLoading(true);
         const { error } = await supabase.from('giras').delete().eq('id', id);
         if(error) alert("Error: " + error.message); else await fetchGiras();
         setLoading(false);
     };
 
-    const startEdit = (e, gira) => {
+    // Iniciar Edición
+    const startEdit = async (e, gira) => {
         e.stopPropagation();
         setEditingId(gira.id);
         setFormData({ nombre_gira: gira.nombre_gira, fecha_desde: gira.fecha_desde || '', fecha_hasta: gira.fecha_hasta || '' });
+        
+        // Cargar localidades actuales de esta gira
+        const { data } = await supabase.from('giras_localidades').select('id_localidad').eq('id_gira', gira.id);
+        if (data) setSelectedLocations(new Set(data.map(d => d.id_localidad)));
+        else setSelectedLocations(new Set());
+
         setIsAdding(false);
     };
 
-    const closeForm = () => { setIsAdding(false); setEditingId(null); setFormData({ nombre_gira: '', fecha_desde: '', fecha_hasta: '' }); };
+    const closeForm = () => { 
+        setIsAdding(false); 
+        setEditingId(null); 
+        setFormData({ nombre_gira: '', fecha_desde: '', fecha_hasta: '' }); 
+        setSelectedLocations(new Set());
+    };
 
     const formatDate = (dateString) => {
         if (!dateString) return "-";
@@ -64,14 +132,19 @@ export default function GirasView({ supabase }) {
         return `${day}/${month}/${year}`;
     };
 
-    // --- RENDERIZADO CONDICIONAL ---
-    
-    // 1. Si hay una gira seleccionada, mostramos el GiraRoster
+    // --- RENDERIZADO CONDICIONAL DE VISTAS HIJAS ---
+
+    // 1. Vista Agenda (Eventos)
+    if (selectedGiraAgenda) {
+        return <GiraAgenda supabase={supabase} gira={selectedGiraAgenda} onBack={() => setSelectedGiraAgenda(null)} />;
+    }
+
+    // 2. Vista Roster (Integrantes)
     if (selectedGira) {
         return <GiraRoster supabase={supabase} gira={selectedGira} onBack={() => setSelectedGira(null)} />;
     }
 
-    // 2. Vista por defecto (Listado)
+    // --- VISTA PRINCIPAL (LISTADO) ---
     return (
         <div className="space-y-6 h-full flex flex-col overflow-hidden animate-in fade-in">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 shrink-0 flex justify-between items-center">
@@ -83,40 +156,74 @@ export default function GirasView({ supabase }) {
 
             <div className="flex-1 overflow-y-auto space-y-3 pb-4 pr-2">
                 {!isAdding && !editingId && (
-                    <button onClick={() => { setIsAdding(true); setFormData({ nombre_gira: '', fecha_desde: '', fecha_hasta: '' }); }} className="w-full py-4 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 font-medium">
+                    <button onClick={() => { setIsAdding(true); setFormData({ nombre_gira: '', fecha_desde: '', fecha_hasta: '' }); setSelectedLocations(new Set()); }} className="w-full py-4 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 font-medium">
                         <IconPlus size={20} /> Crear Nueva Gira
                     </button>
                 )}
 
                 {(isAdding || editingId) && (
-                    <GiraForm formData={formData} setFormData={setFormData} onCancel={closeForm} onSave={handleSave} loading={loading} isNew={isAdding} />
+                    <GiraForm 
+                        formData={formData} 
+                        setFormData={setFormData} 
+                        onCancel={closeForm} 
+                        onSave={handleSave} 
+                        loading={loading} 
+                        isNew={isAdding}
+                        locationsList={locationsList}
+                        selectedLocations={selectedLocations}
+                        setSelectedLocations={setSelectedLocations}
+                    />
                 )}
 
                 {giras.map((gira) => {
-                    // Si estamos editando ESTA gira, no mostramos la tarjeta, sino el form
                     if (editingId === gira.id) return null; 
+                    
+                    // Extraer nombres de localidades para mostrar en tarjeta
+                    const locs = gira.giras_localidades?.map(gl => gl.localidades?.localidad).filter(Boolean) || [];
 
                     return (
-                        <div 
-                            key={gira.id} 
-                            onClick={() => setSelectedGira(gira)} // Al hacer click en la tarjeta, entramos al Roster
-                            className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex justify-between items-center group cursor-pointer"
-                        >
-                            <div>
+                        <div key={gira.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex justify-between items-center group">
+                            
+                            {/* Área clicable principal: Abre Roster (Integrantes) */}
+                            <div onClick={() => setSelectedGira(gira)} className="flex-1 cursor-pointer">
                                 <h3 className="text-xl font-bold text-slate-800 group-hover:text-indigo-700 transition-colors">{gira.nombre_gira}</h3>
-                                <div className="flex items-center gap-4 mt-2 text-sm text-slate-500">
-                                    <span className="bg-slate-100 px-2 py-1 rounded text-slate-600 border border-slate-200">
-                                        Desde: <b>{formatDate(gira.fecha_desde)}</b>
+                                
+                                <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-slate-500">
+                                    <span className="bg-slate-50 px-2 py-0.5 rounded border border-slate-100 flex items-center gap-1">
+                                        📅 {formatDate(gira.fecha_desde)} - {formatDate(gira.fecha_hasta)}
                                     </span>
-                                    <span className="bg-slate-100 px-2 py-1 rounded text-slate-600 border border-slate-200">
-                                        Hasta: <b>{formatDate(gira.fecha_hasta)}</b>
-                                    </span>
+                                    {locs.length > 0 && (
+                                        <div className="flex items-center gap-1 text-slate-600">
+                                            <IconMapPin size={14} className="text-indigo-500"/>
+                                            <span className="text-xs font-medium">{locs.join(", ")}</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                            <div className="flex gap-2">
-                                <button onClick={(e) => startEdit(e, gira)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"><IconEdit size={20}/></button>
-                                <button onClick={(e) => handleDelete(e, gira.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><IconTrash size={20}/></button>
-                                <div className="p-2 text-slate-300"><IconUsers size={20}/></div>
+                            
+                            {/* Botonera de Acciones */}
+                            <div className="flex gap-2 items-center">
+                                {/* Botón AGENDA */}
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); setSelectedGiraAgenda(gira); }} 
+                                    className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors flex flex-col items-center group/btn" 
+                                    title="Ver Agenda"
+                                >
+                                    <IconCalendar size={20}/>
+                                    <span className="text-[9px] font-bold hidden group-hover/btn:block absolute -bottom-3 bg-slate-800 text-white px-1 rounded">Agenda</span>
+                                </button>
+
+                                {/* Separador visual */}
+                                <div className="h-6 w-px bg-slate-200 mx-1"></div>
+
+                                {/* Botón EDITAR */}
+                                <button onClick={(e) => startEdit(e, gira)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Editar"><IconEdit size={20}/></button>
+                                
+                                {/* Botón BORRAR */}
+                                <button onClick={(e) => handleDelete(e, gira.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar"><IconTrash size={20}/></button>
+                                
+                                {/* Icono decorativo Integrantes */}
+                                <div className="p-2 text-slate-300" title="Click en nombre para ver integrantes"><IconUsers size={20}/></div>
                             </div>
                         </div>
                     );
