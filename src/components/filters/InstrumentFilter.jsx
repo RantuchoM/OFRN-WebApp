@@ -17,8 +17,11 @@ export default function InstrumentFilter({ catalogo, selectedIds, onChange }) {
 
     const toggleSelection = (id) => {
         const newSelection = new Set(selectedIds);
-        if (newSelection.has(id)) newSelection.delete(id);
-        else newSelection.add(id);
+        if (newSelection.has(id)) {
+            newSelection.delete(id);
+        } else {
+            newSelection.add(id);
+        }
         onChange(newSelection);
     };
 
@@ -52,14 +55,18 @@ export default function InstrumentFilter({ catalogo, selectedIds, onChange }) {
                     <div className="overflow-y-auto p-2 space-y-1">
                         <label className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer checkbox-wrapper group">
                             <input type="checkbox" className="hidden" checked={selectedIds.has('null')} onChange={() => toggleSelection('null')}/>
-                            <div className="w-5 h-5 border-2 border-slate-300 rounded flex items-center justify-center bg-white transition-colors group-hover:border-indigo-400"><IconCheck size={12} className="text-white hidden"/></div>
+                            <div className={`w-5 h-5 border-2 border-slate-300 rounded flex items-center justify-center transition-colors group-hover:border-indigo-400 ${selectedIds.has('null') ? 'bg-indigo-600 border-indigo-600' : 'bg-white'}`}>
+                                <IconCheck size={12} className={`text-white ${selectedIds.has('null') ? 'block' : 'hidden'}`}/>
+                            </div>
                             <span className="text-sm text-slate-700 italic">-- Sin Instrumento --</span>
                         </label>
                         <hr className="border-slate-100 my-1"/>
                         {catalogo.map(inst => (
                             <label key={inst.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer checkbox-wrapper group">
                                 <input type="checkbox" className="hidden" checked={selectedIds.has(inst.id)} onChange={() => toggleSelection(inst.id)}/>
-                                <div className="w-5 h-5 border-2 border-slate-300 rounded flex items-center justify-center bg-white transition-colors group-hover:border-indigo-400"><IconCheck size={12} className="text-white hidden"/></div>
+                                <div className={`w-5 h-5 border-2 border-slate-300 rounded flex items-center justify-center transition-colors group-hover:border-indigo-400 ${selectedIds.has(inst.id) ? 'bg-indigo-600 border-indigo-600' : 'bg-white'}`}>
+                                    <IconCheck size={12} className={`text-white ${selectedIds.has(inst.id) ? 'block' : 'hidden'}`}/>
+                                </div>
                                 <span className="text-sm text-slate-700">{inst.instrumento}</span>
                             </label>
                         ))}
