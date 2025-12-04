@@ -2,16 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from './services/supabase';
 import MusiciansView from './views/Musicians/MusiciansView';
 import EnsemblesView from './views/Ensembles/EnsemblesView';
-import { IconDatabase, IconUsers, IconLayers } from './components/ui/Icons';
+import GirasView from './views/Giras/GirasView'; // Importar nueva vista
+import { IconDatabase, IconUsers, IconLayers, IconMap } from './components/ui/Icons'; // Importar IconMap
 
 export default function App() {
     const [isConnected, setIsConnected] = useState(false);
     const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
-    const [currentView, setCurrentView] = useState('musicians'); // 'musicians' | 'ensembles'
+    // Agregamos 'giras' a las opciones de vista
+    const [currentView, setCurrentView] = useState('musicians'); // 'musicians' | 'ensembles' | 'giras'
 
     useEffect(() => {
         const initApp = async () => {
-            // Verificar conexión simple
             try {
                 const { data, error } = await supabase.from('instrumentos').select('id, instrumento').order('instrumento');
                 if (!error && data) {
@@ -35,7 +36,7 @@ export default function App() {
                             <IconDatabase size={28}/>
                             <h1 className="text-xl font-bold tracking-tight hidden sm:block">Orquesta Manager</h1>
                         </div>
-                        {/* PESTAÑAS DE NAVEGACIÓN */}
+                        {/* PESTAÑAS DE NAVEGACIÓN ACTUALIZADAS */}
                         <div className="flex bg-slate-100 p-1 rounded-lg">
                             <button 
                                 onClick={() => setCurrentView('musicians')}
@@ -48,6 +49,12 @@ export default function App() {
                                 className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${currentView === 'ensembles' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
                                 <IconLayers size={16}/> Ensambles
+                            </button>
+                            <button 
+                                onClick={() => setCurrentView('giras')}
+                                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${currentView === 'giras' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                <IconMap size={16}/> Giras
                             </button>
                         </div>
                     </div>
@@ -70,6 +77,9 @@ export default function App() {
                     )}
                     {isConnected && currentView === 'ensembles' && (
                         <EnsemblesView supabase={supabase} />
+                    )}
+                    {isConnected && currentView === 'giras' && (
+                        <GirasView supabase={supabase} />
                     )}
                 </div>
             </div>
