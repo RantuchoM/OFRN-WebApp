@@ -1,7 +1,4 @@
-{
-type: created file
-fileName: Gemini/src/utils/time.js
-fullContent:
+
 // Convierte Segundos (int) a Texto legible (Ej: 305 -> "5:05" o "1h 5m")
 export const formatSecondsToTime = (seconds) => {
     if (!seconds && seconds !== 0) return "00:00";
