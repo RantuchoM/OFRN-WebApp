@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { IconTag, IconChevronDown, IconCheck, IconX } from '../ui/Icons';
+import { IconTag, IconChevronDown, IconCheck, IconX, IconPlus } from '../ui/Icons';
 
-export default function TagMultiSelect({ tags, selectedIds, onChange }) {
+export default function TagMultiSelect({ tags, selectedIds, onChange, onAddNew }) {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef(null);
 
@@ -23,15 +23,12 @@ export default function TagMultiSelect({ tags, selectedIds, onChange }) {
     };
 
     const count = selectedIds.size;
-
-    // Filtramos los objetos completos de los tags seleccionados para poder mostrar su nombre
     const selectedTagsDisplay = tags.filter(t => selectedIds.has(t.id));
 
     return (
         <div className="relative" ref={dropdownRef}>
             <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Palabras Clave</label>
             
-            {/* BOTÓN DESPLEGABLE */}
             <button 
                 type="button" 
                 onClick={() => setIsOpen(!isOpen)} 
@@ -46,7 +43,6 @@ export default function TagMultiSelect({ tags, selectedIds, onChange }) {
                 <IconChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}/>
             </button>
             
-            {/* MENÚ DESPLEGABLE */}
             {isOpen && (
                 <div className="absolute top-full left-0 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-xl z-50 overflow-hidden flex flex-col max-h-[200px]">
                     <div className="overflow-y-auto p-1 space-y-0.5">
@@ -64,12 +60,18 @@ export default function TagMultiSelect({ tags, selectedIds, onChange }) {
                                 <span className="text-sm text-slate-700 truncate">{tag.tag}</span>
                             </label>
                         ))}
-                        {tags.length === 0 && <div className="p-3 text-xs text-slate-400 text-center">No hay etiquetas cargadas.</div>}
                     </div>
+                    {/* BOTÓN AGREGAR NUEVO */}
+                    {onAddNew && (
+                        <div className="p-2 border-t border-slate-50 bg-slate-50">
+                            <button onClick={onAddNew} className="w-full flex items-center justify-center gap-2 text-xs font-bold text-indigo-600 hover:text-indigo-800 py-1">
+                                <IconPlus size={12}/> Crear Nuevo
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
-            {/* CHIPS DE SELECCIÓN (NUEVO) */}
             {selectedTagsDisplay.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-2">
                     {selectedTagsDisplay.map(tag => (
@@ -81,7 +83,7 @@ export default function TagMultiSelect({ tags, selectedIds, onChange }) {
                             <button 
                                 type="button"
                                 onClick={(e) => {
-                                    e.stopPropagation(); // Evita que se abra/cierre el menú al borrar
+                                    e.stopPropagation(); 
                                     toggleSelection(tag.id);
                                 }}
                                 className="text-indigo-400 hover:text-red-500 hover:bg-white rounded-full p-0.5 transition-colors"

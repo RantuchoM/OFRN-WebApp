@@ -1,10 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { IconUsers, IconChevronDown, IconCheck, IconX } from '../ui/Icons';
+import { IconUsers, IconChevronDown, IconCheck, IconX, IconPlus } from '../ui/Icons';
 
-export default function ComposerMultiSelect({ compositores, selectedIds, onChange }) {
+export default function ComposerMultiSelect({ compositores, selectedIds, onChange, onAddNew, forceClose }) {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef(null);
     const [search, setSearch] = useState("");
+
+    // Detecta la señal de cierre forzado (cuando el modal QuickAdd se abre)
+    useEffect(() => {
+        if (forceClose && isOpen) {
+             setIsOpen(false);
+        }
+    }, [forceClose]);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -21,7 +28,6 @@ export default function ComposerMultiSelect({ compositores, selectedIds, onChang
         onChange(newSelection);
     };
 
-    // Filtro simple para buscar en la lista
     const filteredList = compositores.filter(c => 
         `${c.apellido}, ${c.nombre}`.toLowerCase().includes(search.toLowerCase())
     );
@@ -57,10 +63,16 @@ export default function ComposerMultiSelect({ compositores, selectedIds, onChang
                             </label>
                         ))}
                     </div>
+                    {onAddNew && (
+                        <div className="p-2 border-t border-slate-50 bg-slate-50">
+                            <button onClick={onAddNew} className="w-full flex items-center justify-center gap-2 text-xs font-bold text-indigo-600 hover:text-indigo-800 py-1">
+                                <IconPlus size={12}/> Crear Nuevo
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
-            {/* CHIPS */}
             {selectedDisplay.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
                     {selectedDisplay.map(c => (

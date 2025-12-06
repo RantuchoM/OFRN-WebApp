@@ -1,27 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import { IconPlus, IconX, IconCheck, IconLink, IconTrash, IconMusic, IconFileLink } from '../../components/ui/Icons';
+import { IconPlus, IconX, IconCheck, IconLink, IconTrash, IconMusic, IconFileLink, IconUsers, IconCalendar, IconGlobe, IconLoader } from '../../components/ui/Icons';
 import TagMultiSelect from '../../components/filters/TagMultiSelect';
-import ComposerMultiSelect from '../../components/filters/ComposerMultiSelect'; // NUEVO
-import DurationInput from '../../components/ui/DurationInput'; // NUEVO
+import ComposerMultiSelect from '../../components/filters/ComposerMultiSelect'; 
+import DurationInput from '../../components/ui/DurationInput';
+import DateInput from '../../components/ui/DateInput'; 
 
 export default function WorkForm({ 
     supabase, formData, setFormData, onCancel, onSave, loading, isNew = false, catalogoInstrumentos = [] 
 }) {
     const [compositores, setCompositores] = useState([]);
     const [tagsList, setTagsList] = useState([]);
+    const [paises, setPaises] = useState([]); 
     
     // Estados Relacionales
     const [particellas, setParticellas] = useState([]);
     const [selectedTags, setSelectedTags] = useState(new Set());
-    const [selectedComposers, setSelectedComposers] = useState(new Set()); // NUEVO
+    const [selectedComposers, setSelectedComposers] = useState(new Set()); 
 
     const [newPart, setNewPart] = useState({ id_instrumento: '', nombre_archivo: '', url_archivo: '' });
 
+    // Estado del Modal Flotante de Composer
+    const [showQuickComposerModal, setShowQuickComposerModal] = useState(false);
+    const [quickComposerData, setQuickComposerData] = useState({ apellido: '', nombre: '', id_pais: '', fecha_nacimiento: '', fecha_defuncion: '', biografia: '' });
+
     useEffect(() => {
         loadDropdowns();
-        if (!isNew && formData.id) {
-            loadWorkDetails();
-        }
+        fetchPaises();
+        if (!isNew && formData.id) loadWorkDetails();
     }, []);
 
     const loadDropdowns = async () => {
@@ -31,16 +36,16 @@ export default function WorkForm({
         if (tags) setTagsList(tags);
     };
 
+    const fetchPaises = async () => {
+        const { data } = await supabase.from('paises').select('id, nombre').order('nombre');
+        if (data) setPaises(data);
+    };
+
     const loadWorkDetails = async () => {
-        // 1. Particellas
         const { data: parts } = await supabase.from('obras_particellas').select('*, instrumentos(instrumento, familia)').eq('id_obra', formData.id);
         if (parts) setParticellas(parts);
-
-        // 2. Tags
         const { data: workTags } = await supabase.from('obras_palabras_clave').select('id_palabra_clave').eq('id_obra', formData.id);
         if (workTags) setSelectedTags(new Set(workTags.map(t => t.id_palabra_clave)));
-
-        // 3. Compositores (NUEVO - N:N)
         const { data: workComps } = await supabase.from('obras_compositores').select('id_compositor').eq('id_obra', formData.id);
         if (workComps) setSelectedComposers(new Set(workComps.map(c => c.id_compositor)));
     };
@@ -61,29 +66,20 @@ export default function WorkForm({
 
     const handleSaveFull = async () => {
         if (selectedComposers.size === 0) return alert("Debe seleccionar al menos un compositor.");
-
-        // 1. Guardar Obra (Ya no enviamos id_compositor en formData)
         const obraId = await onSave(); 
-        
         if (obraId) {
-            // 2. Guardar Compositores (N:N)
             await supabase.from('obras_compositores').delete().eq('id_obra', obraId);
-            const compsToInsert = Array.from(selectedComposers).map(compId => ({
-                id_obra: obraId, id_compositor: compId
-            }));
+            const compsToInsert = Array.from(selectedComposers).map(compId => ({ id_obra: obraId, id_compositor: compId }));
             await supabase.from('obras_compositores').insert(compsToInsert);
 
-            // 3. Guardar Tags
             await supabase.from('obras_palabras_clave').delete().eq('id_obra', obraId);
             if (selectedTags.size > 0) {
                 const tagsToInsert = Array.from(selectedTags).map(tagId => ({ id_obra: obraId, id_palabra_clave: tagId }));
                 await supabase.from('obras_palabras_clave').insert(tagsToInsert);
             }
 
-            // 4. Guardar Particellas
             const newParts = particellas.filter(p => !p.id).map(p => ({
-                id_obra: obraId,
-                id_instrumento: p.id_instrumento,
+                id_obra: obraId, id_instrumento: p.id_instrumento,
                 nombre_archivo: p.nombre_archivo || `${p.instrumentos.instrumento} (Parte)`,
                 url_archivo: p.url_archivo || null
             }));
@@ -91,8 +87,110 @@ export default function WorkForm({
         }
     };
 
+    // --- LÓGICA DE CREACIÓN RÁPIDA ---
+    const handleQuickAddComposer = () => {
+        setQuickComposerData({ apellido: '', nombre: '', id_pais: '', fecha_nacimiento: '', fecha_defuncion: '', biografia: '' });
+        setShowQuickComposerModal(true);
+    };
+
+    const handleQuickAddTag = async () => {
+        const tag = prompt("Nueva Palabra Clave (Ej: Barroso):");
+        if (!tag) return;
+        
+        const { data, error } = await supabase.from('palabras_clave').insert([{ tag }]).select().single();
+        if (error) alert("Error: " + error.message);
+        else {
+            setTagsList([...tagsList, data].sort((a,b) => a.tag.localeCompare(b.tag)));
+            setSelectedTags(new Set(selectedTags).add(data.id));
+        }
+    };
+
+    const saveQuickComposer = async () => {
+        if (!quickComposerData.apellido) return alert("El apellido es obligatorio.");
+        
+        const payload = {
+            apellido: quickComposerData.apellido.trim(),
+            nombre: quickComposerData.nombre.trim() || null,
+            id_pais: quickComposerData.id_pais || null,
+            fecha_nacimiento: quickComposerData.fecha_nacimiento || null,
+            fecha_defuncion: quickComposerData.fecha_defuncion || null, // Corregido
+            biografia: quickComposerData.biografia || null,
+        };
+
+        const { data, error } = await supabase.from('compositores').insert([payload]).select().single();
+        if (error) {
+            alert("Error al crear compositor: " + error.message);
+            return;
+        }
+
+        setCompositores([...compositores, data].sort((a,b) => a.apellido.localeCompare(b.apellido)));
+        setSelectedComposers(new Set(selectedComposers).add(data.id));
+        
+        setShowQuickComposerModal(false);
+    };
+
+    // --- COMPONENTE MODAL FLOTANTE ---
+    const QuickComposerModal = () => (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
+                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-indigo-50 rounded-t-xl shrink-0">
+                    <h3 className="font-bold text-indigo-900 flex items-center gap-2"><IconUsers size={20}/> Nuevo Compositor (Rápido)</h3>
+                    <button onClick={() => setShowQuickComposerModal(false)} className="text-slate-500 hover:text-red-500"><IconX size={24}/></button>
+                </div>
+                
+                <div className="p-4 overflow-y-auto">
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                        <div className="md:col-span-6"><label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Apellido*</label>
+                            <input 
+                                key="qc-apellido" // Estabilidad
+                                type="text" className="w-full border p-2 rounded text-sm outline-none" placeholder="Ej: Bach" 
+                                value={quickComposerData.apellido} onChange={e => setQuickComposerData({...quickComposerData, apellido: e.target.value})}
+                            />
+                        </div>
+                        <div className="md:col-span-6"><label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Nombre</label>
+                            <input 
+                                key="qc-nombre" // Estabilidad
+                                type="text" className="w-full border p-2 rounded text-sm outline-none" placeholder="Ej: Johann Sebastian" 
+                                value={quickComposerData.nombre} onChange={e => setQuickComposerData({...quickComposerData, nombre: e.target.value})}
+                            />
+                        </div>
+                        
+                        <div className="md:col-span-4"><DateInput label="Nacimiento" value={quickComposerData.fecha_nacimiento} onChange={v => setQuickComposerData({...quickComposerData, fecha_nacimiento: v})}/></div>
+                        <div className="md:col-span-4"><DateInput label="Defunción" value={quickComposerData.fecha_defuncion} onChange={v => setQuickComposerData({...quickComposerData, fecha_defuncion: v})}/></div>
+                        
+                        <div className="md:col-span-4">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Nacionalidad</label>
+                            <select className="w-full border p-2 rounded text-sm outline-none" value={quickComposerData.id_pais} onChange={e => setQuickComposerData({...quickComposerData, id_pais: e.target.value})}>
+                                <option value="">-- Seleccionar --</option>
+                                {paises.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                            </select>
+                        </div>
+                        
+                        <div className="md:col-span-12">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Biografía / Notas</label>
+                            <textarea 
+                                key="qc-bio" // Estabilidad
+                                className="w-full border p-2 rounded text-sm outline-none resize-y min-h-[80px]" placeholder="..." 
+                                value={quickComposerData.biografia} onChange={e => setQuickComposerData({...quickComposerData, biografia: e.target.value})}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-4 border-t border-slate-100 flex justify-end gap-2 shrink-0">
+                    <button onClick={() => setShowQuickComposerModal(false)} className="px-4 py-2 rounded border border-slate-300 text-slate-600 hover:bg-slate-50">Cancelar</button>
+                    <button onClick={saveQuickComposer} disabled={!quickComposerData.apellido} className="px-4 py-2 rounded bg-indigo-600 text-white font-bold hover:bg-indigo-700">
+                        <IconCheck size={18}/> Guardar y Seleccionar
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+
     return (
         <div className={`p-6 rounded-xl border shadow-sm animate-in fade-in zoom-in-95 duration-200 ${isNew ? 'bg-indigo-50 border-indigo-200' : 'bg-white ring-2 ring-indigo-500 border-indigo-500 z-10 relative'}`}>
+            {showQuickComposerModal && <QuickComposerModal />}
+
             <h3 className="text-indigo-900 font-bold mb-6 flex items-center gap-2 border-b border-indigo-100 pb-2">
                 {isNew ? <><IconPlus size={18}/> Nueva Obra</> : <><IconFileLink size={18}/> Editando Obra</>}
             </h3>
@@ -108,12 +206,14 @@ export default function WorkForm({
                     <ComposerMultiSelect 
                         compositores={compositores} 
                         selectedIds={selectedComposers} 
-                        onChange={setSelectedComposers} 
+                        onChange={setSelectedComposers}
+                        onAddNew={handleQuickAddComposer} 
+                        forceClose={showQuickComposerModal} 
                     />
                 </div>
 
                 <div className="md:col-span-3">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Arreglador</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 flex justify-between">Arreglador</label>
                     <select className="w-full border p-2 rounded text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.id_arreglador || ''} onChange={(e) => setFormData({...formData, id_arreglador: e.target.value})}>
                         <option value="">-- Ninguno --</option>
                         {compositores.map(c => <option key={c.id} value={c.id}>{c.apellido}, {c.nombre}</option>)}
@@ -125,17 +225,19 @@ export default function WorkForm({
                     <input type="number" className="w-full border p-2 rounded text-sm bg-white" value={formData.anio_composicion || ''} onChange={(e) => setFormData({...formData, anio_composicion: e.target.value})}/>
                 </div>
                 
-                {/* DURACIÓN (SEGUNDOS) */}
                 <div className="md:col-span-2">
-                    <DurationInput 
-                        label="Duración" 
-                        value={formData.duracion_segundos} 
-                        onChange={(val) => setFormData({...formData, duracion_segundos: val})}
-                    />
+                    <DurationInput label="Duración" value={formData.duracion_segundos} onChange={(val) => setFormData({...formData, duracion_segundos: val})}/>
                 </div>
 
+                {/* TAGS con QuickAdd */}
                 <div className="md:col-span-5">
-                    <TagMultiSelect tags={tagsList} selectedIds={selectedTags} onChange={setSelectedTags} />
+                    <TagMultiSelect 
+                        tags={tagsList} 
+                        selectedIds={selectedTags} 
+                        onChange={setSelectedTags} 
+                        onAddNew={handleQuickAddTag}
+                        forceClose={showQuickComposerModal} 
+                    />
                 </div>
                 
                 <div className="md:col-span-6">

@@ -26,8 +26,6 @@ export const IconFolderMusic = ({size=24, className=""}) => (<svg className={cla
 export const IconFileLink = ({size=24, className=""}) => (<svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 22h14a2 2 0 0 0 2-2V7.5L14.5 2H6a2 2 0 0 0-2 2v4"/><path d="M14 2v6h6"/><path d="M10 20l4-4"/><path d="M14 20l-4-4"/><path d="M10 16h4"/></svg>);
 export const IconLink = ({size=24, className=""}) => (<svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>);
 export const IconTag = ({size=24, className=""}) => (<svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>);
-
-// Agregamos el Loader aquí para que se pueda importar desde el mismo archivo
 export const IconLoader = ({size=24, className=""}) => (
     <svg className={`animate-spin ${className}`} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <line x1="12" y1="2" x2="12" y2="6"/>
@@ -40,3 +38,25 @@ export const IconLoader = ({size=24, className=""}) => (
         <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>
     </svg>
 );
+export const IconArrowRight = ({size=24, className=""}) => (<svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>);
+export const IconDrive = ({size=24, className=""}) => (
+    <svg className={className} width={size} height={size} viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg">
+        <path d="m6.6 66.85 25.3-43.8 25.3 43.8z" fill="#0066da"/>
+        <path d="m43.65 23.05-25.3 43.8h25.3z" fill="#00ac47"/>
+        <path d="m73.55 66.85-12.65-21.9-25.3 21.9z" fill="#ea4335"/>
+        <path d="m43.65 23.05h33.65l-12.65 21.9-25.3-21.9z" fill="#00832d"/>
+        <path d="m6.6 66.85h33.65l12.65-21.9-33.65-21.9z" fill="#2684fc"/>
+        <path d="m77.3 23.05-25.3 43.8h25.3z" fill="#ffba00"/>
+        <path d="m6.6 66.85 25.3-43.8 25.3 43.8z" opacity=".25"/>
+        <path d="m6.6 66.85h66.95l-12.65-21.9h-41.65z" fill="#0066da"/>
+        <path d="m43.65 23.05 20.9 36.2h-16.7l-29.5-51.1z" fill="#00ac47"/>
+        <path d="m73.55 66.85-20.9-36.2h-16.7l12.3 21.9z" fill="#ea4335"/>
+        <path d="m43.65 23.05h33.65l-12.65 21.9h-21z" fill="#00832d"/>
+        <path d="m6.6 66.85h33.65l12.65-21.9-21-36.2z" fill="#2684fc"/>
+        <path d="m77.3 23.05-25.3 43.8h25.3z" fill="#ffba00"/>
+    </svg>
+);
+// --- ICONO HOTELERÍA ---
+export const IconHotel = ({size=24, className=""}) => (<svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 20V8h-5V4H6v16"/><path d="M2 20h20"/><path d="M6 14h12"/></svg>);
+// --- ICONO CAMA (BED) ---
+export const IconBed = ({size=24, className=""}) => (<svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 20v-2a4 4 0 0 1 4-4h12a4 4 0 0 1 4 4v2"/><path d="M2 14v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4"/><line x1="2" y1="14" x2="22" y2="14"/><line x1="8" y1="10" x2="8" y2="2"/><line x1="16" y1="10" x2="16" y2="2"/></svg>);
