@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, IconCheck, IconMusic } from '../../components/ui/Icons';
+import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, IconCheck, IconMusic, IconUsers } from '../../components/ui/Icons';
 
 export default function EnsemblesView({ supabase }) {
     const [ensembles, setEnsembles] = useState([]);
@@ -13,36 +13,52 @@ export default function EnsemblesView({ supabase }) {
     const [headerForm, setHeaderForm] = useState({ ensamble: '', descripcion: '' });
 
     useEffect(() => { fetchEnsembles(); fetchAllMusicians(); }, []);
+    
     useEffect(() => {
         if (selectedEnsemble) {
+            // Al seleccionar, actualizamos la referencia local con la data fresca del array
+            // Esto sirve para que si cambió el contador, se refleje si volvemos a seleccionar
+            const updatedEnsemble = ensembles.find(e => e.id === selectedEnsemble.id) || selectedEnsemble;
+            if (updatedEnsemble !== selectedEnsemble) setSelectedEnsemble(updatedEnsemble);
+
             fetchEnsembleMembers(selectedEnsemble.id);
             setIsEditingHeader(false);
             setHeaderForm({ ensamble: selectedEnsemble.ensamble, descripcion: selectedEnsemble.descripcion || '' });
         } else { setMemberIds(new Set()); }
-    }, [selectedEnsemble]);
+    }, [selectedEnsemble]); // Dependencia simplificada para evitar bucles, controlamos manual
 
+    // --- CAMBIO 1: PEDIR EL COUNT A SUPABASE ---
     const fetchEnsembles = async () => {
-        const { data, error } = await supabase.from('ensambles').select('*').order('ensamble');
+        // 'integrantes_ensambles(count)' nos devuelve el número de relaciones
+        const { data, error } = await supabase
+            .from('ensambles')
+            .select('*, integrantes_ensambles(count)') 
+            .order('ensamble');
         if (!error) setEnsembles(data || []);
     };
+
     const fetchAllMusicians = async () => {
         const { data, error } = await supabase.from('integrantes').select('id, nombre, apellido, instrumentos(instrumento)').order('apellido');
         if (!error) setAllMusicians(data || []);
     };
+
     const fetchEnsembleMembers = async (ensambleId) => {
         setLoadingMembers(true);
         const { data, error } = await supabase.from('integrantes_ensambles').select('id_integrante').eq('id_ensamble', ensambleId);
         if (!error && data) setMemberIds(new Set(data.map(row => row.id_integrante)));
         setLoadingMembers(false);
     };
+
     const generateEnsembleId = () => Math.floor(100 + Math.random() * 900000); 
+    
     const createEnsemble = async () => {
         const nombreDefault = "Nuevo Ensamble " + (ensembles.length + 1);
         const newId = generateEnsembleId();
-        const { data, error } = await supabase.from('ensambles').insert([{ id: newId, ensamble: nombreDefault, descripcion: 'Descripción del ensamble' }]).select();
+        const { data, error } = await supabase.from('ensambles').insert([{ id: newId, ensamble: nombreDefault, descripcion: '' }]).select();
         if (error) alert("Error al crear: " + error.message);
         else if (data && data.length > 0) { await fetchEnsembles(); setSelectedEnsemble(data[0]); }
     };
+
     const deleteEnsemble = async (id, e) => {
         e.stopPropagation();
         if (!confirm("¿Eliminar ensamble?")) return;
@@ -50,11 +66,13 @@ export default function EnsemblesView({ supabase }) {
         const { error } = await supabase.from('ensambles').delete().eq('id', id);
         if (error) alert("Error al eliminar: " + error.message); else { if (selectedEnsemble?.id === id) setSelectedEnsemble(null); fetchEnsembles(); }
     };
+
     const saveHeader = async () => {
         if (!selectedEnsemble) return;
         const { error } = await supabase.from('ensambles').update({ ensamble: headerForm.ensamble, descripcion: headerForm.descripcion }).eq('id', selectedEnsemble.id);
         if (error) alert("Error al actualizar: " + error.message); else { setIsEditingHeader(false); fetchEnsembles(); setSelectedEnsemble({ ...selectedEnsemble, ...headerForm }); }
     };
+
     const toggleMembership = async (musicianId) => {
         if (!selectedEnsemble) return;
         setTogglingId(musicianId); 
@@ -62,12 +80,23 @@ export default function EnsemblesView({ supabase }) {
         const ensambleIdInt = parseInt(selectedEnsemble.id, 10);
         const musicianIdInt = parseInt(musicianId, 10);
         let error = null;
+        
         if (isMember) {
             const { error: err } = await supabase.from('integrantes_ensambles').delete().eq('id_ensamble', ensambleIdInt).eq('id_integrante', musicianIdInt); error = err;
         } else {
             const { error: err } = await supabase.from('integrantes_ensambles').insert([{ id_ensamble: ensambleIdInt, id_integrante: musicianIdInt }]); error = err;
         }
-        if (error) alert(`Error: ${error.message}`); else { const newSet = new Set(memberIds); if (isMember) newSet.delete(musicianId); else newSet.add(musicianId); setMemberIds(newSet); }
+        
+        if (error) alert(`Error: ${error.message}`); 
+        else { 
+            const newSet = new Set(memberIds); 
+            if (isMember) newSet.delete(musicianId); else newSet.add(musicianId); 
+            setMemberIds(newSet);
+            
+            // --- CAMBIO 3: ACTUALIZAR CONTADOR ---
+            // Recargamos la lista de la izquierda para que el número cambie
+            await fetchEnsembles(); 
+        }
         setTogglingId(null);
     };
 
@@ -97,7 +126,15 @@ export default function EnsemblesView({ supabase }) {
                         <div key={ens.id} className="group relative">
                             <button onClick={() => setSelectedEnsemble(ens)} className={`w-full text-left p-4 rounded-xl border transition-all pr-10 ${selectedEnsemble?.id === ens.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-200' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:bg-slate-50'}`}>
                                 <div className="font-bold text-lg truncate">{ens.ensamble}</div>
-                                {ens.descripcion && <div className={`text-xs mt-1 truncate ${selectedEnsemble?.id === ens.id ? 'text-indigo-200' : 'text-slate-400'}`}>{ens.descripcion}</div>}
+                                
+                                {/* --- CAMBIO 2: MOSTRAR CONTADOR --- */}
+                                {/* Supabase devuelve [{count: N}] en esa propiedad */}
+                                <div className={`text-xs font-semibold mb-1 flex items-center gap-1 ${selectedEnsemble?.id === ens.id ? 'text-indigo-200' : 'text-indigo-600'}`}>
+                                    <IconUsers size={12} />
+                                    {ens.integrantes_ensambles?.[0]?.count || 0} integrantes
+                                </div>
+
+                                {ens.descripcion && <div className={`text-xs truncate ${selectedEnsemble?.id === ens.id ? 'text-indigo-200' : 'text-slate-400'}`}>{ens.descripcion}</div>}
                             </button>
                             <button onClick={(e) => deleteEnsemble(ens.id, e)} className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all ${selectedEnsemble?.id === ens.id ? 'text-white/70 hover:text-white hover:bg-white/20' : 'text-slate-300 hover:text-red-500 hover:bg-red-50'}`}><IconTrash size={16} /></button>
                         </div>
@@ -105,6 +142,8 @@ export default function EnsemblesView({ supabase }) {
                     {ensembles.length === 0 && <div className="text-center p-8 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-sm">No hay ensambles.<br/>Crea uno para empezar.</div>}
                 </div>
             </div>
+            
+            {/* Panel Derecho (Igual que antes) */}
             <div className="flex-1 flex flex-col h-full overflow-hidden bg-white rounded-xl shadow-sm border border-slate-200">
                 {selectedEnsemble ? (
                     <>
@@ -118,7 +157,13 @@ export default function EnsemblesView({ supabase }) {
                             ) : (
                                 <div className="group relative">
                                     <div className="flex items-start justify-between">
-                                        <div><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">{selectedEnsemble.ensamble}<button onClick={() => setIsEditingHeader(true)} className="text-slate-300 hover:text-indigo-500 transition-colors opacity-0 group-hover:opacity-100" title="Editar Nombre/Descripción"><IconEdit size={18} /></button></h2><p className="text-slate-500 text-sm mb-4 mt-1">{selectedEnsemble.descripcion || <span className="italic text-slate-400">Sin descripción</span>}</p></div>
+                                        <div>
+                                            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                                                {selectedEnsemble.ensamble}
+                                                <button onClick={() => setIsEditingHeader(true)} className="text-slate-300 hover:text-indigo-500 transition-colors opacity-0 group-hover:opacity-100" title="Editar Nombre/Descripción"><IconEdit size={18} /></button>
+                                            </h2>
+                                            <p className="text-slate-500 text-sm mb-4 mt-1">{selectedEnsemble.descripcion || <span className="italic text-slate-400">Sin descripción</span>}</p>
+                                        </div>
                                     </div>
                                     <div className="relative mt-2"><div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><IconSearch size={18} /></div><input type="text" className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="Buscar músico para agregar/quitar..." value={searchText} onChange={(e) => setSearchText(e.target.value)}/></div>
                                     <div className="flex justify-between items-center mt-2 text-xs text-slate-400"><span>Total músicos encontrados: {filteredMusicians.length}</span><span>Miembros actuales: {memberIds.size}</span></div>

@@ -12,11 +12,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     const [editingId, setEditingId] = useState(null);
     const [ensemblesList, setEnsemblesList] = useState([]); 
     
-    // ESTADO DEL FORMULARIO EXTENDIDO
     const [editFormData, setEditFormData] = useState({ 
         nombre: '', apellido: '', id_instr: '',
         genero: '', telefono: '', dni: '', mail: '',
-        alimentacion: '', nacionalidad: '', cuil: '', fecha_nac: ''
+        alimentacion: '', nacionalidad: '', cuil: '', fecha_nac: '',
+        fecha_alta: '', fecha_baja: '', email_google: ''
     });
     const [musicianEnsembles, setMusicianEnsembles] = useState(new Set()); 
     const [isAdding, setIsAdding] = useState(false);
@@ -60,10 +60,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             const { data: musicians, error: musError } = await query;
             if (musError) throw musError;
 
-            // Traer Relaciones N:N manualmente
+            // Traer Relaciones N:N
             const { data: relations } = await client.from('integrantes_ensambles').select('id_integrante, id_ensamble');
             
-            // Unir en JS
             const mergedData = musicians.map(m => {
                 const myRel = relations ? relations.filter(r => r.id_integrante === m.id) : [];
                 const myEnsembles = myRel.map(r => {
@@ -71,10 +70,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                     return ens ? { ensamble: ens.ensamble } : null;
                 }).filter(Boolean);
 
-                return {
-                    ...m,
-                    integrantes_ensambles: myEnsembles
-                };
+                return { ...m, integrantes_ensambles: myEnsembles };
             });
 
             setResultados(mergedData);
@@ -89,7 +85,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     const handleSearch = (e) => { e.preventDefault(); fetchData(supabase, searchText, selectedInstruments); };
     const handleInstrumentChange = (newSet) => { setSelectedInstruments(newSet); fetchData(supabase, searchText, newSet); };
     
-    // Función auxiliar para actualizar relaciones N:N
     const updateEnsembleRelations = async (musicianId, selectedIds) => {
         await supabase.from('integrantes_ensambles').delete().eq('id_integrante', musicianId);
         if (selectedIds.size > 0) {
@@ -101,13 +96,28 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         }
     };
 
+    // --- FUNCIÓN DE LIMPIEZA DE DATOS (NUEVA) ---
+    const prepareDataForSave = (formData) => {
+        const data = { ...formData };
+        
+        // Convertir strings vacíos a NULL para fechas y foráneas
+        if (!data.id_instr) data.id_instr = null;
+        if (!data.fecha_nac) data.fecha_nac = null;
+        if (!data.fecha_alta) data.fecha_alta = null;
+        if (!data.fecha_baja) data.fecha_baja = null;
+        
+        // Convertir DNI a número
+        if (data.dni) data.dni = parseInt(data.dni, 10);
+        
+        return data;
+    };
+
     const guardarEdicion = async (id) => {
         if (!supabase) return;
         setLoading(true);
         try {
-            const updateData = { ...editFormData };
-            if (!updateData.id_instr) updateData.id_instr = null;
-            if (updateData.dni) updateData.dni = parseInt(updateData.dni, 10);
+            // Usamos la función de limpieza aquí
+            const updateData = prepareDataForSave(editFormData);
             
             const { error } = await supabase.from('integrantes').update(updateData).eq('id', id);
             if (error) throw error;
@@ -125,9 +135,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         setLoading(true);
         try {
             const newId = generateRandomId();
-            const insertData = { ...editFormData, id: newId };
-            if (!insertData.id_instr) insertData.id_instr = null;
-            if (insertData.dni) insertData.dni = parseInt(insertData.dni, 10);
+            // Usamos la función de limpieza aquí también
+            const insertData = { ...prepareDataForSave(editFormData), id: newId };
 
             const { error } = await supabase.from('integrantes').insert([insertData]);
             if (error) throw error;
@@ -140,7 +149,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     };
 
     const resetForm = () => {
-        setEditFormData({ nombre: '', apellido: '', id_instr: '', genero: '', telefono: '', dni: '', mail: '', alimentacion: '', nacionalidad: '', cuil: '', fecha_nac: '' });
+        setEditFormData({ 
+            nombre: '', apellido: '', id_instr: '', genero: '', telefono: '', dni: '', mail: '', 
+            alimentacion: '', nacionalidad: '', cuil: '', fecha_nac: '',
+            fecha_alta: '', fecha_baja: '', email_google: ''
+        });
         setMusicianEnsembles(new Set());
     };
 
@@ -150,7 +163,12 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             nombre: item.nombre || '', apellido: item.apellido || '', id_instr: item.id_instr || '',
             genero: item.genero || '', telefono: item.telefono || '', dni: item.dni || '', 
             mail: item.mail || '', alimentacion: item.alimentacion || '', nacionalidad: item.nacionalidad || '', 
-            cuil: item.cuil || '', fecha_nac: item.fecha_nac || ''
+            cuil: item.cuil || '', 
+            // Manejamos nulls al cargar para que los inputs no fallen
+            fecha_nac: item.fecha_nac || '',
+            fecha_alta: item.fecha_alta || '', 
+            fecha_baja: item.fecha_baja || '', 
+            email_google: item.email_google || ''
         });
         const { data } = await supabase.from('integrantes_ensambles').select('id_ensamble').eq('id_integrante', item.id);
         if (data) { setMusicianEnsembles(new Set(data.map(r => r.id_ensamble))); } 
@@ -161,7 +179,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     const startAdd = () => { setEditingId(null); resetForm(); setIsAdding(true); };
 
     return (
-        <div className="space-y-6 h-full flex flex-col overflow-hidden">
+        <div className="space-y-6 h-full flex flex-col overflow-hidden animate-in fade-in">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 shrink-0">
                 <div className="flex flex-col md:flex-row gap-4">
                     <form onSubmit={handleSearch} className="flex-1 relative">
@@ -181,16 +199,41 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             {error && (<div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start gap-3"><IconAlertCircle className="shrink-0 mt-0.5" /><div><p className="font-bold text-sm">Ocurrió un error</p><p className="text-sm opacity-90">{error}</p></div></div>)}
 
             <div className="flex-1 overflow-y-auto space-y-3 pb-4 pr-2">
-                {!isAdding && (<button onClick={startAdd} className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 font-medium"><IconPlus size={20} /> Agregar Nuevo Integrante</button>)}
+                {!isAdding && !editingId && (<button onClick={startAdd} className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 font-medium"><IconPlus size={20} /> Agregar Nuevo Integrante</button>)}
                 
                 {isAdding && (
-                    <MusicianForm formData={editFormData} setFormData={setEditFormData} onCancel={() => setIsAdding(false)} onSave={crearIntegrante} loading={loading} isNew={true} catalogoInstrumentos={catalogoInstrumentos} ensemblesList={ensemblesList} musicianEnsembles={musicianEnsembles} setMusicianEnsembles={setMusicianEnsembles} />
+                    <MusicianForm 
+                        supabase={supabase}
+                        musicianId={null}
+                        formData={editFormData} 
+                        setFormData={setEditFormData} 
+                        onCancel={() => setIsAdding(false)} 
+                        onSave={crearIntegrante} 
+                        loading={loading} 
+                        isNew={true} 
+                        catalogoInstrumentos={catalogoInstrumentos} 
+                        ensemblesList={ensemblesList} 
+                        musicianEnsembles={musicianEnsembles} 
+                        setMusicianEnsembles={setMusicianEnsembles} 
+                    />
                 )}
 
                 {resultados.map((item) => (
                     <div key={item.id}>
                         {editingId === item.id ? (
-                            <MusicianForm formData={editFormData} setFormData={setEditFormData} onCancel={() => setEditingId(null)} onSave={() => guardarEdicion(item.id)} loading={loading} catalogoInstrumentos={catalogoInstrumentos} ensemblesList={ensemblesList} musicianEnsembles={musicianEnsembles} setMusicianEnsembles={setMusicianEnsembles} />
+                            <MusicianForm 
+                                supabase={supabase}
+                                musicianId={item.id}
+                                formData={editFormData} 
+                                setFormData={setEditFormData} 
+                                onCancel={() => setEditingId(null)} 
+                                onSave={() => guardarEdicion(item.id)} 
+                                loading={loading} 
+                                catalogoInstrumentos={catalogoInstrumentos} 
+                                ensemblesList={ensemblesList} 
+                                musicianEnsembles={musicianEnsembles} 
+                                setMusicianEnsembles={setMusicianEnsembles} 
+                            />
                         ) : (
                             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm transition-all hover:shadow-md flex items-start gap-4">
                                 <div className={`p-3 rounded-full shrink-0 ${item.id_instr ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>{item.id_instr ? <IconMusic size={24}/> : <IconUsers size={24}/>}</div>
