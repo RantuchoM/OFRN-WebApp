@@ -11,12 +11,14 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     const [selectedInstruments, setSelectedInstruments] = useState(new Set()); 
     const [editingId, setEditingId] = useState(null);
     const [ensemblesList, setEnsemblesList] = useState([]); 
+    const [locationsList, setLocationsList] = useState([]); // NUEVO: Lista de localidades
     
     const [editFormData, setEditFormData] = useState({ 
         nombre: '', apellido: '', id_instr: '',
         genero: '', telefono: '', dni: '', mail: '',
         alimentacion: '', nacionalidad: '', cuil: '', fecha_nac: '',
-        fecha_alta: '', fecha_baja: '', email_google: ''
+        fecha_alta: '', fecha_baja: '', email_google: '',
+        id_localidad: '' // NUEVO CAMPO
     });
     const [musicianEnsembles, setMusicianEnsembles] = useState(new Set()); 
     const [isAdding, setIsAdding] = useState(false);
@@ -27,11 +29,17 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         setSelectedInstruments(allIds);
         fetchData(supabase, "", allIds);
         fetchEnsemblesList();
+        fetchLocations(); // Cargar localidades
     }, [catalogoInstrumentos]);
 
     const fetchEnsemblesList = async () => {
         const { data } = await supabase.from('ensambles').select('id, ensamble').order('ensamble');
         if (data) setEnsemblesList(data);
+    };
+
+    const fetchLocations = async () => {
+        const { data } = await supabase.from('localidades').select('id, localidad').order('localidad');
+        if (data) setLocationsList(data);
     };
 
     const fetchData = async (client = supabase, search = searchText, instruments = selectedInstruments) => {
@@ -40,8 +48,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         setError(null);
         setEditingId(null);
         try {
+            // Traemos también la localidad para mostrarla en la lista si quieres
             let query = client.from('integrantes')
-                .select('*, instrumentos(instrumento)')
+                .select('*, instrumentos(instrumento), localidades(localidad)')
                 .order('apellido', { ascending: true });
             
             if (search.trim()) {
@@ -60,7 +69,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             const { data: musicians, error: musError } = await query;
             if (musError) throw musError;
 
-            // Traer Relaciones N:N
             const { data: relations } = await client.from('integrantes_ensambles').select('id_integrante, id_ensamble');
             
             const mergedData = musicians.map(m => {
@@ -96,19 +104,14 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         }
     };
 
-    // --- FUNCIÓN DE LIMPIEZA DE DATOS (NUEVA) ---
     const prepareDataForSave = (formData) => {
         const data = { ...formData };
-        
-        // Convertir strings vacíos a NULL para fechas y foráneas
         if (!data.id_instr) data.id_instr = null;
+        if (!data.id_localidad) data.id_localidad = null; // Limpieza localidad
         if (!data.fecha_nac) data.fecha_nac = null;
         if (!data.fecha_alta) data.fecha_alta = null;
         if (!data.fecha_baja) data.fecha_baja = null;
-        
-        // Convertir DNI a número
         if (data.dni) data.dni = parseInt(data.dni, 10);
-        
         return data;
     };
 
@@ -116,12 +119,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         if (!supabase) return;
         setLoading(true);
         try {
-            // Usamos la función de limpieza aquí
             const updateData = prepareDataForSave(editFormData);
-            
             const { error } = await supabase.from('integrantes').update(updateData).eq('id', id);
             if (error) throw error;
-
             await updateEnsembleRelations(id, musicianEnsembles);
             await fetchData(supabase, searchText, selectedInstruments);
             setEditingId(null);
@@ -135,12 +135,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         setLoading(true);
         try {
             const newId = generateRandomId();
-            // Usamos la función de limpieza aquí también
             const insertData = { ...prepareDataForSave(editFormData), id: newId };
-
             const { error } = await supabase.from('integrantes').insert([insertData]);
             if (error) throw error;
-
             await updateEnsembleRelations(newId, musicianEnsembles);
             setIsAdding(false);
             resetForm();
@@ -152,7 +149,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         setEditFormData({ 
             nombre: '', apellido: '', id_instr: '', genero: '', telefono: '', dni: '', mail: '', 
             alimentacion: '', nacionalidad: '', cuil: '', fecha_nac: '',
-            fecha_alta: '', fecha_baja: '', email_google: ''
+            fecha_alta: '', fecha_baja: '', email_google: '', id_localidad: ''
         });
         setMusicianEnsembles(new Set());
     };
@@ -164,11 +161,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             genero: item.genero || '', telefono: item.telefono || '', dni: item.dni || '', 
             mail: item.mail || '', alimentacion: item.alimentacion || '', nacionalidad: item.nacionalidad || '', 
             cuil: item.cuil || '', 
-            // Manejamos nulls al cargar para que los inputs no fallen
             fecha_nac: item.fecha_nac || '',
             fecha_alta: item.fecha_alta || '', 
             fecha_baja: item.fecha_baja || '', 
-            email_google: item.email_google || ''
+            email_google: item.email_google || '',
+            id_localidad: item.id_localidad || '' // Cargar localidad
         });
         const { data } = await supabase.from('integrantes_ensambles').select('id_ensamble').eq('id_integrante', item.id);
         if (data) { setMusicianEnsembles(new Set(data.map(r => r.id_ensamble))); } 
@@ -213,6 +210,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                         isNew={true} 
                         catalogoInstrumentos={catalogoInstrumentos} 
                         ensemblesList={ensemblesList} 
+                        locationsList={locationsList} // Pasar lista
                         musicianEnsembles={musicianEnsembles} 
                         setMusicianEnsembles={setMusicianEnsembles} 
                     />
@@ -231,6 +229,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                                 loading={loading} 
                                 catalogoInstrumentos={catalogoInstrumentos} 
                                 ensemblesList={ensemblesList} 
+                                locationsList={locationsList} // Pasar lista
                                 musicianEnsembles={musicianEnsembles} 
                                 setMusicianEnsembles={setMusicianEnsembles} 
                             />
@@ -242,21 +241,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                                         <div>
                                             <h3 className="text-lg font-bold text-slate-800 leading-tight">
                                                 {item.apellido}, {item.nombre}
-                                                {item.integrantes_ensambles && item.integrantes_ensambles.length > 0 && (
-                                                    <span className="ml-2 text-xs font-normal text-slate-400">
-                                                        | {item.integrantes_ensambles.map(ie => ie.ensamble).join(" | ")}
-                                                    </span>
-                                                )}
+                                                {item.localidades?.localidad && <span className="ml-2 text-xs font-normal text-slate-500 bg-slate-100 px-2 py-0.5 rounded">📍 {item.localidades.localidad}</span>}
                                             </h3>
                                             <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
                                                 <span className={`px-2 py-0.5 rounded text-xs font-semibold ${item.instrumentos ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{item.instrumentos?.instrumento || 'Sin Instrumento'}</span>
-                                                <span className="text-slate-300 text-[10px]">ID: {item.id}</span>
                                             </p>
-                                            <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
-                                                {item.mail && <div className="flex items-center gap-1 hover:text-indigo-600"><IconMail size={12}/> {item.mail}</div>}
-                                                {item.telefono && <div className="flex items-center gap-1 hover:text-indigo-600"><IconPhone size={12}/> {item.telefono}</div>}
-                                                {item.dni && <div className="flex items-center gap-1">DNI: {item.dni}</div>}
-                                            </div>
                                         </div>
                                         <button onClick={() => startEdit(item)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Editar Completo"><IconEdit size={20}/></button>
                                     </div>
@@ -265,7 +254,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                         )}
                     </div>
                 ))}
-                {!loading && resultados.length === 0 && (<div className="text-center py-12 px-4 border-2 border-dashed border-slate-200 rounded-xl"><div className="bg-slate-50 p-4 rounded-full inline-block mb-3"><IconSearch className="text-slate-400" size={32}/></div><h3 className="text-slate-600 font-bold">No se encontraron resultados</h3></div>)}
             </div>
         </div>
     );

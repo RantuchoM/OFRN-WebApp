@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { IconHotel, IconPlus, IconX, IconCalendar, IconMapPin, IconLoader, IconCheck, IconTrash, IconBed, IconArrowRight } from '../../components/ui/Icons';
-import RoomingManager from './RoomingManager'; // Importamos el D&D
+import { IconHotel, IconPlus, IconCalendar, IconLoader, IconTrash, IconBed, IconUsers } from '../../components/ui/Icons';
+import RoomingManager from './RoomingManager'; 
 
 export default function ProgramHoteleria({ supabase, program, onBack }) {
     const [bookings, setBookings] = useState([]);
@@ -8,12 +8,11 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
     const [localidadesPrograma, setLocalidadesPrograma] = useState([]);
     const [loading, setLoading] = useState(false);
     
-    // Estado de Edición/Creación de Booking
     const [isAdding, setIsAdding] = useState(false);
     const [newBooking, setNewBooking] = useState({ id_hotel: '', fecha_checkin: program.fecha_desde, fecha_checkout: program.fecha_hasta, hora_checkin: '14:00', hora_checkout: '10:00' });
     
-    // Estado de navegación al Rooming Manager
-    const [selectedBooking, setSelectedBooking] = useState(null);
+    // NUEVO ESTADO: Mostrar el gestor integral
+    const [showFullRooming, setShowFullRooming] = useState(false);
 
     useEffect(() => { 
         loadData();
@@ -22,7 +21,7 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
     const loadData = async () => {
         setLoading(true);
         
-        // Cargar Hoteles (simplificando la query a nombre y localidad)
+        // Cargar Hoteles
         const { data: hotels } = await supabase.from('hoteles').select('id, nombre, localidades(localidad)').order('nombre');
         if (hotels) setHotelsList(hotels);
 
@@ -60,17 +59,21 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
     const handleDeleteBooking = async (id) => {
         if (!confirm("¿Eliminar esta reserva y todas las asignaciones de habitaciones?")) return;
         setLoading(true);
-        // La restricción de DB debe manejar el borrado en cascada (ON DELETE CASCADE)
         await supabase.from('programas_hospedajes').delete().eq('id', id);
         loadData();
     };
 
-    // --- RENDERIZADO DEL ROOMING MANAGER (D&D) ---
-    if (selectedBooking) {
-        // Asegúrate de que este archivo existe y tiene export default
-        return <RoomingManager supabase={supabase} booking={selectedBooking} program={program} onBack={() => setSelectedBooking(null)}/>;
+    // --- MODO GESTIÓN INTEGRAL ---
+    if (showFullRooming) {
+        return (
+            <RoomingManager 
+                supabase={supabase} 
+                bookings={bookings} // Pasamos TODOS los hoteles
+                program={program} 
+                onBack={() => setShowFullRooming(false)}
+            />
+        );
     }
-
 
     const formatDateDisplay = (dateString, timeString) => {
         if (!dateString) return '-';
@@ -87,17 +90,27 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
                     <button onClick={onBack} className="text-slate-400 hover:text-indigo-600 font-medium text-sm flex items-center gap-1">← Volver</button>
                     <div>
                         <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                            <IconHotel size={24} className="text-indigo-600"/> Hospedaje
+                            <IconHotel size={24} className="text-indigo-600"/> Logística de Hospedaje
                         </h2>
-                        <p className="text-xs text-slate-500">Programa: **{program.nombre_gira}** | Locales: {localidadesPrograma || 'N/A'}</p>
+                        <p className="text-xs text-slate-500">Programa: <b>{program.nombre_gira}</b></p>
                     </div>
                 </div>
-                <button onClick={() => setIsAdding(!isAdding)} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-indigo-700 flex items-center gap-2">
-                    <IconPlus size={16}/> {isAdding ? 'Cerrar' : 'Nueva Reserva'}
-                </button>
+                <div className="flex gap-2">
+                    {bookings.length > 0 && (
+                        <button 
+                            onClick={() => setShowFullRooming(true)}
+                            className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md hover:bg-emerald-700 flex items-center gap-2 transition-all"
+                        >
+                            <IconUsers size={18}/> Gestión Integral de Rooming
+                        </button>
+                    )}
+                    <button onClick={() => setIsAdding(!isAdding)} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-indigo-700 flex items-center gap-2">
+                        <IconPlus size={16}/> {isAdding ? 'Cerrar' : 'Agregar Hotel'}
+                    </button>
+                </div>
             </div>
 
-            {/* Formulario de Nueva Reserva */}
+            {/* Formulario */}
             {isAdding && (
                 <div className="bg-indigo-50/30 p-4 border-b border-slate-200 animate-in slide-in-from-top-2">
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end max-w-6xl mx-auto">
@@ -114,48 +127,41 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
                         <div className="md:col-span-1"><input type="time" className="w-full border p-2 rounded text-sm outline-none" value={newBooking.hora_checkout} onChange={e => setNewBooking({...newBooking, hora_checkout: e.target.value})}/></div>
                         <div className="md:col-span-2">
                             <button onClick={handleSaveBooking} disabled={loading || !newBooking.id_hotel} className="w-full bg-indigo-600 text-white px-3 py-2 rounded text-sm font-bold h-[38px] flex items-center justify-center gap-1 hover:bg-indigo-700">
-                                {loading ? <IconLoader size={16} className="animate-spin"/> : <IconPlus size={16}/>} Agregar
+                                {loading ? <IconLoader size={16} className="animate-spin"/> : <IconPlus size={16}/>} Guardar
                             </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Listado de Reservas (Bookings) */}
+            {/* Listado */}
             <div className="flex-1 overflow-y-auto p-4 max-w-6xl mx-auto w-full space-y-4">
-                {loading && <div className="text-center p-8 text-indigo-600"><IconLoader className="animate-spin inline"/> Cargando reservas...</div>}
+                {loading && <div className="text-center p-8 text-indigo-600"><IconLoader className="animate-spin inline"/> Cargando...</div>}
                 
                 {bookings.map(bk => {
                     const hotel = bk.hoteles;
                     return (
-                        <div key={bk.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center group">
+                        <div key={bk.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
                             <div className="flex-1">
                                 <h4 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                                     <IconHotel size={20} className="text-indigo-500"/> {hotel.nombre}
-                                    <span className="text-xs font-normal text-slate-400">({hotel.localidades?.localidad})</span>
+                                    <span className="text-xs font-normal text-slate-400 bg-slate-50 px-2 py-0.5 rounded">({hotel.localidades?.localidad})</span>
                                 </h4>
                                 <div className="flex gap-4 text-xs text-slate-600 mt-2">
-                                    <span className="flex items-center gap-1"><IconCalendar size={12}/> Check-in: **{formatDateDisplay(bk.fecha_checkin, bk.hora_checkin)}**</span>
-                                    <span className="flex items-center gap-1"><IconCalendar size={12}/> Check-out: **{formatDateDisplay(bk.fecha_checkout, bk.hora_checkout)}**</span>
+                                    <span className="flex items-center gap-1"><IconCalendar size={12}/> In: {formatDateDisplay(bk.fecha_checkin, bk.hora_checkin)}</span>
+                                    <span className="flex items-center gap-1"><IconCalendar size={12}/> Out: {formatDateDisplay(bk.fecha_checkout, bk.hora_checkout)}</span>
                                 </div>
                             </div>
                             
-                            <div className="flex gap-2">
-                                <button 
-                                    onClick={() => setSelectedBooking(bk)}
-                                    className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-2 rounded-lg text-sm font-bold hover:bg-emerald-100 transition-colors shadow-sm"
-                                >
-                                    <IconBed size={16}/> Asignar Habitaciones
-                                </button>
-                                <button onClick={() => handleDeleteBooking(bk.id)} className="text-slate-400 hover:text-red-600 p-2"><IconTrash size={18}/></button>
-                            </div>
+                            <button onClick={() => handleDeleteBooking(bk.id)} className="text-slate-400 hover:text-red-600 p-2 border border-transparent hover:border-red-100 rounded"><IconTrash size={18}/></button>
                         </div>
                     );
                 })}
 
                 {bookings.length === 0 && !loading && (
-                    <div className="text-center p-8 border-2 border-dashed border-slate-200 rounded-xl text-slate-400">
-                        No hay reservas de hotelería para este programa.
+                    <div className="text-center p-12 border-2 border-dashed border-slate-200 rounded-xl text-slate-400">
+                        <IconHotel size={32} className="mx-auto mb-2 opacity-20"/>
+                        <p>No hay hoteles asignados. Agrega uno arriba.</p>
                     </div>
                 )}
             </div>
