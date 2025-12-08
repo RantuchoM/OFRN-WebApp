@@ -27,6 +27,7 @@ import ProgramHoteleria from "./ProgramHoteleria";
 import LogisticsManager from "./LogisticsManager";
 import { formatSecondsToTime } from "../../utils/time";
 import AgendaGeneral from "./AgendaGeneral";
+import MusicianCalendar from "./MusicianCalendar";
 
 // --- COMPONENTE MENÚ DE ACCIONES (CORREGIDO) ---
 const ActionMenu = ({ onAction, isOpen, setIsOpen, hasDrive, canEdit }) => {
@@ -152,7 +153,8 @@ export default function GirasView({ supabase }) {
   const [error, setError] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [showRepertoire, setShowRepertoire] = useState(false);
-  const [showFullAgenda, setShowFullAgenda] = useState(false);
+  const [showFullAgenda, setShowFullAgenda] = useState(false); // Lista
+  const [showCalendar, setShowCalendar] = useState(false); // Calendario (NUEVO)
 
   // Filtros
   const [filterType, setFilterType] = useState("Todos");
@@ -510,7 +512,15 @@ export default function GirasView({ supabase }) {
         onBack={() => setShowFullAgenda(false)}
       />
     );
-
+  // Vista de Calendario (Grilla) - NUEVA
+  if (showCalendar) {
+    return (
+      <MusicianCalendar
+        supabase={supabase}
+        onBack={() => setShowCalendar(false)}
+      />
+    );
+  }
   if (selectedGiraAgenda)
     return (
       <GiraAgenda
@@ -582,6 +592,12 @@ export default function GirasView({ supabase }) {
             className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition-all bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
           >
             <IconCalendar size={14} /> Agenda Completa
+          </button>
+          <button
+            onClick={() => setShowCalendar(true)}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition-all bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200"
+          >
+            <IconCalendar size={14} /> Calendario
           </button>
         </div>
 
