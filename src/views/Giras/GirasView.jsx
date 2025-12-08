@@ -222,30 +222,31 @@ export default function GirasView({ supabase }) {
         .from("programas")
         .select(
           `
-                    *, 
-                    giras_localidades(localidades(localidad)),
-                    giras_fuentes(*),
-                    eventos (
-                        id, fecha, hora_inicio, 
-                        locaciones(nombre), 
-                        tipos_evento(nombre)
-                    ),
-                    giras_integrantes (
-                        id_integrante, estado, rol,
-                        integrantes (nombre, apellido)
-                    ),
-                    programas_repertorios (
-                        id, nombre, orden,
-                        repertorio_obras (
-                            id, orden,
-                            obras (
-                                id, titulo, duracion_segundos, estado,
-                                compositores (apellido, nombre),
-                                obras_compositores (rol, compositores(apellido, nombre))
-                            )
-                        )
-                    )
-                `
+        *, 
+
+        giras_localidades(id_localidad, localidades(localidad)),
+        giras_fuentes(*),
+        eventos (
+            id, fecha, hora_inicio, 
+            locaciones(nombre), 
+            tipos_evento(nombre)
+        ),
+        giras_integrantes (
+            id_integrante, estado, rol,
+            integrantes (nombre, apellido)
+        ),
+        programas_repertorios (
+            id, nombre, orden,
+            repertorio_obras (
+                id, orden,
+                obras (
+                    id, titulo, duracion_segundos, estado,
+                    compositores (apellido, nombre),
+                    obras_compositores (rol, compositores(apellido, nombre))
+                )
+            )
+        )
+    `
         )
         .order("fecha_desde", { ascending: true });
 
