@@ -134,13 +134,24 @@ serve(async (req) => {
           typeCounters[typeAbbr] = (typeCounters[typeAbbr] || 0) + 1;
           const typeCountStr = typeCounters[typeAbbr].toString().padStart(2, '0');
           const shortYear = targetYear.toString().slice(-2);
+          
+          // NUEVO: Nomenclador calculado (Ej: "Sinf 01/26")
+          const nomencladorStr = `${typeAbbr} ${typeCountStr}/${shortYear}`;
 
-          // NOMBRE IDEAL
+          // ACTUALIZAR BASE DE DATOS SI ES NECESARIO
+          // Si el programa en DB no tiene nomenclador o es distinto al calculado, lo guardamos.
+          if (prog.nomenclador !== nomencladorStr) {
+              console.log(`Actualizando nomenclador DB para programa ${prog.id}: ${nomencladorStr}`);
+              await supabase.from("programas").update({ nomenclador: nomencladorStr }).eq("id", prog.id);
+          }
+
+          // NOMBRE IDEAL DE LA CARPETA
           const datePart = getFormattedDateString(prog.fecha_desde, prog.fecha_hasta);
           const zonePart = prog.zona ? ` ${prog.zona}` : "";
           
           // Formato: "02a - Feb 18-21 Bariloche - Sinf 01/26"
-          const folderName = `${monthNum}${monthLetter} - ${datePart}${zonePart} - ${typeAbbr} ${typeCountStr}/${shortYear}`;
+          // Ahora usamos nomencladorStr directamente
+          const folderName = `${monthNum}${monthLetter} - ${datePart}${zonePart} - ${nomencladorStr}`;
 
           // --- GESTIÓN CARPETA RAIZ DEL PROGRAMA ---
           let folderId = prog.google_drive_folder_id;
@@ -182,7 +193,7 @@ serve(async (req) => {
 
           // --- PROCESAR CONTENIDO SOLO SI ES EL PROGRAMA ACTIVO (O SI QUEREMOS FORZAR TODO) ---
           // Para optimizar, procesamos contenido completo solo del programa actual.
-          // Pero los nombres de carpetas raíz se actualizan para TODOS (para mantener el orden 01a, 02a...)
+          // Pero los nombres de carpetas raíz y nomencladores se actualizan para TODOS.
           
           if (prog.id === programId && action === "sync_program") {
               

@@ -3,11 +3,14 @@ import { format, startOfDay, addMonths, parseISO, isToday } from 'date-fns';
 import { es } from 'date-fns/locale'; 
 import { IconMapPin, IconLoader, IconCalendar } from '../../components/ui/Icons';
 import { useAuth } from '../../context/AuthContext';
+import CommentsManager from '../../components/comments/CommentsManager';
+import CommentButton from '../../components/comments/CommentButton';
 
 export default function AgendaGeneral({ supabase }) {
     const { user } = useAuth();
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [commentsState, setCommentsState] = useState(null);
 
     useEffect(() => {
         fetchContinuousAgenda();
@@ -116,6 +119,7 @@ export default function AgendaGeneral({ supabase }) {
                                                         <div className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-100 text-slate-600 mb-1">
                                                             {evt.tipos_evento?.nombre}
                                                         </div>
+                                                        <CommentButton supabase={supabase} entityType="EVENTO" entityId={evt.id} onClick={() => setCommentsState({ type: 'EVENTO', id: evt.id, title: evt.descripcion })} className="p-0.5"/>
                                                     </div>
                                                     <h4 className="font-bold text-slate-800 text-sm leading-tight mb-1">{evt.descripcion}</h4>
                                                     <div className="flex items-center gap-1 text-xs text-slate-500 truncate">
@@ -137,6 +141,20 @@ export default function AgendaGeneral({ supabase }) {
                     </div>
                 );
             })}
+
+            {commentsState && (
+                <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px]" onClick={() => setCommentsState(null)}>
+                    <div onClick={e => e.stopPropagation()} className="h-full">
+                        <CommentsManager 
+                            supabase={supabase} 
+                            entityType={commentsState.type} 
+                            entityId={commentsState.id} 
+                            title={commentsState.title}
+                            onClose={() => setCommentsState(null)}
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

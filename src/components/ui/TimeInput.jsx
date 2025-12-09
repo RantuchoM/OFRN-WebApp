@@ -1,14 +1,21 @@
+// src/components/ui/TimeInput.jsx
 import React, { useState, useEffect } from 'react';
 import TimeKeeper from 'react-timekeeper';
 import { IconClock, IconX, IconCheck } from './Icons';
 
 export default function TimeInput({ value, onChange, label }) {
     const [showClock, setShowClock] = useState(false);
-    const [tempTime, setTempTime] = useState(value || '12:00');
+    
+    // Aseguramos que tempTime se inicialice como HH:MM
+    const initialTime = value ? value.slice(0, 5) : '12:00';
+    const [tempTime, setTempTime] = useState(initialTime);
 
-    // Sincronizar tempTime si el valor externo cambia
+    // Sincronizar tempTime si el valor externo cambia, asegurando formato HH:MM
     useEffect(() => {
-        if (value) setTempTime(value);
+        if (value) {
+            const formattedTime = value.slice(0, 5);
+            setTempTime(formattedTime);
+        }
     }, [value]);
 
     // Manejar escritura manual con validación estricta
@@ -20,16 +27,25 @@ export default function TimeInput({ value, onChange, label }) {
         if (val.length === 3 && !val.includes(':')) {
              val = val.slice(0, 2) + ':' + val.slice(2);
         }
+        
+        // Aseguramos que solo enviamos 5 caracteres (HH:MM)
+        if (val.length > 5) val = val.slice(0, 5);
 
+        // Pasamos el valor al padre
         onChange(val);
     };
 
     // Al abrir el reloj, validamos que la hora actual sea correcta para que no falle TimeKeeper
     const handleOpenClock = () => {
-        const isValidTime = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(value);
-        setTempTime(isValidTime ? value : '12:00');
+        // Usamos el valor del estado externo, pero lo formateamos a HH:MM para la validación
+        const timeToValidate = value ? value.slice(0, 5) : null;
+        const isValidTime = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeToValidate);
+        setTempTime(isValidTime ? timeToValidate : '12:00');
         setShowClock(true);
     };
+
+    // La hora que se muestra en el input SIEMPRE debe ser HH:MM
+    const displayValue = value ? value.slice(0, 5) : '';
 
     return (
         <div className="w-full">
@@ -38,7 +54,7 @@ export default function TimeInput({ value, onChange, label }) {
             <div className="relative group">
                 <input 
                     type="text"
-                    value={value || ''}
+                    value={displayValue} // <-- USAMOS EL VALOR CORTADO
                     onChange={handleManualChange}
                     placeholder="--:--"
                     maxLength={5} // Limita fisicamente a 5 caracteres (HH:MM)
