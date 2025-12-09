@@ -15,7 +15,6 @@ export default function AgendaGeneral({ supabase }) {
 
     const fetchContinuousAgenda = async () => {
         setLoading(true);
-        // Desde Hoy hasta 12 meses adelante
         const start = startOfDay(new Date()).toISOString();
         const end = addMonths(new Date(), 12).toISOString();
 
@@ -55,6 +54,15 @@ export default function AgendaGeneral({ supabase }) {
         } catch (err) { console.error(err); } finally { setLoading(false); }
     };
 
+    const getEventBorderColor = (typeName) => {
+        const t = typeName?.toLowerCase() || '';
+        if (t.includes('concierto')) return 'border-amber-500';
+        if (t.includes('general')) return 'border-rose-500';
+        if (t.includes('ensayo')) return 'border-slate-500';
+        if (t.includes('viaje')) return 'border-blue-500';
+        return 'border-indigo-500';
+    };
+
     const groupedByMonth = items.reduce((acc, item) => {
         const monthKey = format(parseISO(item.fecha), 'yyyy-MM');
         if (!acc[monthKey]) acc[monthKey] = [];
@@ -81,7 +89,6 @@ export default function AgendaGeneral({ supabase }) {
 
                 return (
                     <div key={monthKey} className="relative">
-                        {/* HEADER DE MES STICKY */}
                         <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur py-2 border-b border-slate-200 mb-4 text-slate-500 font-bold uppercase tracking-wider text-sm flex items-center gap-2 shadow-sm">
                              <IconCalendar size={14} className="mb-0.5"/>
                              {format(monthDate, 'MMMM yyyy', { locale: es })}
@@ -97,31 +104,33 @@ export default function AgendaGeneral({ supabase }) {
                                         {isToday(parseISO(date)) && <span className="ml-2 text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 rounded-full align-middle">HOY</span>}
                                     </div>
 
-                                    {dayEvts.map(evt => (
-                                        <div key={evt.id} className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 flex gap-3 ml-2 hover:shadow-md transition-shadow">
-                                            <div className="flex flex-col items-center justify-center min-w-[3rem] border-r border-slate-100 pr-3 text-slate-700">
-                                                <span className="font-black text-base">{evt.hora_inicio?.slice(0,5)}</span>
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex justify-between items-start">
-                                                    <div className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-100 text-slate-600 mb-1">
-                                                        {evt.tipos_evento?.nombre}
+                                    {dayEvts.map(evt => {
+                                        const borderClass = getEventBorderColor(evt.tipos_evento?.nombre);
+                                        return (
+                                            <div key={evt.id} className={`bg-white p-3 rounded-lg shadow-sm border border-slate-100 flex gap-3 ml-2 hover:shadow-md transition-shadow border-l-4 ${borderClass}`}>
+                                                <div className="flex flex-col items-center justify-center min-w-[3rem] border-r border-slate-100 pr-3 text-slate-700">
+                                                    <span className="font-black text-base">{evt.hora_inicio?.slice(0,5)}</span>
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex justify-between items-start">
+                                                        <div className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-100 text-slate-600 mb-1">
+                                                            {evt.tipos_evento?.nombre}
+                                                        </div>
                                                     </div>
+                                                    <h4 className="font-bold text-slate-800 text-sm leading-tight mb-1">{evt.descripcion}</h4>
+                                                    <div className="flex items-center gap-1 text-xs text-slate-500 truncate">
+                                                        <IconMapPin size={12}/> {evt.locaciones?.nombre}
+                                                    </div>
+                                                    {evt.programas?.google_drive_folder_id && (
+                                                        <a href={`https://drive.google.com/drive/folders/${evt.programas.google_drive_folder_id}`} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-1 rounded border border-indigo-100 text-[10px] font-bold hover:bg-indigo-100">
+                                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 2H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2Z"/></svg>
+                                                            Partituras
+                                                        </a>
+                                                    )}
                                                 </div>
-                                                <h4 className="font-bold text-slate-800 text-sm leading-tight mb-1">{evt.descripcion}</h4>
-                                                <div className="flex items-center gap-1 text-xs text-slate-500 truncate">
-                                                    <IconMapPin size={12}/> {evt.locaciones?.nombre}
-                                                </div>
-                                                {/* Botón Drive Mini */}
-                                                {evt.programas?.google_drive_folder_id && (
-                                                    <a href={`https://drive.google.com/drive/folders/${evt.programas.google_drive_folder_id}`} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-1 rounded border border-indigo-100 text-[10px] font-bold hover:bg-indigo-100">
-                                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 2H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2Z"/></svg>
-                                                        Partituras
-                                                    </a>
-                                                )}
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             ))}
                         </div>
