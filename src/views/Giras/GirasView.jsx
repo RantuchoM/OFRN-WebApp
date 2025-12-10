@@ -196,7 +196,7 @@ export default function GirasView({ supabase }) {
   });
   const [selectedLocations, setSelectedLocations] = useState(new Set());
   const [locationsList, setLocationsList] = useState([]);
-  const [ensemblesList, setEnsemblesList] = useState([]);
+  const [ensemblesList, setEnsemblesList] = useState([]); // Usado por getSourcesDisplay
 
   useEffect(() => {
     fetchGiras();
@@ -293,7 +293,8 @@ export default function GirasView({ supabase }) {
   };
   const fetchEnsemblesList = async () => {
     const { data } = await supabase.from("ensambles").select("id, ensamble");
-    if (data) setEnsemblesList(data);
+    // Almacenamos en un formato que la función getSourcesDisplay pueda consumir fácilmente
+    if (data) setEnsemblesList(data.map(e => ({ value: e.id, label: e.ensamble })));
   };
 
   const handleSave = async () => {
@@ -561,6 +562,60 @@ export default function GirasView({ supabase }) {
             </ul>
         </div>
     );
+  };
+  
+  const getSourcesDisplay = (gira) => {
+      const sources = gira.giras_fuentes || [];
+      
+      // Mapeamos la lista de ensambles a un Map para búsqueda rápida
+      const ensembleMap = new Map(ensemblesList.map(e => [e.value, e.label]));
+
+      const inclusions = [];
+      const exclusions = [];
+
+      sources.forEach(s => {
+          let label = '';
+          if (s.tipo === 'ENSAMBLE') {
+              label = ensembleMap.get(s.valor_id) || `Ensamble ID:${s.valor_id}`;
+              inclusions.push(<span key={s.id} className="text-emerald-700 font-medium">{label}</span>);
+          } else if (s.tipo === 'FAMILIA') {
+              label = s.valor_texto;
+              inclusions.push(<span key={s.id} className="text-indigo-700 font-medium">{label}</span>);
+          } else if (s.tipo === 'EXCL_ENSAMBLE') {
+              label = ensembleMap.get(s.valor_id) || `Ensamble ID:${s.valor_id}`;
+              exclusions.push(<span key={s.id} className="text-red-700 font-medium">{label}</span>);
+          }
+      });
+
+      if (inclusions.length === 0 && exclusions.length === 0) return null;
+
+      return (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs ml-2 pl-2 border-l border-slate-200 shrink-0">
+              {inclusions.length > 0 && (
+                  <>
+                      <span className="font-bold text-slate-500 shrink-0"></span>
+                      {inclusions.map((item, index) => (
+                          <React.Fragment key={index}>
+                              {item}
+                              {index < inclusions.length - 1 && <span className="text-slate-300">|</span>}
+                          </React.Fragment>
+                      ))}
+                  </>
+              )}
+              {exclusions.length > 0 && (
+                  <>
+                      {inclusions.length > 0 && <span className="text-slate-300">|</span>}
+                      <span className="font-bold text-red-600 shrink-0"></span>
+                      {exclusions.map((item, index) => (
+                          <React.Fragment key={index}>
+                              {item}
+                              {index < exclusions.length - 1 && <span className="text-slate-300">|</span>}
+                          </React.Fragment>
+                      ))}
+                  </>
+              )}
+          </div>
+      );
   };
   // ------------------------------------------
 
@@ -880,19 +935,23 @@ export default function GirasView({ supabase }) {
                     <div className="flex justify-between items-start">
                       <div className="cursor-pointer flex-1" onClick={() => setView({ mode: "REPERTOIRE", data: gira })}>
                         
-                        {/* LÍNEA 1: nomenclador | zona | nombre */}
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-bold text-slate-800">
-                            {gira.nomenclador || gira.tipo}
-                          </span>
-                          {gira.zona && (
-                            <span className="text-xs font-medium text-slate-500">
-                              | {gira.zona}
+                        {/* LÍNEA 1: nomenclador | zona | nombre | ensambles/familias */}
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-sm font-bold text-slate-800">
+                              {gira.nomenclador || gira.tipo}
                             </span>
-                          )}
-                           <span className="text-lg font-bold text-slate-800 truncate ml-2">
+                            {gira.zona && (
+                              <span className="text-xs font-medium text-slate-500">
+                                | {gira.zona}
+                              </span>
+                            )}
+                          </div>
+                           <span className="text-lg font-bold text-slate-800 truncate">
                               {gira.nombre_gira}
                            </span>
+                           
+                           {getSourcesDisplay(gira)} {/* INTEGRACIÓN DEL NUEVO ELEMENTO */}
                         </div>
                         
                         {/* LÍNEA 2: director/es | solista/s */}
