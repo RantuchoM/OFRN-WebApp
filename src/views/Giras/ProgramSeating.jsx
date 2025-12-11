@@ -23,8 +23,8 @@ const ParticellaSelect = ({ options, value, onChange, placeholder = "-", disable
     
     if (disabled) {
         return (
-            <div className="w-full h-full min-h-[30px] px-2 py-1 text-xs border border-transparent rounded flex items-center text-slate-700 bg-slate-50/50">
-                <span className="truncate block w-full text-[11px]">
+            <div className="w-full h-full min-h-[30px] px-1 py-1 text-xs border border-transparent rounded flex items-center justify-center text-slate-700 bg-slate-50/50">
+                <span className="truncate block w-full text-[10px] text-center">
                     {selectedOption ? (selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento) : "-"}
                 </span>
             </div>
@@ -46,47 +46,43 @@ const ParticellaSelect = ({ options, value, onChange, placeholder = "-", disable
         <div className="relative w-full h-full" ref={containerRef}>
             <button 
                 onClick={() => setIsOpen(!isOpen)}
-                className={`w-full h-full min-h-[30px] text-left px-2 py-1 text-xs border rounded transition-colors flex items-center justify-between gap-1 
+                className={`w-full h-full min-h-[28px] text-left px-1 py-0.5 text-xs border rounded transition-colors flex items-center justify-between gap-0.5 
                     ${value 
                         ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-medium' 
                         : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'
                     }`}
             >
-                <span className="truncate block w-full text-[11px]">
+                <span className="truncate block w-full text-[10px]">
                     {selectedOption ? (selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento) : placeholder}
                 </span>
-                <IconChevronDown size={10} className={`shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''} opacity-50`}/>
+                <IconChevronDown size={8} className={`shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''} opacity-50`}/>
             </button>
 
             {isOpen && (
-                <div className="absolute top-full left-0 z-50 w-56 bg-white border border-slate-200 rounded-lg shadow-xl mt-1 overflow-hidden flex flex-col max-h-60 animate-in fade-in zoom-in-95">
-                    <div className="p-2 border-b border-slate-50 bg-slate-50 sticky top-0">
-                        <div className="relative">
-                            <IconSearch size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"/>
-                            <input 
-                                type="text" 
-                                autoFocus
-                                className="w-full pl-6 pr-2 py-1 text-xs border border-slate-200 rounded outline-none focus:border-indigo-400"
-                                placeholder="Filtrar..."
-                                value={search}
-                                onChange={e => setSearch(e.target.value)}
-                            />
-                        </div>
+                <div className="absolute top-full left-0 z-50 w-48 bg-white border border-slate-200 rounded-lg shadow-xl mt-1 overflow-hidden flex flex-col max-h-60 animate-in fade-in zoom-in-95">
+                    <div className="p-1 border-b border-slate-50 bg-slate-50 sticky top-0">
+                        <input 
+                            type="text" 
+                            autoFocus
+                            className="w-full px-2 py-1 text-xs border border-slate-200 rounded outline-none focus:border-indigo-400"
+                            placeholder="Buscar..."
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                        />
                     </div>
                     <div className="overflow-y-auto flex-1 p-1">
-                        <button onClick={() => handleSelect(null)} className="w-full text-left px-3 py-2 text-xs text-slate-400 hover:bg-red-50 hover:text-red-600 rounded flex items-center gap-2 mb-1">
-                            <IconX size={12}/> Quitar asignación
+                        <button onClick={() => handleSelect(null)} className="w-full text-left px-2 py-1.5 text-xs text-slate-400 hover:bg-red-50 hover:text-red-600 rounded flex items-center gap-2 mb-1">
+                            <IconX size={10}/> Quitar
                         </button>
                         {filteredOptions.map(opt => (
-                            <button key={opt.id} onClick={() => handleSelect(opt.id)} className={`w-full text-left px-3 py-1.5 text-xs rounded hover:bg-indigo-50 flex items-center justify-between group ${value === opt.id ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-700'}`}>
-                                <div>
-                                    <span className="block font-medium">{opt.instrumentos?.instrumento}</span>
-                                    <span className="text-[9px] text-slate-400 font-normal">{opt.nombre_archivo}</span>
+                            <button key={opt.id} onClick={() => handleSelect(opt.id)} className={`w-full text-left px-2 py-1 text-xs rounded hover:bg-indigo-50 flex items-center justify-between group ${value === opt.id ? 'bg-indigo-50 text-indigo-700 font-bold' : 'text-slate-700'}`}>
+                                <div className="truncate">
+                                    <span className="block font-medium truncate">{opt.instrumentos?.instrumento}</span>
+                                    <span className="text-[9px] text-slate-400 font-normal truncate">{opt.nombre_archivo}</span>
                                 </div>
-                                {value === opt.id && <IconCheck size={12} className="text-indigo-600"/>}
+                                {value === opt.id && <IconCheck size={10} className="text-indigo-600 shrink-0"/>}
                             </button>
                         ))}
-                        {filteredOptions.length === 0 && <div className="p-3 text-center text-[10px] text-slate-400 italic">Sin resultados</div>}
                     </div>
                 </div>
             )}
@@ -117,12 +113,17 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
             const comp = ro.obras.obras_compositores?.find(oc => oc.rol === 'compositor' || !oc.rol)?.compositores;
             const compName = comp?.apellido || 'Anónimo';
             const title = ro.obras.titulo || 'Obra';
+            
+            // Lógica para título corto (2 palabras máx)
+            const shortTitle = title.split(/\s+/).slice(0, 2).join(' ');
+
             return {
-                id: ro.id, // ID en repertorio_obras
+                id: ro.id,
                 obra_id: ro.obras.id,
                 titulo: title,
-                header: `${compName} - ${title}`,
-                shortHeader: `${compName.slice(0,8)}. - ${title.slice(0,12)}...`
+                composer: compName,
+                shortTitle: shortTitle,
+                fullTitle: `${compName} - ${title}`,
             };
         }));
     }, [repertoireBlocks]);
@@ -150,7 +151,6 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                  const chunks = chunkArray(workIds, 10);
                  for(const chunk of chunks) {
                      const { data } = await supabase.from('obras_particellas')
-                        // NO pedir 'orden' de instrumentos para evitar error 42703
                         .select('id, id_obra, nombre_archivo, id_instrumento, instrumentos(id, instrumento)')
                         .in('id_obra', chunk);
                      if(data) partsData = [...partsData, ...data];
@@ -158,7 +158,6 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
             }
             setParticellas(partsData);
 
-            // Cargar configuración provisoria
             if(repObraIds.length > 0) {
                 const { data: repData } = await supabase.from('repertorio_obras')
                     .select('id, usar_seating_provisorio, seating_provisorio')
@@ -174,8 +173,7 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                 setProvisionalData(provData);
             }
 
-            // 2. CÁLCULO COMPLETO DEL ROSTER CON DATOS FRESCOS
-            // FIX: Consultar fuentes y overrides directamente de la DB para tener datos actualizados
+            // 2. ROSTER (Actualizado desde DB)
             const { data: fuentesDB } = await supabase.from("giras_fuentes").select("*").eq("id_gira", program.id);
             const { data: overridesDB } = await supabase.from("giras_integrantes").select("id_integrante, estado, rol").eq("id_gira", program.id);
             
@@ -186,30 +184,23 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
             const inclFamiliesIds = fuentes.filter(f => f.tipo === 'FAMILIA').map(f => f.valor_texto);
             const exclEnsemblesIds = fuentes.filter(f => f.tipo === 'EXCL_ENSAMBLE').map(f => f.valor_id);
 
-            // A. Recolectar IDs Candidatos (Inclusiones + Overrides)
             let candidateIds = new Set();
-            
-            // Miembros de ensambles incluidos
             if (inclEnsemblesIds.length > 0) {
                 const { data } = await supabase.from("integrantes_ensambles").select("id_integrante").in("id_ensamble", inclEnsemblesIds);
                 data?.forEach(r => candidateIds.add(r.id_integrante));
             }
-            // Miembros de familias incluidas
             if (inclFamiliesIds.length > 0) {
                 const { data } = await supabase.from("integrantes").select("id, instrumentos!inner(familia)").in("instrumentos.familia", inclFamiliesIds);
                 data?.forEach(m => candidateIds.add(m.id));
             }
-            // Overrides manuales (siempre considerar candidatos)
             overrides.forEach(o => candidateIds.add(o.id_integrante));
 
-            // B. Recolectar IDs Excluidos por Ensamble
             let excludedIdsByEnsemble = new Set();
             if (exclEnsemblesIds.length > 0) {
                  const { data } = await supabase.from("integrantes_ensambles").select("id_integrante").in("id_ensamble", exclEnsemblesIds);
                  data?.forEach(r => excludedIdsByEnsemble.add(r.id_integrante));
             }
 
-            // C. Fetch de Datos de Músicos (solo candidatos)
             let rosterData = [];
             const idsArray = Array.from(candidateIds);
             const chunkArrayIds = (arr, size) => {
@@ -228,35 +219,29 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                 }
             }
 
-            // D. Aplicar Lógica Final (Inclusión vs Exclusión vs Override)
-            const overrideMap = new Map(overrides.map(o => [String(o.id_integrante), o])); // Key como String por seguridad
+            const overrideMap = new Map(overrides.map(o => [String(o.id_integrante), o]));
             
             const finalRoster = rosterData.map(m => {
                 const mIdStr = String(m.id);
                 const ov = overrideMap.get(mIdStr);
                 const role = ov?.rol || 'musico';
-                const status = ov?.estado || 'confirmado'; // Si no hay override, asumimos 'confirmado' para los dinámicos
+                const status = ov?.estado || 'confirmado';
 
-                // 1. Si hay Override: Manda sobre todo
                 if (ov) {
-                    if (status === 'ausente') return null; // Explícitamente ausente
-                    return { ...m, rol_gira: role }; // Explícitamente presente
+                    if (status === 'ausente') return null;
+                    return { ...m, rol_gira: role };
                 }
 
-                // 2. Si no hay Override: Aplicar reglas dinámicas
-                // Si pertenece a un ensamble excluido -> FUERA
                 if (excludedIdsByEnsemble.has(m.id)) return null;
 
-                // Chequeo de fechas (Alta/Baja)
                 const giraStart = new Date(program.fecha_desde);
                 const giraEnd = new Date(program.fecha_hasta);
                 if (m.fecha_alta && new Date(m.fecha_alta) > giraStart) return null;
                 if (m.fecha_baja && new Date(m.fecha_baja) < giraEnd) return null;
 
                 return { ...m, rol_gira: role };
-            }).filter(Boolean); // Eliminar nulos
+            }).filter(Boolean);
 
-            // 3. ORDENAMIENTO (Por Instrumento ID, luego Apellido)
             finalRoster.sort((a, b) => {
                 const instrIdA = a.id_instr || 9999;
                 const instrIdB = b.id_instr || 9999;
@@ -266,7 +251,7 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
 
             setRoster(finalRoster);
 
-            // 4. ASIGNACIONES EXISTENTES
+            // 4. ASIGNACIONES
             const { data: assignData } = await supabase.from('seating_asignaciones').select('*').eq('id_programa', program.id);
             const assignMap = {};
             (assignData || []).forEach(row => {
@@ -275,13 +260,13 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
             setAssignments(assignMap);
 
         } catch (err) {
-            console.error("Error en fetchInitialData:", err);
+            console.error(err);
         } finally {
             setLoading(false);
         }
     };
 
-    // --- MANEJO DE ASIGNACIONES ---
+    // --- LOGICA UPDATES ---
     const handleAssignmentChange = async (musicianId, obraId, newParticellaId) => {
         if (!isEditor) return; 
 
@@ -348,10 +333,7 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
         return null;
     };
 
-    // --- FILTRADO DE ROSTER (Músicos vs Staff) ---
-    // Incluir aquí todos los roles que NO deben estar en la tabla principal
     const EXCLUDED_ROLES = ['staff', 'producción', 'produccion', 'chofer', 'archivo', 'utilero'];
-    
     const musicians = roster.filter(m => m.id_instr && !EXCLUDED_ROLES.includes(m.rol_gira?.toLowerCase()));
     const nonMusicians = roster.filter(m => !m.id_instr || EXCLUDED_ROLES.includes(m.rol_gira?.toLowerCase()));
 
@@ -372,33 +354,32 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                         <table className="w-full text-left text-xs border-collapse min-w-[1000px]">
                             <thead className="bg-slate-800 text-white font-bold sticky top-0 z-20 shadow-md">
                                 <tr>
-                                    <th className="p-3 w-64 sticky left-0 bg-slate-800 z-30 border-r border-slate-600">Músico / Obra</th>
+                                    <th className="p-2 w-56 sticky left-0 bg-slate-800 z-30 border-r border-slate-600 pl-4">Músico / Obra</th>
                                     {obras.map(obra => (
-                                        <th key={obra.id} className="p-2 min-w-[180px] border-l border-slate-600 font-normal">
-                                            <div className="flex flex-col gap-1">
-                                                <div className="flex justify-between items-start">
-                                                    <span className="text-xs font-bold uppercase tracking-wider truncate block w-full" title={obra.titulo}>{obra.header}</span>
-                                                    {isEditor && (
-                                                        <button 
-                                                            onClick={() => toggleProvisionalMode(obra.id)}
-                                                            className={`ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold border transition-colors ${provisionalConfig[obra.id] ? 'bg-amber-400 text-amber-900 border-amber-500' : 'bg-slate-700 text-slate-400 border-slate-600 hover:bg-slate-600'}`}
-                                                            title="Alternar Modo Provisorio (Texto) / Definitivo (Particellas)"
-                                                        >
-                                                            {provisionalConfig[obra.id] ? 'P' : 'D'}
-                                                        </button>
-                                                    )}
+                                        <th key={obra.id} className="p-1 min-w-[100px] border-l border-slate-600 font-normal align-bottom">
+                                            <div className="flex flex-col gap-1 items-center text-center group/header w-full">
+                                                <div className="w-full cursor-help px-1" title={obra.fullTitle}>
+                                                    <div className="text-[10px] font-bold uppercase text-slate-400 truncate">{obra.composer}</div>
+                                                    <div className="text-[10px] font-medium text-white truncate">{obra.shortTitle}</div>
                                                 </div>
+                                                {isEditor && (
+                                                    <button 
+                                                        onClick={() => toggleProvisionalMode(obra.id)}
+                                                        className={`px-1 py-0.5 rounded text-[8px] font-bold border transition-colors w-full ${provisionalConfig[obra.id] ? 'bg-amber-400 text-amber-900 border-amber-500' : 'bg-slate-700 text-slate-400 border-slate-600 hover:bg-slate-600'}`}
+                                                        title="Modo: Particella / Texto"
+                                                    >
+                                                        {provisionalConfig[obra.id] ? 'TXT' : 'PART'}
+                                                    </button>
+                                                )}
                                             </div>
                                         </th>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {/* FILAS DE MÚSICOS */}
                                 {musicians.map(musician => (
                                     <tr key={musician.id} className="hover:bg-slate-50 transition-colors group">
-                                        {/* Columna Músico */}
-                                        <td className="p-2 sticky left-0 bg-white group-hover:bg-slate-50 border-r border-slate-200 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                                        <td className="p-2 sticky left-0 bg-white group-hover:bg-slate-50 border-r border-slate-200 z-10 pl-4 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                                             <div className="flex flex-col">
                                                 <span className="font-bold text-slate-700 truncate text-sm">{musician.apellido}, {musician.nombre}</span>
                                                 <span className="text-[10px] text-indigo-500 truncate font-semibold flex items-center gap-1">
@@ -406,20 +387,18 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                                                 </span>
                                             </div>
                                         </td>
-
-                                        {/* Columnas Obras */}
                                         {obras.map(obra => {
                                             const isProvisional = provisionalConfig[obra.id];
                                             const availableParts = particellas.filter(p => p.id_obra === obra.obra_id);
 
                                             return (
-                                                <td key={`${musician.id}-${obra.id}`} className="p-2 border-l border-slate-100 relative min-w-[160px]">
+                                                <td key={`${musician.id}-${obra.id}`} className="p-1 border-l border-slate-100 relative min-w-[100px]">
                                                     {isProvisional ? (
                                                         <input 
                                                             type="text" 
-                                                            placeholder={isEditor ? "Parte..." : "-"} 
+                                                            placeholder={isEditor ? "Escribir..." : "-"} 
                                                             readOnly={!isEditor}
-                                                            className={`w-full border rounded px-2 py-1 text-xs outline-none transition-colors 
+                                                            className={`w-full border rounded px-1 py-0.5 text-[10px] outline-none transition-colors 
                                                                 ${isEditor 
                                                                     ? 'bg-amber-50/50 border-amber-200 text-amber-900 focus:bg-white focus:ring-1 focus:ring-amber-500 placeholder:text-amber-300' 
                                                                     : 'bg-transparent border-transparent text-slate-600'
@@ -437,7 +416,7 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                                                                     disabled={!isEditor}
                                                                 />
                                                             ) : (
-                                                                <div className="text-center text-[10px] text-slate-300 italic border border-transparent py-1 select-none cursor-not-allowed">Sin partes</div>
+                                                                <div className="text-center text-[10px] text-slate-300 italic border border-transparent py-0.5 select-none">-</div>
                                                             )}
                                                         </>
                                                     )}
@@ -452,7 +431,6 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                             </tbody>
                         </table>
 
-                        {/* SECCIÓN DE NO MÚSICOS (OCULTA POR DEFECTO) */}
                         {nonMusicians.length > 0 && (
                             <div className="mt-8 border-t-2 border-slate-200 pt-4 px-4 pb-20">
                                 <button 
@@ -469,12 +447,12 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                                             <tbody className="divide-y divide-slate-100">
                                                 {nonMusicians.map(m => (
                                                     <tr key={m.id} className="hover:bg-slate-50 transition-colors">
-                                                        <td className="p-2 w-64 border-r border-slate-200 text-slate-500">
+                                                        <td className="p-2 w-56 border-r border-slate-200 text-slate-500 pl-4">
                                                             <span className="font-bold">{m.apellido}, {m.nombre}</span>
                                                             <span className="text-[10px] text-slate-400 block">{m.rol_gira ? m.rol_gira.toUpperCase() : 'SIN ROL'}</span>
                                                         </td>
                                                         {obras.map(obra => (
-                                                            <td key={`${m.id}-${obra.id}`} className="p-2 border-l border-slate-100 bg-slate-50/50">
+                                                            <td key={`${m.id}-${obra.id}`} className="p-1 border-l border-slate-100 bg-slate-50/50">
                                                                 <span className="text-[10px] text-slate-300 text-center block">-</span>
                                                             </td>
                                                         ))}
