@@ -4,11 +4,10 @@ import { supabase } from "../services/supabase";
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null); // Ahora 'user' es el registro de la tabla integrantes
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Al iniciar, buscamos si hay un usuario guardado en el navegador
     const storedUser = localStorage.getItem("app_user");
     if (storedUser) {
       setUser(JSON.parse(storedUser));
@@ -16,23 +15,22 @@ export function AuthProvider({ children }) {
     setLoading(false);
   }, []);
 
+  // --- 1. LOGIN ---
   const login = async (email, password) => {
     setLoading(true);
     try {
-      // CONSULTA DIRECTA A TU TABLA
       const { data, error } = await supabase
         .from("integrantes")
         .select("*")
-        .ilike("mail", email) // ilike ignora mayúsculas/minúsculas
-        .eq("clave_acceso", password) // Compara contraseña directa
+        .ilike("mail", email)
+        .eq("clave_acceso", password)
         .maybeSingle();
-      console.log("Resultado Supabase:", { data, error }); // <--- MIRA ESTO EN LA CONSOLA (F12)
+
       if (error) throw error;
 
       if (data) {
-        // LOGIN EXITOSO
         setUser(data);
-        localStorage.setItem("app_user", JSON.stringify(data)); // Guardar sesión
+        localStorage.setItem("app_user", JSON.stringify(data));
         return { success: true };
       } else {
         return {
@@ -48,6 +46,80 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // --- 2. RECUPERAR CONTRASEÑA (Olvidé mi clave) ---
+  const recoverPassword = async (email) => {
+    setLoading(true);
+    try {
+      // 1. Verificar si el usuario existe
+      const { data: userFound, error: searchError } = await supabase
+        .from("integrantes")
+        .select("id, nombre, apellido")
+        .ilike("mail", email)
+        .maybeSingle();
+
+      if (searchError) throw searchError;
+      if (!userFound) {
+        // Por seguridad, a veces se prefiere no decir si existe o no, 
+        // pero para uso interno diremos la verdad.
+        return { success: false, error: "No existe un usuario con ese email." };
+      }
+
+      // 2. Generar contraseña temporal (6 caracteres alfanuméricos)
+      const tempPass = Math.random().toString(36).slice(-6).toUpperCase();
+
+      // 3. Actualizar en Base de Datos
+      const { error: updateError } = await supabase
+        .from("integrantes")
+        .update({ clave_acceso: tempPass })
+        .eq("id", userFound.id);
+
+      if (updateError) throw updateError;
+
+      // 4. RETORNAR LA CLAVE (Para simular el envío de mail en UI)
+      // * En producción, aquí llamarías a una Edge Function para enviar el mail *
+      return { success: true, tempPass: tempPass, userName: userFound.nombre };
+
+    } catch (err) {
+      return { success: false, error: err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- 3. CAMBIAR CONTRASEÑA (Desde Login o Perfil) ---
+  const changePassword = async (email, oldPassword, newPassword) => {
+    setLoading(true);
+    try {
+        if(newPassword.length < 4) return { success: false, error: "La nueva clave es muy corta." };
+
+        // 1. Validar credenciales actuales (Email + Clave Vieja)
+        const { data: userFound, error: authError } = await supabase
+            .from("integrantes")
+            .select("id")
+            .ilike("mail", email)
+            .eq("clave_acceso", oldPassword)
+            .maybeSingle();
+        
+        if (authError) throw authError;
+        if (!userFound) return { success: false, error: "El email o la contraseña actual no coinciden." };
+
+        // 2. Actualizar clave
+        const { error: updateError } = await supabase
+            .from("integrantes")
+            .update({ clave_acceso: newPassword })
+            .eq("id", userFound.id);
+
+        if (updateError) throw updateError;
+
+        return { success: true };
+
+    } catch (err) {
+        return { success: false, error: err.message };
+    } finally {
+        setLoading(false);
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem("app_user");
     setUser(null);
@@ -59,11 +131,11 @@ export function AuthProvider({ children }) {
     loading,
     login,
     logout,
-    // Helpers de roles basados en tu columna 'rol_sistema'
+    recoverPassword, // <--- Nueva
+    changePassword,  // <--- Nueva
     isAdmin: user?.rol_sistema === "admin",
     isEditor: user?.rol_sistema === "editor" || user?.rol_sistema === "admin",
     isGeneral: user?.rol_sistema === "consulta_general",
-    // El nombre para mostrar en la UI
     userName: user ? `${user.nombre} ${user.apellido}` : "",
   };
 
