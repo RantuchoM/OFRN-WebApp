@@ -5,14 +5,17 @@ import {
     IconAlertCircle, 
     IconCheck, 
     IconArrowLeft, 
-    IconEye,      // <--- Asegúrate de haberlos agregado a Icons.jsx
-    IconEyeOff    // <--- Asegúrate de haberlos agregado a Icons.jsx
+    IconEye,
+    IconEyeOff
 } from '../../components/ui/Icons';
 
+// --- CAMBIO AQUÍ: Usamos la imagen de la carpeta public ---
 const LogoOrquesta = () => (
-    <svg width="64" height="64" className="w-16 h-16 text-indigo-600 mb-4 block mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
-    </svg>
+    <img 
+        src="/pwa-512x512.png" 
+        alt="Logo Orquesta Manager" 
+        className="w-24 h-24 mb-6 block mx-auto object-contain drop-shadow-sm hover:scale-105 transition-transform duration-300"
+    />
 );
 
 export default function LoginView() {
@@ -109,7 +112,10 @@ export default function LoginView() {
                     
                     {/* Header */}
                     <div className="p-8 pb-0 flex flex-col items-center text-center">
-                        <div className="bg-indigo-50 p-4 rounded-full mb-4 inline-block"><LogoOrquesta /></div>
+                        {/* Renderizamos el Logo Nuevo */}
+                        <div className="mb-2 inline-block">
+                            <LogoOrquesta />
+                        </div>
                         <h1 className="text-2xl font-black text-slate-800 tracking-tight">Orquesta Manager</h1>
                         <p className="text-slate-500 text-sm mt-2">
                             {viewMode === 'LOGIN' && 'Acceso Administrativo'}
