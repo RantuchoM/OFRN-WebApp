@@ -777,9 +777,7 @@ export default function GirasView({ supabase }) {
     { mode: "LOGISTICS", label: "Logística", icon: IconTruck },
     { mode: "AGENDA", label: "Agenda", icon: IconCalendar },
     { mode: "REPERTOIRE", label: "Repertorio", icon: IconMusic },
-    { mode: "ROSTER", label: "Personal", icon: IconUsers },
-    { mode: "HOTEL", label: "Rooming", icon: IconHotel },
-    // Puedes agregar o quitar según necesites
+    { mode: "ROSTER", label: "Personal", icon: IconUsers }    // Puedes agregar o quitar según necesites
   ];
 
   // Helper para saber si estamos dentro de una gira específica
