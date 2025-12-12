@@ -413,6 +413,7 @@ export default function GirasView({ supabase }) {
     setEditingId(gira.id);
     setFormData({
       nombre_gira: gira.nombre_gira,
+      subtitulo: gira.subtitulo || "", // <--- AGREGAR ESTA LÍNEA
       fecha_desde: gira.fecha_desde || "",
       fecha_hasta: gira.fecha_hasta || "",
       tipo: gira.tipo || "Sinfónico",
@@ -460,11 +461,13 @@ export default function GirasView({ supabase }) {
     setEditingId(null);
     setFormData({
       nombre_gira: "",
+      subtitulo: "", // <--- AGREGAR TAMBIÉN AQUÍ POR PROLIJIDAD
       fecha_desde: "",
       fecha_hasta: "",
       tipo: "Sinfónico",
       zona: "",
     });
+
     setSelectedLocations(new Set());
     setSelectedSources([]);
     setSelectedStaff([]);
@@ -777,7 +780,7 @@ export default function GirasView({ supabase }) {
     { mode: "LOGISTICS", label: "Logística", icon: IconTruck },
     { mode: "AGENDA", label: "Agenda", icon: IconCalendar },
     { mode: "REPERTOIRE", label: "Repertorio", icon: IconMusic },
-    { mode: "ROSTER", label: "Personal", icon: IconUsers }    // Puedes agregar o quitar según necesites
+    { mode: "ROSTER", label: "Personal", icon: IconUsers }, // Puedes agregar o quitar según necesites
   ];
 
   // Helper para saber si estamos dentro de una gira específica
@@ -1219,7 +1222,7 @@ export default function GirasView({ supabase }) {
                             })
                           }
                         />
-                        
+
                         <ActionMenu
                           onAction={(e, act) => handleMenuAction(e, act, gira)}
                           isOpen={openMenuId === gira.id}
