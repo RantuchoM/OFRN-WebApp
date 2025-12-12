@@ -38,6 +38,62 @@ const ModalPortal = ({ children }) => {
     );
 };
 
+// Helper para capitalizar
+const capitalizeWords = (str) => {
+    if (!str) return "";
+    return str.toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+};
+
+// --- LÓGICA DE CÁLCULO DE INSTRUMENTACIÓN ---
+const calculateInstrumentation = (parts) => {
+    if (!parts || parts.length === 0) return "";
+
+    const counts = {
+        fl: 0, ob: 0, cl: 0, bn: 0,
+        hn: 0, tpt: 0, tbn: 0, tba: 0,
+        timp: false, perc: 0,
+        str: false,
+        key: 0, harp: 0
+    };
+
+    parts.forEach(p => {
+        // Usamos el nombre del instrumento base para calcular
+        const name = (p.instrumento_nombre || "").toLowerCase();
+        
+        // Maderas
+        if (name.includes('flauta') || name.includes('piccolo') || name.includes('flautín')) counts.fl++;
+        else if (name.includes('oboe') || name.includes('corno inglés') || name.includes('corno ingles')) counts.ob++;
+        else if (name.includes('clarinete') || name.includes('requinto') || name.includes('basset')) counts.cl++;
+        else if (name.includes('fagot') || name.includes('contrafagot')) counts.bn++;
+        
+        // Metales
+        else if (name.includes('corno') || name.includes('trompa')) counts.hn++;
+        else if (name.includes('trompeta') || name.includes('fliscorno')) counts.tpt++;
+        else if (name.includes('trombón') || name.includes('trombon')) counts.tbn++;
+        else if (name.includes('tuba') || name.includes('bombardino')) counts.tba++;
+        
+        // Percusión y otros
+        else if (name.includes('timbal')) counts.timp = true;
+        else if (name.includes('percusión') || name.includes('percusion') || name.includes('bombo') || name.includes('platillo') || name.includes('caja')) counts.perc++;
+        else if (name.includes('arpa')) counts.harp++;
+        else if (name.includes('piano') || name.includes('celesta') || name.includes('clavecín')) counts.key++;
+        
+        // Cuerdas
+        else if (name.includes('violín') || name.includes('violin') || name.includes('viola') || name.includes('cello') || name.includes('violoncello') || name.includes('contrabajo')) counts.str = true;
+    });
+
+    // Formato: 2.2.2.2 - 4.2.3.1 - T - P - Hp - Pno - Str
+    let str = `${counts.fl}.${counts.ob}.${counts.cl}.${counts.bn} - ${counts.hn}.${counts.tpt}.${counts.tbn}.${counts.tba}`;
+    
+    if (counts.timp) str += " - T";
+    if (counts.perc > 0) str += ` - ${counts.perc > 1 ? counts.perc : ''}P`;
+    if (counts.harp > 0) str += ` - ${counts.harp > 1 ? counts.harp : ''}Hp`;
+    if (counts.key > 0) str += " - Key";
+    if (counts.str) str += " - Str";
+
+    return str;
+};
+
 export default function RepertoireManager({ supabase, programId, initialData = [], isCompact = false }) {
     const { isEditor } = useAuth();
     const [repertorios, setRepertorios] = useState(initialData);
@@ -55,6 +111,12 @@ export default function RepertoireManager({ supabase, programId, initialData = [
     const [worksLibrary, setWorksLibrary] = useState([]);
     const [loadingLibrary, setLoadingLibrary] = useState(false);
     const [composersList, setComposersList] = useState([]);
+    const [instrumentList, setInstrumentList] = useState([]); 
+
+    // Estado para el Generador de Particellas
+    const [particellas, setParticellas] = useState([]); 
+    const [genInstrument, setGenInstrument] = useState(""); 
+    const [genQuantity, setGenQuantity] = useState(1);
     
     const [filters, setFilters] = useState({ titulo: '', compositor: '', tags: '' });
     
@@ -90,8 +152,18 @@ export default function RepertoireManager({ supabase, programId, initialData = [
         if (isAddModalOpen || isEditWorkModalOpen) {
             if(worksLibrary.length === 0) fetchLibrary();
             if(composersList.length === 0) fetchComposers();
+            if(instrumentList.length === 0) fetchInstruments(); 
         }
     }, [isAddModalOpen, isEditWorkModalOpen]);
+
+    // --- EFECTO DE CÁLCULO DE INSTRUMENTACIÓN (NUEVO) ---
+    useEffect(() => {
+        // Solo calcular si estamos en el modo formulario (crear/editar) y hay particellas
+        if ((showRequestForm || isEditWorkModalOpen) && particellas.length > 0) {
+            const autoInstr = calculateInstrumentation(particellas);
+            setWorkFormData(prev => ({ ...prev, instrumentacion: autoInstr }));
+        }
+    }, [particellas, showRequestForm, isEditWorkModalOpen]);
 
     // --- FETCHERS ---
     const fetchMusicians = async () => {
@@ -102,6 +174,11 @@ export default function RepertoireManager({ supabase, programId, initialData = [
     const fetchComposers = async () => {
         const { data } = await supabase.from('compositores').select('*').order('apellido');
         if (data) setComposersList(data);
+    };
+
+    const fetchInstruments = async () => {
+        const { data } = await supabase.from('instrumentos').select('id, instrumento').order('id');
+        if (data) setInstrumentList(data);
     };
 
     const fetchFullRepertoire = async () => {
@@ -179,6 +256,7 @@ export default function RepertoireManager({ supabase, programId, initialData = [
         setWorkFormData({ id: null, titulo: '', duracion: '', link_drive: '', link_youtube: '', instrumentacion: '', anio: '', estado: '' });
         setComposerQuery(""); setSelectedComposer(null);
         setArrangerQuery(""); setSelectedArranger(null);
+        setParticellas([]); 
 
         await fetchFullRepertoire(); autoSyncDrive();
     };
@@ -203,9 +281,48 @@ export default function RepertoireManager({ supabase, programId, initialData = [
         await supabase.from('repertorio_obras').update({ [field]: value }).eq('id', itemId);
     };
 
+    // --- LÓGICA DE PARTICELLAS ---
+    const handleAddParts = () => {
+        if (!genInstrument || genQuantity < 1) return;
+        const selectedInstrObj = instrumentList.find(i => i.id === genInstrument);
+        if (!selectedInstrObj) return;
+
+        const newParts = [];
+        const baseName = capitalizeWords(selectedInstrObj.instrumento);
+
+        for (let i = 1; i <= genQuantity; i++) {
+            const name = genQuantity > 1 
+                ? `${baseName} ${i}` 
+                : baseName;
+            
+            newParts.push({
+                tempId: Date.now() + i + Math.random(),
+                id: null, 
+                id_instrumento: genInstrument,
+                nombre_archivo: name,
+                url_archivo: '', 
+                instrumento_nombre: selectedInstrObj.instrumento
+            });
+        }
+        setParticellas(prev => {
+            const combined = [...prev, ...newParts];
+            return combined.sort((a, b) => a.id_instrumento.localeCompare(b.id_instrumento));
+        });
+        setGenInstrument("");
+        setGenQuantity(1);
+    };
+
+    const handleRemovePart = (tempId) => {
+        setParticellas(prev => prev.filter(p => p.tempId !== tempId));
+    };
+
+    const handleEditPart = (tempId, field, value) => {
+        setParticellas(prev => prev.map(p => p.tempId === tempId ? { ...p, [field]: value } : p));
+    };
+
     // --- EDICIÓN Y CREACIÓN ---
 
-    const openEditWorkModal = (item) => {
+    const openEditWorkModal = async (item) => {
         const w = item.obras;
         
         let comp = null;
@@ -231,6 +348,26 @@ export default function RepertoireManager({ supabase, programId, initialData = [
         setComposerQuery(comp ? `${comp.apellido}, ${comp.nombre || ''}` : (w.datos_provisorios?.compositor_texto || ''));
         setSelectedArranger(arr);
         setArrangerQuery(arr ? `${arr.apellido}, ${arr.nombre || ''}` : '');
+        
+        // Cargar Particellas Existentes
+        const { data: existingParts } = await supabase
+            .from('obras_particellas')
+            .select('*, instrumentos(instrumento)')
+            .eq('id_obra', w.id);
+            
+        if (existingParts) {
+            const mapped = existingParts.map(p => ({
+                tempId: p.id, 
+                id: p.id,     
+                id_instrumento: p.id_instrumento,
+                nombre_archivo: p.nombre_archivo,
+                url_archivo: p.url_archivo || '',
+                instrumento_nombre: p.instrumentos?.instrumento || 'Desconocido'
+            }));
+            setParticellas(mapped);
+        } else {
+            setParticellas([]);
+        }
 
         setIsEditWorkModalOpen(true);
     };
@@ -240,21 +377,18 @@ export default function RepertoireManager({ supabase, programId, initialData = [
         setLoading(true);
 
         try {
-            // Resolver Compositor
             let finalComposerId = selectedComposer?.id;
             if (!finalComposerId && composerQuery.trim()) {
                 const { data: newComp } = await supabase.from('compositores').insert([{ apellido: composerQuery.split(',')[0].trim(), nombre: composerQuery.split(',')[1]?.trim() || '' }]).select().single();
                 if (newComp) finalComposerId = newComp.id;
             }
 
-            // Resolver Arreglador
             let finalArrangerId = selectedArranger?.id;
             if (!finalArrangerId && arrangerQuery.trim()) {
                 const { data: newArr } = await supabase.from('compositores').insert([{ apellido: arrangerQuery.split(',')[0].trim(), nombre: arrangerQuery.split(',')[1]?.trim() || '' }]).select().single();
                 if (newArr) finalArrangerId = newArr.id;
             }
 
-            // Sanitización
             const duracionSegundos = inputToSeconds(workFormData.duracion);
             const anioLimpio = workFormData.anio ? parseInt(workFormData.anio) : null;
 
@@ -268,6 +402,8 @@ export default function RepertoireManager({ supabase, programId, initialData = [
                 estado: workFormData.estado 
             };
 
+            let targetWorkId = workFormData.id;
+
             if (!workFormData.id) {
                 // CREATE
                 const { data: { user } } = await supabase.auth.getUser();
@@ -276,6 +412,8 @@ export default function RepertoireManager({ supabase, programId, initialData = [
                 
                 const { data: newWork, error } = await supabase.from('obras').insert([payload]).select().single();
                 if (error) throw error;
+                targetWorkId = newWork.id;
+                
                 await linkComposers(newWork.id, finalComposerId, finalArrangerId);
                 await addWorkToBlock(newWork.id);
 
@@ -284,12 +422,55 @@ export default function RepertoireManager({ supabase, programId, initialData = [
                 const { error } = await supabase.from('obras').update(payload).eq('id', workFormData.id);
                 if (error) throw error;
 
-                // Actualizar vínculos
                 await supabase.from('obras_compositores').delete().eq('id_obra', workFormData.id);
                 await linkComposers(workFormData.id, finalComposerId, finalArrangerId);
                 
                 setIsEditWorkModalOpen(false);
                 fetchFullRepertoire();
+            }
+
+            // --- GESTIÓN DE PARTICELLAS INTELIGENTE ---
+            if (targetWorkId) {
+                const { data: currentDbParts } = await supabase.from('obras_particellas').select('id').eq('id_obra', targetWorkId);
+                const currentDbIds = currentDbParts ? currentDbParts.map(p => p.id) : [];
+                
+                const stateIds = new Set(particellas.map(p => p.id).filter(Boolean));
+                const idsToDelete = currentDbIds.filter(id => !stateIds.has(id));
+
+                if (idsToDelete.length > 0) {
+                    await supabase.from('obras_particellas').delete().in('id', idsToDelete);
+                }
+
+                const toInsert = [];
+                const toUpdate = [];
+
+                particellas.forEach(p => {
+                    const rowData = {
+                        id_obra: targetWorkId,
+                        id_instrumento: p.id_instrumento,
+                        nombre_archivo: p.nombre_archivo,
+                        url_archivo: p.url_archivo 
+                    };
+
+                    if (p.id) {
+                        toUpdate.push({ id: p.id, ...rowData });
+                    } else {
+                        toInsert.push(rowData);
+                    }
+                });
+
+                if (toInsert.length > 0) {
+                    await supabase.from('obras_particellas').insert(toInsert);
+                }
+
+                if (toUpdate.length > 0) {
+                    await Promise.all(toUpdate.map(p => 
+                        supabase.from('obras_particellas').update({
+                            nombre_archivo: p.nombre_archivo,
+                            url_archivo: p.url_archivo
+                        }).eq('id', p.id)
+                    ));
+                }
             }
 
         } catch (error) {
@@ -337,7 +518,6 @@ export default function RepertoireManager({ supabase, programId, initialData = [
 
     const containerClasses = isCompact ? "bg-white" : "space-y-8";
     const headerClasses = isCompact ? "bg-slate-50 p-2 border-b border-slate-200" : "bg-indigo-100/50 p-2 border-b border-slate-300";
-    // Ajustado ancho mínimo para que la columna Obra tenga espacio
     const tableHeaderClasses = isCompact ? "hidden" : "bg-blue-200 text-slate-700 border-b-2 border-slate-400 font-bold uppercase tracking-tight";
 
     // --- RENDER FORM ---
@@ -345,7 +525,6 @@ export default function RepertoireManager({ supabase, programId, initialData = [
         <div className="space-y-4">
             <div>
                 <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Título de la Obra</label>
-                {/* CAMBIO: Textarea para múltiples líneas */}
                 <textarea 
                     rows={2}
                     className="w-full border p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none resize-none" 
@@ -355,7 +534,6 @@ export default function RepertoireManager({ supabase, programId, initialData = [
                 />
             </div>
 
-            {/* CHECKBOX ESTADO */}
             {workFormData.id && (
                 <div className="flex items-center gap-2 bg-indigo-50 p-2 rounded border border-indigo-100">
                     <input 
@@ -441,6 +619,66 @@ export default function RepertoireManager({ supabase, programId, initialData = [
                 <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Link Drive</label>
                 <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" value={workFormData.link_drive} onChange={e => setWorkFormData({...workFormData, link_drive: e.target.value})} placeholder="https://drive..."/>
             </div>
+
+            {/* --- SECCIÓN GENERADOR DE PARTICELLAS --- */}
+            <div className="pt-4 border-t border-slate-100 mt-4">
+                <h3 className="text-[10px] font-bold uppercase text-slate-500 mb-2 flex justify-between items-center">
+                    <span>Instrumentación / Partes</span>
+                    {particellas.length > 0 && <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full text-[9px]">{particellas.length} partes</span>}
+                </h3>
+                
+                <div className="bg-slate-50 p-2 rounded border border-slate-200 mb-2 flex gap-2 items-end">
+                    <div className="flex-1">
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Instrumento</label>
+                        <select className="w-full border p-1.5 text-xs rounded" value={genInstrument} onChange={e => setGenInstrument(e.target.value)}>
+                            <option value="">Seleccionar...</option>
+                            {instrumentList.map(i => <option key={i.id} value={i.id}>{i.instrumento}</option>)}
+                        </select>
+                    </div>
+                    <div className="w-16">
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Cant.</label>
+                        <input type="number" min="1" className="w-full border p-1.5 text-xs rounded text-center" value={genQuantity} onChange={e => setGenQuantity(parseInt(e.target.value)||1)}/>
+                    </div>
+                    <button type="button" onClick={handleAddParts} disabled={!genInstrument} className="bg-indigo-600 text-white p-1.5 rounded disabled:opacity-50"><IconPlus size={16}/></button>
+                </div>
+
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {particellas.map(part => (
+                        <div key={part.tempId} className="flex items-center gap-2 p-1 border border-slate-100 bg-white rounded group">
+                            {/* ID Instrumento */}
+                            <span className="w-6 h-6 rounded-full bg-slate-100 text-[9px] flex items-center justify-center font-bold text-slate-500 shrink-0 cursor-help" title={part.instrumento_nombre}>{part.id_instrumento}</span>
+                            
+                            {/* Nombre Parte */}
+                            <input 
+                                type="text" 
+                                className="flex-1 text-xs border-none p-0 focus:ring-0 text-slate-700 bg-transparent font-medium" 
+                                value={part.nombre_archivo} 
+                                onChange={e => handleEditPart(part.tempId, 'nombre_archivo', e.target.value)}
+                                placeholder="Nombre parte..."
+                            />
+
+                            {/* Link (Punto 3) */}
+                            <div className="relative group/link">
+                                <IconLink size={12} className={`shrink-0 ${part.url_archivo ? 'text-blue-500' : 'text-slate-300'}`}/>
+                                <div className="absolute right-0 top-0 bottom-0 w-32 opacity-0 group-hover/link:opacity-100 transition-opacity">
+                                    <input 
+                                        type="text"
+                                        className="w-full h-full bg-white border border-blue-200 rounded text-[9px] px-1 text-blue-600 placeholder:text-slate-300 absolute right-0 shadow-sm"
+                                        placeholder="Pegar link..."
+                                        value={part.url_archivo}
+                                        onChange={e => handleEditPart(part.tempId, 'url_archivo', e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            
+                            {/* Borrar */}
+                            <button onClick={() => handleRemovePart(part.tempId)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1"><IconTrash size={12}/></button>
+                        </div>
+                    ))}
+                    {particellas.length === 0 && <div className="text-center text-[10px] text-slate-300 italic py-2">No se han agregado partes</div>}
+                </div>
+            </div>
+
         </div>
     );
 
@@ -448,10 +686,10 @@ export default function RepertoireManager({ supabase, programId, initialData = [
         <div className={containerClasses}>
             {!isCompact && (
                 <div className="flex justify-between items-center mb-4">
-                     <div>{syncingDrive && <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded border border-blue-100 flex items-center gap-1 animate-pulse"><IconLoader size={10} className="animate-spin"/> Sincronizando Drive...</span>}</div>
-                     {isEditor && (
+                      <div>{syncingDrive && <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded border border-blue-100 flex items-center gap-1 animate-pulse"><IconLoader size={10} className="animate-spin"/> Sincronizando Drive...</span>}</div>
+                      {isEditor && (
                         <button onClick={addRepertoireBlock} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-indigo-700 flex items-center gap-2"><IconPlus size={16}/> Nuevo Bloque</button>
-                     )}
+                      )}
                 </div>
             )}
 
@@ -483,14 +721,12 @@ export default function RepertoireManager({ supabase, programId, initialData = [
                     </div>
 
                     <div className="overflow-x-auto">
-                        {/* TABLA CON ANCHO MÍNIMO MAYOR */}
                         <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1100px]">
                             <thead className={tableHeaderClasses}>
                                 <tr>
                                     <th className="p-1 w-8 text-center">#</th>
                                     <th className="p-1 w-8 text-center">GD</th>
                                     <th className="p-1 w-32">Compositor</th>
-                                    {/* COLUMNA OBRA MÁS ANCHA */}
                                     <th className="p-1 w-72">Obra</th>
                                     <th className="p-1 w-20 text-center">Instr.</th>
                                     <th className="p-1 w-12 text-center">Dur.</th>
@@ -516,11 +752,9 @@ export default function RepertoireManager({ supabase, programId, initialData = [
                                         </td>
                                         <td className="p-1 truncate font-medium text-slate-600 pt-2" title={getComposers(item.obras)}>{getComposers(item.obras)}</td>
                                         
-                                        {/* CELDA DE OBRA (SIN TRUNCATE, CON WRAP) */}
                                         <td className={`p-1 font-bold text-slate-800 ${isCompact ? 'col-span-2' : ''}`} title={item.obras.titulo}>
                                             <div className="flex flex-wrap items-start gap-1.5">
                                                 <span className="whitespace-normal leading-tight">{item.obras.titulo}</span>
-                                                {/* ETIQUETA PEND SIEMPRE VISIBLE */}
                                                 {item.obras.estado !== 'Oficial' && (
                                                     <span className="shrink-0 text-[8px] bg-amber-100 text-amber-700 px-1 rounded border border-amber-200 mt-0.5 select-none">PEND</span>
                                                 )}
@@ -585,7 +819,7 @@ export default function RepertoireManager({ supabase, programId, initialData = [
                                 <div className="p-2 border-b border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-2 bg-white shrink-0">
                                     <div className="relative"><IconSearch className="absolute left-2 top-2.5 text-slate-400" size={14}/><input type="text" autoFocus placeholder="Título..." className="w-full pl-7 p-1.5 border rounded text-xs bg-slate-50 outline-none focus:ring-1 focus:ring-indigo-500" value={filters.titulo} onChange={e => setFilters({...filters, titulo: e.target.value})}/></div>
                                     <input type="text" placeholder="Compositor..." className="w-full p-1.5 border rounded text-xs bg-slate-50 outline-none focus:ring-1 focus:ring-indigo-500" value={filters.compositor} onChange={e => setFilters({...filters, compositor: e.target.value})}/>
-                                    <button onClick={() => { setShowRequestForm(true); setWorkFormData({ id: null, titulo: '', duracion: '', link_drive: '', link_youtube: '', instrumentacion: '', anio: '', estado: '' }); setSelectedComposer(null); setComposerQuery(""); setSelectedArranger(null); setArrangerQuery(""); }} className="bg-indigo-600 text-white px-3 rounded text-xs font-bold hover:bg-indigo-700 flex items-center justify-center gap-1"><IconPlus size={12}/> Crear Solicitud</button>
+                                    <button onClick={() => { setShowRequestForm(true); setWorkFormData({ id: null, titulo: '', duracion: '', link_drive: '', link_youtube: '', instrumentacion: '', anio: '', estado: '' }); setSelectedComposer(null); setComposerQuery(""); setSelectedArranger(null); setArrangerQuery(""); setParticellas([]); }} className="bg-indigo-600 text-white px-3 rounded text-xs font-bold hover:bg-indigo-700 flex items-center justify-center gap-1"><IconPlus size={12}/> Crear Solicitud</button>
                                 </div>
                                 <div className="flex-1 overflow-y-auto">
                                     {loadingLibrary ? <div className="p-8 text-center text-indigo-600"><IconLoader className="animate-spin inline"/></div> : (
@@ -616,7 +850,7 @@ export default function RepertoireManager({ supabase, programId, initialData = [
 
             {isEditWorkModalOpen && isEditor && (
                 <ModalPortal>
-                    <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-200">
+                    <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><IconEdit className="text-indigo-600"/> Editar Obra</h3>
                             <button onClick={() => setIsEditWorkModalOpen(false)} className="text-slate-400 hover:text-slate-600"><IconX size={20}/></button>
