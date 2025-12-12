@@ -6,19 +6,19 @@ import {
   IconExternalLink
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
-import { useGiraRoster } from "../../hooks/useGiraRoster"; // <--- IMPORTAR HOOK
+import { useGiraRoster } from "../../hooks/useGiraRoster";
 
 const EXCLUDED_ROLES = [
   "staff", "produccion", "producción", "chofer", "archivo", 
   "utilero", "asistente", "iluminador", "sonido"
 ];
 
-// --- MODAL Y SELECTOR DE PARTICELLA (Se mantienen igual, solo se reutilizan) ---
+// --- MODAL CREAR PARTICELLA ---
 const CreateParticellaModal = ({ isOpen, onClose, onConfirm, instrumentList, defaultInstrumentId }) => {
     const [selectedInstr, setSelectedInstr] = useState(defaultInstrumentId || "");
     const [name, setName] = useState("");
     useEffect(() => { if (isOpen) setSelectedInstr(defaultInstrumentId || (instrumentList[0]?.id || "")); }, [isOpen, defaultInstrumentId, instrumentList]);
-    useEffect(() => { const instrName = instrumentList.find(i => i.id === selectedInstr)?.instrumento; if (instrName) setName(`PENDIENTE - ${instrName}`); else setName("PENDIENTE - Nueva Particella"); }, [selectedInstr, instrumentList]);
+    useEffect(() => { const instrName = instrumentList.find(i => i.id === selectedInstr)?.instrumento; if (instrName) setName(`${instrName} #`); else setName("PENDIENTE - Nueva Particella"); }, [selectedInstr, instrumentList]);
     if (!isOpen) return null;
     const handleSubmit = (e) => { e.preventDefault(); onConfirm(selectedInstr, name); };
     return (
@@ -26,21 +26,110 @@ const CreateParticellaModal = ({ isOpen, onClose, onConfirm, instrumentList, def
     );
 };
 
-const ParticellaSelect = ({ options, value, onChange, onRequestCreate, placeholder = "-", disabled = false }) => {
+// --- SELECTOR INTELIGENTE DE PARTICELLA (MODIFICADO) ---
+const ParticellaSelect = ({ 
+  options, 
+  value, 
+  onChange, 
+  onRequestCreate, 
+  placeholder = "-", 
+  disabled = false,
+  preferredInstrumentId = null 
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef(null);
-  useEffect(() => { const handleClick = (e) => { if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false); }; if (isOpen) document.addEventListener("mousedown", handleClick); return () => document.removeEventListener("mousedown", handleClick); }, [isOpen]);
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false);
+    };
+    if (isOpen) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [isOpen]);
+
   const selectedOption = options.find((o) => o.id === value);
-  if (disabled) return <div className="w-full h-full min-h-[24px] px-1 text-[10px] border border-transparent flex items-center justify-center text-slate-600 bg-transparent truncate cursor-default" title={selectedOption?.nombre_archivo}>{selectedOption ? selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento : "-"}</div>;
-  const filteredOptions = options.filter((o) => (o.nombre_archivo || "").toLowerCase().includes(search.toLowerCase()) || (o.instrumentos?.instrumento || "").toLowerCase().includes(search.toLowerCase()));
+
+  if (disabled) return (
+    <div className="w-full h-full min-h-[24px] px-1 text-[10px] border border-transparent flex items-center justify-center text-slate-600 bg-transparent truncate cursor-default" title={selectedOption?.nombre_archivo}>
+      {selectedOption ? selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento : "-"}
+    </div>
+  );
+
+  // Filtramos por búsqueda primero
+  const filteredOptions = options.filter((o) => 
+    (o.nombre_archivo || "").toLowerCase().includes(search.toLowerCase()) || 
+    (o.instrumentos?.instrumento || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  // Dividimos en sugeridos y el resto
+  const recommendedOptions = filteredOptions.filter(o => o.id_instrumento === preferredInstrumentId);
+  const otherOptions = filteredOptions.filter(o => o.id_instrumento !== preferredInstrumentId);
+  
   const handleSelect = (id) => { onChange(id); setIsOpen(false); setSearch(""); };
+
+  // --- RENDERIZADO DE OPCIÓN (INVERTIDO: Grande=Nombre, Chico=Instrumento) ---
+  const renderOption = (opt) => (
+    <button key={opt.id} onClick={() => handleSelect(opt.id)} className={`w-full text-left px-2 py-1 text-[10px] rounded hover:bg-indigo-50 flex items-center justify-between group ${value === opt.id ? "bg-indigo-50 text-indigo-700 font-bold" : "text-slate-700"}`}>
+      <div className="truncate">
+        {/* ARRIBA: Nombre de Archivo (Grande/Negrita) */}
+        <span className="block font-medium truncate text-slate-800">
+            {opt.nombre_archivo || "Sin nombre"}
+        </span>
+        {/* ABAJO: Instrumento (Pequeño/Gris) */}
+        <span className="text-[9px] text-slate-400 font-normal truncate block">
+            {opt.instrumentos?.instrumento || "Sin instr."}
+        </span>
+      </div>
+      {value === opt.id && (<IconCheck size={10} className="text-indigo-600 shrink-0 ml-1" />)}
+    </button>
+  );
+
   return (
-    <div className="relative w-full h-full" ref={containerRef}><button onClick={() => setIsOpen(!isOpen)} className={`w-full h-full min-h-[24px] text-left px-1 text-[10px] border rounded transition-colors flex items-center justify-between gap-0.5 ${value ? "bg-indigo-50 border-indigo-200 text-indigo-700 font-bold" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"}`}><span className="truncate block w-full">{selectedOption ? selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento : placeholder}</span><IconChevronDown size={8} className={`shrink-0 transition-transform ${isOpen ? "rotate-180" : ""} opacity-50`} /></button>{isOpen && (<div className="absolute top-full left-0 z-50 w-56 bg-white border border-slate-200 rounded shadow-xl mt-0.5 overflow-hidden flex flex-col max-h-60 animate-in fade-in zoom-in-95"><div className="p-1 border-b border-slate-50 bg-slate-50 sticky top-0 flex flex-col gap-1"><input type="text" autoFocus className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded outline-none focus:border-indigo-400" placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)} /><button onClick={() => {onRequestCreate(); setIsOpen(false);}} className="w-full text-left px-2 py-1.5 text-[10px] bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded border border-indigo-100 flex items-center gap-2 font-bold transition-colors"><IconPlus size={12}/> Crear Nueva...</button></div><div className="overflow-y-auto flex-1 p-1"><button onClick={() => handleSelect(null)} className="w-full text-left px-2 py-1 text-[10px] text-slate-400 hover:bg-red-50 hover:text-red-600 rounded flex items-center gap-2 mb-1"><IconX size={8} /> Quitar Asignación</button>{filteredOptions.length === 0 && (<div className="text-[10px] text-slate-400 p-2 text-center italic">No hay particellas</div>)}{filteredOptions.map((opt) => (<button key={opt.id} onClick={() => handleSelect(opt.id)} className={`w-full text-left px-2 py-1 text-[10px] rounded hover:bg-indigo-50 flex items-center justify-between group ${value === opt.id ? "bg-indigo-50 text-indigo-700 font-bold" : "text-slate-700"}`}><div className="truncate"><span className="block font-medium truncate">{opt.instrumentos?.instrumento || "Sin instr."}</span><span className="text-[9px] text-slate-400 font-normal truncate">{opt.nombre_archivo}</span></div>{value === opt.id && (<IconCheck size={10} className="text-indigo-600 shrink-0" />)}</button>))}</div></div>)}</div>
+    <div className="relative w-full h-full" ref={containerRef}>
+      <button onClick={() => setIsOpen(!isOpen)} className={`w-full h-full min-h-[24px] text-left px-1 text-[10px] border rounded transition-colors flex items-center justify-between gap-0.5 ${value ? "bg-indigo-50 border-indigo-200 text-indigo-700 font-bold" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"}`}>
+        <span className="truncate block w-full">{selectedOption ? selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento : placeholder}</span>
+        <IconChevronDown size={8} className={`shrink-0 transition-transform ${isOpen ? "rotate-180" : ""} opacity-50`} />
+      </button>
+      
+      {isOpen && (
+        <div className="absolute top-full left-0 z-50 w-56 bg-white border border-slate-200 rounded shadow-xl mt-0.5 overflow-hidden flex flex-col max-h-60 animate-in fade-in zoom-in-95">
+          <div className="p-1 border-b border-slate-50 bg-slate-50 sticky top-0 flex flex-col gap-1">
+            <input type="text" autoFocus className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded outline-none focus:border-indigo-400" placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <button onClick={() => {onRequestCreate(); setIsOpen(false);}} className="w-full text-left px-2 py-1.5 text-[10px] bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded border border-indigo-100 flex items-center gap-2 font-bold transition-colors">
+              <IconPlus size={12}/> Crear Nueva...
+            </button>
+          </div>
+          
+          <div className="overflow-y-auto flex-1 p-1">
+            <button onClick={() => handleSelect(null)} className="w-full text-left px-2 py-1 text-[10px] text-slate-400 hover:bg-red-50 hover:text-red-600 rounded flex items-center gap-2 mb-1">
+              <IconX size={8} /> Quitar Asignación
+            </button>
+
+            {filteredOptions.length === 0 && (<div className="text-[10px] text-slate-400 p-2 text-center italic">No hay particellas</div>)}
+
+            {/* SECCIÓN DE SUGERIDOS */}
+            {recommendedOptions.length > 0 && (
+              <>
+                <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 bg-slate-50 mt-1 mb-0.5 rounded">Sugeridos</div>
+                {recommendedOptions.map(renderOption)}
+                {otherOptions.length > 0 && <div className="border-t border-slate-100 my-1"></div>}
+              </>
+            )}
+
+            {/* SECCIÓN RESTO DE OPCIONES */}
+            {(otherOptions.length > 0 && recommendedOptions.length > 0) && (
+                 <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 mt-1 mb-0.5">Otros</div>
+            )}
+            {otherOptions.map(renderOption)}
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
-// --- GESTOR DE CUERDAS (Reutilizado) ---
+// --- GESTOR DE CUERDAS ---
 const GlobalStringsManager = ({ programId, roster, containers, onUpdate, supabase, readOnly }) => {
   const stringMusicians = useMemo(() => roster.filter((m) => ["01", "02", "03", "04", "05"].includes(m.id_instr)), [roster]);
   const assignedIds = new Set();
@@ -67,8 +156,6 @@ const GlobalStringsManager = ({ programId, roster, containers, onUpdate, supabas
 // --- COMPONENTE PRINCIPAL ---
 export default function ProgramSeating({ supabase, program, onBack, repertoireBlocks = [] }) {
   const { isEditor } = useAuth();
-  
-  // 1. HOOK CENTRALIZADO
   const { roster: rawRoster, loading: rosterLoading } = useGiraRoster(supabase, program);
 
   const [filteredRoster, setFilteredRoster] = useState([]);
@@ -98,25 +185,17 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
 
   useEffect(() => {
     if (program?.id && !rosterLoading) fetchInitialData();
-  }, [program.id, repertoireBlocks, rosterLoading, rawRoster]); // Dependencias seguras
+  }, [program.id, repertoireBlocks, rosterLoading, rawRoster]);
 
   const isString = (id) => ["01", "02", "03", "04"].includes(id);
 
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-      // 0. CARGAR INSTRUMENTOS
       const { data: instruments } = await supabase.from('instrumentos').select('id, instrumento').order('instrumento');
       setInstrumentList(instruments || []);
 
-      // 1. FILTRAR ROSTER (Logica de negocio visual)
-      const musicians = rawRoster.filter(m => 
-          // Excluir ausentes y roles no musicales
-          m.estado_gira !== 'ausente' &&
-          !EXCLUDED_ROLES.includes((m.rol_gira || 'musico').toLowerCase())
-      );
-      
-      // Ordenar por instrumento y luego apellido
+      const musicians = rawRoster.filter(m => m.estado_gira !== 'ausente' && !EXCLUDED_ROLES.includes((m.rol_gira || 'musico').toLowerCase()));
       musicians.sort((a, b) => {
         const instrIdA = a.id_instr || '9999';
         const instrIdB = b.id_instr || '9999';
@@ -227,8 +306,63 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {containers.length > 0 && (<><tr className="bg-indigo-50/50"><td colSpan={obras.length + 1} className="p-1 px-4 text-[10px] font-bold text-indigo-800 uppercase tracking-wider border-b border-indigo-100">Sección de Cuerdas</td></tr>{containers.map((c) => (<tr key={c.id} className="hover:bg-indigo-50/30 transition-colors group"><td className="p-2 sticky left-0 bg-white group-hover:bg-indigo-50/30 border-r border-slate-200 z-10 pl-4 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]"><div className="flex flex-col"><span className="font-bold text-indigo-900 text-sm flex items-center gap-2"><IconLayers size={14} /> {c.nombre}</span><div className="text-[9px] text-slate-500 mt-0.5 truncate max-w-[200px]" title={c.items.map((i) => i.integrantes?.apellido).join(", ")}>{c.items.length} músicos...</div></div></td>{obras.map((obra) => { const availableParts = particellas.filter((p) => p.id_obra === obra.obra_id); const currentVal = assignments[`C-${c.id}-${obra.obra_id}`]; return (<td key={`${c.id}-${obra.id}`} className="p-1 border-l border-slate-100 relative min-w-[140px] bg-slate-50/30"><ParticellaSelect options={availableParts} value={currentVal} onChange={(val) => handleAssign("C", c.id, obra.obra_id, val)} onRequestCreate={() => openCreateModal(obra.obra_id, "00", "C", c.id)} disabled={!isEditor} placeholder="Asignar Grupo" /></td>); })}</tr>))}</>)}
-                {otherMusicians.length > 0 && (<><tr className="bg-slate-100/50"><td colSpan={obras.length + 1} className="p-1 px-4 text-[10px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200 border-t border-slate-200 mt-4">Vientos y Percusión</td></tr>{otherMusicians.map((musician) => (<tr key={musician.id} className="hover:bg-slate-50 transition-colors group"><td className="p-2 sticky left-0 bg-white group-hover:bg-slate-50 border-r border-slate-200 z-10 pl-4 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]"><div className="flex flex-col"><span className="font-bold text-slate-700 truncate text-xs">{musician.apellido}, {musician.nombre}</span><span className="text-[9px] text-slate-400 truncate flex items-center gap-1">{musician.instrumentos?.instrumento} {musician.rol_gira && musician.rol_gira !== 'musico' && <span className="text-amber-600">({musician.rol_gira})</span>}</span></div></td>{obras.map((obra) => { const availableParts = particellas.filter((p) => p.id_obra === obra.obra_id); const currentVal = assignments[`M-${musician.id}-${obra.obra_id}`]; return (<td key={`${musician.id}-${obra.id}`} className="p-1 border-l border-slate-100 relative min-w-[140px]"><ParticellaSelect options={availableParts} value={currentVal} onChange={(val) => handleAssign("M", musician.id, obra.obra_id, val)} onRequestCreate={() => openCreateModal(obra.obra_id, musician.id_instr, "M", musician.id)} disabled={!isEditor} /></td>); })}</tr>))}</>)}
+                {containers.length > 0 && (
+                  <>
+                    <tr className="bg-indigo-50/50"><td colSpan={obras.length + 1} className="p-1 px-4 text-[10px] font-bold text-indigo-800 uppercase tracking-wider border-b border-indigo-100">Sección de Cuerdas</td></tr>
+                    {containers.map((c) => (
+                      <tr key={c.id} className="hover:bg-indigo-50/30 transition-colors group">
+                        <td className="p-2 sticky left-0 bg-white group-hover:bg-indigo-50/30 border-r border-slate-200 z-10 pl-4 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                          <div className="flex flex-col"><span className="font-bold text-indigo-900 text-sm flex items-center gap-2"><IconLayers size={14} /> {c.nombre}</span><div className="text-[9px] text-slate-500 mt-0.5 truncate max-w-[200px]" title={c.items.map((i) => i.integrantes?.apellido).join(", ")}>{c.items.length} músicos...</div></div>
+                        </td>
+                        {obras.map((obra) => { 
+                          const availableParts = particellas.filter((p) => p.id_obra === obra.obra_id); 
+                          const currentVal = assignments[`C-${c.id}-${obra.obra_id}`]; 
+                          return (
+                            <td key={`${c.id}-${obra.id}`} className="p-1 border-l border-slate-100 relative min-w-[140px] bg-slate-50/30">
+                              <ParticellaSelect 
+                                options={availableParts} 
+                                value={currentVal} 
+                                onChange={(val) => handleAssign("C", c.id, obra.obra_id, val)} 
+                                onRequestCreate={() => openCreateModal(obra.obra_id, "00", "C", c.id)} 
+                                disabled={!isEditor} 
+                                placeholder="Asignar Grupo"
+                                preferredInstrumentId={c.id_instrumento} // Preferencia de contenedor
+                              />
+                            </td>
+                          ); 
+                        })}
+                      </tr>
+                    ))}
+                  </>
+                )}
+                {otherMusicians.length > 0 && (
+                  <>
+                    <tr className="bg-slate-100/50"><td colSpan={obras.length + 1} className="p-1 px-4 text-[10px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200 border-t border-slate-200 mt-4">Vientos y Percusión</td></tr>
+                    {otherMusicians.map((musician) => (
+                      <tr key={musician.id} className="hover:bg-slate-50 transition-colors group">
+                        <td className="p-2 sticky left-0 bg-white group-hover:bg-slate-50 border-r border-slate-200 z-10 pl-4 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                          <div className="flex flex-col"><span className="font-bold text-slate-700 truncate text-xs">{musician.apellido}, {musician.nombre}</span><span className="text-[9px] text-slate-400 truncate flex items-center gap-1">{musician.instrumentos?.instrumento} {musician.rol_gira && musician.rol_gira !== 'musico' && <span className="text-amber-600">({musician.rol_gira})</span>}</span></div>
+                        </td>
+                        {obras.map((obra) => { 
+                          const availableParts = particellas.filter((p) => p.id_obra === obra.obra_id); 
+                          const currentVal = assignments[`M-${musician.id}-${obra.obra_id}`]; 
+                          return (
+                            <td key={`${musician.id}-${obra.id}`} className="p-1 border-l border-slate-100 relative min-w-[140px]">
+                              <ParticellaSelect 
+                                options={availableParts} 
+                                value={currentVal} 
+                                onChange={(val) => handleAssign("M", musician.id, obra.obra_id, val)} 
+                                onRequestCreate={() => openCreateModal(obra.obra_id, musician.id_instr, "M", musician.id)} 
+                                disabled={!isEditor}
+                                preferredInstrumentId={musician.id_instr} // Preferencia de musico
+                              />
+                            </td>
+                          ); 
+                        })}
+                      </tr>
+                    ))}
+                  </>
+                )}
               </tbody>
             </table>
           </div>
