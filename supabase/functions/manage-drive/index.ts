@@ -144,6 +144,11 @@ serve(async (req) => {
               console.log(`Actualizando nomenclador DB para programa ${prog.id}: ${nomencladorStr}`);
               await supabase.from("programas").update({ nomenclador: nomencladorStr }).eq("id", prog.id);
           }
+          
+          if (prog.mes_letra !== `${monthNum}${monthLetter}`) {
+              console.log(`Actualizando mes_fecha DB para programa ${prog.id}: ${nomencladorStr}`);
+              await supabase.from("programas").update({ mes_letra: `${monthNum}${monthLetter}` }).eq("id", prog.id);
+          }
 
           // NOMBRE IDEAL DE LA CARPETA
           const datePart = getFormattedDateString(prog.fecha_desde, prog.fecha_hasta);

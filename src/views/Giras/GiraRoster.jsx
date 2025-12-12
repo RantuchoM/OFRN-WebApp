@@ -4,17 +4,14 @@ import {
   IconUsers, IconPlus, IconX, IconTrash, IconLoader, IconSearch,
   IconAlertCircle, IconCheck, IconChevronDown, IconMusic, IconMail, IconSettings, IconMap
 } from "../../components/ui/Icons";
+import { useGiraRoster } from "../../hooks/useGiraRoster";
 
-// --- HELPERS (Fuera del componente para reusar) ---
-
-// Función de ordenamiento centralizada y dinámica
+// --- HELPERS DE UI ---
 const sortRosterList = (list, criterion) => {
   return [...list].sort((a, b) => {
-    // 1. ESTADO: Los ausentes siempre al final (regla de oro)
     if (a.estado_gira === 'ausente' && b.estado_gira !== 'ausente') return 1;
     if (a.estado_gira !== 'ausente' && b.estado_gira === 'ausente') return -1;
 
-    // 2. CRITERIOS DINÁMICOS
     switch (criterion) {
       case 'localidad': {
         const locA = a.localidades?.localidad || 'zzz';
@@ -25,13 +22,11 @@ const sortRosterList = (list, criterion) => {
         const regA = a.localidades?.regiones?.region || 'zzz';
         const regB = b.localidades?.regiones?.region || 'zzz';
         if (regA !== regB) return regA.localeCompare(regB);
-        // Sub-orden por localidad
         const locA = a.localidades?.localidad || 'zzz';
         const locB = b.localidades?.localidad || 'zzz';
         return locA.localeCompare(locB) || (a.apellido || "").localeCompare(b.apellido || "");
       }
       case 'instrumento': {
-        // Orden por ID de instrumento como string
         const instA = String(a.id_instr || '999');
         const instB = String(b.id_instr || '999');
         if (instA !== instB) return instA.localeCompare(instB);
@@ -39,21 +34,16 @@ const sortRosterList = (list, criterion) => {
       }
       case 'rol':
       default: {
-        // Jerarquía de roles
-        const rolesPrio = {
-          director: 1, solista: 2, musico: 3, produccion: 4, staff: 5, chofer: 6
-        };
+        const rolesPrio = { director: 1, solista: 2, musico: 3, produccion: 4, staff: 5, chofer: 6 };
         const pA = rolesPrio[a.rol_gira || 'musico'] || 99;
         const pB = rolesPrio[b.rol_gira || 'musico'] || 99;
         if (pA !== pB) return pA - pB;
-        // Alfabético por defecto
         return (a.apellido || "").localeCompare(b.apellido || "");
       }
     }
   });
 };
 
-// --- COMPONENTE METRIC BADGE ---
 const MetricBadge = ({ label, items, colorBase, icon }) => {
   const count = items.length;
   if (count === 0) return null;
@@ -80,7 +70,6 @@ const MetricBadge = ({ label, items, colorBase, icon }) => {
   );
 };
 
-// --- MULTI SELECT DROPDOWN ---
 const MultiSelectDropdown = ({ options, selected, onChange, label, placeholder }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -126,49 +115,68 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, placeholder }
 };
 
 export default function GiraRoster({ supabase, gira, onBack }) {
-  const [roster, setRoster] = useState([]);
-  const [sources, setSources] = useState([]);
-  const [loading, setLoading] = useState(false);
+  // --- USAR HOOK ---
+  const { roster: rawRoster, loading: hookLoading, sources, refreshRoster } = useGiraRoster(supabase, gira);
 
-  // Estados UI y Configuración
+  const [localRoster, setLocalRoster] = useState([]);
+  const [loadingAction, setLoadingAction] = useState(false);
+
+  // UI States
   const [addMode, setAddMode] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   
-  // Nuevo: Ordenamiento y Visibilidad de Columnas
-  const [sortBy, setSortBy] = useState('rol'); // 'rol', 'localidad', 'region', 'instrumento'
+  const [sortBy, setSortBy] = useState('rol');
   const [visibleColumns, setVisibleColumns] = useState({
     telefono: false,
     mail: false,
     alimentacion: false,
-    localidad: false // Muestra Región y Localidad
+    localidad: false
   });
   const [showColumnMenu, setShowColumnMenu] = useState(false);
-  const columnMenuRef = useRef(null); // Ref para cerrar al hacer click fuera
+  const columnMenuRef = useRef(null);
 
-  // Dropdowns
+  // Dropdowns States
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [familiesList, setFamiliesList] = useState([]);
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
   const [selectedFamilies, setSelectedFamilies] = useState(new Set());
   const [selectedExclEnsembles, setSelectedExclEnsembles] = useState(new Set());
 
+  // Init UI Data
   useEffect(() => {
-    loadAllData();
     fetchDropdownData();
-  }, [gira.id]);
+  }, []);
+
+  // Sync Hook Data with Local UI State
+  useEffect(() => {
+    if (rawRoster) {
+        setLocalRoster(sortRosterList(rawRoster, sortBy));
+    }
+  }, [rawRoster, sortBy]);
+
+  // Sync Sources UI with Hook Sources
+  useEffect(() => {
+      const inclEnsembles = new Set();
+      const inclFamilies = new Set();
+      const exclEnsembles = new Set();
+
+      sources?.forEach((f) => {
+        if (f.tipo === "ENSAMBLE") inclEnsembles.add(f.valor_id);
+        if (f.tipo === "FAMILIA") inclFamilies.add(f.valor_texto);
+        if (f.tipo === "EXCL_ENSAMBLE") exclEnsembles.add(f.valor_id);
+      });
+
+      setSelectedEnsembles(inclEnsembles);
+      setSelectedFamilies(inclFamilies);
+      setSelectedExclEnsembles(exclEnsembles);
+  }, [sources]);
 
   useEffect(() => {
     if (addMode === "individual" && searchTerm.length > 2) searchIndividual(searchTerm);
     else setSearchResults([]);
   }, [searchTerm, addMode]);
 
-  // Reordenar cuando cambia el criterio
-  useEffect(() => {
-    setRoster(prev => sortRosterList(prev, sortBy));
-  }, [sortBy]);
-
-  // Click Outside para el menú de columnas
   useEffect(() => {
       const handleClickOutside = (event) => {
         if (columnMenuRef.current && !columnMenuRef.current.contains(event.target)) {
@@ -189,127 +197,11 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     }
   };
 
-  const loadAllData = async () => {
-    setLoading(true);
-    try {
-      // 1. Fuentes
-      const { data: fuentes } = await supabase.from("giras_fuentes").select("*").eq("id_gira", gira.id);
-      setSources(fuentes || []);
-
-      const inclEnsembles = new Set();
-      const inclFamilies = new Set();
-      const exclEnsembles = new Set();
-
-      fuentes?.forEach((f) => {
-        if (f.tipo === "ENSAMBLE") inclEnsembles.add(f.valor_id);
-        if (f.tipo === "FAMILIA") inclFamilies.add(f.valor_texto);
-        if (f.tipo === "EXCL_ENSAMBLE") exclEnsembles.add(f.valor_id);
-      });
-
-      setSelectedEnsembles(inclEnsembles);
-      setSelectedFamilies(inclFamilies);
-      setSelectedExclEnsembles(exclEnsembles);
-
-      // 2. Overrides
-      const { data: overrides } = await supabase.from("giras_integrantes").select("id_integrante, estado, rol").eq("id_gira", gira.id);
-      const overrideMap = {};
-      overrides?.forEach((o) => (overrideMap[o.id_integrante] = { estado: o.estado, rol: o.rol }));
-
-      // 3. Integrantes desde Fuentes
-      const [membersEns, membersFam, membersExcl] = await Promise.all([
-        inclEnsembles.size > 0 ? supabase.from("integrantes_ensambles").select("id_integrante").in("id_ensamble", Array.from(inclEnsembles)).then((res) => res.data || []) : Promise.resolve([]),
-        inclFamilies.size > 0 ? supabase.from("integrantes").select("id, instrumentos!inner(familia)").in("instrumentos.familia", Array.from(inclFamilies)).then((res) => res.data || []) : Promise.resolve([]),
-        exclEnsembles.size > 0 ? supabase.from("integrantes_ensambles").select("id_integrante").in("id_ensamble", Array.from(exclEnsembles)).then((res) => res.data || []) : Promise.resolve([]),
-      ]);
-
-      const baseIncludedIds = new Set([...membersEns.map((m) => m.id_integrante), ...membersFam.map((m) => m.id)]);
-      const excludedIds = new Set(membersExcl.map((m) => m.id_integrante));
-      const manualIds = new Set(overrides.map((o) => o.id_integrante));
-      const allPotentialIds = new Set([...baseIncludedIds, ...excludedIds, ...manualIds]);
-
-      if (allPotentialIds.size === 0) {
-        setRoster([]);
-        setLoading(false);
-        return;
-      }
-
-      // 4. Datos Completos
-      const { data: musicians } = await supabase
-        .from("integrantes")
-        .select(`
-            id, nombre, apellido, fecha_alta, fecha_baja, condicion, 
-            telefono, mail, alimentacion, id_instr,
-            instrumentos(instrumento, familia),
-            localidades(localidad, regiones(region))
-        `)
-        .in("id", Array.from(allPotentialIds));
-
-      if (!musicians) {
-        setRoster([]);
-        return;
-      }
-
-      const giraInicio = new Date(gira.fecha_desde);
-      const giraFin = new Date(gira.fecha_hasta);
-      const finalRoster = [];
-
-      musicians.forEach((m) => {
-        const id = m.id;
-        const manualData = overrideMap[id];
-        const isBaseIncluded = baseIncludedIds.has(id);
-        const isExcluded = excludedIds.has(id);
-        const isManual = manualIds.has(id);
-
-        let keep = false;
-        let estadoReal = "confirmado";
-        let rolReal = "musico";
-        let esAdicional = false;
-
-        // -- LOGICA DEFAULT PARA FAMILIA 'Prod.' --
-        if (!isManual && m.instrumentos?.familia?.includes('Prod')) {
-            rolReal = 'produccion';
-        }
-
-        if (isManual) {
-          estadoReal = manualData.estado;
-          rolReal = manualData.rol;
-          if (estadoReal === "confirmado") {
-            keep = true;
-            esAdicional = true;
-          }
-        } else {
-          if (isBaseIncluded && !isExcluded) {
-            if ((m.fecha_alta && new Date(m.fecha_alta) > giraInicio) || (m.fecha_baja && new Date(m.fecha_baja) < giraFin)) {
-              keep = false;
-            } else {
-              keep = true;
-            }
-          }
-        }
-
-        if (keep) {
-          finalRoster.push({
-            ...m,
-            estado_gira: estadoReal,
-            rol_gira: rolReal,
-            es_adicional: esAdicional,
-          });
-        }
-      });
-
-      setRoster(sortRosterList(finalRoster, sortBy));
-
-    } catch (err) {
-      alert("Error: " + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // --- ACTIONS ---
+  // --- ACCIONES ---
 
   const changeRole = async (musician, newRole) => {
-    setRoster(prev => {
+    // Actualización optimista local
+    setLocalRoster(prev => {
         const newList = prev.map(m => m.id === musician.id ? { ...m, rol_gira: newRole } : m);
         return sortRosterList(newList, sortBy);
     });
@@ -318,12 +210,13 @@ export default function GiraRoster({ supabase, gira, onBack }) {
       { id_gira: gira.id, id_integrante: musician.id, rol: newRole, estado: musician.estado_gira },
       { onConflict: "id_gira, id_integrante" }
     );
+    refreshRoster(); // Sincronizar verdad
   };
 
   const toggleStatus = async (musician) => {
     const newStatus = musician.estado_gira === "confirmado" ? "ausente" : "confirmado";
     
-    setRoster(prev => {
+    setLocalRoster(prev => {
         const newList = prev.map(m => m.id === musician.id ? { ...m, estado_gira: newStatus } : m);
         return sortRosterList(newList, sortBy);
     });
@@ -340,21 +233,60 @@ export default function GiraRoster({ supabase, gira, onBack }) {
           await supabase.from("giras_integrantes").delete().eq("id_gira", gira.id).eq("id_integrante", musician.id);
       }
     }
+    refreshRoster();
+  };
+
+  const handleUpdateGroups = async () => {
+    setLoadingAction(true);
+    await supabase.from("giras_fuentes").delete().eq("id_gira", gira.id);
+    const inserts = [];
+    selectedEnsembles.forEach((id) => inserts.push({ id_gira: gira.id, tipo: "ENSAMBLE", valor_id: id }));
+    selectedFamilies.forEach((fam) => inserts.push({ id_gira: gira.id, tipo: "FAMILIA", valor_texto: fam }));
+    selectedExclEnsembles.forEach((id) => inserts.push({ id_gira: gira.id, tipo: "EXCL_ENSAMBLE", valor_id: id }));
+    if (inserts.length > 0) await supabase.from("giras_fuentes").insert(inserts);
+    setAddMode(null);
+    setLoadingAction(false);
+    refreshRoster();
+  };
+
+  const removeSource = async (id, tipo) => {
+    if (!confirm(tipo === "EXCL_ENSAMBLE" ? "¿Quitar exclusión?" : "¿Quitar fuente?")) return;
+    setLoadingAction(true);
+    await supabase.from("giras_fuentes").delete().eq("id", id);
+    setLoadingAction(false);
+    refreshRoster();
+  };
+
+  const addManualMusician = async (musicianId) => {
+    const { error } = await supabase.from("giras_integrantes").insert({ id_gira: gira.id, id_integrante: musicianId, estado: "confirmado", rol: "musico" });
+    if (!error) { 
+        setSearchTerm(""); 
+        refreshRoster();
+    }
+  };
+
+  const removeMemberManual = async (id) => {
+    if (!confirm("¿Eliminar registro manual?")) return;
+    const { error } = await supabase.from("giras_integrantes").delete().eq("id_integrante", id).eq("id_gira", gira.id);
+    if (!error) refreshRoster();
+  };
+
+  const searchIndividual = async (term) => {
+    const { data } = await supabase.from("integrantes").select("id, nombre, apellido, instrumentos(instrumento)").or(`nombre.ilike.%${term}%,apellido.ilike.%${term}%`).limit(5);
+    const currentIds = new Set(localRoster.map((r) => r.id));
+    setSearchResults(data ? data.filter((m) => !currentIds.has(m.id)) : []);
   };
 
   const copyMails = () => {
-    const mails = roster
+    const mails = localRoster
       .filter(m => m.estado_gira !== 'ausente' && m.mail)
       .map(m => m.mail)
       .join(', ');
-    
-    if (!mails) return alert("No hay correos para copiar.");
-    navigator.clipboard.writeText(mails).then(() => alert("Correos copiados al portapapeles."));
+    if (!mails) return alert("No hay correos.");
+    navigator.clipboard.writeText(mails).then(() => alert("Correos copiados."));
   };
 
-  const toggleColumn = (col) => {
-    setVisibleColumns(prev => ({ ...prev, [col]: !prev[col] }));
-  };
+  const toggleColumn = (col) => setVisibleColumns(prev => ({ ...prev, [col]: !prev[col] }));
 
   const getRowClass = (m) => {
       if (m.estado_gira === 'ausente') return 'bg-red-50 text-red-800 opacity-60 grayscale-[50%]';
@@ -366,46 +298,9 @@ export default function GiraRoster({ supabase, gira, onBack }) {
       return 'bg-white border-l-4 border-l-transparent hover:bg-slate-50';
   };
 
-  // --- OTRAS ACCIONES DE GRUPO/MANUALES ---
-  const handleUpdateGroups = async () => {
-    setLoading(true);
-    await supabase.from("giras_fuentes").delete().eq("id_gira", gira.id);
-    const inserts = [];
-    selectedEnsembles.forEach((id) => inserts.push({ id_gira: gira.id, tipo: "ENSAMBLE", valor_id: id }));
-    selectedFamilies.forEach((fam) => inserts.push({ id_gira: gira.id, tipo: "FAMILIA", valor_texto: fam }));
-    selectedExclEnsembles.forEach((id) => inserts.push({ id_gira: gira.id, tipo: "EXCL_ENSAMBLE", valor_id: id }));
-    if (inserts.length > 0) await supabase.from("giras_fuentes").insert(inserts);
-    setAddMode(null);
-    loadAllData();
-  };
-
-  const removeSource = async (id, tipo) => {
-    if (!confirm(tipo === "EXCL_ENSAMBLE" ? "¿Quitar exclusión?" : "¿Quitar fuente?")) return;
-    setLoading(true);
-    await supabase.from("giras_fuentes").delete().eq("id", id);
-    loadAllData();
-  };
-
-  const searchIndividual = async (term) => {
-    const { data } = await supabase.from("integrantes").select("id, nombre, apellido, instrumentos(instrumento)").or(`nombre.ilike.%${term}%,apellido.ilike.%${term}%`).limit(5);
-    const currentIds = new Set(roster.map((r) => r.id));
-    setSearchResults(data ? data.filter((m) => !currentIds.has(m.id)) : []);
-  };
-
-  const addManualMusician = async (musicianId) => {
-    const { error } = await supabase.from("giras_integrantes").insert({ id_gira: gira.id, id_integrante: musicianId, estado: "confirmado", rol: "musico" });
-    if (!error) { setSearchTerm(""); loadAllData(); }
-  };
-
-  const removeMemberManual = async (id) => {
-    if (!confirm("¿Eliminar registro manual?")) return;
-    const { error } = await supabase.from("giras_integrantes").delete().eq("id_integrante", id).eq("id_gira", gira.id);
-    if (!error) loadAllData();
-  };
-
-  const listaAusentes = roster.filter((r) => r.estado_gira === "ausente");
-  const listaAdicionales = roster.filter((r) => r.es_adicional);
-  const listaConfirmados = roster.filter((r) => r.estado_gira === "confirmado");
+  const listaAusentes = localRoster.filter((r) => r.estado_gira === "ausente");
+  const listaAdicionales = localRoster.filter((r) => r.es_adicional);
+  const listaConfirmados = localRoster.filter((r) => r.estado_gira === "confirmado");
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in duration-300">
@@ -436,55 +331,41 @@ export default function GiraRoster({ supabase, gira, onBack }) {
         </div>
       </div>
 
-      {/* TOOLBAR SUPERIOR (CORREGIDO: Sin overflow-x-auto, con z-index alto) */}
+      {/* TOOLBAR SUPERIOR */}
       <div className="px-4 py-2 bg-white border-b border-slate-100 flex items-center justify-between gap-4 z-40 relative">
         <div className="flex items-center gap-2">
             <span className="text-[10px] uppercase font-bold text-slate-400">Ordenar:</span>
             <div className="flex bg-slate-100 p-0.5 rounded text-xs font-medium">
-                <button onClick={() => setSortBy('rol')} className={`px-2 py-1 rounded ${sortBy === 'rol' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}>Rol</button>
-                <button onClick={() => setSortBy('localidad')} className={`px-2 py-1 rounded ${sortBy === 'localidad' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}>Loc.</button>
-                <button onClick={() => setSortBy('region')} className={`px-2 py-1 rounded ${sortBy === 'region' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}>Reg.</button>
-                <button onClick={() => setSortBy('instrumento')} className={`px-2 py-1 rounded ${sortBy === 'instrumento' ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}>Instr.</button>
+                {['rol', 'localidad', 'region', 'instrumento'].map(crit => (
+                     <button key={crit} onClick={() => setSortBy(crit)} className={`px-2 py-1 rounded capitalize ${sortBy === crit ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}>{crit}</button>
+                ))}
             </div>
         </div>
 
         <div className="flex items-center gap-2">
-             <button onClick={copyMails} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-bold transition-colors" title="Copiar mails de presentes">
+             <button onClick={copyMails} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-bold transition-colors">
                 <IconMail size={14}/> Copiar Mails
              </button>
 
-             {/* Menú de Columnas */}
              <div className="relative" ref={columnMenuRef}>
-                <button onClick={() => setShowColumnMenu(!showColumnMenu)} className={`flex items-center gap-1 px-3 py-1.5 border rounded text-xs font-bold transition-all ${showColumnMenu ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                <button onClick={() => setShowColumnMenu(!showColumnMenu)} className={`flex items-center gap-1 px-3 py-1.5 border rounded text-xs font-bold transition-all ${showColumnMenu ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'}`}>
                     <IconSettings size={14}/> Columnas
                 </button>
-                
                 {showColumnMenu && (
-                    <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-50 p-2 animate-in fade-in zoom-in-95 duration-100">
-                        <div className="text-[10px] uppercase font-bold text-slate-400 px-2 mb-1">Mostrar/Ocultar</div>
-                        <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer">
-                            <input type="checkbox" checked={visibleColumns.localidad} onChange={() => toggleColumn('localidad')} className="rounded text-indigo-600 focus:ring-indigo-500" />
-                            <span className="text-xs text-slate-700">Región / Localidad</span>
-                        </label>
-                        <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer">
-                            <input type="checkbox" checked={visibleColumns.telefono} onChange={() => toggleColumn('telefono')} className="rounded text-indigo-600 focus:ring-indigo-500" />
-                            <span className="text-xs text-slate-700">Teléfono</span>
-                        </label>
-                        <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer">
-                            <input type="checkbox" checked={visibleColumns.mail} onChange={() => toggleColumn('mail')} className="rounded text-indigo-600 focus:ring-indigo-500" />
-                            <span className="text-xs text-slate-700">Mail</span>
-                        </label>
-                        <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer">
-                            <input type="checkbox" checked={visibleColumns.alimentacion} onChange={() => toggleColumn('alimentacion')} className="rounded text-indigo-600 focus:ring-indigo-500" />
-                            <span className="text-xs text-slate-700">Alimentación</span>
-                        </label>
+                    <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-50 p-2">
+                        {Object.keys(visibleColumns).map(col => (
+                            <label key={col} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer">
+                                <input type="checkbox" checked={visibleColumns[col]} onChange={() => toggleColumn(col)} className="rounded text-indigo-600" />
+                                <span className="text-xs text-slate-700 capitalize">{col}</span>
+                            </label>
+                        ))}
                     </div>
                 )}
              </div>
         </div>
       </div>
 
-      {/* TOOLBAR INFERIOR: Agregar Integrantes */}
+      {/* TOOLBAR INFERIOR */}
       <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex gap-3 items-start overflow-visible z-20">
         <div className="flex bg-white border border-slate-200 p-1 rounded-lg shrink-0">
           <button onClick={() => setAddMode(addMode === "groups" ? null : "groups")} className={`px-3 py-1 rounded text-xs font-bold ${addMode === "groups" ? "bg-indigo-50 text-indigo-700" : "text-slate-500"}`}>Grupos</button>
@@ -496,17 +377,17 @@ export default function GiraRoster({ supabase, gira, onBack }) {
             <div className="w-40"><MultiSelectDropdown label="Ensambles" placeholder="Seleccionar..." options={ensemblesList} selected={selectedEnsembles} onChange={setSelectedEnsembles} /></div>
             <div className="w-40"><MultiSelectDropdown label="Familias" placeholder="Seleccionar..." options={familiesList} selected={selectedFamilies} onChange={setSelectedFamilies} /></div>
             <div className="w-40"><MultiSelectDropdown label="EXCLUIR Ens." placeholder="Seleccionar..." options={ensemblesList} selected={selectedExclEnsembles} onChange={setSelectedExclEnsembles} /></div>
-            <button onClick={handleUpdateGroups} disabled={loading} className="mt-5 bg-indigo-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-indigo-700 shadow-sm disabled:opacity-50 h-[38px]">Actualizar</button>
+            <button onClick={handleUpdateGroups} disabled={loadingAction} className="mt-5 bg-indigo-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-indigo-700 shadow-sm disabled:opacity-50 h-[38px]">Actualizar</button>
           </div>
         )}
 
         {addMode === "individual" && (
           <div className="relative w-64 animate-in slide-in-from-left-2 mt-1">
-            <input type="text" placeholder="Buscar apellido..." className="w-full border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <input type="text" placeholder="Buscar apellido..." className="w-full border p-2 rounded text-sm outline-none bg-white shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             {searchResults.length > 0 && (
               <div className="absolute top-full left-0 w-full bg-white border mt-1 rounded shadow-xl z-50 max-h-60 overflow-y-auto">
                 {searchResults.map((m) => (
-                  <button key={m.id} onClick={() => addManualMusician(m.id)} className="w-full text-left p-2 hover:bg-slate-50 text-xs border-b last:border-0">
+                  <button key={m.id} onClick={() => addManualMusician(m.id)} className="w-full text-left p-2 hover:bg-slate-50 text-xs border-b">
                     <b>{m.apellido}, {m.nombre}</b> <span className="text-slate-400">({m.instrumentos?.instrumento})</span>
                   </button>
                 ))}
@@ -525,19 +406,16 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                 <th className="p-3 pl-4 w-28">Rol</th>
                 <th className="p-3">Músico</th>
                 <th className="p-3">Instrumento</th>
-                
-                {/* Columnas Opcionales */}
                 {visibleColumns.localidad && <th className="p-3">Ubicación</th>}
                 {visibleColumns.telefono && <th className="p-3">Teléfono</th>}
                 {visibleColumns.mail && <th className="p-3">Mail</th>}
                 {visibleColumns.alimentacion && <th className="p-3">Alim.</th>}
-
                 <th className="p-3 text-center w-16">Asist.</th>
                 <th className="p-3 text-right w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {roster.map((m) => (
+              {localRoster.map((m) => (
                 <tr key={m.id} className={`transition-colors ${getRowClass(m)}`}>
                   <td className="p-3 pl-4">
                     <select className={`text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full ${["director", "solista"].includes(m.rol_gira) ? "text-indigo-900" : "text-slate-500"}`} value={m.rol_gira || "musico"} onChange={(e) => changeRole(m, e.target.value)}>
@@ -556,7 +434,6 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                   </td>
                   <td className="p-3 text-slate-500 text-xs">{m.instrumentos?.instrumento || "-"}</td>
 
-                  {/* Celdas Opcionales */}
                   {visibleColumns.localidad && (
                       <td className="p-3 text-xs text-slate-600">
                           {m.localidades ? (
@@ -583,7 +460,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                   </td>
                 </tr>
               ))}
-              {roster.length === 0 && !loading && (
+              {localRoster.length === 0 && !hookLoading && (
                 <tr><td colSpan="10" className="p-12 text-center text-slate-400 italic">Lista vacía.</td></tr>
               )}
             </tbody>

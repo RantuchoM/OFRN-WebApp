@@ -7,8 +7,10 @@ import {
 } from '../../components/ui/Icons';
 import DateInput from '../../components/ui/DateInput';
 import TimeInput from '../../components/ui/TimeInput';
+// Note: We don't import the hook here yet because this view is for DEFINITION of transports, 
+// not assignment of people (yet). But we leave it ready if you want to filter local locations.
 
-// --- COMPONENTE DE BÚSQUEDA DE LOCACIONES (Sin cambios) ---
+// --- LOCATION SEARCH COMPONENT (Unchanged) ---
 const LocationSearchInput = ({ locations, value, onChange, placeholder = "Buscar lugar..." }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -126,7 +128,7 @@ export default function GirasTransportesManager({ supabase, giraId }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-        // 1. CARGA DE CATÁLOGOS COMPLETOS (Incluyendo Integrantes para traducir nombres)
+        // 1. CARGA DE CATÁLOGOS
         const [catData, locData, regData, cityData, musData] = await Promise.all([
             supabase.from('transportes').select('*').order('nombre'),
             supabase.from('locaciones').select('id, nombre, localidades(localidad)').order('nombre'),
@@ -138,12 +140,10 @@ export default function GirasTransportesManager({ supabase, giraId }) {
         const catalogList = catData.data || [];
         setCatalog(catalogList);
 
-        // Mapas para traducción rápida
         const regionsMap = (regData.data || []).reduce((acc, r) => ({ ...acc, [r.id]: r.region }), {});
         const citiesMap = (cityData.data || []).reduce((acc, c) => ({ ...acc, [c.id]: c.localidad }), {});
         const musiciansMap = (musData.data || []).reduce((acc, m) => ({ ...acc, [m.id]: `${m.apellido} ${m.nombre}` }), {});
 
-        // Formatear locaciones
         const formattedLocs = (locData.data || []).map(l => ({
             id: l.id,
             nombre: l.nombre,
@@ -172,7 +172,7 @@ export default function GirasTransportesManager({ supabase, giraId }) {
             });
             setTransportEvents(map);
 
-            // 4. FETCH DE REGLAS DE TRANSPORTE
+            // 4. FETCH DE REGLAS DE TRANSPORTE (Para mostrar resumen)
             const { data: rules } = await supabase
                 .from('giras_logistica_reglas_transportes')
                 .select(`
@@ -191,58 +191,34 @@ export default function GirasTransportesManager({ supabase, giraId }) {
                 let label = "";
                 const targets = ruleData.target_ids || [];
 
-                // LÓGICA DE TRADUCCIÓN DETALLADA
                 if (ruleData.alcance === 'General') {
                     label = "Todos (General)";
                 } else if (targets.length === 0) {
                     label = `${ruleData.alcance} (Todos)`;
                 } else {
                     let names = [];
-                    
                     if (ruleData.alcance === 'Region') {
                         names = targets.map(id => regionsMap[id] || `Reg.${id}`);
                         label = `Región: ${names.join(', ')}`;
-                    } 
-                    else if (ruleData.alcance === 'Localidad') {
+                    } else if (ruleData.alcance === 'Localidad') {
                         names = targets.map(id => citiesMap[id] || `Loc.${id}`);
                         label = `Loc: ${names.join(', ')}`;
-                    } 
-                    else if (ruleData.alcance === 'Categoria' || ruleData.alcance === 'Instrumento') {
-                        // Formatear: "SOLISTAS" -> "Solistas", "VIOLIN" -> "Violin"
-                        // Aquí asumimos que si es Instrumento también usa strings
-                        names = targets.map(t => {
-                            // Aseguramos que sea string y formateamos
-                            const str = String(t); 
-                            return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase().replace('_', ' ');
-                        });
+                    } else if (['Categoria', 'Instrumento'].includes(ruleData.alcance)) {
+                        names = targets.map(t => String(t).charAt(0).toUpperCase() + String(t).slice(1).toLowerCase().replace('_', ' '));
                         label = names.join(', ');
-                    } 
-                    else if (ruleData.alcance === 'Persona') {
-                        // Mostrar nombres de personas, truncando si son muchas
+                    } else if (ruleData.alcance === 'Persona') {
                         names = targets.map(id => musiciansMap[id] || 'Desconocido');
-                        if (names.length > 5) {
-                            label = `${names.slice(0, 5).join(', ')} y ${names.length - 5} más`;
-                        } else {
-                            label = names.join(', ');
-                        }
+                        label = names.length > 5 ? `${names.slice(0, 5).join(', ')} y ${names.length - 5} más` : names.join(', ');
                     }
                 }
 
-                // Agregar a Subida
                 if (r.id_evento_subida) {
                     if (!paxMap[r.id_evento_subida]) paxMap[r.id_evento_subida] = { up: [], down: [] };
-                    // Evitar duplicados si hay reglas idénticas
-                    if (!paxMap[r.id_evento_subida].up.includes(label)) {
-                        paxMap[r.id_evento_subida].up.push(label);
-                    }
+                    if (!paxMap[r.id_evento_subida].up.includes(label)) paxMap[r.id_evento_subida].up.push(label);
                 }
-
-                // Agregar a Bajada
                 if (r.id_evento_bajada) {
                     if (!paxMap[r.id_evento_bajada]) paxMap[r.id_evento_bajada] = { up: [], down: [] };
-                    if (!paxMap[r.id_evento_bajada].down.includes(label)) {
-                        paxMap[r.id_evento_bajada].down.push(label);
-                    }
+                    if (!paxMap[r.id_evento_bajada].down.includes(label)) paxMap[r.id_evento_bajada].down.push(label);
                 }
             });
             setPaxInfo(paxMap);
@@ -269,38 +245,25 @@ export default function GirasTransportesManager({ supabase, giraId }) {
   };
 
   const handleDeleteTransport = async (id) => {
-    if(!confirm("Se borrará el transporte y SUS EVENTOS de recorrido. ¿Seguro?")) return;
+    if(!confirm("Se borrará el transporte y SUS EVENTOS. ¿Seguro?")) return;
     await supabase.from('giras_transportes').delete().eq('id', id);
     fetchData();
   };
 
   const handleSaveEvent = async (transportId) => {
       if (!newEvent.fecha || !newEvent.hora || !newEvent.id_locacion) return alert("Fecha, hora y lugar obligatorios");
-
       let desc = newEvent.descripcion;
       if (!desc) {
           const loc = locationsList.find(l => l.id === newEvent.id_locacion);
           desc = loc ? `${loc.nombre} (${loc.ciudad})` : "Parada de transporte";
       }
-      
       const payload = {
-          id_gira: giraId,
-          id_gira_transporte: transportId,
-          fecha: newEvent.fecha,
-          hora_inicio: newEvent.hora,
-          id_locacion: newEvent.id_locacion,
-          descripcion: desc,
-          id_tipo_evento: parseInt(newEvent.id_tipo_evento),
-          convocados: [] 
+          id_gira: giraId, id_gira_transporte: transportId, fecha: newEvent.fecha,
+          hora_inicio: newEvent.hora, id_locacion: newEvent.id_locacion, descripcion: desc,
+          id_tipo_evento: parseInt(newEvent.id_tipo_evento), convocados: [] 
       };
-
-      if (editingEventId) {
-          const { error } = await supabase.from('eventos').update(payload).eq('id', editingEventId);
-          if (error) alert("Error al actualizar: " + error.message);
-      } else {
-          const { error } = await supabase.from('eventos').insert([payload]);
-          if (error) alert("Error creando evento: " + error.message);
-      }
+      if (editingEventId) await supabase.from('eventos').update(payload).eq('id', editingEventId);
+      else await supabase.from('eventos').insert([payload]);
       
       setNewEvent({ fecha: '', hora: '', id_locacion: null, descripcion: '', id_tipo_evento: '11' });
       setEditingEventId(null);
@@ -309,20 +272,10 @@ export default function GirasTransportesManager({ supabase, giraId }) {
 
   const startEditEvent = (evt) => {
       setEditingEventId(evt.id);
-      setNewEvent({
-          fecha: evt.fecha,
-          hora: evt.hora_inicio,
-          id_locacion: evt.id_locacion, 
-          descripcion: evt.descripcion,
-          id_tipo_evento: evt.id_tipo_evento.toString()
-      });
+      setNewEvent({ fecha: evt.fecha, hora: evt.hora_inicio, id_locacion: evt.id_locacion, descripcion: evt.descripcion, id_tipo_evento: evt.id_tipo_evento.toString() });
   };
 
-  const cancelEdit = () => {
-      setEditingEventId(null);
-      setNewEvent({ fecha: '', hora: '', id_locacion: null, descripcion: '', id_tipo_evento: '11' });
-  };
-
+  const cancelEdit = () => { setEditingEventId(null); setNewEvent({ fecha: '', hora: '', id_locacion: null, descripcion: '', id_tipo_evento: '11' }); };
   const handleDeleteEvent = async (eventId) => {
       if(!confirm("¿Borrar parada?")) return;
       await supabase.from('eventos').delete().eq('id', eventId);
@@ -332,10 +285,7 @@ export default function GirasTransportesManager({ supabase, giraId }) {
 
   return (
     <div className="p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-5xl mx-auto">
-      <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 border-b pb-2">
-        <IconTruck className="text-indigo-600"/> Flota y Recorridos
-      </h3>
-
+      <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 border-b pb-2"><IconTruck className="text-indigo-600"/> Flota y Recorridos</h3>
       <div className="flex gap-2 mb-6 items-end bg-slate-50 p-3 rounded-lg border border-slate-200">
         <div className="w-1/4">
             <label className="text-[10px] font-bold text-slate-500">TIPO</label>
@@ -355,22 +305,14 @@ export default function GirasTransportesManager({ supabase, giraId }) {
         {transports.map(t => {
             const isExpanded = activeTransportId === t.id;
             const myEvents = transportEvents[t.id] || [];
-
             return (
                 <div key={t.id} className={`border rounded-lg transition-all ${isExpanded ? 'border-indigo-300 shadow-md bg-white' : 'border-slate-200 hover:border-indigo-200 bg-white'}`}>
                     <div className="p-3 flex justify-between items-center cursor-pointer" onClick={() => { setActiveTransportId(isExpanded ? null : t.id); cancelEdit(); }}>
                         <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-full ${isExpanded ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
-                                <IconTruck size={20}/>
-                            </div>
+                            <div className={`p-2 rounded-full ${isExpanded ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}><IconTruck size={20}/></div>
                             <div>
                                 <div className="font-bold text-slate-800">{t.detalle || "Sin detalle"}</div>
-                                <div className="text-xs text-slate-500 uppercase font-bold flex items-center gap-2">
-                                    {t.transportes?.nombre}
-                                    <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[9px] border border-slate-200">
-                                        {myEvents.length} paradas
-                                    </span>
-                                </div>
+                                <div className="text-xs text-slate-500 uppercase font-bold flex items-center gap-2">{t.transportes?.nombre}<span className="bg-slate-100 px-1.5 py-0.5 rounded text-[9px] border border-slate-200">{myEvents.length} paradas</span></div>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -378,58 +320,28 @@ export default function GirasTransportesManager({ supabase, giraId }) {
                             <div className={`transform transition-transform ${isExpanded ? 'rotate-180' : ''} text-slate-400`}>▼</div>
                         </div>
                     </div>
-
                     {isExpanded && (
                         <div className="border-t border-indigo-100 bg-indigo-50/30 p-4 animate-in slide-in-from-top-2">
-                            <h4 className="text-xs font-bold text-indigo-900 uppercase mb-3 flex items-center gap-2">
-                                <IconMapPin size={12}/> Recorrido y Paradas
-                            </h4>
-
+                            <h4 className="text-xs font-bold text-indigo-900 uppercase mb-3 flex items-center gap-2"><IconMapPin size={12}/> Recorrido y Paradas</h4>
                             <div className="space-y-2 mb-4">
                                 {myEvents.map((evt, idx) => {
                                     const isEditingThis = editingEventId === evt.id;
                                     const pax = paxInfo[evt.id] || { up: [], down: [] };
-                                    
                                     return (
                                         <div key={evt.id} className={`flex items-center gap-3 p-2 rounded border text-xs relative group transition-colors ${isEditingThis ? 'bg-amber-50 border-amber-300 ring-1 ring-amber-300' : 'bg-white border-slate-200'}`}>
                                             <div className="w-6 text-center font-bold text-slate-400 text-[10px]">{idx + 1}</div>
-                                            <div className="flex items-center gap-1 text-slate-700 font-mono bg-slate-50 px-1 rounded border border-slate-100 shrink-0">
-                                                <IconCalendar size={10}/> {formatDateSafe(evt.fecha)}
-                                                <span className="mx-1">|</span>
-                                                <IconClock size={10}/> {evt.hora_inicio?.slice(0,5)}
-                                            </div>
-                                            
+                                            <div className="flex items-center gap-1 text-slate-700 font-mono bg-slate-50 px-1 rounded border border-slate-100 shrink-0"><IconCalendar size={10}/> {formatDateSafe(evt.fecha)}<span className="mx-1">|</span><IconClock size={10}/> {evt.hora_inicio?.slice(0,5)}</div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-medium truncate">{evt.descripcion}</span>
-                                                    {evt.locaciones?.nombre && !evt.descripcion.includes(evt.locaciones.nombre) && (
-                                                        <span className="text-slate-400 font-normal truncate">({evt.locaciones.nombre})</span>
-                                                    )}
-                                                </div>
-                                                
+                                                <div className="flex items-center gap-2"><span className="font-medium truncate">{evt.descripcion}</span>{evt.locaciones?.nombre && !evt.descripcion.includes(evt.locaciones.nombre) && (<span className="text-slate-400 font-normal truncate">({evt.locaciones.nombre})</span>)}</div>
                                                 {(pax.up.length > 0 || pax.down.length > 0) && (
                                                     <div className="flex flex-wrap gap-2 mt-1.5">
-                                                        {pax.up.length > 0 && (
-                                                            <div className="flex items-center gap-1 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded text-[10px] text-emerald-700" title={pax.up.join('\n')}>
-                                                                <IconUpload size={10}/>
-                                                                <span className="font-bold">Suben:</span> <span className="truncate max-w-[300px]">{pax.up.join(', ')}</span>
-                                                            </div>
-                                                        )}
-                                                        {pax.down.length > 0 && (
-                                                            <div className="flex items-center gap-1 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded text-[10px] text-rose-700" title={pax.down.join('\n')}>
-                                                                <IconDownload size={10}/>
-                                                                <span className="font-bold">Bajan:</span> <span className="truncate max-w-[300px]">{pax.down.join(', ')}</span>
-                                                            </div>
-                                                        )}
+                                                        {pax.up.length > 0 && (<div className="flex items-center gap-1 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded text-[10px] text-emerald-700" title={pax.up.join('\n')}><IconUpload size={10}/><span className="font-bold">Suben:</span> <span className="truncate max-w-[300px]">{pax.up.join(', ')}</span></div>)}
+                                                        {pax.down.length > 0 && (<div className="flex items-center gap-1 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded text-[10px] text-rose-700" title={pax.down.join('\n')}><IconDownload size={10}/><span className="font-bold">Bajan:</span> <span className="truncate max-w-[300px]">{pax.down.join(', ')}</span></div>)}
                                                     </div>
                                                 )}
                                             </div>
-
                                             <div className="flex items-center gap-2 shrink-0 ml-2">
-                                                {evt.id_tipo_evento === 11 
-                                                    ? <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded border border-green-200 flex items-center gap-1"><IconEye size={10}/></span>
-                                                    : <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200 flex items-center gap-1"><IconEyeOff size={10}/></span>
-                                                }
+                                                {evt.id_tipo_evento === 11 ? <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded border border-green-200 flex items-center gap-1"><IconEye size={10}/></span> : <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200 flex items-center gap-1"><IconEyeOff size={10}/></span>}
                                                 <button onClick={() => startEditEvent(evt)} className="text-slate-300 hover:text-indigo-500 transition-opacity" title="Editar"><IconEdit size={14}/></button>
                                                 <button onClick={() => handleDeleteEvent(evt.id)} className="text-slate-300 hover:text-red-500 transition-opacity" title="Eliminar"><IconTrash size={14}/></button>
                                             </div>
@@ -438,39 +350,13 @@ export default function GirasTransportesManager({ supabase, giraId }) {
                                 })}
                                 {myEvents.length === 0 && <div className="text-slate-400 text-xs italic ml-8">Sin recorrido definido.</div>}
                             </div>
-
                             <div className={`flex items-end gap-2 p-2 rounded border transition-colors flex-wrap ${editingEventId ? 'bg-amber-50 border-amber-200' : 'bg-white border-indigo-100'}`}>
-                                <div className="w-24">
-                                    <label className="text-[9px] font-bold text-slate-400 block mb-1">FECHA</label>
-                                    <DateInput value={newEvent.fecha} onChange={v => setNewEvent({...newEvent, fecha: v})} className="h-8 text-xs"/>
-                                </div>
-                                <div className="w-20">
-                                    <label className="text-[9px] font-bold text-slate-400 block mb-1">HORA</label>
-                                    <TimeInput value={newEvent.hora} onChange={v => setNewEvent({...newEvent, hora: v})} className="h-8 text-xs"/>
-                                </div>
-                                <div className="flex-1 min-w-[200px]">
-                                    <label className="text-[9px] font-bold text-slate-400 block mb-1">LUGAR</label>
-                                    <LocationSearchInput locations={locationsList} value={newEvent.id_locacion} onChange={(id) => setNewEvent({...newEvent, id_locacion: id})}/>
-                                </div>
-                                <div className="flex-1 min-w-[150px]">
-                                    <label className="text-[9px] font-bold text-slate-400 block mb-1">NOTA</label>
-                                    <input type="text" className="w-full h-8 text-xs border border-slate-300 rounded px-2 outline-none focus:border-indigo-500 bg-white" placeholder="Detalle extra..." value={newEvent.descripcion} onChange={e => setNewEvent({...newEvent, descripcion: e.target.value})}/>
-                                </div>
-                                <div className="w-24">
-                                    <label className="text-[9px] font-bold text-slate-400 block mb-1">VISIBILIDAD</label>
-                                    <select className="w-full h-8 text-xs border border-slate-300 rounded px-1 outline-none bg-white" value={newEvent.id_tipo_evento} onChange={e => setNewEvent({...newEvent, id_tipo_evento: e.target.value})}>
-                                        <option value="11">Público</option>
-                                        <option value="12">Interno</option>
-                                    </select>
-                                </div>
-                                {editingEventId ? (
-                                    <div className="flex gap-1">
-                                        <button onClick={cancelEdit} className="h-8 px-2 text-xs font-bold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded">CANCELAR</button>
-                                        <button onClick={() => handleSaveEvent(t.id)} className="h-8 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded flex items-center justify-center gap-1 transition-colors text-xs font-bold"><IconSave size={14}/> GUARDAR</button>
-                                    </div>
-                                ) : (
-                                    <button onClick={() => handleSaveEvent(t.id)} className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded flex items-center justify-center transition-colors" title="Agregar Parada"><IconPlus size={16}/></button>
-                                )}
+                                <div className="w-24"><label className="text-[9px] font-bold text-slate-400 block mb-1">FECHA</label><DateInput value={newEvent.fecha} onChange={v => setNewEvent({...newEvent, fecha: v})} className="h-8 text-xs"/></div>
+                                <div className="w-20"><label className="text-[9px] font-bold text-slate-400 block mb-1">HORA</label><TimeInput value={newEvent.hora} onChange={v => setNewEvent({...newEvent, hora: v})} className="h-8 text-xs"/></div>
+                                <div className="flex-1 min-w-[200px]"><label className="text-[9px] font-bold text-slate-400 block mb-1">LUGAR</label><LocationSearchInput locations={locationsList} value={newEvent.id_locacion} onChange={(id) => setNewEvent({...newEvent, id_locacion: id})}/></div>
+                                <div className="flex-1 min-w-[150px]"><label className="text-[9px] font-bold text-slate-400 block mb-1">NOTA</label><input type="text" className="w-full h-8 text-xs border border-slate-300 rounded px-2 outline-none focus:border-indigo-500 bg-white" placeholder="Detalle extra..." value={newEvent.descripcion} onChange={e => setNewEvent({...newEvent, descripcion: e.target.value})}/></div>
+                                <div className="w-24"><label className="text-[9px] font-bold text-slate-400 block mb-1">VISIBILIDAD</label><select className="w-full h-8 text-xs border border-slate-300 rounded px-1 outline-none bg-white" value={newEvent.id_tipo_evento} onChange={e => setNewEvent({...newEvent, id_tipo_evento: e.target.value})}><option value="11">Público</option><option value="12">Interno</option></select></div>
+                                {editingEventId ? (<div className="flex gap-1"><button onClick={cancelEdit} className="h-8 px-2 text-xs font-bold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded">CANCELAR</button><button onClick={() => handleSaveEvent(t.id)} className="h-8 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded flex items-center justify-center gap-1 transition-colors text-xs font-bold"><IconSave size={14}/> GUARDAR</button></div>) : (<button onClick={() => handleSaveEvent(t.id)} className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded flex items-center justify-center transition-colors" title="Agregar Parada"><IconPlus size={16}/></button>)}
                             </div>
                         </div>
                     )}

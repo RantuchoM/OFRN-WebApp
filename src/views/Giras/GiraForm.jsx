@@ -1,9 +1,9 @@
-// src/views/Giras/GiraForm.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { 
     IconPlus, IconX, IconCheck, IconTrash, IconMusic, IconMapPin, 
     IconClock, IconCalendar, IconEdit, IconRefresh, 
-    IconUsers, IconLayers, IconLoader, IconAlertTriangle, IconChevronDown
+    IconUsers, IconLayers, IconLoader, IconAlertTriangle, IconChevronDown,
+    IconSearch, IconUserPlus, IconUserMinus 
 } from '../../components/ui/Icons';
 import LocationMultiSelect from '../../components/filters/LocationMultiSelect';
 import DateInput from '../../components/ui/DateInput';
@@ -14,7 +14,6 @@ const SourceMultiSelect = ({ title, options, selectedSet, onToggle, color = "ind
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef(null);
 
-    // Cerrar al hacer clic fuera
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (containerRef.current && !containerRef.current.contains(event.target)) {
@@ -66,7 +65,7 @@ const SourceMultiSelect = ({ title, options, selectedSet, onToggle, color = "ind
                                     <div 
                                         key={opt.value} 
                                         onClick={(e) => {
-                                            e.stopPropagation(); // Evita cerrar el dropdown
+                                            e.stopPropagation(); 
                                             onToggle(opt.value, opt.label);
                                         }}
                                         className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs select-none transition-colors ${isSelected ? `bg-${color}-50 text-${color}-900 font-medium` : 'hover:bg-slate-50 text-slate-600'}`}
@@ -78,6 +77,63 @@ const SourceMultiSelect = ({ title, options, selectedSet, onToggle, color = "ind
                                     </div>
                                 );
                             })}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- COMPONENTE INTERNO: Buscador de Staff con Creación ---
+const StaffSearchInput = ({ options, onSelect, onCreateNew }) => {
+    const [search, setSearch] = useState("");
+    const [isOpen, setIsOpen] = useState(false);
+    const wrapperRef = useRef(null);
+
+    const filtered = options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()));
+
+    useEffect(() => {
+        const handleClick = (e) => {
+            if(wrapperRef.current && !wrapperRef.current.contains(e.target)) setIsOpen(false);
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, []);
+
+    const handleSelect = (val) => {
+        onSelect(val);
+        setSearch("");
+        setIsOpen(false);
+    };
+
+    return (
+        <div className="relative flex-1" ref={wrapperRef}>
+            <div className="relative">
+                <IconSearch size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"/>
+                <input 
+                    type="text"
+                    className="w-full border border-slate-300 pl-8 p-1.5 rounded text-xs outline-none focus:ring-2 focus:ring-fuchsia-200 focus:border-fuchsia-400"
+                    placeholder="Buscar o crear nuevo..."
+                    value={search}
+                    onChange={e => { setSearch(e.target.value); setIsOpen(true); }}
+                    onFocus={() => setIsOpen(true)}
+                />
+            </div>
+            {isOpen && search.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto">
+                    {filtered.length > 0 ? (
+                        filtered.map(opt => (
+                            <div key={opt.value} onClick={() => handleSelect(opt.value)} className="px-3 py-2 hover:bg-slate-50 cursor-pointer text-xs text-slate-700 border-b border-slate-50 last:border-0">
+                                {opt.label}
+                            </div>
+                        ))
+                    ) : (
+                        <div 
+                            onClick={() => { onCreateNew(search); setSearch(""); setIsOpen(false); }}
+                            className="px-3 py-2 bg-fuchsia-50 hover:bg-fuchsia-100 cursor-pointer text-xs text-fuchsia-700 font-bold border-t border-fuchsia-200 flex items-center gap-2"
+                        >
+                            <IconPlus size={14}/> Crear "{search}" como Invitado
                         </div>
                     )}
                 </div>
@@ -104,7 +160,8 @@ export default function GiraForm({
     selectedSources = [],
     setSelectedSources,
     selectedStaff = [],
-    setSelectedStaff
+    setSelectedStaff,
+    absentStaff = [] 
 }) {
     // --- ESTADOS CONCIERTOS ---
     const [concerts, setConcerts] = useState([]);
@@ -121,13 +178,16 @@ export default function GiraForm({
 
     // --- ESTADO LOCAL PARA STAFF ---
     const [staffRole, setStaffRole] = useState('director');
-    const [staffId, setStaffId] = useState('');
+    
+    // --- ESTADOS PARA RESUMEN DE ROSTER ---
+    const [rosterSummary, setRosterSummary] = useState({ adicionales: [], ausentes: [] });
 
     const FAMILIES = ["Cuerdas", "Maderas", "Metales", "Percusión", "Teclados", "Vocal"];
 
     useEffect(() => {
         if (!isNew && giraId) {
             fetchConcertsData();
+            fetchRosterSummary();
         }
     }, [giraId, isNew]);
 
@@ -152,9 +212,30 @@ export default function GiraForm({
         setLoadingConcerts(false);
     };
 
-    // --- LÓGICA DE SELECCIÓN DE FUENTES (Check/Uncheck automático) ---
-    
-    // Sets auxiliares para saber qué está marcado en cada dropdown
+    // --- FETCH DE RESUMEN DE ROSTER ---
+    const fetchRosterSummary = async () => {
+        const { data } = await supabase
+            .from('giras_integrantes')
+            .select(`
+                id_integrante, estado, rol,
+                integrantes (nombre, apellido)
+            `)
+            .eq('id_gira', giraId);
+
+        if (data) {
+            const adicionales = data
+                .filter(r => r.estado === 'confirmado' && !['director', 'solista'].includes(r.rol)) // <--- FILTRO AGREGADO
+                .map(r => `${r.integrantes?.apellido} ${r.integrantes?.nombre}`);
+            
+            const ausentes = data
+                .filter(r => r.estado === 'ausente')
+                .map(r => `${r.integrantes?.apellido} ${r.integrantes?.nombre}`);
+
+            setRosterSummary({ adicionales, ausentes });
+        }
+    };
+
+    // --- LÓGICA DE SELECCIÓN DE FUENTES ---
     const selectedEnsemblesIds = new Set(selectedSources.filter(s => s.tipo === 'ENSAMBLE').map(s => s.valor_id));
     const selectedFamiliesIds = new Set(selectedSources.filter(s => s.tipo === 'FAMILIA').map(s => s.valor_texto));
     const excludedEnsemblesIds = new Set(selectedSources.filter(s => s.tipo === 'EXCL_ENSAMBLE').map(s => s.valor_id));
@@ -166,12 +247,10 @@ export default function GiraForm({
         );
 
         if (exists) {
-            // REMOVER
             setSelectedSources(prev => prev.filter(s => 
                 !(s.tipo === tipo && (isId ? s.valor_id === value : s.valor_texto === value))
             ));
         } else {
-            // AGREGAR
             const newItem = { tipo, label };
             if (isId) newItem.valor_id = value;
             else newItem.valor_texto = value;
@@ -221,7 +300,7 @@ export default function GiraForm({
         setLoadingConcerts(false);
     };
 
-    // --- HANDLERS TRASLADO Y LOCALIDADES (Sin cambios) ---
+    // --- HANDLERS TRASLADO Y LOCALIDADES ---
     const handleShiftProgram = async () => {
         if (!shiftNewDate) return alert("Selecciona la nueva fecha de inicio");
         const oldStart = new Date(formData.fecha_desde);
@@ -247,17 +326,44 @@ export default function GiraForm({
     };
 
     // --- HANDLERS STAFF ---
-    const addStaff = () => {
-        if (!staffId) return;
-        const idInt = parseInt(staffId);
+    const generateRandomId = () => Math.floor(10000000 + Math.random() * 90000000);
+
+    const handleSelectStaff = (idInt) => {
         const person = allIntegrantes.find(i => i.value === idInt);
         if (!person) return;
         const exists = selectedStaff.some(s => s.id_integrante === idInt && s.rol === staffRole);
         if (!exists) {
             setSelectedStaff([...selectedStaff, { id_integrante: idInt, rol: staffRole, label: person.label }]);
         }
-        setStaffId('');
     };
+
+    const handleCreateGuest = async (fullName) => {
+        if(!fullName) return;
+        const parts = fullName.trim().split(' ');
+        const nombre = parts[0];
+        const apellido = parts.slice(1).join(' ') || '-';
+        const newId = generateRandomId();
+
+        setLoading(true);
+        try {
+            const { error } = await supabase.from('integrantes').insert([{
+                id: newId,
+                nombre,
+                apellido,
+                condicion: 'Invitado',
+                rol_sistema: 'personal' 
+            }]);
+
+            if(error) throw error;
+            setSelectedStaff([...selectedStaff, { id_integrante: newId, rol: staffRole, label: `${apellido}, ${nombre}` }]);
+            alert(`Creado: ${nombre} ${apellido} (Invitado)`);
+        } catch (err) {
+            alert("Error al crear invitado: " + err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const removeStaff = (index) => {
         const newStaff = [...selectedStaff];
         newStaff.splice(index, 1);
@@ -293,9 +399,15 @@ export default function GiraForm({
             
             {/* DATOS GENERALES */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                <div className="md:col-span-8">
-                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Nombre Interno</label>
-                    <input type="text" className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-medium text-lg" value={formData.nombre_gira} onChange={(e) => setFormData({...formData, nombre_gira: e.target.value})}/>
+                <div className="md:col-span-8 flex gap-4">
+                    <div className="flex-1">
+                        <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Nombre Interno</label>
+                        <input type="text" className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-medium text-lg" value={formData.nombre_gira} onChange={(e) => setFormData({...formData, nombre_gira: e.target.value})}/>
+                    </div>
+                    <div className="w-1/3">
+                        <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Subtítulo</label>
+                        <input type="text" className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-sm" placeholder="Ej. Ciclo 2025" value={formData.subtitulo || ''} onChange={(e) => setFormData({...formData, subtitulo: e.target.value})}/>
+                    </div>
                 </div>
                 <div className="md:col-span-4">
                     <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Tipo de Programa</label>
@@ -334,14 +446,13 @@ export default function GiraForm({
                 </div>
             </div>
 
-            {/* --- SECCIÓN NUEVA: FUENTES (3 columnas compactas) y STAFF --- */}
+            {/* --- SECCIÓN NUEVA: PERSONAL --- */}
             <div className="mt-6 pt-4 border-t border-indigo-100 grid grid-cols-1 md:grid-cols-12 gap-6">
                 
-                {/* COLUMNA IZQUIERDA: FUENTES */}
+                {/* 1. FUENTES (COLUMNA IZQUIERDA) */}
                 <div className="md:col-span-7 space-y-3">
                     <h4 className="text-sm font-bold text-indigo-900 flex items-center gap-2"><IconLayers size={16}/> Configuración de Personal</h4>
                     
-                    {/* GRILLA DE 3 DESPLEGABLES */}
                     <div className="grid grid-cols-3 gap-2">
                         <SourceMultiSelect 
                             title="Ensambles" 
@@ -369,7 +480,6 @@ export default function GiraForm({
                         />
                     </div>
 
-                    {/* Chips de resumen */}
                     <div className="flex flex-wrap gap-2 min-h-[30px] content-start bg-slate-50 p-2 rounded-lg border border-slate-100">
                         {selectedSources.length === 0 && <span className="text-[10px] text-slate-400 italic">Nada seleccionado</span>}
                         {selectedSources.map((s, idx) => (
@@ -380,30 +490,28 @@ export default function GiraForm({
                             }`}>
                                 {s.tipo === 'EXCL_ENSAMBLE' && '🚫 '}
                                 {s.label}
-                                {/* Botón X para quitarlo directamente desde el chip también */}
                                 <button onClick={() => setSelectedSources(prev => prev.filter((_, i) => i !== idx))} className="ml-1 hover:text-black hover:bg-black/5 rounded-full p-0.5"><IconX size={10}/></button>
                             </span>
                         ))}
                     </div>
                 </div>
 
-                {/* COLUMNA DERECHA: STAFF */}
+                {/* 2. STAFF (COLUMNA DERECHA) */}
                 <div className="md:col-span-5">
-                    <h4 className="text-sm font-bold text-indigo-900 mb-3 flex items-center gap-2"><IconUsers size={16}/> Staff Artístico</h4>
-                    <div className="flex flex-col gap-2 p-3 rounded-lg border bg-fuchsia-50/30 border-fuchsia-100 h-full">
+                    <h4 className="text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2"><IconUsers size={16}/> Staff Artístico</h4>
+                    <div className="flex flex-col gap-2 p-3 rounded-lg border bg-fuchsia-50/30 border-fuchsia-100">
                         <div className="flex gap-2">
-                            <select className="w-1/3 border border-slate-300 p-1.5 rounded text-xs outline-none bg-white" value={staffRole} onChange={e => setStaffRole(e.target.value)}>
+                            <select className="w-1/3 border border-slate-300 p-1.5 rounded text-xs outline-none bg-white font-bold text-fuchsia-800" value={staffRole} onChange={e => setStaffRole(e.target.value)}>
                                 <option value="director">Director</option>
                                 <option value="solista">Solista</option>
                             </select>
-                            <select className="flex-1 border border-slate-300 p-1.5 rounded text-xs outline-none bg-white" value={staffId} onChange={e => setStaffId(e.target.value)}>
-                                <option value="">-- Buscar Persona --</option>
-                                {allIntegrantes.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
-                            </select>
-                            <button onClick={addStaff} className="bg-fuchsia-100 text-fuchsia-700 p-1.5 rounded hover:bg-fuchsia-200"><IconPlus size={16}/></button>
+                            <StaffSearchInput 
+                                options={allIntegrantes}
+                                onSelect={handleSelectStaff}
+                                onCreateNew={handleCreateGuest}
+                            />
                         </div>
-                        <div className="flex flex-wrap gap-2 mt-2 content-start">
-                            {selectedStaff.length === 0 && <span className="text-[10px] text-slate-400 italic">Sin staff asignado</span>}
+                        <div className="flex flex-wrap gap-2 mt-1 content-start min-h-[20px]">
                             {selectedStaff.map((s, idx) => (
                                 <span key={idx} className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border shadow-sm animate-in zoom-in-95 bg-white ${
                                     s.rol === 'director' ? 'text-purple-700 border-purple-200' : 'text-fuchsia-700 border-fuchsia-200'
@@ -415,6 +523,26 @@ export default function GiraForm({
                         </div>
                     </div>
                 </div>
+
+                {/* 3. RESUMEN DE CAMBIOS MANUALES (FILA COMPLETA ABAJO) */}
+                {!isNew && (
+                    <div className="md:col-span-12">
+                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1.5">
+                            <div className="flex items-start gap-2">
+                                <span className="text-emerald-600 font-bold flex items-center gap-1 min-w-[90px]"><IconUserPlus size={12}/> Adicionales:</span>
+                                <span className="text-slate-600 leading-tight">
+                                    {rosterSummary.adicionales.length > 0 ? rosterSummary.adicionales.join(', ') : <span className="italic text-slate-400">Ninguno</span>}
+                                </span>
+                            </div>
+                            <div className="flex items-start gap-2 border-t border-slate-200 pt-1.5">
+                                <span className="text-red-600 font-bold flex items-center gap-1 min-w-[90px]"><IconUserMinus size={12}/> Ausentes:</span>
+                                <span className="text-slate-600 leading-tight">
+                                    {rosterSummary.ausentes.length > 0 ? rosterSummary.ausentes.join(', ') : <span className="italic text-slate-400">Ninguno</span>}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* --- SECCIÓN CONCIERTOS (Sin cambios) --- */}
@@ -433,7 +561,6 @@ export default function GiraForm({
                         ))}
                         {concerts.length === 0 && !loadingConcerts && <div className="text-xs text-slate-400 italic">No hay conciertos cargados.</div>}
                     </div>
-                    {/* Formulario Agregar/Editar Concierto */}
                     <div className={`flex gap-2 items-end p-2 rounded border transition-all ${editingConcertId ? 'bg-amber-50 border-amber-200' : 'bg-indigo-50/50 border-indigo-100'}`}>
                         <div className="w-32"><DateInput value={newConcert.fecha} onChange={v => setNewConcert({...newConcert, fecha: v})}/></div>
                         <div className="w-24"><TimeInput value={newConcert.hora} onChange={v => setNewConcert({...newConcert, hora: v})}/></div>

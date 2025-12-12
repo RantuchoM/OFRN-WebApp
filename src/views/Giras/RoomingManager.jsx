@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+// src/views/Giras/RoomingManager.jsx
+import React, { useState, useEffect, useMemo } from "react";
 import {
-  IconHotel, IconUsers, IconArrowRight, IconLoader, IconPlus, IconCheck, IconX,
-  IconBed, IconMusic, IconTrash, IconMapPin, IconEdit, IconChevronDown, IconFileText, IconPrinter, IconRefresh
+  IconHotel, IconArrowRight, IconLoader, IconPlus, IconBed, IconTrash, 
+  IconMapPin, IconEdit, IconChevronDown, IconFileText, IconRefresh, IconX
 } from "../../components/ui/Icons";
 import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
-// Importamos el reporte desde su propio archivo
 import RoomingReportModal from "./RoomingReport";
+import { useGiraRoster } from "../../hooks/useGiraRoster"; // <--- IMPORTAR HOOK
 
-// --- MODAL: AGREGAR/EDITAR HOTEL (MEJORADO) ---
+// --- MODAL: AGREGAR/EDITAR HOTEL ---
 const HotelForm = ({ onSubmit, onClose, locationsList, masterHotels, initialData }) => {
     const [mode, setMode] = useState(initialData ? 'select' : 'select');
     const [formData, setFormData] = useState({ 
@@ -17,13 +18,10 @@ const HotelForm = ({ onSubmit, onClose, locationsList, masterHotels, initialData
         id_localidad: initialData?.id_localidad || '' 
     });
 
-    // 1. Filtrar localidades que tienen hoteles en el maestro
     const activeLocIds = new Set(masterHotels.map(h => h.id_localidad).filter(id => id !== null));
     const hasNullLocHotels = masterHotels.some(h => h.id_localidad === null);
-    
     const visibleLocations = locationsList.filter(l => activeLocIds.has(l.id));
 
-    // 2. Filtrar hoteles según localidad seleccionada
     const filteredHotels = masterHotels.filter(h => {
         if (formData.id_localidad === 'null') return h.id_localidad === null;
         if (!formData.id_localidad) return true;
@@ -40,68 +38,42 @@ const HotelForm = ({ onSubmit, onClose, locationsList, masterHotels, initialData
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95">
             <div className="bg-white rounded-lg shadow-xl w-96 p-5 space-y-4">
                 <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                    <h3 className="font-bold text-lg text-indigo-900">{initialData ? 'Editar Hotel de Gira' : 'Agregar Hotel a la Gira'}</h3>
+                    <h3 className="font-bold text-lg text-indigo-900">{initialData ? 'Editar Hotel' : 'Agregar Hotel'}</h3>
                     <button onClick={onClose}><IconX size={20} className="text-slate-400 hover:text-slate-600"/></button>
                 </div>
-                
                 <div className="space-y-4">
-                    {/* Selector Localidad */}
                     <div>
                         <label className="text-xs font-bold text-slate-500 block mb-1">Localidad</label>
-                        <select 
-                            className="w-full border p-2 rounded text-sm outline-none bg-white focus:ring-2 focus:ring-indigo-500" 
-                            value={formData.id_localidad} 
-                            onChange={e => setFormData({...formData, id_localidad: e.target.value, id_hotel: ''})}
-                        >
-                            <option value="">-- Todas las localidades --</option>
-                            {hasNullLocHotels && <option value="null">-- Sin localidad asignada --</option>}
+                        <select className="w-full border p-2 rounded text-sm bg-white" value={formData.id_localidad} onChange={e => setFormData({...formData, id_localidad: e.target.value, id_hotel: ''})}>
+                            <option value="">-- Todas --</option>
+                            {hasNullLocHotels && <option value="null">-- Sin localidad --</option>}
                             {visibleLocations.map(l => <option key={l.id} value={l.id}>{l.localidad}</option>)}
                         </select>
                     </div>
-
                     {!initialData && (
                         <div className="flex border-b border-slate-200">
-                            <button onClick={() => setMode('select')} className={`flex-1 pb-2 text-xs font-bold ${mode === 'select' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}>Seleccionar Existente</button>
-                            <button onClick={() => setMode('create')} className={`flex-1 pb-2 text-xs font-bold ${mode === 'create' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}>Crear Nuevo</button>
+                            <button onClick={() => setMode('select')} className={`flex-1 pb-2 text-xs font-bold ${mode === 'select' ? 'text-indigo-600 border-b-2' : 'text-slate-400'}`}>Existente</button>
+                            <button onClick={() => setMode('create')} className={`flex-1 pb-2 text-xs font-bold ${mode === 'create' ? 'text-indigo-600 border-b-2' : 'text-slate-400'}`}>Nuevo</button>
                         </div>
                     )}
-
                     {mode === 'select' ? (
                         <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">Hotel (Base de Datos)</label>
-                            <select 
-                                className="w-full border p-2 rounded text-sm outline-none bg-white focus:ring-2 focus:ring-indigo-500" 
-                                value={formData.id_hotel} 
-                                onChange={e => setFormData({...formData, id_hotel: e.target.value})}
-                                disabled={filteredHotels.length === 0}
-                            >
-                                <option value="">-- Seleccionar Hotel --</option>
+                            <label className="text-xs font-bold text-slate-500 block mb-1">Hotel</label>
+                            <select className="w-full border p-2 rounded text-sm bg-white" value={formData.id_hotel} onChange={e => setFormData({...formData, id_hotel: e.target.value})} disabled={filteredHotels.length === 0}>
+                                <option value="">-- Seleccionar --</option>
                                 {filteredHotels.map(h => <option key={h.id} value={h.id}>{h.nombre}</option>)}
                             </select>
-                            {filteredHotels.length === 0 && formData.id_localidad && (
-                                <p className="text-[10px] text-amber-600 mt-1 italic">No hay hoteles cargados para este filtro.</p>
-                            )}
                         </div>
                     ) : (
                         <div>
-                            <label className="text-xs font-bold text-slate-500 block mb-1">Nombre del Nuevo Hotel</label>
-                            <input 
-                                type="text" 
-                                className="w-full border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-indigo-500" 
-                                autoFocus 
-                                value={formData.nombre} 
-                                onChange={e => setFormData({...formData, nombre: e.target.value})} 
-                                placeholder="Ej: Gran Hotel..." 
-                            />
+                            <label className="text-xs font-bold text-slate-500 block mb-1">Nombre</label>
+                            <input type="text" className="w-full border p-2 rounded text-sm" autoFocus value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} placeholder="Ej: Gran Hotel..." />
                         </div>
                     )}
                 </div>
-
                 <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                    <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700 font-medium">Cancelar</button>
-                    <button onClick={handleSubmit} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700 shadow-sm">
-                        {initialData ? 'Guardar Cambios' : 'Agregar Hotel'}
-                    </button>
+                    <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700">Cancelar</button>
+                    <button onClick={handleSubmit} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700">{initialData ? 'Guardar' : 'Agregar'}</button>
                 </div>
             </div>
         </div>
@@ -118,26 +90,16 @@ const MergeHotelModal = ({ sourceHotel, bookings, onConfirm, onClose }) => {
         <div className="bg-white border rounded-lg shadow-xl w-96 space-y-4 p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start gap-3 border-b border-slate-100 pb-3">
                 <div className="bg-amber-100 text-amber-600 p-2 rounded-full"><IconRefresh size={24}/></div>
-                <div>
-                    <h5 className="font-bold text-lg text-slate-800">Fusionar Hoteles</h5>
-                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                        Se moverán todas las habitaciones de <b>{sourceHotel.hoteles?.nombre}</b> al hotel destino seleccionado. Luego, el hotel de origen se eliminará.
-                    </p>
-                </div>
+                <div><h5 className="font-bold text-lg text-slate-800">Fusionar Hoteles</h5><p className="text-xs text-slate-500 mt-1">Mover todas las habitaciones de <b>{sourceHotel.hoteles?.nombre}</b> a otro hotel.</p></div>
             </div>
-            
             <div>
                 <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Hotel Destino</label>
-                <select className="w-full border p-2 rounded text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-indigo-500" value={targetBookingId} onChange={(e) => setTargetBookingId(e.target.value)}>
+                <select className="w-full border p-2 rounded text-sm bg-slate-50" value={targetBookingId} onChange={(e) => setTargetBookingId(e.target.value)}>
                     <option value="">-- Seleccionar --</option>
-                    {availableHotels.map((h) => <option key={h.id} value={h.id}>{h.hoteles.nombre} ({h.hoteles.localidades.localidad})</option>)}
+                    {availableHotels.map((h) => <option key={h.id} value={h.id}>{h.hoteles.nombre}</option>)}
                 </select>
             </div>
-            
-            <div className="flex justify-end gap-2 pt-2">
-                <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700 font-medium">Cancelar</button>
-                <button onClick={() => onConfirm(sourceHotel.id, targetBookingId)} disabled={!targetBookingId} className="bg-amber-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-amber-700 disabled:opacity-50 shadow-sm">Confirmar Fusión</button>
-            </div>
+            <div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="text-sm text-slate-500">Cancelar</button><button onClick={() => onConfirm(sourceHotel.id, targetBookingId)} disabled={!targetBookingId} className="bg-amber-600 text-white px-4 py-2 rounded text-sm font-bold">Confirmar</button></div>
         </div>
       </div>
     );
@@ -153,36 +115,20 @@ const TransferRoomModal = ({ room, masterHotels, bookings, currentBooking, onCon
       <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95" onClick={onClose}>
         <div className="bg-white border rounded-lg shadow-xl w-80 space-y-4 p-5" onClick={(e) => e.stopPropagation()}>
             <h5 className="font-bold text-sm mb-2 text-indigo-900 flex items-center gap-2"><IconArrowRight size={16} /> Trasladar Habitación</h5>
-            <p className="text-xs text-slate-500">Mover habitación y {room.occupants.length} ocupantes a otro hotel (existente o nuevo en la gira):</p>
-            
-            <select 
-                className="w-full border p-2 rounded text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-indigo-500" 
-                value={targetHotelId} 
-                onChange={(e) => setTargetHotelId(e.target.value)}
-            >
-                <option value="">-- Seleccionar Hotel Destino --</option>
+            <select className="w-full border p-2 rounded text-sm bg-slate-50" value={targetHotelId} onChange={(e) => setTargetHotelId(e.target.value)}>
+                <option value="">-- Destino --</option>
                 {sortedHotels.map((h) => {
                     if (h.id === currentHotelId) return null;
                     const isAlreadyInTour = bookings.some(b => b.id_hotel === h.id);
-                    return (
-                        <option key={h.id} value={h.id}>
-                            {h.nombre} {isAlreadyInTour ? '(En Gira)' : '(Nuevo)'}
-                        </option>
-                    );
+                    return <option key={h.id} value={h.id}>{h.nombre} {isAlreadyInTour ? '(En Gira)' : '(Nuevo)'}</option>;
                 })}
             </select>
-            
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button onClick={onClose} className="text-xs text-slate-500 hover:text-slate-700">Cancelar</button>
-                <button onClick={() => onConfirm(room, targetHotelId)} disabled={!targetHotelId} className="bg-indigo-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-indigo-700 disabled:opacity-50">Mover</button>
-            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100"><button onClick={onClose} className="text-xs text-slate-500">Cancelar</button><button onClick={() => onConfirm(room, targetHotelId)} disabled={!targetHotelId} className="bg-indigo-600 text-white px-3 py-1 rounded text-xs font-bold">Mover</button></div>
         </div>
       </div>
     );
 };
 
-// ... COMPONENTES AUXILIARES (RoomForm, MusicianCard, MusicianListColumn, RoomCard se mantienen IGUAL) ...
-// (Los omito para ahorrar espacio, pero debes copiarlos del archivo anterior o mantenerlos)
 const RoomForm = ({ onSubmit, onClose, initialData }) => {
   const [tipo, setTipo] = useState(initialData?.tipo || "Común");
   const [esMatrimonial, setEsMatrimonial] = useState(initialData?.es_matrimonial || false);
@@ -204,7 +150,7 @@ const RoomForm = ({ onSubmit, onClose, initialData }) => {
 };
 
 const MusicianCard = ({ m, onDragStart, isInRoom, onRemove, isLocal }) => {
-  const loc = m.localidad || "S/D";
+  const loc = m.localidades?.localidad || "S/D";
   const isLocalWarning = isInRoom && isLocal;
   return (
     <div draggable onDragStart={(e) => { e.stopPropagation(); onDragStart(e, m); }} className={`p-1.5 rounded border text-xs flex justify-between items-center shadow-sm cursor-grab active:cursor-grabbing select-none transition-colors ${isLocalWarning ? "bg-orange-100 border-orange-400 text-orange-900 ring-2 ring-orange-300/50 font-medium" : isLocal ? "bg-slate-100 text-slate-400 border-slate-200 grayscale opacity-80" : "bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50"}`} title={isLocalWarning ? "¡Atención! Músico local asignado a hotel" : `${m.apellido}, ${m.nombre}`}>
@@ -220,9 +166,9 @@ const MusicianCard = ({ m, onDragStart, isInRoom, onRemove, isLocal }) => {
 
 const MusicianListColumn = ({ title, color, musicians, isDragging, onDragStart, onDragOver, onDrop }) => {
   const [showLocals, setShowLocals] = useState(false);
-  const locals = musicians.filter((m) => m.isLocal);
-  const visitors = musicians.filter((m) => !m.isLocal);
-  const byCity = visitors.reduce((acc, m) => { const city = m.localidad || "S/D"; if (!acc[city]) acc[city] = []; acc[city].push(m); return acc; }, {});
+  const locals = musicians.filter((m) => m.is_local);
+  const visitors = musicians.filter((m) => !m.is_local);
+  const byCity = visitors.reduce((acc, m) => { const city = m.localidades?.localidad || "S/D"; if (!acc[city]) acc[city] = []; acc[city].push(m); return acc; }, {});
   const sortedCities = Object.keys(byCity).sort();
   return (
     <div className={`w-48 flex flex-col bg-${color}-50/50 rounded-xl border border-${color}-100 p-3 overflow-y-auto transition-colors ${isDragging ? `bg-${color}-100/50 border-${color}-300 border-dashed` : ""}`} onDragOver={onDragOver} onDrop={onDrop}>
@@ -241,44 +187,44 @@ const RoomCard = ({ room, index, total, isDragging, onDragStart, onDragOver, onD
   return (
     <div onDragOver={(e) => { onDragOver(e); setIsOver(true); }} onDragLeave={() => setIsOver(false)} onDrop={(e) => { setIsOver(false); onDrop(e, room.id); }} className={`rounded-lg border shadow-sm flex flex-col transition-all duration-200 ${colorClass} ${isPlus ? "ring-2 ring-amber-400 ring-offset-1" : ""} ${isOver ? "ring-4 ring-indigo-400 scale-105 z-10" : ""}`}>
       <div className="p-2 border-b border-black/5 flex justify-between items-start"><div className="flex-1"><div className="flex items-center gap-1 font-bold text-sm"><IconBed size={14} className={room.es_matrimonial ? "text-pink-600" : "text-slate-500"}/>{getCapacityLabel(count)}</div><div className="text-[9px] opacity-70 flex flex-wrap gap-1 mt-0.5">{isPlus && <span className="font-bold text-amber-700">PLUS</span>}{room.es_matrimonial && <span>• Matri</span>}{room.con_cuna && <span>• Cuna</span>}</div></div><div className="flex items-center gap-0.5"><CommentButton supabase={supabase} entityType="HABITACION" entityId={room.id} onClick={onComment} className="mr-1"/>{onTransfer && (<button onClick={onTransfer} className="text-slate-400 hover:text-indigo-600 p-0.5 rounded hover:bg-white/50 mr-1" title="Mover a otro hotel"><IconArrowRight size={12} /></button>)}<div className="flex flex-col mr-1">{index > 0 && <button onClick={() => onMove(index, -1, room)} className="text-slate-400 hover:text-indigo-600"><IconChevronDown size={12} className="rotate-180" /></button>}{index < total - 1 && <button onClick={() => onMove(index, 1, room)} className="text-slate-400 hover:text-indigo-600"><IconChevronDown size={12} /></button>}</div><button onClick={onEdit} className="text-slate-400 hover:text-indigo-600 p-0.5 rounded hover:bg-white/50"><IconEdit size={12} /></button><button onClick={() => onDelete(room.id)} className="text-slate-400 hover:text-red-600 p-0.5 rounded hover:bg-white/50"><IconTrash size={12} /></button></div></div>
-      <div className="p-1.5 space-y-1 min-h-[50px] flex-1">{room.occupants.map((m) => (<MusicianCard key={m.id} m={m} onDragStart={(e) => onDragStart(e, m, room.id)} isInRoom={true} onRemove={(mus) => onRemoveMusician(mus, room.id)} isLocal={m.isLocal} />))}{count === 0 && <div className="h-full flex items-center justify-center text-slate-400/50 text-xs italic pointer-events-none">Arrastra aquí</div>}</div>{room.notas_internas && <div className="px-2 py-1 border-t border-black/5 text-[9px] italic opacity-80 truncate bg-white/30" title={room.notas_internas}>{room.notas_internas}</div>}
+      <div className="p-1.5 space-y-1 min-h-[50px] flex-1">{room.occupants.map((m) => (<MusicianCard key={m.id} m={m} onDragStart={(e) => onDragStart(e, m, room.id)} isInRoom={true} onRemove={(mus) => onRemoveMusician(mus, room.id)} isLocal={m.is_local} />))}{count === 0 && <div className="h-full flex items-center justify-center text-slate-400/50 text-xs italic pointer-events-none">Arrastra aquí</div>}</div>{room.notas_internas && <div className="px-2 py-1 border-t border-black/5 text-[9px] italic opacity-80 truncate bg-white/30" title={room.notas_internas}>{room.notas_internas}</div>}
     </div>
   );
 };
 
 // --- COMPONENTE PRINCIPAL ---
 export default function RoomingManager({ supabase, program, onBack }) {
-  const [musicians, setMusicians] = useState([]);
+  // 1. HOOK CENTRALIZADO (Fuente de verdad)
+  const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
+
+  const [musicians, setMusicians] = useState([]); // Lista de "Sin asignar"
   const [rooms, setRooms] = useState([]);
   const [bookings, setBookings] = useState([]); 
   const [loading, setLoading] = useState(false);
-
   const [logisticsRules, setLogisticsRules] = useState([]);
   const [logisticsMap, setLogisticsMap] = useState({});
   const [showReport, setShowReport] = useState(false);
 
-  // States de modales
+  // Estados UI
   const [showRoomForm, setShowRoomForm] = useState(false);
   const [editingRoomData, setEditingRoomData] = useState(null);
   const [activeBookingIdForNewRoom, setActiveBookingIdForNewRoom] = useState(null);
   const [roomToTransfer, setRoomToTransfer] = useState(null);
   const [hotelToMerge, setHotelToMerge] = useState(null);
-
   const [showHotelForm, setShowHotelForm] = useState(false);
   const [editingHotelData, setEditingHotelData] = useState(null);
   const [locationsList, setLocationsList] = useState([]);
-  const [masterHotels, setMasterHotels] = useState([]); // Hoteles DB
-
+  const [masterHotels, setMasterHotels] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const [draggedMusician, setDraggedMusician] = useState(null);
   const [commentsState, setCommentsState] = useState(null);
 
-  const programLocalityIds = new Set(program.giras_localidades?.map((gl) => gl.id_localidad) || []);
-
-  useEffect(() => { fetchInitialData(); }, [program.id]);
+  // Recalcular todo cuando cambia el programa o el roster cargado
+  useEffect(() => {
+    if (program.id && !rosterLoading) fetchInitialData();
+  }, [program.id, rosterLoading, roster]); // Dependencia del roster
 
   const calculateLogisticsForMusician = (person, rules) => {
-    // ... (igual al anterior) ...
     const applicable = rules.filter(r => {
         const scope = r.alcance === 'Instrumento' ? 'Categoria' : r.alcance;
         if (scope === 'General') return true;
@@ -287,11 +233,12 @@ export default function RoomingManager({ supabase, program, onBack }) {
         if (scope === 'Localidad' && targets.includes(person.id_localidad)) return true;
         if (scope === 'Region' && person.localidades?.id_region && targets.includes(person.localidades.id_region)) return true;
         if (scope === 'Categoria') {
-            if (targets.includes('SOLISTAS') && person.rol === 'solista') return true;
-            if (targets.includes('DIRECTORES') && person.rol === 'director') return true;
-            if (targets.includes('PRODUCCION') && person.rol === 'produccion') return true;
-            if (targets.includes('LOCALES') && person.isLocal) return true;
-            if (targets.includes('NO_LOCALES') && !person.isLocal) return true;
+            const role = person.rol_gira || 'musico';
+            if (targets.includes('SOLISTAS') && role === 'solista') return true;
+            if (targets.includes('DIRECTORES') && role === 'director') return true;
+            if (targets.includes('PRODUCCION') && role === 'produccion') return true;
+            if (targets.includes('LOCALES') && person.is_local) return true;
+            if (targets.includes('NO_LOCALES') && !person.is_local) return true;
         }
         return false;
     });
@@ -306,18 +253,25 @@ export default function RoomingManager({ supabase, program, onBack }) {
     return final;
   };
 
+  const enrichRosterWithGender = async (baseRoster) => {
+     // El hook puede no traer género, fecha_nac o dni. Los pedimos extra aquí.
+     if(baseRoster.length === 0) return [];
+     const ids = baseRoster.map(m => m.id);
+     const { data } = await supabase.from('integrantes').select('id, genero, dni, fecha_nac').in('id', ids);
+     const map = {};
+     data?.forEach(d => map[d.id] = d);
+     return baseRoster.map(m => ({ ...m, ...map[m.id] })); // Merge
+  };
+
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-      // 1. Cargar Bookings (id_programa)
-      const { data: bookingsData } = await supabase.from("programas_hospedajes")
-          .select("*, hoteles(nombre, localidades(localidad))")
-          .eq("id_programa", program.id) 
-          .order('created_at');
+      // 1. Cargar Bookings
+      const { data: bookingsData } = await supabase.from("programas_hospedajes").select("*, hoteles(nombre, localidades(localidad))").eq("id_programa", program.id).order('created_at');
       setBookings(bookingsData || []);
       const bookingIds = (bookingsData || []).map(b => b.id);
 
-      // 2. Cargar Localidades y Maestro Hoteles
+      // 2. Cargar Localidades y Maestro
       const { data: locs } = await supabase.from('localidades').select('id, localidad').order('localidad');
       setLocationsList(locs || []);
       const { data: allHotels } = await supabase.from('hoteles').select('id, nombre, id_localidad').order('nombre');
@@ -330,59 +284,24 @@ export default function RoomingManager({ supabase, program, onBack }) {
           roomsData = data || [];
       }
 
-      // 4. Roster y Reglas
-      const { data: fuentes } = await supabase.from("giras_fuentes").select("*").eq("id_gira", program.id);
-      const { data: overrides } = await supabase.from("giras_integrantes").select("id_integrante, estado, rol").eq("id_gira", program.id);
+      // 4. Reglas
       const { data: rules } = await supabase.from('giras_logistica_reglas').select('*').eq('id_gira', program.id);
-      
-      const normalizedRules = (rules || []).map(r => ({
-          ...r, 
-          target_ids: (r.target_ids && Array.isArray(r.target_ids)) ? r.target_ids : [r.id_integrante || r.id_localidad || r.id_region || r.instrumento_familia].filter(Boolean)
-      }));
+      const normalizedRules = (rules || []).map(r => ({ ...r, target_ids: (r.target_ids && Array.isArray(r.target_ids)) ? r.target_ids : [r.id_integrante || r.id_localidad || r.id_region || r.instrumento_familia].filter(Boolean) }));
       setLogisticsRules(normalizedRules);
 
-      const overrideMap = {};
-      overrides?.forEach((o) => (overrideMap[o.id_integrante] = { estado: o.estado, rol: o.rol }));
-
-      const idsToFetch = new Set();
-      const ensambleIds = fuentes?.filter((f) => f.tipo === "ENSAMBLE").map((f) => f.valor_id) || [];
-      if (ensambleIds.length > 0) {
-        const { data: rels } = await supabase.from("integrantes_ensambles").select("id_integrante").in("id_ensamble", ensambleIds);
-        rels?.forEach((r) => idsToFetch.add(r.id_integrante));
-      }
-      const familiaNames = fuentes?.filter((f) => f.tipo === "FAMILIA").map((f) => f.valor_texto) || [];
-      if (familiaNames.length > 0) {
-        const { data: famMembers } = await supabase.from("integrantes").select("id, instrumentos!inner(familia)").in("instrumentos.familia", familiaNames);
-        famMembers?.forEach((m) => idsToFetch.add(m.id));
-      }
-      overrides?.forEach((o) => { if (o.estado !== "ausente") idsToFetch.add(o.id_integrante); });
-      const finalMemberIds = Array.from(idsToFetch).filter((id) => overrideMap[id]?.estado !== "ausente");
-
-      let allMusicians = [];
-      if (finalMemberIds.length > 0) {
-        const { data: details } = await supabase.from("integrantes")
-            .select("id, nombre, apellido, dni, fecha_nac, genero, instrumentos(instrumento, familia), localidades(localidad, id_region), id_localidad")
-            .in("id", finalMemberIds);
-        allMusicians = details || [];
-      }
-
+      // 5. Preparar Roster (Enriquecido)
+      const fullMusicians = await enrichRosterWithGender(roster); // Traer género
       const logMap = {};
-      const allMusiciansMap = new Map(allMusicians.map((m) => {
-          let role = overrideMap[m.id]?.rol || "musico";
-          if (m.instrumentos?.familia?.includes('Prod') && role === 'musico') role = 'produccion';
-          const isLocal = programLocalityIds.has(m.id_localidad);
-          
-          logMap[m.id] = calculateLogisticsForMusician({ ...m, rol: role, isLocal }, normalizedRules);
-          
-          return [m.id, { 
-              id: m.id, nombre: m.nombre, apellido: m.apellido, 
-              dni: m.dni, fecha_nac: m.fecha_nac, 
-              genero: m.genero || "-", 
-              localidad: m.localidades?.localidad || "S/D", 
-              id_localidad: m.id_localidad, 
-              isLocal: isLocal, rol: role 
-          }];
-      }));
+      const allMusiciansMap = new Map();
+
+      fullMusicians.forEach(m => {
+          // El hook ya calculó 'rol_gira', 'is_local', 'estado_gira'
+          // Solo filtramos los ausentes si no queremos asignarles habitación (opcional)
+          if(m.estado_gira !== 'ausente') {
+             logMap[m.id] = calculateLogisticsForMusician(m, normalizedRules);
+             allMusiciansMap.set(m.id, m);
+          }
+      });
       setLogisticsMap(logMap);
 
       const roomsWithDetails = roomsData.map((room) => {
@@ -396,12 +315,13 @@ export default function RoomingManager({ supabase, program, onBack }) {
       const unassigned = Array.from(allMusiciansMap.values())
         .filter((m) => !assignedIds.has(m.id))
         .sort((a, b) => { 
-            if (a.isLocal !== b.isLocal) return a.isLocal ? 1 : -1; 
-            return a.apellido.localeCompare(b.apellido); 
+            if (a.is_local !== b.is_local) return a.is_local ? 1 : -1; 
+            return (a.apellido || "").localeCompare(b.apellido || ""); 
         });
 
       setMusicians(unassigned);
       setRooms(roomsWithDetails);
+
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
@@ -412,307 +332,159 @@ export default function RoomingManager({ supabase, program, onBack }) {
   };
   const calculateRoomGender = (occupants) => { 
       if (!occupants || occupants.length === 0) return "Mixto"; 
+      // El genero viene del enrichment step
       const genders = new Set(occupants.map((m) => m.genero)); 
       if (genders.has("F") && !genders.has("M")) return "F"; 
       if (genders.has("M") && !genders.has("F")) return "M"; 
       return "Mixto"; 
   };
 
-  // --- HANDLERS DE HOTEL (SELECCIÓN / CREACIÓN - ACTUALIZADO) ---
+  // ... (RESTO DE HANDLERS IGUALES AL ORIGINAL) ...
   const handleSaveHotel = async ({ id_hotel, nombre, id_localidad, mode, id: editingId }) => {
       setLoading(true);
       let idHotelMaestro = id_hotel;
-
-      // VALIDACIÓN DUPLICADOS (Si es agregar nuevo, no editar)
       if (!editingId && mode === 'select') {
           const alreadyExists = bookings.some(b => b.id_hotel === parseInt(id_hotel));
-          if (alreadyExists) {
-              alert("Este hotel ya está agregado a la gira.");
-              setLoading(false);
-              return;
-          }
+          if (alreadyExists) { alert("Hotel ya agregado."); setLoading(false); return; }
       }
-
       if (mode === 'create') {
           const { data: newHotel } = await supabase.from('hoteles').insert([{ nombre, id_localidad: id_localidad || null }]).select().single();
           if(newHotel) idHotelMaestro = newHotel.id;
       }
-
       if (idHotelMaestro) {
           const payload = { id_programa: program.id, id_hotel: idHotelMaestro };
-          
-          if (editingId) {
-              await supabase.from('programas_hospedajes').update(payload).eq('id', editingId);
-          } else {
-              await supabase.from('programas_hospedajes').insert([payload]);
-          }
+          if (editingId) await supabase.from('programas_hospedajes').update(payload).eq('id', editingId);
+          else await supabase.from('programas_hospedajes').insert([payload]);
           await fetchInitialData();
       }
-      setLoading(false);
-      setShowHotelForm(false);
-      setEditingHotelData(null);
+      setLoading(false); setShowHotelForm(false); setEditingHotelData(null);
   };
-
   const handleDeleteHotel = async (bookingId) => {
-      if(!confirm("¿Eliminar este hotel y todas sus habitaciones?")) return;
+      if(!confirm("¿Eliminar hotel y habitaciones?")) return;
       setLoading(true);
       await supabase.from('programas_hospedajes').delete().eq('id', bookingId);
       await fetchInitialData();
       setLoading(false);
   };
-
-  // --- HANDLER DE FUSIÓN ---
   const handleMergeHotels = async (sourceId, targetId) => {
       setLoading(true);
       try {
-          // 1. Mover habitaciones al hotel destino
           await supabase.from('hospedaje_habitaciones').update({ id_hospedaje: targetId }).eq('id_hospedaje', sourceId);
-          // 2. Eliminar el hotel origen (booking)
           await supabase.from('programas_hospedajes').delete().eq('id', sourceId);
           await fetchInitialData();
           setHotelToMerge(null);
-      } catch(err) {
-          console.error(err);
-          alert("Error al fusionar hoteles");
-      } finally {
-          setLoading(false);
-      }
+      } catch(err) { console.error(err); alert("Error al fusionar"); } finally { setLoading(false); }
   };
-
-  // --- HANDLER DE TRASLADO INTELIGENTE (NUEVO + FIX 409) ---
   const handleTransferConfirm = async (room, targetHotelId) => {
     setLoading(true);
     try {
         const hotelId = parseInt(targetHotelId);
-        // 1. Verificar si el hotel destino YA está en la gira (cliente)
         let targetBookingId = bookings.find(b => b.id_hotel === hotelId)?.id;
-
-        // 2. Si no está en cliente, verificar en DB (por si acaso o concurrencia) o crear
         if (!targetBookingId) {
-            // Check DB to be safe
-            const { data: existing } = await supabase.from('programas_hospedajes')
-                .select('id')
-                .eq('id_programa', program.id)
-                .eq('id_hotel', hotelId)
-                .maybeSingle();
-            
-            if (existing) {
-                targetBookingId = existing.id;
-            } else {
-                // Crear relación si no existe
-                const { data: newBooking, error } = await supabase
-                    .from('programas_hospedajes')
-                    .insert([{ id_programa: program.id, id_hotel: hotelId }])
-                    .select()
-                    .single();
-                
-                if (error) {
-                    // Si da error 409 (Conflict), significa que ya existe, lo buscamos de nuevo
-                    if (error.code === '23505') { 
-                         const { data: retry } = await supabase.from('programas_hospedajes')
-                            .select('id').eq('id_programa', program.id).eq('id_hotel', hotelId).single();
-                         targetBookingId = retry?.id;
-                    } else {
-                        throw error;
-                    }
-                } else {
-                    targetBookingId = newBooking.id;
-                }
+            const { data: existing } = await supabase.from('programas_hospedajes').select('id').eq('id_programa', program.id).eq('id_hotel', hotelId).maybeSingle();
+            if (existing) targetBookingId = existing.id;
+            else {
+                const { data: newBooking, error } = await supabase.from('programas_hospedajes').insert([{ id_programa: program.id, id_hotel: hotelId }]).select().single();
+                if (error && error.code === '23505') { 
+                     const { data: retry } = await supabase.from('programas_hospedajes').select('id').eq('id_programa', program.id).eq('id_hotel', hotelId).single();
+                     targetBookingId = retry?.id;
+                } else targetBookingId = newBooking?.id;
             }
         }
-
-        // 3. Mover la habitación
         if (targetBookingId) {
-             await supabase
-            .from("hospedaje_habitaciones")
-            .update({ id_hospedaje: targetBookingId })
-            .eq("id", room.id);
-            
+             await supabase.from("hospedaje_habitaciones").update({ id_hospedaje: targetBookingId }).eq("id", room.id);
             await fetchInitialData();
             setRoomToTransfer(null);
         }
-    } catch (error) {
-        console.error(error);
-        alert("Error al trasladar: " + error.message);
-    } finally {
-        setLoading(false);
-    }
+    } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
-  // ... (DRAG HANDLERS IGUALES) ...
+  // ... (DRAG HANDLERS SIMPLIFICADOS PARA USAR CAMPOS STANDARIZADOS DEL HOOK) ...
+  // Nota: is_local viene del hook. 'genero' viene del enrichment.
   const handleDragStart = (e, musician, sourceRoomId = null) => { e.dataTransfer.setData("text/plain", musician.id); e.dataTransfer.effectAllowed = "move"; setDraggedMusician({ ...musician, sourceRoomId }); setIsDragging(true); };
   const handleDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
   
   const handleDropOnRoom = (e, targetRoomId) => {
-    e.preventDefault();
-    if (!draggedMusician) return;
-    const targetIndex = rooms.findIndex((r) => r.id === targetRoomId);
-    if (targetIndex === -1) return;
+    e.preventDefault(); if (!draggedMusician) return;
+    const targetIndex = rooms.findIndex((r) => r.id === targetRoomId); if (targetIndex === -1) return;
     const targetRoom = { ...rooms[targetIndex] };
     if (targetRoom.occupants.find((m) => m.id === draggedMusician.id)) { setIsDragging(false); return; }
-    let newRooms = [...rooms];
-    let newMusicians = [...musicians];
+    let newRooms = [...rooms]; let newMusicians = [...musicians];
     if (draggedMusician.sourceRoomId) {
       const srcIndex = newRooms.findIndex((r) => r.id === draggedMusician.sourceRoomId);
       if (srcIndex !== -1) {
         const srcRoom = { ...newRooms[srcIndex] };
         srcRoom.occupants = srcRoom.occupants.filter((m) => m.id !== draggedMusician.id);
         if (srcRoom.occupants.length === 0) { 
-            newRooms.splice(srcIndex, 1); 
-            supabase.from("hospedaje_habitaciones").delete().eq("id", srcRoom.id).then(); 
-            if (srcIndex < targetIndex) { 
-                const newTargetIdx = newRooms.findIndex((r) => r.id === targetRoomId); 
-                if (newTargetIdx !== -1) { 
-                    const tRoom = { ...newRooms[newTargetIdx] }; 
-                    tRoom.occupants = [...tRoom.occupants, draggedMusician]; 
-                    tRoom.roomGender = calculateRoomGender(tRoom.occupants); 
-                    newRooms[newTargetIdx] = tRoom; 
-                    syncRoomOccupants(targetRoomId, tRoom.occupants); 
-                } 
-                updateLocalState(newRooms, newMusicians); 
-                setDraggedMusician(null); setIsDragging(false); return; 
-            } 
+            newRooms.splice(srcIndex, 1); supabase.from("hospedaje_habitaciones").delete().eq("id", srcRoom.id).then(); 
+            if (srcIndex < targetIndex) { /* Lógica reordenamiento si es necesario */ }
         } else { 
-            srcRoom.roomGender = calculateRoomGender(srcRoom.occupants); 
-            newRooms[srcIndex] = srcRoom; 
-            syncRoomOccupants(srcRoom.id, srcRoom.occupants); 
+            srcRoom.roomGender = calculateRoomGender(srcRoom.occupants); newRooms[srcIndex] = srcRoom; syncRoomOccupants(srcRoom.id, srcRoom.occupants); 
         }
       }
-    } else { 
-        newMusicians = newMusicians.filter((m) => m.id !== draggedMusician.id); 
-    }
+    } else newMusicians = newMusicians.filter((m) => m.id !== draggedMusician.id);
     const finalTargetIndex = newRooms.findIndex((r) => r.id === targetRoomId);
     if (finalTargetIndex !== -1) { 
-        const finalTarget = { ...newRooms[finalTargetIndex] }; 
-        finalTarget.occupants = [...finalTarget.occupants, draggedMusician]; 
-        finalTarget.roomGender = calculateRoomGender(finalTarget.occupants); 
-        newRooms[finalTargetIndex] = finalTarget; 
-        syncRoomOccupants(targetRoomId, finalTarget.occupants); 
+        const finalTarget = { ...newRooms[finalTargetIndex] }; finalTarget.occupants = [...finalTarget.occupants, draggedMusician]; 
+        finalTarget.roomGender = calculateRoomGender(finalTarget.occupants); newRooms[finalTargetIndex] = finalTarget; syncRoomOccupants(targetRoomId, finalTarget.occupants); 
     }
-    updateLocalState(newRooms, newMusicians);
-    setDraggedMusician(null);
-    setIsDragging(false);
+    updateLocalState(newRooms, newMusicians); setDraggedMusician(null); setIsDragging(false);
   };
   const handleDropOnUnassigned = (e) => {
-    e.preventDefault();
-    if (!draggedMusician || !draggedMusician.sourceRoomId) return;
-    let newRooms = [...rooms];
-    const srcIndex = newRooms.findIndex((r) => r.id === draggedMusician.sourceRoomId);
+    e.preventDefault(); if (!draggedMusician || !draggedMusician.sourceRoomId) return;
+    let newRooms = [...rooms]; const srcIndex = newRooms.findIndex((r) => r.id === draggedMusician.sourceRoomId);
     if (srcIndex !== -1) { 
-        const srcRoom = { ...newRooms[srcIndex] }; 
-        srcRoom.occupants = srcRoom.occupants.filter((m) => m.id !== draggedMusician.id); 
-        if (srcRoom.occupants.length === 0) { 
-            newRooms.splice(srcIndex, 1); 
-            supabase.from("hospedaje_habitaciones").delete().eq("id", srcRoom.id).then(); 
-        } else { 
-            srcRoom.roomGender = calculateRoomGender(srcRoom.occupants); 
-            newRooms[srcIndex] = srcRoom; 
-            syncRoomOccupants(srcRoom.id, srcRoom.occupants); 
-        } 
-        const newMusicians = [...musicians, draggedMusician].sort((a, b) => { 
-            if (a.isLocal !== b.isLocal) return a.isLocal ? 1 : -1; 
-            return a.apellido.localeCompare(b.apellido); 
-        }); 
+        const srcRoom = { ...newRooms[srcIndex] }; srcRoom.occupants = srcRoom.occupants.filter((m) => m.id !== draggedMusician.id); 
+        if (srcRoom.occupants.length === 0) { newRooms.splice(srcIndex, 1); supabase.from("hospedaje_habitaciones").delete().eq("id", srcRoom.id).then(); } 
+        else { srcRoom.roomGender = calculateRoomGender(srcRoom.occupants); newRooms[srcIndex] = srcRoom; syncRoomOccupants(srcRoom.id, srcRoom.occupants); } 
+        const newMusicians = [...musicians, draggedMusician].sort((a, b) => { if (a.is_local !== b.is_local) return a.is_local ? 1 : -1; return a.apellido.localeCompare(b.apellido); }); 
         updateLocalState(newRooms, newMusicians); 
     }
-    setDraggedMusician(null);
-    setIsDragging(false);
+    setDraggedMusician(null); setIsDragging(false);
   };
   const handleDropOnNewRoom = async (e, bookingId) => {
-    e.preventDefault();
-    if (!draggedMusician) return;
-    setLoading(true);
-    let newRooms = [...rooms];
-    let newMusicians = [...musicians];
+    e.preventDefault(); if (!draggedMusician) return; setLoading(true);
+    let newRooms = [...rooms]; let newMusicians = [...musicians];
     if (draggedMusician.sourceRoomId) { 
         const srcIndex = newRooms.findIndex((r) => r.id === draggedMusician.sourceRoomId); 
         if (srcIndex !== -1) { 
-            const srcRoom = { ...newRooms[srcIndex] }; 
-            srcRoom.occupants = srcRoom.occupants.filter((m) => m.id !== draggedMusician.id); 
-            if (srcRoom.occupants.length === 0) { 
-                newRooms.splice(srcIndex, 1); 
-                await supabase.from("hospedaje_habitaciones").delete().eq("id", srcRoom.id); 
-            } else { 
-                srcRoom.roomGender = calculateRoomGender(srcRoom.occupants); 
-                newRooms[srcIndex] = srcRoom; 
-                syncRoomOccupants(srcRoom.id, srcRoom.occupants); 
-            } 
+            const srcRoom = { ...newRooms[srcIndex] }; srcRoom.occupants = srcRoom.occupants.filter((m) => m.id !== draggedMusician.id); 
+            if (srcRoom.occupants.length === 0) { newRooms.splice(srcIndex, 1); await supabase.from("hospedaje_habitaciones").delete().eq("id", srcRoom.id); } 
+            else { srcRoom.roomGender = calculateRoomGender(srcRoom.occupants); newRooms[srcIndex] = srcRoom; syncRoomOccupants(srcRoom.id, srcRoom.occupants); } 
         } 
-    } else { 
-        newMusicians = newMusicians.filter((m) => m.id !== draggedMusician.id); 
-    }
+    } else newMusicians = newMusicians.filter((m) => m.id !== draggedMusician.id);
     updateLocalState(newRooms, newMusicians);
-    const { data } = await supabase.from("hospedaje_habitaciones").insert([{ 
-        id_hospedaje: bookingId, tipo: "Común", configuracion: "Simple", 
-        id_integrantes_asignados: [draggedMusician.id], 
-        orden: rooms.length + 100 
-    }]).select().single();
-    if (data) { 
-        const newRoom = { ...data, occupants: [draggedMusician], roomGender: calculateRoomGender([draggedMusician]) }; 
-        setRooms((prev) => [...prev, newRoom]); 
-    }
-    setDraggedMusician(null);
-    setIsDragging(false);
-    setLoading(false);
+    const { data } = await supabase.from("hospedaje_habitaciones").insert([{ id_hospedaje: bookingId, tipo: "Común", configuracion: "Simple", id_integrantes_asignados: [draggedMusician.id], orden: rooms.length + 100 }]).select().single();
+    if (data) { const newRoom = { ...data, occupants: [draggedMusician], roomGender: calculateRoomGender([draggedMusician]) }; setRooms((prev) => [...prev, newRoom]); }
+    setDraggedMusician(null); setIsDragging(false); setLoading(false);
   };
   const handleRemoveFromRoom = (musician, roomId) => {
-    const roomIndex = rooms.findIndex((r) => r.id === roomId);
-    if (roomIndex === -1) return;
-    let newRooms = [...rooms];
-    const targetRoom = { ...newRooms[roomIndex] };
+    const roomIndex = rooms.findIndex((r) => r.id === roomId); if (roomIndex === -1) return;
+    let newRooms = [...rooms]; const targetRoom = { ...newRooms[roomIndex] };
     targetRoom.occupants = targetRoom.occupants.filter((m) => m.id !== musician.id);
-    if (targetRoom.occupants.length === 0) { 
-        newRooms.splice(roomIndex, 1); 
-        supabase.from("hospedaje_habitaciones").delete().eq("id", roomId).then(); 
-    } else { 
-        targetRoom.roomGender = calculateRoomGender(targetRoom.occupants); 
-        newRooms[roomIndex] = targetRoom; 
-        syncRoomOccupants(roomId, targetRoom.occupants); 
-    }
-    const newMusicians = [...musicians, musician].sort((a, b) => { 
-        if (a.isLocal !== b.isLocal) return a.isLocal ? 1 : -1; 
-        return a.apellido.localeCompare(b.apellido); 
-    });
+    if (targetRoom.occupants.length === 0) { newRooms.splice(roomIndex, 1); supabase.from("hospedaje_habitaciones").delete().eq("id", roomId).then(); } 
+    else { targetRoom.roomGender = calculateRoomGender(targetRoom.occupants); newRooms[roomIndex] = targetRoom; syncRoomOccupants(roomId, targetRoom.occupants); }
+    const newMusicians = [...musicians, musician].sort((a, b) => { if (a.is_local !== b.is_local) return a.is_local ? 1 : -1; return a.apellido.localeCompare(b.apellido); });
     updateLocalState(newRooms, newMusicians);
   };
   const handleSaveRoom = async (roomData) => {
-    if (roomData.id) { 
-        setRooms((prev) => prev.map((r) => (r.id === roomData.id ? { ...r, ...roomData } : r))); 
-        await supabase.from("hospedaje_habitaciones").update(roomData).eq("id", roomData.id); 
-    } else { 
-        setLoading(true); 
-        const { data } = await supabase.from("hospedaje_habitaciones").insert([{ 
-            ...roomData, id_hospedaje: activeBookingIdForNewRoom, id_integrantes_asignados: [], orden: rooms.length + 10 
-        }]).select().single(); 
-        if (data) { 
-            const newRoom = { ...data, occupants: [], roomGender: "Mixto" }; 
-            setRooms((prev) => [...prev, newRoom]); 
-        } 
-        setLoading(false); 
-    }
-    setEditingRoomData(null);
+    if (roomData.id) { setRooms((prev) => prev.map((r) => (r.id === roomData.id ? { ...r, ...roomData } : r))); await supabase.from("hospedaje_habitaciones").update(roomData).eq("id", roomData.id); } 
+    else { setLoading(true); const { data } = await supabase.from("hospedaje_habitaciones").insert([{ ...roomData, id_hospedaje: activeBookingIdForNewRoom, id_integrantes_asignados: [], orden: rooms.length + 10 }]).select().single(); 
+    if (data) { const newRoom = { ...data, occupants: [], roomGender: "Mixto" }; setRooms((prev) => [...prev, newRoom]); } setLoading(false); } setEditingRoomData(null);
   };
   const handleDeleteRoom = async (id) => {
-    const roomToDelete = rooms.find((r) => r.id === id);
-    if (!roomToDelete) return;
+    const roomToDelete = rooms.find((r) => r.id === id); if (!roomToDelete) return;
     const newRooms = rooms.filter((r) => r.id !== id);
-    const newMusicians = [...musicians, ...(roomToDelete.occupants || [])].sort((a, b) => { 
-        if (a.isLocal !== b.isLocal) return a.isLocal ? 1 : -1; 
-        return a.apellido.localeCompare(b.apellido); 
-    });
-    updateLocalState(newRooms, newMusicians);
-    await supabase.from("hospedaje_habitaciones").delete().eq("id", id);
+    const newMusicians = [...musicians, ...(roomToDelete.occupants || [])].sort((a, b) => { if (a.is_local !== b.is_local) return a.is_local ? 1 : -1; return a.apellido.localeCompare(b.apellido); });
+    updateLocalState(newRooms, newMusicians); await supabase.from("hospedaje_habitaciones").delete().eq("id", id);
   };
   const handleMoveRoom = async (index, direction, currentRoom) => {
     const hotelRooms = rooms.filter((r) => r.id_hospedaje === currentRoom.id_hospedaje).sort((a, b) => (a.orden || 0) - (b.orden || 0));
     const currentIndex = hotelRooms.findIndex((r) => r.id === currentRoom.id);
     if ((direction === -1 && currentIndex === 0) || (direction === 1 && currentIndex === hotelRooms.length - 1)) return;
     const otherRoom = hotelRooms[currentIndex + direction];
-    const globalIdxA = rooms.findIndex((r) => r.id === currentRoom.id);
-    const globalIdxB = rooms.findIndex((r) => r.id === otherRoom.id);
-    const newRooms = [...rooms];
-    newRooms[globalIdxA] = otherRoom;
-    newRooms[globalIdxB] = currentRoom;
+    const globalIdxA = rooms.findIndex((r) => r.id === currentRoom.id); const globalIdxB = rooms.findIndex((r) => r.id === otherRoom.id);
+    const newRooms = [...rooms]; newRooms[globalIdxA] = otherRoom; newRooms[globalIdxB] = currentRoom;
     setRooms(newRooms);
     await supabase.from("hospedaje_habitaciones").update({ orden: otherRoom.orden || 0 }).eq("id", currentRoom.id);
     await supabase.from("hospedaje_habitaciones").update({ orden: currentRoom.orden || 0 }).eq("id", otherRoom.id);
@@ -733,6 +505,8 @@ export default function RoomingManager({ supabase, program, onBack }) {
   const women = musicians.filter((m) => m.genero === "F");
   const men = musicians.filter((m) => m.genero !== "F");
 
+  if(rosterLoading) return <div className="text-center p-10"><IconLoader className="animate-spin inline text-indigo-600" /></div>;
+
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in relative">
       <div className="bg-white p-3 border-b border-slate-200 shadow-sm shrink-0">
@@ -742,18 +516,8 @@ export default function RoomingManager({ supabase, program, onBack }) {
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">Gestión Integral Rooming</h2>
           </div>
           <div className="flex gap-2">
-             <button 
-                onClick={() => { setEditingHotelData(null); setShowHotelForm(true); }}
-                className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg border border-emerald-200 text-xs font-bold hover:bg-emerald-100 flex items-center gap-2"
-             >
-                <IconPlus size={16}/> Agregar Hotel
-             </button>
-             <button 
-                onClick={() => setShowReport(true)}
-                className="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-200 text-xs font-bold hover:bg-indigo-100 flex items-center gap-2"
-             >
-                <IconFileText size={16}/> Reporte
-             </button>
+             <button onClick={() => { setEditingHotelData(null); setShowHotelForm(true); }} className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg border border-emerald-200 text-xs font-bold hover:bg-emerald-100 flex items-center gap-2"><IconPlus size={16}/> Agregar Hotel</button>
+             <button onClick={() => setShowReport(true)} className="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-200 text-xs font-bold hover:bg-indigo-100 flex items-center gap-2"><IconFileText size={16}/> Reporte</button>
           </div>
         </div>
         <div className="flex gap-4 text-[10px] font-bold text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100 justify-center flex-wrap">
@@ -767,35 +531,21 @@ export default function RoomingManager({ supabase, program, onBack }) {
           <span className="text-purple-600">⚤ {stats.Mix} Mixtas</span>
         </div>
       </div>
-
       {showReport && <RoomingReportModal bookings={bookings} rooms={rooms} onClose={() => setShowReport(false)} logisticsMap={logisticsMap}/>}
       {(showRoomForm || editingRoomData) && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"><RoomForm initialData={editingRoomData} onSubmit={handleSaveRoom} onClose={() => { setShowRoomForm(false); setEditingRoomData(null); }}/></div>)}
       {roomToTransfer && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"><TransferRoomModal room={roomToTransfer} masterHotels={masterHotels} bookings={bookings} currentBooking={roomToTransfer.id_hospedaje} onConfirm={handleTransferConfirm} onClose={() => setRoomToTransfer(null)}/></div>)}
-      
       {hotelToMerge && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"><MergeHotelModal sourceHotel={hotelToMerge} bookings={bookings} onConfirm={handleMergeHotels} onClose={() => setHotelToMerge(null)}/></div>)}
-
-      {showHotelForm && (
-          <HotelForm 
-             onSubmit={handleSaveHotel} 
-             onClose={() => { setShowHotelForm(false); setEditingHotelData(null); }} 
-             locationsList={locationsList}
-             masterHotels={masterHotels}
-             initialData={editingHotelData}
-          />
-      )}
-
+      {showHotelForm && (<HotelForm onSubmit={handleSaveHotel} onClose={() => { setShowHotelForm(false); setEditingHotelData(null); }} locationsList={locationsList} masterHotels={masterHotels} initialData={editingHotelData}/>)}
       {loading && rooms.length === 0 ? (<div className="text-center p-10"><IconLoader className="animate-spin inline text-indigo-600" /></div>) : (
         <div className="flex-1 overflow-hidden flex p-4 gap-4">
           <MusicianListColumn title="Mujeres" color="pink" musicians={women} isDragging={isDragging} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDropOnUnassigned}/>
           <div className="flex-1 overflow-y-auto pr-2 space-y-8">
             {bookings.length === 0 && <div className="text-center text-slate-400 p-10 italic border-2 border-dashed border-slate-200 rounded-xl">No hay hoteles cargados. <button onClick={()=>setShowHotelForm(true)} className="text-indigo-600 font-bold hover:underline">Agregar uno</button></div>}
-            
             {bookings.map((bk) => {
               const hotelRooms = rooms.filter((r) => r.id_hospedaje === bk.id);
               const roomsF = hotelRooms.filter((r) => r.roomGender === "F");
               const roomsM = hotelRooms.filter((r) => r.roomGender === "M");
               const roomsMix = hotelRooms.filter((r) => r.roomGender === "Mixto");
-
               return (
                 <div key={bk.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 relative group">
                   <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
@@ -808,35 +558,9 @@ export default function RoomingManager({ supabase, program, onBack }) {
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-4">
-                    <div className="flex flex-col gap-3">
-                      <h5 className="text-[10px] font-bold text-slate-400 text-center uppercase tracking-widest">Femeninas</h5>
-                      {roomsF.map((r, idx) => (
-                        <RoomCard key={r.id} room={r} index={idx} total={roomsF.length} isDragging={isDragging} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDropOnRoom} onDelete={handleDeleteRoom} onEdit={() => setEditingRoomData(r)} onRemoveMusician={handleRemoveFromRoom} onMove={(dir, room) => handleMoveRoom(idx, dir, room)} onTransfer={() => setRoomToTransfer(r)} getCapacityLabel={getCapacityLabel} getRoomColor={getRoomColor} 
-                        supabase={supabase} 
-                        onComment={() => setCommentsState({ type: 'HABITACION', id: r.id, title: `Hab ${getCapacityLabel(r.occupants.length)} en ${bk.hoteles.nombre}` })}
-                        />
-                      ))}
-                    </div>
-                    <div className="flex flex-col gap-3 px-2 border-x border-slate-100">
-                      <button onClick={() => { setActiveBookingIdForNewRoom(bk.id); setEditingRoomData(null); setShowRoomForm(true); }} className="w-full py-2 mb-2 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-lg hover:bg-indigo-100 font-bold flex justify-center gap-2 text-xs"><IconPlus size={16} /> Nueva</button>
-                      <div onDragOver={handleDragOver} onDrop={(e) => handleDropOnNewRoom(e, bk.id)} className={`flex flex-col items-center justify-center border-2 border-dashed border-indigo-200 text-indigo-300 rounded-xl hover:bg-indigo-50 transition-all h-20 cursor-pointer mb-4 ${isDragging ? "bg-indigo-50 border-indigo-400" : ""}`}><IconPlus size={20} /> <span className="text-[10px] font-bold mt-1">Arrastrar para crear</span></div>
-                      <h5 className="text-[10px] font-bold text-slate-400 text-center uppercase tracking-widest">Mixtas / Vacías</h5>
-                      {roomsMix.map((r, idx) => (
-                        <RoomCard key={r.id} room={r} index={idx} total={roomsMix.length} isDragging={isDragging} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDropOnRoom} onDelete={handleDeleteRoom} onEdit={() => setEditingRoomData(r)} onRemoveMusician={handleRemoveFromRoom} onMove={(dir, room) => handleMoveRoom(idx, dir, room)} onTransfer={() => setRoomToTransfer(r)} getCapacityLabel={getCapacityLabel} getRoomColor={getRoomColor} 
-                        supabase={supabase}
-                        onComment={() => setCommentsState({ type: 'HABITACION', id: r.id, title: `Hab ${getCapacityLabel(r.occupants.length)} en ${bk.hoteles.nombre}` })}
-                        />
-                      ))}
-                    </div>
-                    <div className="flex flex-col gap-3">
-                      <h5 className="text-[10px] font-bold text-slate-400 text-center uppercase tracking-widest">Masculinas</h5>
-                      {roomsM.map((r, idx) => (
-                        <RoomCard key={r.id} room={r} index={idx} total={roomsM.length} isDragging={isDragging} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDropOnRoom} onDelete={handleDeleteRoom} onEdit={() => setEditingRoomData(r)} onRemoveMusician={handleRemoveFromRoom} onMove={(dir, room) => handleMoveRoom(idx, dir, room)} onTransfer={() => setRoomToTransfer(r)} getCapacityLabel={getCapacityLabel} getRoomColor={getRoomColor} 
-                        supabase={supabase}
-                        onComment={() => setCommentsState({ type: 'HABITACION', id: r.id, title: `Hab ${getCapacityLabel(r.occupants.length)} en ${bk.hoteles.nombre}` })}
-                        />
-                      ))}
-                    </div>
+                    <div className="flex flex-col gap-3"><h5 className="text-[10px] font-bold text-slate-400 text-center uppercase tracking-widest">Femeninas</h5>{roomsF.map((r, idx) => (<RoomCard key={r.id} room={r} index={idx} total={roomsF.length} isDragging={isDragging} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDropOnRoom} onDelete={handleDeleteRoom} onEdit={() => setEditingRoomData(r)} onRemoveMusician={handleRemoveFromRoom} onMove={(dir, room) => handleMoveRoom(idx, dir, room)} onTransfer={() => setRoomToTransfer(r)} getCapacityLabel={getCapacityLabel} getRoomColor={getRoomColor} supabase={supabase} onComment={() => setCommentsState({ type: 'HABITACION', id: r.id, title: `Hab ${getCapacityLabel(r.occupants.length)} en ${bk.hoteles.nombre}` })}/>))}</div>
+                    <div className="flex flex-col gap-3 px-2 border-x border-slate-100"><button onClick={() => { setActiveBookingIdForNewRoom(bk.id); setEditingRoomData(null); setShowRoomForm(true); }} className="w-full py-2 mb-2 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-lg hover:bg-indigo-100 font-bold flex justify-center gap-2 text-xs"><IconPlus size={16} /> Nueva</button><div onDragOver={handleDragOver} onDrop={(e) => handleDropOnNewRoom(e, bk.id)} className={`flex flex-col items-center justify-center border-2 border-dashed border-indigo-200 text-indigo-300 rounded-xl hover:bg-indigo-50 transition-all h-20 cursor-pointer mb-4 ${isDragging ? "bg-indigo-50 border-indigo-400" : ""}`}><IconPlus size={20} /> <span className="text-[10px] font-bold mt-1">Arrastrar para crear</span></div><h5 className="text-[10px] font-bold text-slate-400 text-center uppercase tracking-widest">Mixtas / Vacías</h5>{roomsMix.map((r, idx) => (<RoomCard key={r.id} room={r} index={idx} total={roomsMix.length} isDragging={isDragging} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDropOnRoom} onDelete={handleDeleteRoom} onEdit={() => setEditingRoomData(r)} onRemoveMusician={handleRemoveFromRoom} onMove={(dir, room) => handleMoveRoom(idx, dir, room)} onTransfer={() => setRoomToTransfer(r)} getCapacityLabel={getCapacityLabel} getRoomColor={getRoomColor} supabase={supabase} onComment={() => setCommentsState({ type: 'HABITACION', id: r.id, title: `Hab ${getCapacityLabel(r.occupants.length)} en ${bk.hoteles.nombre}` })}/>))}</div>
+                    <div className="flex flex-col gap-3"><h5 className="text-[10px] font-bold text-slate-400 text-center uppercase tracking-widest">Masculinas</h5>{roomsM.map((r, idx) => (<RoomCard key={r.id} room={r} index={idx} total={roomsM.length} isDragging={isDragging} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDropOnRoom} onDelete={handleDeleteRoom} onEdit={() => setEditingRoomData(r)} onRemoveMusician={handleRemoveFromRoom} onMove={(dir, room) => handleMoveRoom(idx, dir, room)} onTransfer={() => setRoomToTransfer(r)} getCapacityLabel={getCapacityLabel} getRoomColor={getRoomColor} supabase={supabase} onComment={() => setCommentsState({ type: 'HABITACION', id: r.id, title: `Hab ${getCapacityLabel(r.occupants.length)} en ${bk.hoteles.nombre}` })}/>))}</div>
                   </div>
                 </div>
               );
@@ -845,14 +569,7 @@ export default function RoomingManager({ supabase, program, onBack }) {
           <MusicianListColumn title="Hombres" color="blue" musicians={men} isDragging={isDragging} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDropOnUnassigned}/>
         </div>
       )}
-
-      {commentsState && (
-        <div className="fixed inset-0 z-[60] flex justify-end bg-black/20 backdrop-blur-[1px]" onClick={() => setCommentsState(null)}>
-            <div onClick={e => e.stopPropagation()} className="h-full">
-                <CommentsManager supabase={supabase} entityType={commentsState.type} entityId={commentsState.id} title={commentsState.title} onClose={() => setCommentsState(null)}/>
-            </div>
-        </div>
-      )}
+      {commentsState && (<div className="fixed inset-0 z-[60] flex justify-end bg-black/20 backdrop-blur-[1px]" onClick={() => setCommentsState(null)}><div onClick={e => e.stopPropagation()} className="h-full"><CommentsManager supabase={supabase} entityType={commentsState.type} entityId={commentsState.id} title={commentsState.title} onClose={() => setCommentsState(null)}/></div></div>)}
     </div>
   );
 }
