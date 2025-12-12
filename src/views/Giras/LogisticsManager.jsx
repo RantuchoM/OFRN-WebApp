@@ -8,7 +8,7 @@ import {
   IconCheck,
   IconSearch,
   IconBus,
-  IconSettings,
+  IconSettingsWheel,
   IconX,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
@@ -773,7 +773,7 @@ export default function LogisticsManager({ supabase, gira, onBack }) {
             ← Volver a Reglas
           </button>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <IconSettings className="text-slate-600" /> Gestión de Flota y
+            <IconSettingsWheel className="text-slate-600" /> Gestión de Flota y
             Transportes
           </h2>
         </div>

@@ -13,14 +13,17 @@ import {
   IconFilter,
   IconDrive,
   IconHotel,
-  IconMoreVertical,
+  IconMoreVertical, // Ya no se usa para menú, pero lo dejamos por si acaso
   IconList,
   IconMessageCircle,
   IconLayers,
   IconTruck,
   IconColumns,
-  IconUtensils, // <--- NUEVO
-  IconArrowLeft, // <--- NUEVO
+  IconUtensils,
+  IconArrowLeft,
+  IconEye,
+  IconSettingsWheel,
+  IconInfo
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import GiraForm from "./GiraForm";
@@ -29,11 +32,10 @@ import GiraAgenda from "./GiraAgenda";
 import ProgramRepertoire from "./ProgramRepertoire";
 import ProgramHoteleria from "./RoomingManager";
 import LogisticsDashboard from "./LogisticsDashboard";
-import GirasTransportesManager from "./GirasTransportesManager"; // <--- IMPORTAR ESTO
 import AgendaGeneral from "./AgendaGeneral";
 import MusicianCalendar from "./MusicianCalendar";
 import WeeklyCalendar from "./WeeklyCalendar";
-import MealsAttendancePersonal from "./MealsAttendancePersonal"; // <--- IMPORTACIÓN NUEVA
+import MealsAttendancePersonal from "./MealsAttendancePersonal";
 
 import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
@@ -42,141 +44,25 @@ import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import DateInput from "../../components/ui/DateInput";
 
-const ActionMenu = ({ onAction, isOpen, setIsOpen, hasDrive, canEdit }) => {
-  const menuRef = useRef(null);
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    };
-    if (isOpen) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isOpen, setIsOpen]);
-
-  const handleItemClick = (e, action) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onAction(e, action);
-  };
-
-  return (
-    <div className="relative" ref={menuRef}>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setIsOpen(!isOpen);
-        }}
-        className={`p-2 rounded-full transition-colors ${
-          isOpen
-            ? "bg-indigo-100 text-indigo-700"
-            : "text-slate-400 hover:text-indigo-600 hover:bg-slate-50"
-        }`}
-      >
-        <IconMoreVertical size={20} />
-      </button>
-      {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 origin-top-right">
-          <div className="p-1 space-y-0.5">
-            {/* NUEVA OPCIÓN PARA TODOS (Util si un admin quiere ver su propia asistencia o para personal) */}
-            <button
-              type="button"
-              onMouseDown={(e) => handleItemClick(e, "meals_personal")}
-              className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg flex items-center gap-2"
-            >
-              <IconUtensils size={16} /> Mis Comidas
-            </button>
-            <div className="h-px bg-slate-100 my-1"></div>
-
-            {hasDrive && (
-              <button
-                type="button"
-                onMouseDown={(e) => handleItemClick(e, "drive")}
-                className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg flex items-center gap-2"
-              >
-                <IconDrive size={16} /> Abrir Drive
-              </button>
-            )}
-            <button
-              type="button"
-              onMouseDown={(e) => handleItemClick(e, "agenda")}
-              className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg flex items-center gap-2"
-            >
-              <IconCalendar size={16} /> Agenda
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => handleItemClick(e, "repertoire")}
-              className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg flex items-center gap-2"
-            >
-              <IconMusic size={16} /> Repertorio
-            </button>
-
-            {canEdit && (
-              <>
-                <div className="h-px bg-slate-100 my-1"></div>
-                <button
-                  type="button"
-                  onMouseDown={(e) => handleItemClick(e, "comments")}
-                  className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg flex items-center gap-2"
-                >
-                  <IconMessageCircle size={16} /> Comentarios
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(e) => handleItemClick(e, "global_comments")}
-                  className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg flex items-center gap-2"
-                >
-                  <IconLayers size={16} /> Gestor Pendientes
-                </button>
-
-                <div className="h-px bg-slate-100 my-1"></div>
-                <button
-                  type="button"
-                  onMouseDown={(e) => handleItemClick(e, "hotel")}
-                  className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg flex items-center gap-2"
-                >
-                  <IconHotel size={16} /> Hotelería
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(e) => handleItemClick(e, "logistics")}
-                  className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg flex items-center gap-2"
-                >
-                  <IconTruck size={16} /> Logística
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(e) => handleItemClick(e, "roster")}
-                  className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg flex items-center gap-2"
-                >
-                  <IconUsers size={16} /> Personal
-                </button>
-
-                <div className="h-px bg-slate-100 my-1"></div>
-                <button
-                  type="button"
-                  onMouseDown={(e) => handleItemClick(e, "edit")}
-                  className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
-                >
-                  <IconEdit size={16} /> Editar Datos
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(e) => handleItemClick(e, "delete")}
-                  className="w-full text-left px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-2"
-                >
-                  <IconTrash size={16} /> Eliminar
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+// --- COMPONENTE HELPER PARA BOTONES DE ACCIÓN ---
+const ActionButton = ({
+  icon: Icon,
+  title,
+  onClick,
+  colorClass = "text-slate-400 hover:text-indigo-600 hover:bg-slate-50",
+}) => (
+  <button
+    type="button"
+    title={title}
+    onClick={(e) => {
+      e.stopPropagation();
+      onClick(e);
+    }}
+    className={`p-2 rounded-lg transition-all duration-200 ${colorClass}`}
+  >
+    <Icon size={18} />
+  </button>
+);
 
 export default function GirasView({ supabase }) {
   const { user, isEditor } = useAuth();
@@ -190,7 +76,7 @@ export default function GirasView({ supabase }) {
 
   const [showRepertoireInCards, setShowRepertoireInCards] = useState(false);
 
-  const [openMenuId, setOpenMenuId] = useState(null);
+  // Eliminamos openMenuId ya que no usamos el menú desplegable
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
 
   const [filterType, setFilterType] = useState(
@@ -205,6 +91,7 @@ export default function GirasView({ supabase }) {
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
     nombre_gira: "",
+    subtitulo: "",
     fecha_desde: "",
     fecha_hasta: "",
     tipo: "Sinfónico",
@@ -413,7 +300,7 @@ export default function GirasView({ supabase }) {
     setEditingId(gira.id);
     setFormData({
       nombre_gira: gira.nombre_gira,
-      subtitulo: gira.subtitulo || "", // <--- AGREGAR ESTA LÍNEA
+      subtitulo: gira.subtitulo || "",
       fecha_desde: gira.fecha_desde || "",
       fecha_hasta: gira.fecha_hasta || "",
       tipo: gira.tipo || "Sinfónico",
@@ -461,65 +348,15 @@ export default function GirasView({ supabase }) {
     setEditingId(null);
     setFormData({
       nombre_gira: "",
-      subtitulo: "", // <--- AGREGAR TAMBIÉN AQUÍ POR PROLIJIDAD
+      subtitulo: "",
       fecha_desde: "",
       fecha_hasta: "",
       tipo: "Sinfónico",
       zona: "",
     });
-
     setSelectedLocations(new Set());
     setSelectedSources([]);
     setSelectedStaff([]);
-  };
-
-  const handleMenuAction = (e, action, gira) => {
-    e.stopPropagation();
-    setOpenMenuId(null);
-    switch (action) {
-      case "meals_personal":
-        setView({ mode: "MEALS_PERSONAL", data: gira });
-        break;
-      case "comments":
-        setCommentsState({
-          type: "GIRA",
-          id: gira.id,
-          title: gira.nombre_gira,
-        });
-        break;
-      case "global_comments":
-        setGlobalCommentsGiraId(gira.id);
-        break;
-      case "repertoire":
-        setView({ mode: "REPERTOIRE", data: gira });
-        break;
-      case "agenda":
-        setView({ mode: "AGENDA", data: gira });
-        break;
-      case "hotel":
-        setView({ mode: "HOTEL", data: gira });
-        break;
-      case "roster":
-        setView({ mode: "ROSTER", data: gira });
-        break;
-      case "logistics":
-        setView({ mode: "LOGISTICS", data: gira });
-        break;
-      case "drive":
-        if (gira.google_drive_folder_id)
-          window.open(
-            `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
-            "_blank"
-          );
-        else alert("Sin carpeta");
-        break;
-      case "edit":
-        startEdit(gira);
-        break;
-      case "delete":
-        handleDelete(null, gira.id);
-        break;
-    }
   };
 
   const handleCommentNavigation = (type, entityId) => {
@@ -548,7 +385,6 @@ export default function GirasView({ supabase }) {
     return `${d}/${m}`;
   };
 
-  // ... (Funciones de UI auxiliares: getPersonnelDisplay, getConcertList, etc. Se mantienen igual)
   const getPersonnelDisplay = (gira) => {
     const roster = gira.giras_integrantes || [];
     const directors = roster.filter(
@@ -774,16 +610,13 @@ export default function GirasView({ supabase }) {
     }
   };
 
-  // ... dentro de GirasView, antes del return
-
   const tourNavItems = [
-    { mode: "LOGISTICS", label: "Logística", icon: IconTruck },
+    { mode: "LOGISTICS", label: "Logística", icon: IconSettingsWheel },
     { mode: "AGENDA", label: "Agenda", icon: IconCalendar },
     { mode: "REPERTOIRE", label: "Repertorio", icon: IconMusic },
-    { mode: "ROSTER", label: "Personal", icon: IconUsers }, // Puedes agregar o quitar según necesites
+    { mode: "ROSTER", label: "Personal", icon: IconUsers },
   ];
 
-  // Helper para saber si estamos dentro de una gira específica
   const isDetailView =
     [
       "AGENDA",
@@ -797,10 +630,9 @@ export default function GirasView({ supabase }) {
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
       <div className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm shrink-0">
-        {/* CASO 1: VISTA DE DETALLE DE GIRA (NAVEGACIÓN INTERNA) */}
+        {/* CASO 1: VISTA DE DETALLE */}
         {isDetailView ? (
           <div className="px-4 py-2 flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
-            {/* Lado Izquierdo: Volver + Título de la Gira */}
             <div className="flex items-center gap-3 w-full sm:w-auto">
               <button
                 onClick={() => setView({ mode: "LIST", data: null })}
@@ -822,12 +654,10 @@ export default function GirasView({ supabase }) {
                 </div>
               </div>
             </div>
-            {/* Lado Derecho: MENÚ DE NAVEGACIÓN (La parte nueva) */}
-            {/* Lado Derecho: MENÚ DE NAVEGACIÓN (La parte nueva) */}           {" "}
-            {(isEditor || isPersonal) && ( // Muestra la navegación si es Editor O Personal
+
+            {(isEditor || isPersonal) && (
               <div className="flex items-center bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
-                               {" "}
-                {tourNavItems // FILTRA ITEMS: Si NO es editor, solo mostramos la Agenda y Repertorio
+                {tourNavItems
                   .filter(
                     (item) =>
                       isEditor ||
@@ -840,30 +670,23 @@ export default function GirasView({ supabase }) {
                       <button
                         key={item.mode}
                         onClick={() => setView({ ...view, mode: item.mode })}
-                        className={`
-                          flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap
-                          ${
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap
+                        ${
                           isActive
                             ? "bg-white text-indigo-600 shadow-sm"
                             : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
-                        }
-                        `}
+                        }`}
                       >
-                                               {" "}
                         <item.icon size={16} strokeWidth={isActive ? 2.5 : 2} />
-                                               {" "}
-                        <span className="hidden md:inline">{item.label}</span> 
-                                           {" "}
+                        <span className="hidden md:inline">{item.label}</span>
                       </button>
                     );
                   })}
-                             {" "}
               </div>
             )}
-                     
           </div>
         ) : (
-          /* CASO 2: VISTA PRINCIPAL (LISTA, CALENDARIO, ETC.) - ESTO ES LO QUE YA TENÍAS */
+          /* CASO 2: VISTA PRINCIPAL */
           <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -930,14 +753,13 @@ export default function GirasView({ supabase }) {
                   }`}
                   title="Agenda"
                 >
-                  <IconMusic size={18} />
+                  <IconInfo size={24} />
                 </button>
               </div>
             </div>
 
             {view.mode === "LIST" && (
               <div className="flex items-center gap-2 ml-auto">
-                {/* ... Tus filtros existentes ... */}
                 <button
                   onClick={() =>
                     setShowRepertoireInCards(!showRepertoireInCards)
@@ -948,7 +770,7 @@ export default function GirasView({ supabase }) {
                       : "bg-white text-slate-500 border-slate-200 hover:text-indigo-600"
                   }`}
                 >
-                  <IconMusic size={14} />
+                  <IconEye size={16} />
                   <span>
                     {showRepertoireInCards ? "Ocultar Obras" : "Ver Obras"}
                   </span>
@@ -968,10 +790,8 @@ export default function GirasView({ supabase }) {
           </div>
         )}
 
-        {/* Mantenemos el filtro móvil solo si estamos en modo LISTA */}
         {showFiltersMobile && view.mode === "LIST" && (
           <div className="md:hidden px-4 pb-3 flex flex-col gap-2">
-            {/* ... Tus filtros móviles existentes ... */}
             <button
               onClick={() => setShowRepertoireInCards(!showRepertoireInCards)}
               className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-bold transition-colors border ${
@@ -1039,8 +859,6 @@ export default function GirasView({ supabase }) {
             onBack={() => setView({ mode: "LIST", data: null })}
           />
         )}
-
-        {/* --- NUEVA VISTA DE ASISTENCIA PERSONAL --- */}
         {view.mode === "MEALS_PERSONAL" && (
           <div className="h-full flex flex-col bg-slate-50">
             <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-2 shrink-0">
@@ -1075,6 +893,7 @@ export default function GirasView({ supabase }) {
                   setIsAdding(true);
                   setFormData({
                     nombre_gira: "",
+                    subtitulo: "",
                     fecha_desde: "",
                     fecha_hasta: "",
                     tipo: "Sinfónico",
@@ -1133,9 +952,7 @@ export default function GirasView({ supabase }) {
               return (
                 <div
                   key={gira.id}
-                  className={`bg-white rounded-xl border border-slate-200 shadow-sm p-4 relative border-l-0 ${
-                    openMenuId === gira.id ? "z-50" : "z-0"
-                  }`}
+                  className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 relative border-l-0 z-0"
                 >
                   <div
                     className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-xl ${
@@ -1194,22 +1011,78 @@ export default function GirasView({ supabase }) {
                         )}
                       </div>
 
-                      {/* BOTONES DE ACCIÓN */}
-                      <div className="flex items-center gap-2">
-                        {/* --- BOTÓN FLOTANTE PARA PERSONAL (Músicos) --- */}
-                        {isPersonal && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setView({ mode: "MEALS_PERSONAL", data: gira });
-                            }}
-                            className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 p-2 rounded-lg flex items-center gap-1 text-xs font-bold transition-colors shadow-sm"
-                          >
-                            <IconUtensils size={16} />
-                            <span className="hidden sm:inline">Asistencia</span>
-                          </button>
+                      {/* --- NUEVA BARRA DE BOTONES DE ACCIÓN (Reemplaza al menú) --- */}
+                      <div className="flex flex-wrap items-center justify-end gap-2 ml-4 bg-white max-w-[33%]">
+                        {" "}
+                        {/* 1. DRIVE (Condicional) */}
+                        {gira.google_drive_folder_id && (
+                          <ActionButton
+                            title="Abrir Drive"
+                            icon={IconDrive}
+                            onClick={() =>
+                              window.open(
+                                `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
+                                "_blank"
+                              )
+                            }
+                          />
                         )}
-
+                        {/* 2. REPERTORIO (Todos) */}
+                        <ActionButton
+                          title="Repertorio"
+                          icon={IconMusic}
+                          onClick={() =>
+                            setView({ mode: "REPERTOIRE", data: gira })
+                          }
+                        />
+                        {/* 3. AGENDA (Todos) */}
+                        <ActionButton
+                          title="Agenda"
+                          icon={IconCalendar}
+                          onClick={() =>
+                            setView({ mode: "AGENDA", data: gira })
+                          }
+                        />
+                        {/* 4. LOGÍSTICA (Editor) */}
+                        {isEditor && (
+                          <ActionButton
+                            title="Logística"
+                            icon={IconSettingsWheel}
+                            onClick={() =>
+                              setView({ mode: "LOGISTICS", data: gira })
+                            }
+                          />
+                        )}
+                        {/* 5. PERSONAL (Editor) */}
+                        {isEditor && (
+                          <ActionButton
+                            title="Personal"
+                            icon={IconUsers}
+                            onClick={() =>
+                              setView({ mode: "ROSTER", data: gira })
+                            }
+                          />
+                        )}
+                        {/* 6. GESTOR PENDIENTES (Editor) */}
+                        {isEditor && (
+                          <ActionButton
+                            title="Gestor de Pendientes"
+                            icon={IconLayers}
+                            onClick={() => setGlobalCommentsGiraId(gira.id)}
+                          />
+                        )}
+                        {/* 7. MIS COMIDAS (Personal y Editor) */}
+                        {(isPersonal || isEditor) && (
+                          <ActionButton
+                            title="Mis Comidas"
+                            icon={IconUtensils}
+                            colorClass="text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50"
+                            onClick={() =>
+                              setView({ mode: "MEALS_PERSONAL", data: gira })
+                            }
+                          />
+                        )}
+                        {/* 8. COMENTARIOS (Componente existente reutilizado) */}
                         <CommentButton
                           supabase={supabase}
                           entityType="GIRA"
@@ -1222,14 +1095,23 @@ export default function GirasView({ supabase }) {
                             })
                           }
                         />
-
-                        <ActionMenu
-                          onAction={(e, act) => handleMenuAction(e, act, gira)}
-                          isOpen={openMenuId === gira.id}
-                          setIsOpen={(v) => setOpenMenuId(v ? gira.id : null)}
-                          hasDrive={!!gira.google_drive_folder_id}
-                          canEdit={isEditor}
-                        />
+                        {/* 9. EDITAR / ELIMINAR (Editor - Para no perder funcionalidad) */}
+                        {isEditor && (
+                          <>
+                            <div className="w-px h-4 bg-slate-200 mx-1"></div>
+                            <ActionButton
+                              title="Editar"
+                              icon={IconEdit}
+                              onClick={() => startEdit(gira)}
+                            />
+                            <ActionButton
+                              title="Eliminar"
+                              icon={IconTrash}
+                              colorClass="text-slate-300 hover:text-red-600 hover:bg-red-50"
+                              onClick={() => handleDelete(null, gira.id)}
+                            />
+                          </>
+                        )}
                       </div>
                     </div>
 

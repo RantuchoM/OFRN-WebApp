@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   IconUsers, IconPlus, IconX, IconTrash, IconLoader, IconSearch,
-  IconAlertCircle, IconCheck, IconChevronDown, IconMusic, IconMail, IconSettings, IconMap
+  IconAlertCircle, IconCheck, IconChevronDown, IconMusic, IconMail, IconSettingsWheel, IconMap
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 
@@ -349,7 +349,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
 
              <div className="relative" ref={columnMenuRef}>
                 <button onClick={() => setShowColumnMenu(!showColumnMenu)} className={`flex items-center gap-1 px-3 py-1.5 border rounded text-xs font-bold transition-all ${showColumnMenu ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'}`}>
-                    <IconSettings size={14}/> Columnas
+                    <IconSettingsWheel size={14}/> Columnas
                 </button>
                 {showColumnMenu && (
                     <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-50 p-2">

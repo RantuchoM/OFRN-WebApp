@@ -24,6 +24,26 @@ export const IconMusic = ({ size = 24, className = "" }) => (
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
+    // He ajustado el viewBox para "hacer zoom" solo en el dibujo
+    // Antes: "0 0 744 1052" -> Ahora: recortado a los límites del trazo
+    viewBox="110 240 490 630" 
+    fill="currentColor"
+    preserveAspectRatio="xMidYMid meet" // Mantiene la proporción para que no se estire
+    className={className}
+    style={{ display: "block" }}
+  >
+    <path
+      d="M190.85 451.25c11.66 14.72 32.32 24.49 55.84 24.49 36.4 0 65.89-23.37 65.89-52.21 0-28.84-29.49-52.21-65.89-52.21-20.31 4.15-28.59 9-33.14-2.91 17.98-54.33 46.92-66.71 96.55-66.71 65.91 0 96.97 59.9 96.97 142.97-18.23 190.63-205.95 286.75-246.57 316.19 5.69 13.1 5.4 12.63 5.4 12.01 189.78-86.2 330.69-204.43 330.69-320.74 0-92.42-58.58-175.59-187.72-172.8-77.58 0-170.32 86.2-118 171.93z m328.1 89.88c0-17.85-14.47-32.32-32.32-32.32-17.85 0-32.32 14.47-32.32 32.32 0 17.85 14.47 32.32 32.32 32.32 17.85 0 32.32-14.47 32.32-32.32zm0 136.75c0-17.85-14.47-32.32-32.32-32.32-17.85 0-32.32 14.47-32.32 32.32 0 17.85 14.47 32.32 32.32 32.32 17.85 0 32.32-14.47 32.32-32.32z"
+    />
+  </svg>
+);
+
+
+export const IconSettingsWheel = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -32,13 +52,13 @@ export const IconMusic = ({ size = 24, className = "" }) => (
     strokeLinejoin="round"
     className={className}
   >
-    <line x1="9" y1="18" x2="21" y2="18" />
-    <line x1="9" y1="12" x2="21" y2="12" />
-    <line x1="9" y1="6" x2="21" y2="6" />
-    <path d="M3 6v12" />
-    <circle cx="3" cy="18" r="1" />
+    {/* Círculo central (el eje) */}
+    <circle cx="12" cy="12" r="3" />
+    {/* Los dientes del engranaje */}
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
   </svg>
 );
+  
 export const IconDatabase = ({ size = 24, className = "" }) => (
   <svg
     className={className}
@@ -1135,6 +1155,25 @@ export const IconUserPlus = ({ size = 24, className = "" }) => (
   </svg>
 );
 
+export const IconHistory = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12" />
+    <path d="M3 3v9h9" />
+    <path d="M12 7v5l4 2" />
+  </svg>
+);
+
 export const IconUserMinus = ({ size = 24, className = "" }) => (
   <svg 
     xmlns="http://www.w3.org/2000/svg" 
@@ -1183,6 +1222,8 @@ export const IconFilePlus = ({ size = 24, className = "" }) => (
   </svg>
 );
 
+// src/components/ui/Icons.jsx
+// ... (agregalo al final del archivo o junto a los otros)
 
 export const IconClipboardCheck = ({ size = 24, className = "" }) => (
   <svg 

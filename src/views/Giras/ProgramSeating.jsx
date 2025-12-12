@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   IconUsers, IconLoader, IconX, IconChevronDown, IconCheck, IconPlus,
   IconTrash, IconArrowUp, IconArrowDown, IconSettings, IconLayers,
-  IconExternalLink, IconAlertCircle 
+  IconExternalLink, IconAlertCircle, IconDownload, IconHistory// <--- Nuevo
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
@@ -146,56 +146,381 @@ const ParticellaSelect = ({
   );
 };
 
-// --- GESTOR DE CUERDAS CON DRAG AND DROP ---
+// --- MODAL REPORTE HISTÓRICO DE SEATING ---
+const SeatingHistoryModal = ({ isOpen, onClose, roster, supabase }) => {
+  const [historyData, setHistoryData] = useState({});
+  const [programs, setPrograms] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // Filtramos solo las cuerdas del roster actual para mostrar en la tabla
+  const stringMusicians = useMemo(() => {
+    return roster.filter(m => ["01", "02", "03", "04", "05"].includes(m.id_instr));
+  }, [roster]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchHistory();
+    }
+  }, [isOpen]);
+
+  const fetchHistory = async () => {
+    setLoading(true);
+    try {
+      // 1. Obtener las últimas 6 giras (incluyendo o excluyendo la actual, según prefieras)
+      // Aquí traemos las últimas 6 por fecha descendente
+      const { data: progs } = await supabase
+        .from("programas")
+        .select("id, mes_letra, nomenclador, fecha_desde")
+        .order("fecha_desde", { ascending: true })
+        .limit(6);
+
+      if (!progs) return;
+      setPrograms(progs);
+
+      // 2. Obtener la configuración de asientos de ESOS programas
+      const progIds = progs.map(p => p.id);
+      
+      // Hacemos un join para traer items y saber a qué contenedor y programa pertenecen
+      const { data: items } = await supabase
+        .from("seating_contenedores_items")
+        .select(`
+          orden,
+          id_musico,
+          seating_contenedores!inner (
+            id_programa,
+            nombre
+          )
+        `)
+        .in("seating_contenedores.id_programa", progIds);
+
+      // 3. Procesar datos para acceso rápido: map[musicoId][programaId] = "Violin 1 (3)"
+      const map = {};
+      items?.forEach(item => {
+        const mId = item.id_musico;
+        const pId = item.seating_contenedores.id_programa;
+        // Sumamos 1 al orden porque en programación empieza en 0, pero en música leemos 1
+        const label = `${item.seating_contenedores.nombre} (${item.orden + 1})`;
+
+        if (!map[mId]) map[mId] = {};
+        map[mId][pId] = label;
+      });
+
+      setHistoryData(map);
+
+    } catch (error) {
+      console.error("Error fetching history:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl h-[80vh] flex flex-col border border-slate-200">
+        
+        {/* Header del Modal */}
+        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 rounded-t-lg">
+          <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
+            <IconHistory className="text-indigo-600" /> Historial de Seating (Cuerdas)
+          </h3>
+          <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded text-slate-500">
+            <IconX size={20} />
+          </button>
+        </div>
+
+        {/* Contenido (Tabla con Scroll) */}
+        <div className="flex-1 overflow-auto p-0">
+          {loading ? (
+            <div className="h-full flex items-center justify-center text-slate-500 gap-2">
+              <IconLoader className="animate-spin" /> Cargando historial...
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-white sticky top-0 z-10 shadow-sm">
+                <tr>
+                  <th className="p-3 w-48 bg-slate-100 border-b border-r border-slate-200 font-bold text-slate-600 sticky left-0 z-20">
+                    Músico
+                  </th>
+                  {programs.map(p => (
+                    <th key={p.id} className="p-2 min-w-[120px] bg-slate-50 border-b border-r border-slate-200 text-slate-600 font-bold text-center">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-400">{p.mes_letra}</div>
+                      <div className="text-indigo-900">{p.nomenclador}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {stringMusicians.map((musician, idx) => (
+                  <tr key={musician.id} className={idx % 2 === 0 ? "bg-white hover:bg-indigo-50/30" : "bg-slate-50/30 hover:bg-indigo-50/30"}>
+                    <td className="p-2 border-r border-slate-200 font-medium text-slate-700 sticky left-0 bg-inherit truncate">
+                      {musician.apellido}, {musician.nombre}
+                    </td>
+                    {programs.map(p => {
+                      const cellData = historyData[musician.id]?.[p.id];
+                      return (
+                        <td key={p.id} className="p-2 border-r border-slate-100 text-center text-slate-600">
+                          {cellData ? (
+                            <span className="inline-block px-2 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 font-medium text-[10px]">
+                              {cellData}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        
+        {/* Footer */}
+        <div className="p-3 border-t border-slate-200 bg-slate-50 text-right rounded-b-lg">
+          <button onClick={onClose} className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded font-bold text-xs hover:bg-slate-50 shadow-sm">
+            Cerrar Reporte
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+// --- GESTOR DE CUERDAS CON DRAG AND DROP E IMPORTACIÓN ---
 const GlobalStringsManager = ({ programId, roster, containers, onUpdate, supabase, readOnly }) => {
   const stringMusicians = useMemo(() => roster.filter((m) => ["01", "02", "03", "04", "05"].includes(m.id_instr)), [roster]);
   const assignedIds = new Set();
   containers.forEach((c) => c.items?.forEach((i) => assignedIds.add(i.id_musico)));
   const available = stringMusicians.filter((m) => !assignedIds.has(m.id));
 
-  // Estados para Drag & Drop visual
+  // Estados
   const [dragOverContainerId, setDragOverContainerId] = useState(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+ 
+  const [isImporting, setIsImporting] = useState(false);
 
+  // Funciones básicas
   const createContainer = async () => { if (readOnly) return; const name = prompt("Nombre:", `Grupo ${containers.length + 1}`); if (!name) return; await supabase.from("seating_contenedores").insert({ id_programa: programId, nombre: name, orden: containers.length, id_instrumento: "00" }); onUpdate(); };
   const deleteContainer = async (id) => { if (readOnly) return; if (!confirm("¿Eliminar?")) return; await supabase.from("seating_contenedores").delete().eq("id", id); onUpdate(); };
   const addMusician = async (containerId, musicianId) => { if (readOnly) return; const container = containers.find((c) => c.id === containerId); await supabase.from("seating_contenedores_items").insert({ id_contenedor: containerId, id_musico: musicianId, orden: container.items.length }); onUpdate(); };
   const removeMusician = async (itemId) => { if (readOnly) return; await supabase.from("seating_contenedores_items").delete().eq("id", itemId); onUpdate(); };
   const moveItem = async (itemId, direction, currentOrder, containerId) => { if (readOnly) return; const container = containers.find((c) => c.id === containerId); const swapItem = container.items.find((i) => i.orden === currentOrder + direction); if (swapItem) { await supabase.from("seating_contenedores_items").update({ orden: currentOrder }).eq("id", swapItem.id); await supabase.from("seating_contenedores_items").update({ orden: currentOrder + direction }).eq("id", itemId); onUpdate(); } };
 
-  // --- LOGICA DRAG AND DROP ---
-  const handleDragStart = (e, musicianId) => {
-    if (readOnly) return;
-    e.dataTransfer.setData("musicianId", musicianId);
-    e.dataTransfer.effectAllowed = "move";
-  };
+  // --- MODAL IMPORTAR DISPOSICIÓN ---
+// --- MODAL IMPORTAR DISPOSICIÓN ---
+const ImportSeatingModal = ({ isOpen, onClose, onConfirm, currentProgramId, supabase }) => {
+  const [programs, setPrograms] = useState([]);
+  const [selectedProgram, setSelectedProgram] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [replace, setReplace] = useState(true);
 
-  const handleDragOver = (e, containerId) => {
-    if (readOnly) return;
-    e.preventDefault(); // Necesario para permitir el drop
-    setDragOverContainerId(containerId);
-  };
+  useEffect(() => {
+    if (isOpen) {
+      const fetchPrograms = async () => {
+        setLoading(true);
+        // Usamos tus columnas reales
+        const { data, error } = await supabase
+          .from("programas")
+          .select("id, nombre_gira, nomenclador, mes_letra, fecha_desde")
+          .neq("id", currentProgramId)
+          .order("fecha_desde", { ascending: true })
+          .limit(20);
 
-  const handleDragLeave = (e) => {
-    setDragOverContainerId(null);
-  };
-
-  const handleDrop = async (e, containerId) => {
-    if (readOnly) return;
-    e.preventDefault();
-    setDragOverContainerId(null);
-    const musicianId = e.dataTransfer.getData("musicianId");
-    if (musicianId) {
-      await addMusician(containerId, musicianId);
+        if (error) {
+          console.error("Error cargando giras:", error);
+        } else {
+          setPrograms(data || []);
+        }
+        setLoading(false);
+      };
+      fetchPrograms();
     }
+  }, [isOpen, currentProgramId, supabase]);
+
+  if (!isOpen) return null;
+
+  const handleConfirm = () => {
+    if (!selectedProgram) return;
+    onConfirm(selectedProgram, replace);
   };
 
   return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-4 border border-slate-200">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <IconDownload className="text-indigo-600" /> Importar Disposición
+        </h3>
+        
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Desde la Gira:</label>
+            {loading ? (
+              <div className="text-xs text-slate-400">Cargando giras...</div>
+            ) : (
+              <select 
+                className="w-full border border-slate-300 rounded p-2 text-sm outline-none focus:border-indigo-500 bg-white"
+                value={selectedProgram}
+                onChange={(e) => setSelectedProgram(e.target.value)}
+              >
+                <option value="" disabled>Seleccionar Gira anterior...</option>
+                {programs.map(p => (
+                  /* AQUÍ ESTÁ EL CAMBIO DE FORMATO */
+                  <option key={p.id} value={p.id}>
+                    {p.mes_letra} | {p.nomenclador}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 border p-2 rounded bg-slate-50 border-slate-200">
+            <input 
+              type="checkbox" 
+              id="chkReplace" 
+              checked={replace} 
+              onChange={(e) => setReplace(e.target.checked)} 
+              className="accent-indigo-600"
+            />
+            <label htmlFor="chkReplace" className="text-xs text-slate-700 select-none cursor-pointer">
+              Eliminar grupos actuales antes de importar
+            </label>
+          </div>
+
+          <p className="text-[10px] text-slate-400 italic">
+            * Solo se importarán los músicos que estén convocados en la gira actual.
+          </p>
+
+          <div className="flex justify-end gap-2 mt-2">
+            <button onClick={onClose} className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
+            <button 
+              onClick={handleConfirm} 
+              disabled={!selectedProgram}
+              className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-sm disabled:opacity-50"
+            >
+              Importar Configuración
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+  // --- LÓGICA DE IMPORTACIÓN ---
+  const handleImportSeating = async (sourceProgramId, replaceCurrent) => {
+    setIsImporting(true);
+    setShowImportModal(false);
+    try {
+      // 1. (Opcional) Borrar configuración actual
+      if (replaceCurrent && containers.length > 0) {
+        await supabase.from("seating_contenedores").delete().eq("id_programa", programId);
+      }
+
+      // 2. Traer contenedores de la gira origen
+      const { data: sourceContainers } = await supabase
+        .from("seating_contenedores")
+        .select("*")
+        .eq("id_programa", sourceProgramId)
+        .order("orden");
+      
+      if (!sourceContainers || sourceContainers.length === 0) {
+        alert("La gira seleccionada no tiene configuración de cuerdas.");
+        setIsImporting(false);
+        return;
+      }
+
+      // 3. Traer los items (músicos) de esos contenedores
+      const sourceContainerIds = sourceContainers.map(c => c.id);
+      const { data: sourceItems } = await supabase
+        .from("seating_contenedores_items")
+        .select("*")
+        .in("id_contenedor", sourceContainerIds)
+        .order("orden");
+
+      // 4. Preparar IDs válidos del Roster Actual (Conjunto para búsqueda rápida)
+      //    Importante: Solo nos importan los músicos que ESTÁN en el roster de ESTA gira (props.roster)
+      const validMusicianIds = new Set(roster.map(m => m.id));
+
+      // 5. Crear los nuevos contenedores e items
+      let currentOrderIndex = replaceCurrent ? 0 : containers.length;
+
+      for (const srcCont of sourceContainers) {
+        // Crear contenedor
+        const { data: newCont, error: contError } = await supabase
+          .from("seating_contenedores")
+          .insert({
+            id_programa: programId,
+            nombre: srcCont.nombre,
+            id_instrumento: srcCont.id_instrumento || "00",
+            orden: currentOrderIndex
+          })
+          .select()
+          .single();
+
+        if (contError) continue;
+        currentOrderIndex++;
+
+        // Filtrar items de este contenedor fuente
+        const itemsInThisContainer = sourceItems.filter(i => i.id_contenedor === srcCont.id);
+        
+        // Mapear a nuevos inserts SOLO si el músico existe en el roster actual
+        const itemsToInsert = itemsInThisContainer
+          .filter(item => validMusicianIds.has(item.id_musico))
+          .map((item, idx) => ({
+            id_contenedor: newCont.id,
+            id_musico: item.id_musico,
+            orden: idx // Reordenamos secuencialmente para evitar huecos de los que faltan
+          }));
+
+        if (itemsToInsert.length > 0) {
+          await supabase.from("seating_contenedores_items").insert(itemsToInsert);
+        }
+      }
+
+      onUpdate(); // Recargar interfaz
+    } catch (error) {
+      console.error("Error importando:", error);
+      alert("Hubo un error al importar la configuración.");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  // --- LOGICA DRAG AND DROP ---
+  const handleDragStart = (e, musicianId) => { if (readOnly) return; e.dataTransfer.setData("musicianId", musicianId); e.dataTransfer.effectAllowed = "move"; };
+  const handleDragOver = (e, containerId) => { if (readOnly) return; e.preventDefault(); setDragOverContainerId(containerId); };
+  const handleDragLeave = (e) => { setDragOverContainerId(null); };
+  const handleDrop = async (e, containerId) => { if (readOnly) return; e.preventDefault(); setDragOverContainerId(null); const musicianId = e.dataTransfer.getData("musicianId"); if (musicianId) { await addMusician(containerId, musicianId); } };
+
+  return (
     <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4 animate-in fade-in shrink-0">
+      <ImportSeatingModal 
+        isOpen={showImportModal} 
+        onClose={() => setShowImportModal(false)} 
+        onConfirm={handleImportSeating} 
+        currentProgramId={programId}
+        supabase={supabase}
+      />
+     
+
       <div className="flex justify-between items-center mb-3">
           <h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm"><IconLayers size={16} /> Disposición de Cuerdas</h3>
           {!readOnly && (
             <div className="flex items-center gap-2">
                  <span className="text-[10px] text-slate-400 italic mr-2 hidden sm:inline">Arrastra los músicos a los grupos</span>
+                 
+                 {/* BOTÓN IMPORTAR */}
+                 <button 
+                   onClick={() => setShowImportModal(true)} 
+                   disabled={isImporting}
+                   className="bg-white border border-slate-300 text-slate-600 px-2 py-1 rounded text-[10px] font-bold hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-1 transition-colors disabled:opacity-50"
+                   title="Importar de otra gira"
+                 >
+                   {isImporting ? <IconLoader className="animate-spin" size={12}/> : <IconDownload size={12} />} 
+                   Importar
+                 </button>
+
                  <button onClick={createContainer} className="bg-indigo-600 text-white px-2 py-1 rounded text-[10px] font-bold hover:bg-indigo-700 flex items-center gap-1"><IconPlus size={12} /> Nuevo Grupo</button>
             </div>
           )}
@@ -221,7 +546,7 @@ const GlobalStringsManager = ({ programId, roster, containers, onUpdate, supabas
                                 <span className="text-[8px] text-indigo-400 ml-1">({m.instrumentos?.instrumento})</span>
                             </div>
                             
-                            {/* MENU FLOTANTE (Corregido: ahora el padre tiene 'relative') */}
+                            {/* MENU FLOTANTE */}
                             <div className="hidden group-hover:flex flex-col gap-0.5 absolute right-2 top-0 mt-1 bg-white shadow-xl p-1 rounded border border-slate-200 z-50 animate-in fade-in zoom-in-95">
                                 {containers.map((c) => (
                                     <button key={c.id} onClick={() => addMusician(c.id, m.id)} className="text-[9px] text-left hover:bg-indigo-50 px-2 py-0.5 rounded whitespace-nowrap text-indigo-700 font-medium">
@@ -275,7 +600,9 @@ const GlobalStringsManager = ({ programId, roster, containers, onUpdate, supabas
                     </div>
                 </div>
             ))}
-            {containers.length === 0 && <div className="col-span-full text-center py-10 text-slate-400 italic text-xs">No hay grupos de cuerdas definidos.</div>}
+            {containers.length === 0 && <div className="col-span-full text-center py-10 text-slate-400 italic text-xs">
+              No hay grupos de cuerdas. <br/> Crea uno nuevo o importa de una gira anterior.
+            </div>}
         </div>
       </div>
     </div>
@@ -292,7 +619,9 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
   const [assignments, setAssignments] = useState({});
   const [containers, setContainers] = useState([]);
   const [showConfig, setShowConfig] = useState(false);
-  const [loading, setLoading] = useState(false);
+    const [showHistory, setShowHistory] = useState(false);
+    const [loading, setLoading] = useState(false);
+
   
   const [instrumentList, setInstrumentList] = useState([]);
   const [createModalInfo, setCreateModalInfo] = useState(null);
@@ -428,11 +757,25 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
     <div className="flex flex-col h-full bg-slate-50 relative">
       <CreateParticellaModal isOpen={!!createModalInfo} onClose={() => setCreateModalInfo(null)} onConfirm={handleConfirmCreate} instrumentList={instrumentList} defaultInstrumentId={createModalInfo?.defaultInstrId}/>
       {(loading || rosterLoading) && <div className="absolute inset-0 bg-white/80 z-50 flex items-center justify-center"><IconLoader className="animate-spin text-indigo-600" size={32} /></div>}
-      
+      {/* --- AGREGA ESTO AQUÍ PARA QUE FUNCIONE EL REPORTE --- */}
+      <SeatingHistoryModal 
+        isOpen={showHistory} 
+        onClose={() => setShowHistory(false)} 
+        roster={filteredRoster} 
+        supabase={supabase} 
+      />
+      {/* ----------------------------------------------------- */}
       {/* HEADER PRINCIPAL */}
       <div className="px-4 py-2 border-b border-slate-200 bg-white flex justify-between items-center shrink-0">
         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><IconUsers className="text-indigo-600" /> Seating & Particellas</h2>
-        <div className="flex gap-2"><button onClick={() => setShowConfig(!showConfig)} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors ${showConfig ? "bg-indigo-600 text-white" : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"}`}><IconSettings size={16} /> {isEditor ? "Configurar Cuerdas" : "Ver Grupos Cuerdas"}</button><button onClick={onBack} className="text-sm font-medium text-slate-500 hover:text-indigo-600 ml-4">← Volver</button></div>
+        <div className="flex gap-2">
+         <button 
+            onClick={() => setShowHistory(!showHistory)} 
+            className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-white border border-slate-300 text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 shadow-sm"
+          >
+            <IconHistory size={16} /> Reporte Histórico
+          </button>
+          <button onClick={() => setShowConfig(!showConfig)} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors ${showConfig ? "bg-indigo-600 text-white" : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"}`}><IconSettings size={16} /> {isEditor ? "Configurar Cuerdas" : "Ver Grupos Cuerdas"}</button><button onClick={onBack} className="text-sm font-medium text-slate-500 hover:text-indigo-600 ml-4">← Volver</button></div>
       </div>
 
       {/* ÁREA DE CONTENIDO */}
