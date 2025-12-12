@@ -1219,6 +1219,7 @@ export default function GirasView({ supabase }) {
                             })
                           }
                         />
+                        
                         <ActionMenu
                           onAction={(e, act) => handleMenuAction(e, act, gira)}
                           isOpen={openMenuId === gira.id}

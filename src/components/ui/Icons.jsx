@@ -544,22 +544,15 @@ export const IconDrive = ({ size = 24, className = "" }) => (
     className={className}
     width={size}
     height={size}
-    viewBox="0 0 87.3 78"
-    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
   >
-    <path d="m6.6 66.85 25.3-43.8 25.3 43.8z" fill="#0066da" />
-    <path d="m43.65 23.05-25.3 43.8h25.3z" fill="#00ac47" />
-    <path d="m73.55 66.85-12.65-21.9-25.3 21.9z" fill="#ea4335" />
-    <path d="m43.65 23.05h33.65l-12.65 21.9-25.3-21.9z" fill="#00832d" />
-    <path d="m6.6 66.85h33.65l12.65-21.9-33.65-21.9z" fill="#2684fc" />
-    <path d="m77.3 23.05-25.3 43.8h25.3z" fill="#ffba00" />
-    <path d="m6.6 66.85 25.3-43.8 25.3 43.8z" opacity=".25" />
-    <path d="m6.6 66.85h66.95l-12.65-21.9h-41.65z" fill="#0066da" />
-    <path d="m43.65 23.05 20.9 36.2h-16.7l-29.5-51.1z" fill="#00ac47" />
-    <path d="m73.55 66.85-20.9-36.2h-16.7l12.3 21.9z" fill="#ea4335" />
-    <path d="m43.65 23.05h33.65l-12.65 21.9h-21z" fill="#00832d" />
-    <path d="m6.6 66.85h33.65l12.65-21.9-21-36.2z" fill="#2684fc" />
-    <path d="m77.3 23.05-25.3 43.8h25.3z" fill="#ffba00" />
+    {/* Forma de Carpeta Estándar */}
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
   </svg>
 );
 export const IconHotel = ({ size = 24, className = "" }) => (
