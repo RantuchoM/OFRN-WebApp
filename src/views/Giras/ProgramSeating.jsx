@@ -26,7 +26,7 @@ const CreateParticellaModal = ({ isOpen, onClose, onConfirm, instrumentList, def
     );
 };
 
-// --- SELECTOR INTELIGENTE DE PARTICELLA (CON CONTEO VISUAL EN CELDA) ---
+// --- SELECTOR INTELIGENTE DE PARTICELLA ---
 const ParticellaSelect = ({ 
   options, 
   value, 
@@ -50,10 +50,8 @@ const ParticellaSelect = ({
   }, [isOpen]);
 
   const selectedOption = options.find((o) => o.id === value);
-  
-  // Cálculo del conteo para la celda visual (si está seleccionada)
   const currentAssignedCount = value ? (counts[value] || 0) : 0;
-  const showCountLabel = currentAssignedCount > 1; // Solo mostrar si hay más de 1 asignado
+  const showCountLabel = currentAssignedCount > 1;
 
   if (disabled) return (
     <div className="w-full h-full min-h-[24px] px-1 text-[10px] border border-transparent flex items-center justify-center text-slate-600 bg-transparent truncate cursor-default" title={selectedOption?.nombre_archivo}>
@@ -81,7 +79,6 @@ const ParticellaSelect = ({
     return (
       <button key={opt.id} onClick={() => handleSelect(opt.id)} className={`w-full text-left px-2 py-1 text-[10px] rounded hover:bg-indigo-50 flex items-center justify-between group ${value === opt.id ? "bg-indigo-50 text-indigo-700 font-bold" : "text-slate-700"}`}>
         <div className="truncate w-full">
-          {/* Nombre + Conteo en lista desplegable */}
           <div className="flex items-center justify-between w-full">
              <span className="block font-medium truncate text-slate-800">
                 {opt.nombre_archivo || "Sin nombre"}
@@ -109,7 +106,6 @@ const ParticellaSelect = ({
                 ? (
                     <>
                         {selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento}
-                        {/* AQUI EL CAMBIO VISUAL SOLICITADO */}
                         {showCountLabel && <span className="text-indigo-900 ml-1 font-extrabold">[x{currentAssignedCount}]</span>}
                     </>
                   ) 
@@ -150,12 +146,15 @@ const ParticellaSelect = ({
   );
 };
 
-// --- GESTOR DE CUERDAS ---
+// --- GESTOR DE CUERDAS CON DRAG AND DROP ---
 const GlobalStringsManager = ({ programId, roster, containers, onUpdate, supabase, readOnly }) => {
   const stringMusicians = useMemo(() => roster.filter((m) => ["01", "02", "03", "04", "05"].includes(m.id_instr)), [roster]);
   const assignedIds = new Set();
   containers.forEach((c) => c.items?.forEach((i) => assignedIds.add(i.id_musico)));
   const available = stringMusicians.filter((m) => !assignedIds.has(m.id));
+
+  // Estados para Drag & Drop visual
+  const [dragOverContainerId, setDragOverContainerId] = useState(null);
 
   const createContainer = async () => { if (readOnly) return; const name = prompt("Nombre:", `Grupo ${containers.length + 1}`); if (!name) return; await supabase.from("seating_contenedores").insert({ id_programa: programId, nombre: name, orden: containers.length, id_instrumento: "00" }); onUpdate(); };
   const deleteContainer = async (id) => { if (readOnly) return; if (!confirm("¿Eliminar?")) return; await supabase.from("seating_contenedores").delete().eq("id", id); onUpdate(); };
@@ -163,12 +162,121 @@ const GlobalStringsManager = ({ programId, roster, containers, onUpdate, supabas
   const removeMusician = async (itemId) => { if (readOnly) return; await supabase.from("seating_contenedores_items").delete().eq("id", itemId); onUpdate(); };
   const moveItem = async (itemId, direction, currentOrder, containerId) => { if (readOnly) return; const container = containers.find((c) => c.id === containerId); const swapItem = container.items.find((i) => i.orden === currentOrder + direction); if (swapItem) { await supabase.from("seating_contenedores_items").update({ orden: currentOrder }).eq("id", swapItem.id); await supabase.from("seating_contenedores_items").update({ orden: currentOrder + direction }).eq("id", itemId); onUpdate(); } };
 
+  // --- LOGICA DRAG AND DROP ---
+  const handleDragStart = (e, musicianId) => {
+    if (readOnly) return;
+    e.dataTransfer.setData("musicianId", musicianId);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e, containerId) => {
+    if (readOnly) return;
+    e.preventDefault(); // Necesario para permitir el drop
+    setDragOverContainerId(containerId);
+  };
+
+  const handleDragLeave = (e) => {
+    setDragOverContainerId(null);
+  };
+
+  const handleDrop = async (e, containerId) => {
+    if (readOnly) return;
+    e.preventDefault();
+    setDragOverContainerId(null);
+    const musicianId = e.dataTransfer.getData("musicianId");
+    if (musicianId) {
+      await addMusician(containerId, musicianId);
+    }
+  };
+
   return (
     <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4 animate-in fade-in shrink-0">
-      <div className="flex justify-between items-center mb-3"><h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm"><IconLayers size={16} /> Disposición de Cuerdas</h3>{!readOnly && (<button onClick={createContainer} className="bg-indigo-600 text-white px-2 py-1 rounded text-[10px] font-bold hover:bg-indigo-700 flex items-center gap-1"><IconPlus size={12} /> Nuevo Grupo</button>)}</div>
+      <div className="flex justify-between items-center mb-3">
+          <h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm"><IconLayers size={16} /> Disposición de Cuerdas</h3>
+          {!readOnly && (
+            <div className="flex items-center gap-2">
+                 <span className="text-[10px] text-slate-400 italic mr-2 hidden sm:inline">Arrastra los músicos a los grupos</span>
+                 <button onClick={createContainer} className="bg-indigo-600 text-white px-2 py-1 rounded text-[10px] font-bold hover:bg-indigo-700 flex items-center gap-1"><IconPlus size={12} /> Nuevo Grupo</button>
+            </div>
+          )}
+      </div>
       <div className="grid grid-cols-12 gap-4 h-[350px]">
-        {!readOnly && (<div className="col-span-3 bg-white border border-slate-200 rounded-lg flex flex-col overflow-hidden"><div className="p-2 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase">Sin Asignar ({available.length})</div><div className="overflow-y-auto p-1 space-y-0.5 flex-1">{available.map((m) => (<div key={m.id} className="text-[10px] p-1.5 bg-slate-50 border border-slate-100 rounded flex justify-between items-center group hover:border-indigo-200 cursor-default"><div className="truncate"><span className="font-bold text-slate-700">{m.apellido}</span> <span className="text-slate-500">{m.nombre.charAt(0)}.</span><span className="text-[8px] text-indigo-400 ml-1">({m.instrumentos?.instrumento})</span></div><div className="hidden group-hover:flex flex-col gap-0.5 absolute right-2 bg-white shadow-lg p-1 rounded border z-10">{containers.map((c) => (<button key={c.id} onClick={() => addMusician(c.id, m.id)} className="text-[9px] text-left hover:bg-indigo-50 px-1 rounded whitespace-nowrap text-indigo-700">→ {c.nombre}</button>))}</div></div>))}{available.length === 0 && <div className="text-center text-[10px] text-slate-300 italic mt-4">Todos asignados</div>}</div></div>)}
-        <div className={`${readOnly ? "col-span-12" : "col-span-9"} grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 overflow-y-auto content-start pr-1`}>{containers.map((c) => (<div key={c.id} className="bg-white border border-indigo-100 rounded-lg shadow-sm flex flex-col h-fit"><div className="p-1.5 border-b border-slate-100 flex justify-between items-center bg-indigo-50/30"><span className="font-bold text-[10px] text-indigo-900 truncate uppercase tracking-wider" title={c.nombre}>{c.nombre}</span>{!readOnly && <button onClick={() => deleteContainer(c.id)} className="text-slate-300 hover:text-red-500"><IconTrash size={10} /></button>}</div><div className="p-1 space-y-0.5 min-h-[40px]">{c.items.map((item, idx) => (<div key={item.id} className="flex items-center gap-1.5 p-1 bg-white border border-slate-100 rounded text-[10px] group">{!readOnly && (<div className="flex flex-col gap-0.5 opacity-20 group-hover:opacity-100"><button disabled={idx === 0} onClick={() => moveItem(item.id, -1, item.orden, c.id)} className="hover:text-indigo-600 disabled:opacity-0"><IconArrowUp size={8} /></button><button disabled={idx === c.items.length - 1} onClick={() => moveItem(item.id, 1, item.orden, c.id)} className="hover:text-indigo-600 disabled:opacity-0"><IconArrowDown size={8} /></button></div>)}<div className="flex-1 min-w-0"><span className="truncate block font-medium text-slate-700">{item.integrantes?.nombre} {item.integrantes?.apellido}</span></div>{!readOnly && <button onClick={() => removeMusician(item.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><IconX size={10} /></button>}</div>))}{!readOnly && c.items.length === 0 && <div className="text-center text-[9px] text-indigo-200 py-2 border-2 border-dashed border-indigo-50 rounded italic">Vacío</div>}</div></div>))}{containers.length === 0 && <div className="col-span-full text-center py-10 text-slate-400 italic text-xs">No hay grupos de cuerdas definidos.</div>}</div>
+        
+        {/* COLUMNA: LISTA DE MÚSICOS SIN ASIGNAR */}
+        {!readOnly && (
+            <div className="col-span-3 bg-white border border-slate-200 rounded-lg flex flex-col overflow-hidden shadow-sm">
+                <div className="p-2 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase flex justify-between">
+                    <span>Sin Asignar ({available.length})</span>
+                </div>
+                <div className="overflow-y-auto p-1 space-y-0.5 flex-1 select-none">
+                    {available.map((m) => (
+                        <div 
+                            key={m.id} 
+                            draggable={!readOnly}
+                            onDragStart={(e) => handleDragStart(e, m.id)}
+                            className="relative text-[10px] p-1.5 bg-slate-50 border border-slate-100 rounded flex justify-between items-center group hover:border-indigo-300 hover:bg-indigo-50 cursor-grab active:cursor-grabbing transition-all"
+                        >
+                            <div className="truncate pointer-events-none">
+                                <span className="font-bold text-slate-700">{m.apellido}</span> <span className="text-slate-500">{m.nombre.charAt(0)}.</span>
+                                <span className="text-[8px] text-indigo-400 ml-1">({m.instrumentos?.instrumento})</span>
+                            </div>
+                            
+                            {/* MENU FLOTANTE (Corregido: ahora el padre tiene 'relative') */}
+                            <div className="hidden group-hover:flex flex-col gap-0.5 absolute right-2 top-0 mt-1 bg-white shadow-xl p-1 rounded border border-slate-200 z-50 animate-in fade-in zoom-in-95">
+                                {containers.map((c) => (
+                                    <button key={c.id} onClick={() => addMusician(c.id, m.id)} className="text-[9px] text-left hover:bg-indigo-50 px-2 py-0.5 rounded whitespace-nowrap text-indigo-700 font-medium">
+                                        → {c.nombre}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                    {available.length === 0 && <div className="text-center text-[10px] text-slate-300 italic mt-4">Todos asignados</div>}
+                </div>
+            </div>
+        )}
+
+        {/* COLUMNA: CONTENEDORES (GRUPOS) */}
+        <div className={`${readOnly ? "col-span-12" : "col-span-9"} grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 overflow-y-auto content-start pr-1`}>
+            {containers.map((c) => (
+                <div 
+                    key={c.id} 
+                    onDragOver={(e) => handleDragOver(e, c.id)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, c.id)}
+                    className={`bg-white border rounded-lg shadow-sm flex flex-col h-fit transition-all duration-200 ${
+                        dragOverContainerId === c.id ? "border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50 scale-[1.02]" : "border-indigo-100"
+                    }`}
+                >
+                    <div className="p-1.5 border-b border-slate-100 flex justify-between items-center bg-indigo-50/30 rounded-t-lg">
+                        <span className="font-bold text-[10px] text-indigo-900 truncate uppercase tracking-wider" title={c.nombre}>{c.nombre}</span>
+                        {!readOnly && <button onClick={() => deleteContainer(c.id)} className="text-slate-300 hover:text-red-500"><IconTrash size={10} /></button>}
+                    </div>
+                    <div className="p-1 space-y-0.5 min-h-[40px]">
+                        {c.items.map((item, idx) => (
+                            <div key={item.id} className="flex items-center gap-1.5 p-1 bg-white border border-slate-100 rounded text-[10px] group hover:shadow-sm">
+                                {!readOnly && (
+                                    <div className="flex flex-col gap-0.5 opacity-20 group-hover:opacity-100 transition-opacity">
+                                        <button disabled={idx === 0} onClick={() => moveItem(item.id, -1, item.orden, c.id)} className="hover:text-indigo-600 disabled:opacity-0"><IconArrowUp size={8} /></button>
+                                        <button disabled={idx === c.items.length - 1} onClick={() => moveItem(item.id, 1, item.orden, c.id)} className="hover:text-indigo-600 disabled:opacity-0"><IconArrowDown size={8} /></button>
+                                    </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                    <span className="truncate block font-medium text-slate-700">{item.integrantes?.nombre} {item.integrantes?.apellido}</span>
+                                </div>
+                                {!readOnly && <button onClick={() => removeMusician(item.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><IconX size={10} /></button>}
+                            </div>
+                        ))}
+                        {!readOnly && c.items.length === 0 && (
+                            <div className="text-center text-[9px] text-indigo-200 py-4 border-2 border-dashed border-indigo-50 rounded italic pointer-events-none">
+                                {dragOverContainerId === c.id ? "Soltar aquí" : "Arrastra músicos aquí"}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ))}
+            {containers.length === 0 && <div className="col-span-full text-center py-10 text-slate-400 italic text-xs">No hay grupos de cuerdas definidos.</div>}
+        </div>
       </div>
     </div>
   );
@@ -321,7 +429,7 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
       <CreateParticellaModal isOpen={!!createModalInfo} onClose={() => setCreateModalInfo(null)} onConfirm={handleConfirmCreate} instrumentList={instrumentList} defaultInstrumentId={createModalInfo?.defaultInstrId}/>
       {(loading || rosterLoading) && <div className="absolute inset-0 bg-white/80 z-50 flex items-center justify-center"><IconLoader className="animate-spin text-indigo-600" size={32} /></div>}
       
-      {/* HEADER PRINCIPAL - REDUCIDO EN ALTURA (px-4 py-2) */}
+      {/* HEADER PRINCIPAL */}
       <div className="px-4 py-2 border-b border-slate-200 bg-white flex justify-between items-center shrink-0">
         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><IconUsers className="text-indigo-600" /> Seating & Particellas</h2>
         <div className="flex gap-2"><button onClick={() => setShowConfig(!showConfig)} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors ${showConfig ? "bg-indigo-600 text-white" : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"}`}><IconSettings size={16} /> {isEditor ? "Configurar Cuerdas" : "Ver Grupos Cuerdas"}</button><button onClick={onBack} className="text-sm font-medium text-slate-500 hover:text-indigo-600 ml-4">← Volver</button></div>
@@ -331,7 +439,7 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
       <div className="flex-1 overflow-hidden p-4 flex flex-col">
         {showConfig && <GlobalStringsManager programId={program.id} roster={filteredRoster} containers={containers} onUpdate={fetchContainers} supabase={supabase} readOnly={!isEditor} />}
         
-        {/* CONTENEDOR DE LA TABLA - MANEJA EL SCROLL PARA STICKY HEADER */}
+        {/* TABLA PRINCIPAL */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex-1 overflow-auto max-h-full">
             <table className="w-full text-left text-xs border-collapse min-w-[1000px]">
               <thead className="bg-slate-800 text-white font-bold sticky top-0 z-30 shadow-md">
@@ -354,7 +462,7 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                                     {hasUnassigned && (
                                         <div className="relative group/icon">
                                             <IconAlertCircle size={12} className="text-amber-400 cursor-help" />
-                                            {/* LISTA FLOTANTE HOVER (Ahora visible porque el contenedor no tiene overflow-hidden) */}
+                                            {/* LISTA FLOTANTE HOVER */}
                                             <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 w-40 bg-white text-slate-700 shadow-xl rounded border border-slate-200 p-2 z-50 hidden group-hover/icon:block animate-in fade-in zoom-in-95 pointer-events-none">
                                                 <div className="text-[9px] font-bold text-slate-400 uppercase border-b border-slate-100 mb-1 pb-1">Sin Asignar ({unassignedParts.length})</div>
                                                 <ul className="space-y-0.5">

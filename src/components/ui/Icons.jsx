@@ -1183,8 +1183,6 @@ export const IconFilePlus = ({ size = 24, className = "" }) => (
   </svg>
 );
 
-// src/components/ui/Icons.jsx
-// ... (agregalo al final del archivo o junto a los otros)
 
 export const IconClipboardCheck = ({ size = 24, className = "" }) => (
   <svg 

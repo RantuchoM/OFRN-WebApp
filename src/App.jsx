@@ -23,6 +23,7 @@ function AppContent() {
     const userRole = user?.rol_sistema || '';
     const isPersonal = userRole === 'consulta_personal' || userRole === 'personal';
 
+    // HOOK 1: Cargar instrumentos
     useEffect(() => {
         const fetchInstrumentos = async () => {
             const { data } = await supabase.from('instrumentos').select('*').order('id');
@@ -30,6 +31,17 @@ function AppContent() {
         };
         fetchInstrumentos();
     }, []);
+
+    // HOOK 2: Efecto de seguridad (MOVIDO ARRIBA ANTES DE LOS RETURNS)
+    useEffect(() => {
+        if (isPersonal && activeTab !== 'giras') {
+            setActiveTab('giras');
+        }
+    }, [isPersonal, activeTab]);
+
+    // ---------------------------------------------------------
+    // AHORA SI, LOS RETURNS CONDICIONALES
+    // ---------------------------------------------------------
 
     // 1. Cargando
     if (loading) return <div className="h-screen flex items-center justify-center text-slate-400">Cargando...</div>;
@@ -65,13 +77,6 @@ function AppContent() {
     const visibleTabs = isPersonal 
         ? allTabs.filter(t => t.id === 'giras') 
         : allTabs;
-
-    // Efecto de seguridad: si estoy en una tab prohibida, volver a giras
-    useEffect(() => {
-        if (isPersonal && activeTab !== 'giras') {
-            setActiveTab('giras');
-        }
-    }, [isPersonal, activeTab]);
 
     // 4. Logueado y Autorizado -> App Completa
     return (
