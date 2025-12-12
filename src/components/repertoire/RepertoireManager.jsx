@@ -415,12 +415,20 @@ export default function RepertoireManager({
 
   // --- EFECTO DE CÁLCULO DE INSTRUMENTACIÓN ---
   useEffect(() => {
-    if ((showRequestForm || isEditWorkModalOpen) && particellas.length > 0) {
+    // Eliminamos la condición "length > 0" para que calcule siempre.
+    // Si no hay particellas, calculateInstrumentation devuelve "" y limpia el campo, lo cual es correcto.
+    if (showRequestForm || isEditWorkModalOpen) {
       const autoInstr = calculateInstrumentation(particellas);
-      setWorkFormData((prev) => ({ ...prev, instrumentacion: autoInstr }));
+
+      setWorkFormData((prev) => {
+        // Solo actualizamos si el valor cambió para evitar renderizados infinitos
+        if (prev.instrumentacion !== autoInstr) {
+          return { ...prev, instrumentacion: autoInstr };
+        }
+        return prev;
+      });
     }
   }, [particellas, showRequestForm, isEditWorkModalOpen]);
-
   // --- FETCHERS ---
   const fetchMusicians = async () => {
     const { data } = await supabase
@@ -448,13 +456,27 @@ export default function RepertoireManager({
 
   const fetchFullRepertoire = async () => {
     setLoading(true);
+    // AGREGADO: obras_particellas (nombre_archivo, nota_organico, instrumentos (instrumento))
     const { data: reps, error } = await supabase
       .from("programas_repertorios")
       .select(
-        `*, repertorio_obras (id, orden, notas_especificas, id_solista, google_drive_shortcut_id, obras (id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, compositores (id, apellido, nombre), obras_compositores (rol, compositores(id, apellido, nombre))), integrantes (id, apellido, nombre))`
+        `
+            *, 
+            repertorio_obras (
+                id, orden, notas_especificas, id_solista, google_drive_shortcut_id, 
+                obras (
+                    id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, 
+                    compositores (id, apellido, nombre), 
+                    obras_compositores (rol, compositores(id, apellido, nombre)),
+                    obras_particellas (nombre_archivo, nota_organico, instrumentos (instrumento)) 
+                ), 
+                integrantes (id, apellido, nombre)
+            )
+        `
       )
       .eq("id_programa", programId)
       .order("orden", { ascending: true });
+
     if (error) console.error("Error fetching repertoire:", error);
     else {
       const sorted = reps.map((r) => ({
@@ -568,15 +590,13 @@ export default function RepertoireManager({
         (max, o) => (o.orden > max ? o.orden : max),
         0
       ) || 0;
-    await supabase
-      .from("repertorio_obras")
-      .insert([
-        {
-          id_repertorio: activeRepertorioId,
-          id_obra: workId,
-          orden: maxOrder + 1,
-        },
-      ]);
+    await supabase.from("repertorio_obras").insert([
+      {
+        id_repertorio: activeRepertorioId,
+        id_obra: workId,
+        orden: maxOrder + 1,
+      },
+    ]);
 
     setIsAddModalOpen(false);
     setShowRequestForm(false);
@@ -1554,7 +1574,15 @@ export default function RepertoireManager({
                     </td>
 
                     <td className="p-1 text-center truncate text-[10px] text-slate-500 pt-2">
-                      {item.obras.instrumentacion || "-"}
+                      {item.obras.instrumentacion ||
+                        calculateInstrumentation(
+                          item.obras.obras_particellas?.map((p) => ({
+                            nombre_archivo: p.nombre_archivo,
+                            nota_organico: p.nota_organico,
+                            instrumento_nombre: p.instrumentos?.instrumento,
+                          }))
+                        ) ||
+                        "-"}
                     </td>
                     <td className="p-1 text-center font-mono text-[10px] pt-2">
                       {formatSecondsToTime(item.obras.duracion_segundos)}
