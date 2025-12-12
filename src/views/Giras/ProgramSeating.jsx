@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   IconUsers, IconLoader, IconX, IconChevronDown, IconCheck, IconPlus,
   IconTrash, IconArrowUp, IconArrowDown, IconSettings, IconLayers,
-  IconExternalLink
+  IconExternalLink, IconAlertCircle 
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
@@ -18,7 +18,7 @@ const CreateParticellaModal = ({ isOpen, onClose, onConfirm, instrumentList, def
     const [selectedInstr, setSelectedInstr] = useState(defaultInstrumentId || "");
     const [name, setName] = useState("");
     useEffect(() => { if (isOpen) setSelectedInstr(defaultInstrumentId || (instrumentList[0]?.id || "")); }, [isOpen, defaultInstrumentId, instrumentList]);
-    useEffect(() => { const instrName = instrumentList.find(i => i.id === selectedInstr)?.instrumento; if (instrName) setName(`${instrName} #`); else setName("PENDIENTE - Nueva Particella"); }, [selectedInstr, instrumentList]);
+    useEffect(() => { const instrName = instrumentList.find(i => i.id === selectedInstr)?.instrumento; if (instrName) setName(`PENDIENTE - ${instrName}`); else setName("PENDIENTE - Nueva Particella"); }, [selectedInstr, instrumentList]);
     if (!isOpen) return null;
     const handleSubmit = (e) => { e.preventDefault(); onConfirm(selectedInstr, name); };
     return (
@@ -26,7 +26,7 @@ const CreateParticellaModal = ({ isOpen, onClose, onConfirm, instrumentList, def
     );
 };
 
-// --- SELECTOR INTELIGENTE DE PARTICELLA (MODIFICADO) ---
+// --- SELECTOR INTELIGENTE DE PARTICELLA (CON CONTEO VISUAL EN CELDA) ---
 const ParticellaSelect = ({ 
   options, 
   value, 
@@ -34,7 +34,8 @@ const ParticellaSelect = ({
   onRequestCreate, 
   placeholder = "-", 
   disabled = false,
-  preferredInstrumentId = null 
+  preferredInstrumentId = null,
+  counts = {} 
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -49,46 +50,72 @@ const ParticellaSelect = ({
   }, [isOpen]);
 
   const selectedOption = options.find((o) => o.id === value);
+  
+  // Cálculo del conteo para la celda visual (si está seleccionada)
+  const currentAssignedCount = value ? (counts[value] || 0) : 0;
+  const showCountLabel = currentAssignedCount > 1; // Solo mostrar si hay más de 1 asignado
 
   if (disabled) return (
     <div className="w-full h-full min-h-[24px] px-1 text-[10px] border border-transparent flex items-center justify-center text-slate-600 bg-transparent truncate cursor-default" title={selectedOption?.nombre_archivo}>
-      {selectedOption ? selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento : "-"}
+       {selectedOption ? (
+        <span>
+          {selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento}
+          {showCountLabel && <span className="font-bold ml-1 text-slate-800">[x{currentAssignedCount}]</span>}
+        </span>
+       ) : "-"}
     </div>
   );
 
-  // Filtramos por búsqueda primero
   const filteredOptions = options.filter((o) => 
     (o.nombre_archivo || "").toLowerCase().includes(search.toLowerCase()) || 
     (o.instrumentos?.instrumento || "").toLowerCase().includes(search.toLowerCase())
   );
 
-  // Dividimos en sugeridos y el resto
   const recommendedOptions = filteredOptions.filter(o => o.id_instrumento === preferredInstrumentId);
   const otherOptions = filteredOptions.filter(o => o.id_instrumento !== preferredInstrumentId);
   
   const handleSelect = (id) => { onChange(id); setIsOpen(false); setSearch(""); };
 
-  // --- RENDERIZADO DE OPCIÓN (INVERTIDO: Grande=Nombre, Chico=Instrumento) ---
-  const renderOption = (opt) => (
-    <button key={opt.id} onClick={() => handleSelect(opt.id)} className={`w-full text-left px-2 py-1 text-[10px] rounded hover:bg-indigo-50 flex items-center justify-between group ${value === opt.id ? "bg-indigo-50 text-indigo-700 font-bold" : "text-slate-700"}`}>
-      <div className="truncate">
-        {/* ARRIBA: Nombre de Archivo (Grande/Negrita) */}
-        <span className="block font-medium truncate text-slate-800">
-            {opt.nombre_archivo || "Sin nombre"}
-        </span>
-        {/* ABAJO: Instrumento (Pequeño/Gris) */}
-        <span className="text-[9px] text-slate-400 font-normal truncate block">
-            {opt.instrumentos?.instrumento || "Sin instr."}
-        </span>
-      </div>
-      {value === opt.id && (<IconCheck size={10} className="text-indigo-600 shrink-0 ml-1" />)}
-    </button>
-  );
+  const renderOption = (opt) => {
+    const assignedCount = counts[opt.id] || 0; 
+    return (
+      <button key={opt.id} onClick={() => handleSelect(opt.id)} className={`w-full text-left px-2 py-1 text-[10px] rounded hover:bg-indigo-50 flex items-center justify-between group ${value === opt.id ? "bg-indigo-50 text-indigo-700 font-bold" : "text-slate-700"}`}>
+        <div className="truncate w-full">
+          {/* Nombre + Conteo en lista desplegable */}
+          <div className="flex items-center justify-between w-full">
+             <span className="block font-medium truncate text-slate-800">
+                {opt.nombre_archivo || "Sin nombre"}
+             </span>
+             {assignedCount > 0 && (
+                <span className="ml-1 text-[8px] bg-slate-100 text-slate-500 px-1 rounded-full border border-slate-200 shrink-0">
+                   {assignedCount}
+                </span>
+             )}
+          </div>
+          <span className="text-[9px] text-slate-400 font-normal truncate block">
+              {opt.instrumentos?.instrumento || "Sin instr."}
+          </span>
+        </div>
+        {value === opt.id && (<IconCheck size={10} className="text-indigo-600 shrink-0 ml-1" />)}
+      </button>
+    );
+  };
 
   return (
     <div className="relative w-full h-full" ref={containerRef}>
       <button onClick={() => setIsOpen(!isOpen)} className={`w-full h-full min-h-[24px] text-left px-1 text-[10px] border rounded transition-colors flex items-center justify-between gap-0.5 ${value ? "bg-indigo-50 border-indigo-200 text-indigo-700 font-bold" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"}`}>
-        <span className="truncate block w-full">{selectedOption ? selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento : placeholder}</span>
+        <span className="truncate block w-full">
+            {selectedOption 
+                ? (
+                    <>
+                        {selectedOption.nombre_archivo || selectedOption.instrumentos?.instrumento}
+                        {/* AQUI EL CAMBIO VISUAL SOLICITADO */}
+                        {showCountLabel && <span className="text-indigo-900 ml-1 font-extrabold">[x{currentAssignedCount}]</span>}
+                    </>
+                  ) 
+                : placeholder
+            }
+        </span>
         <IconChevronDown size={8} className={`shrink-0 transition-transform ${isOpen ? "rotate-180" : ""} opacity-50`} />
       </button>
       
@@ -100,15 +127,11 @@ const ParticellaSelect = ({
               <IconPlus size={12}/> Crear Nueva...
             </button>
           </div>
-          
           <div className="overflow-y-auto flex-1 p-1">
             <button onClick={() => handleSelect(null)} className="w-full text-left px-2 py-1 text-[10px] text-slate-400 hover:bg-red-50 hover:text-red-600 rounded flex items-center gap-2 mb-1">
               <IconX size={8} /> Quitar Asignación
             </button>
-
             {filteredOptions.length === 0 && (<div className="text-[10px] text-slate-400 p-2 text-center italic">No hay particellas</div>)}
-
-            {/* SECCIÓN DE SUGERIDOS */}
             {recommendedOptions.length > 0 && (
               <>
                 <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 bg-slate-50 mt-1 mb-0.5 rounded">Sugeridos</div>
@@ -116,8 +139,6 @@ const ParticellaSelect = ({
                 {otherOptions.length > 0 && <div className="border-t border-slate-100 my-1"></div>}
               </>
             )}
-
-            {/* SECCIÓN RESTO DE OPCIONES */}
             {(otherOptions.length > 0 && recommendedOptions.length > 0) && (
                  <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 mt-1 mb-0.5">Otros</div>
             )}
@@ -143,7 +164,7 @@ const GlobalStringsManager = ({ programId, roster, containers, onUpdate, supabas
   const moveItem = async (itemId, direction, currentOrder, containerId) => { if (readOnly) return; const container = containers.find((c) => c.id === containerId); const swapItem = container.items.find((i) => i.orden === currentOrder + direction); if (swapItem) { await supabase.from("seating_contenedores_items").update({ orden: currentOrder }).eq("id", swapItem.id); await supabase.from("seating_contenedores_items").update({ orden: currentOrder + direction }).eq("id", itemId); onUpdate(); } };
 
   return (
-    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-6 animate-in fade-in">
+    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4 animate-in fade-in shrink-0">
       <div className="flex justify-between items-center mb-3"><h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm"><IconLayers size={16} /> Disposición de Cuerdas</h3>{!readOnly && (<button onClick={createContainer} className="bg-indigo-600 text-white px-2 py-1 rounded text-[10px] font-bold hover:bg-indigo-700 flex items-center gap-1"><IconPlus size={12} /> Nuevo Grupo</button>)}</div>
       <div className="grid grid-cols-12 gap-4 h-[350px]">
         {!readOnly && (<div className="col-span-3 bg-white border border-slate-200 rounded-lg flex flex-col overflow-hidden"><div className="p-2 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase">Sin Asignar ({available.length})</div><div className="overflow-y-auto p-1 space-y-0.5 flex-1">{available.map((m) => (<div key={m.id} className="text-[10px] p-1.5 bg-slate-50 border border-slate-100 rounded flex justify-between items-center group hover:border-indigo-200 cursor-default"><div className="truncate"><span className="font-bold text-slate-700">{m.apellido}</span> <span className="text-slate-500">{m.nombre.charAt(0)}.</span><span className="text-[8px] text-indigo-400 ml-1">({m.instrumentos?.instrumento})</span></div><div className="hidden group-hover:flex flex-col gap-0.5 absolute right-2 bg-white shadow-lg p-1 rounded border z-10">{containers.map((c) => (<button key={c.id} onClick={() => addMusician(c.id, m.id)} className="text-[9px] text-left hover:bg-indigo-50 px-1 rounded whitespace-nowrap text-indigo-700">→ {c.nombre}</button>))}</div></div>))}{available.length === 0 && <div className="text-center text-[10px] text-slate-300 italic mt-4">Todos asignados</div>}</div></div>)}
@@ -182,6 +203,15 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
       })
     );
   }, [repertoireBlocks]);
+
+  // CALCULO DE CONTEOS DE ASIGNACIONES
+  const particellaCounts = useMemo(() => {
+    const counts = {};
+    Object.values(assignments).forEach(partId => {
+      if (partId) counts[partId] = (counts[partId] || 0) + 1;
+    });
+    return counts;
+  }, [assignments]);
 
   useEffect(() => {
     if (program?.id && !rosterLoading) fetchInitialData();
@@ -290,19 +320,56 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
     <div className="flex flex-col h-full bg-slate-50 relative">
       <CreateParticellaModal isOpen={!!createModalInfo} onClose={() => setCreateModalInfo(null)} onConfirm={handleConfirmCreate} instrumentList={instrumentList} defaultInstrumentId={createModalInfo?.defaultInstrId}/>
       {(loading || rosterLoading) && <div className="absolute inset-0 bg-white/80 z-50 flex items-center justify-center"><IconLoader className="animate-spin text-indigo-600" size={32} /></div>}
-      <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center shrink-0">
-        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><IconUsers className="text-indigo-600" /> Seating & Particellas</h2>
+      
+      {/* HEADER PRINCIPAL - REDUCIDO EN ALTURA (px-4 py-2) */}
+      <div className="px-4 py-2 border-b border-slate-200 bg-white flex justify-between items-center shrink-0">
+        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><IconUsers className="text-indigo-600" /> Seating & Particellas</h2>
         <div className="flex gap-2"><button onClick={() => setShowConfig(!showConfig)} className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors ${showConfig ? "bg-indigo-600 text-white" : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"}`}><IconSettings size={16} /> {isEditor ? "Configurar Cuerdas" : "Ver Grupos Cuerdas"}</button><button onClick={onBack} className="text-sm font-medium text-slate-500 hover:text-indigo-600 ml-4">← Volver</button></div>
       </div>
-      <div className="flex-1 overflow-auto p-4">
+
+      {/* ÁREA DE CONTENIDO */}
+      <div className="flex-1 overflow-hidden p-4 flex flex-col">
         {showConfig && <GlobalStringsManager programId={program.id} roster={filteredRoster} containers={containers} onUpdate={fetchContainers} supabase={supabase} readOnly={!isEditor} />}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto pb-20">
+        
+        {/* CONTENEDOR DE LA TABLA - MANEJA EL SCROLL PARA STICKY HEADER */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex-1 overflow-auto max-h-full">
             <table className="w-full text-left text-xs border-collapse min-w-[1000px]">
-              <thead className="bg-slate-800 text-white font-bold sticky top-0 z-20 shadow-md">
+              <thead className="bg-slate-800 text-white font-bold sticky top-0 z-30 shadow-md">
                 <tr>
-                  <th className="p-2 w-64 sticky left-0 bg-slate-800 z-30 border-r border-slate-600 pl-4">Contenedor / Músico</th>
-                  {obras.map((obra) => (<th key={obra.id} className="p-1 min-w-[140px] border-l border-slate-600 align-bottom"><div className="flex flex-col gap-0.5 items-center w-full"><div className="flex items-center gap-1 opacity-70 hover:opacity-100 transition-opacity"><span className="text-[9px] uppercase tracking-wide">{obra.composer}</span>{obra.link && <a href={`https://drive.google.com/drive/folders/${obra.link}`} target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:text-white" title="Abrir en Drive"><IconExternalLink size={10} /></a>}</div><div className="text-[10px] font-bold text-white leading-tight text-center px-1 mb-1">{obra.shortTitle}</div></div></th>))}
+                  <th className="p-2 w-64 sticky left-0 bg-slate-800 z-40 border-r border-slate-600 pl-4">Contenedor / Músico</th>
+                  {obras.map((obra) => {
+                    const obraParts = particellas.filter(p => p.id_obra === obra.obra_id);
+                    const unassignedParts = obraParts.filter(p => !particellaCounts[p.id]);
+                    const hasUnassigned = unassignedParts.length > 0;
+
+                    return (
+                        <th key={obra.id} className="p-1 min-w-[140px] border-l border-slate-600 align-bottom relative group">
+                            <div className="flex flex-col gap-0.5 items-center w-full pb-1">
+                                <div className="flex items-center gap-1 opacity-70 hover:opacity-100 transition-opacity">
+                                    <span className="text-[9px] uppercase tracking-wide">{obra.composer}</span>
+                                    {obra.link && <a href={`https://drive.google.com/drive/folders/${obra.link}`} target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:text-white" title="Abrir en Drive"><IconExternalLink size={10} /></a>}
+                                </div>
+                                <div className="text-[10px] font-bold text-white leading-tight text-center px-1 mb-1 flex items-center justify-center gap-1">
+                                    {obra.shortTitle}
+                                    {hasUnassigned && (
+                                        <div className="relative group/icon">
+                                            <IconAlertCircle size={12} className="text-amber-400 cursor-help" />
+                                            {/* LISTA FLOTANTE HOVER (Ahora visible porque el contenedor no tiene overflow-hidden) */}
+                                            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 w-40 bg-white text-slate-700 shadow-xl rounded border border-slate-200 p-2 z-50 hidden group-hover/icon:block animate-in fade-in zoom-in-95 pointer-events-none">
+                                                <div className="text-[9px] font-bold text-slate-400 uppercase border-b border-slate-100 mb-1 pb-1">Sin Asignar ({unassignedParts.length})</div>
+                                                <ul className="space-y-0.5">
+                                                    {unassignedParts.map(p => (
+                                                        <li key={p.id} className="text-[9px] font-medium truncate">• {p.nombre_archivo}</li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -311,7 +378,7 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                     <tr className="bg-indigo-50/50"><td colSpan={obras.length + 1} className="p-1 px-4 text-[10px] font-bold text-indigo-800 uppercase tracking-wider border-b border-indigo-100">Sección de Cuerdas</td></tr>
                     {containers.map((c) => (
                       <tr key={c.id} className="hover:bg-indigo-50/30 transition-colors group">
-                        <td className="p-2 sticky left-0 bg-white group-hover:bg-indigo-50/30 border-r border-slate-200 z-10 pl-4 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                        <td className="p-2 sticky left-0 bg-white group-hover:bg-indigo-50/30 border-r border-slate-200 z-20 pl-4 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                           <div className="flex flex-col"><span className="font-bold text-indigo-900 text-sm flex items-center gap-2"><IconLayers size={14} /> {c.nombre}</span><div className="text-[9px] text-slate-500 mt-0.5 truncate max-w-[200px]" title={c.items.map((i) => i.integrantes?.apellido).join(", ")}>{c.items.length} músicos...</div></div>
                         </td>
                         {obras.map((obra) => { 
@@ -326,7 +393,8 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                                 onRequestCreate={() => openCreateModal(obra.obra_id, "00", "C", c.id)} 
                                 disabled={!isEditor} 
                                 placeholder="Asignar Grupo"
-                                preferredInstrumentId={c.id_instrumento} // Preferencia de contenedor
+                                preferredInstrumentId={c.id_instrumento} 
+                                counts={particellaCounts}
                               />
                             </td>
                           ); 
@@ -340,7 +408,7 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                     <tr className="bg-slate-100/50"><td colSpan={obras.length + 1} className="p-1 px-4 text-[10px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200 border-t border-slate-200 mt-4">Vientos y Percusión</td></tr>
                     {otherMusicians.map((musician) => (
                       <tr key={musician.id} className="hover:bg-slate-50 transition-colors group">
-                        <td className="p-2 sticky left-0 bg-white group-hover:bg-slate-50 border-r border-slate-200 z-10 pl-4 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                        <td className="p-2 sticky left-0 bg-white group-hover:bg-slate-50 border-r border-slate-200 z-20 pl-4 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                           <div className="flex flex-col"><span className="font-bold text-slate-700 truncate text-xs">{musician.apellido}, {musician.nombre}</span><span className="text-[9px] text-slate-400 truncate flex items-center gap-1">{musician.instrumentos?.instrumento} {musician.rol_gira && musician.rol_gira !== 'musico' && <span className="text-amber-600">({musician.rol_gira})</span>}</span></div>
                         </td>
                         {obras.map((obra) => { 
@@ -354,7 +422,8 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                                 onChange={(val) => handleAssign("M", musician.id, obra.obra_id, val)} 
                                 onRequestCreate={() => openCreateModal(obra.obra_id, musician.id_instr, "M", musician.id)} 
                                 disabled={!isEditor}
-                                preferredInstrumentId={musician.id_instr} // Preferencia de musico
+                                preferredInstrumentId={musician.id_instr}
+                                counts={particellaCounts} 
                               />
                             </td>
                           ); 
@@ -365,7 +434,6 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                 )}
               </tbody>
             </table>
-          </div>
         </div>
       </div>
     </div>
