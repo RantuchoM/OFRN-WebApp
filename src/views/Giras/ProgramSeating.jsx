@@ -20,6 +20,8 @@ import {
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+// Al inicio del archivo
+import AnnualRotationModal from "../../components/seating/AnnualRotationModal"; // Ajusta la ruta según donde lo guardaste
 
 const EXCLUDED_ROLES = [
   "staff",
@@ -43,6 +45,7 @@ const CreateParticellaModal = ({
 }) => {
   const [selectedInstr, setSelectedInstr] = useState(defaultInstrumentId || "");
   const [name, setName] = useState("");
+
   useEffect(() => {
     if (isOpen)
       setSelectedInstr(defaultInstrumentId || instrumentList[0]?.id || "");
@@ -119,7 +122,6 @@ const CreateParticellaModal = ({
     </div>
   );
 };
-
 // --- SELECTOR INTELIGENTE DE PARTICELLA ---
 const ParticellaSelect = ({
   options,
@@ -956,7 +958,6 @@ const GlobalStringsManager = ({
                     <span className="text-slate-700">
                       {m.apellido} ({m.instrumentos?.instrumento})
                     </span>
-                    
                   </div>
                 </div>
               ))}
@@ -1118,6 +1119,8 @@ export default function ProgramSeating({
   const [containers, setContainers] = useState([]);
   const [showConfig, setShowConfig] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showRotationModal, setShowRotationModal] = useState(false);
+
   const [loading, setLoading] = useState(false);
 
   const [instrumentList, setInstrumentList] = useState([]);
@@ -1392,6 +1395,20 @@ export default function ProgramSeating({
           <IconUsers className="text-indigo-600" /> Seating & Particellas
         </h2>
         <div className="flex gap-2">
+          {/* Botón Nuevo */}
+          <button
+            onClick={() => setShowRotationModal(true)}
+            className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-white border border-slate-300 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 shadow-sm"
+          >
+            <IconLayers size={16} /> Rotación Anual
+          </button>
+
+          <button onClick={() => setShowHistory(!showHistory)}>
+            {/* ... */}
+          </button>
+          {/* ... */}
+        </div>
+        <div className="flex gap-2">
           <button
             onClick={() => setShowHistory(!showHistory)}
             className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-white border border-slate-300 text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 shadow-sm"
@@ -1642,6 +1659,13 @@ export default function ProgramSeating({
           </table>
         </div>
       </div>
+      <AnnualRotationModal
+        isOpen={showRotationModal}
+        onClose={() => setShowRotationModal(false)}
+        currentProgram={program}
+        roster={rawRoster} // IMPORTANTE: Usar rawRoster para que estén todos los músicos
+        supabase={supabase}
+      />
     </div>
   );
 }
