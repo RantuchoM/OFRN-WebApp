@@ -305,8 +305,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in duration-300">
       {/* HEADER */}
-      <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between shrink-0 gap-4 relative z-30">
-        <div className="flex items-center gap-4">
+<div className="bg-white p-4 border-b border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between shrink-0 gap-4 relative z-50">        <div className="flex items-center gap-4">
           <button onClick={onBack} className="text-slate-400 hover:text-indigo-600 font-medium text-sm flex items-center gap-1">← Volver</button>
           <div>
             <h2 className="text-xl font-bold text-slate-800">{gira.nombre_gira}</h2>

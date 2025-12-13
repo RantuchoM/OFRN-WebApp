@@ -647,14 +647,12 @@ const GlobalStringsManager = ({
     if (readOnly) return;
     const name = prompt("Nombre del grupo:", `Grupo ${containers.length + 1}`);
     if (!name) return;
-    await supabase
-      .from("seating_contenedores")
-      .insert({
-        id_programa: programId,
-        nombre: name,
-        orden: containers.length,
-        id_instrumento: "00",
-      });
+    await supabase.from("seating_contenedores").insert({
+      id_programa: programId,
+      nombre: name,
+      orden: containers.length,
+      id_instrumento: "00",
+    });
     onUpdate();
   };
 
@@ -954,12 +952,11 @@ const GlobalStringsManager = ({
                   className="text-[10px] p-1.5 bg-slate-50 border border-slate-100 rounded flex justify-between items-center hover:bg-indigo-50 cursor-grab active:cursor-grabbing"
                 >
                   <div className="truncate pointer-events-none">
-                    <span className="font-bold text-slate-700">
-                      {m.apellido}
-                    </span>{" "}
-                    <span className="text-slate-500">
-                      {m.nombre.charAt(0)}.
+                    <span className="text-slate-500">{m.nombre}</span>{" "}
+                    <span className="text-slate-700">
+                      {m.apellido} ({m.instrumentos?.instrumento})
                     </span>
+                    
                   </div>
                 </div>
               ))}
@@ -1298,24 +1295,19 @@ export default function ProgramSeating({
       return copy;
     });
     if (targetType === "C") {
-      await supabase
-        .from("seating_asignaciones")
-        .delete()
-        .match({
-          id_programa: program.id,
-          id_contenedor: targetId,
-          id_obra: obraId,
-        });
+      await supabase.from("seating_asignaciones").delete().match({
+        id_programa: program.id,
+        id_contenedor: targetId,
+        id_obra: obraId,
+      });
       if (particellaId)
-        await supabase
-          .from("seating_asignaciones")
-          .insert({
-            id_programa: program.id,
-            id_obra: obraId,
-            id_particella: particellaId,
-            id_contenedor: targetId,
-            id_musicos_asignados: null,
-          });
+        await supabase.from("seating_asignaciones").insert({
+          id_programa: program.id,
+          id_obra: obraId,
+          id_particella: particellaId,
+          id_contenedor: targetId,
+          id_musicos_asignados: null,
+        });
     } else {
       const { data: existing } = await supabase
         .from("seating_asignaciones")
@@ -1357,14 +1349,12 @@ export default function ProgramSeating({
           );
         } else {
           updates.push(
-            supabase
-              .from("seating_asignaciones")
-              .insert({
-                id_programa: program.id,
-                id_obra: obraId,
-                id_particella: particellaId,
-                id_musicos_asignados: [targetId],
-              })
+            supabase.from("seating_asignaciones").insert({
+              id_programa: program.id,
+              id_obra: obraId,
+              id_particella: particellaId,
+              id_musicos_asignados: [targetId],
+            })
           );
         }
       }

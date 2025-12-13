@@ -5,7 +5,7 @@ export function useGiraRoster(supabase, gira) {
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [sources, setSources] = useState([]); // Para saber qué ensambles/familias componen la gira
+  const [sources, setSources] = useState([]); 
 
   const fetchRoster = useCallback(async () => {
     if (!gira?.id) return;
@@ -13,7 +13,7 @@ export function useGiraRoster(supabase, gira) {
     setError(null);
 
     try {
-      // 1. Obtener Fuentes (Ensambles, Familias, Exclusiones)
+      // 1. Obtener Fuentes
       const { data: fuentes, error: errFuentes } = await supabase
         .from("giras_fuentes")
         .select("*")
@@ -32,7 +32,7 @@ export function useGiraRoster(supabase, gira) {
         if (f.tipo === "EXCL_ENSAMBLE") exclEnsembles.add(f.valor_id);
       });
 
-      // 2. Obtener Overrides Manuales (Giras Integrantes)
+      // 2. Obtener Overrides Manuales
       const { data: overrides, error: errOverrides } = await supabase
         .from("giras_integrantes")
         .select("id_integrante, estado, rol")
@@ -60,7 +60,6 @@ export function useGiraRoster(supabase, gira) {
       const excludedIds = new Set(membersExcl.map((m) => m.id_integrante));
       const manualIds = new Set(overrides.map((o) => o.id_integrante));
       
-      // Unión de todos los IDs potenciales
       const allPotentialIds = new Set([...baseIncludedIds, ...excludedIds, ...manualIds]);
 
       if (allPotentialIds.size === 0) {
@@ -69,7 +68,7 @@ export function useGiraRoster(supabase, gira) {
         return;
       }
 
-      // 4. Obtener Datos Completos de los Integrantes
+      // 4. Obtener Datos Completos
       const { data: musicians, error: errMusicians } = await supabase
         .from("integrantes")
         .select(`
@@ -82,7 +81,7 @@ export function useGiraRoster(supabase, gira) {
 
       if (errMusicians) throw errMusicians;
 
-      // 5. Obtener Localidades de la Gira (para calcular is_local)
+      // 5. Localidades de la Gira
       const { data: tourLocs } = await supabase
          .from('giras_localidades')
          .select('id_localidad')
@@ -90,68 +89,86 @@ export function useGiraRoster(supabase, gira) {
       
       const tourLocSet = new Set(tourLocs?.map(l => l.id_localidad));
 
-      // 6. PROCESAMIENTO FINAL (La "Lógica de Negocio")
+      // 6. PROCESAMIENTO FINAL (LOGICA CORREGIDA)
       const giraInicio = new Date(gira.fecha_desde);
       const giraFin = new Date(gira.fecha_hasta);
+      // Asegurar que el fin de la gira incluya todo el día para comparaciones
+      giraFin.setHours(23, 59, 59, 999);
+
       const finalRoster = [];
 
       musicians.forEach((m) => {
         const id = m.id;
         const manualData = overrideMap[id];
-        const isBaseIncluded = baseIncludedIds.has(id);
-        const isExcluded = excludedIds.has(id);
         const isManual = manualIds.has(id);
+        const isExcluded = excludedIds.has(id);
+        const isBaseIncluded = baseIncludedIds.has(id);
 
         let keep = false;
         let estadoReal = "confirmado";
         let rolReal = "musico";
         let esAdicional = false;
 
-        // Regla: Familia 'Prod.' implica rol producción por defecto
-        if (!isManual && m.instrumentos?.familia?.includes('Prod')) {
+        // B. Determinar si es miembro "Base" válido (respetando fechas y exclusiones)
+        let isBaseValid = false;
+        if (isBaseIncluded && !isExcluded) {
+           // Chequeo de fechas (Lógica de Solapamiento / Overlap)
+           const alta = m.fecha_alta ? new Date(m.fecha_alta) : null;
+           const baja = m.fecha_baja ? new Date(m.fecha_baja) : null;
+           
+           // Valido si se unió antes de que termine la gira
+           const startsBeforeEnd = !alta || (alta <= giraFin);
+           // Valido si se fue después de que empiece la gira
+           const endsAfterStart = !baja || (baja >= giraInicio);
+           
+           if (startsBeforeEnd && endsAfterStart) {
+               isBaseValid = true;
+           }
+        }
+
+        // Determinar Rol Automático por defecto
+        if (m.instrumentos?.familia?.includes('Prod')) {
             rolReal = 'produccion';
         }
 
+        // C. Aplicar Lógica de Manual vs Automático
         if (isManual) {
-          estadoReal = manualData.estado;
-          rolReal = manualData.rol;
-          // Si está manual y confirmado, es un "Adicional" (alguien agregado a mano)
-          if (estadoReal === "confirmado") {
-            keep = true;
-            esAdicional = true;
-          } else if (estadoReal === "ausente") {
-             // Si está manual como ausente, se mantiene en la lista pero marcado como ausente
-             keep = true;
-             esAdicional = false; 
-          }
-        } else {
-          // Si viene por fuentes automáticas
-          if (isBaseIncluded && !isExcluded) {
-            // Chequeo de fechas de alta/baja
-            if ((m.fecha_alta && new Date(m.fecha_alta) > giraInicio) || (m.fecha_baja && new Date(m.fecha_baja) < giraFin)) {
-              keep = false; // No estaba activo en las fechas de la gira
+            estadoReal = manualData.estado;
+            rolReal = manualData.rol || rolReal;
+            
+            keep = true; // Si está manual, siempre se procesa
+
+            // Si es base válida, NO es "adicional" (no mostrar basurero), es solo un override
+            if (isBaseValid) {
+                esAdicional = false;
             } else {
-              keep = true;
+                // Si NO es base (o fechas no dan), es un agregado puro
+                esAdicional = (estadoReal === 'confirmado');
             }
-          }
+
+        } else {
+            // No es manual, solo depende de si es base válida
+            if (isBaseValid) {
+                keep = true;
+                estadoReal = "confirmado";
+                esAdicional = false;
+            }
         }
 
         if (keep) {
           finalRoster.push({
             ...m,
-            // Propiedades calculadas estandarizadas
             estado_gira: estadoReal,
             rol_gira: rolReal,
             es_adicional: esAdicional,
-            is_local: tourLocSet.has(m.id_localidad), // Calculado centralmente
-            nombre_completo: `${m.apellido}, ${m.nombre}` // Helper útil
+            is_local: tourLocSet.has(m.id_localidad),
+            nombre_completo: `${m.apellido}, ${m.nombre}`
           });
         }
       });
 
-      // Ordenamiento por defecto (Rol > Apellido)
+      // Ordenamiento
       const sorted = finalRoster.sort((a, b) => {
-         // Ausentes al final
          if (a.estado_gira === 'ausente' && b.estado_gira !== 'ausente') return 1;
          if (a.estado_gira !== 'ausente' && b.estado_gira === 'ausente') return -1;
          
@@ -160,12 +177,12 @@ export function useGiraRoster(supabase, gira) {
          const pB = rolesPrio[b.rol_gira] || 99;
          
          if (pA !== pB) return pA - pB;
-         return a.apellido.localeCompare(b.apellido);
+         return (a.apellido || "").localeCompare(b.apellido || "");
       });
 
       setRoster(sorted);
 
-    } catch (err) {
+    } catch (err) {    
       console.error("Error fetching roster:", err);
       setError(err.message);
     } finally {
@@ -173,7 +190,6 @@ export function useGiraRoster(supabase, gira) {
     }
   }, [supabase, gira?.id, gira?.fecha_desde, gira?.fecha_hasta]);
 
-  // Cargar al inicio o al cambiar la gira
   useEffect(() => {
     fetchRoster();
   }, [fetchRoster]);
