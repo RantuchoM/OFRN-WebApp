@@ -20,7 +20,7 @@ const ModalPortal = ({ children }) => {
   );
 };
 
-// ... (SoloistSelect se mantiene igual)
+// --- COMPONENTE INTERNO: SELECTOR DE SOLISTA ---
 const SoloistSelect = ({ currentId, musicians, onChange }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -94,8 +94,11 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
   const fetchInstruments = async () => { const { data } = await supabase.from("instrumentos").select("id, instrumento").order("id"); if (data) setInstrumentList(data); };
   
   const fetchFullRepertoire = async () => {
-    setLoading(true);
+    // Si no es carga inicial, evitamos spinner global invasivo
+    if(repertorios.length === 0) setLoading(true);
+    
     const { data: reps, error } = await supabase.from("programas_repertorios").select(`*, repertorio_obras (id, orden, notas_especificas, id_solista, google_drive_shortcut_id, obras (id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, compositores (id, apellido, nombre), obras_compositores (rol, compositores(id, apellido, nombre)), obras_particellas (nombre_archivo, nota_organico, instrumentos (instrumento))), integrantes (id, apellido, nombre))`).eq("id_programa", programId).order("orden", { ascending: true });
+    
     if (!error) setRepertorios(reps.map((r) => ({ ...r, repertorio_obras: r.repertorio_obras?.sort((a, b) => a.orden - b.orden) || [] })));
     setLoading(false);
   };
@@ -112,32 +115,21 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
     try { await supabase.functions.invoke("manage-drive", { body: { action: "sync_program", programId: programId } }); } catch (err) { console.error(err); } finally { setSyncingDrive(false); }
   };
 
-  // --- ACTIONS ---
-  // CORRECCIÓN: NO CERRAMOS EL MODAL AQUÍ, SOLO REFRESCOS LOS DATOS DE FONDO
-  const handleWorkUpdated = async (savedId) => {
-      // Si estamos en el proceso de agregar obra al programa y es la primera vez
-      if (isAddModalOpen && !activeWorkItem) {
-          // Aquí podríamos querer cerrar o añadirla y dejar abierto. 
-          // Por defecto asumimos que al crear una obra desde el buscador, se añade al bloque.
-          // Pero si es solo EDICIÓN, no hacemos nada más que refrescar.
-          // Como handleWorkSaved se llama en cada autosave, debemos tener cuidado.
-          
-          // Solo añadimos si aún no está en el bloque (chequeo simple)
-          // Pero addWorkToBlock ya maneja inserts.
-          // Mejor estrategia: WorkForm solo llama a este callback para refrescar la UI principal.
+  // --- CALLBACK UNIFICADO DE GUARDADO ---
+  const handleWorkSaved = async (savedWorkId, isNew = false) => {
+      // 1. Si es nueva y tenemos un bloque activo, la vinculamos
+      if (isNew && activeRepertorioId) {
+          await addWorkToBlock(savedWorkId, activeRepertorioId);
+          // Si fue creada desde el buscador/botón flotante, cerramos el buscador pero dejamos el form abierto
+          // para que siga editando si quiere. 
+          if(isAddModalOpen) setIsAddModalOpen(false);
       }
-      
-      // Refrescar lista de fondo
-      fetchFullRepertoire();
-      autoSyncDrive();
-  };
 
-  // Callback específico para cuando se CREA una obra desde cero en el modal y se añade al programa
-  const handleWorkCreatedAndAdded = async (newId) => {
-      await addWorkToBlock(newId);
-      // Aquí sí podríamos cerrar el modal de "Agregar" si quisiéramos, 
-      // pero el WorkForm está sobre el modal de agregar.
-      // Dejamos que el usuario cierre manualmente.
+      // 2. Refrescar SIEMPRE la vista del manager para reflejar cambios (título, duración, etc.)
+      fetchFullRepertoire();
+      
+      // AutoSync Drive solo si es necesario (opcional para no saturar)
+      // autoSyncDrive(); 
   };
 
   const openEditModal = (item) => {
@@ -159,7 +151,6 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
     setEditingBlock({ id: null, nombre: "" });
   };
 
-  // ... (moveWork, removeWork, addRepertoireBlock, deleteRepertoireBlock se mantienen igual)
   const moveWork = async (repertorioId, workId, direction) => {
     if (!isEditor) return;
     const repIndex = repertorios.findIndex((r) => r.id === repertorioId);
@@ -178,13 +169,21 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
     autoSyncDrive();
   };
 
-  const addWorkToBlock = async (workId) => {
-    if (!activeRepertorioId) return;
-    const currentRep = repertorios.find((r) => r.id === activeRepertorioId);
+  const addWorkToBlock = async (workId, targetRepertorioId = null) => {
+    const repId = targetRepertorioId || activeRepertorioId;
+    if (!repId) return;
+    
+    const currentRep = repertorios.find((r) => r.id === repId);
     const maxOrder = currentRep?.repertorio_obras?.reduce((max, o) => (o.orden > max ? o.orden : max), 0) || 0;
-    await supabase.from("repertorio_obras").insert([{ id_repertorio: activeRepertorioId, id_obra: workId, orden: maxOrder + 1 }]);
-    setIsAddModalOpen(false); // Cerramos el buscador, pero si estaba editando se queda en el WorkForm
-    fetchFullRepertoire();
+    
+    // Insertar relación
+    await supabase.from("repertorio_obras").insert([{ id_repertorio: repId, id_obra: workId, orden: maxOrder + 1 }]);
+    
+    // Si se llamó desde el buscador (isAddModalOpen true), refrescamos y cerramos buscador
+    if (isAddModalOpen && !targetRepertorioId) { // Solo si no fue llamada interna por handleWorkSaved
+        setIsAddModalOpen(false);
+        fetchFullRepertoire();
+    }
     autoSyncDrive();
   };
 
@@ -237,7 +236,7 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
 
       {repertorios.map(rep => (
           <div key={rep.id} className={`border border-slate-200 ${isCompact ? "mb-4 rounded shadow-sm" : "shadow-sm bg-white mb-6"}`}>
-              {/* HEADER BLOQUE... (Igual que antes) */}
+              {/* HEADER BLOQUE */}
               <div className="bg-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center h-10">
                   <div className="flex items-center gap-2">
                       <IconMusic size={14} className="text-indigo-600"/>
@@ -253,6 +252,7 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
                   </div>
               </div>
 
+              {/* TABLA OBRAS */}
               <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1000px]">
                       <thead className={tableHeaderClasses(isCompact)}>
@@ -273,7 +273,6 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
                       <tbody className="divide-y divide-slate-100">
                           {rep.repertorio_obras.map((item, idx) => (
                               <tr key={item.id} className="hover:bg-yellow-50 group">
-                                  {/* ... (Celdas igual que antes) ... */}
                                   <td className="p-1 text-center font-bold text-slate-500">
                                       <div className="flex flex-col items-center">
                                           {isEditor && !isCompact && <button onClick={() => moveWork(rep.id, item.id, -1)} disabled={idx === 0} className="text-slate-300 hover:text-indigo-600 disabled:opacity-0 p-0.5"><IconChevronDown size={8} className="rotate-180"/></button>}
@@ -319,7 +318,7 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
           </div>
       ))}
 
-      {/* MODAL AGREGAR (BUSCADOR) */}
+      {/* MODAL BUSCAR */}
       {isAddModalOpen && isEditor && (
         <ModalPortal>
             <div className="bg-white w-full max-w-5xl h-[80vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
@@ -334,7 +333,7 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
                     <button onClick={() => { setIsAddModalOpen(false); openCreateModal(); }} className="bg-indigo-600 text-white px-3 rounded text-xs font-bold hover:bg-indigo-700 flex justify-center items-center gap-1"><IconPlus size={12}/> Crear Solicitud</button>
                 </div>
                 <div className="flex-1 overflow-y-auto">
-                    {/* ... TABLA DE BÚSQUEDA IGUAL QUE ANTES ... */}
+                    {/* ... TABLA DE BÚSQUEDA IGUAL ... */}
                     {loadingLibrary ? <div className="p-8 text-center text-indigo-600"><IconLoader className="animate-spin inline"/></div> : (
                         <table className="w-full text-left text-xs">
                             <thead className="bg-slate-50 text-slate-500 uppercase sticky top-0 font-bold shadow-sm">
@@ -378,9 +377,7 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
                     supabase={supabase}
                     formData={workFormData}
                     onCancel={() => setIsEditWorkModalOpen(false)}
-                    onSave={handleWorkUpdated} // Llama a refresh, NO cierra el modal
-                    // Si se crea una nueva obra, queremos añadirla al bloque:
-                    onAddWork={handleWorkCreatedAndAdded} // Nuevo prop opcional si queremos separar lógica
+                    onSave={handleWorkSaved} 
                     isNew={!workFormData.id}
                     catalogoInstrumentos={instrumentList}
                 />

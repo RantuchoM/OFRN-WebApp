@@ -140,6 +140,8 @@ export default function AnnualRotationModal({ isOpen, onClose, currentProgram, r
             assignments: {} // Mapa: { musicoId: "Flauta 1" }
           };
 
+          let hasAnyAssignment = false; // Flag para filtrar
+
           // Llenar asignaciones para esta fila
           targetMusicians.forEach(mus => {
             const assign = assignments?.find(a => 
@@ -151,12 +153,16 @@ export default function AnnualRotationModal({ isOpen, onClose, currentProgram, r
 
             if (assign) {
               row.assignments[mus.id] = assign.obras_particellas?.nombre_archivo || "Asignado";
+              hasAnyAssignment = true; // ¡Encontramos al menos uno!
             } else {
               row.assignments[mus.id] = "-";
             }
           });
 
-          reportRows.push(row);
+          // Solo agregamos la fila si al menos un músico tocó algo
+          if (hasAnyAssignment) {
+              reportRows.push(row);
+          }
         });
       });
 
@@ -277,7 +283,7 @@ export default function AnnualRotationModal({ isOpen, onClose, currentProgram, r
         {/* FOOTER */}
         <div className="p-3 border-t border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
             <span className="text-xs text-slate-400 italic">
-                * Matriz de asignaciones para el año {new Date(currentProgram?.fecha_desde).getFullYear()}.
+                * Matriz de asignaciones para el año {new Date(currentProgram?.fecha_desde).getFullYear()}. (Solo obras con participación)
             </span>
             <button onClick={onClose} className="px-5 py-2 bg-white border border-slate-300 text-slate-700 font-bold rounded hover:bg-slate-50 text-xs shadow-sm">
                 Cerrar Reporte

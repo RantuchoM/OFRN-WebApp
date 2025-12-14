@@ -1394,21 +1394,14 @@ export default function ProgramSeating({
         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
           <IconUsers className="text-indigo-600" /> Seating & Particellas
         </h2>
+       
         <div className="flex gap-2">
-          {/* Botón Nuevo */}
           <button
             onClick={() => setShowRotationModal(true)}
             className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-white border border-slate-300 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 shadow-sm"
           >
             <IconLayers size={16} /> Rotación Anual
           </button>
-
-          <button onClick={() => setShowHistory(!showHistory)}>
-            {/* ... */}
-          </button>
-          {/* ... */}
-        </div>
-        <div className="flex gap-2">
           <button
             onClick={() => setShowHistory(!showHistory)}
             className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-white border border-slate-300 text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 shadow-sm"
