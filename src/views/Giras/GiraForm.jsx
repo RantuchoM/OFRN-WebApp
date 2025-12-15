@@ -170,6 +170,9 @@ export default function GiraForm({
     const [newConcert, setNewConcert] = useState({ fecha: '', hora: '20:00', id_locacion: '' });
     const [conciertoTypeId, setConciertoTypeId] = useState(null);
     const [editingConcertId, setEditingConcertId] = useState(null);
+    
+    // NUEVO ESTADO: Texto del buscador de locación para conciertos
+    const [locSearchText, setLocSearchText] = useState('');
 
     // --- ESTADOS TRASLADO ---
     const [isShifting, setIsShifting] = useState(false);
@@ -182,7 +185,7 @@ export default function GiraForm({
     // --- ESTADOS PARA RESUMEN DE ROSTER ---
     const [rosterSummary, setRosterSummary] = useState({ adicionales: [], ausentes: [] });
 
-    const FAMILIES = ["Cuerdas", "Maderas", "Metales", "Percusión", "Teclados", "Vocal"];
+    const FAMILIES = ["Cuerdas", "Maderas", "Bronces", "Percusión", "-"];
 
     useEffect(() => {
         if (!isNew && giraId) {
@@ -203,8 +206,7 @@ export default function GiraForm({
         if (typeId) {
             const { data: evts } = await supabase
                 .from('eventos')
-                .select('id, fecha, hora_inicio, id_locacion, locaciones(nombre)')
-                .eq('id_gira', giraId)
+.select('id, fecha, hora_inicio, id_locacion, locaciones(nombre, localidades(localidad))')                .eq('id_gira', giraId)
                 .eq('id_tipo_evento', typeId)
                 .order('fecha');
             setConcerts(evts || []);
@@ -224,7 +226,7 @@ export default function GiraForm({
 
         if (data) {
             const adicionales = data
-                .filter(r => r.estado === 'confirmado' && !['director', 'solista'].includes(r.rol)) // <--- FILTRO AGREGADO
+                .filter(r => r.estado === 'confirmado' && !['director', 'solista'].includes(r.rol))
                 .map(r => `${r.integrantes?.apellido} ${r.integrantes?.nombre}`);
             
             const ausentes = data
@@ -258,7 +260,7 @@ export default function GiraForm({
         }
     };
 
-    // --- HANDLERS CONCIERTOS (Sin cambios) ---
+    // --- HANDLERS CONCIERTOS ---
     const handleSaveConcert = async () => {
         if (!newConcert.fecha || !conciertoTypeId) return alert("Fecha requerida");
         setLoadingConcerts(true);
@@ -278,6 +280,7 @@ export default function GiraForm({
             if (!error) {
                 setConcerts([...concerts, data]);
                 setNewConcert({ ...newConcert, id_locacion: '' });
+                setLocSearchText(''); // Limpiar buscador
             }
         }
         setLoadingConcerts(false);
@@ -286,11 +289,22 @@ export default function GiraForm({
     const handleEditConcertClick = (concert) => {
         setNewConcert({ fecha: concert.fecha, hora: concert.hora_inicio, id_locacion: concert.id_locacion || '' });
         setEditingConcertId(concert.id);
+        
+        // Rellenar buscador con el nombre actual
+        const loc = locacionesFull.find(l => l.id == concert.id_locacion);
+        if (loc) {
+            setLocSearchText(`${loc.nombre} (${loc.localidades?.localidad || 'S/D'})`);
+        } else {
+            setLocSearchText('');
+        }
     };
+
     const handleCancelConcertEdit = () => {
         setNewConcert({ fecha: '', hora: '20:00', id_locacion: '' });
         setEditingConcertId(null);
+        setLocSearchText(''); // Limpiar buscador
     };
+
     const handleDeleteConcert = async (id) => {
         if (!confirm("¿Borrar este concierto?")) return;
         setLoadingConcerts(true);
@@ -298,6 +312,24 @@ export default function GiraForm({
         setConcerts(concerts.filter(c => c.id !== id));
         if (editingConcertId === id) handleCancelConcertEdit();
         setLoadingConcerts(false);
+    };
+
+    // --- HANDLER DE BÚSQUEDA DE LOCACIÓN (NUEVO) ---
+    const handleConcertLocationChange = (e) => {
+        const inputValue = e.target.value;
+        setLocSearchText(inputValue); // Permitir escribir libremente
+
+        // Buscar coincidencia exacta
+        const selectedLocation = locacionesFull.find(l => {
+            const label = `${l.nombre} (${l.localidades?.localidad || 'S/D'})`;
+            return label === inputValue;
+        });
+
+        if (selectedLocation) {
+            setNewConcert(prev => ({...prev, id_locacion: selectedLocation.id}));
+        } else {
+            setNewConcert(prev => ({...prev, id_locacion: ''}));
+        }
     };
 
     // --- HANDLERS TRASLADO Y LOCALIDADES ---
@@ -545,7 +577,7 @@ export default function GiraForm({
                 )}
             </div>
 
-            {/* --- SECCIÓN CONCIERTOS (Sin cambios) --- */}
+            {/* --- SECCIÓN CONCIERTOS (MODIFICADA CON INPUT TEXT + DATALIST) --- */}
             {!isNew && (
                 <div className="mt-6 pt-4 border-t border-indigo-100">
                     <h4 className="text-sm font-bold text-indigo-900 mb-3 flex items-center gap-2"><IconMusic size={16}/> Conciertos</h4>
@@ -554,7 +586,7 @@ export default function GiraForm({
                             <div key={c.id} className={`flex items-center gap-3 p-2 rounded border text-sm transition-colors ${editingConcertId === c.id ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
                                 <div className="flex items-center gap-1 w-24 text-slate-700 font-medium"><IconCalendar size={14} className="text-slate-400"/> {c.fecha?.split('-').reverse().join('/')}</div>
                                 <div className="flex items-center gap-1 w-16 text-slate-600"><IconClock size={14} className="text-slate-400"/> {c.hora_inicio?.slice(0,5)}</div>
-                                <div className="flex-1 flex items-center gap-1 text-slate-600 truncate"><IconMapPin size={14} className="text-slate-400"/> {c.locaciones?.nombre || 'Sin locación'}</div>
+                                <div className="flex-1 flex items-center gap-1 text-slate-600 truncate"><IconMapPin size={14} className="text-slate-400"/> {`${c.locaciones?.nombre} | ${c.locaciones?.localidades?.localidad || "S/D"}` || 'Sin locación'}</div>
                                 <button onClick={() => handleEditConcertClick(c)} className="p-1.5 rounded hover:bg-white text-slate-400 hover:text-indigo-600"><IconEdit size={16}/></button>
                                 <button onClick={() => handleDeleteConcert(c.id)} className="p-1.5 rounded hover:bg-white text-slate-400 hover:text-red-500"><IconTrash size={16}/></button>
                             </div>
@@ -565,10 +597,19 @@ export default function GiraForm({
                         <div className="w-32"><DateInput value={newConcert.fecha} onChange={v => setNewConcert({...newConcert, fecha: v})}/></div>
                         <div className="w-24"><TimeInput value={newConcert.hora} onChange={v => setNewConcert({...newConcert, hora: v})}/></div>
                         <div className="flex-1">
-                            <select className="w-full border border-slate-300 p-2 rounded text-sm h-[38px] outline-none bg-white" value={newConcert.id_locacion} onChange={e => setNewConcert({...newConcert, id_locacion: e.target.value})}>
-                                <option value="">-- Lugar --</option>
-                                {locacionesFull.map(l => <option key={l.id} value={l.id}>{l.nombre} ({l.localidades?.localidad})</option>)}
-                            </select>
+                            {/* INPUT LIBRE + DATALIST */}
+                            <input 
+                                list="concert-locations-list" 
+                                className="w-full border border-slate-300 p-2 rounded text-sm h-[38px] outline-none bg-white placeholder:text-slate-400" 
+                                placeholder="Escriba para buscar lugar..."
+                                value={locSearchText} // Usamos el estado de texto local
+                                onChange={handleConcertLocationChange}
+                            />
+                            <datalist id="concert-locations-list">
+                                {locacionesFull.map(l => (
+                                    <option key={l.id} value={`${l.nombre} (${l.localidades?.localidad || 'S/D'})`} />
+                                ))}
+                            </datalist>
                         </div>
                         {editingConcertId && <button onClick={handleCancelConcertEdit} className="bg-white border border-slate-300 text-slate-500 px-3 py-2 rounded h-[38px]"><IconX size={16}/></button>}
                         <button onClick={handleSaveConcert} disabled={loadingConcerts} className={`px-3 py-2 rounded h-[38px] text-white flex items-center justify-center gap-1 min-w-[40px] ${editingConcertId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>

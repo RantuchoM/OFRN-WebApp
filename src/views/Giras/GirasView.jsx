@@ -38,7 +38,7 @@ import AgendaGeneral from "./AgendaGeneral";
 import MusicianCalendar from "./MusicianCalendar";
 import WeeklyCalendar from "./WeeklyCalendar";
 import MealsAttendancePersonal from "./MealsAttendancePersonal";
-import ProgramSeating from "./ProgramSeating"; // Importamos ProgramSeating
+import ProgramSeating from "./ProgramSeating";
 
 import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
@@ -47,6 +47,61 @@ import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import DateInput from "../../components/ui/DateInput";
 import GiraDifusion from "./GiraDifusion";
+
+// --- IMPORTACIONES CLAVE ---
+import { calculateInstrumentation } from "../../utils/instrumentation";
+import { useGiraRoster } from "../../hooks/useGiraRoster";
+
+// --- NUEVO COMPONENTE: Badge de Instrumentación ---
+// --- NUEVO COMPONENTE: Badge de Instrumentación (Mejorado) ---
+const InstrumentationBadge = ({ supabase, gira }) => {
+  const { roster, loading } = useGiraRoster(supabase, gira);
+
+  const { displayString, count } = useMemo(() => {
+    if (!roster || roster.length === 0)
+      return { displayString: null, count: 0 };
+
+    // 1. Filtrar solo confirmados y excluir roles no orquestales
+    const activeMusicians = roster.filter(
+      (r) =>
+        r.estado_gira === "confirmado" &&
+        !["director", "solista", "produccion", "staff", "chofer"].includes(
+          r.rol_gira
+        )
+    );
+
+    if (activeMusicians.length === 0) return { displayString: null, count: 0 };
+
+    // 2. Calcular String de Instrumentación
+    const partsForCalc = activeMusicians.map((m) => ({
+      instrumentos: m.instrumentos,
+    }));
+
+    let str = calculateInstrumentation(partsForCalc);
+
+
+    return { displayString: str, count: activeMusicians.length };
+  }, [roster]);
+
+  if (loading)
+    return (
+      <IconLoader className="animate-spin text-slate-300 ml-2" size={12} />
+    );
+
+  // Si no hay nadie confirmado, no mostramos nada
+  if (count === 0) return null;
+
+  return (
+    <div
+      className="flex items-center gap-1 text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 ml-2 animate-in fade-in"
+      title={`${count} músicos confirmados`}
+    >
+      <IconMusic size={10} className="text-slate-400" />
+      {/* Si hay formato estándar (2.2.2.2), mostrarlo. Si no, mostrar cantidad simple */}
+      {displayString || `${count} Músicos`}
+    </div>
+  );
+};
 
 // --- COMPONENTE HELPER PARA BOTONES DE ACCIÓN ---
 const ActionButton = ({
@@ -84,7 +139,6 @@ const GiraActionMenu = ({
   const [hoveredCategory, setHoveredCategory] = useState(null);
   const menuRef = useRef(null);
 
-  // Cerrar al click fuera
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -95,7 +149,6 @@ const GiraActionMenu = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen, onClose]);
 
-  // Componente de Item Simple
   const SubMenuItem = ({ icon: Icon, label, onClick, className = "" }) => (
     <button
       onClick={(e) => {
@@ -110,7 +163,6 @@ const GiraActionMenu = ({
     </button>
   );
 
-  // Componente de Categoría (Padre)
   const CategoryItem = ({ label, icon: Icon, categoryKey, children }) => {
     const isHovered = hoveredCategory === categoryKey;
 
@@ -134,11 +186,9 @@ const GiraActionMenu = ({
             />
             <span>{label}</span>
           </div>
-          {/* Flecha apuntando a la izquierda para indicar que abre hacia allá */}
           <IconChevronDown size={10} className="rotate-90 text-slate-300" />
         </button>
 
-        {/* SUBMENÚ FLOTANTE A LA IZQUIERDA (right-full) */}
         {isHovered && (
           <div className="absolute right-full top-0 mr-0 w-48 bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-right-2 z-[600]">
             {children}
@@ -167,8 +217,6 @@ const GiraActionMenu = ({
 
       {isOpen && (
         <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-xl border border-slate-200 z-[1000] py-1 animate-in fade-in zoom-in-95 origin-top-right">
-          {" "}
-          {/* 1. REPERTORIO */}
           <CategoryItem
             label="Repertorio"
             icon={IconMusic}
@@ -192,7 +240,6 @@ const GiraActionMenu = ({
               />
             </div>
           </CategoryItem>
-          {/* 2. LOGÍSTICA */}
           <CategoryItem
             label="Logística"
             icon={IconCalendar}
@@ -227,7 +274,6 @@ const GiraActionMenu = ({
               )}
             </div>
           </CategoryItem>
-          {/* 3. PERSONAL */}
           {isEditor && (
             <CategoryItem
               label="Personal"
@@ -243,7 +289,6 @@ const GiraActionMenu = ({
               </div>
             </CategoryItem>
           )}
-          {/* 4. DIFUSIÓN */}
           {isEditor && (
             <CategoryItem
               label="Difusión"
@@ -254,13 +299,11 @@ const GiraActionMenu = ({
                 <SubMenuItem
                   icon={IconMegaphone}
                   label="Material de Prensa"
-                  // CAMBIO AQUÍ:
                   onClick={() => onViewChange("DIFUSION")}
                 />
               </div>
             </CategoryItem>
           )}
-          {/* 5. EDICIÓN */}
           {isEditor && (
             <CategoryItem label="Edición" icon={IconEdit} categoryKey="edicion">
               <div className="py-1">
@@ -365,6 +408,8 @@ export default function GirasView({ supabase }) {
           );
         }
       }
+      // NOTA: Para calcular instrumentación, ya no dependemos de esta query
+      // porque usamos el componente InstrumentationBadge que hace su propia carga precisa.
       const { data, error } = await supabase
         .from("programas")
         .select(
@@ -372,7 +417,10 @@ export default function GirasView({ supabase }) {
            giras_localidades(id_localidad, localidades(localidad)), 
            giras_fuentes(*), 
            eventos (id, fecha, hora_inicio, locaciones(nombre), tipos_evento(nombre)), 
-           giras_integrantes (id_integrante, estado, rol, integrantes (nombre, apellido)), 
+           giras_integrantes (
+             id_integrante, estado, rol, 
+             integrantes (nombre, apellido)
+           ), 
            programas_repertorios (id, nombre, orden, repertorio_obras (id, orden, excluir, obras (id, titulo, duracion_segundos, instrumentacion, estado, compositores (apellido, nombre), obras_compositores (rol, compositores(apellido, nombre)))))`
         )
         .order("fecha_desde", { ascending: true });
@@ -1129,67 +1177,102 @@ export default function GirasView({ supabase }) {
 
         {view.mode === "LIST" && (
           <div className="p-4 space-y-4">
-            {isEditor && !isAdding && !editingId && (
-              <button
-                onClick={() => {
-                  setIsAdding(true);
-                  setFormData({
-                    nombre_gira: "",
-                    subtitulo: "",
-                    fecha_desde: "",
-                    fecha_hasta: "",
-                    tipo: "Sinfónico",
-                    zona: "",
-                  });
-                  setSelectedLocations(new Set());
-                  setSelectedSources([]);
-                  setSelectedStaff([]);
-                }}
-                className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:bg-indigo-50 flex justify-center gap-2 font-medium"
-              >
-                <IconPlus size={20} /> Crear Nuevo Programa
-              </button>
+            {/* BOTÓN Y FORMULARIO DE "CREAR NUEVO" (Solo si no hay edición activa) */}
+            {isEditor && !editingId && (
+              <>
+                {!isAdding && (
+                  <button
+                    onClick={() => {
+                      setIsAdding(true);
+                      setFormData({
+                        nombre_gira: "",
+                        subtitulo: "",
+                        fecha_desde: "",
+                        fecha_hasta: "",
+                        tipo: "Sinfónico",
+                        zona: "",
+                      });
+                      setSelectedLocations(new Set());
+                      setSelectedSources([]);
+                      setSelectedStaff([]);
+                    }}
+                    className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:bg-indigo-50 flex justify-center gap-2 font-medium"
+                  >
+                    <IconPlus size={20} /> Crear Nuevo Programa
+                  </button>
+                )}
+
+                {isAdding && (
+                  <GiraForm
+                    supabase={supabase}
+                    giraId={null}
+                    formData={formData}
+                    setFormData={setFormData}
+                    onCancel={closeForm}
+                    onSave={handleSave}
+                    onRefresh={async () => {
+                      await fetchGiras();
+                      closeForm();
+                    }}
+                    loading={loading}
+                    isNew={true}
+                    locationsList={locationsList}
+                    selectedLocations={selectedLocations}
+                    setSelectedLocations={setSelectedLocations}
+                    ensemblesList={ensemblesList}
+                    allIntegrantes={allIntegrantes}
+                    selectedSources={selectedSources}
+                    setSelectedSources={setSelectedSources}
+                    selectedStaff={selectedStaff}
+                    setSelectedStaff={setSelectedStaff}
+                  />
+                )}
+              </>
             )}
 
-            {(isAdding || editingId) && (
-              <GiraForm
-                supabase={supabase}
-                giraId={editingId}
-                formData={formData}
-                setFormData={setFormData}
-                onCancel={closeForm}
-                onSave={handleSave}
-                onRefresh={async () => {
-                  await fetchGiras();
-                  closeForm();
-                }}
-                loading={loading}
-                isNew={isAdding}
-                locationsList={locationsList}
-                selectedLocations={selectedLocations}
-                setSelectedLocations={setSelectedLocations}
-                ensemblesList={ensemblesList}
-                allIntegrantes={allIntegrantes}
-                selectedSources={selectedSources}
-                setSelectedSources={setSelectedSources}
-                selectedStaff={selectedStaff}
-                setSelectedStaff={setSelectedStaff}
-              />
-            )}
-
-            {filteredGiras.length === 0 && !loading && (
+            {filteredGiras.length === 0 && !loading && !isAdding && (
               <div className="text-center py-10 text-slate-400">
                 No se encontraron programas.
               </div>
             )}
 
             {filteredGiras.map((gira) => {
-              if (editingId === gira.id) return null;
+              // SI ESTAMOS EDITANDO ESTA GIRA, MOSTRAMOS EL FORMULARIO EN LUGAR DE LA TARJETA
+              if (editingId === gira.id) {
+                return (
+                  <GiraForm
+                    key={gira.id}
+                    supabase={supabase}
+                    giraId={gira.id}
+                    formData={formData}
+                    setFormData={setFormData}
+                    onCancel={closeForm}
+                    onSave={handleSave}
+                    onRefresh={async () => {
+                      await fetchGiras();
+                      closeForm();
+                    }}
+                    loading={loading}
+                    isNew={false}
+                    locationsList={locationsList}
+                    selectedLocations={selectedLocations}
+                    setSelectedLocations={setSelectedLocations}
+                    ensemblesList={ensemblesList}
+                    allIntegrantes={allIntegrantes}
+                    selectedSources={selectedSources}
+                    setSelectedSources={setSelectedSources}
+                    selectedStaff={selectedStaff}
+                    setSelectedStaff={setSelectedStaff}
+                  />
+                );
+              }
+
+              // SI NO, MOSTRAMOS LA TARJETA NORMAL
               // ... helpers de renderizado de la tarjeta ...
               const locs = gira.giras_localidades
                 ?.map((l) => l.localidades?.localidad)
                 .join(", ");
-              const isMenuOpen = activeMenuId === gira.id; // Verifica si ESTA tarjeta tiene el menú abierto
+              const isMenuOpen = activeMenuId === gira.id;
 
               return (
                 <div
@@ -1249,6 +1332,11 @@ export default function GirasView({ supabase }) {
                         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 mt-1">
                           {getPersonnelDisplay(gira)}
                           {getSourcesDisplay(gira)}
+                          {/* 4. REEMPLAZO POR COMPONENTE REAL */}
+                          <InstrumentationBadge
+                            supabase={supabase}
+                            gira={gira}
+                          />
                         </div>
                       </div>
 

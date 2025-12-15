@@ -19,10 +19,13 @@ export const calculateInstrumentation = (parts) => {
     harp: { count: 0, notes: [] },
   };
 
+  // Mapa para contar instrumentos no estándar (ej: Saxo, Guitarra)
+  const others = {}; 
+
   parts.forEach((p) => {
-    // Aceptamos tanto objetos de DB (nombre_archivo) como objetos calculados
     const name = (p.nombre_archivo || "").toLowerCase();
-    const baseName = (p.instrumento_nombre || p.instrumentos?.instrumento || "").toLowerCase();
+    const rawBaseName = p.instrumento_nombre || p.instrumentos?.instrumento || "Desconocido";
+    const baseName = rawBaseName.toLowerCase();
     const note = p.nota_organico ? p.nota_organico.trim() : null;
 
     const add = (famKey) => {
@@ -30,8 +33,8 @@ export const calculateInstrumentation = (parts) => {
       if (note) families[famKey].notes.push(note);
     };
 
-    // Lógica de detección
-    if (name.includes("perc timb") ||name.includes("perc timp") || name.includes("perc. timb") || name.includes("perc. timb") || baseName.includes("timbal")) {
+    // Lógica de detección orquestal estándar
+    if (name.includes("perc timb") || name.includes("perc timp") || name.includes("perc. timb") || baseName.includes("timbal")) {
       families.timp = true;
     } else if (name.startsWith("perc") || baseName.includes("perc") || baseName.includes("bombo") || baseName.includes("platillo") || baseName.includes("caja")) {
       add("perc");
@@ -44,8 +47,14 @@ export const calculateInstrumentation = (parts) => {
     else if (baseName.includes("trombon")) add("tbn");
     else if (baseName.includes("tuba") || baseName.includes("bombard")) add("tba");
     else if (baseName.includes("arpa")) add("harp");
-    else if (baseName.includes("piano") || baseName.includes("celesta") || baseName.includes("clavec")) add("key");
+    else if (baseName.includes("piano") || baseName.includes("celesta") || baseName.includes("clavec") || baseName.includes("órgano")) add("key");
     else if (baseName.includes("viol") || baseName.includes("contrab")) families.str = true;
+    else {
+      // Si no es estándar, lo sumamos a "others" usando el nombre original capitalizado
+      const cleanName = rawBaseName.charAt(0).toUpperCase() + rawBaseName.slice(1);
+      if (!others[cleanName]) others[cleanName] = 0;
+      others[cleanName]++;
+    }
   });
 
   const fmt = (fam) => {
@@ -55,36 +64,53 @@ export const calculateInstrumentation = (parts) => {
     return s;
   };
 
-  const fmtPerc = () => {
-    let s = "";
-    if (families.timp) {
-      s = families.perc.count > 0 ? `Timp.+${families.perc.count}` : "Timp";
-    } else {
-      if (families.perc.count === 1) s = "Perc";
-      else if (families.perc.count > 1) s = `Perc.x${families.perc.count}`;
-    }
-    if (families.perc.notes.length > 0 && s !== "") {
-      s += `(${families.perc.notes.join(", ")})`;
-    }
-    return s;
-  };
+  // Construir string estándar (Maderas - Metales)
+  let standardStr = `${fmt(families.fl)}.${fmt(families.ob)}.${fmt(families.cl)}.${fmt(families.bn)} - ${fmt(families.hn)}.${fmt(families.tpt)}.${fmt(families.tbn)}.${fmt(families.tba)}`;
 
-  let str = `${fmt(families.fl)}.${fmt(families.ob)}.${fmt(families.cl)}.${fmt(families.bn)} - ${fmt(families.hn)}.${fmt(families.tpt)}.${fmt(families.tbn)}.${fmt(families.tba)}`;
+  // Percusión
+  let percStr = "";
+  if (families.timp) {
+    percStr = families.perc.count > 0 ? `Timp.+${families.perc.count}` : "Timp";
+  } else {
+    if (families.perc.count === 1) percStr = "Perc";
+    else if (families.perc.count > 1) percStr = `Perc.x${families.perc.count}`;
+  }
+  if (families.perc.notes.length > 0 && percStr !== "") {
+    percStr += `(${families.perc.notes.join(", ")})`;
+  }
+  if (percStr) standardStr += ` - ${percStr}`;
 
-  const percStr = fmtPerc();
-  if (percStr) str += ` - ${percStr}`;
-
+  // Otros estándar (Arpa, Teclados, Cuerdas)
   if (families.harp.count > 0)
-    str += ` - ${families.harp.count > 1 ? families.harp.count : ""}Hp${
-      families.harp.notes.length ? `(${families.harp.notes.join(", ")})` : ""
-    }`;
+    standardStr += ` - ${families.harp.count > 1 ? families.harp.count : ""}Hp`;
   if (families.key.count > 0)
-    str += ` - Key${
-      families.key.notes.length ? `(${families.key.notes.join(", ")})` : ""
-    }`;
-  if (families.str) str += " - Str";
+    standardStr += ` - Key`;
+  if (families.str) standardStr += " - Str";
 
-  return str.replace('0.0.0.0 - 0.0.0.0 - ','');
+  // Verificar si la parte estándar está vacía (todo ceros)
+  const isStandardEmpty = standardStr.startsWith("0.0.0.0 - 0.0.0.0") && !families.timp && families.perc.count === 0 && !families.str && families.harp.count === 0 && families.key.count === 0;
+
+  // Formatear "Otros"
+  const otherKeys = Object.keys(others);
+  let othersStr = "";
+  if (otherKeys.length > 0) {
+    othersStr = otherKeys.map(k => others[k] > 1 ? `${k} x${others[k]}` : k).join(", ");
+  }
+
+  // Lógica final de retorno
+  if (isStandardEmpty) {
+    // Si no hay orquesta estándar, devolvemos solo los otros (ej: "Saxo x4")
+    // Esto evita que empiece con "0.0.0.0" y se oculte en la vista
+    return othersStr; 
+  }
+
+  // Si hay mezcla, devolvemos estándar + otros
+  let finalStr = standardStr.replace('0.0.0.0 - 0.0.0.0 - ', '').replace('0.0.0.0 - 0.0.0.0', '');
+  if (othersStr) {
+    finalStr += ` + ${othersStr}`;
+  }
+
+  return finalStr || ""; // Si todo está vacío, devuelve string vacío
 };
 
 export const calculateTotalDuration = (works) => {

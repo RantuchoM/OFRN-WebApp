@@ -10,8 +10,31 @@ import TimeInput from '../ui/TimeInput';
 export default function EventForm({ 
     formData, setFormData, onSave, onClose, loading, eventTypes = [], locations = [], isNew = false 
 }) {
-    // Nota: La validación de campos obligatorios (Fecha y Hora Inicio) se realiza en el componente padre.
-    
+    // Helper para manejar el cambio en el input de ubicación con búsqueda
+    const handleLocationChange = (e) => {
+        const inputValue = e.target.value;
+        // Buscamos si el texto ingresado coincide con alguna opción del datalist
+        const selectedLocation = locations.find(l => {
+            const label = `${l.nombre} (${l.localidades?.localidad || l.localidad?.localidad || 'S/D'})`;
+            return label === inputValue;
+        });
+
+        if (selectedLocation) {
+            setFormData({...formData, id_locacion: selectedLocation.id});
+        } else {
+            // Si está borrando o escribiendo algo nuevo que no coincide, limpiamos el ID
+            if (inputValue === '') {
+                setFormData({...formData, id_locacion: ''});
+            }
+        }
+    };
+
+    // Obtenemos el valor actual para mostrar en el input (Nombre + Localidad)
+    const currentLocation = locations.find(l => l.id == formData.id_locacion);
+    const currentLocationLabel = currentLocation 
+        ? `${currentLocation.nombre} (${currentLocation.localidades?.localidad || currentLocation.localidad?.localidad || 'S/D'})` 
+        : '';
+
     return (
         <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden animate-in zoom-in-95">
             <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
@@ -61,13 +84,18 @@ export default function EventForm({
 
                 <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Ubicación</label>
-                    <select className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
-                        value={formData.id_locacion || ''} 
-                        onChange={e => setFormData({...formData, id_locacion: e.target.value})}
-                    >
-                        <option value="">-- Seleccionar --</option>
-                        {locations.map(l => <option key={l.id} value={l.id}>{l.nombre}</option>)}
-                    </select>
+                    <input 
+                        list="locations-list" 
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
+                        placeholder="Escriba para buscar..."
+                        defaultValue={currentLocationLabel}
+                        onChange={handleLocationChange}
+                    />
+                    <datalist id="locations-list">
+                        {locations.map(l => (
+                            <option key={l.id} value={`${l.nombre} (${l.localidades?.localidad || l.localidad?.localidad || 'S/D'})`} />
+                        ))}
+                    </datalist>
                 </div>
             </div>
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
