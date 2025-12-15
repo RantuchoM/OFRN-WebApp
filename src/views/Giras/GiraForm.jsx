@@ -447,6 +447,7 @@ export default function GiraForm({
                         <option value="Sinfónico">Sinfónico</option>
                         <option value="Camerata Filarmónica">Camerata Filarmónica</option>
                         <option value="Ensamble">Ensamble</option>
+                        <option value="Jazz Band">Jazz Band</option>
                     </select>
                 </div>
                 <div className="md:col-span-3">

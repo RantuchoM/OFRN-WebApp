@@ -40,6 +40,7 @@ const getTypeAbbreviation = (type: string) => {
     const t = type.toLowerCase();
     if (t.includes("camerata") || t.includes("filarmónica") || t.includes("filarmonica")) return "CF";
     if (t.includes("ensamble")) return "Ens";
+    if(t.includes("jazz")) return "JB";
     return "Sinf";
 };
 

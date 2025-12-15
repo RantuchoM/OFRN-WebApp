@@ -47,6 +47,7 @@ import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import DateInput from "../../components/ui/DateInput";
 import GiraDifusion from "./GiraDifusion";
+import InstrumentationManager from "../../components/roster/InstrumentationManager";
 
 // --- IMPORTACIONES CLAVE ---
 import { calculateInstrumentation } from "../../utils/instrumentation";
@@ -78,7 +79,6 @@ const InstrumentationBadge = ({ supabase, gira }) => {
     }));
 
     let str = calculateInstrumentation(partsForCalc);
-
 
     return { displayString: str, count: activeMusicians.length };
   }, [roster]);
@@ -348,9 +348,9 @@ export default function GirasView({ supabase }) {
   const [activeMenuId, setActiveMenuId] = useState(null);
 
   const [filterType, setFilterType] = useState(
-    new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble"])
+    new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band"])
   );
-  const PROGRAM_TYPES = ["Sinfónico", "Camerata Filarmónica", "Ensamble"];
+  const PROGRAM_TYPES = ["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band"];
 
   const today = new Date().toISOString().split("T")[0];
   const [filterDateStart, setFilterDateStart] = useState(today);
@@ -709,7 +709,9 @@ export default function GirasView({ supabase }) {
               <span className="font-mono text-[10px] mr-1 bg-slate-100 px-1 rounded">
                 {formatDate(c.fecha)} - {c.hora_inicio.slice(0, 5)}
               </span>
-              {`${c.locaciones?.nombre || ""} | ${c.locaciones?.localidades?.localidad || ""}`}
+              {`${c.locaciones?.nombre || ""} | ${
+                c.locaciones?.localidades?.localidad || ""
+              }`}
             </li>
           ))}
           {concerts.length > 3 && (
@@ -1285,6 +1287,8 @@ export default function GirasView({ supabase }) {
                         ? "bg-indigo-500"
                         : gira.tipo === "Ensamble"
                         ? "bg-emerald-500"
+                        : gira.tipo === "Jazz Band"
+                        ? "bg-amber-500"
                         : "bg-fuchsia-500"
                     }`}
                   ></div>
@@ -1333,10 +1337,12 @@ export default function GirasView({ supabase }) {
                           {getPersonnelDisplay(gira)}
                           {getSourcesDisplay(gira)}
                           {/* 4. REEMPLAZO POR COMPONENTE REAL */}
-                          <InstrumentationBadge
-                            supabase={supabase}
-                            gira={gira}
-                          />
+                          <div className="ml-2 pl-2 border-l border-slate-200">
+                            <InstrumentationManager
+                              supabase={supabase}
+                              gira={gira}
+                            />
+                          </div>
                         </div>
                       </div>
 
