@@ -227,13 +227,7 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
 
   return (
     <div className={containerClasses(isCompact)}>
-      {!isCompact && (
-        <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center gap-2">{syncingDrive && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded"><IconLoader className="animate-spin inline mr-1"/>Syncing...</span>}</div>
-          {isEditor && <button onClick={addRepertoireBlock} className="bg-indigo-600 text-white px-3 py-2 rounded text-sm font-bold flex items-center gap-2"><IconPlus size={16}/> Bloque</button>}
-        </div>
-      )}
-
+     
       {repertorios.map(rep => (
           <div key={rep.id} className={`border border-slate-200 ${isCompact ? "mb-4 rounded shadow-sm" : "shadow-sm bg-white mb-6"}`}>
               {/* HEADER BLOQUE */}
@@ -317,6 +311,13 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
               {isEditor && <div className="bg-slate-50 border-t p-1"><button onClick={() => { setActiveRepertorioId(rep.id); setIsAddModalOpen(true); }} className="w-full py-1 text-slate-400 hover:text-indigo-600 text-[10px] font-bold uppercase flex justify-center gap-1 hover:bg-slate-100"><IconPlus size={10}/> Agregar Obra</button></div>}
           </div>
       ))}
+       {!isCompact && (
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-2">{syncingDrive && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded"><IconLoader className="animate-spin inline mr-1"/>Syncing...</span>}</div>
+          {isEditor && <button onClick={addRepertoireBlock} className="bg-indigo-600 text-white px-3 py-2 rounded text-sm font-bold flex items-center gap-2"><IconPlus size={16}/> Bloque</button>}
+        </div>
+      )}
+
 
       {/* MODAL BUSCAR */}
       {isAddModalOpen && isEditor && (

@@ -61,6 +61,7 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
                     >
                         <IconUsers size={16}/> Seating
                     </button>
+                    
                 </div>
             </div>
 

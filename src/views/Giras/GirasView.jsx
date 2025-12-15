@@ -1,4 +1,3 @@
-// src/views/Giras/GirasView.jsx
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   IconPlus,
@@ -13,7 +12,7 @@ import {
   IconFilter,
   IconDrive,
   IconHotel,
-  IconMoreVertical, // Ya no se usa para menú, pero lo dejamos por si acaso
+  IconMoreVertical,
   IconList,
   IconMessageCircle,
   IconLayers,
@@ -23,7 +22,10 @@ import {
   IconArrowLeft,
   IconEye,
   IconSettingsWheel,
-  IconInfo
+  IconInfo,
+  IconMegaphone,
+  IconFileText,
+  IconChevronDown,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import GiraForm from "./GiraForm";
@@ -36,6 +38,7 @@ import AgendaGeneral from "./AgendaGeneral";
 import MusicianCalendar from "./MusicianCalendar";
 import WeeklyCalendar from "./WeeklyCalendar";
 import MealsAttendancePersonal from "./MealsAttendancePersonal";
+import ProgramSeating from "./ProgramSeating"; // Importamos ProgramSeating
 
 import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
@@ -64,6 +67,228 @@ const ActionButton = ({
   </button>
 );
 
+// --- COMPONENTE DE MENÚ DESPLEGABLE (HOVER) ---
+const GiraActionMenu = ({
+  gira,
+  onViewChange,
+  isEditor,
+  isPersonal,
+  onEdit,
+  onDelete,
+  onGlobalComments,
+  isOpen,
+  onToggle,
+  onClose,
+}) => {
+  const [hoveredCategory, setHoveredCategory] = useState(null);
+  const menuRef = useRef(null);
+
+  // Cerrar al click fuera
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        onClose();
+      }
+    };
+    if (isOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen, onClose]);
+
+  // Componente de Item Simple
+  const SubMenuItem = ({ icon: Icon, label, onClick, className = "" }) => (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+        onClick();
+      }}
+      className={`w-full text-left px-4 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600 ${className}`}
+    >
+      <Icon size={14} className="text-slate-400 shrink-0" />
+      <span>{label}</span>
+    </button>
+  );
+
+  // Componente de Categoría (Padre)
+  const CategoryItem = ({ label, icon: Icon, categoryKey, children }) => {
+    const isHovered = hoveredCategory === categoryKey;
+
+    return (
+      <div
+        className="relative group"
+        onMouseEnter={() => setHoveredCategory(categoryKey)}
+        onMouseLeave={() => setHoveredCategory(null)}
+      >
+        <button
+          className={`w-full text-left px-4 py-2.5 text-xs flex items-center justify-between gap-2 transition-colors z-[100] ${
+            isHovered
+              ? "bg-slate-50 text-indigo-700 font-bold"
+              : "text-slate-700"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Icon
+              size={14}
+              className={isHovered ? "text-indigo-600" : "text-slate-400"}
+            />
+            <span>{label}</span>
+          </div>
+          {/* Flecha apuntando a la izquierda para indicar que abre hacia allá */}
+          <IconChevronDown size={10} className="rotate-90 text-slate-300" />
+        </button>
+
+        {/* SUBMENÚ FLOTANTE A LA IZQUIERDA (right-full) */}
+        {isHovered && (
+          <div className="absolute right-full top-0 mr-0 w-48 bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-right-2 z-[600]">
+            {children}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        className={`p-2 rounded-lg transition-colors ${
+          isOpen
+            ? "bg-slate-100 text-indigo-600"
+            : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+        }`}
+        title="Más opciones"
+      >
+        <IconMoreVertical size={20} />
+      </button>
+
+      {isOpen && (
+<div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-xl border border-slate-200 z-[1000] py-1 animate-in fade-in zoom-in-95 origin-top-right">          {/* 1. REPERTORIO */}
+          <CategoryItem
+            label="Repertorio"
+            icon={IconMusic}
+            categoryKey="repertorio"
+          >
+            <div className="py-1">
+              <SubMenuItem
+                icon={IconMusic}
+                label="Repertorio General"
+                onClick={() => onViewChange("REPERTOIRE")}
+              />
+              <SubMenuItem
+                icon={IconLayers}
+                label="Seating / Disposición"
+                onClick={() => onViewChange("SEATING")}
+              />
+              <SubMenuItem
+                icon={IconFileText}
+                label="Mis Partes"
+                onClick={() => alert("Próximamente")}
+              />
+            </div>
+          </CategoryItem>
+
+          {/* 2. LOGÍSTICA */}
+          <CategoryItem
+            label="Logística"
+            icon={IconCalendar}
+            categoryKey="logistica"
+          >
+            <div className="py-1">
+              <SubMenuItem
+                icon={IconCalendar}
+                label="Agenda Detallada"
+                onClick={() => onViewChange("AGENDA")}
+              />
+              {(isEditor || isPersonal) && (
+                <SubMenuItem
+                  icon={IconUtensils}
+                  label="Mis Comidas"
+                  onClick={() => onViewChange("MEALS_PERSONAL")}
+                />
+              )}
+              {isEditor && (
+                <>
+                  <SubMenuItem
+                    icon={IconSettingsWheel}
+                    label="Logística General"
+                    onClick={() => onViewChange("LOGISTICS")}
+                  />
+                  <SubMenuItem
+                    icon={IconHotel}
+                    label="Hotelería & Rooming"
+                    onClick={() => onViewChange("HOTEL")}
+                  />
+                </>
+              )}
+            </div>
+          </CategoryItem>
+
+          {/* 3. PERSONAL */}
+          {isEditor && (
+            <CategoryItem
+              label="Personal"
+              icon={IconUsers}
+              categoryKey="personal"
+            >
+              <div className="py-1">
+                <SubMenuItem
+                  icon={IconUsers}
+                  label="Gestión de Roster"
+                  onClick={() => onViewChange("ROSTER")}
+                />
+              </div>
+            </CategoryItem>
+          )}
+
+          {/* 4. DIFUSIÓN */}
+          {isEditor && (
+            <CategoryItem
+              label="Difusión"
+              icon={IconMegaphone}
+              categoryKey="difusion"
+            >
+              <div className="py-1">
+                <SubMenuItem
+                  icon={IconMegaphone}
+                  label="Material de Prensa"
+                  onClick={() => alert("Próximamente")}
+                />
+              </div>
+            </CategoryItem>
+          )}
+
+          {/* 5. EDICIÓN */}
+          {isEditor && (
+            <CategoryItem label="Edición" icon={IconEdit} categoryKey="edicion">
+              <div className="py-1">
+                <SubMenuItem
+                  icon={IconMessageCircle}
+                  label="Gestión de Pendientes"
+                  onClick={onGlobalComments}
+                />
+                <SubMenuItem
+                  icon={IconEdit}
+                  label="Editar Programa"
+                  onClick={onEdit}
+                />
+                <SubMenuItem
+                  icon={IconTrash}
+                  label="Eliminar Programa"
+                  onClick={onDelete}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                />
+              </div>
+            </CategoryItem>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function GirasView({ supabase }) {
   const { user, isEditor } = useAuth();
   const [view, setView] = useState({ mode: "LIST", data: null });
@@ -75,9 +300,9 @@ export default function GirasView({ supabase }) {
   const [globalCommentsGiraId, setGlobalCommentsGiraId] = useState(null);
 
   const [showRepertoireInCards, setShowRepertoireInCards] = useState(false);
-
-  // Eliminamos openMenuId ya que no usamos el menú desplegable
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
+
+  const [activeMenuId, setActiveMenuId] = useState(null);
 
   const [filterType, setFilterType] = useState(
     new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble"])
@@ -106,7 +331,6 @@ export default function GirasView({ supabase }) {
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [allIntegrantes, setAllIntegrantes] = useState([]);
 
-  // Helper para saber si es usuario personal
   const isPersonal =
     user?.rol_sistema === "consulta_personal" ||
     user?.rol_sistema === "personal";
@@ -625,6 +849,7 @@ export default function GirasView({ supabase }) {
       "HOTEL",
       "LOGISTICS",
       "MEALS_PERSONAL",
+      "SEATING", // Añadido SEATING a vistas de detalle
     ].includes(view.mode) && view.data;
 
   return (
@@ -643,8 +868,8 @@ export default function GirasView({ supabase }) {
               </button>
 
               <div className="flex flex-col overflow-hidden">
-                <h2 className="text-lg font-bold text-slate-800 truncate leading-tight">
-                  {view.data.nombre_gira}
+                <h2 className="text-m font-bold text-slate-800 truncate leading-tight">
+                  {`${view.data.mes_letra} | ${view.data.nomenclador}. ${view.data.nombre_gira}`}
                 </h2>
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <span className="font-medium bg-indigo-50 text-indigo-700 px-1.5 rounded">
@@ -838,6 +1063,14 @@ export default function GirasView({ supabase }) {
             onBack={() => setView({ mode: "LIST", data: null })}
           />
         )}
+        {/* Renderizado de Seating */}
+        {view.mode === "SEATING" && (
+          <ProgramSeating
+            supabase={supabase}
+            program={view.data}
+            onBack={() => setView({ mode: "LIST", data: null })}
+          />
+        )}
         {view.mode === "ROSTER" && (
           <GiraRoster
             supabase={supabase}
@@ -943,16 +1176,16 @@ export default function GirasView({ supabase }) {
 
             {filteredGiras.map((gira) => {
               if (editingId === gira.id) return null;
-              const personnelDisplay = getPersonnelDisplay(gira);
-              const concertList = getConcertList(gira);
+              // ... helpers de renderizado de la tarjeta ...
               const locs = gira.giras_localidades
                 ?.map((l) => l.localidades?.localidad)
                 .join(", ");
+              const isMenuOpen = activeMenuId === gira.id; // Verifica si ESTA tarjeta tiene el menú abierto
 
               return (
                 <div
                   key={gira.id}
-                  className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 relative border-l-0 z-0"
+                  className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 relative border-l-0 overflow-visible"
                 >
                   <div
                     className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-xl ${
@@ -966,12 +1199,14 @@ export default function GirasView({ supabase }) {
 
                   <div className="pl-2 flex flex-col gap-2">
                     <div className="flex justify-between items-start">
+                      {/* ÁREA DE CLICK PRINCIPAL (Título e Info) - Abre REPERTORIO por defecto */}
                       <div
                         className="cursor-pointer flex-1"
                         onClick={() =>
                           setView({ mode: "REPERTOIRE", data: gira })
                         }
                       >
+                        {/* ... Títulos, Fechas, Ubicación ... */}
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="text-sm font-bold text-slate-800">
@@ -983,106 +1218,47 @@ export default function GirasView({ supabase }) {
                                 | {gira.zona}
                               </span>
                             )}
+                            <div className="flex items-center gap-4 text-xs text-slate-500 pt-1 border-t border-slate-100">
+                              <div className="flex items-center gap-1">
+                                <IconCalendar size={14} />{" "}
+                                {formatDate(gira.fecha_desde)} -{" "}
+                                {formatDate(gira.fecha_hasta)}
+                              </div>
+                              <div className="flex items-center gap-1 truncate">
+                                <IconMapPin size={14} /> {locs || "Sin localía"}
+                              </div>
+                            </div>
                           </div>
-                          <span className="text-lg font-bold text-slate-800 truncate">
+                          <span className="text-g font-bold text-slate-800 truncate">
                             {gira.nombre_gira}
                           </span>
-                          <span className="text-s font-italic text-slate-800 truncate">
+                          <span className="text-xs font-italic text-slate-800 truncate">
                             {gira.subtitulo}
                           </span>
-                          {getSourcesDisplay(gira)}
                         </div>
-
-                        {personnelDisplay ? (
-                          <div className="flex flex-wrap items-center gap-3 text-xs">
-                            {personnelDisplay.map((item, index) => (
-                              <React.Fragment key={index}>
-                                {item}
-                                {index < personnelDisplay.length - 1 && (
-                                  <span className="text-slate-400">|</span>
-                                )}
-                              </React.Fragment>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-slate-400 italic">
-                            Sin personal clave asignado
-                          </span>
-                        )}
+                        {/* ... Fuentes y Personal ... */}
                       </div>
 
-                      {/* --- NUEVA BARRA DE BOTONES DE ACCIÓN (Reemplaza al menú) --- */}
-                      <div className="flex flex-wrap items-center justify-end gap-2 ml-4 bg-white max-w-[33%]">
-                        {" "}
-                        {/* 1. DRIVE (Condicional) */}
+                      {/* --- NUEVA BARRA DE ACCIONES SIMPLIFICADA --- */}
+                      <div className="flex items-center gap-2 ml-4 relative z-100">
+                        {/* 1. Drive (Directo) */}
                         {gira.google_drive_folder_id && (
-                          <ActionButton
-                            title="Abrir Drive"
-                            icon={IconDrive}
-                            onClick={() =>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
                               window.open(
                                 `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
                                 "_blank"
-                              )
-                            }
-                          />
+                              );
+                            }}
+                            className="p-2 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                            title="Abrir Drive"
+                          >
+                            <IconDrive size={20} />
+                          </button>
                         )}
-                        {/* 2. REPERTORIO (Todos) */}
-                        <ActionButton
-                          title="Repertorio"
-                          icon={IconMusic}
-                          onClick={() =>
-                            setView({ mode: "REPERTOIRE", data: gira })
-                          }
-                        />
-                        {/* 3. AGENDA (Todos) */}
-                        <ActionButton
-                          title="Agenda"
-                          icon={IconCalendar}
-                          onClick={() =>
-                            setView({ mode: "AGENDA", data: gira })
-                          }
-                        />
-                        {/* 4. LOGÍSTICA (Editor) */}
-                        {isEditor && (
-                          <ActionButton
-                            title="Logística"
-                            icon={IconSettingsWheel}
-                            onClick={() =>
-                              setView({ mode: "LOGISTICS", data: gira })
-                            }
-                          />
-                        )}
-                        {/* 5. PERSONAL (Editor) */}
-                        {isEditor && (
-                          <ActionButton
-                            title="Personal"
-                            icon={IconUsers}
-                            onClick={() =>
-                              setView({ mode: "ROSTER", data: gira })
-                            }
-                          />
-                        )}
-                        {/* 6. GESTOR PENDIENTES (Editor) */}
-                        {isEditor && (
-                          <ActionButton
-                            title="Gestor de Pendientes"
-                            icon={IconLayers}
-                            onClick={() => setGlobalCommentsGiraId(gira.id)}
-                          />
-                        )}
-                        {/* 7. MIS COMIDAS (Personal y Editor) */}
-                        {(isPersonal || isEditor) && (
-                          <ActionButton
-                            title="Mis Comidas"
-                            icon={IconUtensils}
-                            colorClass="text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50"
-                            onClick={() =>
-                              setView({ mode: "MEALS_PERSONAL", data: gira })
-                            }
-                          />
-                        )}
-                        {/* 8. COMENTARIOS (Componente existente reutilizado) */}
+
+                        {/* 2. Comentarios (Directo) */}
                         <CommentButton
                           supabase={supabase}
                           entityType="GIRA"
@@ -1095,42 +1271,34 @@ export default function GirasView({ supabase }) {
                             })
                           }
                         />
-                        {/* 9. EDITAR / ELIMINAR (Editor - Para no perder funcionalidad) */}
-                        {isEditor && (
-                          <>
-                            <div className="w-px h-4 bg-slate-200 mx-1"></div>
-                            <ActionButton
-                              title="Editar"
-                              icon={IconEdit}
-                              onClick={() => startEdit(gira)}
-                            />
-                            <ActionButton
-                              title="Eliminar"
-                              icon={IconTrash}
-                              colorClass="text-slate-300 hover:text-red-600 hover:bg-red-50"
-                              onClick={() => handleDelete(null, gira.id)}
-                            />
-                          </>
-                        )}
+
+                        {/* 3. Menú Desplegable (Hover) */}
+                        <GiraActionMenu
+                          gira={gira}
+                          onViewChange={(mode) => setView({ mode, data: gira })}
+                          isEditor={isEditor}
+                          isPersonal={isPersonal}
+                          onEdit={() => startEdit(gira)}
+                          onDelete={(e) => handleDelete(e, gira.id)}
+                          onGlobalComments={() =>
+                            setGlobalCommentsGiraId(gira.id)
+                          }
+                          isOpen={isMenuOpen}
+                          onToggle={() =>
+                            setActiveMenuId(isMenuOpen ? null : gira.id)
+                          }
+                          onClose={() => setActiveMenuId(null)}
+                        />
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4 text-xs text-slate-500 pt-1 border-t border-slate-100">
-                      <div className="flex items-center gap-1">
-                        <IconCalendar size={14} />{" "}
-                        {formatDate(gira.fecha_desde)} -{" "}
-                        {formatDate(gira.fecha_hasta)}
-                      </div>
-                      <div className="flex items-center gap-1 truncate">
-                        <IconMapPin size={14} /> {locs || "Sin localía"}
-                      </div>
-                    </div>
-
-                    {concertList && (
-                      <div className="mt-3 border-t border-slate-100 pt-2">
-                        {concertList}
+                    {/* ... Conciertos y Repertorio Desplegable ... */}
+                    {getConcertList(gira) && (
+                      <div className="mt border-t border-slate-100 pt-2">
+                        {getConcertList(gira)}
                       </div>
                     )}
+
                     {showRepertoireInCards && (
                       <div className="mt-3 animate-in slide-in-from-top-2 border-t border-slate-100 pt-2">
                         <RepertoireManager
