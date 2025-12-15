@@ -1241,7 +1241,7 @@ export default function GirasView({ supabase }) {
               return (
                 <div
                   key={gira.id}
-                  className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 relative border-l-0 overflow-visible"
+                  className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 md:p-4 relative border-l-0 overflow-visible"
                 >
                   <div
                     className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-xl ${
@@ -1256,50 +1256,60 @@ export default function GirasView({ supabase }) {
                   ></div>
 
                   <div className="pl-2 flex flex-col gap-2">
-                    <div className="flex justify-between items-start">
-                      {/* ÁREA DE CLICK PRINCIPAL (Título e Info) - Abre REPERTORIO por defecto */}
+                    <div className="flex justify-between items-start gap-2">
+                      {" "}
+                      {/* Agregado gap-2 */}
+                      {/* ÁREA DE CLICK PRINCIPAL - CORRECCIÓN CLAVE: min-w-0 */}
                       <div
-                        className="cursor-pointer flex-1"
+                        className="cursor-pointer flex-1 min-w-0"
                         onClick={() =>
                           setView({ mode: "REPERTOIRE", data: gira })
                         }
                       >
                         {/* ... Títulos, Fechas, Ubicación ... */}
-                        <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-sm font-bold text-slate-800">
-                              {`${gira.mes_letra}|${gira.nomenclador}` ||
+                        <div className="flex flex-col gap-1 mb-2">
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                            <span className="font-bold text-slate-700 bg-slate-100 px-1.5 rounded whitespace-nowrap">
+                              {`${gira.mes_letra} | ${gira.nomenclador}` ||
                                 gira.tipo}
                             </span>
                             {gira.zona && (
-                              <span className="text-xs font-medium text-slate-500">
+                              <span className="font-medium whitespace-nowrap">
                                 | {gira.zona}
                               </span>
                             )}
-                            <div className="flex items-center gap-4 text-xs text-slate-500 pt-1 border-t border-slate-100">
-                              <div className="flex items-center gap-1">
-                                <IconCalendar size={14} />{" "}
-                                {formatDate(gira.fecha_desde)} -{" "}
-                                {formatDate(gira.fecha_hasta)}
-                              </div>
-                              <div className="flex items-center gap-1 truncate">
-                                <IconMapPin size={14} /> {locs || "Sin localía"}
-                              </div>
+                            <div className="flex items-center gap-1 whitespace-nowrap">
+                              <IconCalendar size={12} />
+                              {formatDate(gira.fecha_desde)} -{" "}
+                              {formatDate(gira.fecha_hasta)}
                             </div>
                           </div>
-                          <span className="text-g font-bold text-slate-800 truncate">
-                            {gira.nombre_gira}
-                          </span>
-                          <span className="text-xs font-italic text-slate-800 truncate">
-                            {gira.subtitulo}
-                          </span>
+
+                          <div className="flex flex-col">
+                            <span className="text-base font-bold text-slate-800 truncate w-full block">
+                              {gira.nombre_gira}
+                            </span>
+                            <span className="text-xs italic text-slate-600 truncate w-full block h-4">
+                              {gira.subtitulo || " "}
+                            </span>
+                            <div className="flex items-center gap-1 text-xs text-slate-500 mt-1 truncate">
+                              <IconMapPin size={12} className="shrink-0" />
+                              <span className="truncate">
+                                {locs || "Sin localía"}
+                              </span>
+                            </div>
+                          </div>
                         </div>
+
                         {/* ... Fuentes y Personal ... */}
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 mt-1">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 mt-1">
                           {getPersonnelDisplay(gira)}
-                          {getSourcesDisplay(gira)}
-                          {/* 4. REEMPLAZO POR COMPONENTE REAL */}
-                          <div className="ml-2 pl-2 border-l border-slate-200">
+                          {/* Wrapper para evitar desborde en fuentes */}
+                          <div className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                            {getSourcesDisplay(gira)}
+                          </div>
+                          {/* Ajuste para InstrumentationManager */}
+                          <div className="w-full md:w-auto md:ml-2 md:pl-2 md:border-l border-slate-200 mt-1 md:mt-0">
                             <InstrumentationManager
                               supabase={supabase}
                               gira={gira}
@@ -1307,10 +1317,9 @@ export default function GirasView({ supabase }) {
                           </div>
                         </div>
                       </div>
-
-                      {/* --- NUEVA BARRA DE ACCIONES SIMPLIFICADA --- */}
-                      <div className="flex items-center gap-2 ml-4 relative z-100">
-                        {/* 1. Drive (Directo) */}
+                      {/* --- BARRA DE ACCIONES --- CORRECCIÓN CLAVE: shrink-0 */}
+                      <div className="flex items-center gap-1 md:gap-2 shrink-0 relative z-10">
+                        {/* 1. Drive (Ocultar en pantallas muy pequeñas si quieres, o dejarlo) */}
                         {gira.google_drive_folder_id && (
                           <button
                             onClick={(e) => {
@@ -1320,14 +1329,14 @@ export default function GirasView({ supabase }) {
                                 "_blank"
                               );
                             }}
-                            className="p-2 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                            className="p-2 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors hidden sm:block"
                             title="Abrir Drive"
                           >
                             <IconDrive size={20} />
                           </button>
                         )}
 
-                        {/* 2. Comentarios (Directo) */}
+                        {/* 2. Comentarios */}
                         <CommentButton
                           supabase={supabase}
                           entityType="GIRA"
@@ -1341,10 +1350,9 @@ export default function GirasView({ supabase }) {
                           }
                         />
 
-                        {/* 3. Menú Desplegable (Hover) */}
+                        {/* 3. Menú Desplegable */}
                         <GiraActionMenu
                           gira={gira}
-                          // CAMBIO AQUÍ: Capturamos el tab opcional
                           onViewChange={(mode, tab) =>
                             setView({ mode, data: gira, tab })
                           }
@@ -1364,13 +1372,14 @@ export default function GirasView({ supabase }) {
                       </div>
                     </div>
 
-                    {/* ... Conciertos y Repertorio Desplegable ... */}
+                    {/* ... Conciertos ... */}
                     {getConcertList(gira) && (
-                      <div className="mt border-t border-slate-100 pt-2">
+                      <div className="mt-2 border-t border-slate-100 pt-2">
                         {getConcertList(gira)}
                       </div>
                     )}
 
+                    {/* ... Repertorio Desplegable ... */}
                     {showRepertoireInCards && (
                       <div className="mt-3 animate-in slide-in-from-top-2 border-t border-slate-100 pt-2">
                         <RepertoireManager
