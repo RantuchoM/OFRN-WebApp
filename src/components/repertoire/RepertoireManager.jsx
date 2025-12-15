@@ -319,7 +319,7 @@ export default function RepertoireManager({ supabase, programId, giraId, initial
       )}
 
 
-      {/* MODAL BUSCAR */}
+      {/* MODAL BUSCAR  */}
       {isAddModalOpen && isEditor && (
         <ModalPortal>
             <div className="bg-white w-full max-w-5xl h-[80vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
