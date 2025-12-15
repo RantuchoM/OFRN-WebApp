@@ -46,6 +46,7 @@ import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer
 
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import DateInput from "../../components/ui/DateInput";
+import GiraDifusion from "./GiraDifusion";
 
 // --- COMPONENTE HELPER PARA BOTONES DE ACCIÓN ---
 const ActionButton = ({
@@ -165,7 +166,9 @@ const GiraActionMenu = ({
       </button>
 
       {isOpen && (
-<div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-xl border border-slate-200 z-[1000] py-1 animate-in fade-in zoom-in-95 origin-top-right">          {/* 1. REPERTORIO */}
+        <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-xl border border-slate-200 z-[1000] py-1 animate-in fade-in zoom-in-95 origin-top-right">
+          {" "}
+          {/* 1. REPERTORIO */}
           <CategoryItem
             label="Repertorio"
             icon={IconMusic}
@@ -189,7 +192,6 @@ const GiraActionMenu = ({
               />
             </div>
           </CategoryItem>
-
           {/* 2. LOGÍSTICA */}
           <CategoryItem
             label="Logística"
@@ -225,7 +227,6 @@ const GiraActionMenu = ({
               )}
             </div>
           </CategoryItem>
-
           {/* 3. PERSONAL */}
           {isEditor && (
             <CategoryItem
@@ -242,7 +243,6 @@ const GiraActionMenu = ({
               </div>
             </CategoryItem>
           )}
-
           {/* 4. DIFUSIÓN */}
           {isEditor && (
             <CategoryItem
@@ -254,12 +254,12 @@ const GiraActionMenu = ({
                 <SubMenuItem
                   icon={IconMegaphone}
                   label="Material de Prensa"
-                  onClick={() => alert("Próximamente")}
+                  // CAMBIO AQUÍ:
+                  onClick={() => onViewChange("DIFUSION")}
                 />
               </div>
             </CategoryItem>
           )}
-
           {/* 5. EDICIÓN */}
           {isEditor && (
             <CategoryItem label="Edición" icon={IconEdit} categoryKey="edicion">
@@ -373,7 +373,7 @@ export default function GirasView({ supabase }) {
            giras_fuentes(*), 
            eventos (id, fecha, hora_inicio, locaciones(nombre), tipos_evento(nombre)), 
            giras_integrantes (id_integrante, estado, rol, integrantes (nombre, apellido)), 
-           programas_repertorios (id, nombre, orden, repertorio_obras (id, orden, obras (id, titulo, duracion_segundos, estado, compositores (apellido, nombre), obras_compositores (rol, compositores(apellido, nombre)))))`
+           programas_repertorios (id, nombre, orden, repertorio_obras (id, orden, excluir, obras (id, titulo, duracion_segundos, instrumentacion, estado, compositores (apellido, nombre), obras_compositores (rol, compositores(apellido, nombre)))))`
         )
         .order("fecha_desde", { ascending: true });
       if (error) throw error;
@@ -839,6 +839,7 @@ export default function GirasView({ supabase }) {
     { mode: "AGENDA", label: "Agenda", icon: IconCalendar },
     { mode: "REPERTOIRE", label: "Repertorio", icon: IconMusic },
     { mode: "ROSTER", label: "Personal", icon: IconUsers },
+    { mode: "DIFUSION", label: "Difusión", icon: IconMegaphone },
   ];
 
   const isDetailView =
@@ -849,7 +850,8 @@ export default function GirasView({ supabase }) {
       "HOTEL",
       "LOGISTICS",
       "MEALS_PERSONAL",
-      "SEATING", // Añadido SEATING a vistas de detalle
+      "SEATING",
+      "DIFUSION",
     ].includes(view.mode) && view.data;
 
   return (
@@ -1092,6 +1094,13 @@ export default function GirasView({ supabase }) {
             onBack={() => setView({ mode: "LIST", data: null })}
           />
         )}
+        {view.mode === "DIFUSION" && (
+          <GiraDifusion
+            supabase={supabase}
+            gira={view.data}
+            onBack={() => setView({ mode: "LIST", data: null })}
+          />
+        )}
         {view.mode === "MEALS_PERSONAL" && (
           <div className="h-full flex flex-col bg-slate-50">
             <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-2 shrink-0">
@@ -1237,6 +1246,10 @@ export default function GirasView({ supabase }) {
                           </span>
                         </div>
                         {/* ... Fuentes y Personal ... */}
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 mt-1">
+                          {getPersonnelDisplay(gira)}
+                          {getSourcesDisplay(gira)}
+                        </div>
                       </div>
 
                       {/* --- NUEVA BARRA DE ACCIONES SIMPLIFICADA --- */}
