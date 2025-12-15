@@ -493,12 +493,12 @@ export default function RepertoireManager({
                   <th className="p-1 w-8 text-center">#</th>
                   <th className="p-1 w-8 text-center">GD</th>
                   <th className="p-1 w-32">Compositor</th>
-                  <th className="p-1 w-64">Obra</th>
-                  <th className="p-1 w-48 text-center">Instr.</th>
+                  <th className="p-1 w-110">Obra</th>
+                  <th className="p-1 w-58 text-center">Instr.</th>
                   <th className="p-1 w-12 text-center">Dur.</th>
                   <th className="p-1 w-32">Solista</th>
                   <th className="p-1 w-24">Arr.</th>
-                  <th className="p-1">Notas</th>
+                  <th className="p-1 w-30">Notas</th>
                   <th className="p-1 w-8 text-center">YT</th>
                   <th className="p-1 w-16 text-right"></th>
                   <th className="p-1 w-8 text-center">Excl.</th>
@@ -560,7 +560,7 @@ export default function RepertoireManager({
                         </span>
                       )}
                     </td>
-                    <td className="p-1 text-center whitespace-nowrap text-[10px] text-slate-500 font-mono">
+                    <td className="p-1 text-center whitespace-pre-line text-[10px] text-slate-500 font-mono">
                       {item.obras.instrumentacion ||
                         calculateInstrumentation(
                           item.obras.obras_particellas
