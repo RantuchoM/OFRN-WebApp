@@ -16,8 +16,6 @@ import {
   IconList,
   IconMessageCircle,
   IconLayers,
-  IconTruck,
-  IconColumns,
   IconUtensils,
   IconArrowLeft,
   IconEye,
@@ -26,6 +24,7 @@ import {
   IconMegaphone,
   IconFileText,
   IconChevronDown,
+  IconColumns,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import GiraForm from "./GiraForm";
@@ -53,77 +52,8 @@ import InstrumentationManager from "../../components/roster/InstrumentationManag
 import { calculateInstrumentation } from "../../utils/instrumentation";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 
-// --- NUEVO COMPONENTE: Badge de Instrumentación ---
-// --- NUEVO COMPONENTE: Badge de Instrumentación (Mejorado) ---
-const InstrumentationBadge = ({ supabase, gira }) => {
-  const { roster, loading } = useGiraRoster(supabase, gira);
-
-  const { displayString, count } = useMemo(() => {
-    if (!roster || roster.length === 0)
-      return { displayString: null, count: 0 };
-
-    // 1. Filtrar solo confirmados y excluir roles no orquestales
-    const activeMusicians = roster.filter(
-      (r) =>
-        r.estado_gira === "confirmado" &&
-        !["director", "solista", "produccion", "staff", "chofer"].includes(
-          r.rol_gira
-        )
-    );
-
-    if (activeMusicians.length === 0) return { displayString: null, count: 0 };
-
-    // 2. Calcular String de Instrumentación
-    const partsForCalc = activeMusicians.map((m) => ({
-      instrumentos: m.instrumentos,
-    }));
-
-    let str = calculateInstrumentation(partsForCalc);
-
-    return { displayString: str, count: activeMusicians.length };
-  }, [roster]);
-
-  if (loading)
-    return (
-      <IconLoader className="animate-spin text-slate-300 ml-2" size={12} />
-    );
-
-  // Si no hay nadie confirmado, no mostramos nada
-  if (count === 0) return null;
-
-  return (
-    <div
-      className="flex items-center gap-1 text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 ml-2 animate-in fade-in"
-      title={`${count} músicos confirmados`}
-    >
-      <IconMusic size={10} className="text-slate-400" />
-      {/* Si hay formato estándar (2.2.2.2), mostrarlo. Si no, mostrar cantidad simple */}
-      {displayString || `${count} Músicos`}
-    </div>
-  );
-};
-
-// --- COMPONENTE HELPER PARA BOTONES DE ACCIÓN ---
-const ActionButton = ({
-  icon: Icon,
-  title,
-  onClick,
-  colorClass = "text-slate-400 hover:text-indigo-600 hover:bg-slate-50",
-}) => (
-  <button
-    type="button"
-    title={title}
-    onClick={(e) => {
-      e.stopPropagation();
-      onClick(e);
-    }}
-    className={`p-2 rounded-lg transition-all duration-200 ${colorClass}`}
-  >
-    <Icon size={18} />
-  </button>
-);
-
 // --- COMPONENTE DE MENÚ DESPLEGABLE (HOVER) ---
+// --- COMPONENTE DE MENÚ REFACTORIZADO PARA MÓVIL ---
 const GiraActionMenu = ({
   gira,
   onViewChange,
@@ -136,18 +66,29 @@ const GiraActionMenu = ({
   onToggle,
   onClose,
 }) => {
-  const [hoveredCategory, setHoveredCategory] = useState(null);
+  const [expandedCategory, setExpandedCategory] = useState(null);
   const menuRef = useRef(null);
 
+  // Cerrar al hacer click fuera
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
         onClose();
+        setExpandedCategory(null);
       }
     };
     if (isOpen) document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen, onClose]);
+
+  // Resetear categorías al cerrar
+  useEffect(() => {
+    if (!isOpen) setExpandedCategory(null);
+  }, [isOpen]);
+
+  const toggleCategory = (key) => {
+    setExpandedCategory(expandedCategory === key ? null : key);
+  };
 
   const SubMenuItem = ({ icon: Icon, label, onClick, className = "" }) => (
     <button
@@ -156,41 +97,46 @@ const GiraActionMenu = ({
         onClose();
         onClick();
       }}
-      className={`w-full text-left px-4 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600 ${className}`}
+      className={`w-full text-left px-4 py-3 md:py-2 text-sm md:text-xs hover:bg-slate-50 flex items-center gap-3 md:gap-2 text-slate-600 border-l-2 border-transparent hover:border-indigo-500 pl-6 ${className}`}
     >
-      <Icon size={14} className="text-slate-400 shrink-0" />
+      <Icon size={16} className="text-slate-400 shrink-0" />
       <span>{label}</span>
     </button>
   );
 
   const CategoryItem = ({ label, icon: Icon, categoryKey, children }) => {
-    const isHovered = hoveredCategory === categoryKey;
+    const isExpanded = expandedCategory === categoryKey;
 
     return (
-      <div
-        className="relative group"
-        onMouseEnter={() => setHoveredCategory(categoryKey)}
-        onMouseLeave={() => setHoveredCategory(null)}
-      >
+      <div className="border-b border-slate-50 last:border-0">
         <button
-          className={`w-full text-left px-4 py-2.5 text-xs flex items-center justify-between gap-2 transition-colors z-[100] ${
-            isHovered
-              ? "bg-slate-50 text-indigo-700 font-bold"
-              : "text-slate-700"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleCategory(categoryKey);
+          }}
+          className={`w-full text-left px-4 py-3 text-sm font-medium flex items-center justify-between gap-2 transition-colors ${
+            isExpanded
+              ? "bg-slate-50 text-indigo-700"
+              : "text-slate-700 hover:bg-slate-50"
           }`}
         >
           <div className="flex items-center gap-2">
             <Icon
-              size={14}
-              className={isHovered ? "text-indigo-600" : "text-slate-400"}
+              size={16}
+              className={isExpanded ? "text-indigo-600" : "text-slate-400"}
             />
             <span>{label}</span>
           </div>
-          <IconChevronDown size={10} className="rotate-90 text-slate-300" />
+          <IconChevronDown
+            size={14}
+            className={`text-slate-300 transition-transform duration-200 ${
+              isExpanded ? "rotate-180" : ""
+            }`}
+          />
         </button>
 
-        {isHovered && (
-          <div className="absolute right-full top-0 mr-0 w-48 bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-right-2 z-[600]">
+        {isExpanded && (
+          <div className="bg-slate-50/50 py-1 animate-in slide-in-from-top-1">
             {children}
           </div>
         )}
@@ -205,7 +151,8 @@ const GiraActionMenu = ({
           e.stopPropagation();
           onToggle();
         }}
-        className={`p-2 rounded-lg transition-colors ${
+        // Aumentado el padding para facilitar el toque en móvil
+        className={`p-3 md:p-2 rounded-lg transition-colors ${
           isOpen
             ? "bg-slate-100 text-indigo-600"
             : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
@@ -216,13 +163,17 @@ const GiraActionMenu = ({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-xl border border-slate-200 z-[1000] py-1 animate-in fade-in zoom-in-95 origin-top-right">
-          <CategoryItem
-            label="Repertorio"
-            icon={IconMusic}
-            categoryKey="repertorio"
-          >
-            <div className="py-1">
+        <div
+          className="absolute right-0 top-full mt-1 w-64 md:w-56 bg-white rounded-xl shadow-2xl border border-slate-200 z-[1000] overflow-hidden animate-in fade-in zoom-in-95 origin-top-right"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="max-h-[60vh] overflow-y-auto">
+            {/* --- CONTENIDO DEL MENÚ (Igual que antes, pero dentro de los nuevos CategoryItem) --- */}
+            <CategoryItem
+              label="Repertorio"
+              icon={IconMusic}
+              categoryKey="repertorio"
+            >
               <SubMenuItem
                 icon={IconMusic}
                 label="Repertorio General"
@@ -236,16 +187,15 @@ const GiraActionMenu = ({
               <SubMenuItem
                 icon={IconFileText}
                 label="Mis Partes"
-                onClick={() => alert("Próximamente")}
+                onClick={() => onViewChange("REPERTOIRE", "my_parts")}
               />
-            </div>
-          </CategoryItem>
-          <CategoryItem
-            label="Logística"
-            icon={IconCalendar}
-            categoryKey="logistica"
-          >
-            <div className="py-1">
+            </CategoryItem>
+
+            <CategoryItem
+              label="Logística"
+              icon={IconCalendar}
+              categoryKey="logistica"
+            >
               <SubMenuItem
                 icon={IconCalendar}
                 label="Agenda Detallada"
@@ -272,41 +222,42 @@ const GiraActionMenu = ({
                   />
                 </>
               )}
-            </div>
-          </CategoryItem>
-          {isEditor && (
-            <CategoryItem
-              label="Personal"
-              icon={IconUsers}
-              categoryKey="personal"
-            >
-              <div className="py-1">
+            </CategoryItem>
+
+            {isEditor && (
+              <CategoryItem
+                label="Personal"
+                icon={IconUsers}
+                categoryKey="personal"
+              >
                 <SubMenuItem
                   icon={IconUsers}
                   label="Gestión de Roster"
                   onClick={() => onViewChange("ROSTER")}
                 />
-              </div>
-            </CategoryItem>
-          )}
-          {isEditor && (
-            <CategoryItem
-              label="Difusión"
-              icon={IconMegaphone}
-              categoryKey="difusion"
-            >
-              <div className="py-1">
+              </CategoryItem>
+            )}
+
+            {isEditor && (
+              <CategoryItem
+                label="Difusión"
+                icon={IconMegaphone}
+                categoryKey="difusion"
+              >
                 <SubMenuItem
                   icon={IconMegaphone}
                   label="Material de Prensa"
                   onClick={() => onViewChange("DIFUSION")}
                 />
-              </div>
-            </CategoryItem>
-          )}
-          {isEditor && (
-            <CategoryItem label="Edición" icon={IconEdit} categoryKey="edicion">
-              <div className="py-1">
+              </CategoryItem>
+            )}
+
+            {isEditor && (
+              <CategoryItem
+                label="Edición"
+                icon={IconEdit}
+                categoryKey="edicion"
+              >
                 <SubMenuItem
                   icon={IconMessageCircle}
                   label="Gestión de Pendientes"
@@ -323,9 +274,9 @@ const GiraActionMenu = ({
                   onClick={onDelete}
                   className="text-red-600 hover:text-red-700 hover:bg-red-50"
                 />
-              </div>
-            </CategoryItem>
-          )}
+              </CategoryItem>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -334,7 +285,10 @@ const GiraActionMenu = ({
 
 export default function GirasView({ supabase }) {
   const { user, isEditor } = useAuth();
-  const [view, setView] = useState({ mode: "LIST", data: null });
+
+  // Estado de la vista: mode (pantalla), data (gira), tab (pestaña interna)
+  const [view, setView] = useState({ mode: "LIST", data: null, tab: null });
+
   const [giras, setGiras] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -413,8 +367,7 @@ export default function GirasView({ supabase }) {
           );
         }
       }
-      // NOTA: Para calcular instrumentación, ya no dependemos de esta query
-      // porque usamos el componente InstrumentationBadge que hace su propia carga precisa.
+
       const { data, error } = await supabase
         .from("programas")
         .select(
@@ -498,6 +451,7 @@ export default function GirasView({ supabase }) {
   };
 
   const handleSave = async () => {
+    // (Sin cambios en lógica de guardado...)
     if (!formData.nombre_gira) return alert("Nombre obligatorio");
     setLoading(true);
     try {
@@ -574,6 +528,7 @@ export default function GirasView({ supabase }) {
   };
 
   const startEdit = async (gira) => {
+    // (Sin cambios en startEdit)
     setEditingId(gira.id);
     setFormData({
       nombre_gira: gira.nombre_gira,
@@ -583,7 +538,6 @@ export default function GirasView({ supabase }) {
       tipo: gira.tipo || "Sinfónico",
       zona: gira.zona || "",
     });
-
     const { data } = await supabase
       .from("giras_localidades")
       .select("id_localidad")
@@ -591,7 +545,6 @@ export default function GirasView({ supabase }) {
     setSelectedLocations(
       data ? new Set(data.map((d) => d.id_localidad)) : new Set()
     );
-
     const fuentes = (gira.giras_fuentes || []).map((f) => {
       let label = f.valor_texto;
       if (f.tipo.includes("ENSAMBLE")) {
@@ -606,7 +559,6 @@ export default function GirasView({ supabase }) {
       };
     });
     setSelectedSources(fuentes);
-
     const staff = (gira.giras_integrantes || [])
       .filter((i) => ["director", "solista"].includes(i.rol))
       .map((i) => ({
@@ -663,6 +615,7 @@ export default function GirasView({ supabase }) {
   };
 
   const getPersonnelDisplay = (gira) => {
+    // (Sin cambios)
     const roster = gira.giras_integrantes || [];
     const directors = roster.filter(
       (r) => r.rol === "director" && r.estado === "confirmado"
@@ -693,6 +646,7 @@ export default function GirasView({ supabase }) {
   };
 
   const getConcertList = (gira) => {
+    // (Sin cambios)
     const concerts = (gira.eventos || [])
       .filter(
         (e) =>
@@ -730,6 +684,7 @@ export default function GirasView({ supabase }) {
   };
 
   const getSourcesDisplay = (gira) => {
+    // (Sin cambios)
     const sources = gira.giras_fuentes || [];
     const ensembleMap = new Map(ensemblesList.map((e) => [e.value, e.label]));
     const inclusions = [];
@@ -1041,7 +996,8 @@ export default function GirasView({ supabase }) {
             </div>
 
             {view.mode === "LIST" && (
-              <div className="flex items-center gap-2 ml-auto">
+              <div className="p-2 md:p-4 space-y-3 md:space-y-4 pb-20 md:pb-4">
+                {" "}
                 <button
                   onClick={() =>
                     setShowRepertoireInCards(!showRepertoireInCards)
@@ -1096,20 +1052,7 @@ export default function GirasView({ supabase }) {
       </div>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
-        {view.mode === "FULL_AGENDA" && (
-          <AgendaGeneral
-            supabase={supabase}
-            onOpenRepertoire={(programId) => {
-              // Buscamos la gira correspondiente al ID del evento
-              const selectedGira = giras.find((g) => g.id === programId);
-
-              // Si existe, cambiamos la vista al modo REPERTOIRE con los datos de esa gira
-              if (selectedGira) {
-                setView({ mode: "REPERTOIRE", data: selectedGira });
-              }
-            }}
-          />
-        )}
+        {view.mode === "FULL_AGENDA" && <AgendaGeneral supabase={supabase} />}
         {view.mode === "CALENDAR" && <MusicianCalendar supabase={supabase} />}
         {view.mode === "WEEKLY" && (
           <WeeklyCalendar
@@ -1130,6 +1073,7 @@ export default function GirasView({ supabase }) {
           <ProgramRepertoire
             supabase={supabase}
             program={view.data}
+            initialTab={view.tab} // <--- ESTA ES LA CLAVE QUE FALTABA
             onBack={() => setView({ mode: "LIST", data: null })}
           />
         )}
@@ -1400,7 +1344,10 @@ export default function GirasView({ supabase }) {
                         {/* 3. Menú Desplegable (Hover) */}
                         <GiraActionMenu
                           gira={gira}
-                          onViewChange={(mode) => setView({ mode, data: gira })}
+                          // CAMBIO AQUÍ: Capturamos el tab opcional
+                          onViewChange={(mode, tab) =>
+                            setView({ mode, data: gira, tab })
+                          }
                           isEditor={isEditor}
                           isPersonal={isPersonal}
                           onEdit={() => startEdit(gira)}
@@ -1437,57 +1384,6 @@ export default function GirasView({ supabase }) {
               );
             })}
           </div>
-        )}
-        {isEditor && !editingId && (
-          <>
-            {!isAdding && (
-              <button
-                onClick={() => {
-                  setIsAdding(true);
-                  setFormData({
-                    nombre_gira: "",
-                    subtitulo: "",
-                    fecha_desde: "",
-                    fecha_hasta: "",
-                    tipo: "Sinfónico",
-                    zona: "",
-                  });
-                  setSelectedLocations(new Set());
-                  setSelectedSources([]);
-                  setSelectedStaff([]);
-                }}
-                className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:bg-indigo-50 flex justify-center gap-2 font-medium"
-              >
-                <IconPlus size={20} /> Crear Nuevo Programa
-              </button>
-            )}
-
-            {isAdding && (
-              <GiraForm
-                supabase={supabase}
-                giraId={null}
-                formData={formData}
-                setFormData={setFormData}
-                onCancel={closeForm}
-                onSave={handleSave}
-                onRefresh={async () => {
-                  await fetchGiras();
-                  closeForm();
-                }}
-                loading={loading}
-                isNew={true}
-                locationsList={locationsList}
-                selectedLocations={selectedLocations}
-                setSelectedLocations={setSelectedLocations}
-                ensemblesList={ensemblesList}
-                allIntegrantes={allIntegrantes}
-                selectedSources={selectedSources}
-                setSelectedSources={setSelectedSources}
-                selectedStaff={selectedStaff}
-                setSelectedStaff={setSelectedStaff}
-              />
-            )}
-          </>
         )}
       </div>
 

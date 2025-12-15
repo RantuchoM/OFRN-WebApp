@@ -110,7 +110,7 @@ export const calculateInstrumentation = (parts) => {
     finalStr += ` + ${othersStr}`;
   }
 
-  return finalStr.replace(" + DIRECTOR") || ""; // Si todo está vacío, devuelve string vacío
+  return finalStr.replace(" + DIRECTOR").replace('undefined','') || ""; // Si todo está vacío, devuelve string vacío
 };
 
 export const calculateTotalDuration = (works) => {
