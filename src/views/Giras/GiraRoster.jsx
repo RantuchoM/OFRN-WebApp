@@ -172,9 +172,13 @@ export default function GiraRoster({ supabase, gira, onBack }) {
       setSelectedExclEnsembles(exclEnsembles);
   }, [sources]);
 
+  // --- BÚSQUEDA AUTOMÁTICA MEJORADA ---
   useEffect(() => {
-    if (addMode === "individual" && searchTerm.length > 2) searchIndividual(searchTerm);
-    else setSearchResults([]);
+    if (addMode === "individual" && searchTerm.length > 0) {
+        searchIndividual(searchTerm);
+    } else {
+        setSearchResults([]);
+    }
   }, [searchTerm, addMode]);
 
   useEffect(() => {
@@ -271,8 +275,27 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     if (!error) refreshRoster();
   };
 
+  // --- BÚSQUEDA MEJORADA: Soporta "Nombre Apellido" ---
   const searchIndividual = async (term) => {
-    const { data } = await supabase.from("integrantes").select("id, nombre, apellido, instrumentos(instrumento)").or(`nombre.ilike.%${term}%,apellido.ilike.%${term}%`).limit(5);
+    const cleanTerm = term.trim();
+    let query = supabase.from("integrantes").select("id, nombre, apellido, instrumentos(instrumento)");
+
+    if (cleanTerm.includes(" ")) {
+        // Si hay espacios, se asume Nombre + Apellido
+        // Buscamos que el nombre coincida con la primera parte Y el apellido con la segunda
+        const parts = cleanTerm.split(" ");
+        const first = parts[0];
+        const second = parts.slice(1).join(" "); // Resto de la cadena
+        
+        query = query.ilike('nombre', `%${first}%`).ilike('apellido', `%${second}%`);
+    } else {
+        // Si es una sola palabra, busca en nombre O apellido
+        query = query.or(`nombre.ilike.%${cleanTerm}%,apellido.ilike.%${cleanTerm}%`);
+    }
+
+    const { data } = await query.limit(5);
+    
+    // Filtrar los que ya están en la lista
     const currentIds = new Set(localRoster.map((r) => r.id));
     setSearchResults(data ? data.filter((m) => !currentIds.has(m.id)) : []);
   };
@@ -382,7 +405,8 @@ export default function GiraRoster({ supabase, gira, onBack }) {
 
         {addMode === "individual" && (
           <div className="relative w-64 animate-in slide-in-from-left-2 mt-1">
-            <input type="text" placeholder="Buscar apellido..." className="w-full border p-2 rounded text-sm outline-none bg-white shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            {/* UPDATED PLACEHOLDER */}
+            <input type="text" placeholder="Buscar nombre o apellido..." className="w-full border p-2 rounded text-sm outline-none bg-white shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             {searchResults.length > 0 && (
               <div className="absolute top-full left-0 w-full bg-white border mt-1 rounded shadow-xl z-50 max-h-60 overflow-y-auto">
                 {searchResults.map((m) => (
@@ -436,10 +460,10 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                   {visibleColumns.localidad && (
                       <td className="p-3 text-xs text-slate-600">
                           {m.localidades ? (
-                              <div>
-                                  <span className="font-semibold">{m.localidades.localidad}</span>
-                                  <span className="text-[10px] text-slate-400 block">{m.localidades.regiones?.region}</span>
-                              </div>
+                            <div>
+                                <span className="font-semibold">{m.localidades.localidad}</span>
+                                <span className="text-[10px] text-slate-400 block">{m.localidades.regiones?.region}</span>
+                            </div>
                           ) : <span className="text-slate-300">-</span>}
                       </td>
                   )}

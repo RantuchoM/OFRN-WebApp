@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { 
     IconPlus, IconSearch, IconAlertCircle, IconEdit, IconX, 
     IconColumns, IconFilter, IconCheck, IconLoader, IconSortAsc, IconSortDesc,
-    IconTrash // <--- NUEVO IMPORT
+    IconTrash 
 } from '../../components/ui/Icons';
 import InstrumentFilter from '../../components/filters/InstrumentFilter';
 import MusicianForm from './MusicianForm';
@@ -31,21 +31,22 @@ const getNestedValue = (obj, path) => {
 };
 
 // --- CELDA EDITABLE ---
-const EditableCell = ({ value, rowId, field, type, options, onSave }) => {
+const EditableCell = ({ value, rowId, field, type, options, onSave, className = "" }) => {
     const [localValue, setLocalValue] = useState(value || "");
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => { setLocalValue(value || ""); }, [value]);
 
     const handleBlur = async () => {
-        if (localValue != (value || "")) {
+        // Solo guardar si el valor cambió
+        if (String(localValue) !== String(value || "")) {
             setIsSaving(true);
             await onSave(rowId, field, localValue);
             setIsSaving(false);
         }
     };
 
-    const baseClass = `w-full h-full bg-transparent px-2 py-1.5 outline-none text-xs border border-transparent focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 transition-all rounded`;
+    const baseClass = `w-full h-full bg-transparent px-2 py-1.5 outline-none text-xs border border-transparent focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 transition-all rounded ${className}`;
 
     if (isSaving) return <div className="px-2 py-1"><IconLoader size={12} className="animate-spin text-indigo-500"/></div>;
 
@@ -244,6 +245,18 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         init();
     }, [catalogoInstrumentos]);
 
+    // EFECTO DE BÚSQUEDA AUTOMÁTICA (DEBOUNCE)
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            // Solo refrescamos si ya tenemos datos cargados inicialmente
+            if (ensemblesList.length > 0) {
+                fetchEnsemblesAndData(selectedInstruments, conditionFilter);
+            }
+        }, 300); // 300ms de espera al escribir
+
+        return () => clearTimeout(timer);
+    }, [searchText]); // Se ejecuta al escribir en searchText
+
     const fetchLocations = async () => {
         const { data } = await supabase.from('localidades').select('id, localidad').order('localidad');
         if (data) setLocationsList(data);
@@ -321,7 +334,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         return sorted;
     }, [resultados, sortConfig]);
 
-    const handleSearch = (e) => { e.preventDefault(); refreshData(); };
+    const handleSearch = (e) => { 
+        e.preventDefault(); 
+        // Ya no necesitamos llamar refreshData aquí porque el useEffect lo hace
+    };
+
     const handleFilterChange = (newInstrSet, newCond) => {
         setSelectedInstruments(newInstrSet);
         setConditionFilter(newCond);
@@ -331,10 +348,22 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     const handleInlineUpdate = async (id, field, value) => {
         try {
             let updatePayload = {};
-            if (field === 'instrumento') updatePayload = { id_instr: value ? parseInt(value) : null };
-            else if (field === 'localidad') updatePayload = { id_localidad: value ? parseInt(value) : null };
-            else if (field === 'nombre' || field === 'apellido') updatePayload = { [field]: value };
-            else updatePayload = { [field]: value === "" ? null : value };
+            
+            // CORRECCIÓN: Parseo seguro de IDs numéricos para evitar errores de BD
+            if (field === 'instrumento') {
+                const instrId = value && value !== "" ? value : null;
+                updatePayload = { id_instr: instrId };
+            }
+            else if (field === 'localidad') {
+                const locId = value && value !== "" ? parseInt(value, 10) : null;
+                updatePayload = { id_localidad: locId };
+            }
+            else if (field === 'nombre' || field === 'apellido') {
+                updatePayload = { [field]: value };
+            }
+            else {
+                updatePayload = { [field]: value === "" ? null : value };
+            }
 
             const { error } = await supabase.from('integrantes').update(updatePayload).eq('id', id);
             if (error) throw error;
@@ -343,12 +372,19 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                 if (p.id === id) {
                     let nestedUpdates = {};
                     if (field === 'instrumento') {
+                        // value viene como string del select, usamos == para comparar
                         const instrObj = catalogoInstrumentos.find(i => i.id == value);
-                        nestedUpdates = { id_instr: value, instrumentos: { instrumento: instrObj ? instrObj.instrumento : '' } };
+                        nestedUpdates = { 
+                            id_instr: value ? value : null, 
+                            instrumentos: { instrumento: instrObj ? instrObj.instrumento : '' } 
+                        };
                     }
                     if (field === 'localidad') {
                         const locObj = locationsList.find(l => l.id == value);
-                        nestedUpdates = { id_localidad: value, localidades: { localidad: locObj ? locObj.localidad : '' } };
+                        nestedUpdates = { 
+                            id_localidad: value ? parseInt(value, 10) : null, 
+                            localidades: { localidad: locObj ? locObj.localidad : '' } 
+                        };
                     }
                     return { ...p, ...updatePayload, ...nestedUpdates };
                 }
@@ -378,8 +414,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     const crearIntegrante = async () => { setLoading(true); try { const newId = Math.floor(10000000 + Math.random() * 90000000); const insertData = { ...prepareDataForSave(editFormData), id: newId }; const { error } = await supabase.from('integrantes').insert([insertData]); if (error) throw error; await updateEnsembleRelationsModal(newId, musicianEnsembles); setIsAdding(false); setEditFormData({ nombre: '', apellido: '', id_instr: '', genero: '', telefono: '', dni: '', mail: '', alimentacion: '', nacionalidad: '', cuil: '', fecha_nac: '', fecha_alta: '', fecha_baja: '', email_google: '', id_localidad: '', condicion: 'Estable' }); setMusicianEnsembles(new Set()); await refreshData(); } catch (err) { alert("Error: " + err.message); } finally { setLoading(false); } };
     const startEditModal = async (item) => { setEditingId(item.id); setEditFormData({ nombre: item.nombre || '', apellido: item.apellido || '', id_instr: item.id_instr || '', genero: item.genero || '', telefono: item.telefono || '', dni: item.dni || '', mail: item.mail || '', alimentacion: item.alimentacion || '', nacionalidad: item.nacionalidad || '', cuil: item.cuil || '', fecha_nac: item.fecha_nac || '', fecha_alta: item.fecha_alta || '', fecha_baja: item.fecha_baja || '', email_google: item.email_google || '', id_localidad: item.id_localidad || '', condicion: item.condicion || 'Estable' }); const { data } = await supabase.from('integrantes_ensambles').select('id_ensamble').eq('id_integrante', item.id); if (data) { setMusicianEnsembles(new Set(data.map(r => r.id_ensamble))); } else { setMusicianEnsembles(new Set()); } };
     const startAdd = () => { setEditingId(null); setEditFormData({ nombre: '', apellido: '', id_instr: '', genero: '', telefono: '', dni: '', mail: '', alimentacion: '', nacionalidad: '', cuil: '', fecha_nac: '', fecha_alta: '', fecha_baja: '', email_google: '', id_localidad: '', condicion: 'Estable' }); setMusicianEnsembles(new Set()); setIsAdding(true); };
-    const formatDate = (d) => d ? d.split('-').reverse().join('/') : '-';
-
+    
     return (
         <div className="space-y-4 h-full flex flex-col overflow-hidden animate-in fade-in">
             {/* BARRA SUPERIOR */}
@@ -515,7 +550,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                                 isNew={isAdding} 
                                 catalogoInstrumentos={catalogoInstrumentos} 
                                 ensemblesList={ensemblesList} 
-                                locationsList={locationsList}
+                                locationsList={locationsList} 
                                 musicianEnsembles={musicianEnsembles} 
                                 setMusicianEnsembles={setMusicianEnsembles} 
                             />

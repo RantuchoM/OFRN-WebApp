@@ -416,7 +416,7 @@ export default function GirasView({ supabase }) {
           `*, 
            giras_localidades(id_localidad, localidades(localidad)), 
            giras_fuentes(*), 
-           eventos (id, fecha, hora_inicio, locaciones(nombre), tipos_evento(nombre)), 
+           eventos (id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)), 
            giras_integrantes (
              id_integrante, estado, rol, 
              integrantes (nombre, apellido)
@@ -709,7 +709,7 @@ export default function GirasView({ supabase }) {
               <span className="font-mono text-[10px] mr-1 bg-slate-100 px-1 rounded">
                 {formatDate(c.fecha)} - {c.hora_inicio.slice(0, 5)}
               </span>
-              {c.locaciones?.nombre}
+              {`${c.locaciones?.nombre || ""} | ${c.locaciones?.localidades?.localidad || ""}`}
             </li>
           ))}
           {concerts.length > 3 && (

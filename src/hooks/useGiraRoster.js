@@ -1,4 +1,3 @@
-// src/hooks/useGiraRoster.js
 import { useState, useEffect, useCallback } from 'react';
 
 export function useGiraRoster(supabase, gira) {
@@ -49,7 +48,11 @@ export function useGiraRoster(supabase, gira) {
             ? supabase.from("integrantes_ensambles").select("id_integrante").in("id_ensamble", Array.from(inclEnsembles)).then(res => res.data || []) 
             : Promise.resolve([]),
         inclFamilies.size > 0 
-            ? supabase.from("integrantes").select("id, instrumentos!inner(familia)").in("instrumentos.familia", Array.from(inclFamilies)).then(res => res.data || []) 
+            ? supabase.from("integrantes")
+                .select("id, instrumentos!inner(familia)")
+                .eq("condicion", "Estable") // <--- FILTRO AGREGADO: Solo estables al llamar por familia
+                .in("instrumentos.familia", Array.from(inclFamilies))
+                .then(res => res.data || []) 
             : Promise.resolve([]),
         exclEnsembles.size > 0 
             ? supabase.from("integrantes_ensambles").select("id_integrante").in("id_ensamble", Array.from(exclEnsembles)).then(res => res.data || []) 
