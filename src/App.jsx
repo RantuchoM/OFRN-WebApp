@@ -11,6 +11,8 @@ import UsersManager from "./views/Users/UsersManager";
 
 import { supabase } from "./services/supabase";
 import { IconLogOut, IconUsers, IconMenu, IconX } from "./components/ui/Icons";
+import DataView from "./views/Data/DataView"; // <--- Importar la nueva vista
+import { IconDatabase } from "./components/ui/Icons"; // Asegúrate de importar el ícono
 
 // Componente para el contenido principal protegido
 function AppContent() {
@@ -66,17 +68,33 @@ function AppContent() {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-600 p-8 text-center">
         <div className="bg-amber-100 p-4 rounded-full mb-4 text-amber-600">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="48"
+            height="48"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <circle cx="12" cy="12" r="10" />
             <line x1="12" y1="8" x2="12" y2="12" />
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
         </div>
-        <h2 className="text-2xl font-bold text-slate-800 mb-2">Cuenta en Revisión</h2>
+        <h2 className="text-2xl font-bold text-slate-800 mb-2">
+          Cuenta en Revisión
+        </h2>
         <p className="max-w-md">
-          Hola <b>{user.nombre} {user.apellido}</b>. Tu cuenta requiere aprobación.
+          Hola{" "}
+          <b>
+            {user.nombre} {user.apellido}
+          </b>
+          . Tu cuenta requiere aprobación.
         </p>
-        <button onClick={logout} className="mt-8 text-indigo-600 hover:underline text-sm">
+        <button
+          onClick={logout}
+          className="mt-8 text-indigo-600 hover:underline text-sm"
+        >
           Cerrar Sesión
         </button>
       </div>
@@ -89,9 +107,9 @@ function AppContent() {
     { id: "ensambles", label: "Ensambles", icon: "layers" },
     { id: "giras", label: "Giras", icon: "map" },
     { id: "repertorio", label: "Repertorio", icon: "music" },
-    { id: "lugares", label: "Lugares", icon: "building" },
+    // CAMBIO AQUÍ: Lugares -> Datos
+    { id: "datos", label: "Datos", icon: "database" },
   ];
-
   const LogoOrquesta = () => (
     <img
       src="/pwa-192x192.png"
@@ -100,13 +118,14 @@ function AppContent() {
     />
   );
 
-  const visibleTabs = isPersonal ? allTabs.filter((t) => t.id === "giras") : allTabs;
+  const visibleTabs = isPersonal
+    ? allTabs.filter((t) => t.id === "giras")
+    : allTabs;
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans">
       {/* Navbar */}
       <nav className="bg-white border-b border-slate-200 px-4 md:px-6 py-3 flex items-center justify-between shrink-0 shadow-sm z-50 print:hidden relative">
-        
         <div className="flex items-center gap-4 md:gap-6">
           <div className="flex items-center gap-2 text-indigo-700 font-black text-xl tracking-tight">
             <LogoOrquesta />
@@ -163,7 +182,7 @@ function AppContent() {
         </div>
 
         {/* BOTÓN MENÚ MÓVIL (Visible solo en móvil) */}
-        <button 
+        <button
           className="md:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
           onClick={() => setMobileMenuOpen(true)}
         >
@@ -175,17 +194,17 @@ function AppContent() {
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-[100] bg-white md:hidden animate-in slide-in-from-right duration-200 flex flex-col">
           <div className="p-4 flex items-center justify-between border-b border-slate-100">
-             <div className="flex items-center gap-2 font-black text-indigo-700 text-lg">
-                <LogoOrquesta /> <span>Menú</span>
-             </div>
-             <button 
-               onClick={() => setMobileMenuOpen(false)}
-               className="p-2 rounded-full hover:bg-slate-100 text-slate-500"
-             >
-               <IconX size={24} />
-             </button>
+            <div className="flex items-center gap-2 font-black text-indigo-700 text-lg">
+              <LogoOrquesta /> <span>Menú</span>
+            </div>
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              className="p-2 rounded-full hover:bg-slate-100 text-slate-500"
+            >
+              <IconX size={24} />
+            </button>
           </div>
-          
+
           <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
             {visibleTabs.map((tab) => (
               <button
@@ -217,11 +236,15 @@ function AppContent() {
           <div className="p-6 border-t border-slate-100 bg-slate-50">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-lg">
-                 {user.nombre[0]}
+                {user.nombre[0]}
               </div>
               <div>
-                <div className="font-bold text-slate-800">{user.nombre} {user.apellido}</div>
-                <div className="text-xs text-slate-500 uppercase">{userRole.replace("_", " ")}</div>
+                <div className="font-bold text-slate-800">
+                  {user.nombre} {user.apellido}
+                </div>
+                <div className="text-xs text-slate-500 uppercase">
+                  {userRole.replace("_", " ")}
+                </div>
               </div>
             </div>
             <button
@@ -237,21 +260,27 @@ function AppContent() {
       {/* Main Content */}
       <main className="flex-1 overflow-hidden relative">
         <div className="absolute inset-0 p-0 md:p-6 overflow-hidden">
-           {/* Contenedor interno con padding ajustado para móvil (p-2) y escritorio (p-0 porque el padre ya tiene p-6) */}
-           <div className="h-full w-full p-2 md:p-0 overflow-hidden">
+          {/* Contenedor interno con padding ajustado para móvil (p-2) y escritorio (p-0 porque el padre ya tiene p-6) */}
+          <div className="h-full w-full p-2 md:p-0 overflow-hidden">
             {activeTab === "musicos" && !isPersonal && (
-              <MusiciansView supabase={supabase} catalogoInstrumentos={catalogoInstrumentos} />
+              <MusiciansView
+                supabase={supabase}
+                catalogoInstrumentos={catalogoInstrumentos}
+              />
             )}
             {activeTab === "ensambles" && !isPersonal && (
               <EnsemblesView supabase={supabase} />
             )}
             {activeTab === "giras" && <GirasView supabase={supabase} />}
             {activeTab === "repertorio" && !isPersonal && (
-              <RepertoireView supabase={supabase} catalogoInstrumentos={catalogoInstrumentos} />
+              <RepertoireView
+                supabase={supabase}
+                catalogoInstrumentos={catalogoInstrumentos}
+              />
             )}
-            {activeTab === "lugares" && !isPersonal && (
-              <LocationsView supabase={supabase} />
-            )}
+            {activeTab === "datos" && !isPersonal && (
+              <DataView supabase={supabase} />
+            )}{" "}
             {activeTab === "usuarios" && isAdmin && (
               <UsersManager supabase={supabase} />
             )}
