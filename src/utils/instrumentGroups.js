@@ -131,5 +131,32 @@ export const INSTRUMENT_GROUPS = [
       { id_instrumento: '11', nombre_archivo: 'Trombón 1', instrumento_base: 'Trombón' },
       { id_instrumento: '11', nombre_archivo: 'Trombón 2', instrumento_base: 'Trombón' },
     ]
+  },
+  {
+    id: "timp",
+    instrumento: "★ Timbal",
+    isGroup: true,
+    definitions: [
+      { id_instrumento: '13', nombre_archivo: 'Perc Timp', instrumento_base: 'Timbal' },
+    ]
+  },
+  {
+    id: "timp+1",
+    instrumento: "★ Timp+1",
+    isGroup: true,
+    definitions: [
+      { id_instrumento: '13', nombre_archivo: 'Perc Timp', instrumento_base: 'Timbal' },
+      { id_instrumento: '13', nombre_archivo: 'Perc 1', instrumento_base: 'Percusión' }
+    ]
+  },
+  {
+    id: "timp+2",
+    instrumento: "★ Timp+2",
+    isGroup: true,
+    definitions: [
+      { id_instrumento: '13', nombre_archivo: 'Perc Timp', instrumento_base: 'Timbal' },
+            { id_instrumento: '13', nombre_archivo: 'Perc 1', instrumento_base: 'Percusión' },
+      { id_instrumento: '13', nombre_archivo: 'Perc 2', instrumento_base: 'Percusión' }
+    ]
   }
 ];

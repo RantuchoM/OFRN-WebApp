@@ -550,7 +550,7 @@ export default function RepertoireManager({
                       {getComposers(item.obras)}
                     </td>
                     <td
-                      className="p-1 font-bold text-slate-800 truncate"
+                      className="p-1 font-bold text-slate-800 whitespace-pre-wrap"
                       title={item.obras.titulo}
                     >
                       {item.obras.titulo}

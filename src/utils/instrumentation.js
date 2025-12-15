@@ -84,7 +84,7 @@ export const calculateInstrumentation = (parts) => {
     }`;
   if (families.str) str += " - Str";
 
-  return str;
+  return str.replace('0.0.0.0 - 0.0.0.0 - ','');
 };
 
 export const calculateTotalDuration = (works) => {
