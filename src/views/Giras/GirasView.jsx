@@ -350,7 +350,12 @@ export default function GirasView({ supabase }) {
   const [filterType, setFilterType] = useState(
     new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band"])
   );
-  const PROGRAM_TYPES = ["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band"];
+  const PROGRAM_TYPES = [
+    "Sinfónico",
+    "Camerata Filarmónica",
+    "Ensamble",
+    "Jazz Band",
+  ];
 
   const today = new Date().toISOString().split("T")[0];
   const [filterDateStart, setFilterDateStart] = useState(today);
@@ -1091,7 +1096,20 @@ export default function GirasView({ supabase }) {
       </div>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
-        {view.mode === "FULL_AGENDA" && <AgendaGeneral supabase={supabase} />}
+        {view.mode === "FULL_AGENDA" && (
+          <AgendaGeneral
+            supabase={supabase}
+            onOpenRepertoire={(programId) => {
+              // Buscamos la gira correspondiente al ID del evento
+              const selectedGira = giras.find((g) => g.id === programId);
+
+              // Si existe, cambiamos la vista al modo REPERTOIRE con los datos de esa gira
+              if (selectedGira) {
+                setView({ mode: "REPERTOIRE", data: selectedGira });
+              }
+            }}
+          />
+        )}
         {view.mode === "CALENDAR" && <MusicianCalendar supabase={supabase} />}
         {view.mode === "WEEKLY" && (
           <WeeklyCalendar
@@ -1419,6 +1437,57 @@ export default function GirasView({ supabase }) {
               );
             })}
           </div>
+        )}
+        {isEditor && !editingId && (
+          <>
+            {!isAdding && (
+              <button
+                onClick={() => {
+                  setIsAdding(true);
+                  setFormData({
+                    nombre_gira: "",
+                    subtitulo: "",
+                    fecha_desde: "",
+                    fecha_hasta: "",
+                    tipo: "Sinfónico",
+                    zona: "",
+                  });
+                  setSelectedLocations(new Set());
+                  setSelectedSources([]);
+                  setSelectedStaff([]);
+                }}
+                className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:bg-indigo-50 flex justify-center gap-2 font-medium"
+              >
+                <IconPlus size={20} /> Crear Nuevo Programa
+              </button>
+            )}
+
+            {isAdding && (
+              <GiraForm
+                supabase={supabase}
+                giraId={null}
+                formData={formData}
+                setFormData={setFormData}
+                onCancel={closeForm}
+                onSave={handleSave}
+                onRefresh={async () => {
+                  await fetchGiras();
+                  closeForm();
+                }}
+                loading={loading}
+                isNew={true}
+                locationsList={locationsList}
+                selectedLocations={selectedLocations}
+                setSelectedLocations={setSelectedLocations}
+                ensemblesList={ensemblesList}
+                allIntegrantes={allIntegrantes}
+                selectedSources={selectedSources}
+                setSelectedSources={setSelectedSources}
+                selectedStaff={selectedStaff}
+                setSelectedStaff={setSelectedStaff}
+              />
+            )}
+          </>
         )}
       </div>
 

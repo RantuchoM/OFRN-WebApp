@@ -351,21 +351,30 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
         ["director", "solista"].includes(gi.rol) && gi.estado === "confirmado"
     ) || [];
 
-  // Obtener nombre compositor
+  // CORRECCIÓN PRINCIPAL: FILTRO DE COMPOSITORES
   const getComposerName = (obra) => {
-    let c = null;
+    // Verificar si existe la relación obras_compositores
+    if (obra.obras_compositores && obra.obras_compositores.length > 0) {
+      
+      // 1. Filtrar los que tienen rol 'compositor'
+      const compositores = obra.obras_compositores
+        .filter((oc) => oc.rol === "compositor" && oc.compositores)
+        .map((oc) => oc.compositores);
+
+      // 2. Formatear y Unir (por si hay más de uno)
+      if (compositores.length > 0) {
+        return compositores
+          .map((c) => `${c.nombre} ${c.apellido}`)
+          .join("\n");
+      }
+    }
+    
+    // Fallback: Por si la data viniera plana (poco probable con tu query actual)
     if (obra.compositores) {
-      c = Array.isArray(obra.compositores)
-        ? obra.compositores[0]
-        : obra.compositores;
-    } else if (obra.obras_compositores && obra.obras_compositores.length > 0) {
-      const oc = obra.obras_compositores[0];
-      if (oc.compositores) c = oc.compositores;
+        const c = Array.isArray(obra.compositores) ? obra.compositores[0] : obra.compositores;
+        if(c && c.nombre && c.apellido) return `${c.nombre} ${c.apellido}`;
     }
 
-    if (c && c.nombre && c.apellido) {
-      return `${c.nombre} ${c.apellido}`;
-    }
     return "Autor Desconocido";
   };
 

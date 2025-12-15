@@ -2,6 +2,13 @@
 import React from "react";
 import UnifiedAgenda from "../../components/agenda/UnifiedAgenda";
 
-export default function AgendaGeneral({ supabase }) {
-  return <UnifiedAgenda supabase={supabase} title="Agenda General" />;
+// CORRECCIÓN: Agregar onOpenRepertoire aquí abajo ↓↓↓
+export default function AgendaGeneral({ supabase, onOpenRepertoire }) {
+  return (
+    <UnifiedAgenda 
+        supabase={supabase} 
+        title="Agenda General" 
+        onOpenRepertoire={onOpenRepertoire} // Ahora sí existe la variable
+    />
+  );
 }
