@@ -368,6 +368,8 @@ export default function GirasView({ supabase }) {
         }
       }
 
+      // --- OPTIMIZACIÓN 2: SELECT REDUCIDO ---
+      // Se eliminó la carga profunda de 'programas_repertorios' y 'obras'.
       const { data, error } = await supabase
         .from("programas")
         .select(
@@ -375,13 +377,10 @@ export default function GirasView({ supabase }) {
            giras_localidades(id_localidad, localidades(localidad)), 
            giras_fuentes(*), 
            eventos (id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)), 
-           giras_integrantes (
-             id_integrante, estado, rol, 
-             integrantes (nombre, apellido)
-           ), 
-           programas_repertorios (id, nombre, orden, repertorio_obras (id, orden, excluir, obras (id, titulo, duracion_segundos, instrumentacion, estado, compositores (apellido, nombre), obras_compositores (rol, compositores(apellido, nombre)))))`
+           giras_integrantes (id_integrante, estado, rol, integrantes (nombre, apellido))`
         )
         .order("fecha_desde", { ascending: true });
+
       if (error) throw error;
       let result = data || [];
       if (isPersonalRole) {
@@ -389,28 +388,19 @@ export default function GirasView({ supabase }) {
           const overrides = gira.giras_integrantes || [];
           const sources = gira.giras_fuentes || [];
           const myOverride = overrides.find((o) => o.id_integrante === user.id);
-
           if (myOverride && myOverride.estado === "ausente") return false;
           if (myOverride) return true;
-
           const isIncluded = sources.some(
             (s) =>
               (s.tipo === "ENSAMBLE" && myEnsembles.has(s.valor_id)) ||
               (s.tipo === "FAMILIA" && s.valor_texto === myFamily)
           );
-
           if (isIncluded) {
             const excludedEnsembles = sources
               .filter((s) => s.tipo === "EXCL_ENSAMBLE")
               .map((s) => s.valor_id);
-
-            const isExcludedByEnsemble = excludedEnsembles.some((exclId) =>
-              myEnsembles.has(exclId)
-            );
-
-            if (isExcludedByEnsemble) {
+            if (excludedEnsembles.some((exclId) => myEnsembles.has(exclId)))
               return false;
-            }
             return true;
           }
           return false;
@@ -418,7 +408,7 @@ export default function GirasView({ supabase }) {
       }
       setGiras(result);
     } catch (err) {
-      setError(err.message);
+      console.error(err);
     } finally {
       setLoading(false);
     }

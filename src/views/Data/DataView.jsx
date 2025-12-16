@@ -1,37 +1,51 @@
 import React, { useEffect, useState } from "react";
 import UniversalTable from "./UniversalTable";
-import { 
-  IconMap, 
-  IconMapPin, 
-  IconHotel, 
-  IconCalendar, 
-  IconMusic, 
-  IconGlobe 
+import {
+  IconMap,
+  IconMapPin,
+  IconHotel,
+  IconCalendar,
+  IconMusic,
+  IconGlobe,
 } from "../../components/ui/Icons";
 
 export default function DataView({ supabase }) {
   const [activeTab, setActiveTab] = useState("regiones");
-  
+
   // --- ESTADO PARA LOS SELECTS (Catálogos Compartidos) ---
   const [catalogos, setCatalogos] = useState({
     regiones: [],
     localidades: [],
-    paises: []
+    paises: [],
   });
 
   // Función para cargar los catálogos que usan otras tablas
   const fetchCatalogos = async () => {
     // 1. Regiones
-    const { data: reg } = await supabase.from("regiones").select("id, region").order("region");
+    const { data: reg } = await supabase
+      .from("regiones")
+      .select("id, region")
+      .order("region");
     // 2. Localidades
-    const { data: loc } = await supabase.from("localidades").select("id, localidad").order("localidad");
+    const { data: loc } = await supabase
+      .from("localidades")
+      .select("id, localidad")
+      .order("localidad");
     // 3. Países (asumo tabla paises o similar, si existe)
-    const { data: pais } = await supabase.from("paises").select("id, nombre").order("nombre");
+    const { data: pais } = await supabase
+      .from("paises")
+      .select("id, nombre")
+      .order("nombre");
+    const { data: categoria } = await supabase
+      .from("categorias_tipos_eventos")
+      .select("id, nombre")
+      .order("nombre");
 
     setCatalogos({
-      regiones: reg?.map(r => ({ value: r.id, label: r.region })) || [],
-      localidades: loc?.map(l => ({ value: l.id, label: l.localidad })) || [],
-      paises: pais?.map(p => ({ value: p.id, label: p.nombre })) || []
+      regiones: reg?.map((r) => ({ value: r.id, label: r.region })) || [],
+      localidades: loc?.map((l) => ({ value: l.id, label: l.localidad })) || [],
+      paises: pais?.map((p) => ({ value: p.id, label: p.nombre })) || [],
+      categorias: categoria?.map((p) => ({ value: p.id, label: p.nombre })) || [],
     });
   };
 
@@ -45,9 +59,7 @@ export default function DataView({ supabase }) {
       label: "Regiones",
       icon: IconMap,
       table: "regiones",
-      columns: [
-        { key: "region", label: "Nombre Región", type: "text" }
-      ]
+      columns: [{ key: "region", label: "Nombre Región", type: "text" }],
     },
     localidades: {
       label: "Localidades",
@@ -57,8 +69,13 @@ export default function DataView({ supabase }) {
         { key: "localidad", label: "Nombre Localidad", type: "text" },
         { key: "cp", label: "Código Postal", type: "text" },
         // Aquí usamos el catálogo de regiones cargado arriba
-        { key: "id_region", label: "Región", type: "select", options: catalogos.regiones }
-      ]
+        {
+          key: "id_region",
+          label: "Región",
+          type: "select",
+          options: catalogos.regiones,
+        },
+      ],
     },
     locaciones: {
       label: "Locaciones / Venues",
@@ -68,8 +85,13 @@ export default function DataView({ supabase }) {
         { key: "nombre", label: "Nombre del Lugar", type: "text" },
         { key: "direccion", label: "Dirección", type: "text" },
         { key: "capacidad", label: "Aforo", type: "text" },
-        { key: "id_localidad", label: "Localidad", type: "select", options: catalogos.localidades }
-      ]
+        {
+          key: "id_localidad",
+          label: "Localidad",
+          type: "select",
+          options: catalogos.localidades,
+        },
+      ],
     },
     hoteles: {
       label: "Hoteles",
@@ -79,8 +101,13 @@ export default function DataView({ supabase }) {
         { key: "nombre", label: "Nombre Hotel", type: "text" },
         { key: "estrellas", label: "Estrellas/Cat", type: "text" },
         { key: "direccion", label: "Dirección", type: "text" },
-        { key: "id_localidad", label: "Localidad", type: "select", options: catalogos.localidades }
-      ]
+        {
+          key: "id_localidad",
+          label: "Localidad",
+          type: "select",
+          options: catalogos.localidades,
+        },
+      ],
     },
     tipos_evento: {
       label: "Tipos de Evento",
@@ -89,8 +116,19 @@ export default function DataView({ supabase }) {
       columns: [
         { key: "nombre", label: "Nombre Tipo", type: "text" },
         // Selector de color solicitado
-        { key: "color", label: "Etiqueta Color", type: "color", defaultValue: "#6366f1" } 
-      ]
+        {
+          key: "color",
+          label: "Etiqueta Color",
+          type: "color",
+          defaultValue: "#6366f1",
+        },
+        {
+          key: "id_categoria", 
+          label: "Categoría",
+          type: "select",
+          options: catalogos.categorias,
+        },
+      ],
     },
     instrumentos: {
       label: "Instrumentos",
@@ -98,25 +136,30 @@ export default function DataView({ supabase }) {
       table: "instrumentos",
       columns: [
         { key: "instrumento", label: "Instrumento", type: "text" },
-        { key: "familia", label: "Familia", type: "select", options: [
+        {
+          key: "familia",
+          label: "Familia",
+          type: "select",
+          options: [
             { value: "Maderas", label: "Maderas" },
             { value: "Metales", label: "Metales" },
             { value: "Percusión", label: "Percusión" },
             { value: "Cuerdas", label: "Cuerdas" },
-            { value: "Teclas/Otros", label: "Teclas/Otros" }
-        ]},
-        { key: "abreviatura", label: "Abrev.", type: "text" }
-      ]
+            { value: "Teclas/Otros", label: "Teclas/Otros" },
+          ],
+        },
+        { key: "abreviatura", label: "Abrev.", type: "text" },
+      ],
     },
-     paises: {
+    paises: {
       label: "Países",
       icon: IconGlobe,
       table: "paises",
       columns: [
         { key: "nombre", label: "Nombre País", type: "text" },
-        { key: "iso", label: "ISO Code", type: "text" }
-      ]
-    }
+        { key: "iso", label: "ISO Code", type: "text" },
+      ],
+    },
   };
 
   const currentConfig = tableConfigs[activeTab];
@@ -143,7 +186,10 @@ export default function DataView({ supabase }) {
                     : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                 }`}
               >
-                <config.icon size={18} className={isActive ? "text-indigo-600" : "text-slate-400"} />
+                <config.icon
+                  size={18}
+                  className={isActive ? "text-indigo-600" : "text-slate-400"}
+                />
                 {config.label}
               </button>
             );
