@@ -7,13 +7,20 @@ export default function ViaticosForm({
   initialData,
   configData,
   hideToolbar = false,
+  hideAmounts = false,
 }) {
   const data = initialData || {};
   const config = configData || {};
 
   // --- FORMATEADORES ---
   const formatCurrency = (amount) => {
-    if (amount === undefined || amount === null || amount === "") return "";
+    if (
+      hideAmounts === true ||
+      amount === undefined ||
+      amount === null ||
+      amount === ""
+    )
+      return "";
     const val = parseFloat(amount);
     if (isNaN(val)) return "";
     return `$ ${new Intl.NumberFormat("es-AR", {
@@ -652,10 +659,34 @@ export default function ViaticosForm({
               </div>
             </td>
           </tr>
-          <tr style={{ height: "45px" }}>
-            <td className="s26" colSpan="3" rowSpan="2"></td>
-            <td className="s11"></td>
-            <td className="s11"></td>
+          <tr style={{ height: "115px" }}>
+            <td
+              className="s34"
+              colSpan={4}
+              rowSpan={2}
+              style={{
+                verticalAlign: "center",
+                textAlign: "center", // Alineación horizontal clásica
+                height: "80px", // Asegura que ocupe el alto de las 4 filas (20px * 4)
+              }}
+            >
+              {data.firma === "NULL" ? (
+                <span></span>
+              ) : data.firma ? (
+                <img
+                  src={data.firma}
+                  alt="Firma Agente"
+                  style={{
+                    maxHeight: "120px", // Ajustado para no desbordar las 4 filas de 20px
+                    objectFit: "contain",
+                  }}
+                />
+              ) : (
+                <span style={{ color: "#ccc", fontSize: "10pt" }}>
+                  {data.apellido?.toUpperCase()}, {data.nombre?.toUpperCase()}
+                </span>
+              )}
+            </td>
             <td className="s11"></td>
             <td className="s11"></td>
             <td className="s11"></td>
@@ -766,7 +797,12 @@ export default function ViaticosForm({
           className={`viaticos-sheet print:shadow-none print:m-0 print:p-0 ${
             hideToolbar ? "shadow-none m-0" : ""
           }`}
-          style={{ margin: 0, padding: 0, width: "100%", backgroundColor: "white" }}
+          style={{
+            margin: 0,
+            padding: 0,
+            height: "100%",
+            backgroundColor: "white",
+          }}
         >
           <SheetContent />
         </div>

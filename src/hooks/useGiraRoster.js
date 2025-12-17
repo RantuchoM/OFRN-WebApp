@@ -50,7 +50,7 @@ export function useGiraRoster(supabase, gira) {
         inclFamilies.size > 0 
             ? supabase.from("integrantes")
                 .select("id, instrumentos!inner(familia)")
-                .eq("condicion", "Estable") // <--- FILTRO AGREGADO: Solo estables al llamar por familia
+                .eq("condicion", "Estable") 
                 .in("instrumentos.familia", Array.from(inclFamilies))
                 .then(res => res.data || []) 
             : Promise.resolve([]),
@@ -71,12 +71,13 @@ export function useGiraRoster(supabase, gira) {
         return;
       }
 
-      // 4. Obtener Datos Completos
+      // 4. Obtener Datos Completos (AGREGADOS documentacion y docred)
       const { data: musicians, error: errMusicians } = await supabase
         .from("integrantes")
         .select(`
             id, nombre, apellido, fecha_alta, fecha_baja, condicion, 
             telefono, mail, alimentacion, id_instr, id_localidad,
+            documentacion, docred, firma,
             instrumentos(instrumento, familia),
             localidades(localidad, regiones(region))
         `)
@@ -92,10 +93,9 @@ export function useGiraRoster(supabase, gira) {
       
       const tourLocSet = new Set(tourLocs?.map(l => l.id_localidad));
 
-      // 6. PROCESAMIENTO FINAL (LOGICA CORREGIDA)
+      // 6. PROCESAMIENTO FINAL
       const giraInicio = new Date(gira.fecha_desde);
       const giraFin = new Date(gira.fecha_hasta);
-      // Asegurar que el fin de la gira incluya todo el día para comparaciones
       giraFin.setHours(23, 59, 59, 999);
 
       const finalRoster = [];
@@ -112,24 +112,19 @@ export function useGiraRoster(supabase, gira) {
         let rolReal = "musico";
         let esAdicional = false;
 
-        // B. Determinar si es miembro "Base" válido (respetando fechas y exclusiones)
+        // B. Determinar si es miembro "Base" válido
         let isBaseValid = false;
         if (isBaseIncluded && !isExcluded) {
-           // Chequeo de fechas (Lógica de Solapamiento / Overlap)
            const alta = m.fecha_alta ? new Date(m.fecha_alta) : null;
            const baja = m.fecha_baja ? new Date(m.fecha_baja) : null;
-           
-           // Valido si se unió antes de que termine la gira
            const startsBeforeEnd = !alta || (alta <= giraFin);
-           // Valido si se fue después de que empiece la gira
            const endsAfterStart = !baja || (baja >= giraInicio);
-           
            if (startsBeforeEnd && endsAfterStart) {
                isBaseValid = true;
            }
         }
 
-        // Determinar Rol Automático por defecto
+        // Determinar Rol Automático
         if (m.instrumentos?.familia?.includes('Prod')) {
             rolReal = 'produccion';
         }
@@ -138,19 +133,13 @@ export function useGiraRoster(supabase, gira) {
         if (isManual) {
             estadoReal = manualData.estado;
             rolReal = manualData.rol || rolReal;
-            
-            keep = true; // Si está manual, siempre se procesa
-
-            // Si es base válida, NO es "adicional" (no mostrar basurero), es solo un override
+            keep = true;
             if (isBaseValid) {
                 esAdicional = false;
             } else {
-                // Si NO es base (o fechas no dan), es un agregado puro
                 esAdicional = (estadoReal === 'confirmado');
             }
-
         } else {
-            // No es manual, solo depende de si es base válida
             if (isBaseValid) {
                 keep = true;
                 estadoReal = "confirmado";

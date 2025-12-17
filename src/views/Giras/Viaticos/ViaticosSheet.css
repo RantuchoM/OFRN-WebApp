@@ -60,7 +60,7 @@
     
     /* 4. AJUSTE CRÍTICO: ESCALA PARA QUE ENTRE EN A4 */
     /* La tabla mide ~870px, A4 imprimible es ~700-750px */
-    transform: scale(0.80); 
+    transform: scale(0.85); 
     transform-origin: top center; /* Centrado arriba */
   }
 

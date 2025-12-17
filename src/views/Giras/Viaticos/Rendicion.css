@@ -1,0 +1,281 @@
+.rendicion-wrapper {
+  background-color: #ffffff;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.rendicion-wrapper .ritz .waffle {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 929px; /* Suma exacta de columnas A a E */
+}
+
+/* Clases de celdas originales del HTML fuente */
+.rendicion-wrapper .ritz .waffle .s0 {
+  background-color: #ffffff;
+  text-align: center;
+  font-weight: bold;
+  text-decoration: underline;
+  color: #000000;
+  font-family: "Times New Roman";
+  font-size: 19pt;
+  vertical-align: bottom;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s1 {
+  background-color: #ffffff;
+  text-align: left;
+  font-weight: bold;
+  color: #000000;
+  font-family: "Times New Roman";
+  font-size: 14pt;
+  vertical-align: bottom;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s2 {
+  background-color: #ffffff;
+  text-align: left;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: bottom;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s3 {
+  background-color: #ffffff;
+  text-align: right;
+  font-weight: bold;
+  color: #000000;
+  font-family: Arial;
+  font-size: 12pt;
+  vertical-align: middle;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s4 {
+  border-bottom: 2px SOLID #000000;
+  background-color: #ffffff;
+  text-align: left;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: middle;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s5 {
+  border-bottom: 2px SOLID #000000;
+  background-color: #ffffff;
+  text-align: left;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: bottom;
+  white-space: normal;
+  overflow: hidden;
+  word-wrap: break-word;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s19 {
+  border-bottom: 2px SOLID #000000;
+  border-right: 2px SOLID #000000;
+  background-color: #ffffff;
+  text-align: center;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: middle;
+  white-space: normal;
+  overflow: hidden;
+  word-wrap: break-word;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s25 {
+  background-color: #ffffff;
+  text-align: left;
+  color: #000000;
+  font-family: "Times New Roman";
+  font-size: 14pt;
+  vertical-align: top;
+  white-space: normal;
+  overflow: hidden;
+  word-wrap: break-word;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s26 {
+  border-bottom: 2px SOLID #000000;
+  border-right: 2px SOLID #000000;
+  background-color: #d8d8d8;
+  text-align: center;
+  font-weight: bold;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: middle;
+  white-space: normal;
+  overflow: hidden;
+  word-wrap: break-word;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s27 {
+  border-bottom: 2px SOLID #000000;
+  border-right: 2px SOLID #000000;
+  background-color: #ffffff;
+  text-align: left;
+  color: #000000;
+  font-family: Arial;
+  font-size: 12pt;
+  vertical-align: middle;
+  white-space: normal;
+  overflow: hidden;
+  word-wrap: break-word;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s28 {
+  border-bottom: 2px SOLID #000000;
+  border-right: 2px SOLID #000000;
+  background-color: #ffffff;
+  text-align: left;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: middle;
+  white-space: normal;
+  overflow: hidden;
+  word-wrap: break-word;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s29 {
+  border-bottom: 2px SOLID #000000;
+  border-right: 2px SOLID #000000;
+  background-color: #ffffff;
+  text-align: left;
+  text-decoration: underline;
+  color: #000000;
+  font-family: Arial;
+  font-size: 12pt;
+  vertical-align: middle;
+  white-space: normal;
+  overflow: hidden;
+  word-wrap: break-word;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s30 {
+  border-bottom: 1px SOLID #000000;
+  border-right: 2px SOLID #000000;
+  background-color: #ffffff;
+  text-align: left;
+  color: #000000;
+  font-family: Arial;
+  font-size: 12pt;
+  vertical-align: middle;
+  white-space: normal;
+  overflow: hidden;
+  word-wrap: break-word;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s31 {
+  border-bottom: 2px SOLID #000000;
+  border-right: 2px SOLID #000000;
+  background-color: #ffffff;
+  text-align: center;
+  font-weight: bold;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: middle;
+  white-space: normal;
+  overflow: hidden;
+  word-wrap: break-word;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s32 {
+  border-bottom: 2px SOLID #000000;
+  border-right: 2px SOLID #000000;
+  background-color: #ffffff;
+  text-align: left;
+  font-weight: bold;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: middle;
+  white-space: normal;
+  overflow: hidden;
+  word-wrap: break-word;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s33 {
+  border-bottom: 3px SOLID #000000;
+  background-color: #ffffff;
+  text-align: left;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: bottom;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s34 {
+  background-color: #ffffff;
+  text-align: center;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: bottom;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s35 {
+  border-bottom: 1px SOLID #000000;
+  background-color: #ffffff;
+  text-align: left;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: bottom;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+.rendicion-wrapper .ritz .waffle .s36 {
+  border-bottom: 1px SOLID #000000;
+  background-color: #ffffff;
+  text-align: center;
+  color: #000000;
+  font-family: Arial;
+  font-size: 14pt;
+  vertical-align: bottom;
+  white-space: nowrap;
+  direction: ltr;
+  padding: 0px 3px 0px 3px;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .rendicion-wrapper {
+    padding: 0;
+  }
+}

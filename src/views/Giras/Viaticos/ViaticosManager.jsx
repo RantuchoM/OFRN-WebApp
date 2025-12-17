@@ -12,22 +12,21 @@ import {
   IconEye,
   IconEyeOff,
   IconPrinter,
+  IconArrowLeft,
   IconDrive,
 } from "../../../components/ui/Icons";
 import { useGiraRoster } from "../../../hooks/useGiraRoster";
 import ViaticosForm from "./ViaticosForm";
 import ViaticosBulkEditPanel from "./ViaticosBulkEditPanel";
-
+import RendicionForm from "./RendicionForm";
 // Importamos tus inputs personalizados
 import DateInput from "../../../components/ui/DateInput";
 import TimeInput from "../../../components/ui/TimeInput";
 
-// LIBRERÍA PDF
-// ELIMINA: import html2pdf from "html2pdf.js";
-// AGREGA ESTOS DOS:
 import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
-// --- UTILIDADES DE FORMATO ---
+
+// --- UTILIDADES ---
 const formatDateForDisplay = (isoDateString) => {
   if (!isoDateString) return "-";
   const [year, month, day] = isoDateString.split("-");
@@ -40,7 +39,6 @@ const getMonthName = (dateStr) => {
   return date.toLocaleString("es-AR", { month: "long" }).toUpperCase();
 };
 
-// --- LÓGICA DE CÁLCULO ---
 const getDepartureFactor = (timeStr) => {
   if (!timeStr) return 0;
   const [h, m] = timeStr.split(":").map(Number);
@@ -75,10 +73,9 @@ const calculateDaysDiff = (dSal, hSal, dLleg, hLleg) => {
 
   return intermedios + factorSalida + factorLlegada;
 };
-
 const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
 
-// --- LÓGICA DE NEGOCIO AUTOMÁTICA ---
+// --- LÓGICA DE NEGOCIO ---
 const getAutoDatosLaborales = (persona) => {
   if (!persona) return { cargo: "", jornada: "" };
 
@@ -220,6 +217,8 @@ export default function ViaticosManager({ supabase, giraId }) {
     lugar_comision: "",
     link_drive: "",
   });
+  const [printMenuId, setPrintMenuId] = useState(null); // Para saber qué menú de fila está abierto
+
   const { roster: fullRoster } = useGiraRoster(supabase, { id: giraId });
   const [viaticosRows, setViaticosRows] = useState([]);
   const [selection, setSelection] = useState(new Set());
@@ -228,16 +227,16 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedToAdd, setSelectedToAdd] = useState(null);
 
-  // TOGGLES DE VISUALIZACIÓN
   const [showExpenses, setShowExpenses] = useState(true);
   const [showTransport, setShowTransport] = useState(false);
-
+  const [showRendiciones, setShowRendiciones] = useState(false); //
   const [printingRow, setPrintingRow] = useState(null);
 
   // ESTADOS DE EXPORTACIÓN
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState("");
-  const [exportingRow, setExportingRow] = useState(null); // Fila oculta para renderizar PDF
+  const [exportingRow, setExportingRow] = useState(null);
+  const [exportMode, setExportMode] = useState("viatico"); // "viatico" | "destaque"
 
   // Panel Masivo
   const [batchValues, setBatchValues] = useState({
@@ -266,29 +265,21 @@ export default function ViaticosManager({ supabase, giraId }) {
     transporte_otros: "",
   });
 
-  // Fetch Data (CORREGIDO: tabla 'programas')
   useEffect(() => {
     if (giraId) {
-      // 1. Obtener datos del Programa (antes llamado Gira)
       supabase
         .from("programas")
         .select("*")
         .eq("id", giraId)
         .single()
         .then(({ data, error }) => {
-          if (error) {
-            console.error("Error cargando programa/gira:", error);
-          } else if (data) {
-            setGiraData(data);
-          }
+          if (error) console.error("Error cargando programa/gira:", error);
+          else if (data) setGiraData(data);
         });
-
-      // 2. Obtener configuración y filas
       fetchViaticosData();
     }
   }, [giraId]);
 
-  // Recalculo visual batch
   useEffect(() => {
     const { fecha_salida, hora_salida, fecha_llegada, hora_llegada } =
       batchValues;
@@ -323,7 +314,6 @@ export default function ViaticosManager({ supabase, giraId }) {
         .single();
       if (conf) setConfig(conf);
       else {
-        // Asumiendo que la tabla config usa 'id_gira' como FK aunque la tabla principal sea 'programas'
         const { data: newConf } = await supabase
           .from("giras_viaticos_config")
           .insert([
@@ -341,8 +331,10 @@ export default function ViaticosManager({ supabase, giraId }) {
       }
       const { data: detalles } = await supabase
         .from("giras_viaticos_detalle")
-        .select("*")
-        .order("id_integrante");
+        .select(
+          `*, integrantes(firma)`
+        )
+        .order("id");
       setViaticosRows(detalles || []);
     } catch (error) {
       console.error(error);
@@ -365,6 +357,7 @@ export default function ViaticosManager({ supabase, giraId }) {
           apellido: persona ? persona.apellido : "Desconocido",
           rol_roster: persona ? persona.rol_gira || persona.rol : "",
           cargo: cargoDefault,
+          firma: persona ? persona.firma : null,
         };
       })
       .sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
@@ -454,7 +447,18 @@ export default function ViaticosManager({ supabase, giraId }) {
       setLoading(false);
     }
   };
+  const handlePreview = (row, mode) => {
+    // 1. Establecemos el modo (viatico, destaque o rendicion)
+    setExportMode(mode);
 
+    // 2. Cargamos los datos de la fila para que el formulario los use
+    // Nota: Usamos setPrintingRow porque tu componente ya reacciona a este estado
+    // para mostrar la vista de "formulario de impresión" a pantalla completa.
+    setPrintingRow(row);
+
+    // 3. Opcional: Si quieres que se abra el diálogo de impresión automáticamente:
+    // setTimeout(() => window.print(), 500);
+  };
   const handleAddProduction = async () => {
     setLoading(true);
     try {
@@ -608,23 +612,73 @@ export default function ViaticosManager({ supabase, giraId }) {
     return { valorDiarioCalc, subtotal, totalFinal };
   };
 
-  // --- EXPORTACIÓN A DRIVE (Integrada y Blindada) ---
-  // --- EXP// --- EXPORTACIÓN A DRIVE (Estrategia: FOTO EXACTA / html-to-image) ---
-  const handleExportToDrive = async () => {
+  // --- FUNCIÓN HELPER GENERADORA PDF ---
+  const generatePdf = async (row, mode, folderId) => {
+    const { valorDiarioCalc, subtotal, totalFinal } = calculateRow(row);
+    const rowToPrint = { ...row, valorDiarioCalc, subtotal, totalFinal };
+
+    setExportMode(mode);
+    setExportingRow(rowToPrint);
+
+    // Esperar render (menor tiempo si es posible, pero seguro)
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    // CORREGIDO: Usamos el ID correcto del contenedor oculto
+    const element = document.getElementById("target-pdf-content");
+    if (!element) throw new Error("Error render DOM (Container missing)");
+
+    const dataUrl = await toPng(element, {
+      quality: 0.85,
+      backgroundColor: "white",
+      pixelRatio: 1.5,
+      skipFonts: true,
+      cacheBust: true,
+    });
+
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    });
+    const imgProps = pdf.getImageProperties(dataUrl);
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+    pdf.addImage(dataUrl, "JPEG", 0, 0, pdfWidth, pdfHeight, undefined, "FAST");
+
+    const base64 = pdf.output("datauristring").split(",")[1];
+
+    const prefix = mode === "destaque" ? "Destaque" : mode === "rendicion" ? "Rendición" : "Viaticos";
+
+    // Retornamos promesa de subida
+    return supabase.functions.invoke("manage-drive", {
+      body: {
+        action: "upload_file",
+        parentId: folderId,
+        fileName: `${prefix} - ${row.apellido} ${row.nombre}.pdf`,
+        fileBase64: base64,
+        mimeType: "application/pdf",
+      },
+    });
+  };
+
+  // --- EXPORTACIÓN MULTI-OPCIÓN ---
+  const handleExportToDrive = async (options) => {
+    const opts = options || { viatico: true };
+
     if (selection.size === 0)
       return alert("Selecciona al menos un integrante.");
     if (!giraData) return alert("Cargando datos de gira...");
 
     setIsExporting(true);
-    setExportStatus("Preparando...");
+    setExportStatus("Preparando carpeta...");
 
     try {
-      // 1. Verificar / Crear Carpeta (Esto se queda igual, es rápido)
       let driveFolderId = config.link_drive;
       if (!driveFolderId) {
         const mes = getMonthName(giraData.fecha_desde);
         const nomenclador = giraData.nomenclador || giraData.nombre || "GIRA";
-        const zona = config.giraData.zona || "ZONA";
+        const zona = giraData.zona || "ZONA";
         const folderName = `${mes} | ${nomenclador} | ${zona}`;
 
         setExportStatus(`Creando carpeta: ${folderName}...`);
@@ -638,123 +692,59 @@ export default function ViaticosManager({ supabase, giraId }) {
         await updateConfig("link_drive", driveFolderId);
       }
 
-      // 2. Proceso de Generación
       const selectedIds = Array.from(selection);
       let count = 0;
-
-      // Cola de promesas de subida (para no bloquear la generación visual)
-      const uploadPromises = [];
+      const totalOps = selectedIds.length;
 
       for (const id of selectedIds) {
         count++;
         const row = activeRows.find((r) => r.id_integrante === id);
         if (!row) continue;
 
-        setExportStatus(
-          `Generando (${count}/${selectedIds.length}): ${row.apellido}...`
-        );
+        const fullPersona = fullRoster.find((p) => String(p.id) === String(id));
 
-        // A. Renderizamos
-        const { valorDiarioCalc, subtotal, totalFinal } = calculateRow(row);
-        const rowToPrint = { ...row, valorDiarioCalc, subtotal, totalFinal };
+        // A. VIÁTICO
+        if (opts.viatico) {
+          setExportStatus(
+            `(${count}/${totalOps}) ${row.apellido}: Generando Viático...`
+          );
+          await generatePdf(row, "viatico", driveFolderId);
+        }
 
-        setExportingRow(rowToPrint);
+        // B. DESTAQUE
+        if (opts.destaque) {
+          setExportStatus(
+            `(${count}/${totalOps}) ${row.apellido}: Generando Destaque...`
+          );
+          await generatePdf(row, "destaque", driveFolderId);
+        }
 
-        // Reducimos el tiempo de espera. 300ms suele ser suficiente si no hay imágenes externas pesadas
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        // C. RENDICIÓN (NUEVO)
+        if (opts.rendicion) {
+          setExportStatus(
+            `(${count}/${totalOps}) ${row.apellido}: Generando Rendición...`
+          );
+          await generatePdf(row, "rendicion", driveFolderId);
+        }
 
-        const element = document.getElementById("target-pdf-content");
-        if (!element) throw new Error("Error render");
-        // C. Configuración Ajustada (Ancho 1150px)
-        const opt = {
-          margin: 0, // Sin márgenes blancos extra
-          filename: `Viaticos - ${row.apellido} ${row.nombre}.pdf`,
-          image: { type: "jpeg", quality: 0.98 },
-          html2canvas: {
-            scale: 2,
-            useCORS: true,
-            scrollY: 0,
-            // AUMENTAMOS ANCHO PARA EVITAR CORTES LATERALES
-            windowWidth: 1150,
-            width: 1150,
-            x: 0,
-            y: 0,
-          },
-          jsPDF: {
-            unit: "mm",
-            format: "a4",
-            orientation: "portrait",
-          },
-        };
-        // B. FOTO RÁPIDA Y LIGERA
-        // Usamos toJpeg en lugar de toPng y skipFonts
-        // import { toJpeg } from 'html-to-image'; <--- ASEGURATE DE IMPORTAR ESTO
-        const dataUrl = await toPng(element, {
-          quality: 0.85, // Calidad 85% (muy buena, mucho menos peso)
-          backgroundColor: "white",
-          pixelRatio: 1.5, // Bajamos de 2 a 1.5 (suficiente para impresión A4)
-          skipFonts: true, // CRÍTICO: Evita el timeout de 60s buscando fuentes
-          cacheBust: true, // Evita caché de imágenes rotas
-        });
-
-        // C. Armar PDF
-        const pdf = new jsPDF({
-          orientation: "portrait",
-          unit: "mm",
-          format: "a4",
-        });
-        const imgProps = pdf.getImageProperties(dataUrl);
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-
-        // 'FAST' es un método de compresión de PDF
-        pdf.addImage(
-          dataUrl,
-          "JPEG",
-          0,
-          0,
-          pdfWidth,
-          pdfHeight,
-          undefined,
-          "FAST"
-        );
-
-        const pdfBlob = pdf.output("blob");
-
-        // D. Convertir a Base64
-        const base64 = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(pdfBlob);
-        });
-        const cleanBase64 = base64.split(",")[1];
-
-        // E. SUBIDA ASÍNCRONA (No esperamos a que termine para seguir con el siguiente visualmente)
-        // Guardamos la promesa en un array y seguimos
-        const uploadTask = supabase.functions
-          .invoke("manage-drive", {
+        // D. DOCUMENTACIÓN
+        if (opts.docComun && fullPersona?.documentacion) {
+          setExportStatus(
+            `(${count}/${totalOps}) ${row.apellido}: Copiando Doc...`
+          );
+          await supabase.functions.invoke("manage-drive", {
             body: {
-              action: "upload_file",
-              parentId: driveFolderId,
-              fileName: `Viaticos - ${row.apellido} ${row.nombre}.pdf`,
-              fileBase64: cleanBase64,
-              mimeType: "application/pdf",
+              action: "copy_file",
+              sourceUrl: fullPersona.documentacion,
+              targetParentId: driveFolderId,
+              newName: `Documentacion - ${row.apellido} ${row.nombre}`,
             },
-          })
-          .then(({ error }) => {
-            if (error) console.error(`Error subiendo ${row.apellido}:`, error);
           });
-
-        uploadPromises.push(uploadTask);
+        }
       }
 
-      setExportStatus("Finalizando subidas en segundo plano...");
-
-      // Esperamos a que todas las subidas terminen juntas al final
-      await Promise.all(uploadPromises);
-
-      setExportStatus("¡Listo!");
-      alert("Proceso completado. Todos los archivos están en Drive.");
+      setExportStatus("¡Listo! Todo subido.");
+      alert("Proceso completado correctamente.");
     } catch (error) {
       console.error(error);
       alert("Error: " + error.message);
@@ -762,29 +752,54 @@ export default function ViaticosManager({ supabase, giraId }) {
       setIsExporting(false);
       setExportStatus("");
       setExportingRow(null);
+      setExportMode("viatico");
       setSelection(new Set());
     }
   };
+
+  // Render para impresión individual
+  // Render para impresión individual o vista previa
   if (printingRow) {
     return (
-      <div className="h-full bg-slate-100 p-4 overflow-auto animate-in fade-in duration-200">
-        <ViaticosForm
-          onBack={() => setPrintingRow(null)}
-          initialData={printingRow}
-          configData={config}
-        />
+      <div className="h-full bg-white p-4 overflow-auto animate-in fade-in duration-200">
+        <div className="max-w-[1100px] mx-auto">
+          {/* Botón para volver a la tabla */}
+          <button
+            onClick={() => {
+              setPrintingRow(null);
+              setExportMode("viatico");
+            }}
+            className="mb-4 flex items-center gap-2 text-slate-500 hover:text-slate-800 font-bold no-print"
+          >
+            <IconArrowLeft size={16} /> Volver a la lista
+          </button>
+
+          {/* Alternamos entre los formularios según el modo seleccionado */}
+          {exportMode === "rendicion" ? (
+            <RendicionForm data={printingRow} configData={config} />
+          ) : (
+            <ViaticosForm
+              onBack={() => {
+                setPrintingRow(null);
+                setExportMode("viatico");
+              }}
+              initialData={printingRow}
+              configData={config}
+              hideAmounts={exportMode === "destaque"}
+              hideToolbar={false} // Permitir ver controles de impresión
+            />
+          )}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
-      {/* ... (TODA LA PARTE DEL HEADER Y LA TABLA SE MANTIENE IGUAL QUE ANTES) ... */}
+      {/* ... (HEADER Y CONTROLES SE MANTIENEN IGUAL) ... */}
 
-      {/* HEADER */}
+      {/* HEADER COPIADO DE TU VERSIÓN */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col gap-4 shrink-0 z-30 relative shadow-sm">
-        {/* ... contenido del header ... */}
-        {/* (Copia el header de tu versión anterior, no cambia nada aquí) */}
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             <IconCalculator className="text-indigo-600" /> Viáticos
@@ -811,18 +826,28 @@ export default function ViaticosManager({ supabase, giraId }) {
               Gastos{" "}
               {showExpenses ? <IconEye size={14} /> : <IconEyeOff size={14} />}
             </button>
+            <button
+              onClick={() => setShowRendiciones(!showRendiciones)}
+              className={`p-2 rounded-lg border flex items-center gap-2 text-xs font-bold ${
+                showRendiciones
+                  ? "bg-green-100 text-green-700 border-green-200"
+                  : "bg-white text-slate-400 border-slate-200"
+              }`}
+            >
+              Rendic.{" "}
+              {showRendiciones ? (
+                <IconEye size={14} />
+              ) : (
+                <IconEyeOff size={14} />
+              )}
+            </button>
             <div className="w-px h-8 bg-slate-200 mx-2"></div>
             <button
               onClick={handleAddProduction}
               disabled={loading}
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors shadow-sm"
             >
-              {loading ? (
-                <IconLoader className="animate-spin" size={16} />
-              ) : (
-                <IconBriefcase size={16} />
-              )}{" "}
-              + Producción
+              <IconBriefcase size={16} /> + Producción
             </button>
             <button
               onClick={() => setIsAddOpen(!isAddOpen)}
@@ -850,12 +875,7 @@ export default function ViaticosManager({ supabase, giraId }) {
                   disabled={!selectedToAdd || loading}
                   className="mt-3 w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-bold flex justify-center items-center gap-2"
                 >
-                  {loading ? (
-                    <IconLoader className="animate-spin" size={16} />
-                  ) : (
-                    <IconPlus size={16} />
-                  )}{" "}
-                  Agregar
+                  <IconPlus size={16} /> Agregar
                 </button>
               </div>
             )}
@@ -920,7 +940,7 @@ export default function ViaticosManager({ supabase, giraId }) {
       </div>
 
       <div className="flex flex-1 overflow-hidden relative z-0">
-        {/* ... TABLA (Igual que antes) ... */}
+        {/* TABLA PRINCIPAL */}
         <div className="flex-1 overflow-auto p-4">
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-w-[1500px]">
             <table className="w-full text-sm text-left">
@@ -997,9 +1017,35 @@ export default function ViaticosManager({ supabase, giraId }) {
                       </th>
                     </>
                   )}
+
                   <th className="px-3 py-3 text-right bg-slate-800 text-white w-28">
                     Total Final
                   </th>
+                  {showRendiciones && (
+                    <>
+                      <th className="px-2 py-3 bg-green-50 text-green-700 w-20 border-l border-green-100">
+                        R. Viát.
+                      </th>
+                      <th className="px-2 py-3 bg-green-50 text-green-700 w-20">
+                        R. Aloj.
+                      </th>
+                      <th className="px-2 py-3 bg-green-50 text-green-700 w-20">
+                        R. Pasajes
+                      </th>
+                      <th className="px-2 py-3 bg-green-50 text-green-700 w-20">
+                        R. Comb.
+                      </th>
+                      <th className="px-2 py-3 bg-green-50 text-green-700 w-20">
+                        R. Mov.Otr
+                      </th>
+                      <th className="px-2 py-3 bg-green-50 text-green-700 w-20">
+                        R. Capac.
+                      </th>
+                      <th className="px-2 py-3 bg-green-50 text-green-700 w-24 border-r border-green-100">
+                        R. Otros T.
+                      </th>
+                    </>
+                  )}
                   <th className="px-2 py-3 w-16 bg-slate-50 text-center">
                     Acciones
                   </th>
@@ -1016,6 +1062,7 @@ export default function ViaticosManager({ supabase, giraId }) {
                     subtotal,
                     totalFinal,
                   };
+
                   return (
                     <tr
                       key={row.id_integrante}
@@ -1354,20 +1401,167 @@ export default function ViaticosManager({ supabase, giraId }) {
                       <td className="px-3 py-2 text-right font-bold text-slate-900 bg-slate-50 border-l">
                         ${totalFinal}
                       </td>
-                      <td className="px-2 py-2 text-center flex justify-center gap-1">
+                      {showRendiciones && (
+                        <>
+                          <td className="px-1 py-2 bg-green-50/20 border-l border-green-100">
+                            <input
+                              type="number"
+                              className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-green-400 text-green-700 font-medium"
+                              value={row.rendicion_viaticos || ""}
+                              onChange={(e) =>
+                                updateRow(
+                                  row.id,
+                                  "rendicion_viaticos",
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </td>
+                          <td className="px-1 py-2 bg-green-50/20">
+                            <input
+                              type="number"
+                              className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-green-400 text-green-700 font-medium"
+                              value={row.rendicion_gasto_alojamiento || ""}
+                              onChange={(e) =>
+                                updateRow(
+                                  row.id,
+                                  "rendicion_gasto_alojamiento",
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </td>
+                          <td className="px-1 py-2 bg-green-50/20">
+                            <input
+                              type="number"
+                              className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-green-400 text-green-700 font-medium"
+                              value={row.rendicion_gasto_otros || ""}
+                              onChange={(e) =>
+                                updateRow(
+                                  row.id,
+                                  "rendicion_gasto_otros",
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </td>
+                          <td className="px-1 py-2 bg-green-50/20">
+                            <input
+                              type="number"
+                              className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-green-400 text-green-700 font-medium"
+                              value={row.rendicion_gasto_combustible || ""}
+                              onChange={(e) =>
+                                updateRow(
+                                  row.id,
+                                  "rendicion_gasto_combustible",
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </td>
+                          <td className="px-1 py-2 bg-green-50/20">
+                            <input
+                              type="number"
+                              className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-green-400 text-green-700 font-medium"
+                              value={row.rendicion_gastos_movil_otros || ""}
+                              onChange={(e) =>
+                                updateRow(
+                                  row.id,
+                                  "rendicion_gastos_movil_otros",
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </td>
+                          <td className="px-1 py-2 bg-green-50/20">
+                            <input
+                              type="number"
+                              className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-green-400 text-green-700 font-medium"
+                              value={row.rendicion_gastos_capacit || ""}
+                              onChange={(e) =>
+                                updateRow(
+                                  row.id,
+                                  "rendicion_gastos_capacit",
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </td>
+                          <td className="px-1 py-2 bg-green-50/20 border-r border-green-100">
+                            <input
+                              type="number"
+                              className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-green-400 text-green-700 font-medium"
+                              value={row.rendicion_transporte_otros || ""}
+                              onChange={(e) =>
+                                updateRow(
+                                  row.id,
+                                  "rendicion_transporte_otros",
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </td>
+                        </>
+                      )}
+                      <td className="px-3 py-2 text-right relative">
                         <button
-                          onClick={() => setPrintingRow(rowWithTotals)}
-                          className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
-                          title="Imprimir Solicitud"
+                          onClick={() =>
+                            setPrintMenuId(
+                              printMenuId === row.id_integrante
+                                ? null
+                                : row.id_integrante
+                            )
+                          }
+                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors"
+                          title="Imprimir..."
                         >
-                          <IconPrinter size={16} />
+                          <IconPrinter size={18} />
                         </button>
-                        <button
-                          onClick={() => handleRemovePerson(row.id)}
-                          className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 p-1"
-                        >
-                          <IconTrash size={14} />
-                        </button>
+
+                        {/* Menú Flotante de Selección */}
+                        {printMenuId === row.id_integrante && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-10"
+                              onClick={() => setPrintMenuId(null)}
+                            />
+                            <div className="absolute right-0 mt-2 w-40 bg-white border border-slate-200 shadow-xl rounded-lg z-20 py-1 animate-in fade-in zoom-in duration-100">
+                              <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase border-b border-slate-50">
+                                Seleccionar vista
+                              </div>
+                              <button
+                                onClick={() => {
+                                  setPrintMenuId(null);
+                                  handlePreview(row, "viatico");
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2"
+                              >
+                                <span className="w-2 h-2 rounded-full bg-blue-400"></span>{" "}
+                                Viático
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPrintMenuId(null);
+                                  handlePreview(rowWithTotals, "destaque");
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2"
+                              >
+                                <span className="w-2 h-2 rounded-full bg-blue-400"></span>{" "}
+                                Destaque
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPrintMenuId(null);
+                                  handlePreview(row, "rendicion");
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs hover:bg-green-50 flex items-center gap-2 text-green-700 font-medium"
+                              >
+                                <span className="w-2 h-2 rounded-full bg-green-500"></span>{" "}
+                                Rendición
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1377,7 +1571,7 @@ export default function ViaticosManager({ supabase, giraId }) {
           </div>
         </div>
 
-        {/* --- COMPONENTE PANEL DE EDICIÓN MASIVA --- */}
+        {/* COMPONENTE PANEL DE EDICIÓN MASIVA */}
         {selection.size > 0 && (
           <ViaticosBulkEditPanel
             selectionSize={selection.size}
@@ -1386,39 +1580,36 @@ export default function ViaticosManager({ supabase, giraId }) {
             setValues={setBatchValues}
             onApply={applyBatch}
             loading={loading}
-            onExport={handleExportToDrive}
+            onExport={handleExportToDrive} // Pasa la función que ahora acepta argumentos
             isExporting={isExporting}
             exportStatus={exportStatus}
           />
         )}
       </div>
 
-      {/* --- CONTENEDOR OCULTO --- */}
-      {/* ESTRATEGIA "PIXEL PERFECT":
-          1. position fixed off-screen: Garantiza que el render no afecte al flujo pero sí exista en el DOM.
-          2. width: 1100px: Ancho exacto que "engaña" a la hoja para renderizarse completa como en escritorio.
-          3. pdf-export-mode: Clase CSS que inyectamos en ViaticosSheet.css para arreglar los softmerge.
+      {/* --- CONTENEDOR OCULTO PARA EXPORTACIÓN --- */}
+      {/* NOTA IMPORTANTE: 
+         - El ID "viaticos-pdf-export-container" DEBE COINCIDIR con el que busca 'generatePdf'
+         - 'hideAmounts' es true solo si exportMode === 'destaque'
       */}
       {/* --- CONTENEDOR OCULTO PARA EXPORTACIÓN --- */}
-      {/* --- CONTENEDOR OCULTO (Estrategia html-to-image) --- */}
-      {/* --- CONTENEDOR OCULTO --- */}
       <div style={{ position: "fixed", left: "-9999px", top: 0, zIndex: -50 }}>
         {exportingRow && (
           <div
-            id="viaticos-pdf-export-container"
-            style={{
-              width: "1050px", // <--- Debe coincidir o ser mayor al width de html2canvas
-              backgroundColor: "white",
-              padding: "0",
-              margin: "0",
-            }}
+            id="target-pdf-content"
+            style={{ width: "1000px", backgroundColor: "white" }}
           >
-            <ViaticosForm
-              initialData={exportingRow}
-              configData={config}
-              onBack={() => {}}
-              hideToolbar={true}
-            />
+            {exportMode === "rendicion" ? (
+              <RendicionForm data={exportingRow} configData={config} />
+            ) : (
+              <ViaticosForm
+                initialData={exportingRow}
+                configData={config}
+                onBack={() => {}}
+                hideToolbar={true}
+                hideAmounts={exportMode === "destaque"}
+              />
+            )}
           </div>
         )}
       </div>

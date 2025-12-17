@@ -992,7 +992,8 @@ export default function GirasView({ supabase }) {
               </div>
             </div>
             {view.mode === "LIST" && (
-              <div className="p-2 md:p-4 space-y-3 md:space-y-4 pb-20 md:pb-4">
+              <div className="p-2 md:p-4 space-y-3 md:space-y-0 md:flex md:items-center md:gap-4 pb-20 md:pb-4">
+                {" "}
                 <button
                   onClick={() =>
                     setShowRepertoireInCards(!showRepertoireInCards)
