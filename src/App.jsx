@@ -76,8 +76,8 @@ function AppContent() {
   );
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans">
-      <nav className="bg-white border-b border-slate-200 px-4 md:px-6 py-3 flex items-center justify-between shrink-0 shadow-sm z-50 relative">
+    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans ">
+      <nav className="bg-white print:hidden border-b border-slate-200 px-4 md:px-6 py-3 flex items-center justify-between shrink-0 shadow-sm z-50 relative">
         <div className="flex items-center gap-4 md:gap-6">
           <div className="flex items-center gap-2 text-indigo-700 font-black text-xl tracking-tight">
             <LogoOrquesta /> <span className="hidden md:inline">Manager</span>

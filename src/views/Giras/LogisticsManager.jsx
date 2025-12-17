@@ -17,7 +17,7 @@ import TimeInput from "../../components/ui/TimeInput";
 // --- IMPORTAMOS LOS COMPONENTES DE TRANSPORTE ---
 import GirasTransportesManager from "../Giras/GirasTransportesManager";
 import TransportRuleEditor from "../../components/logistics/TransportRuleEditor";
-
+import ViaticosManager from "./Viaticos/ViaticosManager"; // Ajusta ruta
 // --- HELPERS Y CONFIG ---
 const CATEGORIA_OPTIONS = [
   { val: "SOLISTAS", label: "Solistas" },

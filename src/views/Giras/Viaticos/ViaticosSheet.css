@@ -1,0 +1,194 @@
+/* src/views/Giras/Viaticos/ViaticosSheet.css */
+
+/* --- ESTILOS DE PANTALLA (Visualización Normal) --- */
+.viaticos-wrapper {
+  background-color: #e2e8f0;
+  display: flex;
+  justify-content: center;
+  overflow: auto;
+  min-height: 100vh;
+}
+
+.viaticos-sheet {
+  background-color: white;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  padding: 20px;
+  width: fit-content; /* Se adapta al ancho de la tabla */
+}
+
+/* --- ESTILOS DE IMPRESIÓN (NATIVO / CTRL+P) --- */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 5mm; /* Márgenes mínimos de impresora */
+  }
+
+  /* 1. Ocultar todo el cuerpo */
+  body {
+    visibility: hidden;
+    background-color: white;
+  }
+
+  /* 2. Forzar visibilidad SOLO en nuestro wrapper y su contenido */
+  .viaticos-wrapper {
+    visibility: hidden;
+    position: absolute; /* Lo saca del flujo normal */
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: white !important;
+    display: flex !important;
+    justify-content: center;
+    align-items: flex-start;
+    z-index: 9999; /* Asegura que esté encima de todo */
+  }
+
+  /* Asegurar que los hijos sean visibles */
+  .viaticos-wrapper * {
+    visibility: visible;
+  }
+
+  /* 3. Estilo de la hoja en papel */
+  .viaticos-sheet {
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+    max-width: none !important;
+    
+    /* 4. AJUSTE CRÍTICO: ESCALA PARA QUE ENTRE EN A4 */
+    /* La tabla mide ~870px, A4 imprimible es ~700-750px */
+    transform: scale(0.80); 
+    transform-origin: top center; /* Centrado arriba */
+  }
+
+  /* 5. Limpieza de elementos de interfaz */
+  button, 
+  .print\:hidden, 
+  nav, 
+  header {
+    display: none !important;
+  }
+}
+
+/* --- ESTILOS DE TABLA (GSHEETS REPLICA) --- */
+.ritz .waffle {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 0;
+  margin: 0 auto;
+}
+
+.ritz .waffle td {
+  border: 1px solid transparent;
+  padding: 2px 3px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: Arial, sans-serif;
+  font-size: 10pt;
+  vertical-align: bottom;
+}
+
+/* Clases generadas del HTML original */
+.ritz .waffle .s0 { background-color: #ffffff; text-align: center; font-weight: bold; text-decoration: underline; font-size: 13pt; vertical-align: top; white-space: normal; }
+.ritz .waffle .s1 { background-color: #ffffff; text-align: left; font-weight: bold; font-size: 12pt; }
+.ritz .waffle .s2 { background-color: #ffffff; text-align: left; font-size: 12pt; }
+.ritz .waffle .s3 { background-color: #ffffff; text-align: left; font-size: 10pt; }
+.ritz .waffle .s4 { background-color: #efefef; text-align: left; font-size: 11pt; }
+.ritz .waffle .s5 { background-color: #ffffff; text-align: left; font-weight: bold; font-size: 12pt; }
+.ritz .waffle .s6 { background-color: #efefef; text-align: left; font-size: 11pt; }
+.ritz .waffle .s7 { background-color: #ffffff; text-align: left; color: #ffffff; font-size: 11pt; }
+.ritz .waffle .s8 { background-color: #efefef; text-align: left; font-size: 11pt; }
+.ritz .waffle .s9 { background-color: #ffffff; text-align: left; font-size: 10pt; }
+.ritz .waffle .s10 { background-color: #efefef; text-align: left; font-size: 11pt; white-space: normal; }
+.ritz .waffle .s11 { background-color: #ffffff; text-align: left; font-size: 12pt; }
+.ritz .waffle .s12 { background-color: #f8f8f8; text-align: left; font-size: 10pt; white-space: normal; }
+.ritz .waffle .s13 { background-color: #ffffff; text-align: left; font-weight: bold; text-decoration: underline; font-size: 12pt; }
+.ritz .waffle .s14 { background-color: #ffffff; text-align: left; font-size: 12pt; }
+.ritz .waffle .s15 { background-color: #d9d9d9; text-align: center; font-size: 12pt; }
+.ritz .waffle .s16 { background-color: #d9d9d9; text-align: center; font-size: 12pt; }
+.ritz .waffle .s17 { background-color: #ffffff; text-align: left; font-weight: bold; text-decoration: underline; font-size: 12pt; }
+.ritz .waffle .s18 { background-color: #d9d9d9; text-align: left; font-size: 12pt; }
+.ritz .waffle .s19 { background-color: #ffffff; text-align: left; font-size: 12pt; }
+.ritz .waffle .s20 { background-color: #d9d9d9; text-align: left; font-size: 12pt; }
+.ritz .waffle .s21 { background-color: #d9d9d9; text-align: right; font-size: 12pt; }
+.ritz .waffle .s22 { background-color: #ffffff; text-align: left; font-weight: bold; font-size: 12pt; }
+.ritz .waffle .s23 { background-color: #d9d9d9; text-align: left; font-size: 12pt; }
+.ritz .waffle .s24 { background-color: #d9d9d9; text-align: left; font-size: 12pt; }
+.ritz .waffle .s25 { background-color: #ffffff; text-align: left; font-size: 12pt; white-space: normal; }
+.ritz .waffle .s26 { background-color: #ffffff; text-align: center; font-size: 12pt; }
+.ritz .waffle .s27 { background-color: #ffffff; text-align: left; font-size: 10pt; }
+.ritz .waffle .s28 { background-color: #ffffff; text-align: center; font-size: 12pt; white-space: normal; }
+.ritz .waffle .s29 { background-color: #ffffff; text-align: center; font-size: 10pt; white-space: normal; }
+.ritz .waffle .s30 { background-color: #ffffff; text-align: left; font-size: 9pt; white-space: normal; }
+
+/* FIX PARA TEXTOS CORTADOS (SOFTMERGE) EN PDF/PRINT */
+.softmerge-inner {
+  white-space: normal !important;
+  position: static !important;
+  width: auto !important;
+  margin: 0 !important;
+  overflow: visible !important;
+}
+
+/* CLASE AUXILIAR PARA CUANDO SE EXPORTA DESDE EL MANAGER (html2pdf) */
+.pdf-export-mode .softmerge-inner {
+  position: static !important;
+  width: auto !important;
+  overflow: visible !important;
+}
+
+/* ============================================================
+   MODO EXPORTACIÓN (Para engañar a html2pdf/html2canvas)
+   ============================================================ */
+
+.force-export-layout {
+  background-color: white !important;
+  width: 1120px !important; 
+  min-height: 1500px !important;
+  margin: 0 !important;
+  
+  /* 1. AJUSTE DE MARGEN: Reducimos el padding interno del contenedor */
+  padding: 15px !important; 
+  
+  transform: scale(1); 
+  transform-origin: top left;
+  -webkit-font-smoothing: antialiased;
+}
+
+.force-export-layout .viaticos-wrapper {
+  background-color: white !important;
+  padding: 0 !important;
+  display: block !important;
+  overflow: visible !important;
+  position: static !important;
+  min-height: auto !important;
+}
+
+.force-export-layout .viaticos-sheet {
+  box-shadow: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+}
+
+/* 2. FIX LETRAS CORTADAS (p, q, g, y, j) */
+.force-export-layout td {
+  overflow: visible !important;   /* Deja que la letra "cuelgue" fuera de la caja */
+  white-space: normal !important; 
+  height: auto !important;        /* Permite que la celda crezca si es necesario */
+  padding-bottom: 3px !important; /* Un poco de aire extra abajo */
+}
+
+/* Fix para celdas combinadas */
+.force-export-layout .softmerge-inner {
+  position: static !important; 
+  width: auto !important;
+  height: auto !important;
+  white-space: normal !important; 
+  overflow: visible !important;   
+  left: auto !important;
+  line-height: 1.2 !important;    /* Asegura altura de línea sana */
+}

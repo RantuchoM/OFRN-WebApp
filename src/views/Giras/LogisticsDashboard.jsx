@@ -10,6 +10,7 @@ import {
   IconChevronDown,
   IconCalendar,
   IconClipboardCheck,
+  IconCalculator, // <--- NUEVO ICONO
 } from "../../components/ui/Icons";
 import LogisticsManager from "./LogisticsManager";
 import MealsManager from "./MealsManager";
@@ -18,9 +19,10 @@ import MealsReport from "./MealsReport";
 import GirasTransportesManager from "./GirasTransportesManager";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import RoomingManager from "./RoomingManager";
+import ViaticosManager from "./Viaticos/ViaticosManager"; // <--- NUEVO COMPONENTE
 
-export default function LogisticsDashboard({ supabase, gira, onBack }) {
-  const [activeTab, setActiveTab] = useState("coverage");
+export default function LogisticsDashboard({ supabase, gira, onBack, tab = "coverage" }) {
+  const [activeTab, setActiveTab] = useState(tab? tab: "coverage");
   const [isMealsMenuOpen, setIsMealsMenuOpen] = useState(false);
 
   // Hook Centralizado
@@ -78,7 +80,19 @@ export default function LogisticsDashboard({ supabase, gira, onBack }) {
                 <IconHotel size={16} /> Rooming
               </button>
 
-              {/* 4. COMIDAS (Dropdown) */}
+              {/* --- 4. VIÁTICOS (NUEVO) --- */}
+              <button
+                onClick={() => setActiveTab("viaticos")}
+                className={`pb-2 flex items-center gap-2 transition-colors border-b-2 whitespace-nowrap ${
+                  activeTab === "viaticos"
+                    ? "border-emerald-600 text-emerald-700"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                <IconCalculator size={16} /> Viáticos
+              </button>
+
+              {/* 5. COMIDAS (Dropdown) */}
               <div
                 className="relative group"
                 onMouseEnter={() => setIsMealsMenuOpen(true)}
@@ -177,13 +191,18 @@ export default function LogisticsDashboard({ supabase, gira, onBack }) {
           <MealsReport supabase={supabase} gira={gira} roster={roster} />
         )}
         
-        {/* CORRECCIÓN AQUÍ: Se pasa 'program={gira}' en lugar de 'giraId' */}
+        {/* CORRECCIÓN: Pasar program={gira} */}
         {activeTab === "rooming" && (
           <RoomingManager supabase={supabase} program={gira} />
         )}
         
         {activeTab === "transporte" && gira?.id && (
           <GirasTransportesManager supabase={supabase} giraId={gira.id} />
+        )}
+
+        {/* --- NUEVO: RENDERIZADO DE VIÁTICOS --- */}
+        {activeTab === "viaticos" && gira?.id && (
+          <ViaticosManager supabase={supabase} giraId={gira.id} />
         )}
       </div>
     </div>

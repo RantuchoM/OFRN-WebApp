@@ -21,6 +21,7 @@ import {
   IconEye,
   IconSettingsWheel,
   IconInfo,
+  IconCalculator,
   IconMegaphone,
   IconFileText,
   IconChevronDown,
@@ -31,8 +32,7 @@ import GiraForm from "./GiraForm";
 import GiraRoster from "./GiraRoster";
 import GiraAgenda from "./GiraAgenda";
 import ProgramRepertoire from "./ProgramRepertoire";
-import ProgramHoteleria from "./RoomingManager";
-import LogisticsDashboard from "./LogisticsDashboard";
+import LogisticsDashboard from "./LogisticsDashboard"; // Ahora este maneja todo Logística
 import AgendaGeneral from "./AgendaGeneral";
 import MusicianCalendar from "./MusicianCalendar";
 import WeeklyCalendar from "./WeeklyCalendar";
@@ -48,12 +48,7 @@ import DateInput from "../../components/ui/DateInput";
 import GiraDifusion from "./GiraDifusion";
 import InstrumentationManager from "../../components/roster/InstrumentationManager";
 
-// --- IMPORTACIONES CLAVE ---
-import { calculateInstrumentation } from "../../utils/instrumentation";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
-
-// --- COMPONENTE DE MENÚ DESPLEGABLE (HOVER) ---
-// --- COMPONENTE DE MENÚ REFACTORIZADO PARA MÓVIL ---
+// --- COMPONENTE DE MENÚ ACTUALIZADO ---
 const GiraActionMenu = ({
   gira,
   onViewChange,
@@ -69,7 +64,6 @@ const GiraActionMenu = ({
   const [expandedCategory, setExpandedCategory] = useState(null);
   const menuRef = useRef(null);
 
-  // Cerrar al hacer click fuera
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -81,7 +75,6 @@ const GiraActionMenu = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen, onClose]);
 
-  // Resetear categorías al cerrar
   useEffect(() => {
     if (!isOpen) setExpandedCategory(null);
   }, [isOpen]);
@@ -151,7 +144,6 @@ const GiraActionMenu = ({
           e.stopPropagation();
           onToggle();
         }}
-        // Aumentado el padding para facilitar el toque en móvil
         className={`p-3 md:p-2 rounded-lg transition-colors ${
           isOpen
             ? "bg-slate-100 text-indigo-600"
@@ -168,7 +160,7 @@ const GiraActionMenu = ({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="max-h-[60vh] overflow-y-auto">
-            {/* --- CONTENIDO DEL MENÚ (Igual que antes, pero dentro de los nuevos CategoryItem) --- */}
+            {/* 1. REPERTORIO */}
             <CategoryItem
               label="Repertorio"
               icon={IconMusic}
@@ -182,7 +174,7 @@ const GiraActionMenu = ({
               <SubMenuItem
                 icon={IconLayers}
                 label="Seating / Disposición"
-                onClick={() => onViewChange("SEATING")}
+                onClick={() => onViewChange("REPERTOIRE", "seating")}
               />
               <SubMenuItem
                 icon={IconFileText}
@@ -191,39 +183,72 @@ const GiraActionMenu = ({
               />
             </CategoryItem>
 
+            {/* 2. AGENDA */}
             <CategoryItem
-              label="Logística"
               icon={IconCalendar}
-              categoryKey="logistica"
+              label="Agenda"
+              categoryKey="agenda"
             >
               <SubMenuItem
                 icon={IconCalendar}
                 label="Agenda Detallada"
                 onClick={() => onViewChange("AGENDA")}
               />
-              {(isEditor || isPersonal) && (
+            </CategoryItem>
+            {/* 3. LOGÍSTICA (UNIFICADA EN UN DASHBOARD) */}
+            <CategoryItem
+              label="Logística"
+              icon={IconSettingsWheel}
+              categoryKey="logistica"
+            >
+              {/* Tab: Reglas */}
+              <SubMenuItem
+                icon={IconSettingsWheel}
+                label="Reglas"
+                onClick={() => onViewChange("LOGISTICS", "coverage")}
+              />
+
+              {/* Tab: Transporte */}
+              <SubMenuItem
+                icon={IconMap}
+                label="Transporte"
+                onClick={() => onViewChange("LOGISTICS", "transporte")}
+              />
+
+              {isEditor && (
+                <>
+                  {/* Tab: Rooming */}
+                  <SubMenuItem
+                    icon={IconHotel}
+                    label="Rooming"
+                    onClick={() => onViewChange("LOGISTICS", "rooming")}
+                  />
+                  {/* Tab: Viáticos */}
+                  <SubMenuItem
+                    icon={IconCalculator}
+                    label="Viáticos"
+                    onClick={() => onViewChange("LOGISTICS", "viaticos")}
+                  />
+                  {/* Tab: Comidas */}
+                  <SubMenuItem
+                    icon={IconUtensils}
+                    label="Comidas"
+                    onClick={() => onViewChange("LOGISTICS", "meals")}
+                  />
+                </>
+              )}
+
+              {/* Mis Comidas (Vista Personal Separada) */}
+              {isPersonal && !isEditor && (
                 <SubMenuItem
                   icon={IconUtensils}
                   label="Mis Comidas"
                   onClick={() => onViewChange("MEALS_PERSONAL")}
                 />
               )}
-              {isEditor && (
-                <>
-                  <SubMenuItem
-                    icon={IconSettingsWheel}
-                    label="Logística General"
-                    onClick={() => onViewChange("LOGISTICS")}
-                  />
-                  <SubMenuItem
-                    icon={IconHotel}
-                    label="Hotelería & Rooming"
-                    onClick={() => onViewChange("HOTEL")}
-                  />
-                </>
-              )}
             </CategoryItem>
 
+            {/* 4. PERSONAL */}
             {isEditor && (
               <CategoryItem
                 label="Personal"
@@ -238,6 +263,7 @@ const GiraActionMenu = ({
               </CategoryItem>
             )}
 
+            {/* 5. DIFUSIÓN */}
             {isEditor && (
               <CategoryItem
                 label="Difusión"
@@ -252,6 +278,7 @@ const GiraActionMenu = ({
               </CategoryItem>
             )}
 
+            {/* 6. EDICIÓN */}
             {isEditor && (
               <CategoryItem
                 label="Edición"
@@ -291,7 +318,6 @@ export default function GirasView({ supabase }) {
 
   const [giras, setGiras] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
 
   const [commentsState, setCommentsState] = useState(null);
   const [globalCommentsGiraId, setGlobalCommentsGiraId] = useState(null);
@@ -368,8 +394,6 @@ export default function GirasView({ supabase }) {
         }
       }
 
-      // --- OPTIMIZACIÓN 2: SELECT REDUCIDO ---
-      // Se eliminó la carga profunda de 'programas_repertorios' y 'obras'.
       const { data, error } = await supabase
         .from("programas")
         .select(
@@ -441,7 +465,6 @@ export default function GirasView({ supabase }) {
   };
 
   const handleSave = async () => {
-    // (Sin cambios en lógica de guardado...)
     if (!formData.nombre_gira) return alert("Nombre obligatorio");
     setLoading(true);
     try {
@@ -518,7 +541,6 @@ export default function GirasView({ supabase }) {
   };
 
   const startEdit = async (gira) => {
-    // (Sin cambios en startEdit)
     setEditingId(gira.id);
     setFormData({
       nombre_gira: gira.nombre_gira,
@@ -586,7 +608,7 @@ export default function GirasView({ supabase }) {
     else if (type === "OBRA")
       setView({ mode: "REPERTOIRE", data: currentGira });
     else if (type === "HABITACION")
-      setView({ mode: "HOTEL", data: currentGira });
+      setView({ mode: "LOGISTICS", data: currentGira, tab: "rooming" });
   };
 
   const filteredGiras = useMemo(() => {
@@ -605,7 +627,6 @@ export default function GirasView({ supabase }) {
   };
 
   const getPersonnelDisplay = (gira) => {
-    // (Sin cambios)
     const roster = gira.giras_integrantes || [];
     const directors = roster.filter(
       (r) => r.rol === "director" && r.estado === "confirmado"
@@ -636,7 +657,6 @@ export default function GirasView({ supabase }) {
   };
 
   const getConcertList = (gira) => {
-    // (Sin cambios)
     const concerts = (gira.eventos || [])
       .filter(
         (e) =>
@@ -674,7 +694,6 @@ export default function GirasView({ supabase }) {
   };
 
   const getSourcesDisplay = (gira) => {
-    // (Sin cambios)
     const sources = gira.giras_fuentes || [];
     const ensembleMap = new Map(ensemblesList.map((e) => [e.value, e.label]));
     const inclusions = [];
@@ -795,16 +814,13 @@ export default function GirasView({ supabase }) {
         const startStr = `${evento.fecha}T${evento.hora_inicio}`;
         const startDate = new Date(startStr);
         const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
-        const typeName = (
-          evento.tipos_evento?.nombre || "Evento"
-        ).toUpperCase();
         return {
           id: evento.id,
           title: gira.nombre_gira,
           subtitle: evento.locaciones?.nombre || "",
           start: startStr,
           end: endDate.toISOString(),
-          programLabel: typeName,
+          programLabel: (evento.tipos_evento?.nombre || "Evento").toUpperCase(),
           programType: gira.tipo,
           programName: gira.nombre_gira,
           location: evento.locaciones?.nombre || "Sin lugar",
@@ -847,7 +863,6 @@ export default function GirasView({ supabase }) {
       "AGENDA",
       "REPERTOIRE",
       "ROSTER",
-      "HOTEL",
       "LOGISTICS",
       "MEALS_PERSONAL",
       "SEATING",
@@ -857,7 +872,6 @@ export default function GirasView({ supabase }) {
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
       <div className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm shrink-0">
-        {/* CASO 1: VISTA DE DETALLE */}
         {isDetailView ? (
           <div className="px-4 py-2 flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
             <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -868,11 +882,8 @@ export default function GirasView({ supabase }) {
               >
                 <IconArrowLeft size={20} />
               </button>
-
               <div className="flex flex-col overflow-hidden">
-                <h2 className="text-m font-bold text-slate-800 truncate leading-tight">
-                  {`${view.data.mes_letra} | ${view.data.nomenclador}. ${view.data.nombre_gira}`}
-                </h2>
+                <h2 className="text-m font-bold text-slate-800 truncate leading-tight">{`${view.data.mes_letra} | ${view.data.nomenclador}. ${view.data.nombre_gira}`}</h2>
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <span className="font-medium bg-indigo-50 text-indigo-700 px-1.5 rounded">
                     {view.data.tipo}
@@ -881,7 +892,6 @@ export default function GirasView({ supabase }) {
                 </div>
               </div>
             </div>
-
             {(isEditor || isPersonal) && (
               <div className="flex items-center bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
                 {tourNavItems
@@ -897,8 +907,7 @@ export default function GirasView({ supabase }) {
                       <button
                         key={item.mode}
                         onClick={() => setView({ ...view, mode: item.mode })}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap
-                        ${
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap ${
                           isActive
                             ? "bg-white text-indigo-600 shadow-sm"
                             : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
@@ -913,7 +922,6 @@ export default function GirasView({ supabase }) {
             )}
           </div>
         ) : (
-          /* CASO 2: VISTA PRINCIPAL */
           <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -936,7 +944,6 @@ export default function GirasView({ supabase }) {
                     : "Programas"}
                 </span>
               </h2>
-
               <div className="flex bg-slate-100 p-0.5 rounded-lg ml-2">
                 <button
                   onClick={() => setView({ mode: "LIST", data: null })}
@@ -984,10 +991,8 @@ export default function GirasView({ supabase }) {
                 </button>
               </div>
             </div>
-
             {view.mode === "LIST" && (
               <div className="p-2 md:p-4 space-y-3 md:space-y-4 pb-20 md:pb-4">
-                {" "}
                 <button
                   onClick={() =>
                     setShowRepertoireInCards(!showRepertoireInCards)
@@ -1017,7 +1022,6 @@ export default function GirasView({ supabase }) {
             )}
           </div>
         )}
-
         {showFiltersMobile && view.mode === "LIST" && (
           <div className="md:hidden px-4 pb-3 flex flex-col gap-2">
             <button
@@ -1051,7 +1055,6 @@ export default function GirasView({ supabase }) {
             updateEventInSupabase={handleUpdateCalendarEvent}
           />
         )}
-
         {view.mode === "AGENDA" && (
           <GiraAgenda
             supabase={supabase}
@@ -1063,11 +1066,10 @@ export default function GirasView({ supabase }) {
           <ProgramRepertoire
             supabase={supabase}
             program={view.data}
-            initialTab={view.tab} // <--- ESTA ES LA CLAVE QUE FALTABA
+            initialTab={view.tab}
             onBack={() => setView({ mode: "LIST", data: null })}
           />
         )}
-        {/* Renderizado de Seating */}
         {view.mode === "SEATING" && (
           <ProgramSeating
             supabase={supabase}
@@ -1082,20 +1084,6 @@ export default function GirasView({ supabase }) {
             onBack={() => setView({ mode: "LIST", data: null })}
           />
         )}
-        {view.mode === "HOTEL" && (
-          <ProgramHoteleria
-            supabase={supabase}
-            program={view.data}
-            onBack={() => setView({ mode: "LIST", data: null })}
-          />
-        )}
-        {view.mode === "LOGISTICS" && (
-          <LogisticsDashboard
-            supabase={supabase}
-            gira={view.data}
-            onBack={() => setView({ mode: "LIST", data: null })}
-          />
-        )}
         {view.mode === "DIFUSION" && (
           <GiraDifusion
             supabase={supabase}
@@ -1103,6 +1091,18 @@ export default function GirasView({ supabase }) {
             onBack={() => setView({ mode: "LIST", data: null })}
           />
         )}
+
+        {/* --- UNIFICADO: TODO LOGÍSTICA EN UN DASHBOARD --- */}
+        {view.mode === "LOGISTICS" && (
+          <LogisticsDashboard
+            supabase={supabase}
+            gira={view.data}
+            initialTab={view.tab} // Pasar la pestaña clickeada
+            onBack={() => setView({ mode: "LIST", data: null })}
+          />
+        )}
+
+        {/* --- VISTA PERSONAL SE MANTIENE SEPARADA --- */}
         {view.mode === "MEALS_PERSONAL" && (
           <div className="h-full flex flex-col bg-slate-50">
             <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-2 shrink-0">
@@ -1131,7 +1131,6 @@ export default function GirasView({ supabase }) {
 
         {view.mode === "LIST" && (
           <div className="p-4 space-y-4">
-            {/* BOTÓN Y FORMULARIO DE "CREAR NUEVO" (Solo si no hay edición activa) */}
             {isEditor && !editingId && (
               <>
                 {!isAdding && (
@@ -1155,7 +1154,6 @@ export default function GirasView({ supabase }) {
                     <IconPlus size={20} /> Crear Nuevo Programa
                   </button>
                 )}
-
                 {isAdding && (
                   <GiraForm
                     supabase={supabase}
@@ -1183,15 +1181,12 @@ export default function GirasView({ supabase }) {
                 )}
               </>
             )}
-
             {filteredGiras.length === 0 && !loading && !isAdding && (
               <div className="text-center py-10 text-slate-400">
                 No se encontraron programas.
               </div>
             )}
-
             {filteredGiras.map((gira) => {
-              // SI ESTAMOS EDITANDO ESTA GIRA, MOSTRAMOS EL FORMULARIO EN LUGAR DE LA TARJETA
               if (editingId === gira.id) {
                 return (
                   <GiraForm
@@ -1220,18 +1215,16 @@ export default function GirasView({ supabase }) {
                   />
                 );
               }
-
-              // SI NO, MOSTRAMOS LA TARJETA NORMAL
-              // ... helpers de renderizado de la tarjeta ...
               const locs = gira.giras_localidades
                 ?.map((l) => l.localidades?.localidad)
                 .join(", ");
               const isMenuOpen = activeMenuId === gira.id;
-
               return (
                 <div
                   key={gira.id}
-                  className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 md:p-4 relative border-l-0 overflow-visible"
+                  className={`bg-white rounded-xl border border-slate-200 shadow-sm p-3 md:p-4 relative border-l-0 overflow-visible transition-all ${
+                    isMenuOpen ? "z-50" : "z-0"
+                  }`}
                 >
                   <div
                     className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-xl ${
@@ -1244,19 +1237,14 @@ export default function GirasView({ supabase }) {
                         : "bg-fuchsia-500"
                     }`}
                   ></div>
-
                   <div className="pl-2 flex flex-col gap-2">
                     <div className="flex justify-between items-start gap-2">
-                      {" "}
-                      {/* Agregado gap-2 */}
-                      {/* ÁREA DE CLICK PRINCIPAL - CORRECCIÓN CLAVE: min-w-0 */}
                       <div
                         className="cursor-pointer flex-1 min-w-0"
                         onClick={() =>
                           setView({ mode: "REPERTOIRE", data: gira })
                         }
                       >
-                        {/* ... Títulos, Fechas, Ubicación ... */}
                         <div className="flex flex-col gap-1 mb-2">
                           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                             <span className="font-bold text-slate-700 bg-slate-100 px-1.5 rounded whitespace-nowrap">
@@ -1274,7 +1262,6 @@ export default function GirasView({ supabase }) {
                               {formatDate(gira.fecha_hasta)}
                             </div>
                           </div>
-
                           <div className="flex flex-col">
                             <span className="text-base font-bold text-slate-800 truncate w-full block">
                               {gira.nombre_gira}
@@ -1290,15 +1277,11 @@ export default function GirasView({ supabase }) {
                             </div>
                           </div>
                         </div>
-
-                        {/* ... Fuentes y Personal ... */}
                         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 mt-1">
                           {getPersonnelDisplay(gira)}
-                          {/* Wrapper para evitar desborde en fuentes */}
                           <div className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
                             {getSourcesDisplay(gira)}
                           </div>
-                          {/* Ajuste para InstrumentationManager */}
                           <div className="w-full md:w-auto md:ml-2 md:pl-2 md:border-l border-slate-200 mt-1 md:mt-0">
                             <InstrumentationManager
                               supabase={supabase}
@@ -1307,9 +1290,7 @@ export default function GirasView({ supabase }) {
                           </div>
                         </div>
                       </div>
-                      {/* --- BARRA DE ACCIONES --- CORRECCIÓN CLAVE: shrink-0 */}
                       <div className="flex items-center gap-1 md:gap-2 shrink-0 relative z-10">
-                        {/* 1. Drive (Ocultar en pantallas muy pequeñas si quieres, o dejarlo) */}
                         {gira.google_drive_folder_id && (
                           <button
                             onClick={(e) => {
@@ -1325,8 +1306,6 @@ export default function GirasView({ supabase }) {
                             <IconDrive size={20} />
                           </button>
                         )}
-
-                        {/* 2. Comentarios */}
                         <CommentButton
                           supabase={supabase}
                           entityType="GIRA"
@@ -1339,8 +1318,6 @@ export default function GirasView({ supabase }) {
                             })
                           }
                         />
-
-                        {/* 3. Menú Desplegable */}
                         <GiraActionMenu
                           gira={gira}
                           onViewChange={(mode, tab) =>
@@ -1361,15 +1338,11 @@ export default function GirasView({ supabase }) {
                         />
                       </div>
                     </div>
-
-                    {/* ... Conciertos ... */}
                     {getConcertList(gira) && (
                       <div className="mt-2 border-t border-slate-100 pt-2">
                         {getConcertList(gira)}
                       </div>
                     )}
-
-                    {/* ... Repertorio Desplegable ... */}
                     {showRepertoireInCards && (
                       <div className="mt-3 animate-in slide-in-from-top-2 border-t border-slate-100 pt-2">
                         <RepertoireManager
@@ -1385,7 +1358,6 @@ export default function GirasView({ supabase }) {
           </div>
         )}
       </div>
-
       {globalCommentsGiraId && (
         <GlobalCommentsViewer
           supabase={supabase}

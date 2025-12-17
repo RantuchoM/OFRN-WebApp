@@ -7,7 +7,9 @@ import {
   IconCalendar,
   IconMusic,
   IconGlobe,
+  IconFileText, // <--- Asegúrate de importar un ícono para la hoja (o usa uno existente)
 } from "../../components/ui/Icons";
+import SheetEditor from './SheetEditor';
 
 export default function DataView({ supabase }) {
   const [activeTab, setActiveTab] = useState("regiones");
@@ -17,29 +19,18 @@ export default function DataView({ supabase }) {
     regiones: [],
     localidades: [],
     paises: [],
+    categorias: [],
   });
 
-  // Función para cargar los catálogos que usan otras tablas
   const fetchCatalogos = async () => {
     // 1. Regiones
-    const { data: reg } = await supabase
-      .from("regiones")
-      .select("id, region")
-      .order("region");
+    const { data: reg } = await supabase.from("regiones").select("id, region").order("region");
     // 2. Localidades
-    const { data: loc } = await supabase
-      .from("localidades")
-      .select("id, localidad")
-      .order("localidad");
-    // 3. Países (asumo tabla paises o similar, si existe)
-    const { data: pais } = await supabase
-      .from("paises")
-      .select("id, nombre")
-      .order("nombre");
-    const { data: categoria } = await supabase
-      .from("categorias_tipos_eventos")
-      .select("id, nombre")
-      .order("nombre");
+    const { data: loc } = await supabase.from("localidades").select("id, localidad").order("localidad");
+    // 3. Países
+    const { data: pais } = await supabase.from("paises").select("id, nombre").order("nombre");
+    // 4. Categorías
+    const { data: categoria } = await supabase.from("categorias_tipos_eventos").select("id, nombre").order("nombre");
 
     setCatalogos({
       regiones: reg?.map((r) => ({ value: r.id, label: r.region })) || [],
@@ -68,13 +59,7 @@ export default function DataView({ supabase }) {
       columns: [
         { key: "localidad", label: "Nombre Localidad", type: "text" },
         { key: "cp", label: "Código Postal", type: "text" },
-        // Aquí usamos el catálogo de regiones cargado arriba
-        {
-          key: "id_region",
-          label: "Región",
-          type: "select",
-          options: catalogos.regiones,
-        },
+        { key: "id_region", label: "Región", type: "select", options: catalogos.regiones },
       ],
     },
     locaciones: {
@@ -85,28 +70,18 @@ export default function DataView({ supabase }) {
         { key: "nombre", label: "Nombre del Lugar", type: "text" },
         { key: "direccion", label: "Dirección", type: "text" },
         { key: "capacidad", label: "Aforo", type: "text" },
-        {
-          key: "id_localidad",
-          label: "Localidad",
-          type: "select",
-          options: catalogos.localidades,
-        },
+        { key: "id_localidad", label: "Localidad", type: "select", options: catalogos.localidades },
       ],
     },
     hoteles: {
       label: "Hoteles",
       icon: IconHotel,
-      table: "hoteles", // Asegúrate que esta tabla exista en tu DB, si no, usa locaciones con un filtro
+      table: "hoteles",
       columns: [
         { key: "nombre", label: "Nombre Hotel", type: "text" },
         { key: "estrellas", label: "Estrellas/Cat", type: "text" },
         { key: "direccion", label: "Dirección", type: "text" },
-        {
-          key: "id_localidad",
-          label: "Localidad",
-          type: "select",
-          options: catalogos.localidades,
-        },
+        { key: "id_localidad", label: "Localidad", type: "select", options: catalogos.localidades },
       ],
     },
     tipos_evento: {
@@ -115,19 +90,8 @@ export default function DataView({ supabase }) {
       table: "tipos_evento",
       columns: [
         { key: "nombre", label: "Nombre Tipo", type: "text" },
-        // Selector de color solicitado
-        {
-          key: "color",
-          label: "Etiqueta Color",
-          type: "color",
-          defaultValue: "#6366f1",
-        },
-        {
-          key: "id_categoria", 
-          label: "Categoría",
-          type: "select",
-          options: catalogos.categorias,
-        },
+        { key: "color", label: "Etiqueta Color", type: "color", defaultValue: "#6366f1" },
+        { key: "id_categoria", label: "Categoría", type: "select", options: catalogos.categorias },
       ],
     },
     instrumentos: {
@@ -160,6 +124,7 @@ export default function DataView({ supabase }) {
         { key: "iso", label: "ISO Code", type: "text" },
       ],
     },
+    // NOTA: No agregamos "hoja_calculo" aquí porque no es una UniversalTable estándar
   };
 
   const currentConfig = tableConfigs[activeTab];
@@ -173,6 +138,7 @@ export default function DataView({ supabase }) {
           <p className="text-xs text-slate-500">Tablas maestras del sistema</p>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {/* Botones automáticos para tablas */}
           {Object.keys(tableConfigs).map((key) => {
             const config = tableConfigs[key];
             const isActive = activeTab === key;
@@ -194,19 +160,43 @@ export default function DataView({ supabase }) {
               </button>
             );
           })}
+          
+          {/* Separador */}
+          <div className="my-2 border-t border-slate-100 mx-2"></div>
+
+          {/* --- NUEVO: Botón Manual para Hoja de Cálculo --- */}
+          <button
+            onClick={() => setActiveTab("hoja_calculo")}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              activeTab === "hoja_calculo"
+                ? "bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200"
+                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+            }`}
+          >
+             {/* Si no tienes IconFileText, usa IconCalendar o IconMapPin temporalmente */}
+            <IconFileText size={18} className={activeTab === "hoja_calculo" ? "text-indigo-600" : "text-slate-400"} />
+            Hoja de Cálculo / PDF
+          </button>
         </div>
       </div>
 
-      {/* Área Principal (Tabla) */}
+      {/* Área Principal (Tabla o Editor) */}
       <div className="flex-1 min-w-0 h-[600px] md:h-auto">
+        
+        {/* --- NUEVO: Lógica de visualización --- */}
+        
+        {/* 1. Si el tab es 'hoja_calculo', mostramos el Editor */}
+        {activeTab === "hoja_calculo" && (
+           <SheetEditor supabase={supabase} />
+        )}
+
+        {/* 2. Si hay configuración de tabla (tab normal), mostramos UniversalTable */}
         {currentConfig && (
           <UniversalTable
-            key={activeTab} // Forzar remontaje al cambiar de tab para limpiar estados
+            key={activeTab}
             supabase={supabase}
             tableName={currentConfig.table}
             columns={currentConfig.columns}
-            // Cuando se guarde algo en UniversalTable, recargamos los catálogos globales
-            // por si agregamos una Región nueva, que aparezca en el select de Localidades.
             onDataChange={fetchCatalogos}
           />
         )}
