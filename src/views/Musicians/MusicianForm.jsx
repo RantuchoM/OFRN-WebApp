@@ -1,171 +1,423 @@
-import React, { useState, useEffect } from 'react';
-import { IconPlus, IconX, IconCheck, IconCalendar, IconLoader, IconChevronDown } from '../../components/ui/Icons';
-import EnsembleMultiSelect from '../../components/filters/EnsembleMultiSelect';
-import DateInput from '../../components/ui/DateInput';
+import React, { useState, useEffect } from "react";
+import {
+  IconSave,
+  IconX,
+  IconLoader,
+  IconLink,
+  IconUser,
+  IconId,
+  IconFileText,
+  IconMapPin,
+} from "../../components/ui/Icons";
 
-const GENERO_OPCIONES = ["F", "M", "X", "-"];
-const CONDICION_OPCIONES = ["Estable", "Contratado", "Refuerzo", "Invitado"];
+export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("personal");
+  const [showPassword, setShowPassword] = useState(false);
+  useEffect(() => {
+  const fetchInstruments = async () => {
+    const { data } = await supabase
+      .from("instrumentos")
+      .select("id, instrumento")
+      .order("instrumento");
+    if (data) setCatalogoInstrumentos(data);
+  };
+  fetchInstruments();
+}, [supabase]);
+  useEffect(() => {
+    if (musician) {
+      setFormData((prev) => ({ ...prev, ...musician }));
+    }
+  }, [musician]); // Se dispara cada vez que seleccionas un músico diferente para editar
+  const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
+  // Inicialización y corrección de edición:
+  const [formData, setFormData] = useState({
+    nombre: "",
+    apellido: "",
+    id_instr: "",
+    dni: "",
+    cuil: "",
+    mail: "",
+    telefono: "",
+    condicion: "Planta",
+    genero: "Masculino",
+    alimentacion: "",
+    nacionalidad: "Argentina",
+    fecha_nac: "",
+    email_google: "",
+    id_localidad: null,
+    link_bio: "",
+    link_foto_popup: "",
+    documentacion: "",
+    docred: "",
+    firma: "",
+    email_acceso: "",
+    rol_sistema: "user",
+    clave_acceso: "",
+  });
 
-export default function MusicianForm({ 
-    supabase,
-    musicianId,
-    formData, 
-    setFormData, 
-    onCancel, 
-    onSave, 
-    loading, 
-    isNew = false, 
-    catalogoInstrumentos, 
-    ensemblesList, 
-    locationsList = [],
-    musicianEnsembles, 
-    setMusicianEnsembles 
-}) {
-    // Renderizado
-    return (
-        <div className={`p-4 rounded-xl border shadow-sm animate-in fade-in zoom-in-95 duration-200 ${isNew ? 'bg-indigo-50 border-indigo-200' : 'bg-white ring-2 ring-indigo-500 border-indigo-500 z-10 relative'}`}>
-            {isNew && <h3 className="text-indigo-900 font-bold mb-4 flex items-center gap-2 border-b border-indigo-100 pb-2"><IconPlus size={18}/> Nuevo Integrante</h3>}
-            
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                
-                {/* --- FILA 1: DATOS PRINCIPALES --- */}
-                <div className="md:col-span-1">
-                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Nombre</label>
-                    <input 
-                        type="text" 
-                        className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white" 
-                        value={formData.nombre || ''} 
-                        onChange={(e) => setFormData({...formData, nombre: e.target.value})}
-                    />
-                </div>
-                <div className="md:col-span-1">
-                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Apellido</label>
-                    <input 
-                        type="text" 
-                        className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white" 
-                        value={formData.apellido || ''} 
-                        onChange={(e) => setFormData({...formData, apellido: e.target.value})}
-                    />
-                </div>
-                
-                <div className="md:col-span-1">
-                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Instrumento</label>
-                    <select 
-                        className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white" 
-                        value={formData.id_instr || ''} 
-                        onChange={(e) => setFormData({...formData, id_instr: e.target.value})}
-                    >
-                        <option value="">-- Sin Asignar --</option>
-                        {catalogoInstrumentos.map(inst => (<option key={inst.id} value={inst.id}>{inst.instrumento}</option>))}
-                    </select>
-                </div>
+  useEffect(() => {
+    if (musician) {
+      setFormData({ ...formData, ...musician });
+    }
+  }, [musician]);
 
-                <div className="md:col-span-1">
-                    <label className="text-[10px] uppercase font-bold text-indigo-500 mb-1 block">Condición / Tipo</label>
-                    <select 
-                        className="w-full border border-indigo-200 bg-indigo-50/50 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none text-indigo-900 font-medium" 
-                        value={formData.condicion || 'Estable'} 
-                        onChange={(e) => setFormData({...formData, condicion: e.target.value})}
-                    >
-                        {CONDICION_OPCIONES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                </div>
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("integrantes")
+        .upsert([formData])
+        .select()
+        .single();
+      if (error) throw error;
+      onSave(data);
+    } catch (error) {
+      alert("Error al guardar: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-                {/* --- FILA 2: UBICACIÓN, GÉNERO Y DNI --- */}
-                <div className="md:col-span-2">
-                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Localidad de Residencia</label>
-                    <select 
-                        className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white" 
-                        value={formData.id_localidad || ''} 
-                        onChange={(e) => setFormData({...formData, id_localidad: e.target.value})}
-                    >
-                        <option value="">-- Seleccionar --</option>
-                        {locationsList.map(loc => <option key={loc.id} value={loc.id}>{loc.localidad}</option>)}
-                    </select>
-                </div>
+  const inputClass =
+    "w-full border border-slate-300 p-2 rounded text-sm focus:ring-2 focus:ring-indigo-200 outline-none transition-all";
+  const labelClass =
+    "text-[10px] font-bold uppercase text-slate-400 mb-1 block";
 
-                {/* CAMPO GÉNERO AGREGADO */}
-                <div className="md:col-span-1">
-                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Género</label>
-                    <select 
-                        className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                        value={formData.genero || ''}
-                        onChange={(e) => setFormData({...formData, genero: e.target.value})}
-                    >
-                        <option value="">--</option>
-                        {GENERO_OPCIONES.map(g => <option key={g} value={g}>{g}</option>)}
-                    </select>
-                </div>
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-3xl w-full mx-auto overflow-hidden">
+      {/* Header */}
+      <div className="bg-slate-50 p-4 border-b flex justify-between items-center">
+        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+          <IconUser className="text-indigo-500" />
+          {formData.id ? `Editando: ${formData.apellido}` : "Nuevo Integrante"}
+        </h3>
+        <button
+          onClick={onCancel}
+          className="text-slate-400 hover:text-red-500 transition-colors"
+        >
+          <IconX />
+        </button>
+      </div>
 
-                <div className="md:col-span-1">
-                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">DNI</label>
-                    <input 
-                        type="number" 
-                        className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white" 
-                        value={formData.dni || ''} 
-                        onChange={(e) => setFormData({...formData, dni: e.target.value})}
-                    />
-                </div>
+      {/* Tabs Selector */}
+      <div className="flex border-b text-xs font-bold uppercase tracking-wider">
+        {[
+          { id: "personal", label: "Personal", icon: <IconId size={14} /> },
+          {
+            id: "docs",
+            label: "Documentos/Links",
+            icon: <IconLink size={14} />,
+          },
+          { id: "acceso", label: "Sistema", icon: <IconFileText size={14} /> },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 p-3 flex items-center justify-center gap-2 border-b-2 transition-all ${
+              activeTab === tab.id
+                ? "border-indigo-600 text-indigo-600 bg-indigo-50/30"
+                : "border-transparent text-slate-400 hover:bg-slate-50"
+            }`}
+          >
+            {tab.icon} {tab.label}
+          </button>
+        ))}
+      </div>
 
-                {/* --- FILA 3: CUIL, FECHAS Y CONTACTO --- */}
-                <div className="md:col-span-1">
-                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">CUIL</label>
-                    <input 
-                        type="text" 
-                        className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white" 
-                        value={formData.cuil || ''} 
-                        onChange={(e) => setFormData({...formData, cuil: e.target.value})}
-                    />
-                </div>
-
-                <div className="md:col-span-1">
-                    <DateInput 
-                        label="Fecha Nacimiento" 
-                        value={formData.fecha_nac || ''} 
-                        onChange={(val) => setFormData({...formData, fecha_nac: val})} 
-                    />
-                </div>
-
-                <div className="md:col-span-2">
-                    <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Teléfono / Contacto</label>
-                    <input 
-                        type="text" 
-                        className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white" 
-                        value={formData.telefono || ''} 
-                        onChange={(e) => setFormData({...formData, telefono: e.target.value})}
-                    />
-                </div>
-
-                {/* --- FILA 4: ESTADO ADMINISTRATIVO --- */}
-                <div className="md:col-span-1">
-                    <div className="bg-emerald-50/50 p-1 rounded border border-emerald-100/50">
-                        <DateInput 
-                            label="Fecha de Alta" 
-                            value={formData.fecha_alta || ''} 
-                            onChange={(val) => setFormData({...formData, fecha_alta: val})} 
-                        />
-                    </div>
-                </div>
-                <div className="md:col-span-1">
-                    <div className="bg-red-50/50 p-1 rounded border border-red-100/50">
-                        <DateInput 
-                            label="Fecha de Baja" 
-                            value={formData.fecha_baja || ''} 
-                            onChange={(val) => setFormData({...formData, fecha_baja: val})} 
-                        />
-                    </div>
-                </div>
-                
-                {/* --- FILA 5: ENSAMBLES --- */}
-                <div className="md:col-span-4 border-t border-slate-100 pt-3 mt-1">
-                    <EnsembleMultiSelect ensembles={ensemblesList} selectedEnsembleIds={musicianEnsembles} onChange={setMusicianEnsembles} />
-                </div>
+      <form onSubmit={handleSubmit} className="p-6">
+        {activeTab === "personal" && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Apellido</label>
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={formData.apellido}
+                  onChange={(e) =>
+                    setFormData({ ...formData, apellido: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Nombre</label>
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={formData.nombre}
+                  onChange={(e) =>
+                    setFormData({ ...formData, nombre: e.target.value })
+                  }
+                />
+              </div>
             </div>
-
-            <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-indigo-100/50">
-                <button onClick={onCancel} className="flex items-center gap-1 px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100 text-sm font-medium"><IconX size={16}/> Cancelar</button>
-                <button onClick={onSave} disabled={loading} className="flex items-center gap-1 px-4 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium shadow-sm"><IconCheck size={16}/> Guardar</button>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className={labelClass}>DNI</label>
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={formData.dni}
+                  onChange={(e) =>
+                    setFormData({ ...formData, dni: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <label className={labelClass}>CUIL</label>
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={formData.cuil}
+                  onChange={(e) =>
+                    setFormData({ ...formData, cuil: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Fecha Nacimiento</label>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={formData.fecha_nac}
+                  onChange={(e) =>
+                    setFormData({ ...formData, fecha_nac: e.target.value })
+                  }
+                />
+              </div>
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Mail Personal</label>
+                <input
+                  type="email"
+                  className={inputClass}
+                  value={formData.mail}
+                  onChange={(e) =>
+                    setFormData({ ...formData, mail: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Instrumento</label>
+                <select
+                  className={inputClass}
+                  value={formData.id_instr || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, id_instr: e.target.value })
+                  }
+                >
+                  <option value="">Seleccionar instrumento...</option>
+                  {/* Usamos el catálogo que ya recibe el componente o MusicianView */}
+                  {catalogoInstrumentos?.map((inst) => (
+                    <option key={inst.id} value={inst.id}>
+                      {inst.instrumento}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Teléfono</label>
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={formData.telefono}
+                  onChange={(e) =>
+                    setFormData({ ...formData, telefono: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className={labelClass}>Condición</label>
+                <select
+                  className={inputClass}
+                  value={formData.condicion}
+                  onChange={(e) =>
+                    setFormData({ ...formData, condicion: e.target.value })
+                  }
+                >
+                  <option value="Planta">Planta</option>
+                  <option value="Contratado">Contratado</option>
+                  <option value="Invitado">Invitado</option>
+                  <option value="Refuerzo">Refuerzo</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Género</label>
+                <select
+                  className={inputClass}
+                  value={formData.genero}
+                  onChange={(e) =>
+                    setFormData({ ...formData, genero: e.target.value })
+                  }
+                >
+                  <option value="Masculino">Masculino</option>
+                  <option value="Femenino">Femenino</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Nacionalidad</label>
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={formData.nacionalidad}
+                  onChange={(e) =>
+                    setFormData({ ...formData, nacionalidad: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "docs" && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div>
+              <label className={labelClass}>Link Documentación (Full)</label>
+              <input
+                type="text"
+                placeholder="https://..."
+                className={inputClass}
+                value={formData.documentacion}
+                onChange={(e) =>
+                  setFormData({ ...formData, documentacion: e.target.value })
+                }
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Link Documentación Reducida</label>
+              <input
+                type="text"
+                placeholder="https://..."
+                className={inputClass}
+                value={formData.docred}
+                onChange={(e) =>
+                  setFormData({ ...formData, docred: e.target.value })
+                }
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Link Firma Digital (PNG)</label>
+              <input
+                type="text"
+                placeholder="https://..."
+                className={inputClass}
+                value={formData.firma}
+                onChange={(e) =>
+                  setFormData({ ...formData, firma: e.target.value })
+                }
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Link Bio / Web</label>
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={formData.link_bio}
+                  onChange={(e) =>
+                    setFormData({ ...formData, link_bio: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Link Foto (Popup)</label>
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={formData.link_foto_popup}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      link_foto_popup: e.target.value,
+                    })
+                  }
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "acceso" && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 mb-4 text-xs text-amber-800">
+              Datos para el inicio de sesión del músico en la plataforma.
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Email de Acceso</label>
+                <input
+                  type="email"
+                  name="email_usuario_nuevo" // Nombre diferente para despistar al navegador
+                  autoComplete="none" // Intento de bloqueo
+                  className={inputClass}
+                  value={formData.email_acceso || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, email_acceso: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Clave</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password" // Esto evita que el navegador rellene tu clave actual
+                    placeholder="••••••••"
+                    className={inputClass}
+                    value={formData.clave_acceso || ""}
+                    onChange={(e) =>
+                      setFormData({ ...formData, clave_acceso: e.target.value })
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600"
+                  >
+                    {showPassword ? "🙈" : "👁️"}
+                  </button>
+                </div>
+              </div>
+              <label className={labelClass}>Rol en el Sistema</label>
+              <select
+                className={inputClass}
+                value={formData.rol_sistema}
+                onChange={(e) =>
+                  setFormData({ ...formData, rol_sistema: e.target.value })
+                }
+              >
+                <option value="personal">Músico (Solo lectura)</option>
+                <option value="editor">Editor (Logística)</option>
+                <option value="admin">Administrador Total</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-3 mt-8 pt-6 border-t">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 text-slate-500 font-bold text-xs uppercase tracking-widest hover:bg-slate-100 rounded transition-all"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={loading}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-indigo-200 transition-all disabled:opacity-50"
+          >
+            {loading ? <IconLoader className="animate-spin" /> : <IconSave />}
+            {formData.id ? "Guardar Cambios" : "Crear Integrante"}
+          </button>
         </div>
-    );
+      </form>
+    </div>
+  );
 }

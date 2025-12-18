@@ -1,25 +1,28 @@
 import React, { useState } from "react";
-import { 
-  IconLoader, 
-  IconMusic, 
-  IconUsers, 
-  IconFileText, 
-  IconArrowLeft 
+import {
+  IconLoader,
+  IconMusic,
+  IconUsers,
+  IconFileText,
+  IconArrowLeft,
 } from "../../components/ui/Icons";
+import { useSearchParams } from "react-router-dom"; // <--- 1. IMPORTAR HOOK
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import ProgramSeating from "../Giras/ProgramSeating";
 import InstrumentationManager from "../../components/roster/InstrumentationManager";
 import MyPartsViewer from "./MyPartsViewer";
 
-export default function ProgramRepertoire({ supabase, program, onBack, initialTab }) {
-  // 1. Declaración del estado para las pestañas (IMPORTANTE)
-  const [activeTab, setActiveTab] = useState(initialTab || "repertoire");
-  
+export default function ProgramRepertoire({ supabase, program, onBack }) {
+  // 2. USAR SEARCH PARAMS EN LUGAR DE STATE
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Leemos la sub-pestaña de la URL. Si no existe, por defecto es 'repertoire'
+  const activeTab = searchParams.get("subTab") || "repertoire";
+
   const [repertorios, setRepertorios] = useState(
     program?.programas_repertorios || []
   );
-  
-  // Clave para forzar la recarga de componentes hijos si cambia el repertorio
+
   const [repertoireKey, setRepertoireKey] = useState(0);
 
   if (!program)
@@ -34,11 +37,22 @@ export default function ProgramRepertoire({ supabase, program, onBack, initialTa
     setRepertoireKey((prev) => prev + 1);
   };
 
-  // Botón "Atrás" inteligente: Si estás en una sub-pestaña, vuelve a Repertorio. Si no, sale.
+  // Función auxiliar para cambiar solo la sub-pestaña sin perder los otros datos de la URL
+  const handleTabChange = (newTab) => {
+    setSearchParams((prev) => {
+      const newParams = new URLSearchParams(prev);
+      newParams.set("subTab", newTab);
+      return newParams;
+    });
+  };
+
+  // Botón "Atrás" inteligente
   const handleBack = () => {
     if (activeTab !== "repertoire") {
-      setActiveTab("repertoire");
+      // Si estamos en una sub-pestaña, volvemos a la principal (actualizando URL)
+      handleTabChange("repertoire");
     } else {
+      // Si estamos en la principal, ejecutamos la acción de salir (volver a lista)
       onBack();
     }
   };
@@ -57,7 +71,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, initialTa
               ? "Volver al Repertorio"
               : "Volver a Programas"}
           </button>
-          
+
           <div className="flex flex-col">
             <h2 className="text-m font-bold text-slate-800">Repertorio</h2>
             {/* Solo mostramos el resumen de instrumentación en la pestaña principal */}
@@ -69,10 +83,10 @@ export default function ProgramRepertoire({ supabase, program, onBack, initialTa
           </div>
         </div>
 
-        {/* Selector de Vistas (Pestañas) */}
+        {/* Selector de Vistas (Pestañas) - AHORA USAN handleTabChange */}
         <div className="flex bg-slate-100 p-1 rounded-lg self-end md:self-auto overflow-x-auto max-w-full">
           <button
-            onClick={() => setActiveTab("repertoire")}
+            onClick={() => handleTabChange("repertoire")}
             className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
               activeTab === "repertoire"
                 ? "bg-white text-indigo-700 shadow-sm"
@@ -83,7 +97,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, initialTa
           </button>
 
           <button
-            onClick={() => setActiveTab("seating")}
+            onClick={() => handleTabChange("seating")}
             className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
               activeTab === "seating"
                 ? "bg-white text-indigo-700 shadow-sm"
@@ -94,7 +108,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, initialTa
           </button>
 
           <button
-            onClick={() => setActiveTab("my_parts")}
+            onClick={() => handleTabChange("my_parts")}
             className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
               activeTab === "my_parts"
                 ? "bg-white text-indigo-700 shadow-sm"
@@ -126,7 +140,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, initialTa
               supabase={supabase}
               program={program}
               repertoireBlocks={repertorios}
-              onBack={() => setActiveTab("repertoire")}
+              onBack={() => handleTabChange("repertoire")} // Volver actualiza la URL
             />
           </div>
         )}
@@ -136,7 +150,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, initialTa
             <MyPartsViewer
               supabase={supabase}
               gira={program}
-              onOpenSeating={() => setActiveTab("seating")}
+              onOpenSeating={() => handleTabChange("seating")} // Navegación interna actualiza URL
             />
           </div>
         )}

@@ -10,8 +10,12 @@ import {
   IconChevronDown,
   IconCalendar,
   IconClipboardCheck,
-  IconCalculator, // <--- NUEVO ICONO
+  IconCalculator,
+  IconArrowLeft // Aseguramos importar este icono si se usa
 } from "../../components/ui/Icons";
+// 1. IMPORTAR HOOK
+import { useSearchParams } from "react-router-dom";
+
 import LogisticsManager from "./LogisticsManager";
 import MealsManager from "./MealsManager";
 import MealsAttendance from "./MealsAttendance";
@@ -19,14 +23,37 @@ import MealsReport from "./MealsReport";
 import GirasTransportesManager from "./GirasTransportesManager";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import RoomingManager from "./RoomingManager";
-import ViaticosManager from "./Viaticos/ViaticosManager"; // <--- NUEVO COMPONENTE
+import ViaticosManager from "./Viaticos/ViaticosManager";
 
-export default function LogisticsDashboard({ supabase, gira, onBack, tab = "coverage" }) {
-  const [activeTab, setActiveTab] = useState(tab? tab: "coverage");
+export default function LogisticsDashboard({ supabase, gira, onBack }) {
+  // 2. REEMPLAZAR STATE POR SEARCH PARAMS
+  const [searchParams, setSearchParams] = useSearchParams();
   const [isMealsMenuOpen, setIsMealsMenuOpen] = useState(false);
+
+  // Leemos la sub-pestaña de la URL. Por defecto "coverage" (Reglas)
+  const activeTab = searchParams.get("subTab") || "coverage";
 
   // Hook Centralizado
   const { roster, loading: loadingRoster } = useGiraRoster(supabase, gira);
+
+  // Función para cambiar de tab sin perder otros parámetros de la URL
+  const handleTabChange = (newTab) => {
+    setSearchParams((prev) => {
+      const newParams = new URLSearchParams(prev);
+      newParams.set("subTab", newTab);
+      return newParams;
+    });
+    setIsMealsMenuOpen(false); // Cerramos menú si estaba abierto
+  };
+
+  // Botón "Atrás": Si estamos en una pestaña profunda, volvemos a la principal. Si no, salimos.
+  const handleBack = () => {
+    if (activeTab !== "coverage") {
+      handleTabChange("coverage");
+    } else {
+      onBack();
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
@@ -35,10 +62,11 @@ export default function LogisticsDashboard({ supabase, gira, onBack, tab = "cove
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <button
-              onClick={onBack}
-              className="text-slate-400 hover:text-indigo-600 font-medium text-sm"
+              onClick={handleBack}
+              className="text-slate-400 hover:text-indigo-600 font-medium text-sm flex items-center gap-1"
             >
-              ← Volver
+              <IconArrowLeft size={16} /> 
+              {activeTab !== "coverage" ? "Volver a Reglas" : "Volver"}
             </button>
           </div>
           <div className="flex justify-between items-end mb-4 border-b border-slate-200">
@@ -46,7 +74,7 @@ export default function LogisticsDashboard({ supabase, gira, onBack, tab = "cove
               
               {/* 1. REGLAS */}
               <button
-                onClick={() => setActiveTab("coverage")}
+                onClick={() => handleTabChange("coverage")}
                 className={`pb-2 flex items-center gap-2 transition-colors border-b-2 whitespace-nowrap ${
                   activeTab === "coverage"
                     ? "border-indigo-600 text-indigo-700"
@@ -58,7 +86,7 @@ export default function LogisticsDashboard({ supabase, gira, onBack, tab = "cove
 
               {/* 2. TRANSPORTE */}
               <button
-                onClick={() => setActiveTab("transporte")}
+                onClick={() => handleTabChange("transporte")}
                 className={`pb-2 flex items-center gap-2 transition-colors border-b-2 whitespace-nowrap ${
                   activeTab === "transporte"
                     ? "border-slate-800 text-slate-900"
@@ -70,7 +98,7 @@ export default function LogisticsDashboard({ supabase, gira, onBack, tab = "cove
 
               {/* 3. ROOMING */}
               <button
-                onClick={() => setActiveTab("rooming")}
+                onClick={() => handleTabChange("rooming")}
                 className={`pb-2 flex items-center gap-2 transition-colors border-b-2 whitespace-nowrap ${
                   activeTab === "rooming"
                     ? "border-blue-600 text-blue-700"
@@ -80,9 +108,9 @@ export default function LogisticsDashboard({ supabase, gira, onBack, tab = "cove
                 <IconHotel size={16} /> Rooming
               </button>
 
-              {/* --- 4. VIÁTICOS (NUEVO) --- */}
+              {/* 4. VIÁTICOS */}
               <button
-                onClick={() => setActiveTab("viaticos")}
+                onClick={() => handleTabChange("viaticos")}
                 className={`pb-2 flex items-center gap-2 transition-colors border-b-2 whitespace-nowrap ${
                   activeTab === "viaticos"
                     ? "border-emerald-600 text-emerald-700"
@@ -116,13 +144,12 @@ export default function LogisticsDashboard({ supabase, gira, onBack, tab = "cove
                   />
                 </button>
 
-                {(isMealsMenuOpen || false) && (
+                {isMealsMenuOpen && (
                   <div className="absolute top-full left-0 mt-[-2px] bg-white border border-slate-200 rounded-b-lg shadow-xl z-50 flex flex-col min-w-[180px] py-1 animate-in fade-in zoom-in-95 duration-150">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setActiveTab("meals");
-                        setIsMealsMenuOpen(false);
+                        handleTabChange("meals");
                       }}
                       className={`px-4 py-2 text-left text-xs flex items-center gap-2 hover:bg-orange-50 ${
                         activeTab === "meals"
@@ -136,8 +163,7 @@ export default function LogisticsDashboard({ supabase, gira, onBack, tab = "cove
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setActiveTab("attendance");
-                        setIsMealsMenuOpen(false);
+                        handleTabChange("attendance");
                       }}
                       className={`px-4 py-2 text-left text-xs flex items-center gap-2 hover:bg-emerald-50 ${
                         activeTab === "attendance"
@@ -151,8 +177,7 @@ export default function LogisticsDashboard({ supabase, gira, onBack, tab = "cove
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setActiveTab("report");
-                        setIsMealsMenuOpen(false);
+                        handleTabChange("report");
                       }}
                       className={`px-4 py-2 text-left text-xs flex items-center gap-2 hover:bg-slate-50 ${
                         activeTab === "report"
@@ -191,7 +216,6 @@ export default function LogisticsDashboard({ supabase, gira, onBack, tab = "cove
           <MealsReport supabase={supabase} gira={gira} roster={roster} />
         )}
         
-        {/* CORRECCIÓN: Pasar program={gira} */}
         {activeTab === "rooming" && (
           <RoomingManager supabase={supabase} program={gira} />
         )}
@@ -200,7 +224,6 @@ export default function LogisticsDashboard({ supabase, gira, onBack, tab = "cove
           <GirasTransportesManager supabase={supabase} giraId={gira.id} />
         )}
 
-        {/* --- NUEVO: RENDERIZADO DE VIÁTICOS --- */}
         {activeTab === "viaticos" && gira?.id && (
           <ViaticosManager supabase={supabase} giraId={gira.id} />
         )}

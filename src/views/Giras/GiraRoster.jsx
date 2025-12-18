@@ -5,6 +5,7 @@ import {
   IconAlertCircle, IconCheck, IconChevronDown, IconMusic, IconMail, IconSettingsWheel, IconMap
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import MusicianForm from "../Musicians/MusicianForm"; // Importación necesaria
 
 // --- HELPERS DE UI ---
 const sortRosterList = (list, criterion) => {
@@ -115,7 +116,6 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, placeholder }
 };
 
 export default function GiraRoster({ supabase, gira, onBack }) {
-  // --- USAR HOOK ---
   const { roster: rawRoster, loading: hookLoading, sources, refreshRoster } = useGiraRoster(supabase, gira);
 
   const [localRoster, setLocalRoster] = useState([]);
@@ -136,6 +136,10 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const columnMenuRef = useRef(null);
 
+  // --- NUEVOS ESTADOS PARA CREACIÓN DETALLADA ---
+  const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
+  const [tempName, setTempName] = useState({ nombre: "", apellido: "" });
+
   // Dropdowns States
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [familiesList, setFamiliesList] = useState([]);
@@ -148,31 +152,26 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     fetchDropdownData();
   }, []);
 
-  // Sync Hook Data with Local UI State
   useEffect(() => {
     if (rawRoster) {
         setLocalRoster(sortRosterList(rawRoster, sortBy));
     }
   }, [rawRoster, sortBy]);
 
-  // Sync Sources UI with Hook Sources
   useEffect(() => {
       const inclEnsembles = new Set();
       const inclFamilies = new Set();
       const exclEnsembles = new Set();
-
       sources?.forEach((f) => {
         if (f.tipo === "ENSAMBLE") inclEnsembles.add(f.valor_id);
         if (f.tipo === "FAMILIA") inclFamilies.add(f.valor_texto);
         if (f.tipo === "EXCL_ENSAMBLE") exclEnsembles.add(f.valor_id);
       });
-
       setSelectedEnsembles(inclEnsembles);
       setSelectedFamilies(inclFamilies);
       setSelectedExclEnsembles(exclEnsembles);
   }, [sources]);
 
-  // --- BÚSQUEDA AUTOMÁTICA MEJORADA ---
   useEffect(() => {
     if (addMode === "individual" && searchTerm.length > 0) {
         searchIndividual(searchTerm);
@@ -201,30 +200,57 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     }
   };
 
-  // --- ACCIONES ---
+  const generateNumericId = () => Math.floor(10000000 + Math.random() * 90000000);
+
+  // --- LOGICA DE CREACIÓN ---
+  const handleOpenDetailedCreate = () => {
+    const parts = searchTerm.trim().split(" ");
+    setTempName({
+      nombre: parts[0] || "",
+      apellido: parts.slice(1).join(" ") || "",
+    });
+    setIsCreatingDetailed(true);
+  };
+
+  const handleDetailedSave = async (newMusician) => {
+    try {
+      const { error } = await supabase.from("giras_integrantes").insert([
+        {
+          id_gira: gira.id,
+          id_integrante: newMusician.id,
+          rol: "musico", // Rol predeterminado para adiciones manuales
+          estado: "confirmado",
+        },
+      ]);
+      if (error) throw error;
+      
+      setIsCreatingDetailed(false);
+      setSearchTerm("");
+      refreshRoster();
+      alert("Invitado creado y añadido al roster.");
+    } catch (error) {
+      alert("Error al vincular: " + error.message);
+    }
+  };
 
   const changeRole = async (musician, newRole) => {
-    // Actualización optimista local
     setLocalRoster(prev => {
         const newList = prev.map(m => m.id === musician.id ? { ...m, rol_gira: newRole } : m);
         return sortRosterList(newList, sortBy);
     });
-
     await supabase.from("giras_integrantes").upsert(
       { id_gira: gira.id, id_integrante: musician.id, rol: newRole, estado: musician.estado_gira },
       { onConflict: "id_gira, id_integrante" }
     );
-    refreshRoster(); // Sincronizar verdad
+    refreshRoster();
   };
 
   const toggleStatus = async (musician) => {
     const newStatus = musician.estado_gira === "confirmado" ? "ausente" : "confirmado";
-    
     setLocalRoster(prev => {
         const newList = prev.map(m => m.id === musician.id ? { ...m, estado_gira: newStatus } : m);
         return sortRosterList(newList, sortBy);
     });
-
     if (newStatus === "ausente") {
       await supabase.from("giras_integrantes").upsert(
         { id_gira: gira.id, id_integrante: musician.id, estado: newStatus, rol: musician.rol_gira },
@@ -275,36 +301,24 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     if (!error) refreshRoster();
   };
 
-  // --- BÚSQUEDA MEJORADA: Soporta "Nombre Apellido" ---
   const searchIndividual = async (term) => {
     const cleanTerm = term.trim();
     let query = supabase.from("integrantes").select("id, nombre, apellido, instrumentos(instrumento)");
-
     if (cleanTerm.includes(" ")) {
-        // Si hay espacios, se asume Nombre + Apellido
-        // Buscamos que el nombre coincida con la primera parte Y el apellido con la segunda
         const parts = cleanTerm.split(" ");
         const first = parts[0];
-        const second = parts.slice(1).join(" "); // Resto de la cadena
-        
+        const second = parts.slice(1).join(" ");
         query = query.ilike('nombre', `%${first}%`).ilike('apellido', `%${second}%`);
     } else {
-        // Si es una sola palabra, busca en nombre O apellido
         query = query.or(`nombre.ilike.%${cleanTerm}%,apellido.ilike.%${cleanTerm}%`);
     }
-
     const { data } = await query.limit(5);
-    
-    // Filtrar los que ya están en la lista
     const currentIds = new Set(localRoster.map((r) => r.id));
     setSearchResults(data ? data.filter((m) => !currentIds.has(m.id)) : []);
   };
 
   const copyMails = () => {
-    const mails = localRoster
-      .filter(m => m.estado_gira !== 'ausente' && m.mail)
-      .map(m => m.mail)
-      .join(', ');
+    const mails = localRoster.filter(m => m.estado_gira !== 'ausente' && m.mail).map(m => m.mail).join(', ');
     if (!mails) return alert("No hay correos.");
     navigator.clipboard.writeText(mails).then(() => alert("Correos copiados."));
   };
@@ -328,7 +342,8 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in duration-300">
       {/* HEADER */}
-<div className="bg-white p-4 border-b border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between shrink-0 gap-4 relative z-50">        <div className="flex items-center gap-4">
+      <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between shrink-0 gap-4 relative z-50">
+        <div className="flex items-center gap-4">
           <button onClick={onBack} className="text-slate-400 hover:text-indigo-600 font-medium text-sm flex items-center gap-1">← Volver</button>
           <div>
             <h2 className="text-xl font-bold text-slate-800">{gira.nombre_gira}</h2>
@@ -363,12 +378,10 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                 ))}
             </div>
         </div>
-
         <div className="flex items-center gap-2">
              <button onClick={copyMails} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-bold transition-colors">
                 <IconMail size={14}/> Copiar Mails
              </button>
-
              <div className="relative" ref={columnMenuRef}>
                 <button onClick={() => setShowColumnMenu(!showColumnMenu)} className={`flex items-center gap-1 px-3 py-1.5 border rounded text-xs font-bold transition-all ${showColumnMenu ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'}`}>
                     <IconSettingsWheel size={14}/> Columnas
@@ -405,17 +418,20 @@ export default function GiraRoster({ supabase, gira, onBack }) {
 
         {addMode === "individual" && (
           <div className="relative w-64 animate-in slide-in-from-left-2 mt-1">
-            {/* UPDATED PLACEHOLDER */}
             <input type="text" placeholder="Buscar nombre o apellido..." className="w-full border p-2 rounded text-sm outline-none bg-white shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-            {searchResults.length > 0 && (
-              <div className="absolute top-full left-0 w-full bg-white border mt-1 rounded shadow-xl z-50 max-h-60 overflow-y-auto">
-                {searchResults.map((m) => (
+            <div className="absolute top-full left-0 w-full bg-white border mt-1 rounded shadow-xl z-50 max-h-60 overflow-y-auto">
+              {searchResults.length > 0 ? (
+                searchResults.map((m) => (
                   <button key={m.id} onClick={() => addManualMusician(m.id)} className="w-full text-left p-2 hover:bg-slate-50 text-xs border-b">
                     <b>{m.apellido}, {m.nombre}</b> <span className="text-slate-400">({m.instrumentos?.instrumento})</span>
                   </button>
-                ))}
-              </div>
-            )}
+                ))
+              ) : searchTerm.trim().length > 0 && (
+                <button onClick={handleOpenDetailedCreate} className="w-full text-left p-3 bg-fuchsia-50 hover:bg-fuchsia-100 text-xs text-fuchsia-700 font-bold border-t border-fuchsia-200 flex items-center gap-2 transition-colors">
+                  <IconPlus size={14} /> Crear "{searchTerm}" como Invitado
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -456,7 +472,6 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                     </div>
                   </td>
                   <td className="p-3 text-slate-500 text-xs">{m.instrumentos?.instrumento || "-"}</td>
-
                   {visibleColumns.localidad && (
                       <td className="p-3 text-xs text-slate-600">
                           {m.localidades ? (
@@ -470,7 +485,6 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                   {visibleColumns.telefono && <td className="p-3 text-xs text-slate-600 truncate max-w-[120px]">{m.telefono || "-"}</td>}
                   {visibleColumns.mail && <td className="p-3 text-xs text-slate-600 truncate max-w-[150px]" title={m.mail}>{m.mail || "-"}</td>}
                   {visibleColumns.alimentacion && <td className="p-3 text-xs text-slate-600 truncate max-w-[100px]">{m.alimentacion || "-"}</td>}
-
                   <td className="p-3 text-center">
                     <button onClick={() => toggleStatus(m)} className={`w-8 h-8 rounded flex items-center justify-center text-xs font-bold transition-all shadow-sm mx-auto ${m.estado_gira === "ausente" ? "bg-white text-red-600 border border-red-200 hover:bg-red-50" : "bg-emerald-500 text-white border border-emerald-600 hover:bg-emerald-600"}`}>
                       {m.estado_gira === "ausente" ? "A" : "P"}
@@ -483,13 +497,32 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                   </td>
                 </tr>
               ))}
-              {localRoster.length === 0 && !hookLoading && (
+              {(localRoster.length === 0 && !hookLoading) && (
                 <tr><td colSpan="10" className="p-12 text-center text-slate-400 italic">Lista vacía.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* --- MODAL DETALLADO DE MÚSICO --- */}
+      {isCreatingDetailed && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 shadow-2xl" style={{ zIndex: 99999 }}>
+          <div className="w-full max-w-2xl animate-in zoom-in-95 duration-200">
+            <MusicianForm
+              supabase={supabase}
+              musician={{ 
+                id: generateNumericId(), 
+                nombre: tempName.nombre, 
+                apellido: tempName.apellido, 
+                condicion: "Invitado" 
+              }}
+              onSave={handleDetailedSave}
+              onCancel={() => setIsCreatingDetailed(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -28,11 +28,13 @@ import {
   IconColumns,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
+import { useSearchParams } from "react-router-dom"; // <--- 1. IMPORTAR HOOK
+
 import GiraForm from "./GiraForm";
 import GiraRoster from "./GiraRoster";
 import GiraAgenda from "./GiraAgenda";
 import ProgramRepertoire from "./ProgramRepertoire";
-import LogisticsDashboard from "./LogisticsDashboard"; // Ahora este maneja todo Logística
+import LogisticsDashboard from "./LogisticsDashboard";
 import AgendaGeneral from "./AgendaGeneral";
 import MusicianCalendar from "./MusicianCalendar";
 import WeeklyCalendar from "./WeeklyCalendar";
@@ -48,7 +50,7 @@ import DateInput from "../../components/ui/DateInput";
 import GiraDifusion from "./GiraDifusion";
 import InstrumentationManager from "../../components/roster/InstrumentationManager";
 
-// --- COMPONENTE DE MENÚ ACTUALIZADO ---
+// --- COMPONENTE DE MENÚ (Sin cambios mayores, solo en props) ---
 const GiraActionMenu = ({
   gira,
   onViewChange,
@@ -195,20 +197,17 @@ const GiraActionMenu = ({
                 onClick={() => onViewChange("AGENDA")}
               />
             </CategoryItem>
-            {/* 3. LOGÍSTICA (UNIFICADA EN UN DASHBOARD) */}
+            {/* 3. LOGÍSTICA */}
             <CategoryItem
               label="Logística"
               icon={IconSettingsWheel}
               categoryKey="logistica"
             >
-              {/* Tab: Reglas */}
               <SubMenuItem
                 icon={IconSettingsWheel}
                 label="Reglas"
                 onClick={() => onViewChange("LOGISTICS", "coverage")}
               />
-
-              {/* Tab: Transporte */}
               <SubMenuItem
                 icon={IconMap}
                 label="Transporte"
@@ -217,19 +216,16 @@ const GiraActionMenu = ({
 
               {isEditor && (
                 <>
-                  {/* Tab: Rooming */}
                   <SubMenuItem
                     icon={IconHotel}
                     label="Rooming"
                     onClick={() => onViewChange("LOGISTICS", "rooming")}
                   />
-                  {/* Tab: Viáticos */}
                   <SubMenuItem
                     icon={IconCalculator}
                     label="Viáticos"
                     onClick={() => onViewChange("LOGISTICS", "viaticos")}
                   />
-                  {/* Tab: Comidas */}
                   <SubMenuItem
                     icon={IconUtensils}
                     label="Comidas"
@@ -238,7 +234,6 @@ const GiraActionMenu = ({
                 </>
               )}
 
-              {/* Mis Comidas (Vista Personal Separada) */}
               {isPersonal && !isEditor && (
                 <SubMenuItem
                   icon={IconUtensils}
@@ -310,21 +305,41 @@ const GiraActionMenu = ({
   );
 };
 
+// --- COMPONENTE PRINCIPAL ACTUALIZADO ---
 export default function GirasView({ supabase }) {
   const { user, isEditor } = useAuth();
 
-  // Estado de la vista: mode (pantalla), data (gira), tab (pestaña interna)
-  const [view, setView] = useState({ mode: "LIST", data: null, tab: null });
+  // 2. REEMPLAZO DE STATE POR URL SEARCH PARAMS
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Leemos el estado directamente de la URL
+  const mode = searchParams.get("view") || "LIST"; // 'LIST', 'AGENDA', 'REPERTOIRE', etc.
+  const giraId = searchParams.get("giraId"); // ID numérico en string
+  const currentTab = searchParams.get("subTab"); // Sub-pestaña interna (ej: 'rooming')
 
   const [giras, setGiras] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Derivamos la Gira seleccionada basándonos en el ID de la URL
+  const selectedGira = useMemo(() => {
+    if (!giraId || giras.length === 0) return null;
+    return giras.find((g) => g.id.toString() === giraId);
+  }, [giras, giraId]);
+
+  // Helper para navegar actualizando la URL
+  const updateView = (newMode, newGiraId = null, newSubTab = null) => {
+    const params = { tab: "giras" }; // Mantenemos el tab principal
+    if (newMode && newMode !== "LIST") params.view = newMode;
+    if (newGiraId) params.giraId = newGiraId;
+    if (newSubTab) params.subTab = newSubTab;
+    
+    setSearchParams(params);
+  };
+
   const [commentsState, setCommentsState] = useState(null);
   const [globalCommentsGiraId, setGlobalCommentsGiraId] = useState(null);
-
   const [showRepertoireInCards, setShowRepertoireInCards] = useState(false);
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
-
   const [activeMenuId, setActiveMenuId] = useState(null);
 
   const [filterType, setFilterType] = useState(
@@ -601,14 +616,15 @@ export default function GirasView({ supabase }) {
   };
 
   const handleCommentNavigation = (type, entityId) => {
+    // Busca en la lista actual la gira relevante (esto es algo limitado si la gira no está cargada)
     const currentGira = giras.find((g) => g.id === globalCommentsGiraId);
     if (!currentGira) return;
     setGlobalCommentsGiraId(null);
-    if (type === "EVENTO") setView({ mode: "AGENDA", data: currentGira });
-    else if (type === "OBRA")
-      setView({ mode: "REPERTOIRE", data: currentGira });
-    else if (type === "HABITACION")
-      setView({ mode: "LOGISTICS", data: currentGira, tab: "rooming" });
+    
+    // Navegación con URL
+    if (type === "EVENTO") updateView("AGENDA", currentGira.id);
+    else if (type === "OBRA") updateView("REPERTOIRE", currentGira.id);
+    else if (type === "HABITACION") updateView("LOGISTICS", currentGira.id, "rooming");
   };
 
   const filteredGiras = useMemo(() => {
@@ -858,6 +874,7 @@ export default function GirasView({ supabase }) {
     { mode: "DIFUSION", label: "Difusión", icon: IconMegaphone },
   ];
 
+  // Identificamos si estamos en una vista de detalle (requiere selectedGira o ser un modo específico sin gira)
   const isDetailView =
     [
       "AGENDA",
@@ -867,28 +884,28 @@ export default function GirasView({ supabase }) {
       "MEALS_PERSONAL",
       "SEATING",
       "DIFUSION",
-    ].includes(view.mode) && view.data;
+    ].includes(mode) && selectedGira;
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm shrink-0">
+      <div className="bg-white border-b border-slate-200 sticky top-0 shadow-sm shrink-0 z-40">
         {isDetailView ? (
           <div className="px-4 py-2 flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
             <div className="flex items-center gap-3 w-full sm:w-auto">
               <button
-                onClick={() => setView({ mode: "LIST", data: null })}
+                onClick={() => updateView("LIST")} // Usamos updateView
                 className="p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors"
                 title="Volver al listado"
               >
                 <IconArrowLeft size={20} />
               </button>
               <div className="flex flex-col overflow-hidden">
-                <h2 className="text-m font-bold text-slate-800 truncate leading-tight">{`${view.data.mes_letra} | ${view.data.nomenclador}. ${view.data.nombre_gira}`}</h2>
+                <h2 className="text-m font-bold text-slate-800 truncate leading-tight">{`${selectedGira.mes_letra} | ${selectedGira.nomenclador}. ${selectedGira.nombre_gira}`}</h2>
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <span className="font-medium bg-indigo-50 text-indigo-700 px-1.5 rounded">
-                    {view.data.tipo}
+                    {selectedGira.tipo}
                   </span>
-                  <span className="truncate">{view.data.zona}</span>
+                  <span className="truncate">{selectedGira.zona}</span>
                 </div>
               </div>
             </div>
@@ -902,11 +919,11 @@ export default function GirasView({ supabase }) {
                       item.mode === "REPERTOIRE"
                   )
                   .map((item) => {
-                    const isActive = view.mode === item.mode;
+                    const isActive = mode === item.mode;
                     return (
                       <button
                         key={item.mode}
-                        onClick={() => setView({ ...view, mode: item.mode })}
+                        onClick={() => updateView(item.mode, selectedGira.id)}
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap ${
                           isActive
                             ? "bg-white text-indigo-600 shadow-sm"
@@ -925,30 +942,30 @@ export default function GirasView({ supabase }) {
           <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                {view.mode === "CALENDAR" ? (
+                {mode === "CALENDAR" ? (
                   <IconCalendar className="text-indigo-600" />
-                ) : view.mode === "WEEKLY" ? (
+                ) : mode === "WEEKLY" ? (
                   <IconColumns className="text-indigo-600" />
-                ) : view.mode === "FULL_AGENDA" ? (
+                ) : mode === "FULL_AGENDA" ? (
                   <IconMusic className="text-indigo-600" />
                 ) : (
                   <IconMap className="text-indigo-600" />
                 )}
                 <span className="hidden sm:inline">
-                  {view.mode === "CALENDAR"
+                  {mode === "CALENDAR"
                     ? "Calendario Mensual"
-                    : view.mode === "WEEKLY"
+                    : mode === "WEEKLY"
                     ? "Vista Semanal"
-                    : view.mode === "FULL_AGENDA"
+                    : mode === "FULL_AGENDA"
                     ? "Agenda Completa"
                     : "Programas"}
                 </span>
               </h2>
               <div className="flex bg-slate-100 p-0.5 rounded-lg ml-2">
                 <button
-                  onClick={() => setView({ mode: "LIST", data: null })}
+                  onClick={() => updateView("LIST")}
                   className={`p-1.5 rounded-md transition-all ${
-                    ["LIST"].includes(view.mode)
+                    ["LIST"].includes(mode)
                       ? "bg-white shadow-sm text-indigo-600"
                       : "text-slate-400 hover:text-slate-600"
                   }`}
@@ -957,9 +974,9 @@ export default function GirasView({ supabase }) {
                   <IconList size={18} />
                 </button>
                 <button
-                  onClick={() => setView({ mode: "CALENDAR", data: null })}
+                  onClick={() => updateView("CALENDAR")}
                   className={`p-1.5 rounded-md transition-all ${
-                    view.mode === "CALENDAR"
+                    mode === "CALENDAR"
                       ? "bg-white shadow-sm text-indigo-600"
                       : "text-slate-400 hover:text-slate-600"
                   }`}
@@ -968,9 +985,9 @@ export default function GirasView({ supabase }) {
                   <IconCalendar size={18} />
                 </button>
                 <button
-                  onClick={() => setView({ mode: "WEEKLY", data: null })}
+                  onClick={() => updateView("WEEKLY")}
                   className={`p-1.5 rounded-md transition-all ${
-                    view.mode === "WEEKLY"
+                    mode === "WEEKLY"
                       ? "bg-white shadow-sm text-indigo-600"
                       : "text-slate-400 hover:text-slate-600"
                   }`}
@@ -979,9 +996,9 @@ export default function GirasView({ supabase }) {
                   <IconColumns size={18} />
                 </button>
                 <button
-                  onClick={() => setView({ mode: "FULL_AGENDA", data: null })}
+                  onClick={() => updateView("FULL_AGENDA")}
                   className={`p-1.5 rounded-md transition-all ${
-                    view.mode === "FULL_AGENDA"
+                    mode === "FULL_AGENDA"
                       ? "bg-white shadow-sm text-indigo-600"
                       : "text-slate-400 hover:text-slate-600"
                   }`}
@@ -991,7 +1008,7 @@ export default function GirasView({ supabase }) {
                 </button>
               </div>
             </div>
-            {view.mode === "LIST" && (
+            {mode === "LIST" && (
               <div className="p-2 md:p-4 space-y-3 md:space-y-0 md:flex md:items-center md:gap-4 pb-20 md:pb-4">
                 {" "}
                 <button
@@ -1023,7 +1040,7 @@ export default function GirasView({ supabase }) {
             )}
           </div>
         )}
-        {showFiltersMobile && view.mode === "LIST" && (
+        {showFiltersMobile && mode === "LIST" && (
           <div className="md:hidden px-4 pb-3 flex flex-col gap-2">
             <button
               onClick={() => setShowRepertoireInCards(!showRepertoireInCards)}
@@ -1047,68 +1064,68 @@ export default function GirasView({ supabase }) {
       </div>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
-        {view.mode === "FULL_AGENDA" && <AgendaGeneral supabase={supabase} />}
-        {view.mode === "CALENDAR" && <MusicianCalendar supabase={supabase} />}
-        {view.mode === "WEEKLY" && (
+        {mode === "FULL_AGENDA" && <AgendaGeneral supabase={supabase} />}
+        {mode === "CALENDAR" && <MusicianCalendar supabase={supabase} />}
+        {mode === "WEEKLY" && (
           <WeeklyCalendar
             rawEvents={allCalendarEvents}
             tours={giras}
             updateEventInSupabase={handleUpdateCalendarEvent}
           />
         )}
-        {view.mode === "AGENDA" && (
+        
+        {/* Renderizado de Detalles - Solo si selectedGira existe */}
+        {mode === "AGENDA" && selectedGira && (
           <GiraAgenda
             supabase={supabase}
-            gira={view.data}
-            onBack={() => setView({ mode: "LIST", data: null })}
+            gira={selectedGira}
+            onBack={() => updateView("LIST")}
           />
         )}
-        {view.mode === "REPERTOIRE" && (
+        {mode === "REPERTOIRE" && selectedGira && (
           <ProgramRepertoire
             supabase={supabase}
-            program={view.data}
-            initialTab={view.tab}
-            onBack={() => setView({ mode: "LIST", data: null })}
+            program={selectedGira}
+            initialTab={currentTab}
+            onBack={() => updateView("LIST")}
           />
         )}
-        {view.mode === "SEATING" && (
+        {mode === "SEATING" && selectedGira && (
           <ProgramSeating
             supabase={supabase}
-            program={view.data}
-            onBack={() => setView({ mode: "LIST", data: null })}
+            program={selectedGira}
+            onBack={() => updateView("LIST")}
           />
         )}
-        {view.mode === "ROSTER" && (
+        {mode === "ROSTER" && selectedGira && (
           <GiraRoster
             supabase={supabase}
-            gira={view.data}
-            onBack={() => setView({ mode: "LIST", data: null })}
+            gira={selectedGira}
+            onBack={() => updateView("LIST")}
           />
         )}
-        {view.mode === "DIFUSION" && (
+        {mode === "DIFUSION" && selectedGira && (
           <GiraDifusion
             supabase={supabase}
-            gira={view.data}
-            onBack={() => setView({ mode: "LIST", data: null })}
+            gira={selectedGira}
+            onBack={() => updateView("LIST")}
           />
         )}
 
-        {/* --- UNIFICADO: TODO LOGÍSTICA EN UN DASHBOARD --- */}
-        {view.mode === "LOGISTICS" && (
+        {mode === "LOGISTICS" && selectedGira && (
           <LogisticsDashboard
             supabase={supabase}
-            gira={view.data}
-            initialTab={view.tab} // Pasar la pestaña clickeada
-            onBack={() => setView({ mode: "LIST", data: null })}
+            gira={selectedGira}
+            initialTab={currentTab}
+            onBack={() => updateView("LIST")}
           />
         )}
 
-        {/* --- VISTA PERSONAL SE MANTIENE SEPARADA --- */}
-        {view.mode === "MEALS_PERSONAL" && (
+        {mode === "MEALS_PERSONAL" && selectedGira && (
           <div className="h-full flex flex-col bg-slate-50">
             <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-2 shrink-0">
               <button
-                onClick={() => setView({ mode: "LIST", data: null })}
+                onClick={() => updateView("LIST")}
                 className="p-2 hover:bg-slate-100 rounded-full text-slate-500"
               >
                 <IconArrowLeft size={20} />
@@ -1116,21 +1133,28 @@ export default function GirasView({ supabase }) {
               <h2 className="text-lg font-bold text-slate-800">
                 Mi Asistencia -{" "}
                 <span className="text-slate-500 text-sm font-normal">
-                  {view.data.nombre_gira}
+                  {selectedGira.nombre_gira}
                 </span>
               </h2>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               <MealsAttendancePersonal
                 supabase={supabase}
-                gira={view.data}
+                gira={selectedGira}
                 userId={user.id}
               />
             </div>
           </div>
         )}
 
-        {view.mode === "LIST" && (
+        {/* --- CARGANDO --- */}
+        {loading && !selectedGira && mode !== "LIST" && mode !== "CALENDAR" && (
+           <div className="flex h-full items-center justify-center text-slate-400">
+             <IconLoader className="animate-spin mr-2" /> Cargando programa...
+           </div>
+        )}
+
+        {mode === "LIST" && (
           <div className="p-4 space-y-4">
             {isEditor && !editingId && (
               <>
@@ -1242,9 +1266,7 @@ export default function GirasView({ supabase }) {
                     <div className="flex justify-between items-start gap-2">
                       <div
                         className="cursor-pointer flex-1 min-w-0"
-                        onClick={() =>
-                          setView({ mode: "REPERTOIRE", data: gira })
-                        }
+                        onClick={() => updateView("REPERTOIRE", gira.id)} // Cambiado a updateView
                       >
                         <div className="flex flex-col gap-1 mb-2">
                           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -1321,9 +1343,7 @@ export default function GirasView({ supabase }) {
                         />
                         <GiraActionMenu
                           gira={gira}
-                          onViewChange={(mode, tab) =>
-                            setView({ mode, data: gira, tab })
-                          }
+                          onViewChange={(mode, tab) => updateView(mode, gira.id, tab)} // Cambiado a updateView
                           isEditor={isEditor}
                           isPersonal={isPersonal}
                           onEdit={() => startEdit(gira)}
