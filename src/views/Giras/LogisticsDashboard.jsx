@@ -221,7 +221,8 @@ export default function LogisticsDashboard({ supabase, gira, onBack }) {
         )}
         
         {activeTab === "transporte" && gira?.id && (
-          <GirasTransportesManager supabase={supabase} giraId={gira.id} />
+          // CORRECCIÓN: Pasamos 'gira={gira}' en lugar de 'giraId={gira.id}'
+          <GirasTransportesManager supabase={supabase} gira={gira} />
         )}
 
         {activeTab === "viaticos" && gira?.id && (

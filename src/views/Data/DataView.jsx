@@ -7,6 +7,7 @@ import {
   IconCalendar,
   IconMusic,
   IconGlobe,
+  IconTruck,
   IconFileText, // <--- Asegúrate de importar un ícono para la hoja (o usa uno existente)
 } from "../../components/ui/Icons";
 import SheetEditor from './SheetEditor';
@@ -106,7 +107,7 @@ export default function DataView({ supabase }) {
           type: "select",
           options: [
             { value: "Maderas", label: "Maderas" },
-            { value: "Metales", label: "Metales" },
+            { value: "Bronces", label: "Bronces" },
             { value: "Percusión", label: "Percusión" },
             { value: "Cuerdas", label: "Cuerdas" },
             { value: "Teclas/Otros", label: "Teclas/Otros" },
@@ -122,6 +123,15 @@ export default function DataView({ supabase }) {
       columns: [
         { key: "nombre", label: "Nombre País", type: "text" },
         { key: "iso", label: "ISO Code", type: "text" },
+      ],
+    },
+    transportes: {
+      label: "Transporte",
+      icon: IconTruck,
+      table: "transportes",
+      columns: [
+        { key: "id", label: "ID", type: "number" },
+        { key: "nombre", label: "Nombre", type: "text" },
       ],
     },
     // NOTA: No agregamos "hoja_calculo" aquí porque no es una UniversalTable estándar

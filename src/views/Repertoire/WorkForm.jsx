@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-// ... imports igual que antes ...
+import { createPortal } from "react-dom";
 import {
   IconMusic, IconPlus, IconTrash, IconSearch, IconLoader, IconCheck, IconX, IconLink,
   IconExternalLink, IconDrive, IconFolderMusic, IconAlertCircle
@@ -10,7 +10,6 @@ import DriveMatcherModal from "../../components/repertoire/DriveMatcherModal";
 import LinksManagerModal from "../../components/repertoire/LinksManagerModal"; 
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
 
-// ... (ModalPortal, capitalizeWords, useDebouncedCallback igual) ...
 const ModalPortal = ({ children }) => {
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -33,7 +32,6 @@ function useDebouncedCallback(callback, delay) {
 }
 
 export default function WorkForm({ supabase, formData: initialData, onCancel, onSave, isNew, catalogoInstrumentos }) {
-  // ... (Estados iniciales iguales) ...
   const [formData, setFormData] = useState({
     id: null, titulo: "", duracion: "", link_drive: "", link_youtube: "", instrumentacion: "", anio: "", estado: "Oficial"
   });
@@ -90,7 +88,6 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
     }
   }, [initialData?.id]);
 
-  // ... (Fetchers y Autosave iguales) ...
   const fetchWorkDetails = async (workId) => {
       const { data } = await supabase
         .from('obras')
@@ -151,7 +148,7 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
           setSaveStatus("saved");
           setTimeout(() => setSaveStatus("idle"), 2000);
           
-          if(onSave) onSave(formData.id, false); // false = no cerrar modal
+          if(onSave) onSave(formData.id, false); 
 
       } catch (e) {
           console.error("Autosave error:", e);
@@ -194,10 +191,8 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
       } catch (e) { console.error("Error updating composer:", e); }
   };
 
-  // --- LÓGICA DE CREACIÓN DE COMPOSITOR AL VUELO ---
   const handleCreateComposer = async (queryText, type) => {
       if (!queryText.trim()) return;
-      // Formato esperado: "Apellido, Nombre" o solo "Apellido"
       const parts = queryText.split(",");
       const apellido = parts[0].trim();
       const nombre = parts[1] ? parts[1].trim() : "";
@@ -209,11 +204,7 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
               .select().single();
           
           if (error) throw error;
-          
-          // Actualizar lista local
           setComposersList(prev => [...prev, data].sort((a,b) => a.apellido.localeCompare(b.apellido)));
-          
-          // Seleccionar automáticamente
           if (type === 'compositor') {
               handleSelectComposer(data);
           } else {
@@ -227,7 +218,6 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
       }
   };
 
-  // ... (handlePartsChange, handleCreateInitial, handleAddParts iguales) ...
   const handlePartsChange = async (newPartsList, overrideId = null) => {
       const targetId = overrideId || formData.id;
       setParticellas(newPartsList);
@@ -295,7 +285,6 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
           if (particellas.length > 0) await handlePartsChange(particellas, newId);
           setFormData(prev => ({ ...prev, id: newId }));
           
-          // true = es nueva, cerrar el modal si se desea o solo refrescar la lista
           if(onSave) onSave(newId, true); 
           setSaveStatus("saved");
       } catch (e) {
@@ -341,12 +330,10 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
   const handleEditPart = (tempId, field, value) => {
       const updated = particellas.map(p => p.tempId === tempId ? { ...p, [field]: value } : p);
       setParticellas(updated);
-      // No guardamos en onChange para no saturar, confiamos en onBlur
   };
   const handleBlurPart = () => { handlePartsChange(particellas); };
   const handleRemovePart = (tempId) => { const updated = particellas.filter(p => p.tempId !== tempId); handlePartsChange(updated); };
 
-  // Compositores UI
   const filteredComposers = composersList.filter(c => `${c.apellido}, ${c.nombre}`.toLowerCase().includes(composerQuery.toLowerCase()));
   const filteredArrangers = composersList.filter(c => `${c.apellido}, ${c.nombre}`.toLowerCase().includes(arrangerQuery.toLowerCase()));
 
@@ -370,10 +357,26 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* ... Inputs de Titulo, Duración, Año, Instrumentación ... */}
-          <div className="col-span-full"><label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Título</label><textarea rows={2} className="w-full border p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none resize-none text-lg font-bold" value={formData.titulo} onChange={e => updateField("titulo", e.target.value)} placeholder="Ej: Sinfonía n.5" autoFocus/></div>
+          {/* TÍTULO Y ESTADO */}
+          <div className="col-span-full flex gap-4 items-start">
+              <div className="flex-1">
+                  <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Título</label>
+                  <textarea rows={2} className="w-full border p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none resize-none text-lg font-bold" value={formData.titulo} onChange={e => updateField("titulo", e.target.value)} placeholder="Ej: Sinfonía n.5" autoFocus/>
+              </div>
+              <div className="w-32 shrink-0">
+                  <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Estado</label>
+                  <select 
+                      className="w-full border p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm h-[58px] bg-white cursor-pointer"
+                      value={formData.estado}
+                      onChange={(e) => updateField("estado", e.target.value)}
+                  >
+                      <option value="Oficial">Oficial</option>
+                      <option value="Solicitud">Solicitud</option>
+                  </select>
+              </div>
+          </div>
           
-          {/* COMPOSITOR CON CREACIÓN */}
+          {/* COMPOSITOR */}
           <div className="relative">
               <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Compositor</label>
               {selectedComposer ? (
@@ -384,7 +387,6 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
                     {showComposerOptions && composerQuery && (
                         <div className="absolute top-full left-0 w-full bg-white border shadow-xl z-50 max-h-48 overflow-y-auto">
                             {filteredComposers.map(c => (<div key={c.id} className="p-2 hover:bg-slate-50 cursor-pointer text-sm" onClick={() => handleSelectComposer(c)}>{c.apellido}, {c.nombre}</div>))}
-                            {/* Opción de crear si no hay match exacto */}
                             <div 
                                 className="p-2 bg-indigo-50 hover:bg-indigo-100 cursor-pointer text-sm font-bold text-indigo-700 border-t border-indigo-100 flex items-center gap-2"
                                 onClick={() => handleCreateComposer(composerQuery, 'compositor')}
@@ -397,6 +399,7 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
               )}
           </div>
 
+          {/* ARREGLADOR */}
           <div className="relative">
               <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Arreglador</label>
               {selectedArranger ? (
@@ -419,12 +422,14 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
               )}
           </div>
 
-          {/* ... Resto de inputs (duracion, anio, instrumentacion, link drive) ... */}
+          {/* Duracion y Año */}
           <div className="grid grid-cols-2 gap-4">
             <div><label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Duración</label><input type="text" className="input" value={formData.duracion} onChange={e => updateField("duracion", e.target.value)} placeholder="00:00"/></div>
             <div><label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Año</label><input type="number" className="input" value={formData.anio} onChange={e => updateField("anio", e.target.value)} placeholder="1804"/></div>
           </div>
+          
           <div className="col-span-full"><label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Instrumentación</label><input type="text" className="input font-mono bg-slate-50 w-full" value={formData.instrumentacion} onChange={e => updateField("instrumentacion", e.target.value)} /></div>
+          
           <div className="col-span-full relative"><label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block flex items-center gap-2">Link Drive <IconDrive size={12}/></label>
               <div className="flex gap-2"><input type="text" className="input text-blue-600" value={formData.link_drive} onChange={e => updateField("link_drive", e.target.value)} placeholder="https://drive.google.com/..."/>{formData.id && formData.link_drive && <button onClick={() => setShowDriveMatcher(true)} className="bg-blue-600 text-white px-3 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-1 whitespace-nowrap text-sm font-bold animate-in zoom-in"><IconLink size={16}/> Asignar Archivos</button>}</div>
           </div>
@@ -450,7 +455,7 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
                         <div className="w-20"><label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">Cant.</label><input type="number" min="1" className="input text-center" value={genQuantity} onChange={e => setGenQuantity(parseInt(e.target.value))} onKeyDown={handleGenKeyDown} /></div>
                         <button onClick={handleAddParts} className="bg-indigo-600 text-white px-4 py-2 rounded h-[38px] hover:bg-indigo-700 shadow-sm"><IconPlus/></button>
                   </div>
-                  {/* Vista Lista Previa */}
+                  
                   <div className="flex flex-col gap-2 opacity-70">
                         {particellas.map(p => (
                             <div key={p.tempId} className="flex items-center justify-between p-2 border rounded bg-white"><span className="text-xs font-bold">{p.nombre_archivo}</span></div>
@@ -467,7 +472,6 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
                     <button onClick={handleAddParts} className="bg-indigo-600 text-white px-4 py-2 rounded h-[38px] hover:bg-indigo-700 shadow-sm"><IconPlus/></button>
                 </div>
                 
-                {/* LISTA DE PARTICELLAS (CAMBIADA DE GRID A FLEX-COL) */}
                 <div className="flex flex-col gap-2">
                     {particellas.map(p => (
                         <div key={p.tempId} className="flex items-center gap-2 p-2 border rounded bg-white hover:shadow-sm transition-shadow group">
@@ -478,7 +482,7 @@ export default function WorkForm({ supabase, formData: initialData, onCancel, on
                                     className="w-full text-sm font-medium border-none p-0 focus:ring-0 text-slate-700 truncate" 
                                     value={p.nombre_archivo} 
                                     onChange={e => handleEditPart(p.tempId, "nombre_archivo", e.target.value)} 
-                                    onBlur={handleBlurPart} // <--- GUARDA AL SALIR
+                                    onBlur={handleBlurPart} 
                                 />
                                 <div className="flex gap-2 mt-1 flex-wrap">
                                     {p.links && p.links.map((l, i) => (<a key={i} href={l.url} target="_blank" className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 flex items-center gap-1 truncate max-w-[150px] hover:underline" title={l.url}><IconLink size={10}/> {l.description || "Link"}</a>))}

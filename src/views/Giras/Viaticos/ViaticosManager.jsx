@@ -217,6 +217,8 @@ export default function ViaticosManager({ supabase, giraId }) {
     lugar_comision: "",
     link_drive: "",
   });
+  const saveTimeoutRef = useRef(null);
+  const pendingUpdatesRef = useRef({});
   const [printMenuId, setPrintMenuId] = useState(null); // Para saber qué menú de fila está abierto
 
   const { roster: fullRoster } = useGiraRoster(supabase, { id: giraId });
@@ -331,9 +333,7 @@ export default function ViaticosManager({ supabase, giraId }) {
       }
       const { data: detalles } = await supabase
         .from("giras_viaticos_detalle")
-        .select(
-          `*, integrantes(firma)`
-        )
+        .select(`*, integrantes(firma)`)
         .order("id");
       setViaticosRows(detalles || []);
     } catch (error) {
@@ -532,14 +532,42 @@ export default function ViaticosManager({ supabase, giraId }) {
     else setSelection(new Set(activeRows.map((r) => r.id_integrante)));
   };
 
-  const updateConfig = async (key, val) => {
-    await supabase
-      .from("giras_viaticos_config")
-      .update({ [key]: val })
-      .eq("id_gira", giraId);
+  const updateConfig = (key, val) => {
+    // A. Actualización visual inmediata (para que no se trabe el input)
     setConfig((prev) => ({ ...prev, [key]: val }));
+
+    // B. Acumulamos el cambio pendiente en la referencia
+    pendingUpdatesRef.current = { ...pendingUpdatesRef.current, [key]: val };
+
+    // C. Si había un guardado programado, lo cancelamos
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // D. Programamos el nuevo guardado para dentro de 1 segundo (1000ms)
+    saveTimeoutRef.current = setTimeout(async () => {
+      const changesToSave = pendingUpdatesRef.current;
+      // Limpiamos los pendientes para el próximo lote
+      pendingUpdatesRef.current = {};
+
+      try {
+        await supabase
+          .from("giras_viaticos_config")
+          .update(changesToSave)
+          .eq("id_gira", giraId);
+        // console.log("Configuración guardada en DB");
+      } catch (err) {
+        console.error("Error guardando config:", err);
+      }
+    }, 1000);
   };
 
+  // 3. AGREGAR ESTE EFFECT PARA LIMPIEZA (Opcional pero recomendado)
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, []);
   const applyBatch = async () => {
     if (selection.size === 0) return;
     setLoading(true);
@@ -648,7 +676,12 @@ export default function ViaticosManager({ supabase, giraId }) {
 
     const base64 = pdf.output("datauristring").split(",")[1];
 
-    const prefix = mode === "destaque" ? "Destaque" : mode === "rendicion" ? "Rendición" : "Viaticos";
+    const prefix =
+      mode === "destaque"
+        ? "Destaque"
+        : mode === "rendicion"
+        ? "Rendición"
+        : "Viaticos";
 
     // Retornamos promesa de subida
     return supabase.functions.invoke("manage-drive", {

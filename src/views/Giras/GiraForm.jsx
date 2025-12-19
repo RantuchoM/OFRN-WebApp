@@ -18,6 +18,8 @@ import {
   IconSearch,
   IconUserPlus,
   IconUserMinus,
+  IconLink,
+  IconCopy
 } from "../../components/ui/Icons";
 import LocationMultiSelect from "../../components/filters/LocationMultiSelect";
 import DateInput from "../../components/ui/DateInput";
@@ -237,6 +239,21 @@ export default function GiraForm({
     hora: "20:00",
     id_locacion: "",
   });
+  const generatePublicToken = () => {
+    const newToken = self.crypto.randomUUID();
+    setFormData({ ...formData, token_publico: newToken });
+  };
+
+  const copyGeneralLink = async () => {
+    if (!formData.token_publico) return;
+    const url = `${window.location.origin}/share/${formData.token_publico}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      alert("Enlace general copiado al portapapeles.");
+    } catch (e) {
+      prompt("Copia este enlace:", url);
+    }
+  };
   const [conciertoTypeId, setConciertoTypeId] = useState(null);
   const [editingConcertId, setEditingConcertId] = useState(null);
   const [locSearchText, setLocSearchText] = useState("");
@@ -718,6 +735,47 @@ export default function GiraForm({
           </div>
         </div>
       </div>
+      {/* --- NUEVA SECCIÓN: ENLACE PÚBLICO GENERAL --- */}
+      {!isNew && ( // Solo mostramos esto si la gira ya existe (o si permites crearlo al inicio)
+        <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+          <div className="flex items-center gap-2 mb-3">
+            <IconLink className="text-indigo-600" />
+            <h3 className="text-sm font-bold text-slate-700">
+              Enlace de Invitado General
+            </h3>
+          </div>
+          <p className="text-xs text-slate-500 mb-3">
+            Este enlace permite ver la Agenda y Repertorio a cualquier persona
+            que lo tenga, sin mostrar información personal ni comidas.
+          </p>
+
+          <div className="flex gap-2">
+            <div className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-600 font-mono truncate select-all">
+              {formData.token_publico
+                ? `${window.location.origin}/share/${formData.token_publico}`
+                : "No hay enlace generado"}
+            </div>
+
+            {!formData.token_publico ? (
+              <button
+                onClick={generatePublicToken}
+                type="button"
+                className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors"
+              >
+                Generar
+              </button>
+            ) : (
+              <button
+                onClick={copyGeneralLink}
+                type="button"
+                className="px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-50 flex items-center gap-1"
+              >
+                <IconCopy size={14} /> Copiar
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* FOOTER */}
       <div className="flex justify-end gap-2 mt-8 pt-3 border-t border-indigo-100/50">

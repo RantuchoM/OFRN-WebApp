@@ -112,6 +112,18 @@ export function AuthProvider({ children }) {
         return { success: false, error: err.message };
     }
   };
+  // --- 4. LOGIN DE INVITADO (NUEVO) ---
+  const loginAsGuest = (guestUser) => {
+    // Seteamos el usuario en memoria, pero NO en localStorage
+    // Forzamos un rol de solo lectura
+    const guestWithRole = {
+      ...guestUser,
+      rol_sistema: "invitado", // Rol especial restringido
+    };
+    setUser(guestWithRole);
+    setLoading(false);
+  };
+
 
   const logout = () => {
     localStorage.removeItem("app_user");
@@ -127,9 +139,12 @@ export function AuthProvider({ children }) {
     logout,
     recoverPassword,
     changePassword,
+    loginAsGuest, // <--- EXPORTAR AQUÍ
     isAdmin: user?.rol_sistema === "admin",
     isEditor: user?.rol_sistema === "editor" || user?.rol_sistema === "admin",
     isGeneral: user?.rol_sistema === "consulta_general",
+        isGuest: user?.rol_sistema === "invitado", 
+
     userName: user ? `${user.nombre} ${user.apellido}` : "",
   };
 

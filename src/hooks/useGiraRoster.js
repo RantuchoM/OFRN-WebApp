@@ -71,15 +71,16 @@ export function useGiraRoster(supabase, gira) {
         return;
       }
 
-      // 4. Obtener Datos Completos (AGREGADOS documentacion y docred)
+      // 4. Obtener Datos Completos (CORRECCIÓN: Se agregaron dni, fecha_nacimiento, genero)
       const { data: musicians, error: errMusicians } = await supabase
         .from("integrantes")
         .select(`
             id, nombre, apellido, fecha_alta, fecha_baja, condicion, 
             telefono, mail, alimentacion, id_instr, id_localidad,
             documentacion, docred, firma,
+            dni, fecha_nac, genero,
             instrumentos(instrumento, familia),
-            localidades(localidad, regiones(region))
+            localidades(localidad, id_region, regiones(region)) 
         `)
         .in("id", Array.from(allPotentialIds));
 
@@ -117,6 +118,7 @@ export function useGiraRoster(supabase, gira) {
         if (isBaseIncluded && !isExcluded) {
            const alta = m.fecha_alta ? new Date(m.fecha_alta) : null;
            const baja = m.fecha_baja ? new Date(m.fecha_baja) : null;
+           // Lógica de fechas
            const startsBeforeEnd = !alta || (alta <= giraFin);
            const endsAfterStart = !baja || (baja >= giraInicio);
            if (startsBeforeEnd && endsAfterStart) {

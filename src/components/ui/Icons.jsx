@@ -53,7 +53,58 @@ export const IconMusic = ({ size = 24, className = "" }) => (
     <path d="M190.85 451.25c11.66 14.72 32.32 24.49 55.84 24.49 36.4 0 65.89-23.37 65.89-52.21 0-28.84-29.49-52.21-65.89-52.21-20.31 4.15-28.59 9-33.14-2.91 17.98-54.33 46.92-66.71 96.55-66.71 65.91 0 96.97 59.9 96.97 142.97-18.23 190.63-205.95 286.75-246.57 316.19 5.69 13.1 5.4 12.63 5.4 12.01 189.78-86.2 330.69-204.43 330.69-320.74 0-92.42-58.58-175.59-187.72-172.8-77.58 0-170.32 86.2-118 171.93z m328.1 89.88c0-17.85-14.47-32.32-32.32-32.32-17.85 0-32.32 14.47-32.32 32.32 0 17.85 14.47 32.32 32.32 32.32 17.85 0 32.32-14.47 32.32-32.32zm0 136.75c0-17.85-14.47-32.32-32.32-32.32-17.85 0-32.32 14.47-32.32 32.32 0 17.85 14.47 32.32 32.32 32.32 17.85 0 32.32-14.47 32.32-32.32z" />
   </svg>
 );
+export const IconCopy = ({ size = 24, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </svg>
+);
+export const IconUserCheck = ({ size = 24, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <polyline points="16 11 18 13 22 9" />
+  </svg>
+);
 
+export const IconUserX = ({ size = 24, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <line x1="17" y1="8" x2="22" y2="13" />
+    <line x1="22" y1="8" x2="17" y2="13" />
+  </svg>
+);
 export const IconSettingsWheel = ({ size = 24, className = "" }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"

@@ -64,30 +64,20 @@ export default function UnifiedAgenda({
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // --- ESTADO PARA CONTROL DE MESES VISIBLES ---
   const [monthsLimit, setMonthsLimit] = useState(3);
-
-  // --- ESTADOS PARA FILTROS (POR CATEGORÍA) ---
   const [availableCategories, setAvailableCategories] = useState([]);
-  // Por defecto: Conciertos (1) y Ensayos (2)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([1, 2]);
   
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterRef = useRef(null);
   useOutsideAlerter(filterRef, () => setIsFilterOpen(false));
 
-  // --- ESTADOS PARA MODALES ---
   const [commentsState, setCommentsState] = useState(null);
-  
-  // Estado Edición
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editFormData, setEditFormData] = useState({});
-  
-  // Estado Creación
   const [isCreating, setIsCreating] = useState(false);
   const [newFormData, setNewFormData] = useState({});
 
-  // Catálogos para formulario
   const [formEventTypes, setFormEventTypes] = useState([]);
   const [formLocations, setFormLocations] = useState([]);
 
@@ -97,9 +87,22 @@ export default function UnifiedAgenda({
     user?.rol_sistema
   );
 
-  // Cargar Perfil
+  // --- CORRECCIÓN PRINCIPAL: Evitar fetch si es invitado general ---
   useEffect(() => {
     const fetchProfile = async () => {
+      // Si es el invitado general, creamos un perfil falso y salimos
+      if (user.id === 'guest-general') {
+          setUserProfile({
+              id: 'guest-general',
+              nombre: 'Invitado',
+              apellido: 'General',
+              is_local: false, 
+              instrumentos: { familia: 'Invitado' },
+              integrantes_ensambles: []
+          });
+          return;
+      }
+
       const { data } = await supabase
         .from("integrantes")
         .select("*, instrumentos(familia), integrantes_ensambles(id_ensamble)")
@@ -110,7 +113,6 @@ export default function UnifiedAgenda({
     fetchProfile();
   }, [user.id]);
 
-  // Cargar Catálogos (Solo si puede editar)
   useEffect(() => {
     const fetchCatalogs = async () => {
       if (!canEdit) return;
@@ -122,12 +124,10 @@ export default function UnifiedAgenda({
     fetchCatalogs();
   }, [canEdit]);
 
-  // Cargar Agenda al tener perfil
   useEffect(() => {
     if (userProfile) fetchAgenda();
   }, [userProfile, giraId, monthsLimit]);
 
-  // --- MANEJADORES DE FILTRO (CATEGORÍAS) ---
   const handleCategoryToggle = (catId) => {
     setSelectedCategoryIds((prev) =>
       prev.includes(catId)
@@ -140,14 +140,11 @@ export default function UnifiedAgenda({
     setSelectedCategoryIds(selectAll ? availableCategories.map((c) => c.id) : []);
   };
 
-  // Filtrado de items por ID de Categoría
   const filteredItems = items.filter((item) => {
     const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
-    // Si el evento no tiene categoría, no se muestra si el filtro está activo
     return catId && selectedCategoryIds.includes(catId);
   });
 
-  // --- FUNCIONES DE CARGA ---
   const checkIsConvoked = (convocadosList, tourRole) => {
     if (!convocadosList || convocadosList.length === 0) return false;
     return convocadosList.some((tag) => {
@@ -172,26 +169,24 @@ export default function UnifiedAgenda({
 
     try {
       const isPersonal = user.rol_sistema === "consulta_personal" || user.rol_sistema === "personal";
+      
       let myEnsembles = new Set();
-      userProfile.integrantes_ensambles?.forEach((ie) =>
-        myEnsembles.add(ie.id_ensamble)
-      );
-      const myFamily = userProfile.instrumentos?.familia;
+      let myFamily = null;
 
-      // MODIFICACIÓN: Incluimos categorias_tipos_eventos en la consulta
+      // Solo accedemos a propiedades si no es null
+      if (userProfile) {
+          userProfile.integrantes_ensambles?.forEach((ie) => myEnsembles.add(ie.id_ensamble));
+          myFamily = userProfile.instrumentos?.familia;
+      }
+
       let query = supabase
         .from("eventos")
         .select(
           `
             id, fecha, hora_inicio, hora_fin, descripcion, convocados, id_tipo_evento, id_locacion,
             tipos_evento (
-                id, 
-                nombre, 
-                color,
-                categorias_tipos_eventos (
-                    id,
-                    nombre
-                )
+                id, nombre, color,
+                categorias_tipos_eventos (id, nombre)
             ), 
             locaciones (id, nombre),
             programas (
@@ -215,7 +210,7 @@ export default function UnifiedAgenda({
       if (error) throw error;
 
       const visibleEvents = (eventsData || []).filter((item) => {
-        if (giraId) return true;
+        if (giraId) return true; // Si es una gira específica (como invitado), mostrar todo
         if (!isPersonal) return true;
         
         const overrides = item.programas?.giras_integrantes || [];
@@ -232,7 +227,6 @@ export default function UnifiedAgenda({
         );
       });
 
-      // --- EXTRAER CATEGORÍAS ÚNICAS ---
       const categoriesMap = {};
       visibleEvents.forEach((evt) => {
         const cat = evt.tipos_evento?.categorias_tipos_eventos;
@@ -245,16 +239,12 @@ export default function UnifiedAgenda({
       );
       
       setAvailableCategories(prev => {
-         // Mantener categorías previas al paginar y añadir nuevas
          const existingIds = new Set(prev.map(c => c.id));
          const newCats = uniqueCats.filter(c => !existingIds.has(c.id));
          return [...prev, ...newCats].sort((a, b) => a.nombre.localeCompare(b.nombre));
       });
 
-      // Nota: Ya no forzamos seleccionar todos, respetamos el useState([1,2]) inicial.
-
-      // Cargar asistencia
-      if (visibleEvents.length > 0) {
+      if (visibleEvents.length > 0 && user.id !== 'guest-general') {
         const eventIds = visibleEvents.map((e) => e.id);
         const { data: attendanceData } = await supabase
           .from("eventos_asistencia")
@@ -286,6 +276,9 @@ export default function UnifiedAgenda({
   };
 
   const toggleMealAttendance = async (eventId, newStatus) => {
+    // Invitados generales no pueden confirmar asistencia
+    if (user.id === 'guest-general') return; 
+
     setLoading(true);
     try {
       const { error } = await supabase
@@ -307,7 +300,6 @@ export default function UnifiedAgenda({
     }
   };
 
-  // --- MANEJADORES DE EDICIÓN / CREACIÓN ---
   const openEditModal = (evt) => {
     setEditFormData({
         id: evt.id,
@@ -379,7 +371,6 @@ export default function UnifiedAgenda({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in relative">
-      {/* HEADER */}
       <div className="px-4 py-2 bg-white border-b border-slate-200 shadow-sm flex items-center justify-between sticky top-0 z-30 shrink-0 gap-2">
         <div className="flex items-center gap-2 overflow-hidden flex-1">
           {onBack && (
@@ -395,16 +386,13 @@ export default function UnifiedAgenda({
 
         <div className="flex items-center gap-2 shrink-0" ref={filterRef}>
           <div className="relative">
-            {/* BOTÓN FILTRO */}
             <button onClick={() => setIsFilterOpen(!isFilterOpen)} className={`p-2 rounded-full flex items-center justify-center shadow-sm transition-colors ${isFilterOpen ? "bg-indigo-100 text-indigo-700" : "bg-white text-slate-500 border border-slate-200"}`}>
               <IconFilter size={18} />
-              {/* Indicador si no están todos seleccionados (asumiendo total > 2 como "todos" para simplificar visualmente o comparando longitudes) */}
               {selectedCategoryIds.length < availableCategories.length && (
                 <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>
               )}
             </button>
             
-            {/* DROPDOWN FILTRO */}
             {isFilterOpen && (
               <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-slate-200 z-50 p-2 animate-in zoom-in-95 origin-top-right">
                 <div className="flex justify-between text-xs pb-2 mb-2 border-b border-slate-100 font-medium text-indigo-600 cursor-pointer">
@@ -438,7 +426,6 @@ export default function UnifiedAgenda({
         </div>
       </div>
 
-      {/* LISTA */}
       <div className="flex-1 overflow-y-auto">
         {loading && items.length === 0 && <div className="text-center py-10"><IconLoader className="animate-spin inline text-indigo-500" size={30} /></div>}
         {!loading && filteredItems.length === 0 && <div className="text-center text-slate-400 py-10 italic">No hay eventos visibles.</div>}
@@ -462,10 +449,7 @@ export default function UnifiedAgenda({
 
                 return (
                   <div key={evt.id} className={`${rowBaseClass} ${isNonConvokedMeal ? rowInactiveClass : ""}`}>
-                    {/* Borde Color */}
                     <div className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ backgroundColor: eventColor }}></div>
-                    
-                    {/* Hora */}
                     <div className="w-12 shrink-0 flex flex-col items-center mr-3">
                       <span className={`text-sm font-bold leading-none ${isNonConvokedMeal ? "text-slate-400" : "text-slate-700"}`}>
                         {evt.hora_inicio?.slice(0, 5)}
@@ -474,8 +458,6 @@ export default function UnifiedAgenda({
                         <span className="text-[10px] text-slate-400 leading-none mt-1">{evt.hora_fin.slice(0, 5)}</span>
                       )}
                     </div>
-
-                    {/* Info Central */}
                     <div className="flex-1 min-w-0 pr-2">
                       <div className="flex items-center gap-2 mb-0.5">
                         <h4 className={`text-sm font-semibold truncate ${isNonConvokedMeal ? "line-through text-slate-500" : "text-slate-900"}`}>
@@ -505,10 +487,7 @@ export default function UnifiedAgenda({
                         )}
                       </div>
                     </div>
-
-                    {/* --- ZONA DE ACCIONES --- */}
                     <div className="shrink-0 flex items-center justify-end gap-2">
-                      {/* 1. Links */}
                       {(evt.programas?.google_drive_folder_id || (evt.programas?.id && onOpenRepertoire)) && !isNonConvokedMeal && (
                         <div className="flex items-center gap-1 bg-slate-50 rounded-lg border border-slate-100 p-0.5 mr-1">
                           {evt.programas?.google_drive_folder_id && (
@@ -523,8 +502,6 @@ export default function UnifiedAgenda({
                           )}
                         </div>
                       )}
-
-                      {/* 2. Edición y Comentarios */}
                       <div className="flex flex-col items-end gap-1 relative">
                         {canEdit && !isNonConvokedMeal && (
                           <button onClick={() => openEditModal(evt)} className="p-1 text-slate-300 hover:text-indigo-600 bg-white rounded-full shadow-sm border border-slate-100 mb-1" title="Editar">
@@ -539,9 +516,7 @@ export default function UnifiedAgenda({
                           className="text-slate-300 hover:text-indigo-500 p-1"
                         />
                       </div>
-
-                      {/* 3. Asistencia a Comidas */}
-                      {isMeal && evt.is_convoked && (
+                      {isMeal && evt.is_convoked && user.id !== 'guest-general' && (
                         <div className="flex flex-col gap-1 ml-1">
                           {evt.mi_asistencia === "P" && (
                             <button onClick={() => deadlineStatus?.status === "OPEN" && toggleMealAttendance(evt.id, null)} className="bg-emerald-100 text-emerald-700 p-1 rounded-md"><IconCheck size={14} /></button>
@@ -564,23 +539,15 @@ export default function UnifiedAgenda({
             </div>
           );
         })}
-
-        {/* --- BOTÓN CARGAR MÁS MESES --- */}
         {!giraId && !loading && (
           <div className="p-6 flex justify-center pb-12">
-            <button
-              onClick={() => setMonthsLimit(prev => prev + 3)}
-              className="flex items-center gap-2 px-6 py-2.5 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-full shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all active:scale-95 text-sm"
-            >
-              <IconChevronDown size={18} />
-              Cargar más meses
+            <button onClick={() => setMonthsLimit(prev => prev + 3)} className="flex items-center gap-2 px-6 py-2.5 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-full shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all active:scale-95 text-sm">
+              <IconChevronDown size={18} /> Cargar más meses
             </button>
           </div>
         )}
-        
         {loading && <div className="text-center py-6 text-slate-400 text-xs">Cargando eventos...</div>}
       </div>
-
       {isEditOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><EventForm formData={editFormData} setFormData={setEditFormData} onSave={handleEditSave} onClose={() => setIsEditOpen(false)} loading={loading} eventTypes={formEventTypes} locations={formLocations} isNew={false} /></div>}
       {isCreating && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><EventForm formData={newFormData} setFormData={setNewFormData} onSave={handleCreateSave} onClose={() => setIsCreating(false)} loading={loading} eventTypes={formEventTypes} locations={formLocations} isNew={true} /></div>}
       {commentsState && <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px]" onClick={() => setCommentsState(null)}><div onClick={(e) => e.stopPropagation()} className="h-full"><CommentsManager supabase={supabase} entityType={commentsState.type} entityId={commentsState.id} title={commentsState.title} onClose={() => setCommentsState(null)} /></div></div>}
