@@ -13,7 +13,8 @@ import {
   IconEdit,
   IconEye,
   IconLayers,
-  IconChevronDown
+  IconChevronDown,
+  IconTrash // <--- Importar IconTrash
 } from "../../components/ui/Icons";
 import IndependentRehearsalForm from "./IndependentRehearsalForm";
 import MassiveRehearsalGenerator from "./MassiveRehearsalGenerator";
@@ -40,15 +41,23 @@ const formatDateBox = (dateStr) => {
 
 const formatTime = (timeStr) => timeStr ? timeStr.slice(0, 5) : "--:--";
 
+const getTypeColor = (tipo) => {
+    switch (tipo) {
+        case "Sinfónico": return "bg-indigo-100 text-indigo-800 border-indigo-200";
+        case "Ensamble": return "bg-emerald-100 text-emerald-800 border-emerald-200";
+        case "Jazz Band": return "bg-amber-100 text-amber-800 border-amber-200";
+        default: return "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200";
+    }
+};
+
 // --- COMPONENTE TARJETA DE ENSAYO ---
-const RehearsalCardItem = ({ evt, activeMembersSet, supabase, onEdit, isSuperUser }) => {
+const RehearsalCardItem = ({ evt, activeMembersSet, supabase, onEdit, onDelete, isSuperUser }) => {
     const { day, num, month } = formatDateBox(evt.fecha);
     
     // 1. Calcular Involucrados
     let count = 0;
     let loadingRoster = false;
 
-    // Si tiene programa asociado, usamos el hook para precisión
     const rosterHook = evt.programas ? useGiraRoster(supabase, evt.programas) : { roster: [], loading: false };
     
     if (evt.programas) {
@@ -58,7 +67,6 @@ const RehearsalCardItem = ({ evt, activeMembersSet, supabase, onEdit, isSuperUse
             count = myInvolvedMembers.length;
         }
     } else {
-        // Si es ensayo independiente, asumimos base + delta
         const baseCount = activeMembersSet.size; 
         const delta = (evt.deltaGuests || 0) - (evt.deltaAbsent || 0);
         count = Math.max(0, baseCount + delta); 
@@ -69,12 +77,8 @@ const RehearsalCardItem = ({ evt, activeMembersSet, supabase, onEdit, isSuperUse
     const deltaTotal = (evt.deltaGuests || 0) - (evt.deltaAbsent || 0);
     const deltaStr = deltaTotal > 0 ? `+${deltaTotal}` : deltaTotal.toString();
     
-    // Color dinámico desde DB
-    const eventColor = evt.tipos_evento?.color || "#64748b"; // Fallback slate-500
-    
-    // Estilos dinámicos basados en color
-    const borderStyle = { borderLeft: `4px solid ${eventColor}` };
-    const tagStyle = { color: eventColor, backgroundColor: `${eventColor}15`, borderColor: `${eventColor}30` }; // Hex opacity
+    const eventColor = evt.tipos_evento?.color || "#64748b"; 
+    const tagStyle = { color: eventColor, backgroundColor: `${eventColor}15`, borderColor: `${eventColor}30` }; 
 
     return (
         <div className={`flex items-center p-2.5 border rounded-lg shadow-sm transition-all hover:shadow-md bg-white border-slate-200 ${!isMyEvent ? 'opacity-80' : ''}`} style={isMyEvent ? {} : { backgroundColor: '#f8fafc' }}>
@@ -87,7 +91,6 @@ const RehearsalCardItem = ({ evt, activeMembersSet, supabase, onEdit, isSuperUse
             </div>
             
             <div className="flex-1 min-w-0 pl-2 relative">
-                {/* Borde de Color */}
                 <div className="absolute left-0 top-1 bottom-1 w-[3px] rounded-full" style={{ backgroundColor: eventColor }}></div>
 
                 {/* LÍNEA 1: HORA + TÍTULO */}
@@ -97,7 +100,7 @@ const RehearsalCardItem = ({ evt, activeMembersSet, supabase, onEdit, isSuperUse
                         {evt.descripcion || (evt.tipos_evento?.nombre || "Evento")}
                     </h3>
                     
-                    {/* Badge de Convocados (Si hay programa) */}
+                    {/* Badge de Convocados */}
                     {evt.programas && (
                         <span className={`ml-2 text-[9px] flex items-center gap-1 font-bold ${isFull ? 'text-green-600' : 'text-amber-600'}`} title="Integrantes del ensamble involucrados">
                             <IconUsers size={10}/>
@@ -105,16 +108,21 @@ const RehearsalCardItem = ({ evt, activeMembersSet, supabase, onEdit, isSuperUse
                         </span>
                     )}
 
+                    {/* BOTONES EDITAR Y BORRAR (Solo mis ensayos tipo 13) */}
                     {isMyEvent && evt.id_tipo_evento === 13 && (
-                        <button onClick={() => onEdit(evt)} className="text-slate-400 hover:text-indigo-600 ml-auto p-1">
-                            <IconEdit size={14} />
-                        </button>
+                        <div className="ml-auto flex items-center gap-1">
+                            <button onClick={() => onEdit(evt)} className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-100 transition-colors" title="Editar">
+                                <IconEdit size={14} />
+                            </button>
+                            <button onClick={() => onDelete(evt.id)} className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-slate-100 transition-colors" title="Eliminar">
+                                <IconTrash size={14} />
+                            </button>
+                        </div>
                     )}
                 </div>
                 
                 {/* LÍNEA 2: DETALLES */}
                 <div className="flex items-center gap-2 text-xs text-slate-500 pl-3">
-                    {/* Etiqueta de Tipo */}
                     <span className="text-[9px] px-1.5 rounded border font-bold uppercase tracking-wider" style={tagStyle}>
                         {evt.tipos_evento?.nombre}
                     </span>
@@ -125,13 +133,11 @@ const RehearsalCardItem = ({ evt, activeMembersSet, supabase, onEdit, isSuperUse
                     
                     {isMyEvent && (
                         <div className="flex items-center gap-1 ml-auto sm:ml-1">
-                            {/* Tags Ensambles */}
                             {evt.eventos_ensambles?.map(ee => (
                                 <span key={ee.ensambles?.id} className="text-[9px] bg-slate-100 text-slate-600 px-1.5 rounded border border-slate-200 whitespace-nowrap">
                                     {ee.ensambles?.ensamble}
                                 </span>
                             ))}
-                            {/* Delta */}
                             {deltaTotal !== 0 && (
                                 <div className={`px-1.5 rounded text-[9px] font-bold border ${deltaTotal > 0 ? 'text-emerald-600 border-emerald-200 bg-emerald-50' : 'text-red-600 border-red-200 bg-red-50'}`}>
                                     {deltaStr}
@@ -151,8 +157,9 @@ const RehearsalCardItem = ({ evt, activeMembersSet, supabase, onEdit, isSuperUse
     );
 };
 
-// --- COMPONENTE TARJETA DE PROGRAMA (Sin cambios visuales mayores) ---
+// ... (ProgramCardItem se mantiene igual) ...
 const ProgramCardItem = ({ program, activeMembersSet, supabase }) => {
+    // ... (código existente) ...
     const { roster, loading } = useGiraRoster(supabase, program);
 
     if (loading) return (
@@ -204,37 +211,32 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   
-  // Contexto
+  // ... (Estados existentes) ...
   const [allEnsembles, setAllEnsembles] = useState([]);
   const [myEnsembles, setMyEnsembles] = useState([]);   
   const [rawRelationships, setRawRelationships] = useState([]); 
   const [memberMetadata, setMemberMetadata] = useState({});
   const [adminFilterIds, setAdminFilterIds] = useState([]); 
 
-  // Listas
   const [rehearsals, setRehearsals] = useState([]);
   const [programs, setPrograms] = useState([]); 
   const [listLoading, setListLoading] = useState(false);
 
-  // UI
   const [activeTab, setActiveTab] = useState("ensayos");
   const [showOverlapOptions, setShowOverlapOptions] = useState(false);
   
-  // FILTROS
   const [overlapCategories, setOverlapCategories] = useState([]); 
   const [categoryOptions, setCategoryOptions] = useState([]);
   
-  // Paginación
   const [monthsLimit, setMonthsLimit] = useState(3);
 
-  // Modales
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMassiveModalOpen, setIsMassiveModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null); 
 
   const isSuperUser = user?.rol_sistema === 'admin' || user?.rol_sistema === 'produccion_general';
 
-  // 1. CARGAR CONTEXTO
+  // ... (useEffect de carga de contexto se mantiene igual) ...
   useEffect(() => {
     const fetchContext = async () => {
       if (!user) { setLoading(false); return; }
@@ -301,6 +303,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const activeMemberIdsArray = useMemo(() => Array.from(activeMembersSet), [activeMembersSet]);
 
   const fetchDataList = useCallback(async () => {
+    // ... (Lógica de fetch se mantiene igual que la versión anterior corregida) ...
     if (activeEnsembles.length === 0) {
         setRehearsals([]);
         setPrograms([]);
@@ -316,7 +319,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
         let allEvents = [];
         const seenEventIds = new Set();
 
-        // 1. QUERY BASE: MIS ENSAYOS (Siempre visibles)
         const { data: myRehearsals } = await supabase
           .from("eventos_ensambles")
           .select(`
@@ -349,44 +351,33 @@ export default function EnsembleCoordinatorView({ supabase }) {
             });
         }
 
-        // 2. QUERY FILTRADO: SUPERPOSICIONES (Solo si hay filtros activos)
         if (overlapCategories.length > 0 && activeMemberIdsArray.length > 0) {
-            
-            // Recolectar IDs relevantes (Giras y Eventos donde participan mis músicos)
             const targetGiraIds = new Set();
             const targetEventIds = new Set();
 
-            // a) Giras por fuente (Ensamble/Familia)
             const targetEnsembles = new Set(ensembleIds);
             const targetFamilies = new Set();
             activeMemberIdsArray.forEach(mid => {
                 const meta = memberMetadata[mid];
                 if (meta?.family) targetFamilies.add(meta.family);
-                // También agregamos "otros ensambles" para ver sus eventos
                 meta?.allEnsembles?.forEach(eid => {
                     if (!ensembleIds.includes(eid)) {
-                        // Es un ensamble ajeno, necesitamos sus eventos (se resuelve en query eventos_ensambles abajo)
                     }
                 });
             });
 
-            // Giras Sources
             const { data: sources } = await supabase.from("giras_fuentes").select("id_gira, tipo, valor_id, valor_texto");
             sources?.forEach(s => {
                 if (s.tipo === 'ENSAMBLE' && targetEnsembles.has(s.valor_id)) targetGiraIds.add(s.id_gira);
                 if (s.tipo === 'FAMILIA' && targetFamilies.has(s.valor_texto)) targetGiraIds.add(s.id_gira);
             });
 
-            // Giras Integrantes
             const { data: memberGiras } = await supabase.from("giras_integrantes").select("id_gira").in("id_integrante", activeMemberIdsArray).eq("estado", "confirmado");
             memberGiras?.forEach(x => targetGiraIds.add(x.id_gira));
 
-            // Eventos Custom
             const { data: customInvites } = await supabase.from("eventos_asistencia_custom").select("id_evento").in("id_integrante", activeMemberIdsArray).neq("tipo", "ausente");
             customInvites?.forEach(x => targetEventIds.add(x.id_evento));
 
-            // Eventos de Otros Ensambles (Para ver ensayos independientes de otros grupos)
-            // Esto requiere una query extra
             const otherEnsembleIds = new Set();
             activeMemberIdsArray.forEach(mid => memberMetadata[mid]?.allEnsembles?.forEach(eid => !ensembleIds.includes(eid) && otherEnsembleIds.add(eid)));
             if (otherEnsembleIds.size > 0) {
@@ -398,7 +389,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
             const eventIdsArray = Array.from(targetEventIds);
 
             if (giraIdsArray.length > 0 || eventIdsArray.length > 0) {
-                // Query condicional
                 let query = supabase.from("eventos").select(`
                     id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, id_gira,
                     locaciones ( nombre, localidades(localidad) ),
@@ -409,7 +399,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 .gte("fecha", todayISO)
                 .lte("fecha", endDateLimit);
 
-                // Aplicar OR manual
                 const orParts = [];
                 if (giraIdsArray.length > 0) orParts.push(`id_gira.in.(${giraIdsArray.join(',')})`);
                 if (eventIdsArray.length > 0) orParts.push(`id.in.(${eventIdsArray.join(',')})`);
@@ -434,7 +423,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
         setRehearsals(allEvents);
 
       } else {
-        // --- PROGRAMAS (Lógica existente) ---
         const targetEnsembles = new Set();
         const targetFamilies = new Set();
         activeMemberIdsArray.forEach(mid => {
@@ -479,6 +467,23 @@ export default function EnsembleCoordinatorView({ supabase }) {
       setIsModalOpen(true);
   };
 
+  // --- FUNCIÓN DE ELIMINAR ---
+  const handleDeleteRehearsal = async (id) => {
+      if (!confirm("¿Estás seguro de que quieres eliminar este ensayo? Esta acción no se puede deshacer.")) return;
+      
+      setLoading(true);
+      try {
+          const { error } = await supabase.from("eventos").delete().eq("id", id);
+          if (error) throw error;
+          // Recargar lista
+          fetchDataList();
+      } catch (err) {
+          alert("Error al eliminar: " + err.message);
+      } finally {
+          setLoading(false);
+      }
+  };
+
   if (loading) return <div className="h-full w-full flex items-center justify-center"><IconLoader className="animate-spin text-indigo-600" size={32}/></div>;
 
   const adminOptions = allEnsembles.map(e => ({ id: e.id, label: e.ensamble }));
@@ -486,6 +491,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   return (
     <div className="flex flex-col h-full bg-slate-50 p-4 md:p-6 gap-6 overflow-hidden">
       
+      {/* HEADER + FILTRO ... (Igual) */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
@@ -566,6 +572,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                                         activeMembersSet={activeMembersSet} 
                                         supabase={supabase}
                                         onEdit={handleEditRehearsal}
+                                        onDelete={handleDeleteRehearsal} // <--- Pasar handler
                                         isSuperUser={isSuperUser}
                                     />
                                 ))}
