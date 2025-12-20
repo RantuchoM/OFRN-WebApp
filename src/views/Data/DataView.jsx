@@ -8,7 +8,9 @@ import {
   IconMusic,
   IconGlobe,
   IconTruck,
-  IconFileText, // <--- Asegúrate de importar un ícono para la hoja (o usa uno existente)
+  IconUsers,
+  IconFileText,
+  IconLayout,
 } from "../../components/ui/Icons";
 import SheetEditor from './SheetEditor';
 
@@ -21,24 +23,48 @@ export default function DataView({ supabase }) {
     localidades: [],
     paises: [],
     categorias: [],
+    ensambles: [],
+    integrantes: [], 
   });
 
   const fetchCatalogos = async () => {
-    // 1. Regiones
-    const { data: reg } = await supabase.from("regiones").select("id, region").order("region");
-    // 2. Localidades
-    const { data: loc } = await supabase.from("localidades").select("id, localidad").order("localidad");
-    // 3. Países
-    const { data: pais } = await supabase.from("paises").select("id, nombre").order("nombre");
-    // 4. Categorías
-    const { data: categoria } = await supabase.from("categorias_tipos_eventos").select("id, nombre").order("nombre");
+    try {
+        // 1. Regiones
+        const { data: reg } = await supabase.from("regiones").select("id, region").order("region");
+        // 2. Localidades
+        const { data: loc } = await supabase.from("localidades").select("id, localidad").order("localidad");
+        // 3. Países
+        const { data: pais } = await supabase.from("paises").select("id, nombre").order("nombre");
+        // 4. Categorías
+        const { data: categoria } = await supabase.from("categorias_tipos_eventos").select("id, nombre").order("nombre");
+        // 5. Ensambles
+        const { data: ens } = await supabase.from("ensambles").select("id, ensamble").order("ensamble");
+        
+        // 6. Integrantes (FUENTE DE COORDINADORES)
+        // CORRECCIÓN: Quitamos 'email' del select para evitar el error 400 si la columna no existe o se llama distinto.
+        const { data: inte, error: inteError } = await supabase
+            .from("integrantes")
+            .select("id, nombre, apellido") 
+            .order("apellido");
 
-    setCatalogos({
-      regiones: reg?.map((r) => ({ value: r.id, label: r.region })) || [],
-      localidades: loc?.map((l) => ({ value: l.id, label: l.localidad })) || [],
-      paises: pais?.map((p) => ({ value: p.id, label: p.nombre })) || [],
-      categorias: categoria?.map((p) => ({ value: p.id, label: p.nombre })) || [],
-    });
+        if (inteError) console.error("Error cargando integrantes:", inteError);
+
+        setCatalogos({
+          regiones: reg?.map((r) => ({ value: r.id, label: r.region })) || [],
+          localidades: loc?.map((l) => ({ value: l.id, label: l.localidad })) || [],
+          paises: pais?.map((p) => ({ value: p.id, label: p.nombre })) || [],
+          categorias: categoria?.map((p) => ({ value: p.id, label: p.nombre })) || [],
+          ensambles: ens?.map((e) => ({ value: e.id, label: e.ensamble })) || [],
+          
+          // Mapeo para el selector de coordinadores (Apellido, Nombre)
+          integrantes: inte?.map((i) => ({ 
+            value: i.id, 
+            label: `${i.apellido}, ${i.nombre}` 
+          })) || [],
+        });
+    } catch (error) {
+        console.error("Error general en fetchCatalogos:", error);
+    }
   };
 
   useEffect(() => {
@@ -134,7 +160,25 @@ export default function DataView({ supabase }) {
         { key: "nombre", label: "Nombre", type: "text" },
       ],
     },
-    // NOTA: No agregamos "hoja_calculo" aquí porque no es una UniversalTable estándar
+    ensambles: {
+      label: "Ensambles",
+      icon: IconLayout,
+      table: "ensambles",
+      columns: [
+        { key: "ensamble", label: "Nombre Ensamble", type: "text" },
+        { key: "descripcion", label: "Descripción", type: "text" },
+      ],
+    },
+    coordinadores: {
+      label: "Coordinadores",
+      icon: IconUsers,
+      table: "ensambles_coordinadores",
+      columns: [
+        { key: "id_ensamble", label: "Ensamble Asignado", type: "select", options: catalogos.ensambles },
+        // Selector corregido usando integrantes
+        { key: "id_integrante", label: "Integrante (Coordinador)", type: "select", options: catalogos.integrantes },
+      ],
+    },
   };
 
   const currentConfig = tableConfigs[activeTab];
@@ -148,7 +192,6 @@ export default function DataView({ supabase }) {
           <p className="text-xs text-slate-500">Tablas maestras del sistema</p>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {/* Botones automáticos para tablas */}
           {Object.keys(tableConfigs).map((key) => {
             const config = tableConfigs[key];
             const isActive = activeTab === key;
@@ -171,10 +214,8 @@ export default function DataView({ supabase }) {
             );
           })}
           
-          {/* Separador */}
           <div className="my-2 border-t border-slate-100 mx-2"></div>
 
-          {/* --- NUEVO: Botón Manual para Hoja de Cálculo --- */}
           <button
             onClick={() => setActiveTab("hoja_calculo")}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
@@ -183,24 +224,18 @@ export default function DataView({ supabase }) {
                 : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
             }`}
           >
-             {/* Si no tienes IconFileText, usa IconCalendar o IconMapPin temporalmente */}
             <IconFileText size={18} className={activeTab === "hoja_calculo" ? "text-indigo-600" : "text-slate-400"} />
             Hoja de Cálculo / PDF
           </button>
         </div>
       </div>
 
-      {/* Área Principal (Tabla o Editor) */}
+      {/* Área Principal */}
       <div className="flex-1 min-w-0 h-[600px] md:h-auto">
-        
-        {/* --- NUEVO: Lógica de visualización --- */}
-        
-        {/* 1. Si el tab es 'hoja_calculo', mostramos el Editor */}
         {activeTab === "hoja_calculo" && (
            <SheetEditor supabase={supabase} />
         )}
 
-        {/* 2. Si hay configuración de tabla (tab normal), mostramos UniversalTable */}
         {currentConfig && (
           <UniversalTable
             key={activeTab}

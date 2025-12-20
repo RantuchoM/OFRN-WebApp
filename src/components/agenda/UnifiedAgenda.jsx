@@ -4,10 +4,10 @@ import {
   startOfDay,
   addMonths,
   parseISO,
-  isToday,
-  differenceInHours,
-  differenceInDays,
   isPast,
+  differenceInDays,
+  differenceInHours,
+  isSameDay,
 } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -20,14 +20,16 @@ import {
   IconFilter,
   IconDrive,
   IconList,
+  IconCalendar,
   IconChevronDown,
+  IconUserPlus,
+  IconMapPin,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import EventForm from "../forms/EventForm";
 
-// --- LÓGICA DE FECHA LÍMITE ---
 const getDeadlineStatus = (deadlineISO) => {
   if (!deadlineISO) return { status: "NO_DEADLINE" };
   const deadline = parseISO(deadlineISO);
@@ -40,7 +42,6 @@ const getDeadlineStatus = (deadlineISO) => {
   return { status: "OPEN", message: `${diffHours}h restantes` };
 };
 
-// Hook para cerrar al hacer click fuera
 function useOutsideAlerter(ref, callback) {
   useEffect(() => {
     function handleClickOutside(event) {
@@ -52,6 +53,94 @@ function useOutsideAlerter(ref, callback) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [ref, callback]);
 }
+
+// COMPONENTE: BOTÓN DRIVE INTELIGENTE
+const DriveSmartButton = ({ evt }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+  useOutsideAlerter(containerRef, () => setIsOpen(false));
+
+  // Recolectar carpetas
+  const driveLinks = [];
+
+  // 1. Programa Principal
+  if (evt.programas?.google_drive_folder_id) {
+    driveLinks.push({
+      id: evt.programas.id,
+      // CAMBIO AQUÍ:
+      label: `${evt.programas.mes_letra} | ${evt.programas.nomenclador} - ${evt.programas.nombre_gira}`,
+      url: `https://drive.google.com/drive/folders/${evt.programas.google_drive_folder_id}`,
+    });
+  }
+
+  // 2. Programas Asociados
+  if (evt.eventos_programas_asociados?.length > 0) {
+    evt.eventos_programas_asociados.forEach((ep) => {
+      if (
+        ep.programas?.google_drive_folder_id &&
+        ep.programas.id !== evt.programas?.id
+      ) {
+        driveLinks.push({
+          id: ep.programas.id,
+          // CAMBIO AQUÍ:
+          label: `${ep.programas.mes_letra} | ${ep.programas.nomenclador} - ${ep.programas.nombre_gira}`,
+          url: `https://drive.google.com/drive/folders/${ep.programas.google_drive_folder_id}`,
+        });
+      }
+    });
+  }
+  if (driveLinks.length === 0) return null;
+
+  if (driveLinks.length === 1) {
+    return (
+      <a
+        href={driveLinks[0].url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="p-1.5 text-slate-400 hover:text-green-600 rounded hover:bg-green-50 transition-colors flex items-center gap-1"
+        title={`Drive: ${driveLinks[0].label}`}
+      >
+        <IconDrive size={16} />
+      </a>
+    );
+  }
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
+        className="p-1.5 text-slate-400 hover:text-green-600 rounded hover:bg-green-50 transition-colors flex items-center gap-1 font-bold text-[10px]"
+        title="Múltiples carpetas de Drive"
+      >
+        <IconDrive size={16} />
+        <span>{driveLinks.length}</span>
+      </button>
+
+      {isOpen && (
+        <div className="absolute bottom-full right-0 mb-1 w-48 bg-white rounded-lg shadow-xl border border-slate-200 z-50 overflow-hidden animate-in zoom-in-95 origin-bottom-right">
+          <div className="text-[9px] font-bold text-slate-400 bg-slate-50 px-2 py-1 border-b border-slate-100 uppercase">
+            Carpetas de Drive
+          </div>
+          {driveLinks.map((link) => (
+            <a
+              key={link.id}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block px-3 py-2 text-xs text-slate-700 hover:bg-green-50 hover:text-green-700 truncate border-b border-slate-50 last:border-0"
+              onClick={() => setIsOpen(false)}
+            >
+              {link.label}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function UnifiedAgenda({
   supabase,
@@ -67,7 +156,7 @@ export default function UnifiedAgenda({
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([1, 2]);
-  
+
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterRef = useRef(null);
   useOutsideAlerter(filterRef, () => setIsFilterOpen(false));
@@ -87,20 +176,18 @@ export default function UnifiedAgenda({
     user?.rol_sistema
   );
 
-  // --- CORRECCIÓN PRINCIPAL: Evitar fetch si es invitado general ---
   useEffect(() => {
     const fetchProfile = async () => {
-      // Si es el invitado general, creamos un perfil falso y salimos
-      if (user.id === 'guest-general') {
-          setUserProfile({
-              id: 'guest-general',
-              nombre: 'Invitado',
-              apellido: 'General',
-              is_local: false, 
-              instrumentos: { familia: 'Invitado' },
-              integrantes_ensambles: []
-          });
-          return;
+      if (user.id === "guest-general") {
+        setUserProfile({
+          id: "guest-general",
+          nombre: "Invitado",
+          apellido: "General",
+          is_local: false,
+          instrumentos: { familia: "Invitado" },
+          integrantes_ensambles: [],
+        });
+        return;
       }
 
       const { data } = await supabase
@@ -116,10 +203,16 @@ export default function UnifiedAgenda({
   useEffect(() => {
     const fetchCatalogs = async () => {
       if (!canEdit) return;
-      const { data: types } = await supabase.from('tipos_evento').select('id, nombre').order('nombre');
-      const { data: locs } = await supabase.from('locaciones').select('id, nombre, localidades(localidad)').order('nombre');
-      if(types) setFormEventTypes(types);
-      if(locs) setFormLocations(locs);
+      const { data: types } = await supabase
+        .from("tipos_evento")
+        .select("id, nombre")
+        .order("nombre");
+      const { data: locs } = await supabase
+        .from("locaciones")
+        .select("id, nombre, localidades(localidad)")
+        .order("nombre");
+      if (types) setFormEventTypes(types);
+      if (locs) setFormLocations(locs);
     };
     fetchCatalogs();
   }, [canEdit]);
@@ -137,7 +230,9 @@ export default function UnifiedAgenda({
   };
 
   const handleSelectAllCategories = (selectAll) => {
-    setSelectedCategoryIds(selectAll ? availableCategories.map((c) => c.id) : []);
+    setSelectedCategoryIds(
+      selectAll ? availableCategories.map((c) => c.id) : []
+    );
   };
 
   const filteredItems = items.filter((item) => {
@@ -168,16 +263,40 @@ export default function UnifiedAgenda({
     const end = addMonths(new Date(), monthsLimit).toISOString();
 
     try {
-      const isPersonal = user.rol_sistema === "consulta_personal" || user.rol_sistema === "personal";
-      
+      const isPersonal =
+        user.rol_sistema === "consulta_personal" ||
+        user.rol_sistema === "personal";
+
       let myEnsembles = new Set();
       let myFamily = null;
 
-      // Solo accedemos a propiedades si no es null
       if (userProfile) {
-          userProfile.integrantes_ensambles?.forEach((ie) => myEnsembles.add(ie.id_ensamble));
-          myFamily = userProfile.instrumentos?.familia;
+        userProfile.integrantes_ensambles?.forEach((ie) =>
+          myEnsembles.add(ie.id_ensamble)
+        );
+        myFamily = userProfile.instrumentos?.familia;
       }
+
+      const [customAttendance, ensembleEvents] = await Promise.all([
+        supabase
+          .from("eventos_asistencia_custom")
+          .select("id_evento, tipo, nota")
+          .eq("id_integrante", user.id),
+
+        myEnsembles.size > 0
+          ? supabase
+              .from("eventos_ensambles")
+              .select("id_evento")
+              .in("id_ensamble", Array.from(myEnsembles))
+          : Promise.resolve({ data: [] }),
+      ]);
+
+      const customMap = new Map();
+      customAttendance.data?.forEach((c) => customMap.set(c.id_evento, c));
+
+      const myEnsembleEventIds = new Set(
+        ensembleEvents.data?.map((e) => e.id_evento)
+      );
 
       let query = supabase
         .from("eventos")
@@ -194,7 +313,9 @@ export default function UnifiedAgenda({
                 fecha_confirmacion_limite,
                 giras_fuentes(tipo, valor_id, valor_texto), 
                 giras_integrantes(id_integrante, estado, rol)
-            )
+            ),
+            eventos_programas_asociados (
+              programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador )            )
         `
         )
         .order("fecha", { ascending: true })
@@ -210,21 +331,28 @@ export default function UnifiedAgenda({
       if (error) throw error;
 
       const visibleEvents = (eventsData || []).filter((item) => {
-        if (giraId) return true; // Si es una gira específica (como invitado), mostrar todo
+        if (giraId) return true;
         if (!isPersonal) return true;
-        
-        const overrides = item.programas?.giras_integrantes || [];
-        const sources = item.programas?.giras_fuentes || [];
-        const myOverride = overrides.find((o) => o.id_integrante === user.id);
-        
-        if (myOverride && myOverride.estado === "ausente") return false;
-        if (myOverride) return true;
-        
-        return sources.some(
-          (s) =>
-            (s.tipo === "ENSAMBLE" && myEnsembles.has(s.valor_id)) ||
-            (s.tipo === "FAMILIA" && s.valor_texto === myFamily)
-        );
+
+        if (customMap.has(item.id)) return true;
+        if (myEnsembleEventIds.has(item.id)) return true;
+
+        if (item.programas) {
+          const overrides = item.programas.giras_integrantes || [];
+          const sources = item.programas.giras_fuentes || [];
+          const myOverride = overrides.find((o) => o.id_integrante === user.id);
+
+          if (myOverride && myOverride.estado === "ausente") return false;
+          if (myOverride) return true;
+
+          return sources.some(
+            (s) =>
+              (s.tipo === "ENSAMBLE" && myEnsembles.has(s.valor_id)) ||
+              (s.tipo === "FAMILIA" && s.valor_texto === myFamily)
+          );
+        }
+
+        return false;
       });
 
       const categoriesMap = {};
@@ -237,14 +365,28 @@ export default function UnifiedAgenda({
       const uniqueCats = Object.values(categoriesMap).sort((a, b) =>
         a.nombre.localeCompare(b.nombre)
       );
-      
-      setAvailableCategories(prev => {
-         const existingIds = new Set(prev.map(c => c.id));
-         const newCats = uniqueCats.filter(c => !existingIds.has(c.id));
-         return [...prev, ...newCats].sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+      setAvailableCategories((prev) => {
+        const existingIds = new Set(prev.map((c) => c.id));
+        const newCats = uniqueCats.filter((c) => !existingIds.has(c.id));
+        return [...prev, ...newCats].sort((a, b) =>
+          a.nombre.localeCompare(b.nombre)
+        );
       });
 
-      if (visibleEvents.length > 0 && user.id !== 'guest-general') {
+      visibleEvents.forEach((evt) => {
+        const custom = customMap.get(evt.id);
+        if (custom) {
+          if (custom.tipo === "invitado" || custom.tipo === "adicional") {
+            evt.is_guest = true;
+            evt.guest_note = custom.nota;
+          } else if (custom.tipo === "ausente") {
+            evt.is_absent = true;
+          }
+        }
+      });
+
+      if (visibleEvents.length > 0 && user.id !== "guest-general") {
         const eventIds = visibleEvents.map((e) => e.id);
         const { data: attendanceData } = await supabase
           .from("eventos_asistencia")
@@ -276,9 +418,7 @@ export default function UnifiedAgenda({
   };
 
   const toggleMealAttendance = async (eventId, newStatus) => {
-    // Invitados generales no pueden confirmar asistencia
-    if (user.id === 'guest-general') return; 
-
+    if (user.id === "guest-general") return;
     setLoading(true);
     try {
       const { error } = await supabase
@@ -302,50 +442,61 @@ export default function UnifiedAgenda({
 
   const openEditModal = (evt) => {
     setEditFormData({
-        id: evt.id,
-        descripcion: evt.descripcion || '',
-        fecha: evt.fecha || '',
-        hora_inicio: evt.hora_inicio || '',
-        hora_fin: evt.hora_fin || '',
-        id_tipo_evento: evt.id_tipo_evento || '',
-        id_locacion: evt.id_locacion || ''
+      id: evt.id,
+      descripcion: evt.descripcion || "",
+      fecha: evt.fecha || "",
+      hora_inicio: evt.hora_inicio || "",
+      hora_fin: evt.hora_fin || "",
+      id_tipo_evento: evt.id_tipo_evento || "",
+      id_locacion: evt.id_locacion || "",
     });
     setIsEditOpen(true);
   };
 
   const handleEditSave = async () => {
-    if (!editFormData.fecha || !editFormData.hora_inicio) return alert("Faltan datos");
+    if (!editFormData.fecha || !editFormData.hora_inicio)
+      return alert("Faltan datos");
     setLoading(true);
     try {
-        const payload = {
-            descripcion: editFormData.descripcion,
-            fecha: editFormData.fecha,
-            hora_inicio: editFormData.hora_inicio,
-            hora_fin: editFormData.hora_fin || editFormData.hora_inicio,
-            id_tipo_evento: editFormData.id_tipo_evento || null,
-            id_locacion: editFormData.id_locacion || null
-        };
-        const { error } = await supabase.from('eventos').update(payload).eq('id', editFormData.id);
-        if (error) throw error;
-        setIsEditOpen(false);
-        setEditFormData({});
-        fetchAgenda();
+      const payload = {
+        descripcion: editFormData.descripcion,
+        fecha: editFormData.fecha,
+        hora_inicio: editFormData.hora_inicio,
+        hora_fin: editFormData.hora_fin || editFormData.hora_inicio,
+        id_tipo_evento: editFormData.id_tipo_evento || null,
+        id_locacion: editFormData.id_locacion || null,
+      };
+      const { error } = await supabase
+        .from("eventos")
+        .update(payload)
+        .eq("id", editFormData.id);
+      if (error) throw error;
+      setIsEditOpen(false);
+      setEditFormData({});
+      fetchAgenda();
     } catch (err) {
-        alert("Error: " + err.message);
+      alert("Error: " + err.message);
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
   const handleOpenCreate = () => {
     setNewFormData({
-      id: null, descripcion: "", fecha: "", hora_inicio: "10:00", hora_fin: "12:00", id_tipo_evento: "", id_locacion: "",
+      id: null,
+      descripcion: "",
+      fecha: "",
+      hora_inicio: "10:00",
+      hora_fin: "12:00",
+      id_tipo_evento: "",
+      id_locacion: "",
     });
     setIsCreating(true);
   };
 
   const handleCreateSave = async () => {
-    if (!newFormData.fecha || !newFormData.hora_inicio) return alert("Faltan datos");
+    if (!newFormData.fecha || !newFormData.hora_inicio)
+      return alert("Faltan datos");
     const payload = {
       id_gira: giraId,
       descripcion: newFormData.descripcion || null,
@@ -374,52 +525,78 @@ export default function UnifiedAgenda({
       <div className="px-4 py-2 bg-white border-b border-slate-200 shadow-sm flex items-center justify-between sticky top-0 z-30 shrink-0 gap-2">
         <div className="flex items-center gap-2 overflow-hidden flex-1">
           {onBack && (
-            <button onClick={onBack} className="text-slate-500 hover:text-indigo-600 shrink-0">
+            <button
+              onClick={onBack}
+              className="text-slate-500 hover:text-indigo-600 shrink-0"
+            >
               <IconArrowLeft size={22} />
             </button>
           )}
           <div className="min-w-0 flex-1">
-            <h2 className="text-base sm:text-lg font-bold text-slate-800 truncate leading-tight">{title}</h2>
-            {giraId && <p className="text-xs text-slate-500 truncate">Vista Compacta</p>}
+            <h2 className="text-base sm:text-lg font-bold text-slate-800 truncate leading-tight">
+              {title}
+            </h2>
+            {giraId && (
+              <p className="text-xs text-slate-500 truncate">Vista Compacta</p>
+            )}
           </div>
         </div>
-
         <div className="flex items-center gap-2 shrink-0" ref={filterRef}>
           <div className="relative">
-            <button onClick={() => setIsFilterOpen(!isFilterOpen)} className={`p-2 rounded-full flex items-center justify-center shadow-sm transition-colors ${isFilterOpen ? "bg-indigo-100 text-indigo-700" : "bg-white text-slate-500 border border-slate-200"}`}>
+            <button
+              onClick={() => setIsFilterOpen(!isFilterOpen)}
+              className={`p-2 rounded-full flex items-center justify-center shadow-sm transition-colors ${
+                isFilterOpen
+                  ? "bg-indigo-100 text-indigo-700"
+                  : "bg-white text-slate-500 border border-slate-200"
+              }`}
+            >
               <IconFilter size={18} />
               {selectedCategoryIds.length < availableCategories.length && (
                 <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>
               )}
             </button>
-            
             {isFilterOpen && (
               <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-slate-200 z-50 p-2 animate-in zoom-in-95 origin-top-right">
                 <div className="flex justify-between text-xs pb-2 mb-2 border-b border-slate-100 font-medium text-indigo-600 cursor-pointer">
-                  <span onClick={() => handleSelectAllCategories(true)}>Marcar Todos</span>
-                  <span onClick={() => handleSelectAllCategories(false)}>Desmarcar</span>
+                  <span onClick={() => handleSelectAllCategories(true)}>
+                    Marcar Todos
+                  </span>
+                  <span onClick={() => handleSelectAllCategories(false)}>
+                    Desmarcar
+                  </span>
                 </div>
                 <div className="max-h-64 overflow-y-auto space-y-1">
                   {availableCategories.map((cat) => (
-                    <label key={cat.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        className="rounded text-indigo-600 focus:ring-indigo-500" 
-                        checked={selectedCategoryIds.includes(cat.id)} 
-                        onChange={() => handleCategoryToggle(cat.id)} 
+                    <label
+                      key={cat.id}
+                      className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                        checked={selectedCategoryIds.includes(cat.id)}
+                        onChange={() => handleCategoryToggle(cat.id)}
                       />
-                      <span className="text-sm text-slate-700 truncate">{cat.nombre}</span>
+                      <span className="text-sm text-slate-700 truncate">
+                        {cat.nombre}
+                      </span>
                     </label>
                   ))}
                   {availableCategories.length === 0 && (
-                    <div className="text-xs text-slate-400 italic p-2">Sin categorías disponibles</div>
+                    <div className="text-xs text-slate-400 italic p-2">
+                      Sin categorías disponibles
+                    </div>
                   )}
                 </div>
               </div>
             )}
           </div>
           {giraId && canEdit && (
-            <button onClick={handleOpenCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0">
+            <button
+              onClick={handleOpenCreate}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0"
+            >
               <IconPlus size={20} />
             </button>
           )}
@@ -427,11 +604,24 @@ export default function UnifiedAgenda({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {loading && items.length === 0 && <div className="text-center py-10"><IconLoader className="animate-spin inline text-indigo-500" size={30} /></div>}
-        {!loading && filteredItems.length === 0 && <div className="text-center text-slate-400 py-10 italic">No hay eventos visibles.</div>}
+        {loading && items.length === 0 && (
+          <div className="text-center py-10">
+            <IconLoader
+              className="animate-spin inline text-indigo-500"
+              size={30}
+            />
+          </div>
+        )}
+        {!loading && filteredItems.length === 0 && (
+          <div className="text-center text-slate-400 py-10 italic">
+            No hay eventos visibles.
+          </div>
+        )}
 
         {Object.entries(groupedByMonth).map(([monthKey, monthEvents]) => {
           const monthDate = parseISO(monthEvents[0].fecha);
+          let lastDateRendered = null;
+
           return (
             <div key={monthKey} className="mb-0">
               <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 text-center py-2 shadow-sm">
@@ -441,99 +631,214 @@ export default function UnifiedAgenda({
               </div>
               {monthEvents.map((evt) => {
                 const eventColor = evt.tipos_evento?.color || "#6366f1";
-                const isMeal = [7, 8, 9, 10].includes(evt.id_tipo_evento) || evt.tipos_evento?.nombre?.toLowerCase().includes("comida");
+                const isMeal =
+                  [7, 8, 9, 10].includes(evt.id_tipo_evento) ||
+                  evt.tipos_evento?.nombre?.toLowerCase().includes("comida");
                 const isNonConvokedMeal = isMeal && !evt.is_convoked;
-                const deadlineStatus = isMeal && evt.is_convoked ? getDeadlineStatus(evt.programas?.fecha_confirmacion_limite) : null;
-                const rowBaseClass = "relative flex items-center px-3 py-3 border-b border-slate-100 bg-white transition-colors hover:bg-slate-50 group";
-                const rowInactiveClass = "opacity-50 grayscale bg-slate-50";
+                const deadlineStatus =
+                  isMeal && evt.is_convoked
+                    ? getDeadlineStatus(
+                        evt.programas?.fecha_confirmacion_limite
+                      )
+                    : null;
+
+                const showDay = evt.fecha !== lastDateRendered;
+                if (showDay) lastDateRendered = evt.fecha;
+
+                let rowStyle =
+                  "relative flex items-center px-3 py-3 border-b border-slate-100 bg-white transition-colors hover:bg-slate-50 group";
+                if (isNonConvokedMeal || evt.is_absent)
+                  rowStyle =
+                    "relative flex items-center px-3 py-3 border-b border-slate-100 bg-slate-50 transition-colors opacity-60 grayscale";
+                if (evt.is_guest) rowStyle += " bg-emerald-50/30";
 
                 return (
-                  <div key={evt.id} className={`${rowBaseClass} ${isNonConvokedMeal ? rowInactiveClass : ""}`}>
-                    <div className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ backgroundColor: eventColor }}></div>
-                    <div className="w-12 shrink-0 flex flex-col items-center mr-3">
-                      <span className={`text-sm font-bold leading-none ${isNonConvokedMeal ? "text-slate-400" : "text-slate-700"}`}>
-                        {evt.hora_inicio?.slice(0, 5)}
-                      </span>
-                      {evt.hora_fin && evt.hora_fin !== evt.hora_inicio && (
-                        <span className="text-[10px] text-slate-400 leading-none mt-1">{evt.hora_fin.slice(0, 5)}</span>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 pr-2">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <h4 className={`text-sm font-semibold truncate ${isNonConvokedMeal ? "line-through text-slate-500" : "text-slate-900"}`}>
-                          {evt.descripcion}
-                        </h4>
-                        {!giraId && evt.programas && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (onOpenRepertoire && evt.programas.id) onOpenRepertoire(evt.programas.id);
-                            }}
-                            className={`text-[9px] px-1 border rounded shrink-0 transition-colors ${onOpenRepertoire ? "bg-white text-slate-500 border-slate-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 cursor-pointer" : "bg-slate-100 text-slate-500 cursor-default"}`}
-                          >
-                            {evt.programas.mes_letra}
-                          </button>
-                        )}
+                  <React.Fragment key={evt.id}>
+                    {showDay && (
+                      <div className="bg-slate-50/80 px-4 py-1.5 text-xs font-bold text-slate-500 uppercase border-b border-slate-100 flex items-center gap-2">
+                        <IconCalendar size={12} />{" "}
+                        {format(parseISO(evt.fecha), "EEEE d", { locale: es })}
                       </div>
-                      <div className="flex items-center text-[11px] text-slate-500 truncate gap-2">
-                        <span className="uppercase font-bold tracking-wide text-[10px]" style={{ color: isNonConvokedMeal ? undefined : eventColor }}>
-                          {evt.tipos_evento?.nombre}
+                    )}
+
+                    <div className={rowStyle}>
+                      <div
+                        className="absolute left-0 top-0 bottom-0 w-[4px]"
+                        style={{
+                          backgroundColor: evt.is_absent
+                            ? "#94a3b8"
+                            : eventColor,
+                        }}
+                      ></div>
+                      <div className="w-12 shrink-0 flex flex-col items-center mr-3">
+                        <span
+                          className={`text-sm font-bold leading-none ${
+                            isNonConvokedMeal || evt.is_absent
+                              ? "text-slate-400"
+                              : "text-slate-700"
+                          }`}
+                        >
+                          {evt.hora_inicio?.slice(0, 5)}
                         </span>
-                        {evt.locaciones?.nombre && (
-                          <>
-                            <span className="text-slate-300">•</span>
-                            <span className="truncate">{evt.locaciones.nombre}</span>
-                          </>
+                        {evt.hora_fin && evt.hora_fin !== evt.hora_inicio && (
+                          <span className="text-[10px] text-slate-400 leading-none mt-1">
+                            {evt.hora_fin.slice(0, 5)}
+                          </span>
                         )}
                       </div>
-                    </div>
-                    <div className="shrink-0 flex items-center justify-end gap-2">
-                      {(evt.programas?.google_drive_folder_id || (evt.programas?.id && onOpenRepertoire)) && !isNonConvokedMeal && (
-                        <div className="flex items-center gap-1 bg-slate-50 rounded-lg border border-slate-100 p-0.5 mr-1">
-                          {evt.programas?.google_drive_folder_id && (
-                            <a href={`https://drive.google.com/drive/folders/${evt.programas.google_drive_folder_id}`} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-white">
-                              <IconDrive size={16} />
-                            </a>
+                      <div className="flex-1 min-w-0 pr-2">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <h4
+                            className={`text-sm font-semibold truncate ${
+                              isNonConvokedMeal || evt.is_absent
+                                ? "line-through text-slate-500"
+                                : "text-slate-900"
+                            }`}
+                          >
+                            {evt.descripcion || evt.tipos_evento?.nombre}
+                          </h4>
+                          {evt.is_guest && (
+                            <span className="bg-emerald-100 text-emerald-700 text-[9px] font-bold px-1.5 rounded flex items-center gap-1">
+                              <IconUserPlus size={10} /> Invitado
+                            </span>
                           )}
-                          {evt.programas?.id && onOpenRepertoire && (
-                            <button onClick={() => onOpenRepertoire(evt.programas.id)} className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-white">
-                              <IconList size={16} />
+                          {evt.is_absent && (
+                            <span className="bg-slate-200 text-slate-500 text-[9px] font-bold px-1.5 rounded">
+                              Ausente
+                            </span>
+                          )}
+
+                          {!giraId && evt.programas && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (onOpenRepertoire && evt.programas.id)
+                                  onOpenRepertoire(evt.programas.id);
+                              }}
+                              className={`text-[9px] px-1 border rounded shrink-0 transition-colors ${
+                                onOpenRepertoire
+                                  ? "bg-white text-slate-500 border-slate-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 cursor-pointer"
+                                  : "bg-slate-100 text-slate-500 cursor-default"
+                              }`}
+                            >
+                              {evt.programas.mes_letra}
                             </button>
                           )}
                         </div>
-                      )}
-                      <div className="flex flex-col items-end gap-1 relative">
-                        {canEdit && !isNonConvokedMeal && (
-                          <button onClick={() => openEditModal(evt)} className="p-1 text-slate-300 hover:text-indigo-600 bg-white rounded-full shadow-sm border border-slate-100 mb-1" title="Editar">
-                            <IconEdit size={14} />
-                          </button>
-                        )}
-                        <CommentButton
-                          supabase={supabase}
-                          entityType="EVENTO"
-                          entityId={evt.id}
-                          onClick={() => setCommentsState({ type: "EVENTO", id: evt.id, title: evt.descripcion })}
-                          className="text-slate-300 hover:text-indigo-500 p-1"
-                        />
-                      </div>
-                      {isMeal && evt.is_convoked && user.id !== 'guest-general' && (
-                        <div className="flex flex-col gap-1 ml-1">
-                          {evt.mi_asistencia === "P" && (
-                            <button onClick={() => deadlineStatus?.status === "OPEN" && toggleMealAttendance(evt.id, null)} className="bg-emerald-100 text-emerald-700 p-1 rounded-md"><IconCheck size={14} /></button>
-                          )}
-                          {evt.mi_asistencia === "A" && (
-                            <button onClick={() => deadlineStatus?.status === "OPEN" && toggleMealAttendance(evt.id, null)} className="bg-rose-100 text-rose-700 p-1 rounded-md"><IconX size={14} /></button>
-                          )}
-                          {!evt.mi_asistencia && deadlineStatus?.status === "OPEN" && (
-                            <div className="flex flex-col gap-1">
-                              <button onClick={() => toggleMealAttendance(evt.id, "P")} className="bg-slate-100 hover:bg-emerald-100 text-slate-400 hover:text-emerald-600 p-1 rounded-sm"><IconCheck size={14} /></button>
-                              <button onClick={() => toggleMealAttendance(evt.id, "A")} className="bg-slate-100 hover:bg-rose-100 text-slate-400 hover:text-rose-600 p-1 rounded-sm"><IconX size={14} /></button>
-                            </div>
+                        <div className="flex items-center text-[11px] text-slate-500 truncate gap-2">
+                          <span
+                            className="uppercase font-bold tracking-wide text-[10px]"
+                            style={{
+                              color:
+                                isNonConvokedMeal || evt.is_absent
+                                  ? undefined
+                                  : eventColor,
+                            }}
+                          >
+                            {evt.tipos_evento?.nombre}
+                          </span>
+                          {evt.locaciones?.nombre && (
+                            <>
+                              {" "}
+                              <span className="text-slate-300">•</span>{" "}
+                              <span className="truncate flex items-center gap-1">
+                                <IconMapPin size={10} /> {evt.locaciones.nombre}
+                              </span>{" "}
+                            </>
                           )}
                         </div>
-                      )}
+                      </div>
+
+                      <div className="shrink-0 flex items-center justify-end gap-2">
+                        {/* USO DEL NUEVO BOTÓN DRIVE INTELIGENTE */}
+                        <DriveSmartButton evt={evt} />
+
+                        {evt.programas?.id &&
+                          onOpenRepertoire &&
+                          !isNonConvokedMeal && (
+                            <button
+                              onClick={() => onOpenRepertoire(evt.programas.id)}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-white border border-transparent hover:border-slate-100"
+                            >
+                              <IconList size={16} />
+                            </button>
+                          )}
+
+                        <div className="flex flex-col items-end gap-1 relative">
+                          {canEdit && !isNonConvokedMeal && (
+                            <button
+                              onClick={() => openEditModal(evt)}
+                              className="p-1 text-slate-300 hover:text-indigo-600 bg-white rounded-full shadow-sm border border-slate-100 mb-1"
+                            >
+                              <IconEdit size={14} />
+                            </button>
+                          )}
+                          <CommentButton
+                            supabase={supabase}
+                            entityType="EVENTO"
+                            entityId={evt.id}
+                            onClick={() =>
+                              setCommentsState({
+                                type: "EVENTO",
+                                id: evt.id,
+                                title: evt.descripcion,
+                              })
+                            }
+                            className="text-slate-300 hover:text-indigo-500 p-1"
+                          />
+                        </div>
+                        {isMeal &&
+                          evt.is_convoked &&
+                          user.id !== "guest-general" && (
+                            <div className="flex flex-col gap-1 ml-1">
+                              {evt.mi_asistencia === "P" && (
+                                <button
+                                  onClick={() =>
+                                    deadlineStatus?.status === "OPEN" &&
+                                    toggleMealAttendance(evt.id, null)
+                                  }
+                                  className="bg-emerald-100 text-emerald-700 p-1 rounded-md"
+                                >
+                                  <IconCheck size={14} />
+                                </button>
+                              )}
+                              {evt.mi_asistencia === "A" && (
+                                <button
+                                  onClick={() =>
+                                    deadlineStatus?.status === "OPEN" &&
+                                    toggleMealAttendance(evt.id, null)
+                                  }
+                                  className="bg-rose-100 text-rose-700 p-1 rounded-md"
+                                >
+                                  <IconX size={14} />
+                                </button>
+                              )}
+                              {!evt.mi_asistencia &&
+                                deadlineStatus?.status === "OPEN" && (
+                                  <div className="flex flex-col gap-1">
+                                    <button
+                                      onClick={() =>
+                                        toggleMealAttendance(evt.id, "P")
+                                      }
+                                      className="bg-slate-100 hover:bg-emerald-100 text-slate-400 hover:text-emerald-600 p-1 rounded-sm"
+                                    >
+                                      <IconCheck size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() =>
+                                        toggleMealAttendance(evt.id, "A")
+                                      }
+                                      className="bg-slate-100 hover:bg-rose-100 text-slate-400 hover:text-rose-600 p-1 rounded-sm"
+                                    >
+                                      <IconX size={14} />
+                                    </button>
+                                  </div>
+                                )}
+                            </div>
+                          )}
+                      </div>
                     </div>
-                  </div>
+                  </React.Fragment>
                 );
               })}
             </div>
@@ -541,16 +846,64 @@ export default function UnifiedAgenda({
         })}
         {!giraId && !loading && (
           <div className="p-6 flex justify-center pb-12">
-            <button onClick={() => setMonthsLimit(prev => prev + 3)} className="flex items-center gap-2 px-6 py-2.5 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-full shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all active:scale-95 text-sm">
+            <button
+              onClick={() => setMonthsLimit((prev) => prev + 3)}
+              className="flex items-center gap-2 px-6 py-2.5 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-full shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all active:scale-95 text-sm"
+            >
               <IconChevronDown size={18} /> Cargar más meses
             </button>
           </div>
         )}
-        {loading && <div className="text-center py-6 text-slate-400 text-xs">Cargando eventos...</div>}
+        {loading && (
+          <div className="text-center py-6 text-slate-400 text-xs">
+            Cargando eventos...
+          </div>
+        )}
       </div>
-      {isEditOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><EventForm formData={editFormData} setFormData={setEditFormData} onSave={handleEditSave} onClose={() => setIsEditOpen(false)} loading={loading} eventTypes={formEventTypes} locations={formLocations} isNew={false} /></div>}
-      {isCreating && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><EventForm formData={newFormData} setFormData={setNewFormData} onSave={handleCreateSave} onClose={() => setIsCreating(false)} loading={loading} eventTypes={formEventTypes} locations={formLocations} isNew={true} /></div>}
-      {commentsState && <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px]" onClick={() => setCommentsState(null)}><div onClick={(e) => e.stopPropagation()} className="h-full"><CommentsManager supabase={supabase} entityType={commentsState.type} entityId={commentsState.id} title={commentsState.title} onClose={() => setCommentsState(null)} /></div></div>}
+      {isEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <EventForm
+            formData={editFormData}
+            setFormData={setEditFormData}
+            onSave={handleEditSave}
+            onClose={() => setIsEditOpen(false)}
+            loading={loading}
+            eventTypes={formEventTypes}
+            locations={formLocations}
+            isNew={false}
+          />
+        </div>
+      )}
+      {isCreating && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <EventForm
+            formData={newFormData}
+            setFormData={setNewFormData}
+            onSave={handleCreateSave}
+            onClose={() => setIsCreating(false)}
+            loading={loading}
+            eventTypes={formEventTypes}
+            locations={formLocations}
+            isNew={true}
+          />
+        </div>
+      )}
+      {commentsState && (
+        <div
+          className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px]"
+          onClick={() => setCommentsState(null)}
+        >
+          <div onClick={(e) => e.stopPropagation()} className="h-full">
+            <CommentsManager
+              supabase={supabase}
+              entityType={commentsState.type}
+              entityId={commentsState.id}
+              title={commentsState.title}
+              onClose={() => setCommentsState(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

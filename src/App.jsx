@@ -9,17 +9,17 @@ import {
   IconX,
   IconLoader,
 } from "./components/ui/Icons";
-// 1. IMPORTAR HOOK
-import { useSearchParams, Routes, Route } from "react-router-dom"; // <--- AGREGAR Routes, Route
-import PublicLinkHandler from "./views/Public/PublicLinkHandler"; // <--- IMPORTAR
+import { useSearchParams, Routes, Route } from "react-router-dom";
+import PublicLinkHandler from "./views/Public/PublicLinkHandler";
 
-// ... (Imports de Lazy Loading se mantienen igual) ...
+// Lazy Loading
 const MusiciansView = React.lazy(() => import("./views/Musicians/MusiciansView"));
 const EnsemblesView = React.lazy(() => import("./views/Ensembles/EnsemblesView"));
 const GirasView = React.lazy(() => import("./views/Giras/GirasView"));
 const RepertoireView = React.lazy(() => import("./views/Repertoire/RepertoireView"));
 const DataView = React.lazy(() => import("./views/Data/DataView"));
 const UsersManager = React.lazy(() => import("./views/Users/UsersManager"));
+const EnsembleCoordinatorView = React.lazy(() => import("./views/Ensembles/EnsembleCoordinatorView"));
 
 const PageLoader = () => (
   <div className="h-full w-full flex items-center justify-center text-slate-400 gap-2">
@@ -34,29 +34,57 @@ function ProtectedApp() {
 
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  
+  // NUEVO ESTADO: Saber si es coordinador de algún ensamble
+  const [isEnsembleCoordinator, setIsEnsembleCoordinator] = useState(false);
 
   const userRole = user?.rol_sistema || "";
   
-  // --- CORRECCIÓN AQUÍ: INCLUIR 'invitado' ---
   const isPersonal =
     userRole === "consulta_personal" || 
     userRole === "personal" || 
     userRole === "invitado";
 
+  // 1. CHEQUEO DE PERMISOS EXTRA
   useEffect(() => {
-    const fetchInstrumentos = async () => {
-      const { data } = await supabase.from("instrumentos").select("*").order("id");
-      if (data) setCatalogoInstrumentos(data);
+    const checkPermissions = async () => {
+        if (!user) return;
+
+        // A. Cargar Instrumentos (Si no es invitado)
+        if (userRole !== 'invitado') {
+            const { data } = await supabase.from("instrumentos").select("*").order("id");
+            if (data) setCatalogoInstrumentos(data);
+        }
+
+        // B. Chequear si es Coordinador de Ensamble (aunque sea rol personal)
+        // Si ya es admin o produccion, no hace falta chequear DB, ya tiene acceso total
+        if (['admin', 'produccion_general', 'editor'].includes(userRole)) {
+            setIsEnsembleCoordinator(true); 
+        } else {
+            // Buscamos si tiene asignaciones en la tabla
+            const { count, error } = await supabase
+                .from("ensambles_coordinadores")
+                .select("id", { count: "exact", head: true })
+                .eq("id_integrante", user.id);
+            
+            if (!error && count > 0) {
+                setIsEnsembleCoordinator(true);
+            }
+        }
     };
-    if (user && userRole !== 'invitado') fetchInstrumentos(); // Invitado no necesita catálogo completo
+
+    checkPermissions();
   }, [user, userRole]);
 
-  // Redirección de seguridad para personal/invitados
+  // 2. REDIRECCIÓN DE SEGURIDAD AJUSTADA
   useEffect(() => {
-    if (isPersonal && activeTab !== "giras") {
+    // Si es personal Y NO es coordinador, y trata de salir de giras -> lo devolvemos
+    if (isPersonal && !isEnsembleCoordinator && activeTab !== "giras") {
       setSearchParams({ tab: "giras" }, { replace: true });
     }
-  }, [isPersonal, activeTab, setSearchParams]);
+    // Nota: Si es personal PERO es coordinador, le permitimos estar en 'coordinacion'
+    // (La lógica de tabs visibles abajo se encarga de que no entre a 'datos' o 'usuarios')
+  }, [isPersonal, isEnsembleCoordinator, activeTab, setSearchParams]);
 
   const handleTabChange = (tabId) => {
     setSearchParams({ tab: tabId });
@@ -75,13 +103,24 @@ function ProtectedApp() {
     { id: "musicos", label: "Músicos", icon: "users" },
     { id: "ensambles", label: "Ensambles", icon: "layers" },
     { id: "giras", label: "Giras", icon: "map" },
+    { id: "coordinacion", label: "Coordinación", icon: "clipboard" },
     { id: "repertorio", label: "Repertorio", icon: "music" },
     { id: "datos", label: "Datos", icon: "database" },
   ];
 
-  const visibleTabs = isPersonal
-    ? allTabs.filter((t) => t.id === "giras")
-    : allTabs;
+  // 3. LÓGICA DE TABS VISIBLES
+  let visibleTabs = allTabs;
+
+  if (isPersonal) {
+      // Si es personal, por defecto solo Giras
+      visibleTabs = allTabs.filter((t) => t.id === "giras");
+      
+      // PERO si es coordinador, le agregamos la pestaña de Coordinación
+      if (isEnsembleCoordinator) {
+          const coordTab = allTabs.find(t => t.id === "coordinacion");
+          if (coordTab) visibleTabs.push(coordTab);
+      }
+  }
 
   const LogoOrquesta = () => (
     <img src="/pwa-192x192.png" alt="Logo" className="w-10 h-10 md:w-12 md:h-12 object-contain" />
@@ -94,7 +133,7 @@ function ProtectedApp() {
           <div className="flex items-center gap-2 text-indigo-700 font-black text-xl tracking-tight">
             <LogoOrquesta /> <span className="hidden md:inline">Manager</span>
           </div>
-          {/* Ocultar pestañas superiores si es invitado (solo verá el título y su contenido) */}
+          
           {userRole !== 'invitado' && (
             <div className="hidden md:flex gap-1 bg-slate-100 p-1 rounded-lg">
                 {visibleTabs.map((tab) => (
@@ -153,11 +192,16 @@ function ProtectedApp() {
             <Suspense fallback={<PageLoader />}>
               {activeTab === "giras" && <GirasView supabase={supabase} />}
               
-              {/* Resto de tabs (solo renderizan si NO es personal/invitado) */}
               {activeTab === "musicos" && !isPersonal && (
                 <MusiciansView supabase={supabase} catalogoInstrumentos={catalogoInstrumentos} />
               )}
               {activeTab === "ensambles" && !isPersonal && <EnsemblesView supabase={supabase} />}
+              
+              {/* VISTA DE COORDINACIÓN (Visible para Staff o Coordinadores Específicos) */}
+              {activeTab === "coordinacion" && (!isPersonal || isEnsembleCoordinator) && (
+                 <EnsembleCoordinatorView supabase={supabase} />
+              )}
+
               {activeTab === "repertorio" && !isPersonal && (
                 <RepertoireView supabase={supabase} catalogoInstrumentos={catalogoInstrumentos} />
               )}

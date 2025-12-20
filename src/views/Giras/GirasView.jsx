@@ -242,6 +242,10 @@ export default function GirasView({ supabase }) {
   const handleSave = async () => {
     if (!formData.nombre_gira) return alert("Nombre obligatorio");
     setLoading(true);
+    const payload = { ...formData };
+      if (!payload.token_publico) payload.token_publico = null; 
+      if (!payload.fecha_desde) payload.fecha_desde = null;
+      if (!payload.fecha_hasta) payload.fecha_hasta = null;
     try {
       let targetId = editingId;
       if (editingId) {
@@ -249,7 +253,7 @@ export default function GirasView({ supabase }) {
       } else {
         const { data } = await supabase
           .from("programas")
-          .insert([formData])
+          .insert([payload])
           .select();
         if (data && data.length > 0) targetId = data[0].id;
       }
