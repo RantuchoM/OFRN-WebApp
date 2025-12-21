@@ -2,24 +2,26 @@ import React, { useEffect, useState, Suspense } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import LoginView from "./views/LoginView/LoginView";
 import { supabase } from "./services/supabase";
-import {
-  IconLogOut,
-  IconUsers,
-  IconMenu,
-  IconX,
-  IconLoader,
-} from "./components/ui/Icons";
+import { IconLogOut, IconUsers, IconLoader } from "./components/ui/Icons";
 import { useSearchParams, Routes, Route } from "react-router-dom";
 import PublicLinkHandler from "./views/Public/PublicLinkHandler";
 
 // Lazy Loading
-const MusiciansView = React.lazy(() => import("./views/Musicians/MusiciansView"));
-const EnsemblesView = React.lazy(() => import("./views/Ensembles/EnsemblesView"));
+const MusiciansView = React.lazy(() =>
+  import("./views/Musicians/MusiciansView")
+);
+const EnsemblesView = React.lazy(() =>
+  import("./views/Ensembles/EnsemblesView")
+);
 const GirasView = React.lazy(() => import("./views/Giras/GirasView"));
-const RepertoireView = React.lazy(() => import("./views/Repertoire/RepertoireView"));
+const RepertoireView = React.lazy(() =>
+  import("./views/Repertoire/RepertoireView")
+);
 const DataView = React.lazy(() => import("./views/Data/DataView"));
 const UsersManager = React.lazy(() => import("./views/Users/UsersManager"));
-const EnsembleCoordinatorView = React.lazy(() => import("./views/Ensembles/EnsembleCoordinatorView"));
+const EnsembleCoordinatorView = React.lazy(() =>
+  import("./views/Ensembles/EnsembleCoordinatorView")
+);
 
 const PageLoader = () => (
   <div className="h-full w-full flex items-center justify-center text-slate-400 gap-2">
@@ -28,62 +30,56 @@ const PageLoader = () => (
 );
 
 function ProtectedApp() {
-  const { user, loading, isAdmin } = useAuth();
+  // AGREGADO: Extraemos 'logout' del hook
+  const { user, loading, isAdmin, logout } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") || "giras";
 
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
-  // NUEVO ESTADO: Saber si es coordinador de algún ensamble
+
   const [isEnsembleCoordinator, setIsEnsembleCoordinator] = useState(false);
 
   const userRole = user?.rol_sistema || "";
-  
+
   const isPersonal =
-    userRole === "consulta_personal" || 
-    userRole === "personal" || 
+    userRole === "consulta_personal" ||
+    userRole === "personal" ||
     userRole === "invitado";
 
-  // 1. CHEQUEO DE PERMISOS EXTRA
   useEffect(() => {
     const checkPermissions = async () => {
-        if (!user) return;
+      if (!user) return;
 
-        // A. Cargar Instrumentos (Si no es invitado)
-        if (userRole !== 'invitado') {
-            const { data } = await supabase.from("instrumentos").select("*").order("id");
-            if (data) setCatalogoInstrumentos(data);
-        }
+      if (userRole !== "invitado") {
+        const { data } = await supabase
+          .from("instrumentos")
+          .select("*")
+          .order("id");
+        if (data) setCatalogoInstrumentos(data);
+      }
 
-        // B. Chequear si es Coordinador de Ensamble (aunque sea rol personal)
-        // Si ya es admin o produccion, no hace falta chequear DB, ya tiene acceso total
-        if (['admin', 'produccion_general', 'editor'].includes(userRole)) {
-            setIsEnsembleCoordinator(true); 
-        } else {
-            // Buscamos si tiene asignaciones en la tabla
-            const { count, error } = await supabase
-                .from("ensambles_coordinadores")
-                .select("id", { count: "exact", head: true })
-                .eq("id_integrante", user.id);
-            
-            if (!error && count > 0) {
-                setIsEnsembleCoordinator(true);
-            }
+      if (["admin", "produccion_general", "editor"].includes(userRole)) {
+        setIsEnsembleCoordinator(true);
+      } else {
+        const { count, error } = await supabase
+          .from("ensambles_coordinadores")
+          .select("id", { count: "exact", head: true })
+          .eq("id_integrante", user.id);
+
+        if (!error && count > 0) {
+          setIsEnsembleCoordinator(true);
         }
+      }
     };
 
     checkPermissions();
   }, [user, userRole]);
 
-  // 2. REDIRECCIÓN DE SEGURIDAD AJUSTADA
   useEffect(() => {
-    // Si es personal Y NO es coordinador, y trata de salir de giras -> lo devolvemos
     if (isPersonal && !isEnsembleCoordinator && activeTab !== "giras") {
       setSearchParams({ tab: "giras" }, { replace: true });
     }
-    // Nota: Si es personal PERO es coordinador, le permitimos estar en 'coordinacion'
-    // (La lógica de tabs visibles abajo se encarga de que no entre a 'datos' o 'usuarios')
   }, [isPersonal, isEnsembleCoordinator, activeTab, setSearchParams]);
 
   const handleTabChange = (tabId) => {
@@ -108,61 +104,83 @@ function ProtectedApp() {
     { id: "datos", label: "Datos", icon: "database" },
   ];
 
-  // 3. LÓGICA DE TABS VISIBLES
   let visibleTabs = allTabs;
 
   if (isPersonal) {
-      // Si es personal, por defecto solo Giras
-      visibleTabs = allTabs.filter((t) => t.id === "giras");
-      
-      // PERO si es coordinador, le agregamos la pestaña de Coordinación
-      if (isEnsembleCoordinator) {
-          const coordTab = allTabs.find(t => t.id === "coordinacion");
-          if (coordTab) visibleTabs.push(coordTab);
-      }
+    visibleTabs = allTabs.filter((t) => t.id === "giras");
+    if (isEnsembleCoordinator) {
+      const coordTab = allTabs.find((t) => t.id === "coordinacion");
+      if (coordTab) visibleTabs.push(coordTab);
+    }
   }
 
   const LogoOrquesta = () => (
-    <img src="/pwa-192x192.png" alt="Logo" className="w-10 h-10 md:w-12 md:h-12 object-contain" />
+    <img
+      src="/pwa-192x192.png"
+      alt="Logo"
+      className="w-10 h-10 md:w-12 md:h-12 object-contain"
+    />
   );
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans ">
+      {/* NAVBAR */}
       <nav className="bg-white print:hidden border-b border-slate-200 px-4 md:px-6 py-3 flex items-center justify-between shrink-0 shadow-sm z-50 relative">
+        {/* BLOQUE IZQUIERDO: Logo y Tabs */}
         <div className="flex items-center gap-4 md:gap-6">
           <div className="flex items-center gap-2 text-indigo-700 font-black text-xl tracking-tight">
             <LogoOrquesta /> <span className="hidden md:inline">Manager</span>
           </div>
-          
-          {userRole !== 'invitado' && (
+
+          {userRole !== "invitado" && (
             <div className="hidden md:flex gap-1 bg-slate-100 p-1 rounded-lg">
-                {visibleTabs.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <button
-                    key={tab.id}
-                    onClick={() => handleTabChange(tab.id)}
-                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${
+                  key={tab.id}
+                  onClick={() => handleTabChange(tab.id)}
+                  className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${
                     activeTab === tab.id
-                        ? "bg-white text-indigo-600 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
-                    }`}
+                      ? "bg-white text-indigo-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                  }`}
                 >
-                    {tab.label}
+                  {tab.label}
                 </button>
-                ))}
-                {isAdmin && (
+              ))}
+              {isAdmin && (
                 <button
-                    onClick={() => handleTabChange("usuarios")}
-                    className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${
+                  onClick={() => handleTabChange("usuarios")}
+                  className={`px-4 py-2 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${
                     activeTab === "usuarios"
-                        ? "bg-white text-indigo-600 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
-                    }`}
+                      ? "bg-white text-indigo-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                  }`}
                 >
-                    <IconUsers size={16} /> Usuarios
+                  <IconUsers size={16} /> Usuarios
                 </button>
-                )}
+              )}
             </div>
           )}
+        </div>
+
+        {/* BLOQUE DERECHO: Usuario y Logout */}
+        <div className="flex items-center gap-4 pl-4">
+          <div className="hidden md:flex flex-col items-end leading-tight">
+            <span className="font-bold text-sm text-slate-700">
+              {user?.nombre} {user?.apellido}
+            </span>
+            <span className="text-[10px] uppercase font-black text-indigo-500/60 tracking-wider">
+              {user?.rol_sistema}
+            </span>
+          </div>
+
+          <button
+            onClick={logout}
+            className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-full transition-all"
+            title="Cerrar Sesión"
+          >
+            <IconLogOut size={20} />
+          </button>
         </div>
       </nav>
 
@@ -191,22 +209,34 @@ function ProtectedApp() {
           <div className="h-full w-full p-2 md:p-0 overflow-hidden">
             <Suspense fallback={<PageLoader />}>
               {activeTab === "giras" && <GirasView supabase={supabase} />}
-              
+
               {activeTab === "musicos" && !isPersonal && (
-                <MusiciansView supabase={supabase} catalogoInstrumentos={catalogoInstrumentos} />
+                <MusiciansView
+                  supabase={supabase}
+                  catalogoInstrumentos={catalogoInstrumentos}
+                />
               )}
-              {activeTab === "ensambles" && !isPersonal && <EnsemblesView supabase={supabase} />}
-              
-              {/* VISTA DE COORDINACIÓN (Visible para Staff o Coordinadores Específicos) */}
-              {activeTab === "coordinacion" && (!isPersonal || isEnsembleCoordinator) && (
-                 <EnsembleCoordinatorView supabase={supabase} />
+              {activeTab === "ensambles" && !isPersonal && (
+                <EnsemblesView supabase={supabase} />
               )}
 
+              {activeTab === "coordinacion" &&
+                (!isPersonal || isEnsembleCoordinator) && (
+                  <EnsembleCoordinatorView supabase={supabase} />
+                )}
+
               {activeTab === "repertorio" && !isPersonal && (
-                <RepertoireView supabase={supabase} catalogoInstrumentos={catalogoInstrumentos} />
+                <RepertoireView
+                  supabase={supabase}
+                  catalogoInstrumentos={catalogoInstrumentos}
+                />
               )}
-              {activeTab === "datos" && !isPersonal && <DataView supabase={supabase} />}
-              {activeTab === "usuarios" && isAdmin && <UsersManager supabase={supabase} />}
+              {activeTab === "datos" && !isPersonal && (
+                <DataView supabase={supabase} />
+              )}
+              {activeTab === "usuarios" && isAdmin && (
+                <UsersManager supabase={supabase} />
+              )}
             </Suspense>
           </div>
         </div>

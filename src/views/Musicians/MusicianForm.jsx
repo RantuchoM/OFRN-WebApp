@@ -15,15 +15,15 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const [activeTab, setActiveTab] = useState("personal");
   const [showPassword, setShowPassword] = useState(false);
   useEffect(() => {
-  const fetchInstruments = async () => {
-    const { data } = await supabase
-      .from("instrumentos")
-      .select("id, instrumento")
-      .order("instrumento");
-    if (data) setCatalogoInstrumentos(data);
-  };
-  fetchInstruments();
-}, [supabase]);
+    const fetchInstruments = async () => {
+      const { data } = await supabase
+        .from("instrumentos")
+        .select("id, instrumento")
+        .order("instrumento");
+      if (data) setCatalogoInstrumentos(data);
+    };
+    fetchInstruments();
+  }, [supabase]);
   useEffect(() => {
     if (musician) {
       setFormData((prev) => ({ ...prev, ...musician }));
@@ -65,12 +65,28 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+
     try {
+      // 1. Creamos una copia de los datos del formulario
+      const payload = { ...formData };
+
+      // 2. Eliminamos las propiedades que NO son columnas de la tabla 'integrantes'
+      // El objeto 'instrumento' que viene del join al leer
+      delete payload.instrumento;
+      delete payload.instrumentos; // Por si acaso viene en plural
+      delete payload.ensamble;
+      delete payload.integrantes_ensambles;
+          delete payload.localidades;
+
+
+      // Nota: Asegúrate de que 'id_instr' sí vaya en el payload, ya que es la clave foránea real.
+
       const { data, error } = await supabase
         .from("integrantes")
-        .upsert([formData])
+        .upsert([payload]) // Enviamos el payload limpio
         .select()
         .single();
+
       if (error) throw error;
       onSave(data);
     } catch (error) {

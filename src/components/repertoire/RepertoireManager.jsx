@@ -125,8 +125,15 @@ export default function RepertoireManager({
   giraId,
   initialData = [],
   isCompact = false,
+  readOnly = undefined, // Nueva prop
 }) {
-  const { isEditor } = useAuth();
+  const { isEditor: isGlobalEditor } = useAuth();
+  
+  // Lógica de permisos:
+  // Si readOnly está definido, lo respetamos (true = solo lectura, false = edición permitida)
+  // Si readOnly es undefined, usamos el rol global de editor
+  const isEditor = readOnly !== undefined ? !readOnly : isGlobalEditor;
+
   const [repertorios, setRepertorios] = useState(initialData);
   const [musicians, setMusicians] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -443,8 +450,8 @@ export default function RepertoireManager({
               <IconMusic size={14} className="text-indigo-600" />
               {editingBlock.id === rep.id ? (
                 <input
-                  type="text"
                   autoFocus
+                  type="text"
                   className="w-full text-xs p-1 border border-indigo-300 rounded outline-none"
                   value={editingBlock.nombre}
                   onChange={(e) =>

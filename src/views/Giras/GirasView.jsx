@@ -41,6 +41,9 @@ export default function GirasView({ supabase }) {
   const isPersonal =
     userRole === "consulta_personal" || userRole === "personal" || isGuest;
 
+  // --- NUEVO ESTADO: IDs de ensambles que coordina el usuario ---
+  const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
+
   const [searchParams, setSearchParams] = useSearchParams();
   const mode = searchParams.get("view") || "LIST";
   const giraId = searchParams.get("giraId");
@@ -105,12 +108,31 @@ export default function GirasView({ supabase }) {
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [allIntegrantes, setAllIntegrantes] = useState([]);
 
+  // --- EFECTO: Cargar ensambles coordinados ---
   useEffect(() => {
-    fetchGiras();
+    const fetchCoordinations = async () => {
+      if (!user) return;
+      const { data, error } = await supabase
+        .from("ensambles_coordinadores")
+        .select("id_ensamble")
+        .eq("id_integrante", user.id);
+
+      if (data && !error) {
+        const ids = new Set(data.map(item => item.id_ensamble));
+        setCoordinatedEnsembles(ids);
+      }
+    };
+    fetchCoordinations();
+  }, [user, supabase]);
+
+  useEffect(() => {
+    // Agregamos coordinatedEnsembles como dependencia para refrescar la lista si cambian permisos
+    fetchGiras(); 
     fetchLocationsList();
     fetchEnsemblesList();
     fetchIntegrantesList();
-  }, [user.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id, coordinatedEnsembles.size]);
 
   const fetchGiras = async () => {
     setLoading(true);
@@ -168,9 +190,11 @@ export default function GirasView({ supabase }) {
             );
             if (myOverride && myOverride.estado === "ausente") return false;
             if (myOverride) return true;
+            
+            // MODIFICADO: Incluye giras si toco en el ensamble O si lo coordino
             const isIncluded = sources.some(
               (s) =>
-                (s.tipo === "ENSAMBLE" && myEnsembles.has(s.valor_id)) ||
+                (s.tipo === "ENSAMBLE" && (myEnsembles.has(s.valor_id) || coordinatedEnsembles.has(s.valor_id))) ||
                 (s.tipo === "FAMILIA" && s.valor_texto === myFamily)
             );
             if (isIncluded) {
@@ -181,6 +205,10 @@ export default function GirasView({ supabase }) {
                 return false;
               return true;
             }
+            // Si soy coordinador y la gira no tiene fuentes definidas aun, 
+            // pero soy quien la creó (o debería verla), la lógica base podría fallar
+            // Asumiremos que al crearla le asignan la fuente.
+            
             return false;
           });
         }
@@ -242,14 +270,22 @@ export default function GirasView({ supabase }) {
   const handleSave = async () => {
     if (!formData.nombre_gira) return alert("Nombre obligatorio");
     setLoading(true);
+    
+    // COPIA DE SEGURIDAD Y LÓGICA DE PERMISOS
     const payload = { ...formData };
-      if (!payload.token_publico) payload.token_publico = null; 
-      if (!payload.fecha_desde) payload.fecha_desde = null;
-      if (!payload.fecha_hasta) payload.fecha_hasta = null;
+    if (!payload.token_publico) payload.token_publico = null; 
+    if (!payload.fecha_desde) payload.fecha_desde = null;
+    if (!payload.fecha_hasta) payload.fecha_hasta = null;
+
+    // Si NO es editor global, forzamos que el tipo sea Ensamble (para coordinadores)
+    if (!isEditor && coordinatedEnsembles.size > 0) {
+      payload.tipo = "Ensamble";
+    }
+
     try {
       let targetId = editingId;
       if (editingId) {
-        await supabase.from("programas").update(formData).eq("id", editingId);
+        await supabase.from("programas").update(payload).eq("id", editingId);
       } else {
         const { data } = await supabase
           .from("programas")
@@ -456,6 +492,25 @@ export default function GirasView({ supabase }) {
     { mode: "DIFUSION", label: "Difusión", icon: IconMegaphone },
   ];
 
+  // --- LOGICA DE PERMISOS DE EDICIÓN LOCAL ---
+  const canEditGira = (gira) => {
+    // 1. Admin/Editor global siempre puede
+    if (isEditor) return true;
+    
+    // 2. Si no es admin, solo puede tocar programas tipo 'Ensamble'
+    if (gira.tipo !== "Ensamble") return false;
+
+    // 3. Revisar si la gira tiene como fuente uno de mis ensambles coordinados
+    const fuentes = gira.giras_fuentes || [];
+    const isMyEnsemble = fuentes.some(f => 
+      f.tipo === "ENSAMBLE" && coordinatedEnsembles.has(f.valor_id)
+    );
+    return isMyEnsemble;
+  };
+
+  // Variable general para saber si puede crear algo
+  const canCreate = isEditor || coordinatedEnsembles.size > 0;
+
   const isDetailView =
     [
       "AGENDA",
@@ -501,6 +556,7 @@ export default function GirasView({ supabase }) {
                 </div>
               </div>
             </div>
+            {/* Habilitamos botones si es editor O puede editar ESTA gira */}
             {(isEditor || isPersonal) && (
               <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
                 {tourNavItems
@@ -508,7 +564,7 @@ export default function GirasView({ supabase }) {
                     if (item.mode === "MEALS_PERSONAL") {
                       return isGuest && !user.isGeneral;
                     }
-                    if (isEditor) return true;
+                    if (isEditor || canEditGira(selectedGira)) return true; // Si edita, ve todo
                     return ["AGENDA", "REPERTOIRE"].includes(item.mode);
                   })
                   .map((item) => {
@@ -657,7 +713,8 @@ export default function GirasView({ supabase }) {
 
         {mode === "LIST" && (
           <div className="p-4 space-y-4">
-            {isEditor && !editingId && (
+            {/* Se muestra si es Editor O si coordina algún ensamble (canCreate) */}
+            {canCreate && !editingId && (
               <>
                 {!isAdding && (
                   <button
@@ -668,7 +725,8 @@ export default function GirasView({ supabase }) {
                         subtitulo: "",
                         fecha_desde: "",
                         fecha_hasta: "",
-                        tipo: "Sinfónico",
+                        // Si NO es editor (es coordinador), pre-seleccionamos "Ensamble"
+                        tipo: isEditor ? "Sinfónico" : "Ensamble",
                         zona: "",
                         token_publico: "",
                       });
@@ -742,13 +800,16 @@ export default function GirasView({ supabase }) {
                   />
                 );
               }
-              // --- USO DEL NUEVO COMPONENTE TARJETA ---
+              // Calculamos permisos para esta tarjeta específica
+              const userCanEditThis = canEditGira(gira);
+
               return (
                 <GiraCard
                   key={gira.id}
                   gira={gira}
                   updateView={updateView}
-                  isEditor={isEditor}
+                  // Pasamos "isEditor" como true si el usuario tiene permiso para ESTA gira
+                  isEditor={userCanEditThis}
                   isPersonal={isPersonal}
                   userRole={userRole}
                   startEdit={startEdit}

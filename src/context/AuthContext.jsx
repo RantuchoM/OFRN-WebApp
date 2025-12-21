@@ -143,7 +143,7 @@ export function AuthProvider({ children }) {
     isAdmin: user?.rol_sistema === "admin",
     isEditor: user?.rol_sistema === "editor" || user?.rol_sistema === "admin",
     isGeneral: user?.rol_sistema === "consulta_general",
-        isGuest: user?.rol_sistema === "invitado", 
+    isGuest: user?.rol_sistema === "invitado", 
 
     userName: user ? `${user.nombre} ${user.apellido}` : "",
   };

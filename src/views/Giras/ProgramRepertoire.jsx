@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   IconLoader,
   IconMusic,
@@ -6,14 +6,15 @@ import {
   IconFileText,
   IconArrowLeft,
 } from "../../components/ui/Icons";
-import { useSearchParams } from "react-router-dom"; // <--- 1. IMPORTAR HOOK
+import { useSearchParams } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext"; // Importar useAuth
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import ProgramSeating from "../Giras/ProgramSeating";
 import InstrumentationManager from "../../components/roster/InstrumentationManager";
 import MyPartsViewer from "./MyPartsViewer";
 
 export default function ProgramRepertoire({ supabase, program, onBack }) {
-  // 2. USAR SEARCH PARAMS EN LUGAR DE STATE
+  const { user, isEditor } = useAuth(); // Hook de auth
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Leemos la sub-pestaña de la URL. Si no existe, por defecto es 'repertoire'
@@ -24,6 +25,47 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
   );
 
   const [repertoireKey, setRepertoireKey] = useState(0);
+  
+  // --- NUEVO ESTADO: Saber si el usuario coordina ESTE programa ---
+  const [canEdit, setCanEdit] = useState(false);
+
+  // --- EFECTO: Determinar permisos de edición ---
+  useEffect(() => {
+    const checkPermissions = async () => {
+      // 1. Si es editor global, tiene permiso siempre
+      if (isEditor) {
+        setCanEdit(true);
+        return;
+      }
+
+      // 2. Si no es editor, chequeamos si coordina el ensamble de este programa
+      // Solo aplica si el programa es de tipo 'Ensamble'
+      if (program.tipo === 'Ensamble') {
+        const fuentes = program.giras_fuentes || [];
+        
+        const { data: coordData, error } = await supabase
+          .from("ensambles_coordinadores")
+          .select("id_ensamble")
+          .eq("id_integrante", user.id);
+
+        if (!error && coordData) {
+          const myCoordinatedEnsembles = new Set(coordData.map(c => c.id_ensamble));
+          
+          const isCoordinator = fuentes.some(f => 
+            f.tipo === 'ENSAMBLE' && myCoordinatedEnsembles.has(f.valor_id)
+          );
+          
+          if (isCoordinator) {
+            setCanEdit(true);
+          }
+        }
+      }
+    };
+
+    if (program && user) {
+        checkPermissions();
+    }
+  }, [user, isEditor, program, supabase]);
 
   if (!program)
     return (
@@ -129,6 +171,7 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
               programId={program.id}
               initialData={program.programas_repertorios}
               onUpdate={handleRepertoireUpdate}
+              readOnly={!canEdit} // <--- AQUI PASAMOS EL PERMISO
             />
           </div>
         )}
@@ -140,7 +183,7 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
               supabase={supabase}
               program={program}
               repertoireBlocks={repertorios}
-              onBack={() => handleTabChange("repertoire")} // Volver actualiza la URL
+              onBack={() => handleTabChange("repertoire")} 
             />
           </div>
         )}
@@ -150,7 +193,7 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
             <MyPartsViewer
               supabase={supabase}
               gira={program}
-              onOpenSeating={() => handleTabChange("seating")} // Navegación interna actualiza URL
+              onOpenSeating={() => handleTabChange("seating")} 
             />
           </div>
         )}
