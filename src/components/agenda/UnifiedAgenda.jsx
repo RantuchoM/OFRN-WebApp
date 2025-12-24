@@ -185,7 +185,6 @@ export default function UnifiedAgenda({
     user?.rol_sistema
   );
 
-  // 1. Cargar Perfil
   // 1. Cargar Perfil (CON SOPORTE OFFLINE)
   useEffect(() => {
     const fetchProfile = async () => {
@@ -201,7 +200,6 @@ export default function UnifiedAgenda({
         }
       }
 
-      // Si es invitado general, hardcodeamos y salimos
       if (user.id === "guest-general") {
         setUserProfile({
           id: "guest-general",
@@ -214,12 +212,12 @@ export default function UnifiedAgenda({
         return;
       }
 
-      // B. Si no hay conexión, nos quedamos con lo local y no intentamos conectar
+      // B. Si no hay conexión, usar lo local
       if (!navigator.onLine) return;
 
-      // C. Si hay conexión, actualizamos datos frescos
+      // C. Si hay conexión, actualizar
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from("integrantes")
           .select(
             "*, instrumentos(familia), integrantes_ensambles(id_ensamble)"
@@ -229,34 +227,36 @@ export default function UnifiedAgenda({
 
         if (data) {
           setUserProfile(data);
-          // Guardamos la versión fresca en el celular
           localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(data));
         }
       } catch (error) {
-        console.error("Error actualizando perfil:", error);
+        console.error("Error fetching profile:", error);
       }
     };
-
     fetchProfile();
   }, [user.id, supabase]);
 
-  // 2. Cargar Catálogos (Solo Admin/Editor)
+  // 2. Cargar Catálogos (Protegido Offline)
   useEffect(() => {
     const fetchCatalogs = async () => {
-      if (!canEdit) return;
-      const { data: types } = await supabase
-        .from("tipos_evento")
-        .select("id, nombre")
-        .order("nombre");
-      const { data: locs } = await supabase
-        .from("locaciones")
-        .select("id, nombre, localidades(localidad)")
-        .order("nombre");
-      if (types) setFormEventTypes(types);
-      if (locs) setFormLocations(locs);
+      if (!canEdit || !navigator.onLine) return;
+      try {
+        const { data: types } = await supabase
+          .from("tipos_evento")
+          .select("id, nombre")
+          .order("nombre");
+        const { data: locs } = await supabase
+          .from("locaciones")
+          .select("id, nombre, localidades(localidad)")
+          .order("nombre");
+        if (types) setFormEventTypes(types);
+        if (locs) setFormLocations(locs);
+      } catch (e) {
+        console.error(e);
+      }
     };
     fetchCatalogs();
-  }, [canEdit]);
+  }, [canEdit, supabase]);
 
   // 3. Detectar Conexión
   useEffect(() => {
@@ -293,7 +293,9 @@ export default function UnifiedAgenda({
 
   const filteredItems = items.filter((item) => {
     const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
-    return catId && selectedCategoryIds.includes(catId);
+    // Si no tiene categoría (raro), lo mostramos por defecto o lo ocultamos según lógica
+    if (!catId) return true;
+    return selectedCategoryIds.includes(catId);
   });
 
   const checkIsConvoked = (convocadosList, tourRole) => {
@@ -319,13 +321,14 @@ export default function UnifiedAgenda({
     const CACHE_KEY = `agenda_cache_${user.id}_${giraId || "general"}`;
 
     try {
-      // A. Cargar Caché
+      // A. Cargar Caché (Siempre intentar primero)
       const cachedData = localStorage.getItem(CACHE_KEY);
       if (cachedData) {
         const parsedData = JSON.parse(cachedData);
         setItems(parsedData);
 
-        // Reconstruir categorías para filtros offline
+        // --- RECONSTRUIR CATEGORÍAS DESDE CACHÉ ---
+        // Esto asegura que el filtro funcione offline
         const catsMap = {};
         parsedData.forEach((evt) => {
           if (evt.tipos_evento?.categorias_tipos_eventos) {
@@ -339,7 +342,7 @@ export default function UnifiedAgenda({
         if (cachedCats.length > 0) setAvailableCategories(cachedCats);
       }
 
-      // B. Si offline, detener
+      // B. Si offline, terminar aquí
       if (!navigator.onLine) {
         setIsOfflineMode(true);
         setLoading(false);
@@ -443,6 +446,7 @@ export default function UnifiedAgenda({
         return false;
       });
 
+      // Procesar Categorías (Live)
       const categoriesMap = {};
       visibleEvents.forEach((evt) => {
         const cat = evt.tipos_evento?.categorias_tipos_eventos;
@@ -462,6 +466,7 @@ export default function UnifiedAgenda({
         );
       });
 
+      // Procesar Estados Custom
       visibleEvents.forEach((evt) => {
         const custom = customMap.get(evt.id);
         if (custom) {
@@ -474,6 +479,7 @@ export default function UnifiedAgenda({
         }
       });
 
+      // Procesar Asistencias (Check/X)
       if (visibleEvents.length > 0 && user.id !== "guest-general") {
         const eventIds = visibleEvents.map((e) => e.id);
         const { data: attendanceData } = await supabase
@@ -520,11 +526,16 @@ export default function UnifiedAgenda({
           { onConflict: "id_evento, id_integrante" }
         );
       if (error) throw error;
-      setItems((prev) =>
-        prev.map((item) =>
-          item.id === eventId ? { ...item, mi_asistencia: newStatus } : item
-        )
+
+      // Actualizar estado local
+      const newItems = items.map((item) =>
+        item.id === eventId ? { ...item, mi_asistencia: newStatus } : item
       );
+      setItems(newItems);
+
+      // Actualizar caché también
+      const CACHE_KEY = `agenda_cache_${user.id}_${giraId || "general"}`;
+      localStorage.setItem(CACHE_KEY, JSON.stringify(newItems));
     } catch (error) {
       alert("Error: " + error.message);
     } finally {
@@ -616,7 +627,7 @@ export default function UnifiedAgenda({
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in relative">
       {/* AVISO OFFLINE */}
       {isOfflineMode && (
-        <div className="bg-amber-100 border-b border-amber-200 px-4 py-1 text-[10px] sm:text-xs font-bold text-amber-800 text-center flex items-center justify-center gap-2">
+        <div className="bg-amber-100 border-b border-amber-200 px-4 py-1 text-[10px] sm:text-xs font-bold text-amber-800 text-center flex items-center justify-center gap-2 sticky top-0 z-40">
           <IconAlertTriangle size={14} />
           <span>Sin conexión a internet. Mostrando copia guardada.</span>
         </div>
@@ -643,7 +654,7 @@ export default function UnifiedAgenda({
         </div>
         <div
           className={`flex items-center gap-2 shrink-0 ${
-            isOfflineMode ? "opacity-50 pointer-events-none" : ""
+            isOfflineMode ? "opacity-80" : ""
           }`}
           ref={filterRef}
         >
@@ -697,7 +708,7 @@ export default function UnifiedAgenda({
               </div>
             )}
           </div>
-          {giraId && canEdit && (
+          {giraId && canEdit && !isOfflineMode && (
             <button
               onClick={handleOpenCreate}
               className="bg-indigo-600 hover:bg-indigo-700 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0"
@@ -760,7 +771,7 @@ export default function UnifiedAgenda({
                 return (
                   <React.Fragment key={evt.id}>
                     {showDay && (
-                      <div className="bg-slate-50/80 px-4 py-1.5 text-xs font-bold text-slate-500 uppercase border-b border-slate-100 flex items-center gap-2">
+                      <div className="bg-slate-50/80 px-4 py-1.5 text-xs font-bold text-slate-500 uppercase border-b border-slate-100 flex items-center gap-2 sticky top-[45px] z-10">
                         <IconCalendar size={12} />{" "}
                         {format(parseISO(evt.fecha), "EEEE d", { locale: es })}
                       </div>
@@ -855,7 +866,6 @@ export default function UnifiedAgenda({
                       </div>
 
                       <div className="shrink-0 flex items-center justify-end gap-2">
-                        {/* BOTÓN DRIVE INTELIGENTE */}
                         <DriveSmartButton evt={evt} />
 
                         {evt.programas?.id &&
@@ -870,7 +880,7 @@ export default function UnifiedAgenda({
                           )}
 
                         <div className="flex flex-col items-end gap-1 relative">
-                          {canEdit && !isNonConvokedMeal && (
+                          {canEdit && !isNonConvokedMeal && !isOfflineMode && (
                             <button
                               onClick={() => openEditModal(evt)}
                               className="p-1 text-slate-300 hover:text-indigo-600 bg-white rounded-full shadow-sm border border-slate-100 mb-1"
