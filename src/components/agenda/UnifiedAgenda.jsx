@@ -186,8 +186,22 @@ export default function UnifiedAgenda({
   );
 
   // 1. Cargar Perfil
+  // 1. Cargar Perfil (CON SOPORTE OFFLINE)
   useEffect(() => {
     const fetchProfile = async () => {
+      const PROFILE_CACHE_KEY = `profile_cache_${user.id}`;
+
+      // A. Intentar cargar del caché local inmediatamente
+      const cachedProfile = localStorage.getItem(PROFILE_CACHE_KEY);
+      if (cachedProfile) {
+        try {
+          setUserProfile(JSON.parse(cachedProfile));
+        } catch (e) {
+          console.error("Error parsing cached profile", e);
+        }
+      }
+
+      // Si es invitado general, hardcodeamos y salimos
       if (user.id === "guest-general") {
         setUserProfile({
           id: "guest-general",
@@ -200,15 +214,31 @@ export default function UnifiedAgenda({
         return;
       }
 
-      const { data } = await supabase
-        .from("integrantes")
-        .select("*, instrumentos(familia), integrantes_ensambles(id_ensamble)")
-        .eq("id", user.id)
-        .single();
-      setUserProfile(data);
+      // B. Si no hay conexión, nos quedamos con lo local y no intentamos conectar
+      if (!navigator.onLine) return;
+
+      // C. Si hay conexión, actualizamos datos frescos
+      try {
+        const { data, error } = await supabase
+          .from("integrantes")
+          .select(
+            "*, instrumentos(familia), integrantes_ensambles(id_ensamble)"
+          )
+          .eq("id", user.id)
+          .single();
+
+        if (data) {
+          setUserProfile(data);
+          // Guardamos la versión fresca en el celular
+          localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(data));
+        }
+      } catch (error) {
+        console.error("Error actualizando perfil:", error);
+      }
     };
+
     fetchProfile();
-  }, [user.id]);
+  }, [user.id, supabase]);
 
   // 2. Cargar Catálogos (Solo Admin/Editor)
   useEffect(() => {
