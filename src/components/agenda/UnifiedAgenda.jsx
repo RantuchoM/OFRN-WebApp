@@ -20,16 +20,18 @@ import {
   IconFilter,
   IconDrive,
   IconList,
-  IconCalendar,
   IconChevronDown,
   IconUserPlus,
   IconMapPin,
+  IconCalendar,
+  IconAlertTriangle,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import EventForm from "../forms/EventForm";
 
+// --- LÓGICA DE FECHA LÍMITE ---
 const getDeadlineStatus = (deadlineISO) => {
   if (!deadlineISO) return { status: "NO_DEADLINE" };
   const deadline = parseISO(deadlineISO);
@@ -42,6 +44,7 @@ const getDeadlineStatus = (deadlineISO) => {
   return { status: "OPEN", message: `${diffHours}h restantes` };
 };
 
+// Hook para cerrar al hacer click fuera
 function useOutsideAlerter(ref, callback) {
   useEffect(() => {
     function handleClickOutside(event) {
@@ -67,7 +70,6 @@ const DriveSmartButton = ({ evt }) => {
   if (evt.programas?.google_drive_folder_id) {
     driveLinks.push({
       id: evt.programas.id,
-      // CAMBIO AQUÍ:
       label: `${evt.programas.mes_letra} | ${evt.programas.nomenclador} - ${evt.programas.nombre_gira}`,
       url: `https://drive.google.com/drive/folders/${evt.programas.google_drive_folder_id}`,
     });
@@ -82,15 +84,16 @@ const DriveSmartButton = ({ evt }) => {
       ) {
         driveLinks.push({
           id: ep.programas.id,
-          // CAMBIO AQUÍ:
           label: `${ep.programas.mes_letra} | ${ep.programas.nomenclador} - ${ep.programas.nombre_gira}`,
           url: `https://drive.google.com/drive/folders/${ep.programas.google_drive_folder_id}`,
         });
       }
     });
   }
+
   if (driveLinks.length === 0) return null;
 
+  // Caso: Un solo link
   if (driveLinks.length === 1) {
     return (
       <a
@@ -105,6 +108,7 @@ const DriveSmartButton = ({ evt }) => {
     );
   }
 
+  // Caso: Múltiples links (Dropdown)
   return (
     <div className="relative" ref={containerRef}>
       <button
@@ -120,22 +124,24 @@ const DriveSmartButton = ({ evt }) => {
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-full right-0 mb-1 w-48 bg-white rounded-lg shadow-xl border border-slate-200 z-50 overflow-hidden animate-in zoom-in-95 origin-bottom-right">
+        <div className="absolute bottom-full right-0 mb-1 w-64 bg-white rounded-lg shadow-xl border border-slate-200 z-50 overflow-hidden animate-in zoom-in-95 origin-bottom-right">
           <div className="text-[9px] font-bold text-slate-400 bg-slate-50 px-2 py-1 border-b border-slate-100 uppercase">
             Carpetas de Drive
           </div>
-          {driveLinks.map((link) => (
-            <a
-              key={link.id}
-              href={link.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block px-3 py-2 text-xs text-slate-700 hover:bg-green-50 hover:text-green-700 truncate border-b border-slate-50 last:border-0"
-              onClick={() => setIsOpen(false)}
-            >
-              {link.label}
-            </a>
-          ))}
+          <div className="max-h-48 overflow-y-auto">
+            {driveLinks.map((link) => (
+              <a
+                key={link.id}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block px-3 py-2 text-xs text-slate-700 hover:bg-green-50 hover:text-green-700 border-b border-slate-50 last:border-0 leading-tight"
+                onClick={() => setIsOpen(false)}
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -152,6 +158,9 @@ export default function UnifiedAgenda({
   const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // Estado para modo offline
+  const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
 
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
@@ -176,6 +185,7 @@ export default function UnifiedAgenda({
     user?.rol_sistema
   );
 
+  // 1. Cargar Perfil
   useEffect(() => {
     const fetchProfile = async () => {
       if (user.id === "guest-general") {
@@ -200,6 +210,7 @@ export default function UnifiedAgenda({
     fetchProfile();
   }, [user.id]);
 
+  // 2. Cargar Catálogos (Solo Admin/Editor)
   useEffect(() => {
     const fetchCatalogs = async () => {
       if (!canEdit) return;
@@ -217,8 +228,23 @@ export default function UnifiedAgenda({
     fetchCatalogs();
   }, [canEdit]);
 
+  // 3. Detectar Conexión
   useEffect(() => {
+    const handleOnline = () => {
+      setIsOfflineMode(false);
+      if (userProfile) fetchAgenda();
+    };
+    const handleOffline = () => setIsOfflineMode(true);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
     if (userProfile) fetchAgenda();
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
   }, [userProfile, giraId, monthsLimit]);
 
   const handleCategoryToggle = (catId) => {
@@ -257,12 +283,43 @@ export default function UnifiedAgenda({
     });
   };
 
+  // 4. FETCH PRINCIPAL (Con Caché y Offline)
   const fetchAgenda = async () => {
     setLoading(true);
-    const start = startOfDay(new Date()).toISOString();
-    const end = addMonths(new Date(), monthsLimit).toISOString();
+    const CACHE_KEY = `agenda_cache_${user.id}_${giraId || "general"}`;
 
     try {
+      // A. Cargar Caché
+      const cachedData = localStorage.getItem(CACHE_KEY);
+      if (cachedData) {
+        const parsedData = JSON.parse(cachedData);
+        setItems(parsedData);
+
+        // Reconstruir categorías para filtros offline
+        const catsMap = {};
+        parsedData.forEach((evt) => {
+          if (evt.tipos_evento?.categorias_tipos_eventos) {
+            catsMap[evt.tipos_evento.categorias_tipos_eventos.id] =
+              evt.tipos_evento.categorias_tipos_eventos;
+          }
+        });
+        const cachedCats = Object.values(catsMap).sort((a, b) =>
+          a.nombre.localeCompare(b.nombre)
+        );
+        if (cachedCats.length > 0) setAvailableCategories(cachedCats);
+      }
+
+      // B. Si offline, detener
+      if (!navigator.onLine) {
+        setIsOfflineMode(true);
+        setLoading(false);
+        return;
+      }
+
+      // C. Fetch Live
+      const start = startOfDay(new Date()).toISOString();
+      const end = addMonths(new Date(), monthsLimit).toISOString();
+
       const isPersonal =
         user.rol_sistema === "consulta_personal" ||
         user.rol_sistema === "personal";
@@ -315,7 +372,8 @@ export default function UnifiedAgenda({
                 giras_integrantes(id_integrante, estado, rol)
             ),
             eventos_programas_asociados (
-              programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador )            )
+                programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador )
+            )
         `
         )
         .order("fecha", { ascending: true })
@@ -409,9 +467,13 @@ export default function UnifiedAgenda({
         });
       }
 
+      // Guardar y Actualizar
       setItems(visibleEvents);
+      localStorage.setItem(CACHE_KEY, JSON.stringify(visibleEvents));
+      setIsOfflineMode(false);
     } catch (err) {
       console.error("Error fetching agenda:", err);
+      setIsOfflineMode(true);
     } finally {
       setLoading(false);
     }
@@ -522,6 +584,14 @@ export default function UnifiedAgenda({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in relative">
+      {/* AVISO OFFLINE */}
+      {isOfflineMode && (
+        <div className="bg-amber-100 border-b border-amber-200 px-4 py-1 text-[10px] sm:text-xs font-bold text-amber-800 text-center flex items-center justify-center gap-2">
+          <IconAlertTriangle size={14} />
+          <span>Sin conexión a internet. Mostrando copia guardada.</span>
+        </div>
+      )}
+
       <div className="px-4 py-2 bg-white border-b border-slate-200 shadow-sm flex items-center justify-between sticky top-0 z-30 shrink-0 gap-2">
         <div className="flex items-center gap-2 overflow-hidden flex-1">
           {onBack && (
@@ -541,7 +611,12 @@ export default function UnifiedAgenda({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0" ref={filterRef}>
+        <div
+          className={`flex items-center gap-2 shrink-0 ${
+            isOfflineMode ? "opacity-50 pointer-events-none" : ""
+          }`}
+          ref={filterRef}
+        >
           <div className="relative">
             <button
               onClick={() => setIsFilterOpen(!isFilterOpen)}
@@ -750,7 +825,7 @@ export default function UnifiedAgenda({
                       </div>
 
                       <div className="shrink-0 flex items-center justify-end gap-2">
-                        {/* USO DEL NUEVO BOTÓN DRIVE INTELIGENTE */}
+                        {/* BOTÓN DRIVE INTELIGENTE */}
                         <DriveSmartButton evt={evt} />
 
                         {evt.programas?.id &&
@@ -794,10 +869,13 @@ export default function UnifiedAgenda({
                               {evt.mi_asistencia === "P" && (
                                 <button
                                   onClick={() =>
+                                    !isOfflineMode &&
                                     deadlineStatus?.status === "OPEN" &&
                                     toggleMealAttendance(evt.id, null)
                                   }
-                                  className="bg-emerald-100 text-emerald-700 p-1 rounded-md"
+                                  className={`bg-emerald-100 text-emerald-700 p-1 rounded-md ${
+                                    isOfflineMode ? "opacity-50" : ""
+                                  }`}
                                 >
                                   <IconCheck size={14} />
                                 </button>
@@ -805,10 +883,13 @@ export default function UnifiedAgenda({
                               {evt.mi_asistencia === "A" && (
                                 <button
                                   onClick={() =>
+                                    !isOfflineMode &&
                                     deadlineStatus?.status === "OPEN" &&
                                     toggleMealAttendance(evt.id, null)
                                   }
-                                  className="bg-rose-100 text-rose-700 p-1 rounded-md"
+                                  className={`bg-rose-100 text-rose-700 p-1 rounded-md ${
+                                    isOfflineMode ? "opacity-50" : ""
+                                  }`}
                                 >
                                   <IconX size={14} />
                                 </button>
@@ -818,17 +899,21 @@ export default function UnifiedAgenda({
                                   <div className="flex flex-col gap-1">
                                     <button
                                       onClick={() =>
+                                        !isOfflineMode &&
                                         toggleMealAttendance(evt.id, "P")
                                       }
-                                      className="bg-slate-100 hover:bg-emerald-100 text-slate-400 hover:text-emerald-600 p-1 rounded-sm"
+                                      className="bg-slate-100 hover:bg-emerald-100 text-slate-400 hover:text-emerald-600 p-1 rounded-sm disabled:opacity-50"
+                                      disabled={isOfflineMode}
                                     >
                                       <IconCheck size={14} />
                                     </button>
                                     <button
                                       onClick={() =>
+                                        !isOfflineMode &&
                                         toggleMealAttendance(evt.id, "A")
                                       }
-                                      className="bg-slate-100 hover:bg-rose-100 text-slate-400 hover:text-rose-600 p-1 rounded-sm"
+                                      className="bg-slate-100 hover:bg-rose-100 text-slate-400 hover:text-rose-600 p-1 rounded-sm disabled:opacity-50"
+                                      disabled={isOfflineMode}
                                     >
                                       <IconX size={14} />
                                     </button>
@@ -848,7 +933,8 @@ export default function UnifiedAgenda({
           <div className="p-6 flex justify-center pb-12">
             <button
               onClick={() => setMonthsLimit((prev) => prev + 3)}
-              className="flex items-center gap-2 px-6 py-2.5 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-full shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all active:scale-95 text-sm"
+              disabled={isOfflineMode}
+              className="flex items-center gap-2 px-6 py-2.5 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-full shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <IconChevronDown size={18} /> Cargar más meses
             </button>
@@ -860,6 +946,7 @@ export default function UnifiedAgenda({
           </div>
         )}
       </div>
+
       {isEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <EventForm

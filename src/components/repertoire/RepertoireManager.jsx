@@ -257,7 +257,10 @@ export default function RepertoireManager({
     fetchFullRepertoire();
 
     // AutoSync Drive solo si es necesario (opcional para no saturar)
-    // autoSyncDrive();
+    // Descomentado para que las ediciones de obras también disparen la sincronización
+    if (!isNew) {
+      autoSyncDrive();
+    }
   };
 
   const openEditModal = (item) => {
