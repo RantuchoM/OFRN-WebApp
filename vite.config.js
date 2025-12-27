@@ -1,30 +1,36 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { VitePWA } from "vite-plugin-pwa"; // <--- 1. IMPORTAR ESTO
+import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
   plugins: [
     react(),
-    // 2. AGREGAR ESTE BLOQUE COMPLETO
     VitePWA({
-      registerType: "autoUpdate", // Se actualiza sola cuando haces push a Vercel
+      registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
+      
+      // 1. Configuración de Workbox (Aquí es donde se arregla el error de límite de tamaño)
+      workbox: {
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 4MB
+      },
+
+      // 2. Configuración del Manifiesto (Apariencia de la App)
       manifest: {
-        name: "Gestor de Giras", // Nombre completo
-        short_name: "Giras", // Nombre debajo del ícono
+        name: "Gestor de Giras",
+        short_name: "Giras",
         description: "Gestión de seating y agenda para músicos",
-        theme_color: "#ffffff", // Color de la barra de estado
+        theme_color: "#ffffff",
         background_color: "#ffffff",
-        display: "standalone", // Esto hace que parezca App nativa (sin barra de URL)
-        orientation: "portrait", // Bloquea la rotación si quieres (opcional)
+        display: "standalone",
+        orientation: "portrait",
         icons: [
           {
-            src: "pwa-192x192.png", // Asegúrate que coincida con el nombre en /public
+            src: "pwa-192x192.png",
             sizes: "192x192",
             type: "image/png",
           },
           {
-            src: "pwa-512x512.png", // Asegúrate que coincida con el nombre en /public
+            src: "pwa-512x512.png",
             sizes: "512x512",
             type: "image/png",
           },
@@ -32,23 +38,10 @@ export default defineConfig({
             src: "pwa-512x512.png",
             sizes: "512x512",
             type: "image/png",
-            purpose: "any maskable", // Importante para que Android recorte el ícono en círculo si quiere
+            purpose: "any maskable",
           },
         ],
       },
-      plugins: [
-        react(),
-        VitePWA({
-          registerType: "autoUpdate",
-          // ... otras configuraciones que ya tengas ...
-          workbox: {
-            // Agrega o modifica esta línea:
-            maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // Aumentar límite a 4MB
-
-            // ... otras configuraciones de workbox si las tienes ...
-          },
-        }),
-      ],
     }),
   ],
 });
