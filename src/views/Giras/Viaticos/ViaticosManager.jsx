@@ -14,14 +14,16 @@ import {
   IconPrinter,
   IconArrowLeft,
   IconDrive,
+  IconFileExcel, // <--- NUEVO ICONO
 } from "../../../components/ui/Icons";
 import { useGiraRoster } from "../../../hooks/useGiraRoster";
 import ViaticosForm from "./ViaticosForm";
 import ViaticosBulkEditPanel from "./ViaticosBulkEditPanel";
+import { exportViaticosToPDFForm } from "../../../utils/pdfFormExporter";
 import RendicionForm from "./RendicionForm";
-// Importamos tus inputs personalizados
 import DateInput from "../../../components/ui/DateInput";
 import TimeInput from "../../../components/ui/TimeInput";
+import { exportViaticosToExcel } from "../../../utils/excelExporter"; // <--- IMPORTANTE: Asegúrate de tener este archivo creado
 
 import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
@@ -219,7 +221,7 @@ export default function ViaticosManager({ supabase, giraId }) {
   });
   const saveTimeoutRef = useRef(null);
   const pendingUpdatesRef = useRef({});
-  const [printMenuId, setPrintMenuId] = useState(null); // Para saber qué menú de fila está abierto
+  const [printMenuId, setPrintMenuId] = useState(null);
 
   const { roster: fullRoster } = useGiraRoster(supabase, { id: giraId });
   const [viaticosRows, setViaticosRows] = useState([]);
@@ -231,7 +233,7 @@ export default function ViaticosManager({ supabase, giraId }) {
 
   const [showExpenses, setShowExpenses] = useState(true);
   const [showTransport, setShowTransport] = useState(false);
-  const [showRendiciones, setShowRendiciones] = useState(false); //
+  const [showRendiciones, setShowRendiciones] = useState(false);
   const [printingRow, setPrintingRow] = useState(null);
 
   // ESTADOS DE EXPORTACIÓN
@@ -448,16 +450,8 @@ export default function ViaticosManager({ supabase, giraId }) {
     }
   };
   const handlePreview = (row, mode) => {
-    // 1. Establecemos el modo (viatico, destaque o rendicion)
     setExportMode(mode);
-
-    // 2. Cargamos los datos de la fila para que el formulario los use
-    // Nota: Usamos setPrintingRow porque tu componente ya reacciona a este estado
-    // para mostrar la vista de "formulario de impresión" a pantalla completa.
     setPrintingRow(row);
-
-    // 3. Opcional: Si quieres que se abra el diálogo de impresión automáticamente:
-    // setTimeout(() => window.print(), 500);
   };
   const handleAddProduction = async () => {
     setLoading(true);
@@ -533,21 +527,15 @@ export default function ViaticosManager({ supabase, giraId }) {
   };
 
   const updateConfig = (key, val) => {
-    // A. Actualización visual inmediata (para que no se trabe el input)
     setConfig((prev) => ({ ...prev, [key]: val }));
-
-    // B. Acumulamos el cambio pendiente en la referencia
     pendingUpdatesRef.current = { ...pendingUpdatesRef.current, [key]: val };
 
-    // C. Si había un guardado programado, lo cancelamos
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    // D. Programamos el nuevo guardado para dentro de 1 segundo (1000ms)
     saveTimeoutRef.current = setTimeout(async () => {
       const changesToSave = pendingUpdatesRef.current;
-      // Limpiamos los pendientes para el próximo lote
       pendingUpdatesRef.current = {};
 
       try {
@@ -555,19 +543,18 @@ export default function ViaticosManager({ supabase, giraId }) {
           .from("giras_viaticos_config")
           .update(changesToSave)
           .eq("id_gira", giraId);
-        // console.log("Configuración guardada en DB");
       } catch (err) {
         console.error("Error guardando config:", err);
       }
     }, 1000);
   };
 
-  // 3. AGREGAR ESTE EFFECT PARA LIMPIEZA (Opcional pero recomendado)
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, []);
+
   const applyBatch = async () => {
     if (selection.size === 0) return;
     setLoading(true);
@@ -640,7 +627,6 @@ export default function ViaticosManager({ supabase, giraId }) {
     return { valorDiarioCalc, subtotal, totalFinal };
   };
 
-  // --- FUNCIÓN HELPER GENERADORA PDF ---
   const generatePdf = async (row, mode, folderId) => {
     const { valorDiarioCalc, subtotal, totalFinal } = calculateRow(row);
     const rowToPrint = { ...row, valorDiarioCalc, subtotal, totalFinal };
@@ -648,10 +634,8 @@ export default function ViaticosManager({ supabase, giraId }) {
     setExportMode(mode);
     setExportingRow(rowToPrint);
 
-    // Esperar render (menor tiempo si es posible, pero seguro)
     await new Promise((resolve) => setTimeout(resolve, 350));
 
-    // CORREGIDO: Usamos el ID correcto del contenedor oculto
     const element = document.getElementById("target-pdf-content");
     if (!element) throw new Error("Error render DOM (Container missing)");
 
@@ -683,7 +667,6 @@ export default function ViaticosManager({ supabase, giraId }) {
         ? "Rendición"
         : "Viaticos";
 
-    // Retornamos promesa de subida
     return supabase.functions.invoke("manage-drive", {
       body: {
         action: "upload_file",
@@ -695,7 +678,6 @@ export default function ViaticosManager({ supabase, giraId }) {
     });
   };
 
-  // --- EXPORTACIÓN MULTI-OPCIÓN ---
   const handleExportToDrive = async (options) => {
     const opts = options || { viatico: true };
 
@@ -736,7 +718,6 @@ export default function ViaticosManager({ supabase, giraId }) {
 
         const fullPersona = fullRoster.find((p) => String(p.id) === String(id));
 
-        // A. VIÁTICO
         if (opts.viatico) {
           setExportStatus(
             `(${count}/${totalOps}) ${row.apellido}: Generando Viático...`
@@ -744,7 +725,6 @@ export default function ViaticosManager({ supabase, giraId }) {
           await generatePdf(row, "viatico", driveFolderId);
         }
 
-        // B. DESTAQUE
         if (opts.destaque) {
           setExportStatus(
             `(${count}/${totalOps}) ${row.apellido}: Generando Destaque...`
@@ -752,7 +732,6 @@ export default function ViaticosManager({ supabase, giraId }) {
           await generatePdf(row, "destaque", driveFolderId);
         }
 
-        // C. RENDICIÓN (NUEVO)
         if (opts.rendicion) {
           setExportStatus(
             `(${count}/${totalOps}) ${row.apellido}: Generando Rendición...`
@@ -760,7 +739,6 @@ export default function ViaticosManager({ supabase, giraId }) {
           await generatePdf(row, "rendicion", driveFolderId);
         }
 
-        // D. DOCUMENTACIÓN
         if (opts.docComun && fullPersona?.documentacion) {
           setExportStatus(
             `(${count}/${totalOps}) ${row.apellido}: Copiando Doc...`
@@ -790,13 +768,10 @@ export default function ViaticosManager({ supabase, giraId }) {
     }
   };
 
-  // Render para impresión individual
-  // Render para impresión individual o vista previa
   if (printingRow) {
     return (
       <div className="h-full bg-white p-4 overflow-auto animate-in fade-in duration-200">
         <div className="max-w-[1100px] mx-auto">
-          {/* Botón para volver a la tabla */}
           <button
             onClick={() => {
               setPrintingRow(null);
@@ -807,7 +782,6 @@ export default function ViaticosManager({ supabase, giraId }) {
             <IconArrowLeft size={16} /> Volver a la lista
           </button>
 
-          {/* Alternamos entre los formularios según el modo seleccionado */}
           {exportMode === "rendicion" ? (
             <RendicionForm data={printingRow} configData={config} />
           ) : (
@@ -819,7 +793,7 @@ export default function ViaticosManager({ supabase, giraId }) {
               initialData={printingRow}
               configData={config}
               hideAmounts={exportMode === "destaque"}
-              hideToolbar={false} // Permitir ver controles de impresión
+              hideToolbar={false}
             />
           )}
         </div>
@@ -829,15 +803,22 @@ export default function ViaticosManager({ supabase, giraId }) {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
-      {/* ... (HEADER Y CONTROLES SE MANTIENEN IGUAL) ... */}
-
-      {/* HEADER COPIADO DE TU VERSIÓN */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col gap-4 shrink-0 z-30 relative shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             <IconCalculator className="text-indigo-600" /> Viáticos
           </h2>
           <div className="flex gap-2">
+            {/* BOTÓN EXPORTAR EXCEL NUEVO */}
+            <button
+              onClick={() => exportViaticosToExcel(giraData, activeRows)}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg shadow-sm transition-colors text-sm font-bold"
+              title="Descargar Excel (.xlsx)"
+            >
+              <IconFileExcel size={18} />
+              <span className="hidden sm:inline">Exportar Excel</span>
+            </button>
+
             <button
               onClick={() => setShowTransport(!showTransport)}
               className={`p-2 rounded-lg border flex items-center gap-2 text-xs font-bold ${
@@ -973,7 +954,6 @@ export default function ViaticosManager({ supabase, giraId }) {
       </div>
 
       <div className="flex flex-1 overflow-hidden relative z-0">
-        {/* TABLA PRINCIPAL */}
         <div className="flex-1 overflow-auto p-4">
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-w-[1500px]">
             <table className="w-full text-sm text-left">
@@ -1348,7 +1328,7 @@ export default function ViaticosManager({ supabase, giraId }) {
                               type="number"
                               className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-slate-300 focus:border-indigo-500 text-slate-500"
                               placeholder="-"
-                              value={row.gastos_movilidad}
+                              value={row.gastos_movilidad || ""}
                               onChange={(e) =>
                                 updateRow(
                                   row.id,
@@ -1363,7 +1343,7 @@ export default function ViaticosManager({ supabase, giraId }) {
                               type="number"
                               className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-slate-300 focus:border-indigo-500 text-slate-500"
                               placeholder="-"
-                              value={row.gasto_combustible}
+                              value={row.gasto_combustible || ""}
                               onChange={(e) =>
                                 updateRow(
                                   row.id,
@@ -1378,7 +1358,7 @@ export default function ViaticosManager({ supabase, giraId }) {
                               type="number"
                               className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-slate-300 focus:border-indigo-500 text-slate-500"
                               placeholder="-"
-                              value={row.gasto_otros}
+                              value={row.gasto_otros || ""}
                               onChange={(e) =>
                                 updateRow(row.id, "gasto_otros", e.target.value)
                               }
@@ -1389,7 +1369,7 @@ export default function ViaticosManager({ supabase, giraId }) {
                               type="number"
                               className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-slate-300 focus:border-indigo-500 text-slate-500"
                               placeholder="-"
-                              value={row.gastos_capacit}
+                              value={row.gastos_capacit || ""}
                               onChange={(e) =>
                                 updateRow(
                                   row.id,
@@ -1404,7 +1384,7 @@ export default function ViaticosManager({ supabase, giraId }) {
                               type="number"
                               className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-slate-300 focus:border-indigo-500 text-slate-500"
                               placeholder="-"
-                              value={row.gastos_movil_otros}
+                              value={row.gastos_movil_otros || ""}
                               onChange={(e) =>
                                 updateRow(
                                   row.id,
@@ -1419,7 +1399,7 @@ export default function ViaticosManager({ supabase, giraId }) {
                               type="number"
                               className="w-full text-right bg-transparent outline-none border-b border-transparent hover:border-slate-300 focus:border-indigo-500 text-slate-500"
                               placeholder="-"
-                              value={row.gasto_alojamiento}
+                              value={row.gasto_alojamiento || ""}
                               onChange={(e) =>
                                 updateRow(
                                   row.id,
@@ -1546,51 +1526,87 @@ export default function ViaticosManager({ supabase, giraId }) {
                             )
                           }
                           className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors"
-                          title="Imprimir..."
+                          title="Imprimir / Exportar..."
                         >
                           <IconPrinter size={18} />
                         </button>
 
-                        {/* Menú Flotante de Selección */}
+                        {/* MENÚ DESPLEGABLE */}
                         {printMenuId === row.id_integrante && (
                           <>
                             <div
                               className="fixed inset-0 z-10"
                               onClick={() => setPrintMenuId(null)}
                             />
-                            <div className="absolute right-0 mt-2 w-40 bg-white border border-slate-200 shadow-xl rounded-lg z-20 py-1 animate-in fade-in zoom-in duration-100">
-                              <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase border-b border-slate-50">
-                                Seleccionar vista
+                            <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 shadow-xl rounded-lg z-20 py-1 animate-in fade-in zoom-in duration-100 flex flex-col">
+                              <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase border-b border-slate-50">
+                                Exportar Individual
                               </div>
+
+                              {/* --- OPCIÓN EXCEL (NUEVO) --- */}
+                              <button
+                                onClick={() => {
+                                  setPrintMenuId(null);
+                                  // Pasamos un array con SOLO este integrante, y la configuración
+                                  exportViaticosToExcel(
+                                    giraData,
+                                    [rowWithTotals],
+                                    config
+                                  );
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs hover:bg-emerald-50 flex items-center gap-2 text-emerald-700 font-medium border-b border-slate-50"
+                              >
+                                <IconFileExcel size={16} /> Excel (Editable)
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPrintMenuId(null);
+                                  // Usar el nuevo exportador de formularios PDF
+                                  exportViaticosToPDFForm(
+                                    giraData,
+                                    [rowWithTotals],
+                                    config
+                                  );
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 flex items-center gap-2 text-red-700 font-medium border-b border-slate-50"
+                              >
+                                <IconFilePdf size={16} /> PDF Oficial
+                              </button>
+                              {/* --------------------------- */}
+
+                              <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase bg-slate-50/50">
+                                Vista Previa / PDF
+                              </div>
+
                               <button
                                 onClick={() => {
                                   setPrintMenuId(null);
                                   handlePreview(row, "viatico");
                                 }}
-                                className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2"
+                                className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2 text-slate-700"
                               >
-                                <span className="w-2 h-2 rounded-full bg-blue-400"></span>{" "}
-                                Viático
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                                Formulario Viático
                               </button>
                               <button
                                 onClick={() => {
                                   setPrintMenuId(null);
                                   handlePreview(rowWithTotals, "destaque");
                                 }}
-                                className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2"
+                                className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2 text-slate-700"
                               >
-                                <span className="w-2 h-2 rounded-full bg-blue-400"></span>{" "}
-                                Destaque
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+                                Formulario Destaque
                               </button>
                               <button
                                 onClick={() => {
                                   setPrintMenuId(null);
                                   handlePreview(row, "rendicion");
                                 }}
-                                className="w-full text-left px-3 py-2 text-xs hover:bg-green-50 flex items-center gap-2 text-green-700 font-medium"
+                                className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2 text-slate-700"
                               >
-                                <span className="w-2 h-2 rounded-full bg-green-500"></span>{" "}
-                                Rendición
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                                Planilla Rendición
                               </button>
                             </div>
                           </>
@@ -1604,7 +1620,6 @@ export default function ViaticosManager({ supabase, giraId }) {
           </div>
         </div>
 
-        {/* COMPONENTE PANEL DE EDICIÓN MASIVA */}
         {selection.size > 0 && (
           <ViaticosBulkEditPanel
             selectionSize={selection.size}
@@ -1613,19 +1628,13 @@ export default function ViaticosManager({ supabase, giraId }) {
             setValues={setBatchValues}
             onApply={applyBatch}
             loading={loading}
-            onExport={handleExportToDrive} // Pasa la función que ahora acepta argumentos
+            onExport={handleExportToDrive}
             isExporting={isExporting}
             exportStatus={exportStatus}
           />
         )}
       </div>
 
-      {/* --- CONTENEDOR OCULTO PARA EXPORTACIÓN --- */}
-      {/* NOTA IMPORTANTE: 
-         - El ID "viaticos-pdf-export-container" DEBE COINCIDIR con el que busca 'generatePdf'
-         - 'hideAmounts' es true solo si exportMode === 'destaque'
-      */}
-      {/* --- CONTENEDOR OCULTO PARA EXPORTACIÓN --- */}
       <div style={{ position: "fixed", left: "-9999px", top: 0, zIndex: -50 }}>
         {exportingRow && (
           <div

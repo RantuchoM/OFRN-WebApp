@@ -70,21 +70,21 @@ export default function GiraCard({
       if (s.tipo === "ENSAMBLE") {
         label = ensembleMap.get(s.valor_id) || `Ensamble ID:${s.valor_id}`;
         inclusions.push(
-          <span key={s.id} className="text-emerald-700 font-medium">
+          <span key={s.id} className="text-black-700 font-medium">
             {label}
           </span>
         );
       } else if (s.tipo === "FAMILIA") {
         label = s.valor_texto;
         inclusions.push(
-          <span key={s.id} className="text-indigo-700 font-medium">
+          <span key={s.id} className="text-gray-700 font-medium">
             {label}
           </span>
         );
       } else if (s.tipo === "EXCL_ENSAMBLE") {
         label = ensembleMap.get(s.valor_id) || `Ensamble ID:${s.valor_id}`;
         exclusions.push(
-          <span key={s.id} className="text-red-700 font-medium">
+          <span key={s.id} className="text-gray-700 font-medium line-through">
             {label}
           </span>
         );
@@ -190,28 +190,40 @@ export default function GiraCard({
           >
             <div className="flex flex-col gap-1 mb-2">
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span className="font-bold text-slate-700 bg-slate-100 px-1.5 rounded whitespace-nowrap">
-                  {`${gira.mes_letra} | ${gira.nomenclador}` || gira.tipo}
+                {/* TIPO: Más grande, mayúsculas y negrita */}
+                <span className="font-black text-slate-800 uppercase tracking-wide">
+                  {gira.tipo}
                 </span>
+
+                {/* ZONA: En el medio (si existe) */}
                 {gira.zona && (
-                  <span className="font-medium whitespace-nowrap">
-                    | {gira.zona}
-                  </span>
+                  <>
+                    <span className="font-medium text-slate-600">
+                      ({gira.zona})
+                    </span>
+                  </>
                 )}
-                <div className="flex items-center gap-1 whitespace-nowrap">
+                {/* FECHAS */}
+                <div className="flex items-center gap-1 whitespace-nowrap ml-auto sm:ml-2 sm:pl-2 sm:border-l border-slate-200">
                   <IconCalendar size={12} />
-                  {formatDate(gira.fecha_desde)} -{" "}
-                  {formatDate(gira.fecha_hasta)}
+                  {formatDate(gira.fecha_desde)}-{formatDate(gira.fecha_hasta)}
                 </div>
+                {/* MES | NOMENCLADOR: Al final con fondo gris */}
+                <span className="font-bold text-slate-600 bg-slate-100 px-1.5 rounded whitespace-nowrap ml-1">
+                  {gira.mes_letra} | {gira.nomenclador}
+                </span>
               </div>
-              <div className="flex flex-col">
-                <span className="text-base font-bold text-slate-800 truncate w-full block">
+
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-base font-bold text-slate-800 truncate max-w-full">
                   {gira.nombre_gira}
                 </span>
-                <span className="text-xs italic text-slate-600 truncate w-full block h-4">
-                  {gira.subtitulo || " "}
-                </span>
-                <div className="flex items-center gap-1 text-xs text-slate-500 mt-1 truncate">
+                {gira.subtitulo && (
+                  <span className="text-xs italic text-slate-600 truncate max-w-full">
+                    {gira.subtitulo}
+                  </span>
+                )}
+                <div className="flex items-center gap-1 text-xs text-slate-500 truncate max-w-full">
                   <IconMapPin size={12} className="shrink-0" />
                   <span className="truncate">{locs || "Sin localía"}</span>
                 </div>
@@ -219,12 +231,13 @@ export default function GiraCard({
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 mt-1">
               {getPersonnelDisplay(gira)}
-              <div className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
-                {getSourcesDisplay(gira)}
-              </div>
+
               <div className="w-full md:w-auto md:ml-2 md:pl-2 md:border-l border-slate-200 mt-1 md:mt-0">
                 <InstrumentationManager supabase={supabase} gira={gira} />
               </div>
+            </div>
+            <div className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+              {getSourcesDisplay(gira)}
             </div>
           </div>
 

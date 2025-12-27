@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   format,
   startOfDay,
@@ -25,6 +25,8 @@ import {
   IconMapPin,
   IconCalendar,
   IconAlertTriangle,
+  IconClock,
+  IconArrowRight,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -63,10 +65,8 @@ const DriveSmartButton = ({ evt }) => {
   const containerRef = useRef(null);
   useOutsideAlerter(containerRef, () => setIsOpen(false));
 
-  // Recolectar carpetas
   const driveLinks = [];
 
-  // 1. Programa Principal
   if (evt.programas?.google_drive_folder_id) {
     driveLinks.push({
       id: evt.programas.id,
@@ -75,7 +75,6 @@ const DriveSmartButton = ({ evt }) => {
     });
   }
 
-  // 2. Programas Asociados
   if (evt.eventos_programas_asociados?.length > 0) {
     evt.eventos_programas_asociados.forEach((ep) => {
       if (
@@ -93,7 +92,6 @@ const DriveSmartButton = ({ evt }) => {
 
   if (driveLinks.length === 0) return null;
 
-  // Caso: Un solo link
   if (driveLinks.length === 1) {
     return (
       <a
@@ -108,7 +106,6 @@ const DriveSmartButton = ({ evt }) => {
     );
   }
 
-  // Caso: Múltiples links (Dropdown)
   return (
     <div className="relative" ref={containerRef}>
       <button
@@ -154,49 +151,39 @@ export default function UnifiedAgenda({
   onBack = null,
   title = "Agenda General",
   onOpenRepertoire = null,
+  onViewChange = null,
 }) {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
-
-  // Estado para modo offline
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
-
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState([1, 2]);
-
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const filterRef = useRef(null);
-  useOutsideAlerter(filterRef, () => setIsFilterOpen(false));
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
 
   const [commentsState, setCommentsState] = useState(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editFormData, setEditFormData] = useState({});
   const [isCreating, setIsCreating] = useState(false);
   const [newFormData, setNewFormData] = useState({});
-
   const [formEventTypes, setFormEventTypes] = useState([]);
   const [formLocations, setFormLocations] = useState([]);
-
   const [userProfile, setUserProfile] = useState(null);
 
   const canEdit = ["admin", "editor", "coord_general", "director"].includes(
     user?.rol_sistema
   );
 
-  // 1. Cargar Perfil (CON SOPORTE OFFLINE)
+  // 1. Cargar Perfil
   useEffect(() => {
     const fetchProfile = async () => {
       const PROFILE_CACHE_KEY = `profile_cache_${user.id}`;
-
-      // A. Intentar cargar del caché local inmediatamente
       const cachedProfile = localStorage.getItem(PROFILE_CACHE_KEY);
       if (cachedProfile) {
         try {
           setUserProfile(JSON.parse(cachedProfile));
         } catch (e) {
-          console.error("Error parsing cached profile", e);
+          console.error(e);
         }
       }
 
@@ -212,10 +199,8 @@ export default function UnifiedAgenda({
         return;
       }
 
-      // B. Si no hay conexión, usar lo local
       if (!navigator.onLine) return;
 
-      // C. Si hay conexión, actualizar
       try {
         const { data } = await supabase
           .from("integrantes")
@@ -224,19 +209,18 @@ export default function UnifiedAgenda({
           )
           .eq("id", user.id)
           .single();
-
         if (data) {
           setUserProfile(data);
           localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(data));
         }
       } catch (error) {
-        console.error("Error fetching profile:", error);
+        console.error(error);
       }
     };
     fetchProfile();
   }, [user.id, supabase]);
 
-  // 2. Cargar Catálogos (Protegido Offline)
+  // 2. Cargar Catálogos
   useEffect(() => {
     const fetchCatalogs = async () => {
       if (!canEdit || !navigator.onLine) return;
@@ -265,12 +249,9 @@ export default function UnifiedAgenda({
       if (userProfile) fetchAgenda();
     };
     const handleOffline = () => setIsOfflineMode(true);
-
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
-
     if (userProfile) fetchAgenda();
-
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
@@ -285,15 +266,11 @@ export default function UnifiedAgenda({
     );
   };
 
-  const handleSelectAllCategories = (selectAll) => {
-    setSelectedCategoryIds(
-      selectAll ? availableCategories.map((c) => c.id) : []
-    );
-  };
-
   const filteredItems = items.filter((item) => {
+    // Si es un Marcador de Gira (no un evento real), lo mostramos siempre (o podemos filtrarlo si queremos)
+    if (item.isProgramMarker) return true;
+
     const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
-    // Si no tiene categoría (raro), lo mostramos por defecto o lo ocultamos según lógica
     if (!catId) return true;
     return selectedCategoryIds.includes(catId);
   });
@@ -315,44 +292,27 @@ export default function UnifiedAgenda({
     });
   };
 
-  // 4. FETCH PRINCIPAL (Con Caché y Offline)
+  // 4. FETCH PRINCIPAL
   const fetchAgenda = async () => {
     setLoading(true);
     const CACHE_KEY = `agenda_cache_${user.id}_${giraId || "general"}`;
 
     try {
-      // A. Cargar Caché (Siempre intentar primero)
       const cachedData = localStorage.getItem(CACHE_KEY);
       if (cachedData) {
         const parsedData = JSON.parse(cachedData);
         setItems(parsedData);
-
-        // --- RECONSTRUIR CATEGORÍAS DESDE CACHÉ ---
-        // Esto asegura que el filtro funcione offline
-        const catsMap = {};
-        parsedData.forEach((evt) => {
-          if (evt.tipos_evento?.categorias_tipos_eventos) {
-            catsMap[evt.tipos_evento.categorias_tipos_eventos.id] =
-              evt.tipos_evento.categorias_tipos_eventos;
-          }
-        });
-        const cachedCats = Object.values(catsMap).sort((a, b) =>
-          a.nombre.localeCompare(b.nombre)
-        );
-        if (cachedCats.length > 0) setAvailableCategories(cachedCats);
+        processCategories(parsedData);
       }
 
-      // B. Si offline, terminar aquí
       if (!navigator.onLine) {
         setIsOfflineMode(true);
         setLoading(false);
         return;
       }
 
-      // C. Fetch Live
       const start = startOfDay(new Date()).toISOString();
       const end = addMonths(new Date(), monthsLimit).toISOString();
-
       const isPersonal =
         user.rol_sistema === "consulta_personal" ||
         user.rol_sistema === "personal";
@@ -372,7 +332,6 @@ export default function UnifiedAgenda({
           .from("eventos_asistencia_custom")
           .select("id_evento, tipo, nota")
           .eq("id_integrante", user.id),
-
         myEnsembles.size > 0
           ? supabase
               .from("eventos_ensambles")
@@ -383,7 +342,6 @@ export default function UnifiedAgenda({
 
       const customMap = new Map();
       customAttendance.data?.forEach((c) => customMap.set(c.id_evento, c));
-
       const myEnsembleEventIds = new Set(
         ensembleEvents.data?.map((e) => e.id_evento)
       );
@@ -397,9 +355,13 @@ export default function UnifiedAgenda({
                 id, nombre, color,
                 categorias_tipos_eventos (id, nombre)
             ), 
-            locaciones (id, nombre),
+            locaciones (
+                id, nombre, direccion,
+                localidades (localidad)
+            ),
             programas (
-                id, nombre_gira, nomenclador, google_drive_folder_id, mes_letra,
+                id, nombre_gira, nomenclador, google_drive_folder_id, mes_letra, 
+                fecha_desde, fecha_hasta, tipo, zona,
                 fecha_confirmacion_limite,
                 giras_fuentes(tipo, valor_id, valor_texto), 
                 giras_integrantes(id_integrante, estado, rol)
@@ -412,59 +374,75 @@ export default function UnifiedAgenda({
         .order("fecha", { ascending: true })
         .order("hora_inicio", { ascending: true });
 
-      if (giraId) {
-        query = query.eq("id_gira", giraId);
-      } else {
-        query = query.gte("fecha", start).lte("fecha", end);
-      }
+      if (giraId) query = query.eq("id_gira", giraId);
+      else query = query.gte("fecha", start).lte("fecha", end);
 
       const { data: eventsData, error } = await query;
       if (error) throw error;
 
+      // --- FILTRADO DE EVENTOS REALES ---
       const visibleEvents = (eventsData || []).filter((item) => {
         if (giraId) return true;
         if (!isPersonal) return true;
-
         if (customMap.has(item.id)) return true;
         if (myEnsembleEventIds.has(item.id)) return true;
-
         if (item.programas) {
           const overrides = item.programas.giras_integrantes || [];
           const sources = item.programas.giras_fuentes || [];
           const myOverride = overrides.find((o) => o.id_integrante === user.id);
-
           if (myOverride && myOverride.estado === "ausente") return false;
           if (myOverride) return true;
-
           return sources.some(
             (s) =>
               (s.tipo === "ENSAMBLE" && myEnsembles.has(s.valor_id)) ||
               (s.tipo === "FAMILIA" && s.valor_texto === myFamily)
           );
         }
-
         return false;
       });
 
-      // Procesar Categorías (Live)
-      const categoriesMap = {};
+      // --- GENERACIÓN DE HITOS DE GIRA (SEPARADORES) ---
+      // Creamos "eventos falsos" para el día que inicia cada programa,
+      // independientemente de si hay eventos reales o no.
+      const programStartMarkers = [];
+      const processedPrograms = new Set();
+
       visibleEvents.forEach((evt) => {
-        const cat = evt.tipos_evento?.categorias_tipos_eventos;
-        if (cat && !categoriesMap[cat.id]) {
-          categoriesMap[cat.id] = cat;
+        if (evt.programas && !processedPrograms.has(evt.programas.id)) {
+          processedPrograms.add(evt.programas.id);
+
+          // Solo creamos el marcador si la fecha de inicio está dentro del rango que estamos viendo (aprox)
+          // o simplemente lo creamos y dejamos que el sort lo ubique.
+          if (evt.programas.fecha_desde) {
+            programStartMarkers.push({
+              id: `prog-start-${evt.programas.id}`, // ID único artificial
+              fecha: evt.programas.fecha_desde,
+              hora_inicio: "00:00:00", // Para que salga primero en el día
+              isProgramMarker: true,
+              programas: evt.programas,
+              // Propiedades dummy para evitar errores si algo intenta acceder
+              tipos_evento: { categorias_tipos_eventos: { id: -1 } },
+            });
+          }
         }
       });
-      const uniqueCats = Object.values(categoriesMap).sort((a, b) =>
-        a.nombre.localeCompare(b.nombre)
+
+      // --- UNIFICACIÓN Y ORDENAMIENTO FINAL ---
+      const allItems = [...visibleEvents, ...programStartMarkers].sort(
+        (a, b) => {
+          const dateA = new Date(`${a.fecha}T${a.hora_inicio || "00:00:00"}`);
+          const dateB = new Date(`${b.fecha}T${b.hora_inicio || "00:00:00"}`);
+          if (dateA < dateB) return -1;
+          if (dateA > dateB) return 1;
+          // Si es el mismo momento, priorizar el marcador
+          if (a.isProgramMarker && !b.isProgramMarker) return -1;
+          if (!a.isProgramMarker && b.isProgramMarker) return 1;
+          return 0;
+        }
       );
 
-      setAvailableCategories((prev) => {
-        const existingIds = new Set(prev.map((c) => c.id));
-        const newCats = uniqueCats.filter((c) => !existingIds.has(c.id));
-        return [...prev, ...newCats].sort((a, b) =>
-          a.nombre.localeCompare(b.nombre)
-        );
-      });
+      // Procesar Categorías (Live)
+      processCategories(visibleEvents); // Solo eventos reales para categorías
 
       // Procesar Estados Custom
       visibleEvents.forEach((evt) => {
@@ -479,7 +457,7 @@ export default function UnifiedAgenda({
         }
       });
 
-      // Procesar Asistencias (Check/X)
+      // Procesar Asistencias
       if (visibleEvents.length > 0 && user.id !== "guest-general") {
         const eventIds = visibleEvents.map((e) => e.id);
         const { data: attendanceData } = await supabase
@@ -487,12 +465,10 @@ export default function UnifiedAgenda({
           .select("id_evento, estado")
           .in("id_evento", eventIds)
           .eq("id_integrante", user.id);
-
         const attendanceMap = {};
         attendanceData?.forEach((a) => {
           attendanceMap[a.id_evento] = a.estado;
         });
-
         visibleEvents.forEach((evt) => {
           evt.mi_asistencia = attendanceMap[evt.id];
           const myTourRecord = evt.programas?.giras_integrantes?.find(
@@ -503,15 +479,49 @@ export default function UnifiedAgenda({
         });
       }
 
-      // Guardar y Actualizar
-      setItems(visibleEvents);
-      localStorage.setItem(CACHE_KEY, JSON.stringify(visibleEvents));
+      setItems(allItems); // Guardamos la lista mezclada
+      localStorage.setItem(CACHE_KEY, JSON.stringify(allItems));
       setIsOfflineMode(false);
     } catch (err) {
       console.error("Error fetching agenda:", err);
       setIsOfflineMode(true);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 5. PROCESAR CATEGORÍAS (CON DEFAULTS INTELIGENTES)
+  const processCategories = (eventsList) => {
+    const categoriesMap = {};
+    eventsList.forEach((evt) => {
+      // Ignorar marcadores
+      if (evt.isProgramMarker) return;
+
+      const cat = evt.tipos_evento?.categorias_tipos_eventos;
+      if (cat && !categoriesMap[cat.id]) categoriesMap[cat.id] = cat;
+    });
+    const uniqueCats = Object.values(categoriesMap).sort((a, b) =>
+      a.nombre.localeCompare(b.nombre)
+    );
+    setAvailableCategories(uniqueCats);
+
+    // Default: Solo Conciertos y Ensayos
+    if (selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
+      const defaults = uniqueCats
+        .filter((c) => {
+          const n = c.nombre.toLowerCase();
+          return (
+            n.includes("concierto") ||
+            n.includes("ensayo") ||
+            n.includes("concert") ||
+            n.includes("rehearsal")
+          );
+        })
+        .map((c) => c.id);
+
+      setSelectedCategoryIds(
+        defaults.length > 0 ? defaults : uniqueCats.map((c) => c.id)
+      );
     }
   };
 
@@ -526,14 +536,10 @@ export default function UnifiedAgenda({
           { onConflict: "id_evento, id_integrante" }
         );
       if (error) throw error;
-
-      // Actualizar estado local
       const newItems = items.map((item) =>
         item.id === eventId ? { ...item, mi_asistencia: newStatus } : item
       );
       setItems(newItems);
-
-      // Actualizar caché también
       const CACHE_KEY = `agenda_cache_${user.id}_${giraId || "general"}`;
       localStorage.setItem(CACHE_KEY, JSON.stringify(newItems));
     } catch (error) {
@@ -623,9 +629,98 @@ export default function UnifiedAgenda({
     return acc;
   }, {});
 
+  // --- COMPONENTE: SEPARADOR DE GIRA ---
+  const TourDivider = ({ gira }) => {
+    const fechaDesde = gira.fecha_desde
+      ? format(parseISO(gira.fecha_desde), "d MMM", { locale: es })
+      : "";
+    const fechaHasta = gira.fecha_hasta
+      ? format(parseISO(gira.fecha_hasta), "d MMM", { locale: es })
+      : "";
+
+    // Colores de fondo semitransparentes según tipo
+    let bgClass = "bg-fuchsia-50 border-fuchsia-200 text-fuchsia-900";
+    let borderClass = "border-fuchsia-500";
+
+    if (gira.tipo === "Sinfónico") {
+      bgClass = "bg-indigo-50 border-indigo-200 text-indigo-900";
+      borderClass = "border-indigo-500";
+    } else if (gira.tipo === "Ensamble") {
+      bgClass = "bg-emerald-50 border-emerald-200 text-emerald-900";
+      borderClass = "border-emerald-500";
+    } else if (gira.tipo === "Jazz Band") {
+      bgClass = "bg-amber-50 border-amber-200 text-amber-900";
+      borderClass = "border-amber-500";
+    }
+
+    return (
+      <div
+        className={`border-l-4 ${borderClass} px-4 py-2 mt-4 mb-2 flex items-center gap-3 group animate-in fade-in rounded-r-md ${bgClass} overflow-hidden shadow-sm`}
+      >
+        {/* 1. TIPO y ZONA */}
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="font-bold uppercase tracking-wider text-xs">
+            {gira.tipo}
+          </span>
+          {gira.zona && (
+            <span className="hidden sm:inline border border-current px-1.5 rounded text-[10px] opacity-70">
+              {gira.zona}
+            </span>
+          )}
+        </div>
+
+        {/* Separador visual */}
+        <span className="opacity-30">|</span>
+
+        {/* 2. TITULO (Mes | Nomenclador) */}
+        <div className="font-bold truncate text-sm sm:text-base flex items-center gap-2 min-w-0">
+          <span className="whitespace-nowrap">{gira.mes_letra}</span>
+          <span className="opacity-50">|</span>
+          <span className="truncate">{gira.nomenclador}</span>
+        </div>
+
+        {/* 3. FECHAS (Opcional, se oculta si falta espacio) */}
+        {fechaDesde && (
+          <span className="hidden md:flex items-center font-normal opacity-70 text-xs whitespace-nowrap ml-auto md:ml-2">
+            <span className="hidden lg:inline mr-1"></span>{" "}
+            {fechaDesde} - {fechaHasta}
+          </span>
+        )}
+
+        {/* Spacer para empujar botones a la derecha */}
+        <div className="flex-1"></div>
+
+        {/* 4. BOTONES */}
+        <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100 transition-opacity shrink-0">
+          {gira.google_drive_folder_id && (
+            <button
+              onClick={() =>
+                window.open(
+                  `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
+                  "_blank"
+                )
+              }
+              className="p-1.5 bg-white/60 hover:bg-white text-current rounded transition-colors shadow-sm"
+              title="Carpeta de Drive"
+            >
+              <IconDrive size={16} />
+            </button>
+          )}
+          {onViewChange && (
+            <button
+              onClick={() => onViewChange("AGENDA", gira.id)}
+              className="flex items-center gap-1 px-3 py-1 bg-white/60 hover:bg-white text-current rounded text-xs font-bold transition-colors shadow-sm whitespace-nowrap"
+            >
+              Ver Gira <IconArrowRight size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in relative">
-      {/* AVISO OFFLINE */}
       {isOfflineMode && (
         <div className="bg-amber-100 border-b border-amber-200 px-4 py-1 text-[10px] sm:text-xs font-bold text-amber-800 text-center flex items-center justify-center gap-2 sticky top-0 z-40">
           <IconAlertTriangle size={14} />
@@ -633,81 +728,30 @@ export default function UnifiedAgenda({
         </div>
       )}
 
-      <div className="px-4 py-2 bg-white border-b border-slate-200 shadow-sm flex items-center justify-between sticky top-0 z-30 shrink-0 gap-2">
-        <div className="flex items-center gap-2 overflow-hidden flex-1">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="text-slate-500 hover:text-indigo-600 shrink-0"
-            >
-              <IconArrowLeft size={22} />
-            </button>
-          )}
-          <div className="min-w-0 flex-1">
-            <h2 className="text-base sm:text-lg font-bold text-slate-800 truncate leading-tight">
-              {title}
-            </h2>
-            {giraId && (
-              <p className="text-xs text-slate-500 truncate">Vista Compacta</p>
+      {/* HEADER + FILTROS TOGGLE */}
+      <div className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-30 shrink-0">
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 overflow-hidden flex-1">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="text-slate-500 hover:text-indigo-600 shrink-0"
+              >
+                <IconArrowLeft size={22} />
+              </button>
             )}
-          </div>
-        </div>
-        <div
-          className={`flex items-center gap-2 shrink-0 ${
-            isOfflineMode ? "opacity-80" : ""
-          }`}
-          ref={filterRef}
-        >
-          <div className="relative">
-            <button
-              onClick={() => setIsFilterOpen(!isFilterOpen)}
-              className={`p-2 rounded-full flex items-center justify-center shadow-sm transition-colors ${
-                isFilterOpen
-                  ? "bg-indigo-100 text-indigo-700"
-                  : "bg-white text-slate-500 border border-slate-200"
-              }`}
-            >
-              <IconFilter size={18} />
-              {selectedCategoryIds.length < availableCategories.length && (
-                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base sm:text-lg font-bold text-slate-800 truncate leading-tight">
+                {title}
+              </h2>
+              {giraId && (
+                <p className="text-xs text-slate-500 truncate">
+                  Vista Compacta
+                </p>
               )}
-            </button>
-            {isFilterOpen && (
-              <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-slate-200 z-50 p-2 animate-in zoom-in-95 origin-top-right">
-                <div className="flex justify-between text-xs pb-2 mb-2 border-b border-slate-100 font-medium text-indigo-600 cursor-pointer">
-                  <span onClick={() => handleSelectAllCategories(true)}>
-                    Marcar Todos
-                  </span>
-                  <span onClick={() => handleSelectAllCategories(false)}>
-                    Desmarcar
-                  </span>
-                </div>
-                <div className="max-h-64 overflow-y-auto space-y-1">
-                  {availableCategories.map((cat) => (
-                    <label
-                      key={cat.id}
-                      className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        className="rounded text-indigo-600 focus:ring-indigo-500"
-                        checked={selectedCategoryIds.includes(cat.id)}
-                        onChange={() => handleCategoryToggle(cat.id)}
-                      />
-                      <span className="text-sm text-slate-700 truncate">
-                        {cat.nombre}
-                      </span>
-                    </label>
-                  ))}
-                  {availableCategories.length === 0 && (
-                    <div className="text-xs text-slate-400 italic p-2">
-                      Sin categorías disponibles
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+            </div>
           </div>
+
           {giraId && canEdit && !isOfflineMode && (
             <button
               onClick={handleOpenCreate}
@@ -717,9 +761,40 @@ export default function UnifiedAgenda({
             </button>
           )}
         </div>
+
+        {!loading && availableCategories.length > 0 && (
+          <div className="px-4 pb-3 flex flex-wrap gap-2">
+            {availableCategories.map((cat) => {
+              const isActive = selectedCategoryIds.includes(cat.id);
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => handleCategoryToggle(cat.id)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
+                    isActive
+                      ? "bg-indigo-100 text-indigo-700 border-indigo-200 shadow-sm"
+                      : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  {cat.nombre}
+                </button>
+              );
+            })}
+            {selectedCategoryIds.length < availableCategories.length && (
+              <button
+                onClick={() =>
+                  setSelectedCategoryIds(availableCategories.map((c) => c.id))
+                }
+                className="text-xs text-indigo-600 underline px-2"
+              >
+                Ver todo
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto bg-slate-50/50">
         {loading && items.length === 0 && (
           <div className="text-center py-10">
             <IconLoader
@@ -745,7 +820,14 @@ export default function UnifiedAgenda({
                   {format(monthDate, "MMMM yyyy", { locale: es })}
                 </span>
               </div>
+
               {monthEvents.map((evt) => {
+                // RENDERIZAR MARCADOR DE GIRA
+                if (evt.isProgramMarker) {
+                  return <TourDivider key={evt.id} gira={evt.programas} />;
+                }
+
+                // RENDERIZAR EVENTO NORMAL
                 const eventColor = evt.tipos_evento?.color || "#6366f1";
                 const isMeal =
                   [7, 8, 9, 10].includes(evt.id_tipo_evento) ||
@@ -761,12 +843,9 @@ export default function UnifiedAgenda({
                 const showDay = evt.fecha !== lastDateRendered;
                 if (showDay) lastDateRendered = evt.fecha;
 
-                let rowStyle =
-                  "relative flex items-center px-3 py-3 border-b border-slate-100 bg-white transition-colors hover:bg-slate-50 group";
-                if (isNonConvokedMeal || evt.is_absent)
-                  rowStyle =
-                    "relative flex items-center px-3 py-3 border-b border-slate-100 bg-slate-50 transition-colors opacity-60 grayscale";
-                if (evt.is_guest) rowStyle += " bg-emerald-50/30";
+                // Datos ubicación
+                const locName = evt.locaciones?.nombre || "";
+                const locCity = evt.locaciones?.localidades?.localidad;
 
                 return (
                   <React.Fragment key={evt.id}>
@@ -777,7 +856,13 @@ export default function UnifiedAgenda({
                       </div>
                     )}
 
-                    <div className={rowStyle}>
+                    <div
+                      className={`relative flex flex-row items-stretch px-4 py-2 border-b border-slate-100 bg-white transition-colors hover:bg-slate-50 group gap-2 ${
+                        isNonConvokedMeal || evt.is_absent
+                          ? "opacity-60 grayscale"
+                          : ""
+                      } ${evt.is_guest ? "bg-emerald-50/30" : ""}`}
+                    >
                       <div
                         className="absolute left-0 top-0 bottom-0 w-[4px]"
                         style={{
@@ -786,99 +871,81 @@ export default function UnifiedAgenda({
                             : eventColor,
                         }}
                       ></div>
-                      <div className="w-12 shrink-0 flex flex-col items-center mr-3">
-                        <span
-                          className={`text-sm font-bold leading-none ${
-                            isNonConvokedMeal || evt.is_absent
-                              ? "text-slate-400"
-                              : "text-slate-700"
-                          }`}
-                        >
-                          {evt.hora_inicio?.slice(0, 5)}
-                        </span>
+
+                      {/* 1. HORARIO (Izquierda) */}
+                      <div className="w-10 md:w-14 font-mono text-xs md:text-sm text-slate-600 font-bold shrink-0 flex flex-col items-center md:items-end justify-center md:pr-4 md:border-r border-slate-100 pt-1 md:pt-0">
+                        <span>{evt.hora_inicio?.slice(0, 5)}</span>
                         {evt.hora_fin && evt.hora_fin !== evt.hora_inicio && (
-                          <span className="text-[10px] text-slate-400 leading-none mt-1">
+                          <span className="text-[9px] text-slate-400 block">
                             {evt.hora_fin.slice(0, 5)}
                           </span>
                         )}
                       </div>
-                      <div className="flex-1 min-w-0 pr-2">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <h4
-                            className={`text-sm font-semibold truncate ${
-                              isNonConvokedMeal || evt.is_absent
-                                ? "line-through text-slate-500"
-                                : "text-slate-900"
-                            }`}
-                          >
-                            {evt.descripcion || evt.tipos_evento?.nombre}
-                          </h4>
-                          {evt.is_guest && (
-                            <span className="bg-emerald-100 text-emerald-700 text-[9px] font-bold px-1.5 rounded flex items-center gap-1">
-                              <IconUserPlus size={10} /> Invitado
-                            </span>
-                          )}
-                          {evt.is_absent && (
-                            <span className="bg-slate-200 text-slate-500 text-[9px] font-bold px-1.5 rounded">
-                              Ausente
-                            </span>
-                          )}
 
-                          {!giraId && evt.programas && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (onOpenRepertoire && evt.programas.id)
-                                  onOpenRepertoire(evt.programas.id);
-                              }}
-                              className={`text-[9px] px-1 border rounded shrink-0 transition-colors ${
-                                onOpenRepertoire
-                                  ? "bg-white text-slate-500 border-slate-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 cursor-pointer"
-                                  : "bg-slate-100 text-slate-500 cursor-default"
-                              }`}
-                            >
-                              {evt.programas.mes_letra}
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex items-center text-[11px] text-slate-500 truncate gap-2">
+                      {/* 2. CONTENIDO (Centro) */}
+                      <div className="flex-1 min-w-0 flex flex-col md:flex-row md:items-center md:gap-4 py-1">
+                        {/* Tipo y Nomenclador (Móvil: Arriba, Desktop: Columna) */}
+                        <div className="flex items-center gap-2 shrink-0 md:w-48 mb-0.5 md:mb-0">
                           <span
-                            className="uppercase font-bold tracking-wide text-[10px]"
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-[120px]"
                             style={{
-                              color:
-                                isNonConvokedMeal || evt.is_absent
-                                  ? undefined
-                                  : eventColor,
+                              color: eventColor,
+                              borderColor: `${eventColor}40`,
+                              backgroundColor: `${eventColor}10`,
                             }}
                           >
                             {evt.tipos_evento?.nombre}
                           </span>
-                          {evt.locaciones?.nombre && (
-                            <>
-                              {" "}
-                              <span className="text-slate-300">•</span>{" "}
-                              <span className="truncate flex items-center gap-1">
-                                <IconMapPin size={10} /> {evt.locaciones.nombre}
-                              </span>{" "}
-                            </>
+                          {evt.programas?.nomenclador && (
+                            <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
+                              {evt.programas.nomenclador}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Descripción y Ubicación */}
+                        <div className="flex flex-col md:flex-row md:items-center md:gap-4 flex-1 min-w-0">
+                          <h4
+                            className={`text-sm font-bold leading-tight truncate ${
+                              isNonConvokedMeal || evt.is_absent
+                                ? "line-through text-slate-400"
+                                : "text-slate-800"
+                            }`}
+                          >
+                            {evt.descripcion || evt.tipos_evento?.nombre}
+                          </h4>
+
+                          {locName && (
+                            <div className="flex items-center gap-1 text-xs text-slate-500 md:border-l md:border-slate-200 md:pl-3 truncate mt-0.5 md:mt-0">
+                              <IconMapPin
+                                size={10}
+                                className="text-slate-400 shrink-0"
+                              />
+                              <span className="truncate">
+                                {locName} {locCity ? `(${locCity})` : ""}
+                              </span>
+                            </div>
                           )}
                         </div>
                       </div>
 
-                      <div className="shrink-0 flex items-center justify-end gap-2">
+                      {/* 3. ACCIONES (Derecha) */}
+                      <div className="shrink-0 flex items-start md:items-center gap-1 pl-2 md:pl-4 md:border-l border-slate-100 pt-1 md:pt-0">
                         <DriveSmartButton evt={evt} />
-
                         {evt.programas?.id &&
                           onOpenRepertoire &&
                           !isNonConvokedMeal && (
                             <button
-                              onClick={() => onOpenRepertoire(evt.programas.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenRepertoire(evt.programas.id);
+                              }}
                               className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-white border border-transparent hover:border-slate-100"
+                              title="Ver Repertorio"
                             >
                               <IconList size={16} />
                             </button>
                           )}
-
                         <div className="flex flex-col items-end gap-1 relative">
                           {canEdit && !isNonConvokedMeal && !isOfflineMode && (
                             <button
@@ -969,6 +1036,7 @@ export default function UnifiedAgenda({
             </div>
           );
         })}
+
         {!giraId && !loading && (
           <div className="p-6 flex justify-center pb-12">
             <button

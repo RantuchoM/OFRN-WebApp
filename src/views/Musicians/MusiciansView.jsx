@@ -3,15 +3,10 @@ import { createPortal } from "react-dom";
 import {
   IconPlus,
   IconSearch,
-  IconAlertCircle,
   IconEdit,
-  IconX,
   IconColumns,
-  IconFilter,
   IconCheck,
   IconLoader,
-  IconSortAsc,
-  IconSortDesc,
   IconTrash,
 } from "../../components/ui/Icons";
 import InstrumentFilter from "../../components/filters/InstrumentFilter";
@@ -24,18 +19,18 @@ const CONDITION_OPTIONS = [
   "Refuerzo",
   "Invitado",
   "Becario",
+  "Planta", // Agregado según tu form
 ];
 
-// --- COLUMNAS CONFIGURABLES (AUTOMATIZADAS) ---
+// --- COLUMNAS CONFIGURABLES ---
 const AVAILABLE_COLUMNS = [
-  // Busca esto en AVAILABLE_COLUMNS:
   {
-    key: "id_instr", // Cambiado de "instrumentos.instrumento" a la FK real
+    key: "id_instr",
     label: "Instrumento",
     width: "130px",
     type: "select",
     sortKey: "instrumentos.instrumento",
-    displayKey: "instrumentos.instrumento", // Agregamos esto para el renderizado visual
+    displayKey: "instrumentos.instrumento",
   },
   {
     key: "condicion",
@@ -49,7 +44,6 @@ const AVAILABLE_COLUMNS = [
     label: "Ensambles Asignados",
     width: "200px",
     sortKey: null,
-    // Renderizado especial para la celda de ensambles
     render: (item, { ensemblesList, supabase, refreshData }) => (
       <EnsembleManagerCell
         musicianId={item.id}
@@ -60,12 +54,23 @@ const AVAILABLE_COLUMNS = [
       />
     ),
   },
+  // --- CAMBIO: Localidad ahora usa displayKey con el alias 'residencia' ---
   {
-    key: "localidad",
-    label: "Localidad",
+    key: "id_localidad",
+    label: "Residencia",
     width: "130px",
     type: "select",
-    sortKey: "localidades.localidad",
+    sortKey: "residencia.localidad",
+    displayKey: "residencia.localidad",
+  },
+  // --- NUEVA COLUMNA: Localidad de Viáticos ---
+  {
+    key: "id_loc_viaticos",
+    label: "Viáticos (Loc)",
+    width: "130px",
+    type: "select",
+    sortKey: "viaticos.localidad",
+    displayKey: "viaticos.localidad",
   },
   {
     key: "telefono",
@@ -129,6 +134,7 @@ const AVAILABLE_COLUMNS = [
 ];
 
 const getNestedValue = (obj, path) => {
+  if (!path) return null;
   return path.split(".").reduce((o, i) => (o ? o[i] : null), obj);
 };
 
@@ -205,7 +211,7 @@ const EditableCell = ({
   );
 };
 
-// --- CELDA MULTI-SELECT PARA ENSAMBLES ---
+// --- CELDA MULTI-SELECT PARA ENSAMBLES (Sin cambios) ---
 const EnsembleManagerCell = ({
   musicianId,
   assignedEnsembles,
@@ -310,7 +316,7 @@ const EnsembleManagerCell = ({
   );
 };
 
-// --- SELECTOR DE COLUMNAS ---
+// --- SELECTOR DE COLUMNAS (Sin cambios) ---
 const ColumnSelector = ({ visibleCols, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
@@ -384,7 +390,6 @@ const ColumnSelector = ({ visibleCols, onChange }) => {
 export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [resultados, setResultados] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [searchText, setSearchText] = useState("");
   const [selectedInstruments, setSelectedInstruments] = useState(new Set());
   const [conditionFilter, setConditionFilter] = useState("");
@@ -392,38 +397,18 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     key: "apellido",
     direction: "asc",
   });
+
+  // Columnas visibles por defecto
   const [visibleColumns, setVisibleColumns] = useState(
-    new Set(["id_instr", "condicion", "mail", "telefono"]) // Cambiado de "instrumento" a "id_instr"
+    new Set(["id_instr", "condicion", "id_localidad", "mail", "telefono"])
   );
+
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [locationsList, setLocationsList] = useState([]);
-  const [musicianEnsembles, setMusicianEnsembles] = useState(new Set());
 
-  const [editFormData, setEditFormData] = useState({
-    id: null,
-    nombre: "",
-    apellido: "",
-    id_instr: "",
-    dni: "",
-    cuil: "",
-    mail: "",
-    telefono: "",
-    genero: "Masculino",
-    condicion: "Estable",
-    nacionalidad: "Argentina",
-    fecha_nac: "",
-    alimentacion: "",
-    documentacion: "",
-    docred: "",
-    firma: "",
-    link_bio: "",
-    link_foto_popup: "",
-    email_acceso: "",
-    clave_acceso: "",
-    rol_sistema: "user",
-  });
+  const [editFormData, setEditFormData] = useState({}); // Form state placeholder
 
   useEffect(() => {
     const allIds = new Set(catalogoInstrumentos.map((i) => i.id));
@@ -461,9 +446,16 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           .order("ensamble");
         if (ens) setEnsemblesList(ens);
       }
-      let query = supabase
-        .from("integrantes")
-        .select("*, instrumentos(instrumento), localidades(localidad)");
+
+      // --- CONSULTA CON ALIAS ---
+      // Usamos 'residencia' y 'viaticos' para diferenciar las dos relaciones con 'localidades'
+      let query = supabase.from("integrantes").select(`
+            *, 
+            instrumentos(instrumento), 
+            residencia:localidades!id_localidad(localidad),
+            viaticos:localidades!id_loc_viaticos(localidad)
+        `);
+
       if (searchText.trim())
         query = query.or(
           `nombre.ilike.%${searchText.trim()}%,apellido.ilike.%${searchText.trim()}%`
@@ -500,9 +492,13 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const handleInlineUpdate = async (id, field, value) => {
     try {
       let updatePayload = { [field]: value === "" ? null : value };
-      if (field === "instrumento") updatePayload = { id_instr: value || null };
-      if (field === "localidad")
+
+      // Mapeo de campos especiales para inline editing
+      if (field === "id_instr") updatePayload = { id_instr: value || null }; // Corregido key
+      if (field === "id_localidad")
         updatePayload = { id_localidad: value ? parseInt(value) : null };
+      if (field === "id_loc_viaticos")
+        updatePayload = { id_loc_viaticos: value ? parseInt(value) : null };
 
       const { error } = await supabase
         .from("integrantes")
@@ -517,12 +513,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
   const startEditModal = async (item) => {
     setEditingId(item.id);
-    setEditFormData({ ...item });
-    const { data } = await supabase
-      .from("integrantes_ensambles")
-      .select("id_ensamble")
-      .eq("id_integrante", item.id);
-    setMusicianEnsembles(new Set(data?.map((r) => r.id_ensamble) || []));
+    setEditFormData({ ...item }); // Ahora incluye id_loc_viaticos gracias al fetch completo
   };
 
   const sortedResultados = useMemo(() => {
@@ -551,6 +542,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   return (
     <div className="space-y-4 h-full flex flex-col overflow-hidden animate-in fade-in">
       <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 shrink-0 flex flex-col md:flex-row gap-3 items-center">
+        {/* ... Filtros (Sin cambios) ... */}
         <div className="flex-1 w-full relative">
           <IconSearch
             size={16}
@@ -648,21 +640,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                   <td className="p-1 sticky left-10 bg-white group-hover:bg-slate-50 z-10 border-r font-bold">
                     {item.apellido}, {item.nombre}
                   </td>
-                  
-                    {visibleColumns.has("id_instr") && (
-                      <td className="p-0 border-r border-slate-200">
-                        <EditableCell
-                          value={item.id_instr}
-                          rowId={item.id}
-                          field="instrumento"
-                          type="select"
-                          options={instrumentOptions}
-                          onSave={handleInlineUpdate}
-                        />
-                      </td>
-                    )}
+
                   {AVAILABLE_COLUMNS.map(
-                    (col) => col.key === "id_instr" ? null : // Evita renderizar dos veces la columna de instrumento
+                    (col) =>
                       visibleColumns.has(col.key) && (
                         <td key={col.key} className="p-0 border-r">
                           {col.render ? (
@@ -672,11 +652,12 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                               refreshData: fetchData,
                             })
                           ) : (
-                            // Busca dentro de sortedResultados.map el bloque col.render... : (
                             <EditableCell
-                              // Cambiamos el value:
+                              // --- CORRECCIÓN: Si es select, forzamos el uso del ID (col.key) ---
                               value={
-                                col.displayKey
+                                col.type === "select"
+                                  ? item[col.key]
+                                  : col.displayKey
                                   ? getNestedValue(item, col.displayKey)
                                   : item[col.key]
                               }
@@ -685,8 +666,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                               type={col.type}
                               options={
                                 col.key === "id_instr"
-                                  ? instrumentOptions // Cambiado a id_instr
-                                  : col.key === "id_localidad"
+                                  ? instrumentOptions
+                                  : col.key === "id_localidad" ||
+                                    col.key === "id_loc_viaticos"
                                   ? locationOptions
                                   : conditionOptions
                               }
@@ -731,9 +713,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             <MusicianForm
               supabase={supabase}
               musician={
-                isAdding
-                  ? { id: generateNumericId(), condicion: "Invitado" }
-                  : editFormData
+                isAdding ? { id: null, condicion: "Invitado" } : editFormData
               }
               onSave={() => {
                 setIsAdding(false);

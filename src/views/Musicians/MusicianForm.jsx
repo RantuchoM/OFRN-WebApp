@@ -9,28 +9,17 @@ import {
   IconFileText,
   IconMapPin,
 } from "../../components/ui/Icons";
+import SearchableSelect from "../../components/ui/SearchableSelect"; // <--- IMPORTAR
 
 export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("personal");
   const [showPassword, setShowPassword] = useState(false);
-  useEffect(() => {
-    const fetchInstruments = async () => {
-      const { data } = await supabase
-        .from("instrumentos")
-        .select("id, instrumento")
-        .order("instrumento");
-      if (data) setCatalogoInstrumentos(data);
-    };
-    fetchInstruments();
-  }, [supabase]);
-  useEffect(() => {
-    if (musician) {
-      setFormData((prev) => ({ ...prev, ...musician }));
-    }
-  }, [musician]); // Se dispara cada vez que seleccionas un músico diferente para editar
+
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
-  // Inicialización y corrección de edición:
+  const [locationsOptions, setLocationsOptions] = useState([]); // <--- ESTADO PARA LOCALIDADES
+
+  // Inicialización del Formulario
   const [formData, setFormData] = useState({
     nombre: "",
     apellido: "",
@@ -45,7 +34,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     nacionalidad: "Argentina",
     fecha_nac: "",
     email_google: "",
-    id_localidad: null,
+    id_localidad: null, // Residencia
+    id_loc_viaticos: null, // Viáticos
     link_bio: "",
     link_foto_popup: "",
     documentacion: "",
@@ -56,9 +46,35 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     clave_acceso: "",
   });
 
+  // Carga de Catálogos (Instrumentos y Localidades)
+  useEffect(() => {
+    const fetchCatalogs = async () => {
+      // 1. Instrumentos
+      const { data: instrData } = await supabase
+        .from("instrumentos")
+        .select("id, instrumento")
+        .order("instrumento");
+      if (instrData) setCatalogoInstrumentos(instrData);
+
+      // 2. Localidades
+      const { data: locData } = await supabase
+        .from("localidades")
+        .select("id, localidad")
+        .order("localidad");
+
+      if (locData) {
+        setLocationsOptions(
+          locData.map((l) => ({ id: l.id, label: l.localidad }))
+        );
+      }
+    };
+    fetchCatalogs();
+  }, [supabase]);
+
+  // Cargar datos del músico al editar
   useEffect(() => {
     if (musician) {
-      setFormData({ ...formData, ...musician });
+      setFormData((prev) => ({ ...prev, ...musician }));
     }
   }, [musician]);
 
@@ -67,23 +83,22 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     setLoading(true);
 
     try {
-      // 1. Creamos una copia de los datos del formulario
       const payload = { ...formData };
 
-      // 2. Eliminamos las propiedades que NO son columnas de la tabla 'integrantes'
-      // El objeto 'instrumento' que viene del join al leer
+      // Limpieza de campos que no van a la DB
       delete payload.instrumento;
-      delete payload.instrumentos; // Por si acaso viene en plural
+      delete payload.instrumentos;
       delete payload.ensamble;
       delete payload.integrantes_ensambles;
-          delete payload.localidades;
+      delete payload.localidades;
 
-
-      // Nota: Asegúrate de que 'id_instr' sí vaya en el payload, ya que es la clave foránea real.
+      // --- CORRECCIÓN AQUÍ: Eliminar los alias del join ---
+      delete payload.residencia;
+      delete payload.viaticos;
 
       const { data, error } = await supabase
         .from("integrantes")
-        .upsert([payload]) // Enviamos el payload limpio
+        .upsert([payload])
         .select()
         .single();
 
@@ -145,6 +160,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       <form onSubmit={handleSubmit} className="p-6">
         {activeTab === "personal" && (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {/* Nombre y Apellido */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>Apellido</label>
@@ -169,6 +185,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 />
               </div>
             </div>
+
+            {/* DNI, CUIL, Fecha Nac */}
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className={labelClass}>DNI</label>
@@ -204,6 +222,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 />
               </div>
             </div>
+
+            {/* Contacto e Instrumento */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>Mail Personal</label>
@@ -226,7 +246,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                   }
                 >
                   <option value="">Seleccionar instrumento...</option>
-                  {/* Usamos el catálogo que ya recibe el componente o MusicianView */}
                   {catalogoInstrumentos?.map((inst) => (
                     <option key={inst.id} value={inst.id}>
                       {inst.instrumento}
@@ -246,6 +265,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 />
               </div>
             </div>
+
+            {/* Condición y Género */}
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className={labelClass}>Condición</label>
@@ -288,9 +309,44 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 />
               </div>
             </div>
+
+            {/* --- SECCIÓN LOCALIDADES (NUEVO) --- */}
+            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+              <div>
+                <label className={`${labelClass} flex items-center gap-1`}>
+                  <IconMapPin size={10} /> Localidad de Residencia
+                </label>
+                <SearchableSelect
+                  options={locationsOptions}
+                  value={formData.id_localidad}
+                  onChange={(val) =>
+                    setFormData((prev) => ({ ...prev, id_localidad: val }))
+                  }
+                  placeholder="Buscar localidad..."
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label
+                  className={`${labelClass} flex items-center gap-1 text-indigo-500`}
+                >
+                  <IconMapPin size={10} /> Localidad para Viáticos
+                </label>
+                <SearchableSelect
+                  options={locationsOptions}
+                  value={formData.id_loc_viaticos}
+                  onChange={(val) =>
+                    setFormData((prev) => ({ ...prev, id_loc_viaticos: val }))
+                  }
+                  placeholder="Buscar localidad..."
+                  className="w-full"
+                />
+              </div>
+            </div>
           </div>
         )}
 
+        {/* ... (Resto de pestañas DOCS y ACCESO se mantienen igual) ... */}
         {activeTab === "docs" && (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div>
@@ -369,8 +425,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 <label className={labelClass}>Email de Acceso</label>
                 <input
                   type="email"
-                  name="email_usuario_nuevo" // Nombre diferente para despistar al navegador
-                  autoComplete="none" // Intento de bloqueo
+                  name="email_usuario_nuevo"
+                  autoComplete="none"
                   className={inputClass}
                   value={formData.email_acceso || ""}
                   onChange={(e) =>
@@ -383,7 +439,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 <div className="relative">
                   <input
                     type={showPassword ? "text" : "password"}
-                    autoComplete="new-password" // Esto evita que el navegador rellene tu clave actual
+                    autoComplete="new-password"
                     placeholder="••••••••"
                     className={inputClass}
                     value={formData.clave_acceso || ""}

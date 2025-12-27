@@ -71,7 +71,7 @@ export function useGiraRoster(supabase, gira) {
         return;
       }
 
-      // 4. Obtener Datos Completos (CORRECCIÓN: Se agregaron dni, fecha_nacimiento, genero)
+      // 4. Obtener Datos Completos (CORREGIDO: Join explícito a localidades)
       const { data: musicians, error: errMusicians } = await supabase
         .from("integrantes")
         .select(`
@@ -80,8 +80,8 @@ export function useGiraRoster(supabase, gira) {
             documentacion, docred, firma,
             dni, fecha_nac, genero,
             instrumentos(instrumento, familia),
-            localidades(localidad, id_region, regiones(region)) 
-        `)
+            localidades!id_localidad(localidad, id_region, regiones(region)) 
+        `) // <--- AQUÍ ESTABA EL PROBLEMA: Agregamos !id_localidad
         .in("id", Array.from(allPotentialIds));
 
       if (errMusicians) throw errMusicians;
