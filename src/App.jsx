@@ -107,7 +107,7 @@ const ProtectedApp = () => {
   const isPersonal = ['musico', 'archivista', 'personal', 'consulta_personal'].includes(userRole);
 
   // Estado principal de navegación
-  const [mode, setMode] = useState(isPersonal ? 'FULL_AGENDA' : 'DASHBOARD');
+  const [mode, setMode] = useState(isPersonal ? 'FULL_AGENDA' : 'GIRAS');
   const [activeGiraId, setActiveGiraId] = useState(null);
 
   // 1. CHEQUEAR PERMISOS (Instrumentos y Coordinación)
@@ -159,7 +159,6 @@ const ProtectedApp = () => {
 
   // --- DEFINICIÓN DE MENÚS ---
   const allMenuItems = [
-    { id: 'DASHBOARD', label: 'Inicio', icon: <IconLayoutDashboard size={20}/>, show: !isPersonal },
     { id: 'FULL_AGENDA', label: 'Agenda General', icon: <IconCalendar size={20}/>, show: true },
     { id: 'GIRAS', label: 'Giras', icon: <IconTruck size={20}/>, show: true },
     
@@ -181,11 +180,6 @@ const ProtectedApp = () => {
   // --- RENDERIZADO DE CONTENIDO ---
   const renderContent = () => {
     switch (mode) {
-      case 'DASHBOARD':
-        if (isManagement || isDirector) return <LogisticsDashboard updateView={updateView} supabase={supabase} />;
-        if (userRole === 'archivista') return <RepertoireView supabase={supabase} catalogoInstrumentos={catalogoInstrumentos} />;
-        return <AgendaGeneral onViewChange={updateView} supabase={supabase} />;
-
       case 'GIRAS': return <GirasView initialGiraId={activeGiraId} updateView={updateView} supabase={supabase} />;
       case 'AGENDA': return <GirasView initialGiraId={activeGiraId} initialTab="agenda" updateView={updateView} supabase={supabase} />;
       case 'FULL_AGENDA': return <AgendaGeneral onViewChange={updateView} supabase={supabase} />;
@@ -212,7 +206,7 @@ const ProtectedApp = () => {
   };
 
   const mobileNavItems = [
-    { id: isPersonal ? 'FULL_AGENDA' : 'DASHBOARD', icon: <IconLayoutDashboard size={24}/>, label: 'Inicio' },
+    { id: isPersonal ? 'FULL_AGENDA' : 'GIRAS'},
     { id: 'FULL_AGENDA', icon: <IconCalendar size={24}/>, label: 'Agenda' },
     { id: 'GIRAS', icon: <IconTruck size={24}/>, label: 'Giras' },
     { id: 'COMMENTS', icon: <IconMessageCircle size={24}/>, label: 'Avisos' },
