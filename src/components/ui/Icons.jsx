@@ -107,6 +107,27 @@ export const IconFileExcel = ({ size = 24, className = "" }) => (
     <path d="M14 17h2" />
   </svg>
 );
+export const IconLayoutDashboard = ({ size = 24, className = "", ...props }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" // Asegúrate que coincida con tu SVG original
+    fill="none" 
+    stroke="currentColor" // IMPORTANTE: Para que tome el color del texto (text-indigo-600, etc.)
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+    {...props}
+  >
+    {/* AQUÍ PEGAS EL PATH DE TU SVG */}
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+    <line x1="16" y1="2" x2="16" y2="6"></line>
+    <line x1="8" y1="2" x2="8" y2="6"></line>
+    <line x1="3" y1="10" x2="21" y2="10"></line>
+  </svg>
+);
 export const IconLayout = ({ size = 24, className = "" }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"

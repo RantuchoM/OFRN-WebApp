@@ -90,7 +90,7 @@ serve(async (req) => {
       mimeType,
       sourceUrl,
       targetParentId,
-      newName
+      newName,
     } = body;
 
     // 1. Init Supabase
@@ -295,8 +295,8 @@ serve(async (req) => {
           JSON.stringify({ success: true, message: "No programs" })
         );
 
-      const typeCounters: Record<string, number> = { Sinf: 0, CF: 0, Ens: 0 };
-      const monthCounters: Record<number, number> = {};
+      const typeCounters = { Sinf: 0, CF: 0, Ens: 0 };
+      const monthCounters = {};
 
       for (const prog of allPrograms) {
         if (!prog.fecha_desde) continue;
@@ -349,7 +349,7 @@ serve(async (req) => {
                   requestBody: { name: folderName },
                 });
             }
-          } catch (e: any) {
+          } catch (e) {
             if (e.code === 404) console.log(`Carpeta ${folderId} 404.`);
           }
         }
@@ -372,9 +372,8 @@ serve(async (req) => {
 
         if (prog.id === programId && action === "sync_program") {
           const repertorios =
-            prog.programas_repertorios?.sort(
-              (a: any, b: any) => a.orden - b.orden
-            ) || [];
+            prog.programas_repertorios?.sort((a, b) => a.orden - b.orden) || [];
+
           for (const [rIdx, rep] of repertorios.entries()) {
             const repPrefix = (rIdx + 1).toString().padStart(2, "0");
             const repName = `${repPrefix}. ${rep.nombre}`;
@@ -414,14 +413,13 @@ serve(async (req) => {
                 .eq("id", rep.id);
             }
 
-            // === LÓGICA DE ACCESOS DIRECTOS RESTAURADA Y CORREGIDA ===
+            // === LÓGICA DE ACCESOS DIRECTOS (OBRAS) ===
             const works =
-              rep.repertorio_obras?.sort(
-                (a: any, b: any) => a.orden - b.orden
-              ) || [];
+              rep.repertorio_obras?.sort((a, b) => a.orden - b.orden) || [];
 
-            // Iteramos usando .entries() para tener el índice (0, 1, 2...)
-            // independientemente de los huecos en workItem.orden
+            // Set para rastrear IDs válidos y NO borrarlos al final
+            const processedShortcutIds = new Set();
+
             for (const [index, workItem] of works.entries()) {
               const obra = workItem.obras;
               // Verificar que tenga link de drive y que NO esté marcada para excluir
@@ -430,52 +428,90 @@ serve(async (req) => {
               const targetId = extractFileId(obra.link_drive);
               if (!targetId) continue;
 
-              let shortcutId = workItem.google_drive_shortcut_id;
-              let shortcutExists = false;
+              // 1. OBTENER NOMBRE REAL DE LA CARPETA ORIGINAL
+              let targetName = obra.titulo; // Fallback
+              try {
+                const targetFile = await drive.files.get({
+                  fileId: targetId,
+                  fields: "name, trashed",
+                });
 
-              // --- CORRECCIÓN: Usamos el índice del bucle + 1 ---
+                // Si la carpeta original fue borrada, saltamos
+                if (targetFile.data.trashed) continue;
+                targetName = targetFile.data.name;
+              } catch (e) {
+                // Si no tenemos permiso de ver la original, saltamos
+                console.log(`No se pudo leer original ${targetId}`);
+                continue;
+              }
+
+              // Construir el nombre deseado: "01 - Nombre Original"
               const prefix = (index + 1).toString().padStart(2, "0");
-              const shortcutName = `${prefix} - ${obra.titulo}`;
+              const shortcutName = `${prefix} - ${targetName}`;
 
-              // Validar si el shortcut guardado en DB aún existe y es correcto
+              let shortcutId = workItem.google_drive_shortcut_id;
+              let shortcutValid = false;
+
+              // 2. VALIDAR Y CORREGIR SHORTCUT EXISTENTE
               if (shortcutId) {
                 try {
                   const sFile = await drive.files.get({
                     fileId: shortcutId,
-                    fields: "id, trashed, shortcutDetails, name",
+                    fields: "id, name, trashed, shortcutDetails, parents",
                   });
-                  if (!sFile.data.trashed) {
-                    if (sFile.data.shortcutDetails?.targetId === targetId) {
-                      shortcutExists = true;
-                      // Actualizar nombre si cambió el título O la posición en la lista
-                      if (sFile.data.name !== shortcutName) {
-                        await drive.files.update({
-                          fileId: shortcutId,
-                          requestBody: { name: shortcutName },
-                        });
-                      }
-                    } else {
-                      // El target cambió, borrar el viejo
-                      await drive.files.delete({ fileId: shortcutId });
-                      shortcutId = null;
+
+                  if (
+                    !sFile.data.trashed &&
+                    sFile.data.shortcutDetails?.targetId === targetId
+                  ) {
+                    shortcutValid = true;
+
+                    // A. Corregir Nombre
+                    if (sFile.data.name !== shortcutName) {
+                      await drive.files.update({
+                        fileId: shortcutId,
+                        requestBody: { name: shortcutName },
+                      });
                     }
+
+                    // B. Corregir Ubicación (Mover si está mal ubicado)
+                    if (
+                      !sFile.data.parents ||
+                      !sFile.data.parents.includes(repId)
+                    ) {
+                      const previousParents = sFile.data.parents
+                        ? sFile.data.parents.join(",")
+                        : "";
+                      await drive.files.update({
+                        fileId: shortcutId,
+                        addParents: repId,
+                        removeParents: previousParents,
+                        fields: "id, parents",
+                      });
+                    }
+
+                    // IMPORTANTE: Marcar como procesado para no borrarlo luego
+                    processedShortcutIds.add(shortcutId);
                   } else {
-                    shortcutId = null;
+                    // Borrar si es inválido (apunta a otro lado o está en papelera)
+                    if (!sFile.data.trashed) {
+                      await drive.files.delete({ fileId: shortcutId });
+                    }
+                    shortcutValid = false;
                   }
                 } catch (e) {
-                  // Error o 404
-                  shortcutId = null;
+                  shortcutValid = false;
                 }
               }
 
-              // Crear si no existe
-              if (!shortcutExists) {
+              // 3. CREAR SI NO EXISTE O NO ES VÁLIDO
+              if (!shortcutValid) {
                 try {
                   const newShortcut = await drive.files.create({
                     requestBody: {
                       name: shortcutName,
                       mimeType: "application/vnd.google-apps.shortcut",
-                      parents: [repId],
+                      parents: [repId], // Asegura creación en la carpeta correcta
                       shortcutDetails: { targetId: targetId },
                     },
                     fields: "id",
@@ -486,17 +522,18 @@ serve(async (req) => {
                       .from("repertorio_obras")
                       .update({ google_drive_shortcut_id: newShortcut.data.id })
                       .eq("id", workItem.id);
+
+                    // IMPORTANTE: Agregar el NUEVO ID a la lista de procesados
+                    processedShortcutIds.add(newShortcut.data.id);
                   }
                 } catch (e) {
-                  console.error(
-                    `Error creando shortcut para ${obra.titulo}:`,
-                    e
-                  );
+                  console.error(`Error creando shortcut ${shortcutName}`, e);
                 }
               }
             }
 
-            // 2. Limpieza de shortcuts huérfanos en la carpeta del repertorio
+            // 4. LIMPIEZA DE HUÉRFANOS
+            // Comparamos lo que hay en Drive contra nuestra lista procesada (viejos válidos + nuevos)
             try {
               const q = `'${repId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' and trashed = false`;
               const childrenRes = await drive.files.list({
@@ -504,24 +541,18 @@ serve(async (req) => {
                 fields: "files(id)",
               });
 
-              const validIds = new Set(
-                works
-                  .map((w: any) => w.google_drive_shortcut_id)
-                  .filter(Boolean)
-              );
-
               for (const file of childrenRes.data.files || []) {
-                if (file.id && !validIds.has(file.id)) {
-                  // Este shortcut está en Drive pero no en nuestra DB para este bloque -> Borrar
+                if (file.id && !processedShortcutIds.has(file.id)) {
+                  console.log(`Borrando shortcut huérfano: ${file.id}`);
                   try {
                     await drive.files.delete({ fileId: file.id });
                   } catch (e) {
-                    console.error("Error borrando shortcut huérfano:", e);
+                    console.error("Error borrando huérfano:", e);
                   }
                 }
               }
             } catch (e) {
-              console.error("Error limpiando shortcuts:", e);
+              console.error("Error en limpieza:", e);
             }
           }
         }
