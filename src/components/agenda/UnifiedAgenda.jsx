@@ -267,9 +267,7 @@ export default function UnifiedAgenda({
   };
 
   const filteredItems = items.filter((item) => {
-    // Si es un Marcador de Gira (no un evento real), lo mostramos siempre (o podemos filtrarlo si queremos)
     if (item.isProgramMarker) return true;
-
     const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
     if (!catId) return true;
     return selectedCategoryIds.includes(catId);
@@ -350,7 +348,7 @@ export default function UnifiedAgenda({
         .from("eventos")
         .select(
           `
-            id, fecha, hora_inicio, hora_fin, descripcion, convocados, id_tipo_evento, id_locacion,
+            id, fecha, hora_inicio, hora_fin, descripcion, convocados, id_tipo_evento, id_locacion, id_gira,
             tipos_evento (
                 id, nombre, color,
                 categorias_tipos_eventos (id, nombre)
@@ -401,50 +399,40 @@ export default function UnifiedAgenda({
         return false;
       });
 
-      // --- GENERACIÓN DE HITOS DE GIRA (SEPARADORES) ---
-      // Creamos "eventos falsos" para el día que inicia cada programa,
-      // independientemente de si hay eventos reales o no.
+      // --- GENERACIÓN DE HITOS DE GIRA ---
       const programStartMarkers = [];
       const processedPrograms = new Set();
 
       visibleEvents.forEach((evt) => {
         if (evt.programas && !processedPrograms.has(evt.programas.id)) {
           processedPrograms.add(evt.programas.id);
-
-          // Solo creamos el marcador si la fecha de inicio está dentro del rango que estamos viendo (aprox)
-          // o simplemente lo creamos y dejamos que el sort lo ubique.
           if (evt.programas.fecha_desde) {
             programStartMarkers.push({
-              id: `prog-start-${evt.programas.id}`, // ID único artificial
+              id: `prog-start-${evt.programas.id}`,
               fecha: evt.programas.fecha_desde,
-              hora_inicio: "00:00:00", // Para que salga primero en el día
+              hora_inicio: "00:00:00",
               isProgramMarker: true,
               programas: evt.programas,
-              // Propiedades dummy para evitar errores si algo intenta acceder
               tipos_evento: { categorias_tipos_eventos: { id: -1 } },
             });
           }
         }
       });
 
-      // --- UNIFICACIÓN Y ORDENAMIENTO FINAL ---
       const allItems = [...visibleEvents, ...programStartMarkers].sort(
         (a, b) => {
           const dateA = new Date(`${a.fecha}T${a.hora_inicio || "00:00:00"}`);
           const dateB = new Date(`${b.fecha}T${b.hora_inicio || "00:00:00"}`);
           if (dateA < dateB) return -1;
           if (dateA > dateB) return 1;
-          // Si es el mismo momento, priorizar el marcador
           if (a.isProgramMarker && !b.isProgramMarker) return -1;
           if (!a.isProgramMarker && b.isProgramMarker) return 1;
           return 0;
         }
       );
 
-      // Procesar Categorías (Live)
-      processCategories(visibleEvents); // Solo eventos reales para categorías
+      processCategories(visibleEvents);
 
-      // Procesar Estados Custom
       visibleEvents.forEach((evt) => {
         const custom = customMap.get(evt.id);
         if (custom) {
@@ -457,7 +445,6 @@ export default function UnifiedAgenda({
         }
       });
 
-      // Procesar Asistencias
       if (visibleEvents.length > 0 && user.id !== "guest-general") {
         const eventIds = visibleEvents.map((e) => e.id);
         const { data: attendanceData } = await supabase
@@ -479,7 +466,7 @@ export default function UnifiedAgenda({
         });
       }
 
-      setItems(allItems); // Guardamos la lista mezclada
+      setItems(allItems);
       localStorage.setItem(CACHE_KEY, JSON.stringify(allItems));
       setIsOfflineMode(false);
     } catch (err) {
@@ -490,13 +477,10 @@ export default function UnifiedAgenda({
     }
   };
 
-  // 5. PROCESAR CATEGORÍAS (CON DEFAULTS INTELIGENTES)
   const processCategories = (eventsList) => {
     const categoriesMap = {};
     eventsList.forEach((evt) => {
-      // Ignorar marcadores
       if (evt.isProgramMarker) return;
-
       const cat = evt.tipos_evento?.categorias_tipos_eventos;
       if (cat && !categoriesMap[cat.id]) categoriesMap[cat.id] = cat;
     });
@@ -505,7 +489,6 @@ export default function UnifiedAgenda({
     );
     setAvailableCategories(uniqueCats);
 
-    // Default: Solo Conciertos y Ensayos
     if (selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
       const defaults = uniqueCats
         .filter((c) => {
@@ -558,8 +541,103 @@ export default function UnifiedAgenda({
       hora_fin: evt.hora_fin || "",
       id_tipo_evento: evt.id_tipo_evento || "",
       id_locacion: evt.id_locacion || "",
+      id_gira: evt.id_gira || null,
     });
     setIsEditOpen(true);
+  };
+
+  // --- LÓGICA ELIMINAR ---
+  const handleDeleteEvent = async () => {
+    if (!editFormData.id) return;
+    const confirm = window.confirm("¿Seguro que deseas eliminar este evento? Esta acción no se puede deshacer.");
+    if (!confirm) return;
+
+    setLoading(true);
+    try {
+        const id = editFormData.id;
+        // Limpiamos relaciones para evitar conflictos
+        await Promise.all([
+            supabase.from("eventos_programas_asociados").delete().eq("id_evento", id),
+            supabase.from("eventos_ensambles").delete().eq("id_evento", id),
+            supabase.from("eventos_asistencia_custom").delete().eq("id_evento", id),
+            supabase.from("eventos_asistencia").delete().eq("id_evento", id)
+        ]);
+
+        const { error } = await supabase.from("eventos").delete().eq("id", id);
+        if (error) throw error;
+
+        setIsEditOpen(false);
+        fetchAgenda();
+    } catch (err) {
+        alert("Error al eliminar: " + err.message);
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  // --- LÓGICA DUPLICAR (CORREGIDA PARA MANTENER ABIERTO) ---
+  const handleDuplicateEvent = async () => {
+    if (!editFormData.id) return;
+    
+    // Feedback inicial
+    const confirm = window.confirm("¿Deseas duplicar este evento? Se abrirá la copia para editar.");
+    if (!confirm) return;
+
+    setLoading(true);
+    try {
+        // 1. Duplicar Evento Base
+        const payload = {
+            descripcion: (editFormData.descripcion || "") + " - Copia",
+            fecha: editFormData.fecha,
+            hora_inicio: editFormData.hora_inicio,
+            hora_fin: editFormData.hora_fin,
+            id_tipo_evento: editFormData.id_tipo_evento || null,
+            id_locacion: editFormData.id_locacion || null,
+            id_gira: editFormData.id_gira || null,
+        };
+
+        const { data: newEvent, error: insertError } = await supabase.from("eventos").insert([payload]).select().single();
+        if (insertError) throw insertError;
+        
+        const newEventId = newEvent.id;
+        const originalId = editFormData.id;
+
+        // 2. Duplicar Relaciones (Ensambles y Programas)
+        const [ensambles, programas] = await Promise.all([
+            supabase.from("eventos_ensambles").select("id_ensamble").eq("id_evento", originalId),
+            supabase.from("eventos_programas_asociados").select("id_programa").eq("id_evento", originalId)
+        ]);
+
+        const promises = [];
+        if (ensambles.data?.length > 0) {
+            const ensPayload = ensambles.data.map(e => ({ id_evento: newEventId, id_ensamble: e.id_ensamble }));
+            promises.push(supabase.from("eventos_ensambles").insert(ensPayload));
+        }
+        if (programas.data?.length > 0) {
+            const progPayload = programas.data.map(p => ({ id_evento: newEventId, id_programa: p.id_programa }));
+            promises.push(supabase.from("eventos_programas_asociados").insert(progPayload));
+        }
+
+        await Promise.all(promises);
+
+        // --- MAGIA AQUÍ: ACTUALIZAMOS EL FORMULARIO EN LUGAR DE CERRARLO ---
+        setEditFormData({
+            ...editFormData,
+            id: newEventId, // Cambiamos al ID nuevo
+            descripcion: payload.descripcion // Mostramos el nuevo nombre
+        });
+
+        // Recargamos la lista de fondo para que aparezca el nuevo evento
+        fetchAgenda();
+        
+        // Opcional: Feedback visual discreto
+        // alert("Evento duplicado. Editando la copia.");
+
+    } catch (err) {
+        alert("Error al duplicar: " + err.message);
+    } finally {
+        setLoading(false);
+    }
   };
 
   const handleEditSave = async () => {
@@ -629,7 +707,6 @@ export default function UnifiedAgenda({
     return acc;
   }, {});
 
-  // --- COMPONENTE: SEPARADOR DE GIRA ---
   const TourDivider = ({ gira }) => {
     const fechaDesde = gira.fecha_desde
       ? format(parseISO(gira.fecha_desde), "d MMM", { locale: es })
@@ -638,7 +715,6 @@ export default function UnifiedAgenda({
       ? format(parseISO(gira.fecha_hasta), "d MMM", { locale: es })
       : "";
 
-    // Colores de fondo semitransparentes según tipo
     let bgClass = "bg-fuchsia-50 border-fuchsia-200 text-fuchsia-900";
     let borderClass = "border-fuchsia-500";
 
@@ -657,7 +733,6 @@ export default function UnifiedAgenda({
       <div
         className={`border-l-4 ${borderClass} px-4 py-2 mt-4 mb-2 flex items-center gap-3 group animate-in fade-in rounded-r-md ${bgClass} overflow-hidden shadow-sm`}
       >
-        {/* 1. TIPO y ZONA */}
         <div className="flex items-center gap-2 shrink-0">
           <span className="font-bold uppercase tracking-wider text-xs">
             {gira.tipo}
@@ -668,29 +743,19 @@ export default function UnifiedAgenda({
             </span>
           )}
         </div>
-
-        {/* Separador visual */}
         <span className="opacity-30">|</span>
-
-        {/* 2. TITULO (Mes | Nomenclador) */}
         <div className="font-bold truncate text-sm sm:text-base flex items-center gap-2 min-w-0">
           <span className="whitespace-nowrap">{gira.mes_letra}</span>
           <span className="opacity-50">|</span>
           <span className="truncate">{gira.nomenclador}</span>
         </div>
-
-        {/* 3. FECHAS (Opcional, se oculta si falta espacio) */}
         {fechaDesde && (
           <span className="hidden md:flex items-center font-normal opacity-70 text-xs whitespace-nowrap ml-auto md:ml-2">
             <span className="hidden lg:inline mr-1"></span>{" "}
             {fechaDesde} - {fechaHasta}
           </span>
         )}
-
-        {/* Spacer para empujar botones a la derecha */}
         <div className="flex-1"></div>
-
-        {/* 4. BOTONES */}
         <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100 transition-opacity shrink-0">
           {gira.google_drive_folder_id && (
             <button
@@ -728,7 +793,6 @@ export default function UnifiedAgenda({
         </div>
       )}
 
-      {/* HEADER + FILTROS TOGGLE */}
       <div className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-30 shrink-0">
         <div className="px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 overflow-hidden flex-1">
@@ -822,12 +886,10 @@ export default function UnifiedAgenda({
               </div>
 
               {monthEvents.map((evt) => {
-                // RENDERIZAR MARCADOR DE GIRA
                 if (evt.isProgramMarker) {
                   return <TourDivider key={evt.id} gira={evt.programas} />;
                 }
 
-                // RENDERIZAR EVENTO NORMAL
                 const eventColor = evt.tipos_evento?.color || "#6366f1";
                 const isMeal =
                   [7, 8, 9, 10].includes(evt.id_tipo_evento) ||
@@ -843,7 +905,6 @@ export default function UnifiedAgenda({
                 const showDay = evt.fecha !== lastDateRendered;
                 if (showDay) lastDateRendered = evt.fecha;
 
-                // Datos ubicación
                 const locName = evt.locaciones?.nombre || "";
                 const locCity = evt.locaciones?.localidades?.localidad;
 
@@ -872,7 +933,6 @@ export default function UnifiedAgenda({
                         }}
                       ></div>
 
-                      {/* 1. HORARIO (Izquierda) */}
                       <div className="w-10 md:w-14 font-mono text-xs md:text-sm text-slate-600 font-bold shrink-0 flex flex-col items-center md:items-end justify-center md:pr-4 md:border-r border-slate-100 pt-1 md:pt-0">
                         <span>{evt.hora_inicio?.slice(0, 5)}</span>
                         {evt.hora_fin && evt.hora_fin !== evt.hora_inicio && (
@@ -882,9 +942,7 @@ export default function UnifiedAgenda({
                         )}
                       </div>
 
-                      {/* 2. CONTENIDO (Centro) */}
                       <div className="flex-1 min-w-0 flex flex-col md:flex-row md:items-center md:gap-4 py-1">
-                        {/* Tipo y Nomenclador (Móvil: Arriba, Desktop: Columna) */}
                         <div className="flex items-center gap-2 shrink-0 md:w-48 mb-0.5 md:mb-0">
                           <span
                             className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-[120px]"
@@ -903,7 +961,6 @@ export default function UnifiedAgenda({
                           )}
                         </div>
 
-                        {/* Descripción y Ubicación */}
                         <div className="flex flex-col md:flex-row md:items-center md:gap-4 flex-1 min-w-0">
                           <h4
                             className={`text-sm font-bold leading-tight truncate ${
@@ -929,7 +986,6 @@ export default function UnifiedAgenda({
                         </div>
                       </div>
 
-                      {/* 3. ACCIONES (Derecha) */}
                       <div className="shrink-0 flex items-start md:items-center gap-1 pl-2 md:pl-4 md:border-l border-slate-100 pt-1 md:pt-0">
                         <DriveSmartButton evt={evt} />
                         {evt.programas?.id &&
@@ -1062,6 +1118,8 @@ export default function UnifiedAgenda({
             setFormData={setEditFormData}
             onSave={handleEditSave}
             onClose={() => setIsEditOpen(false)}
+            onDelete={handleDeleteEvent}      // <--- FUNCIÓN BORRAR CONECTADA
+            onDuplicate={handleDuplicateEvent} // <--- FUNCIÓN DUPLICAR CONECTADA
             loading={loading}
             eventTypes={formEventTypes}
             locations={formLocations}

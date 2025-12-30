@@ -144,12 +144,21 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
 
 // --- APP PROTEGIDA ---
 const ProtectedApp = () => {
-  const { user, signOut } = useAuth();
+  // 1. CORRECCIÓN: Usamos 'logout' en lugar de 'signOut'
+  const { user, logout } = useAuth();
   
   // Estados de UI
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  
+  // 2. LÓGICA SIDEBAR INTELIGENTE
+  // 'sidebarCollapsed' controla si está FIJO en modo compacto o expandido.
+  // 'isSidebarHovered' controla si el mouse está encima temporalmente.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true); // Arranca colapsado (compacto)
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+
+  // La barra se muestra expandida si NO está colapsada (fija) O si tiene el mouse encima (hover)
+  const isSidebarExpanded = !sidebarCollapsed || isSidebarHovered;
 
   // Estados de Lógica / Permisos
   const [isEnsembleCoordinator, setIsEnsembleCoordinator] = useState(false);
@@ -165,10 +174,10 @@ const ProtectedApp = () => {
   const [mode, setMode] = useState(isPersonal ? 'FULL_AGENDA' : 'GIRAS');
   const [activeGiraId, setActiveGiraId] = useState(null);
   
-  // Estado extra para deep linking de pestañas internas (ej: repertorio)
+  // Estado extra para deep linking de pestañas internas
   const [initialGiraView, setInitialGiraView] = useState(null);
 
-  // 1. CHEQUEAR PERMISOS
+  // CHEQUEAR PERMISOS
   useEffect(() => {
     const checkPermissions = async () => {
       if (!user) return;
@@ -194,7 +203,7 @@ const ProtectedApp = () => {
     checkPermissions();
   }, [user, userRole]);
 
-  // 2. REDIRECCIÓN FORZADA (Seguridad)
+  // REDIRECCIÓN FORZADA
   useEffect(() => {
     if (isPersonal && !isEnsembleCoordinator) {
         const allowedModes = ['FULL_AGENDA', 'GIRAS', 'AGENDA', 'MY_MEALS', 'COMMENTS', 'MY_PARTS'];
@@ -204,12 +213,12 @@ const ProtectedApp = () => {
     }
   }, [mode, isPersonal, isEnsembleCoordinator]);
 
-  // 3. LEER URL AL INICIO (Deep Linking)
+  // LEER URL AL INICIO
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
     const giraIdParam = params.get('giraId');
-    const viewParam = params.get('view'); // Nuevo: captura ?view=REPERTOIRE
+    const viewParam = params.get('view'); 
 
     if (tabParam) {
       const modeMap = {
@@ -233,20 +242,18 @@ const ProtectedApp = () => {
         if (newMode === 'GIRAS' && giraIdParam) {
           setActiveGiraId(giraIdParam);
           if (viewParam) {
-             setInitialGiraView(viewParam); // Guardamos la vista interna
+             setInitialGiraView(viewParam); 
           }
         }
       }
     }
-  }, []); // Solo al montar
+  }, []); 
 
-  // 4. ESCRIBIR URL AL CAMBIAR ESTADO (Sync URL) - NUEVO
+  // ESCRIBIR URL AL CAMBIAR ESTADO
   useEffect(() => {
     if (!user) return;
 
     const params = new URLSearchParams();
-    
-    // Mapeo inverso de Modos a Tabs URL
     const modeToTab = {
         'GIRAS': 'giras',
         'FULL_AGENDA': 'agenda',
@@ -267,11 +274,8 @@ const ProtectedApp = () => {
 
     if (mode === 'GIRAS' && activeGiraId) {
         params.set('giraId', activeGiraId);
-        // Nota: No sincronizamos 'view' interno aquí porque requeriría 
-        // callback desde GirasView, pero al menos la gira se mantiene.
     }
 
-    // Actualizamos la URL sin recargar
     const newUrl = `${window.location.pathname}?${params.toString()}`;
     window.history.replaceState(null, '', newUrl);
 
@@ -283,7 +287,7 @@ const ProtectedApp = () => {
     setMobileMenuOpen(false); 
   };
 
-  // --- DEFINICIÓN DE MENÚS ---
+  // --- MENÚS ---
   const allMenuItems = [
     { id: 'FULL_AGENDA', label: 'Agenda General', icon: <IconCalendar size={20}/>, show: true },
     { id: 'GIRAS', label: 'Giras', icon: <IconTruck size={20}/>, show: true },
@@ -298,14 +302,11 @@ const ProtectedApp = () => {
 
   const visibleMenuItems = allMenuItems.filter(i => i.show);
 
-  // --- RENDERIZADO DE CONTENIDO ---
+  // --- RENDERIZADO ---
   const renderContent = () => {
     switch (mode) {
-      case 'GIRAS': 
-        // Pasamos initialTab recuperado de la URL
-        return <GirasView initialGiraId={activeGiraId} initialTab={initialGiraView} updateView={updateView} supabase={supabase} />;
-      case 'AGENDA': 
-        return <GirasView initialGiraId={activeGiraId} initialTab="agenda" updateView={updateView} supabase={supabase} />;
+      case 'GIRAS': return <GirasView initialGiraId={activeGiraId} initialTab={initialGiraView} updateView={updateView} supabase={supabase} />;
+      case 'AGENDA': return <GirasView initialGiraId={activeGiraId} initialTab="agenda" updateView={updateView} supabase={supabase} />;
       case 'FULL_AGENDA': return <AgendaGeneral onViewChange={updateView} supabase={supabase} />;
       case 'ENSAMBLES': return <EnsemblesView supabase={supabase} />;
       case 'COORDINACION': return <EnsembleCoordinatorView supabase={supabase} />;
@@ -335,18 +336,21 @@ const ProtectedApp = () => {
       {/* --- SIDEBAR DESKTOP --- */}
       <aside 
         className={`hidden md:flex bg-slate-900 text-slate-300 flex-col shadow-xl z-20 transition-all duration-300 ease-in-out ${
-            sidebarCollapsed ? 'w-20' : 'w-64'
+            isSidebarExpanded ? 'w-64' : 'w-20'
         }`}
+        onMouseEnter={() => setIsSidebarHovered(true)}
+        onMouseLeave={() => setIsSidebarHovered(false)}
       >
-        <div className={`p-4 border-b border-slate-800 flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'} gap-3`}>
-          {!sidebarCollapsed && (
+        <div className={`p-4 border-b border-slate-800 flex items-center ${!isSidebarExpanded ? 'justify-center' : 'justify-between'} gap-3`}>
+          {isSidebarExpanded && (
               <div className="flex items-center gap-3 overflow-hidden">
                 <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30 shrink-0">O</div>
                 <div className="whitespace-nowrap"><h1 className="font-bold text-white text-lg tracking-tight">OF<span className="text-indigo-400">RN</span></h1></div>
               </div>
           )}
-          {sidebarCollapsed && <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30 shrink-0">O</div>}
-          <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="text-slate-500 hover:text-white transition-colors p-1 rounded hover:bg-slate-800">
+          {!isSidebarExpanded && <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30 shrink-0">O</div>}
+          
+          <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="text-slate-500 hover:text-white transition-colors p-1 rounded hover:bg-slate-800" title={sidebarCollapsed ? "Fijar abierto" : "Colapsar"}>
             {sidebarCollapsed ? <IconChevronRight size={20}/> : <IconChevronLeft size={20}/>}
           </button>
         </div>
@@ -360,19 +364,19 @@ const ProtectedApp = () => {
                 mode === item.id 
                   ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50 font-medium' 
                   : 'hover:bg-slate-800 hover:text-white'
-              } ${sidebarCollapsed ? 'justify-center' : ''}`}
-              title={sidebarCollapsed ? item.label : ''}
+              } ${!isSidebarExpanded ? 'justify-center' : ''}`}
+              title={!isSidebarExpanded ? item.label : ''}
             >
               <span className={`transition-transform duration-200 shrink-0 ${mode === item.id ? 'scale-110' : 'group-hover:scale-110'}`}>{item.icon}</span>
-              {!sidebarCollapsed && <span className="whitespace-nowrap overflow-hidden text-ellipsis">{item.label}</span>}
-              {mode === item.id && !sidebarCollapsed && <div className="ml-auto w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>}
+              {isSidebarExpanded && <span className="whitespace-nowrap overflow-hidden text-ellipsis">{item.label}</span>}
+              {mode === item.id && isSidebarExpanded && <div className="ml-auto w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>}
             </button>
           ))}
         </nav>
 
         <div className="p-4 border-t border-slate-800">
-          <button onClick={signOut} className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-slate-400 hover:bg-rose-900/30 hover:text-rose-400 transition-colors ${sidebarCollapsed ? 'justify-center' : ''}`} title="Cerrar Sesión">
-            <IconLogOut size={20} /> {!sidebarCollapsed && <span>Cerrar Sesión</span>}
+          <button onClick={logout} className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-slate-400 hover:bg-rose-900/30 hover:text-rose-400 transition-colors ${!isSidebarExpanded ? 'justify-center' : ''}`} title="Cerrar Sesión">
+            <IconLogOut size={20} /> {isSidebarExpanded && <span>Cerrar Sesión</span>}
           </button>
         </div>
       </aside>
@@ -430,7 +434,8 @@ const ProtectedApp = () => {
                   <IconCalendar size={24}/> Sincronizar Calendario
               </button>
            </div>
-           <button onClick={signOut} className="mt-6 w-full py-4 bg-rose-600 rounded-xl text-white font-bold flex items-center justify-center gap-2">
+           {/* 3. CORRECCIÓN: Botón Cerrar Sesión móvil */}
+           <button onClick={logout} className="mt-6 w-full py-4 bg-rose-600 rounded-xl text-white font-bold flex items-center justify-center gap-2">
               <IconLogOut size={20}/> Cerrar Sesión
            </button>
         </div>
