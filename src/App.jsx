@@ -38,47 +38,104 @@ import {
   IconUtensils,
   IconChevronLeft,
   IconChevronRight,
-  IconList // Usado para Coordinación
+  IconList
 } from './components/ui/Icons';
 
 // --- MODAL CALENDARIO ---
 const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
   if (!isOpen || !userId) return null;
+
   const BASE_URL = "https://muxrbuivopnawnxlcjxq.supabase.co/functions/v1/calendar-export";
 
-  const handleCopy = (mode) => {
-    let link = `${BASE_URL}?uid=${userId}`;
-    if (mode === 'essential') link += '&mode=essential';
+  const generateLinks = (mode) => {
+    let sourceLink = `${BASE_URL}?uid=${userId}`;
+    if (mode === 'essential') {
+      sourceLink += '&mode=essential';
+    }
+    sourceLink += '&file=agenda.ics';
 
-    navigator.clipboard.writeText(link).then(() => {
-        alert(`🔗 ¡Enlace copiado!\n\nModo: ${mode === 'essential' ? 'Solo Ensayos y Conciertos' : 'Agenda Completa'}\n\nPégalo en Google Calendar > Agregar > Desde URL.`);
-        onClose();
-    }).catch(() => {
-        prompt("Copia este enlace manualmente:", link);
-        onClose();
-    });
+    const webcalLink = sourceLink.replace(/^https?:\/\//, 'webcal://');
+
+    return {
+      https: sourceLink,
+      webcal: webcalLink,
+      google: `https://www.google.com/calendar/render?cid=${encodeURIComponent(webcalLink)}`
+    };
+  };
+
+  const handleAction = (platform, mode) => {
+    const links = generateLinks(mode);
+
+    if (platform === 'COPY') {
+      navigator.clipboard.writeText(links.https).then(() => {
+        alert("🔗 Enlace copiado al portapapeles.\n\nSi Google Calendar te da error al pegar este enlace manual, prueba cambiar 'https' por 'webcal' al inicio.");
+      });
+    } else if (platform === 'GOOGLE') {
+      window.open(links.google, '_blank');
+    } else if (platform === 'IOS') {
+      window.location.href = links.webcal;
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                    <IconCalendar size={18} className="text-indigo-600"/> 
+                    <IconCalendar size={20} className="text-indigo-600"/> 
                     Sincronizar Calendario
                 </h3>
-                <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><IconX size={20}/></button>
+                <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
+                  <IconX size={20}/>
+                </button>
             </div>
-            <div className="p-6 space-y-4">
-                <p className="text-sm text-slate-600 mb-2">Elige qué eventos quieres ver en tu calendario personal:</p>
-                <button onClick={() => handleCopy('essential')} className="w-full text-left p-4 rounded-lg border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 transition-colors group">
-                    <div className="font-bold text-indigo-700 mb-1 flex items-center gap-2"><IconMusic size={16}/> Solo Musical</div>
-                    <p className="text-xs text-indigo-600/80">Únicamente Ensayos y Conciertos.</p>
-                </button>
-                <button onClick={() => handleCopy('full')} className="w-full text-left p-4 rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-colors">
-                    <div className="font-bold text-slate-700 mb-1 flex items-center gap-2"><IconLayoutDashboard size={16}/> Agenda Completa</div>
-                    <p className="text-xs text-slate-500">Incluye logística, viajes y comidas.</p>
-                </button>
+
+            <div className="p-6 space-y-6">
+                <p className="text-sm text-slate-600">
+                  Selecciona tu dispositivo para suscribirte automáticamente:
+                </p>
+
+                {/* OPCIÓN 1: SOLO MUSICAL */}
+                <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm uppercase tracking-wider">
+                       <IconMusic size={16}/> Solo Musical (Ensayos/Conciertos)
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => handleAction('GOOGLE', 'essential')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs">
+                           Google / Android
+                        </button>
+                        <button onClick={() => handleAction('IOS', 'essential')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs">
+                           iPhone / Mac
+                        </button>
+                    </div>
+                    <button onClick={() => handleAction('COPY', 'essential')} className="w-full text-xs text-slate-400 hover:text-indigo-600 hover:underline text-center py-1">
+                        Copiar enlace manual
+                    </button>
+                </div>
+
+                <div className="h-px bg-slate-100"></div>
+
+                {/* OPCIÓN 2: AGENDA COMPLETA */}
+                <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-slate-700 font-bold text-sm uppercase tracking-wider">
+                       <IconLayoutDashboard size={16}/> Agenda Completa (+Logística)
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                         <button onClick={() => handleAction('GOOGLE', 'full')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs">
+                           Google / Android
+                        </button>
+                        <button onClick={() => handleAction('IOS', 'full')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs">
+                           iPhone / Mac
+                        </button>
+                    </div>
+                    <button onClick={() => handleAction('COPY', 'full')} className="w-full text-xs text-slate-400 hover:text-indigo-600 hover:underline text-center py-1">
+                        Copiar enlace manual
+                    </button>
+                </div>
+            </div>
+            
+            <div className="px-6 py-3 bg-slate-50 text-[10px] text-slate-400 text-center border-t border-slate-100">
+              ⚠️ Nota: Google Calendar puede tardar varias horas en actualizar cambios.
             </div>
         </div>
     </div>
@@ -100,33 +157,30 @@ const ProtectedApp = () => {
 
   // Roles
   const userRole = user?.rol_sistema || "";
-  // Roles de "Gestión" pura
   const isManagement = ['admin', 'editor', 'coord_general'].includes(userRole);
   const isDirector = userRole === 'director';
-  // Roles "Personales"
   const isPersonal = ['musico', 'archivista', 'personal', 'consulta_personal'].includes(userRole);
 
   // Estado principal de navegación
   const [mode, setMode] = useState(isPersonal ? 'FULL_AGENDA' : 'GIRAS');
   const [activeGiraId, setActiveGiraId] = useState(null);
+  
+  // Estado extra para deep linking de pestañas internas (ej: repertorio)
+  const [initialGiraView, setInitialGiraView] = useState(null);
 
-  // 1. CHEQUEAR PERMISOS (Instrumentos y Coordinación)
+  // 1. CHEQUEAR PERMISOS
   useEffect(() => {
     const checkPermissions = async () => {
       if (!user) return;
       
-      // Cargar instrumentos
       if (userRole !== "invitado") {
         const { data } = await supabase.from("instrumentos").select("*").order("id");
         if (data) setCatalogoInstrumentos(data);
       }
 
-      // Chequear si es coordinador de ensamble
-      // Si es admin/editor, es coordinador automáticamente
       if (['admin', 'editor', 'produccion_general'].includes(userRole)) {
         setIsEnsembleCoordinator(true);
       } else {
-        // Si no es admin, buscamos en la tabla si tiene asignaciones
         const { count, error } = await supabase
           .from("ensambles_coordinadores")
           .select("id", { count: "exact", head: true })
@@ -140,8 +194,7 @@ const ProtectedApp = () => {
     checkPermissions();
   }, [user, userRole]);
 
-  // 2. REDIRECCIÓN FORZADA PARA PERSONAL
-  // Evitar que músicos accedan a vistas no permitidas por URL o estado
+  // 2. REDIRECCIÓN FORZADA (Seguridad)
   useEffect(() => {
     if (isPersonal && !isEnsembleCoordinator) {
         const allowedModes = ['FULL_AGENDA', 'GIRAS', 'AGENDA', 'MY_MEALS', 'COMMENTS', 'MY_PARTS'];
@@ -150,6 +203,79 @@ const ProtectedApp = () => {
         }
     }
   }, [mode, isPersonal, isEnsembleCoordinator]);
+
+  // 3. LEER URL AL INICIO (Deep Linking)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    const giraIdParam = params.get('giraId');
+    const viewParam = params.get('view'); // Nuevo: captura ?view=REPERTOIRE
+
+    if (tabParam) {
+      const modeMap = {
+        'giras': 'GIRAS',
+        'agenda': 'FULL_AGENDA',
+        'repertorio': 'REPERTOIRE',
+        'ensambles': 'ENSAMBLES',
+        'musicos': 'MUSICIANS',
+        'usuarios': 'USERS',
+        'datos': 'DATA',
+        'locaciones': 'LOCATIONS',
+        'coordinacion': 'COORDINACION',
+        'avisos': 'COMMENTS',
+        'comidas': 'MY_MEALS'
+      };
+
+      const newMode = modeMap[tabParam.toLowerCase()];
+      
+      if (newMode) {
+        setMode(newMode);
+        if (newMode === 'GIRAS' && giraIdParam) {
+          setActiveGiraId(giraIdParam);
+          if (viewParam) {
+             setInitialGiraView(viewParam); // Guardamos la vista interna
+          }
+        }
+      }
+    }
+  }, []); // Solo al montar
+
+  // 4. ESCRIBIR URL AL CAMBIAR ESTADO (Sync URL) - NUEVO
+  useEffect(() => {
+    if (!user) return;
+
+    const params = new URLSearchParams();
+    
+    // Mapeo inverso de Modos a Tabs URL
+    const modeToTab = {
+        'GIRAS': 'giras',
+        'FULL_AGENDA': 'agenda',
+        'REPERTOIRE': 'repertorio',
+        'ENSAMBLES': 'ensambles',
+        'MUSICIANS': 'musicos',
+        'USERS': 'usuarios',
+        'DATA': 'datos',
+        'LOCATIONS': 'locaciones',
+        'COORDINACION': 'coordinacion',
+        'COMMENTS': 'avisos',
+        'MY_MEALS': 'comidas'
+    };
+
+    if (modeToTab[mode]) {
+        params.set('tab', modeToTab[mode]);
+    }
+
+    if (mode === 'GIRAS' && activeGiraId) {
+        params.set('giraId', activeGiraId);
+        // Nota: No sincronizamos 'view' interno aquí porque requeriría 
+        // callback desde GirasView, pero al menos la gira se mantiene.
+    }
+
+    // Actualizamos la URL sin recargar
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState(null, '', newUrl);
+
+  }, [mode, activeGiraId, user]);
 
   const updateView = (newMode, giraId = null) => {
     setMode(newMode);
@@ -161,13 +287,8 @@ const ProtectedApp = () => {
   const allMenuItems = [
     { id: 'FULL_AGENDA', label: 'Agenda General', icon: <IconCalendar size={20}/>, show: true },
     { id: 'GIRAS', label: 'Giras', icon: <IconTruck size={20}/>, show: true },
-    
-    // ENSAMBLES: Solo para gestión (Admin, Editor, Coord Gral)
     { id: 'ENSAMBLES', label: 'Ensambles', icon: <IconMusic size={20}/>, show: isManagement },
-    
-    // COORDINACIÓN: Para admins O coordinadores asignados (menú restaurado)
     { id: 'COORDINACION', label: 'Coordinación', icon: <IconList size={20}/>, show: isEnsembleCoordinator },
-
     { id: 'REPERTOIRE', label: 'Repertorio', icon: <IconFileText size={20}/>, show: !isPersonal || userRole === 'archivista' },
     { id: 'MUSICIANS', label: 'Músicos', icon: <IconUsers size={20}/>, show: isManagement || isDirector },
     { id: 'LOCATIONS', label: 'Locaciones', icon: <IconMapPin size={20}/>, show: isManagement || isDirector },
@@ -180,18 +301,14 @@ const ProtectedApp = () => {
   // --- RENDERIZADO DE CONTENIDO ---
   const renderContent = () => {
     switch (mode) {
-      case 'GIRAS': return <GirasView initialGiraId={activeGiraId} updateView={updateView} supabase={supabase} />;
-      case 'AGENDA': return <GirasView initialGiraId={activeGiraId} initialTab="agenda" updateView={updateView} supabase={supabase} />;
+      case 'GIRAS': 
+        // Pasamos initialTab recuperado de la URL
+        return <GirasView initialGiraId={activeGiraId} initialTab={initialGiraView} updateView={updateView} supabase={supabase} />;
+      case 'AGENDA': 
+        return <GirasView initialGiraId={activeGiraId} initialTab="agenda" updateView={updateView} supabase={supabase} />;
       case 'FULL_AGENDA': return <AgendaGeneral onViewChange={updateView} supabase={supabase} />;
-      
-      // Vista de Gestión Global de Ensambles
-      case 'ENSAMBLES': 
-        return <EnsemblesView supabase={supabase} />;
-      
-      // Vista Específica de Coordinación (Pasar lista, armar filas)
-      case 'COORDINACION':
-        return <EnsembleCoordinatorView supabase={supabase} />;
-      
+      case 'ENSAMBLES': return <EnsemblesView supabase={supabase} />;
+      case 'COORDINACION': return <EnsembleCoordinatorView supabase={supabase} />;
       case 'MUSICIANS': return <MusiciansView supabase={supabase} catalogoInstrumentos={catalogoInstrumentos} />;
       case 'LOCATIONS': return <LocationsView supabase={supabase} />;
       case 'REPERTOIRE': return <RepertoireView supabase={supabase} catalogoInstrumentos={catalogoInstrumentos} />;
@@ -200,7 +317,6 @@ const ProtectedApp = () => {
       case 'COMMENTS': return <GlobalCommentsViewer supabase={supabase} />;
       case 'MY_PARTS': return <MyPartsViewer supabase={supabase} />;
       case 'MY_MEALS': return <MealsAttendancePersonal supabase={supabase} />;
-
       default: return <div className="p-10 text-center text-slate-400">Vista no encontrada: {mode}</div>;
     }
   };
@@ -216,7 +332,7 @@ const ProtectedApp = () => {
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
       
-      {/* --- SIDEBAR DESKTOP (COLAPSABLE) --- */}
+      {/* --- SIDEBAR DESKTOP --- */}
       <aside 
         className={`hidden md:flex bg-slate-900 text-slate-300 flex-col shadow-xl z-20 transition-all duration-300 ease-in-out ${
             sidebarCollapsed ? 'w-20' : 'w-64'
