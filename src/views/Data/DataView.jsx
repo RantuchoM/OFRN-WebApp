@@ -85,7 +85,6 @@ export default function DataView({ supabase }) {
       table: "localidades",
       columns: [
         { key: "localidad", label: "Nombre Localidad", type: "text" },
-        { key: "cp", label: "Código Postal", type: "text" },
         { key: "id_region", label: "Región", type: "select", options: catalogos.regiones },
       ],
     },
