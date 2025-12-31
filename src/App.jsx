@@ -18,7 +18,7 @@ import GlobalCommentsViewer from './components/comments/GlobalCommentsViewer';
 import EnsembleCoordinatorView from './views/Ensembles/EnsembleCoordinatorView';
 import MyPartsViewer from './views/Giras/MyPartsViewer';
 import MealsAttendancePersonal from './views/Giras/MealsAttendancePersonal';
-import PublicLinkHandler from './views/Public/PublicLinkHandler';
+import PublicLinkHandler from './views/Public/PublicLinkHandler'; //
 
 import { 
   IconLayoutDashboard, 
@@ -144,20 +144,14 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
 
 // --- APP PROTEGIDA ---
 const ProtectedApp = () => {
-  // 1. CORRECCIÓN: Usamos 'logout' en lugar de 'signOut'
   const { user, logout } = useAuth();
   
   // Estados de UI
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
-  
-  // 2. LÓGICA SIDEBAR INTELIGENTE
-  // 'sidebarCollapsed' controla si está FIJO en modo compacto o expandido.
-  // 'isSidebarHovered' controla si el mouse está encima temporalmente.
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true); // Arranca colapsado (compacto)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true); 
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
 
-  // La barra se muestra expandida si NO está colapsada (fija) O si tiene el mouse encima (hover)
   const isSidebarExpanded = !sidebarCollapsed || isSidebarHovered;
 
   // Estados de Lógica / Permisos
@@ -173,8 +167,6 @@ const ProtectedApp = () => {
   // Estado principal de navegación
   const [mode, setMode] = useState(isPersonal ? 'FULL_AGENDA' : 'GIRAS');
   const [activeGiraId, setActiveGiraId] = useState(null);
-  
-  // Estado extra para deep linking de pestañas internas
   const [initialGiraView, setInitialGiraView] = useState(null);
 
   // CHEQUEAR PERMISOS
@@ -229,7 +221,6 @@ const ProtectedApp = () => {
         'musicos': 'MUSICIANS',
         'usuarios': 'USERS',
         'datos': 'DATA',
-        'locaciones': 'LOCATIONS',
         'coordinacion': 'COORDINACION',
         'avisos': 'COMMENTS',
         'comidas': 'MY_MEALS'
@@ -295,6 +286,7 @@ const ProtectedApp = () => {
     { id: 'COORDINACION', label: 'Coordinación', icon: <IconList size={20}/>, show: isEnsembleCoordinator },
     { id: 'REPERTOIRE', label: 'Repertorio', icon: <IconFileText size={20}/>, show: !isPersonal || userRole === 'archivista' },
     { id: 'MUSICIANS', label: 'Músicos', icon: <IconUsers size={20}/>, show: isManagement || isDirector },
+    { id: 'LOCATIONS', label: 'Locaciones', icon: <IconMapPin size={20}/>, show: isManagement || isDirector },
     { id: 'DATA', label: 'Datos', icon: <IconDatabase size={20}/>, show: isManagement },
     { id: 'USERS', label: 'Usuarios', icon: <IconSettings size={20}/>, show: userRole === 'admin' },
   ];
@@ -433,7 +425,6 @@ const ProtectedApp = () => {
                   <IconCalendar size={24}/> Sincronizar Calendario
               </button>
            </div>
-           {/* 3. CORRECCIÓN: Botón Cerrar Sesión móvil */}
            <button onClick={logout} className="mt-6 w-full py-4 bg-rose-600 rounded-xl text-white font-bold flex items-center justify-center gap-2">
               <IconLogOut size={20}/> Cerrar Sesión
            </button>
@@ -456,9 +447,7 @@ function App() {
   return (
     <AuthProvider>
         <Routes>
-          {/* CORRECCIÓN AQUÍ: Cambiado de "/public/*" a "/share/:token" */}
-          <Route path="/share/:token" element={<PublicLinkHandler />} />
-          
+          <Route path="/share/:token" element={<PublicLinkHandler />} /> {/* */}
           <Route path="/*" element={<AppContent />} />
         </Routes>
     </AuthProvider>
