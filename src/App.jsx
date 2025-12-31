@@ -21,121 +21,57 @@ import MealsAttendancePersonal from './views/Giras/MealsAttendancePersonal';
 import PublicLinkHandler from './views/Public/PublicLinkHandler';
 
 import { 
-  IconLayoutDashboard, 
-  IconMap, 
-  IconMusic, 
-  IconUsers, 
-  IconMapPin, 
-  IconFileText, 
-  IconDatabase, 
-  IconSettings, 
-  IconLogOut, 
-  IconCalendar, 
-  IconMessageCircle,
-  IconMenu,
-  IconX,
-  IconCheck,
-  IconUtensils,
-  IconChevronLeft,
-  IconChevronRight,
-  IconList
+  IconLayoutDashboard, IconMap, IconMusic, IconUsers, IconMapPin, IconFileText, 
+  IconDatabase, IconSettings, IconLogOut, IconCalendar, IconMessageCircle, 
+  IconMenu, IconX, IconCheck, IconUtensils, IconChevronLeft, IconChevronRight, 
+  IconList, IconAlertCircle
 } from './components/ui/Icons';
 
-// --- MODAL CALENDARIO ---
+// --- MODAL CALENDARIO (Mismo código de antes) ---
 const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
   if (!isOpen || !userId) return null;
-
   const BASE_URL = "https://muxrbuivopnawnxlcjxq.supabase.co/functions/v1/calendar-export";
-
   const generateLinks = (mode) => {
     let sourceLink = `${BASE_URL}?uid=${userId}`;
-    if (mode === 'essential') {
-      sourceLink += '&mode=essential';
-    }
+    if (mode === 'essential') sourceLink += '&mode=essential';
     sourceLink += '&file=agenda.ics';
-
     const webcalLink = sourceLink.replace(/^https?:\/\//, 'webcal://');
-
     return {
       https: sourceLink,
       webcal: webcalLink,
       google: `https://www.google.com/calendar/render?cid=${encodeURIComponent(webcalLink)}`
     };
   };
-
   const handleAction = (platform, mode) => {
     const links = generateLinks(mode);
-
     if (platform === 'COPY') {
-      navigator.clipboard.writeText(links.https).then(() => {
-        alert("🔗 Enlace copiado al portapapeles.\n\nSi Google Calendar te da error al pegar este enlace manual, prueba cambiar 'https' por 'webcal' al inicio.");
-      });
-    } else if (platform === 'GOOGLE') {
-      window.open(links.google, '_blank');
-    } else if (platform === 'IOS') {
-      window.location.href = links.webcal;
-    }
+      navigator.clipboard.writeText(links.https).then(() => { alert("🔗 Enlace copiado al portapapeles."); });
+    } else if (platform === 'GOOGLE') window.open(links.google, '_blank');
+    else if (platform === 'IOS') window.location.href = links.webcal;
   };
-
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                    <IconCalendar size={20} className="text-indigo-600"/> 
-                    Sincronizar Calendario
-                </h3>
-                <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
-                  <IconX size={20}/>
-                </button>
+                <h3 className="font-bold text-slate-800 flex items-center gap-2"><IconCalendar size={20} className="text-indigo-600"/> Sincronizar Calendario</h3>
+                <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-200"><IconX size={20}/></button>
             </div>
-
             <div className="p-6 space-y-6">
-                <p className="text-sm text-slate-600">
-                  Selecciona tu dispositivo para suscribirte automáticamente:
-                </p>
-
-                {/* OPCIÓN 1: SOLO MUSICAL */}
                 <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm uppercase tracking-wider">
-                       <IconMusic size={16}/> Solo Musical (Ensayos/Conciertos)
-                    </div>
+                    <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm uppercase tracking-wider"><IconMusic size={16}/> Solo Musical</div>
                     <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => handleAction('GOOGLE', 'essential')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs">
-                           Google / Android
-                        </button>
-                        <button onClick={() => handleAction('IOS', 'essential')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs">
-                           iPhone / Mac
-                        </button>
+                        <button onClick={() => handleAction('GOOGLE', 'essential')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs">Google / Android</button>
+                        <button onClick={() => handleAction('IOS', 'essential')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs">iPhone / Mac</button>
                     </div>
-                    <button onClick={() => handleAction('COPY', 'essential')} className="w-full text-xs text-slate-400 hover:text-indigo-600 hover:underline text-center py-1">
-                        Copiar enlace manual
-                    </button>
                 </div>
-
                 <div className="h-px bg-slate-100"></div>
-
-                {/* OPCIÓN 2: AGENDA COMPLETA */}
                 <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-slate-700 font-bold text-sm uppercase tracking-wider">
-                       <IconLayoutDashboard size={16}/> Agenda Completa (+Logística)
-                    </div>
+                    <div className="flex items-center gap-2 text-slate-700 font-bold text-sm uppercase tracking-wider"><IconLayoutDashboard size={16}/> Agenda Completa</div>
                     <div className="grid grid-cols-2 gap-2">
-                         <button onClick={() => handleAction('GOOGLE', 'full')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs">
-                           Google / Android
-                        </button>
-                        <button onClick={() => handleAction('IOS', 'full')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs">
-                           iPhone / Mac
-                        </button>
+                         <button onClick={() => handleAction('GOOGLE', 'full')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs">Google / Android</button>
+                        <button onClick={() => handleAction('IOS', 'full')} className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs">iPhone / Mac</button>
                     </div>
-                    <button onClick={() => handleAction('COPY', 'full')} className="w-full text-xs text-slate-400 hover:text-indigo-600 hover:underline text-center py-1">
-                        Copiar enlace manual
-                    </button>
                 </div>
-            </div>
-            
-            <div className="px-6 py-3 bg-slate-50 text-[10px] text-slate-400 text-center border-t border-slate-100">
-              ⚠️ Nota: Google Calendar puede tardar varias horas en actualizar cambios.
             </div>
         </div>
     </div>
@@ -146,68 +82,81 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
 const ProtectedApp = () => {
   const { user, logout } = useAuth();
   
-  // Estados de UI
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  const [globalCommentsOpen, setGlobalCommentsOpen] = useState(false);
   
-  // LÓGICA SIDEBAR INTELIGENTE
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true); 
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
-
   const isSidebarExpanded = !sidebarCollapsed || isSidebarHovered;
 
-  // Estados de Lógica / Permisos
   const [isEnsembleCoordinator, setIsEnsembleCoordinator] = useState(false);
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
+  
+  // ESTADO PARA BADGE DE NOTIFICACIONES
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  // Roles
   const userRole = user?.rol_sistema || "";
   const isManagement = ['admin', 'editor', 'coord_general'].includes(userRole);
   const isDirector = userRole === 'director';
   const isPersonal = ['musico', 'archivista', 'personal', 'consulta_personal'].includes(userRole);
+  const isGuestRole = userRole === 'invitado' || userRole === 'consulta_personal';
 
-  // Estado principal de navegación
   const [mode, setMode] = useState(isPersonal ? 'FULL_AGENDA' : 'GIRAS');
   const [activeGiraId, setActiveGiraId] = useState(null);
   const [initialGiraView, setInitialGiraView] = useState(null);
 
-  // CHEQUEAR PERMISOS
+  // FETCH UNREAD COUNT (Polling simple o Realtime podría mejorarse)
+  useEffect(() => {
+    if (!user || isGuestRole) return;
+
+    const fetchUnread = async () => {
+        // Lógica simple: contar comentarios pendientes donde estoy etiquetado o soy admin/editor
+        // Esto es una aproximación visual útil.
+        const { count } = await supabase
+            .from('sistema_comentarios')
+            .select('id', { count: 'exact', head: true })
+            .eq('resuelto', false)
+            .eq('deleted', false)
+            .contains('etiquetados', [user.id]); // Solo cuento menciones directas para el badge rojo
+        
+        setUnreadCount(count || 0);
+    };
+
+    fetchUnread();
+    
+    // Suscripción Realtime para actualizar badge
+    const channel = supabase.channel('global-badge')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sistema_comentarios' }, fetchUnread)
+        .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [user, isGuestRole]);
+
   useEffect(() => {
     const checkPermissions = async () => {
       if (!user) return;
-      
       if (userRole !== "invitado") {
         const { data } = await supabase.from("instrumentos").select("*").order("id");
         if (data) setCatalogoInstrumentos(data);
       }
-
       if (['admin', 'editor', 'produccion_general'].includes(userRole)) {
         setIsEnsembleCoordinator(true);
       } else {
-        const { count, error } = await supabase
-          .from("ensambles_coordinadores")
-          .select("id", { count: "exact", head: true })
-          .eq("id_integrante", user.id);
-
-        if (!error && count > 0) {
-          setIsEnsembleCoordinator(true);
-        }
+        const { count, error } = await supabase.from("ensambles_coordinadores").select("id", { count: "exact", head: true }).eq("id_integrante", user.id);
+        if (!error && count > 0) setIsEnsembleCoordinator(true);
       }
     };
     checkPermissions();
   }, [user, userRole]);
 
-  // REDIRECCIÓN FORZADA
   useEffect(() => {
     if (isPersonal && !isEnsembleCoordinator) {
         const allowedModes = ['FULL_AGENDA', 'GIRAS', 'AGENDA', 'MY_MEALS', 'COMMENTS', 'MY_PARTS'];
-        if (!allowedModes.includes(mode)) {
-            setMode('FULL_AGENDA');
-        }
+        if (!allowedModes.includes(mode)) setMode('FULL_AGENDA');
     }
   }, [mode, isPersonal, isEnsembleCoordinator]);
 
-  // LEER URL AL INICIO
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
@@ -216,64 +165,45 @@ const ProtectedApp = () => {
 
     if (tabParam) {
       const modeMap = {
-        'giras': 'GIRAS',
-        'agenda': 'FULL_AGENDA',
-        'repertorio': 'REPERTOIRE',
-        'ensambles': 'ENSAMBLES',
-        'musicos': 'MUSICIANS',
-        'usuarios': 'USERS',
-        'datos': 'DATA',
-        'locaciones': 'LOCATIONS',
-        'coordinacion': 'COORDINACION',
-        'avisos': 'COMMENTS',
-        'comidas': 'MY_MEALS'
+        'giras': 'GIRAS', 'agenda': 'FULL_AGENDA', 'repertorio': 'REPERTOIRE',
+        'ensambles': 'ENSAMBLES', 'musicos': 'MUSICIANS', 'usuarios': 'USERS',
+        'datos': 'DATA', 'locaciones': 'LOCATIONS', 'coordinacion': 'COORDINACION',
+        'avisos': 'COMMENTS', 'comidas': 'MY_MEALS'
       };
-
       const newMode = modeMap[tabParam.toLowerCase()];
-      
       if (newMode) {
         setMode(newMode);
         if (newMode === 'GIRAS' && giraIdParam) {
           setActiveGiraId(giraIdParam);
-          if (viewParam) {
-             setInitialGiraView(viewParam); 
-          }
+          if (viewParam) setInitialGiraView(viewParam); 
         }
       }
     }
   }, []); 
 
-  // ESCRIBIR URL AL CAMBIAR ESTADO
+  // --- CORRECCIÓN EN EL SYNC DE URL ---
   useEffect(() => {
     if (!user) return;
-
     const params = new URLSearchParams();
     const modeToTab = {
-        'GIRAS': 'giras',
-        'FULL_AGENDA': 'agenda',
-        'REPERTOIRE': 'repertorio',
-        'ENSAMBLES': 'ensambles',
-        'MUSICIANS': 'musicos',
-        'USERS': 'usuarios',
-        'DATA': 'datos',
-        'LOCATIONS': 'locaciones',
-        'COORDINACION': 'coordinacion',
-        'COMMENTS': 'avisos',
-        'MY_MEALS': 'comidas'
+        'GIRAS': 'giras', 'FULL_AGENDA': 'agenda', 'REPERTOIRE': 'repertorio',
+        'ENSAMBLES': 'ensambles', 'MUSICIANS': 'musicos', 'USERS': 'usuarios',
+        'DATA': 'datos', 'LOCATIONS': 'locaciones', 'COORDINACION': 'coordinacion',
+        'COMMENTS': 'avisos', 'MY_MEALS': 'comidas'
     };
 
-    if (modeToTab[mode]) {
-        params.set('tab', modeToTab[mode]);
-    }
-
+    if (modeToTab[mode]) params.set('tab', modeToTab[mode]);
+    
     if (mode === 'GIRAS' && activeGiraId) {
         params.set('giraId', activeGiraId);
+        // IMPORTANTE: Ahora guardamos también la vista interna si existe
+        if (initialGiraView) params.set('view', initialGiraView); 
     }
 
     const newUrl = `${window.location.pathname}?${params.toString()}`;
     window.history.replaceState(null, '', newUrl);
 
-  }, [mode, activeGiraId, user]);
+  }, [mode, activeGiraId, initialGiraView, user]);
 
   const updateView = (newMode, giraId = null) => {
     setMode(newMode);
@@ -281,7 +211,17 @@ const ProtectedApp = () => {
     setMobileMenuOpen(false); 
   };
 
-  // --- MENÚS (CORREGIDOS PARA INVITADOS) ---
+  // --- MANEJO DE NAVEGACIÓN GLOBAL ---
+  const handleGlobalNavigation = (targetGiraId, targetView) => {
+      // 1. Establecer parámetros de destino
+      setActiveGiraId(targetGiraId);
+      setInitialGiraView(targetView);
+      setMode('GIRAS');
+      
+      // 2. Cerrar modal
+      setGlobalCommentsOpen(false);
+  };
+
   const allMenuItems = [
     { id: 'FULL_AGENDA', label: 'Agenda General', icon: <IconCalendar size={20}/>, show: userRole !== 'invitado' },
     { id: 'GIRAS', label: 'Giras', icon: <IconMap size={20}/>, show: true },
@@ -289,13 +229,16 @@ const ProtectedApp = () => {
     { id: 'COORDINACION', label: 'Coordinación', icon: <IconList size={20}/>, show: isEnsembleCoordinator },
     { id: 'REPERTOIRE', label: 'Repertorio', icon: <IconFileText size={20}/>, show: userRole !== 'invitado' && (!isPersonal || userRole === 'archivista') },
     { id: 'MUSICIANS', label: 'Músicos', icon: <IconUsers size={20}/>, show: isManagement || isDirector },
+    
+    // --- LOCACIONES: Oculto para todos (se gestiona desde Datos) ---
+    { id: 'LOCATIONS', label: 'Locaciones', icon: <IconMapPin size={20}/>, show: false }, 
+    
     { id: 'DATA', label: 'Datos', icon: <IconDatabase size={20}/>, show: isManagement },
     { id: 'USERS', label: 'Usuarios', icon: <IconSettings size={20}/>, show: userRole === 'admin' },
   ];
 
   const visibleMenuItems = allMenuItems.filter(i => i.show);
 
-  // --- RENDERIZADO ---
   const renderContent = () => {
     switch (mode) {
       case 'GIRAS': return <GirasView initialGiraId={activeGiraId} initialTab={initialGiraView} updateView={updateView} supabase={supabase} />;
@@ -325,55 +268,28 @@ const ProtectedApp = () => {
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
       
-      {/* --- SIDEBAR DESKTOP --- */}
-      <aside 
-        className={`hidden md:flex bg-slate-900 text-slate-300 flex-col shadow-xl z-20 transition-all duration-300 ease-in-out ${
-            isSidebarExpanded ? 'w-64' : 'w-20'
-        }`}
-        onMouseEnter={() => setIsSidebarHovered(true)}
-        onMouseLeave={() => setIsSidebarHovered(false)}
-      >
+      {/* SIDEBAR */}
+      <aside className={`hidden md:flex bg-slate-900 text-slate-300 flex-col shadow-xl z-20 transition-all duration-300 ease-in-out ${isSidebarExpanded ? 'w-64' : 'w-20'}`} onMouseEnter={() => setIsSidebarHovered(true)} onMouseLeave={() => setIsSidebarHovered(false)}>
         <div className={`p-4 border-b border-slate-800 flex items-center ${!isSidebarExpanded ? 'justify-center' : 'justify-between'} gap-3`}>
-          {isSidebarExpanded && (
-              <div className="flex items-center gap-3 overflow-hidden">
-                <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30 shrink-0">O</div>
-                <div className="whitespace-nowrap"><h1 className="font-bold text-white text-lg tracking-tight">OF<span className="text-indigo-400">RN</span></h1></div>
-              </div>
-          )}
+          {isSidebarExpanded && <div className="flex items-center gap-3 overflow-hidden"><div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30 shrink-0">O</div><div className="whitespace-nowrap"><h1 className="font-bold text-white text-lg tracking-tight">OF<span className="text-indigo-400">RN</span></h1></div></div>}
           {!isSidebarExpanded && <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30 shrink-0">O</div>}
-          
-          <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="text-slate-500 hover:text-white transition-colors p-1 rounded hover:bg-slate-800" title={sidebarCollapsed ? "Fijar abierto" : "Colapsar"}>
-            {sidebarCollapsed ? <IconChevronRight size={20}/> : <IconChevronLeft size={20}/>}
-          </button>
+          <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="text-slate-500 hover:text-white transition-colors p-1 rounded hover:bg-slate-800">{sidebarCollapsed ? <IconChevronRight size={20}/> : <IconChevronLeft size={20}/>}</button>
         </div>
-
         <nav className="flex-1 overflow-y-auto overflow-x-hidden py-6 px-3 space-y-1">
           {visibleMenuItems.map(item => (
-            <button
-              key={item.id}
-              onClick={() => updateView(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group relative ${
-                mode === item.id 
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50 font-medium' 
-                  : 'hover:bg-slate-800 hover:text-white'
-              } ${!isSidebarExpanded ? 'justify-center' : ''}`}
-              title={!isSidebarExpanded ? item.label : ''}
-            >
+            <button key={item.id} onClick={() => updateView(item.id)} className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group relative ${mode === item.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50 font-medium' : 'hover:bg-slate-800 hover:text-white'} ${!isSidebarExpanded ? 'justify-center' : ''}`} title={!isSidebarExpanded ? item.label : ''}>
               <span className={`transition-transform duration-200 shrink-0 ${mode === item.id ? 'scale-110' : 'group-hover:scale-110'}`}>{item.icon}</span>
               {isSidebarExpanded && <span className="whitespace-nowrap overflow-hidden text-ellipsis">{item.label}</span>}
               {mode === item.id && isSidebarExpanded && <div className="ml-auto w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>}
             </button>
           ))}
         </nav>
-
         <div className="p-4 border-t border-slate-800">
-          <button onClick={logout} className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-slate-400 hover:bg-rose-900/30 hover:text-rose-400 transition-colors ${!isSidebarExpanded ? 'justify-center' : ''}`} title="Cerrar Sesión">
-            <IconLogOut size={20} /> {isSidebarExpanded && <span>Cerrar Sesión</span>}
-          </button>
+          <button onClick={logout} className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-slate-400 hover:bg-rose-900/30 hover:text-rose-400 transition-colors ${!isSidebarExpanded ? 'justify-center' : ''}`} title="Cerrar Sesión"><IconLogOut size={20} /> {isSidebarExpanded && <span>Cerrar Sesión</span>}</button>
         </div>
       </aside>
 
-      {/* --- MAIN CONTENT --- */}
+      {/* MAIN CONTENT */}
       <div className="flex-1 flex flex-col h-full relative overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shadow-sm z-10 shrink-0">
           <div className="flex items-center gap-2">
@@ -384,6 +300,19 @@ const ProtectedApp = () => {
             <button onClick={() => setCalendarModalOpen(true)} className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-full transition-colors border border-indigo-200 shadow-sm group" title="Sincronizar con Google Calendar">
                 <IconCalendar size={16} className="group-hover:scale-110 transition-transform"/><span className="text-xs font-bold">Sincronizar</span>
             </button>
+
+            {/* BOTÓN ALERTAS CON BADGE (Oculto para isGuestRole) */}
+            {!isGuestRole && (
+                <button onClick={() => setGlobalCommentsOpen(true)} className="hidden sm:flex p-2 rounded-full text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors relative group" title="Gestor de Pendientes">
+                    <IconAlertCircle size={22} className="group-hover:scale-110 transition-transform"/>
+                    {unreadCount > 0 && (
+                        <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white ring-2 ring-white animate-pulse">
+                            {unreadCount > 9 ? '9+' : unreadCount}
+                        </span>
+                    )}
+                </button>
+            )}
+
             <div className="h-8 w-px bg-slate-200 hidden sm:block"></div>
             <div className="flex items-center gap-3">
               <div className="flex flex-col items-end">
@@ -410,6 +339,15 @@ const ProtectedApp = () => {
         </div>
       </div>
 
+      {globalCommentsOpen && (
+        <GlobalCommentsViewer 
+            supabase={supabase} 
+            giraId={null} 
+            onClose={() => setGlobalCommentsOpen(false)} 
+            onNavigate={handleGlobalNavigation} 
+        />
+      )}
+
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-sm md:hidden flex flex-col p-6 animate-in fade-in slide-in-from-bottom-10 duration-200">
            <div className="flex justify-between items-center mb-8">
@@ -422,13 +360,10 @@ const ProtectedApp = () => {
                   {item.icon}{item.label}
                 </button>
               ))}
-              <button onClick={() => { setMobileMenuOpen(false); setCalendarModalOpen(true); }} className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-lg font-medium bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 mt-4">
-                  <IconCalendar size={24}/> Sincronizar Calendario
-              </button>
+              <button onClick={() => { setMobileMenuOpen(false); setCalendarModalOpen(true); }} className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-lg font-medium bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 mt-4"><IconCalendar size={24}/> Sincronizar Calendario</button>
+              {!isGuestRole && <button onClick={() => { setMobileMenuOpen(false); setGlobalCommentsOpen(true); }} className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-lg font-medium bg-amber-600/20 text-amber-400 border border-amber-500/30 mt-2"><IconAlertCircle size={24}/> Pendientes Globales</button>}
            </div>
-           <button onClick={logout} className="mt-6 w-full py-4 bg-rose-600 rounded-xl text-white font-bold flex items-center justify-center gap-2">
-              <IconLogOut size={20}/> Cerrar Sesión
-           </button>
+           <button onClick={logout} className="mt-6 w-full py-4 bg-rose-600 rounded-xl text-white font-bold flex items-center justify-center gap-2"><IconLogOut size={20}/> Cerrar Sesión</button>
         </div>
       )}
 

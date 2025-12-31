@@ -8,12 +8,14 @@ import {
   IconCalendar,
   IconMusic,
   IconSettingsWheel,
+  IconSettings,
   IconMegaphone,
   IconUtensils,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
 
+// Sub-vistas
 import GiraForm from "./GiraForm";
 import GiraRoster from "./GiraRoster";
 import GiraAgenda from "./GiraAgenda";
@@ -28,20 +30,18 @@ import CommentsManager from "../../components/comments/CommentsManager";
 import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer";
 import GiraDifusion from "./GiraDifusion";
 
-// --- NUEVOS COMPONENTES MODULARIZADOS ---
+// Componentes Modularizados
 import GirasListControls from "./GirasListControls";
 import GiraCard from "./GiraCard";
 
-export default function GirasView({ supabase }) {
+export default function GirasView({ supabase, initialGiraId, initialTab }) {
   const { user, isEditor } = useAuth();
   const userRole = user?.rol_sistema || "";
 
-  // Detección robusta de invitado
   const isGuest = userRole === "invitado" || user?.id === "guest-general";
   const isPersonal =
     userRole === "consulta_personal" || userRole === "personal" || isGuest;
 
-  // --- NUEVO ESTADO: IDs de ensambles que coordina el usuario ---
   const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -51,6 +51,17 @@ export default function GirasView({ supabase }) {
 
   const [giras, setGiras] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // --- EFECTO DE NAVEGACIÓN EXTERNA ---
+  useEffect(() => {
+      if (initialGiraId && initialTab) {
+          setSearchParams({ 
+              tab: "giras", 
+              view: initialTab,
+              giraId: initialGiraId
+          }, { replace: true });
+      }
+  }, [initialGiraId, initialTab, setSearchParams]);
 
   const selectedGira = useMemo(() => {
     if (!giraId || giras.length === 0) return null;
@@ -69,12 +80,10 @@ export default function GirasView({ supabase }) {
   const [commentsState, setCommentsState] = useState(null);
   const [globalCommentsGiraId, setGlobalCommentsGiraId] = useState(null);
   
-  // Estado para la UI de lista
   const [showRepertoireInCards, setShowRepertoireInCards] = useState(false);
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState(null);
   
-  // Filtros
   const [filterType, setFilterType] = useState(
     new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band"])
   );
@@ -84,6 +93,8 @@ export default function GirasView({ supabase }) {
     "Ensamble",
     "Jazz Band",
   ];
+  
+  // CAMBIO 1: FECHA DE HOY POR DEFECTO
   const today = new Date().toISOString().split("T")[0];
   const [filterDateStart, setFilterDateStart] = useState(today);
   const [filterDateEnd, setFilterDateEnd] = useState("");
@@ -91,16 +102,10 @@ export default function GirasView({ supabase }) {
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
-    nombre_gira: "",
-    subtitulo: "",
-    fecha_desde: "",
-    fecha_hasta: "",
-    tipo: "Sinfónico",
-    zona: "",
-    token_publico: "",
+    nombre_gira: "", subtitulo: "", fecha_desde: "", fecha_hasta: "",
+    tipo: "Sinfónico", zona: "", token_publico: "", nomenclador: ""
   });
   
-  // Listas de datos auxiliares
   const [selectedLocations, setSelectedLocations] = useState(new Set());
   const [selectedSources, setSelectedSources] = useState([]);
   const [selectedStaff, setSelectedStaff] = useState([]);
@@ -108,7 +113,6 @@ export default function GirasView({ supabase }) {
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [allIntegrantes, setAllIntegrantes] = useState([]);
 
-  // --- EFECTO: Cargar ensambles coordinados ---
   useEffect(() => {
     const fetchCoordinations = async () => {
       if (!user) return;
@@ -126,12 +130,10 @@ export default function GirasView({ supabase }) {
   }, [user, supabase]);
 
   useEffect(() => {
-    // Agregamos coordinatedEnsembles como dependencia para refrescar la lista si cambian permisos
     fetchGiras(); 
     fetchLocationsList();
     fetchEnsemblesList();
     fetchIntegrantesList();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id, coordinatedEnsembles.size]);
 
   const fetchGiras = async () => {
@@ -176,6 +178,7 @@ export default function GirasView({ supabase }) {
           .select(
             `*, giras_localidades(id_localidad, localidades(localidad)), giras_fuentes(*), eventos (id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)), giras_integrantes (id_integrante, estado, rol, integrantes (nombre, apellido))`
           )
+          // CAMBIO 2: ORDEN CRONOLÓGICO (ASCENDENTE)
           .order("fecha_desde", { ascending: true });
 
         if (error) throw error;
@@ -191,7 +194,6 @@ export default function GirasView({ supabase }) {
             if (myOverride && myOverride.estado === "ausente") return false;
             if (myOverride) return true;
             
-            // MODIFICADO: Incluye giras si toco en el ensamble O si lo coordino
             const isIncluded = sources.some(
               (s) =>
                 (s.tipo === "ENSAMBLE" && (myEnsembles.has(s.valor_id) || coordinatedEnsembles.has(s.valor_id))) ||
@@ -205,10 +207,6 @@ export default function GirasView({ supabase }) {
                 return false;
               return true;
             }
-            // Si soy coordinador y la gira no tiene fuentes definidas aun, 
-            // pero soy quien la creó (o debería verla), la lógica base podría fallar
-            // Asumiremos que al crearla le asignan la fuente.
-            
             return false;
           });
         }
@@ -267,17 +265,75 @@ export default function GirasView({ supabase }) {
       );
   };
 
+  const loadGiraIntoForm = async (gira) => {
+    setEditingId(gira.id);
+    setFormData({
+      nombre_gira: gira.nombre_gira,
+      subtitulo: gira.subtitulo || "",
+      fecha_desde: gira.fecha_desde || "",
+      fecha_hasta: gira.fecha_hasta || "",
+      tipo: gira.tipo || "Sinfónico",
+      zona: gira.zona || "",
+      token_publico: gira.token_publico || "",
+      nomenclador: gira.nomenclador || ""
+    });
+
+    const { data } = await supabase
+      .from("giras_localidades")
+      .select("id_localidad")
+      .eq("id_gira", gira.id);
+    setSelectedLocations(
+      data ? new Set(data.map((d) => d.id_localidad)) : new Set()
+    );
+    const fuentes = (gira.giras_fuentes || []).map((f) => {
+      let label = f.valor_texto;
+      if (f.tipo.includes("ENSAMBLE")) {
+        const found = ensemblesList.find((e) => e.value === f.valor_id);
+        label = found ? found.label : `Ensamble ${f.valor_id}`;
+      }
+      return {
+        tipo: f.tipo,
+        valor_id: f.valor_id,
+        valor_texto: f.valor_texto,
+        label: label,
+      };
+    });
+    setSelectedSources(fuentes);
+    const staff = (gira.giras_integrantes || [])
+      .filter((i) => ["director", "solista"].includes(i.rol))
+      .map((i) => ({
+        id_integrante: i.id_integrante,
+        rol: i.rol,
+        label: i.integrantes
+          ? `${i.integrantes.apellido}, ${i.integrantes.nombre}`
+          : "Desconocido",
+      }));
+    setSelectedStaff(staff);
+  };
+
+  useEffect(() => {
+    if (mode === "EDICION" && selectedGira && ensemblesList.length > 0) {
+        loadGiraIntoForm(selectedGira);
+    }
+  }, [mode, selectedGira, ensemblesList.length]);
+
+  const handleGiraUpdate = async () => {
+    if (!selectedGira) return;
+    const { data } = await supabase.from("programas").select("*").eq("id", selectedGira.id).single();
+    if (data) {
+        setGiras(prev => prev.map(g => g.id === data.id ? { ...g, ...data } : g));
+    }
+  };
+
   const handleSave = async () => {
     if (!formData.nombre_gira) return alert("Nombre obligatorio");
     setLoading(true);
     
-    // COPIA DE SEGURIDAD Y LÓGICA DE PERMISOS
     const payload = { ...formData };
     if (!payload.token_publico) payload.token_publico = null; 
     if (!payload.fecha_desde) payload.fecha_desde = null;
     if (!payload.fecha_hasta) payload.fecha_hasta = null;
 
-    // Si NO es editor global, forzamos que el tipo sea Ensamble (para coordinadores)
     if (!isEditor && coordinatedEnsembles.size > 0) {
       payload.tipo = "Ensamble";
     }
@@ -331,7 +387,7 @@ export default function GirasView({ supabase }) {
         });
       }
       await fetchGiras();
-      closeForm();
+      if(mode === 'LIST') closeForm();
     } catch (err) {
       alert(err.message);
     } finally {
@@ -352,47 +408,7 @@ export default function GirasView({ supabase }) {
   };
 
   const startEdit = async (gira) => {
-    setEditingId(gira.id);
-    setFormData({
-      nombre_gira: gira.nombre_gira,
-      subtitulo: gira.subtitulo || "",
-      fecha_desde: gira.fecha_desde || "",
-      fecha_hasta: gira.fecha_hasta || "",
-      tipo: gira.tipo || "Sinfónico",
-      zona: gira.zona || "",
-      token_publico: gira.token_publico || "",
-    });
-    const { data } = await supabase
-      .from("giras_localidades")
-      .select("id_localidad")
-      .eq("id_gira", gira.id);
-    setSelectedLocations(
-      data ? new Set(data.map((d) => d.id_localidad)) : new Set()
-    );
-    const fuentes = (gira.giras_fuentes || []).map((f) => {
-      let label = f.valor_texto;
-      if (f.tipo.includes("ENSAMBLE")) {
-        const found = ensemblesList.find((e) => e.value === f.valor_id);
-        label = found ? found.label : `Ensamble ${f.valor_id}`;
-      }
-      return {
-        tipo: f.tipo,
-        valor_id: f.valor_id,
-        valor_texto: f.valor_texto,
-        label: label,
-      };
-    });
-    setSelectedSources(fuentes);
-    const staff = (gira.giras_integrantes || [])
-      .filter((i) => ["director", "solista"].includes(i.rol))
-      .map((i) => ({
-        id_integrante: i.id_integrante,
-        rol: i.rol,
-        label: i.integrantes
-          ? `${i.integrantes.apellido}, ${i.integrantes.nombre}`
-          : "Desconocido",
-      }));
-    setSelectedStaff(staff);
+    loadGiraIntoForm(gira);
     setIsAdding(false);
   };
 
@@ -483,24 +499,9 @@ export default function GirasView({ supabase }) {
     }
   };
 
-  const tourNavItems = [
-    { mode: "AGENDA", label: "Agenda", icon: IconCalendar },
-    { mode: "REPERTOIRE", label: "Repertorio", icon: IconMusic },
-    { mode: "MEALS_PERSONAL", label: "Mis Comidas", icon: IconUtensils },
-    { mode: "LOGISTICS", label: "Logística", icon: IconSettingsWheel },
-    { mode: "ROSTER", label: "Personal", icon: IconUsers },
-    { mode: "DIFUSION", label: "Difusión", icon: IconMegaphone },
-  ];
-
-  // --- LOGICA DE PERMISOS DE EDICIÓN LOCAL ---
   const canEditGira = (gira) => {
-    // 1. Admin/Editor global siempre puede
     if (isEditor) return true;
-    
-    // 2. Si no es admin, solo puede tocar programas tipo 'Ensamble'
     if (gira.tipo !== "Ensamble") return false;
-
-    // 3. Revisar si la gira tiene como fuente uno de mis ensambles coordinados
     const fuentes = gira.giras_fuentes || [];
     const isMyEnsemble = fuentes.some(f => 
       f.tipo === "ENSAMBLE" && coordinatedEnsembles.has(f.valor_id)
@@ -508,7 +509,6 @@ export default function GirasView({ supabase }) {
     return isMyEnsemble;
   };
 
-  // Variable general para saber si puede crear algo
   const canCreate = isEditor || coordinatedEnsembles.size > 0;
 
   const isDetailView =
@@ -520,13 +520,23 @@ export default function GirasView({ supabase }) {
       "MEALS_PERSONAL",
       "SEATING",
       "DIFUSION",
+      "EDICION"
     ].includes(mode) && selectedGira;
+
+  const tourNavItems = [
+    { mode: "AGENDA", label: "Agenda", icon: IconCalendar },
+    { mode: "REPERTOIRE", label: "Repertorio", icon: IconMusic },
+    { mode: "MEALS_PERSONAL", label: "Mis Comidas", icon: IconUtensils },
+    { mode: "LOGISTICS", label: "Logística", icon: IconSettingsWheel },
+    { mode: "ROSTER", label: "Personal", icon: IconUsers },
+    { mode: "DIFUSION", label: "Difusión", icon: IconMegaphone },
+    { mode: "EDICION", label: "Edición", icon: IconSettings },
+  ];
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
       <div className="bg-white border-b border-slate-200 sticky top-0 shadow-sm shrink-0 z-40">
         {isDetailView ? (
-          /* --- VISTA DE DETALLE (Cabecera específica) --- */
           <div className="px-4 py-2 flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
             <div className="flex items-center gap-3 w-full sm:w-auto">
               <button
@@ -556,15 +566,13 @@ export default function GirasView({ supabase }) {
                 </div>
               </div>
             </div>
-            {/* Habilitamos botones si es editor O puede editar ESTA gira */}
             {(isEditor || isPersonal) && (
               <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
                 {tourNavItems
                   .filter((item) => {
-                    if (item.mode === "MEALS_PERSONAL") {
-                      return isGuest && !user.isGeneral;
-                    }
-                    if (isEditor || canEditGira(selectedGira)) return true; // Si edita, ve todo
+                    if (item.mode === "MEALS_PERSONAL") return isGuest && !user.isGeneral;
+                    if (item.mode === "EDICION") return canEditGira(selectedGira);
+                    if (isEditor || canEditGira(selectedGira)) return true; 
                     return ["AGENDA", "REPERTOIRE"].includes(item.mode);
                   })
                   .map((item) => {
@@ -603,7 +611,6 @@ export default function GirasView({ supabase }) {
             )}
           </div>
         ) : (
-          /* --- VISTA DE LISTA/CALENDARIO (Con la barra recuperada) --- */
           <GirasListControls
             mode={mode}
             updateView={updateView}
@@ -705,6 +712,33 @@ export default function GirasView({ supabase }) {
           </div>
         )}
 
+        {mode === "EDICION" && selectedGira && (
+           <div className="h-full overflow-y-auto bg-slate-50 p-6">
+               <GiraForm 
+                  supabase={supabase}
+                  giraId={selectedGira.id}
+                  formData={formData}
+                  setFormData={setFormData}
+                  onCancel={() => updateView("AGENDA")}
+                  onSave={handleSave}
+                  onRefresh={handleGiraUpdate}
+                  loading={loading}
+                  isNew={false}
+                  enableAutoSave={true} 
+                  
+                  locationsList={locationsList}
+                  selectedLocations={selectedLocations}
+                  setSelectedLocations={setSelectedLocations}
+                  ensemblesList={ensemblesList}
+                  allIntegrantes={allIntegrantes}
+                  selectedSources={selectedSources}
+                  setSelectedSources={setSelectedSources}
+                  selectedStaff={selectedStaff}
+                  setSelectedStaff={setSelectedStaff}
+               />
+           </div>
+        )}
+
         {loading && !selectedGira && mode !== "LIST" && mode !== "CALENDAR" && (
           <div className="flex h-full items-center justify-center text-slate-400">
             <IconLoader className="animate-spin mr-2" /> Cargando programa...
@@ -713,7 +747,6 @@ export default function GirasView({ supabase }) {
 
         {mode === "LIST" && (
           <div className="p-4 space-y-4">
-            {/* Se muestra si es Editor O si coordina algún ensamble (canCreate) */}
             {canCreate && !editingId && (
               <>
                 {!isAdding && (
@@ -725,7 +758,6 @@ export default function GirasView({ supabase }) {
                         subtitulo: "",
                         fecha_desde: "",
                         fecha_hasta: "",
-                        // Si NO es editor (es coordinador), pre-seleccionamos "Ensamble"
                         tipo: isEditor ? "Sinfónico" : "Ensamble",
                         zona: "",
                         token_publico: "",
@@ -784,10 +816,14 @@ export default function GirasView({ supabase }) {
                     onSave={handleSave}
                     onRefresh={async () => {
                       await fetchGiras();
-                      closeForm();
+                      // closeForm(); // No cerramos para que pueda seguir editando si así lo desea, o lo cerramos si queremos que sea modal
+                      // El usuario pidió que el autoguardado funcione "también en la vista desde GiraMenuAction"
+                      // Pero si es modal, quizás sea mejor cerrar al guardar explícito
                     }}
                     loading={loading}
                     isNew={false}
+                    enableAutoSave={true} 
+                    
                     locationsList={locationsList}
                     selectedLocations={selectedLocations}
                     setSelectedLocations={setSelectedLocations}
@@ -800,15 +836,12 @@ export default function GirasView({ supabase }) {
                   />
                 );
               }
-              // Calculamos permisos para esta tarjeta específica
               const userCanEditThis = canEditGira(gira);
-
               return (
                 <GiraCard
                   key={gira.id}
                   gira={gira}
                   updateView={updateView}
-                  // Pasamos "isEditor" como true si el usuario tiene permiso para ESTA gira
                   isEditor={userCanEditThis}
                   isPersonal={isPersonal}
                   userRole={userRole}

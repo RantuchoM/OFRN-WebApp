@@ -506,14 +506,21 @@ export default function GirasTransportesManager({ supabase, gira }) {
     isOpen: false,
     transportId: null,
   });
-
   const locationOptions = useMemo(
     () =>
-      locationsList.map((l) => ({
-        id: l.id,
-        label: l.nombre,
-        subLabel: l.ciudad,
-      })),
+      locationsList.map((l) => {
+        // Formatear etiqueta: Nombre (Localidad)
+        const labelText =
+          l.ciudad && l.ciudad !== "Sin ciudad"
+            ? `${l.nombre} (${l.ciudad})`
+            : l.nombre;
+
+        return {
+          id: l.id,
+          label: labelText,
+          subLabel: l.direccion || l.ciudad, // Muestra dirección o ciudad como dato secundario
+        };
+      }),
     [locationsList]
   );
 
@@ -947,8 +954,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
   };
   const handleDeleteBoardingRule = async (personId) => {
     if (!personId || !boardingModal.transportId) return;
-    if (!confirm("¿Eliminar la excepción personalizada y volver a la regla general?")) return;
-    
+    if (
+      !confirm(
+        "¿Eliminar la excepción personalizada y volver a la regla general?"
+      )
+    )
+      return;
+
     try {
       await supabase
         .from("giras_logistica_reglas_transportes")
@@ -957,7 +969,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         .eq("alcance", "Persona")
         .eq("id_integrante", personId)
         .eq("solo_logistica", true);
-      
+
       await refresh();
     } catch (err) {
       console.error(err);
@@ -1214,15 +1226,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
       {/* LISTA DE TRANSPORTES */}
       <div className="space-y-4">
-       {transports.map((t) => {
+        {transports.map((t) => {
           const isExpanded = activeTransportId === t.id;
           const myEvents = transportEvents[t.id] || [];
-          
+
           // 1. Filtrar pasajeros
           const tPassengers = passengerList.filter((p) =>
             p.logistics?.transports?.some((tr) => tr.id === t.id)
           );
-          
+
           const tPassengerCount = tPassengers.length;
 
           // 2. Calcular Plazas de Instrumentos
@@ -1233,7 +1245,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           const totalOccupied = tPassengerCount + tInstrumentSeats; // Pax + Instrumentos
 
           const maxCap = t.capacidad_maxima || 0;
-          
+
           // 3. Lógica de Colores basada en ocupación TOTAL
           const isOverbooked = maxCap > 0 && totalOccupied > maxCap;
           const occupancyColor = isOverbooked
@@ -1241,7 +1253,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             : maxCap > 0 && totalOccupied === maxCap
             ? "text-amber-600 bg-amber-50 border-amber-200"
             : "text-indigo-600";
-            
+
           const incompletePax = tPassengers.filter((p) => {
             const tr = p.logistics?.transports?.find((x) => x.id === t.id);
             return tr && (!tr.subidaId || !tr.bajadaId);
@@ -1339,19 +1351,19 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           className={`font-bold px-2 py-0.5 rounded border ${occupancyColor} flex items-center gap-1`}
                         >
                           {isOverbooked && <IconAlertTriangle size={12} />}
-                          
+
                           {/* VISUALIZACIÓN: Pax (+Instr) / Capacidad */}
                           <span>{tPassengerCount}</span>
                           {tInstrumentSeats > 0 && (
                             <span className="opacity-80 text-[10px]">
-                               + {tInstrumentSeats} instr.
+                              + {tInstrumentSeats} instr.
                             </span>
                           )}
-                          
+
                           {maxCap > 0 ? (
-                              <span className="opacity-60">/ {maxCap}</span>
+                            <span className="opacity-60">/ {maxCap}</span>
                           ) : (
-                              <span className="opacity-60"></span>
+                            <span className="opacity-60"></span>
                           )}
                         </span>
                       </div>
