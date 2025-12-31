@@ -16,6 +16,7 @@ import SheetEditor from './SheetEditor';
 
 export default function DataView({ supabase }) {
   const [activeTab, setActiveTab] = useState("regiones");
+  const [isDirty, setIsDirty] = useState(false); // ESTADO PARA CONTROLAR CAMBIOS
 
   // --- ESTADO PARA LOS SELECTS (Catálogos Compartidos) ---
   const [catalogos, setCatalogos] = useState({
@@ -29,19 +30,12 @@ export default function DataView({ supabase }) {
 
   const fetchCatalogos = async () => {
     try {
-        // 1. Regiones
         const { data: reg } = await supabase.from("regiones").select("id, region").order("region");
-        // 2. Localidades
         const { data: loc } = await supabase.from("localidades").select("id, localidad").order("localidad");
-        // 3. Países
         const { data: pais } = await supabase.from("paises").select("id, nombre").order("nombre");
-        // 4. Categorías
         const { data: categoria } = await supabase.from("categorias_tipos_eventos").select("id, nombre").order("nombre");
-        // 5. Ensambles
         const { data: ens } = await supabase.from("ensambles").select("id, ensamble").order("ensamble");
         
-        // 6. Integrantes (FUENTE DE COORDINADORES)
-        // CORRECCIÓN: Quitamos 'email' del select para evitar el error 400 si la columna no existe o se llama distinto.
         const { data: inte, error: inteError } = await supabase
             .from("integrantes")
             .select("id, nombre, apellido") 
@@ -55,8 +49,6 @@ export default function DataView({ supabase }) {
           paises: pais?.map((p) => ({ value: p.id, label: p.nombre })) || [],
           categorias: categoria?.map((p) => ({ value: p.id, label: p.nombre })) || [],
           ensambles: ens?.map((e) => ({ value: e.id, label: e.ensamble })) || [],
-          
-          // Mapeo para el selector de coordinadores (Apellido, Nombre)
           integrantes: inte?.map((i) => ({ 
             value: i.id, 
             label: `${i.apellido}, ${i.nombre}` 
@@ -70,6 +62,20 @@ export default function DataView({ supabase }) {
   useEffect(() => {
     fetchCatalogos();
   }, []);
+
+  // --- FUNCIÓN SEGURA DE CAMBIO DE PESTAÑA ---
+  const handleTabChange = (newTabKey) => {
+    if (activeTab === newTabKey) return;
+
+    if (isDirty) {
+      if (!window.confirm("Tienes elementos nuevos sin guardar. ¿Seguro que quieres cambiar de tabla y perderlos?")) {
+        return;
+      }
+    }
+    // Si confirma (o no está sucio), cambiamos y reseteamos el estado sucio
+    setActiveTab(newTabKey);
+    setIsDirty(false); 
+  };
 
   // --- CONFIGURACIÓN DE TABLAS ---
   const tableConfigs = {
@@ -85,6 +91,7 @@ export default function DataView({ supabase }) {
       table: "localidades",
       columns: [
         { key: "localidad", label: "Nombre Localidad", type: "text" },
+        { key: "cp", label: "Código Postal", type: "text" },
         { key: "id_region", label: "Región", type: "select", options: catalogos.regiones },
       ],
     },
@@ -174,7 +181,6 @@ export default function DataView({ supabase }) {
       table: "ensambles_coordinadores",
       columns: [
         { key: "id_ensamble", label: "Ensamble Asignado", type: "select", options: catalogos.ensambles },
-        // Selector corregido usando integrantes
         { key: "id_integrante", label: "Integrante (Coordinador)", type: "select", options: catalogos.integrantes },
       ],
     },
@@ -197,7 +203,7 @@ export default function DataView({ supabase }) {
             return (
               <button
                 key={key}
-                onClick={() => setActiveTab(key)}
+                onClick={() => handleTabChange(key)} // USAMOS LA NUEVA FUNCIÓN
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   isActive
                     ? "bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200"
@@ -216,7 +222,7 @@ export default function DataView({ supabase }) {
           <div className="my-2 border-t border-slate-100 mx-2"></div>
 
           <button
-            onClick={() => setActiveTab("hoja_calculo")}
+            onClick={() => handleTabChange("hoja_calculo")} // USAMOS LA NUEVA FUNCIÓN
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
               activeTab === "hoja_calculo"
                 ? "bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200"
@@ -242,6 +248,7 @@ export default function DataView({ supabase }) {
             tableName={currentConfig.table}
             columns={currentConfig.columns}
             onDataChange={fetchCatalogos}
+            onDirtyChange={setIsDirty} // PASAMOS EL SETTER DEL ESTADO
           />
         )}
       </div>

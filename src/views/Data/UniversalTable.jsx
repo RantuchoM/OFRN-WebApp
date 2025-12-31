@@ -21,7 +21,6 @@ const SearchableSelect = ({ value, options, onChange, onBlur, className }) => {
   const inputRef = useRef(null);
 
   useEffect(() => {
-    // Si el valor es null/undefined, mostramos vacío. Si hay valor, buscamos label.
     if (value === null || value === undefined) {
       setSearchTerm("");
       return;
@@ -78,9 +77,8 @@ const SearchableSelect = ({ value, options, onChange, onBlur, className }) => {
       onChange(match.value);
     } else {
       if (searchTerm === "") {
-          onChange(null); // Permitir limpiar (NULL)
+          onChange(null);
       } else {
-          // Revertir
           const selected = options.find(opt => String(opt.value) === String(value));
           setSearchTerm(selected ? selected.label : "");
           if(onBlur) onBlur(); 
@@ -212,14 +210,13 @@ const EditableCell = ({ row, col, onSave }) => {
     <input
       ref={inputRef}
       type="text"
-      // Si es null, mostramos string vacío para que React no se queje
       value={value === null || value === undefined ? "" : value}
       onChange={(e) => setValue(e.target.value)}
       onFocus={() => setStatus("editing")}
       onBlur={() => handleSave()}
       onKeyDown={handleKeyDown}
       className={`w-full h-full px-2 py-1.5 bg-transparent border-none outline-none text-sm rounded transition-all ${getStatusClass()}`}
-      placeholder={col.placeholder || "Empty"} // Placeholder opcional
+      placeholder={col.placeholder || "Empty"}
     />
   );
 };
@@ -231,6 +228,7 @@ export default function UniversalTable({
   columns,
   defaultSort = "id",
   onDataChange,
+  onDirtyChange, // NUEVA PROP: Para avisar al padre
 }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -250,16 +248,34 @@ export default function UniversalTable({
     setFilters({});
   }, [tableName]);
 
-  // HELPER: Convertir "" a null para evitar errores de tipo en BD
+  // --- DETECTAR BORRADORES PARA EL PADRE ---
+  useEffect(() => {
+    // Si alguna fila tiene ID "temp-", la tabla está "sucia"
+    const hasDrafts = data.some(row => String(row.id).startsWith("temp-"));
+    if (onDirtyChange) {
+      onDirtyChange(hasDrafts);
+    }
+    
+    // También activamos el bloqueo nativo del navegador (F5/Cerrar pestaña)
+    const handleBeforeUnload = (e) => {
+      if (hasDrafts) {
+        e.preventDefault();
+        e.returnValue = ''; 
+        return '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+
+  }, [data, onDirtyChange]);
+
   const sanitizeValue = (val) => {
     return val === "" ? null : val;
   };
 
-  // 1. MANEJAR CAMBIOS (AutoSave para existentes, State para borradores)
   const handleAutoSave = async (id, key, value) => {
     const cleanValue = sanitizeValue(value);
 
-    // A) Si es borrador (ID temporal), solo actualizamos el estado local
     if (id.toString().startsWith("temp-")) {
         setData((prev) =>
             prev.map((row) => (row.id === id ? { ...row, [key]: cleanValue } : row))
@@ -267,7 +283,6 @@ export default function UniversalTable({
         return true; 
     }
 
-    // B) Si es fila real, actualizamos en BD
     try {
       const { error } = await supabase
         .from(tableName)
@@ -283,41 +298,31 @@ export default function UniversalTable({
       return true;
     } catch (err) {
       console.error("Error saving:", err);
-      // No mostramos alert en autosave para no interrumpir el flujo, solo log
       return false;
     }
   };
 
-  // 2. CREAR BORRADOR (Solo local)
   const handleCreate = () => {
     const tempId = `temp-${Date.now()}`;
     const newRow = { id: tempId };
-    
-    // Inicializamos columnas como NULL explícitamente (no string vacío)
     columns.forEach((col) => {
       newRow[col.key] = col.defaultValue !== undefined ? col.defaultValue : null; 
     });
-
-    // Agregamos al inicio
     setData((prev) => [newRow, ...prev]);
   };
 
-  // 3. GUARDAR BORRADOR EN BD (Insert final)
   const handleSaveNewRow = async (id) => {
     setIsSavingNew(true);
     try {
         const rowToSave = data.find(r => r.id === id);
         if(!rowToSave) return;
 
-        // Construir payload limpio
         const payload = {};
         columns.forEach(col => {
-            // Aseguramos que si es string vacío vaya como null
             const val = rowToSave[col.key];
             payload[col.key] = val === "" ? null : val;
         });
 
-        // Insertar
         const { data: inserted, error } = await supabase
             .from(tableName)
             .insert([payload])
@@ -326,9 +331,7 @@ export default function UniversalTable({
 
         if (error) throw error;
 
-        // Reemplazamos el borrador por la fila real devuelta por Supabase
         setData(prev => prev.map(r => r.id === id ? inserted : r));
-        
         if (onDataChange) onDataChange();
 
     } catch (err) {
@@ -338,15 +341,11 @@ export default function UniversalTable({
     }
   };
 
-  // 4. ELIMINAR (Local o DB)
   const handleDelete = async (id) => {
-    // A) Si es borrador, solo lo quitamos del estado
     if (id.toString().startsWith("temp-")) {
         setData((prev) => prev.filter((r) => r.id !== id));
         return;
     }
-
-    // B) Si es real, pedimos confirmación
     if (!confirm("¿Eliminar este registro permanentemente?")) return;
     try {
       const { error } = await supabase.from(tableName).delete().eq("id", id);
@@ -360,8 +359,6 @@ export default function UniversalTable({
 
   const processedData = useMemo(() => {
     let result = [...data];
-
-    // Filtrar
     Object.keys(filters).forEach((key) => {
       const filterVal = filters[key].toLowerCase();
       if (filterVal) {
@@ -378,12 +375,12 @@ export default function UniversalTable({
       }
     });
 
-    // Ordenar
     if (sortConfig.key) {
       result.sort((a, b) => {
-        // Los borradores siempre arriba
-        if (String(a.id).startsWith("temp-") && !String(b.id).startsWith("temp-")) return -1;
-        if (!String(a.id).startsWith("temp-") && String(b.id).startsWith("temp-")) return 1;
+        const isDraftA = String(a.id).startsWith("temp-");
+        const isDraftB = String(b.id).startsWith("temp-");
+        if (isDraftA && !isDraftB) return -1;
+        if (!isDraftA && isDraftB) return 1;
 
         const valA = a[sortConfig.key] ?? "";
         const valB = b[sortConfig.key] ?? "";
@@ -414,7 +411,7 @@ export default function UniversalTable({
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
-      {/* Header General */}
+      {/* Header */}
       <div className="px-4 py-3 border-b border-slate-200 bg-white flex justify-between items-center shrink-0 z-20">
         <div className="flex items-center gap-3">
           <h3 className="font-bold text-slate-800 uppercase text-sm tracking-wide flex items-center gap-2">
@@ -438,7 +435,6 @@ export default function UniversalTable({
       <div className="flex-1 overflow-auto">
         <table className="w-full text-left border-collapse">
           <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-            {/* Títulos */}
             <tr>
               <th className="px-2 py-2 text-xs font-bold text-slate-400 uppercase w-10 text-center border-b border-slate-200">#</th>
               {columns.map((col) => (
@@ -484,10 +480,15 @@ export default function UniversalTable({
           <tbody className="divide-y divide-slate-100 bg-white">
             {processedData.map((row) => {
                 const isDraft = String(row.id).startsWith("temp-");
+                // ESTILO DISTINTIVO PARA BORRADOR
+                const rowClass = isDraft 
+                    ? "bg-amber-50 hover:bg-amber-100 border-l-4 border-l-amber-400 transition-colors" 
+                    : "hover:bg-slate-50 group transition-colors border-l-4 border-l-transparent";
+
                 return (
-                  <tr key={row.id} className={`hover:bg-slate-50 group transition-colors ${isDraft ? 'bg-indigo-50/30' : ''}`}>
+                  <tr key={row.id} className={rowClass}>
                     <td className="px-2 py-1 text-center text-[10px] text-slate-300 font-mono">
-                        {isDraft ? <span className="text-indigo-400 font-bold">*</span> : row.id}
+                        {isDraft ? <span className="text-amber-600 font-bold">*</span> : row.id}
                     </td>
                     {columns.map((col) => (
                       <td key={`${row.id}-${col.key}`} className="px-1 py-1 align-top h-10">
@@ -501,15 +502,15 @@ export default function UniversalTable({
                                 <button 
                                     onClick={() => handleSaveNewRow(row.id)} 
                                     disabled={isSavingNew}
-                                    className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded transition-colors" 
+                                    className="p-1.5 bg-white border border-amber-200 text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 rounded shadow-sm transition-all" 
                                     title="Guardar nuevo registro"
                                 >
                                     {isSavingNew ? <IconLoader className="animate-spin" size={14}/> : <IconCheck size={14} />}
                                 </button>
                                 <button 
                                     onClick={() => handleDelete(row.id)} 
-                                    className="p-1.5 text-red-400 hover:bg-red-100 rounded transition-colors" 
-                                    title="Cancelar"
+                                    className="p-1.5 bg-white border border-amber-200 text-red-400 hover:bg-red-50 hover:border-red-300 rounded shadow-sm transition-all" 
+                                    title="Descartar borrador"
                                 >
                                     <IconX size={14} />
                                 </button>
