@@ -49,7 +49,7 @@ export default function TimeInput({ value, onChange, label }) {
 
     return (
         <div className="w-full">
-            {label && <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{label}</label>}
+            {label && <label className="text-[8px] font-bold text-slate-400 uppercase mb-1 block">{label}</label>}
             
             <div className="relative group">
                 <input 
