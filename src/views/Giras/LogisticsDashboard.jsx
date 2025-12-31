@@ -58,7 +58,7 @@ export default function LogisticsDashboard({ supabase, gira, onBack }) {
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
       {/* HEADER DEL DASHBOARD */}
-      <div className="bg-white border-b border-slate-200 shadow-sm px-4 py-3 flex flex-col gap-4 print:hidden">
+      <div className="bg-white border-b border-slate-200 shadow-sm px-4 py-3 flex flex-col gap- print:hidden">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <button

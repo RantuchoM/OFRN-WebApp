@@ -18,7 +18,7 @@ import GlobalCommentsViewer from './components/comments/GlobalCommentsViewer';
 import EnsembleCoordinatorView from './views/Ensembles/EnsembleCoordinatorView';
 import MyPartsViewer from './views/Giras/MyPartsViewer';
 import MealsAttendancePersonal from './views/Giras/MealsAttendancePersonal';
-import PublicLinkHandler from './views/Public/PublicLinkHandler'; //
+import PublicLinkHandler from './views/Public/PublicLinkHandler';
 
 import { 
   IconLayoutDashboard, 
@@ -149,6 +149,8 @@ const ProtectedApp = () => {
   // Estados de UI
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  
+  // LÓGICA SIDEBAR INTELIGENTE
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true); 
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
 
@@ -221,6 +223,7 @@ const ProtectedApp = () => {
         'musicos': 'MUSICIANS',
         'usuarios': 'USERS',
         'datos': 'DATA',
+        'locaciones': 'LOCATIONS',
         'coordinacion': 'COORDINACION',
         'avisos': 'COMMENTS',
         'comidas': 'MY_MEALS'
@@ -278,15 +281,14 @@ const ProtectedApp = () => {
     setMobileMenuOpen(false); 
   };
 
-  // --- MENÚS ---
+  // --- MENÚS (CORREGIDOS PARA INVITADOS) ---
   const allMenuItems = [
-    { id: 'FULL_AGENDA', label: 'Agenda General', icon: <IconCalendar size={20}/>, show: true },
+    { id: 'FULL_AGENDA', label: 'Agenda General', icon: <IconCalendar size={20}/>, show: userRole !== 'invitado' },
     { id: 'GIRAS', label: 'Giras', icon: <IconMap size={20}/>, show: true },
     { id: 'ENSAMBLES', label: 'Ensambles', icon: <IconMusic size={20}/>, show: isManagement },
     { id: 'COORDINACION', label: 'Coordinación', icon: <IconList size={20}/>, show: isEnsembleCoordinator },
-    { id: 'REPERTOIRE', label: 'Repertorio', icon: <IconFileText size={20}/>, show: !isPersonal || userRole === 'archivista' },
+    { id: 'REPERTOIRE', label: 'Repertorio', icon: <IconFileText size={20}/>, show: userRole !== 'invitado' && (!isPersonal || userRole === 'archivista') },
     { id: 'MUSICIANS', label: 'Músicos', icon: <IconUsers size={20}/>, show: isManagement || isDirector },
-    { id: 'LOCATIONS', label: 'Locaciones', icon: <IconMapPin size={20}/>, show: isManagement || isDirector },
     { id: 'DATA', label: 'Datos', icon: <IconDatabase size={20}/>, show: isManagement },
     { id: 'USERS', label: 'Usuarios', icon: <IconSettings size={20}/>, show: userRole === 'admin' },
   ];
@@ -314,8 +316,7 @@ const ProtectedApp = () => {
   };
 
   const mobileNavItems = [
-    { id: isPersonal ? 'FULL_AGENDA' : 'GIRAS'},
-    { id: 'FULL_AGENDA', icon: <IconCalendar size={24}/>, label: 'Agenda' },
+    ...(userRole !== 'invitado' ? [{ id: 'FULL_AGENDA', icon: <IconCalendar size={24}/>, label: 'Agenda' }] : []),
     { id: 'GIRAS', icon: <IconMap size={24}/>, label: 'Giras' },
     { id: 'COMMENTS', icon: <IconMessageCircle size={24}/>, label: 'Avisos' },
     { id: 'MENU', icon: <IconMenu size={24}/>, label: 'Menú', action: () => setMobileMenuOpen(true) }
@@ -447,7 +448,7 @@ function App() {
   return (
     <AuthProvider>
         <Routes>
-          <Route path="/share/:token" element={<PublicLinkHandler />} /> {/* */}
+          <Route path="/share/:token" element={<PublicLinkHandler />} />
           <Route path="/*" element={<AppContent />} />
         </Routes>
     </AuthProvider>
