@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from "react";
 
 export function useGiraRoster(supabase, gira) {
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [sources, setSources] = useState([]); 
+  const [sources, setSources] = useState([]);
 
   const fetchRoster = useCallback(async () => {
     if (!gira?.id) return;
@@ -40,30 +40,48 @@ export function useGiraRoster(supabase, gira) {
       if (errOverrides) throw errOverrides;
 
       const overrideMap = {};
-      overrides?.forEach((o) => (overrideMap[o.id_integrante] = { estado: o.estado, rol: o.rol }));
+      overrides?.forEach(
+        (o) => (overrideMap[o.id_integrante] = { estado: o.estado, rol: o.rol })
+      );
 
       // 3. Obtener IDs desde las fuentes
       const [membersEns, membersFam, membersExcl] = await Promise.all([
-        inclEnsembles.size > 0 
-            ? supabase.from("integrantes_ensambles").select("id_integrante").in("id_ensamble", Array.from(inclEnsembles)).then(res => res.data || []) 
-            : Promise.resolve([]),
-        inclFamilies.size > 0 
-            ? supabase.from("integrantes")
-                .select("id, instrumentos!inner(familia)")
-                .eq("condicion", "Estable") 
-                .in("instrumentos.familia", Array.from(inclFamilies))
-                .then(res => res.data || []) 
-            : Promise.resolve([]),
-        exclEnsembles.size > 0 
-            ? supabase.from("integrantes_ensambles").select("id_integrante").in("id_ensamble", Array.from(exclEnsembles)).then(res => res.data || []) 
-            : Promise.resolve([]),
+        inclEnsembles.size > 0
+          ? supabase
+              .from("integrantes_ensambles")
+              .select("id_integrante")
+              .in("id_ensamble", Array.from(inclEnsembles))
+              .then((res) => res.data || [])
+          : Promise.resolve([]),
+        inclFamilies.size > 0
+          ? supabase
+              .from("integrantes")
+              .select("id, instrumentos!inner(familia)")
+              .eq("condicion", "Estable")
+              .in("instrumentos.familia", Array.from(inclFamilies))
+              .then((res) => res.data || [])
+          : Promise.resolve([]),
+        exclEnsembles.size > 0
+          ? supabase
+              .from("integrantes_ensambles")
+              .select("id_integrante")
+              .in("id_ensamble", Array.from(exclEnsembles))
+              .then((res) => res.data || [])
+          : Promise.resolve([]),
       ]);
 
-      const baseIncludedIds = new Set([...membersEns.map((m) => m.id_integrante), ...membersFam.map((m) => m.id)]);
+      const baseIncludedIds = new Set([
+        ...membersEns.map((m) => m.id_integrante),
+        ...membersFam.map((m) => m.id),
+      ]);
       const excludedIds = new Set(membersExcl.map((m) => m.id_integrante));
       const manualIds = new Set(overrides.map((o) => o.id_integrante));
-      
-      const allPotentialIds = new Set([...baseIncludedIds, ...excludedIds, ...manualIds]);
+
+      const allPotentialIds = new Set([
+        ...baseIncludedIds,
+        ...excludedIds,
+        ...manualIds,
+      ]);
 
       if (allPotentialIds.size === 0) {
         setRoster([]);
@@ -71,28 +89,30 @@ export function useGiraRoster(supabase, gira) {
         return;
       }
 
-      // 4. Obtener Datos Completos (CORREGIDO: Join explícito a localidades)
+      // 4. Obtener Datos Completos
       const { data: musicians, error: errMusicians } = await supabase
         .from("integrantes")
-        .select(`
+        .select(
+          `
             id, nombre, apellido, fecha_alta, fecha_baja, condicion, 
             telefono, mail, alimentacion, id_instr, id_localidad,
             documentacion, docred, firma,
             dni, fecha_nac, genero,
-            instrumentos(instrumento, familia),
+            instrumentos(instrumento, familia, plaza_extra), 
             localidades!id_localidad(localidad, id_region, regiones(region)) 
-        `) // <--- AQUÍ ESTABA EL PROBLEMA: Agregamos !id_localidad
+        `
+        ) // <--- AQUI AGREGAMOS 'plaza_extra'
         .in("id", Array.from(allPotentialIds));
 
       if (errMusicians) throw errMusicians;
 
       // 5. Localidades de la Gira
       const { data: tourLocs } = await supabase
-         .from('giras_localidades')
-         .select('id_localidad')
-         .eq('id_gira', gira.id);
-      
-      const tourLocSet = new Set(tourLocs?.map(l => l.id_localidad));
+        .from("giras_localidades")
+        .select("id_localidad")
+        .eq("id_gira", gira.id);
+
+      const tourLocSet = new Set(tourLocs?.map((l) => l.id_localidad));
 
       // 6. PROCESAMIENTO FINAL
       const giraInicio = new Date(gira.fecha_desde);
@@ -116,37 +136,34 @@ export function useGiraRoster(supabase, gira) {
         // B. Determinar si es miembro "Base" válido
         let isBaseValid = false;
         if (isBaseIncluded && !isExcluded) {
-           const alta = m.fecha_alta ? new Date(m.fecha_alta) : null;
-           const baja = m.fecha_baja ? new Date(m.fecha_baja) : null;
-           // Lógica de fechas
-           const startsBeforeEnd = !alta || (alta <= giraFin);
-           const endsAfterStart = !baja || (baja >= giraInicio);
-           if (startsBeforeEnd && endsAfterStart) {
-               isBaseValid = true;
-           }
+          const alta = m.fecha_alta ? new Date(m.fecha_alta) : null;
+          const baja = m.fecha_baja ? new Date(m.fecha_baja) : null;
+          const startsBeforeEnd = !alta || alta <= giraFin;
+          const endsAfterStart = !baja || baja >= giraInicio;
+          if (startsBeforeEnd && endsAfterStart) {
+            isBaseValid = true;
+          }
         }
 
-        // Determinar Rol Automático
-        if (m.instrumentos?.familia?.includes('Prod')) {
-            rolReal = 'produccion';
+        if (m.instrumentos?.familia?.includes("Prod")) {
+          rolReal = "produccion";
         }
 
-        // C. Aplicar Lógica de Manual vs Automático
         if (isManual) {
-            estadoReal = manualData.estado;
-            rolReal = manualData.rol || rolReal;
-            keep = true;
-            if (isBaseValid) {
-                esAdicional = false;
-            } else {
-                esAdicional = (estadoReal === 'confirmado');
-            }
+          estadoReal = manualData.estado;
+          rolReal = manualData.rol || rolReal;
+          keep = true;
+          if (isBaseValid) {
+            esAdicional = false;
+          } else {
+            esAdicional = estadoReal === "confirmado";
+          }
         } else {
-            if (isBaseValid) {
-                keep = true;
-                estadoReal = "confirmado";
-                esAdicional = false;
-            }
+          if (isBaseValid) {
+            keep = true;
+            estadoReal = "confirmado";
+            esAdicional = false;
+          }
         }
 
         if (keep) {
@@ -156,27 +173,34 @@ export function useGiraRoster(supabase, gira) {
             rol_gira: rolReal,
             es_adicional: esAdicional,
             is_local: tourLocSet.has(m.id_localidad),
-            nombre_completo: `${m.apellido}, ${m.nombre}`
+            nombre_completo: `${m.apellido}, ${m.nombre}`,
           });
         }
       });
 
-      // Ordenamiento
       const sorted = finalRoster.sort((a, b) => {
-         if (a.estado_gira === 'ausente' && b.estado_gira !== 'ausente') return 1;
-         if (a.estado_gira !== 'ausente' && b.estado_gira === 'ausente') return -1;
-         
-         const rolesPrio = { director: 1, solista: 2, musico: 3, produccion: 4, staff: 5, chofer: 6 };
-         const pA = rolesPrio[a.rol_gira] || 99;
-         const pB = rolesPrio[b.rol_gira] || 99;
-         
-         if (pA !== pB) return pA - pB;
-         return (a.apellido || "").localeCompare(b.apellido || "");
+        if (a.estado_gira === "ausente" && b.estado_gira !== "ausente")
+          return 1;
+        if (a.estado_gira !== "ausente" && b.estado_gira === "ausente")
+          return -1;
+
+        const rolesPrio = {
+          director: 1,
+          solista: 2,
+          musico: 3,
+          produccion: 4,
+          staff: 5,
+          chofer: 6,
+        };
+        const pA = rolesPrio[a.rol_gira] || 99;
+        const pB = rolesPrio[b.rol_gira] || 99;
+
+        if (pA !== pB) return pA - pB;
+        return (a.apellido || "").localeCompare(b.apellido || "");
       });
 
       setRoster(sorted);
-
-    } catch (err) {    
+    } catch (err) {
       console.error("Error fetching roster:", err);
       setError(err.message);
     } finally {
@@ -188,11 +212,11 @@ export function useGiraRoster(supabase, gira) {
     fetchRoster();
   }, [fetchRoster]);
 
-  return { 
-    roster, 
-    loading, 
-    error, 
+  return {
+    roster,
+    loading,
+    error,
     sources,
-    refreshRoster: fetchRoster 
+    refreshRoster: fetchRoster,
   };
 }

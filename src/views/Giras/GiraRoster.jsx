@@ -874,7 +874,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                       className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
                       title="Copiar enlace de invitado"
                     >
-                      <IconUsers size={16} /> {/* O el icono que prefieras */}
+                      <IconLink size={16} /> {/* O el icono que prefieras */}
                     </button>
                   </td>
                 </tr>

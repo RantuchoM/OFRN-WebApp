@@ -22,7 +22,7 @@ import PublicLinkHandler from './views/Public/PublicLinkHandler';
 
 import { 
   IconLayoutDashboard, 
-  IconTruck, 
+  IconMap, 
   IconMusic, 
   IconUsers, 
   IconMapPin, 
@@ -290,12 +290,11 @@ const ProtectedApp = () => {
   // --- MENÚS ---
   const allMenuItems = [
     { id: 'FULL_AGENDA', label: 'Agenda General', icon: <IconCalendar size={20}/>, show: true },
-    { id: 'GIRAS', label: 'Giras', icon: <IconTruck size={20}/>, show: true },
+    { id: 'GIRAS', label: 'Giras', icon: <IconMap size={20}/>, show: true },
     { id: 'ENSAMBLES', label: 'Ensambles', icon: <IconMusic size={20}/>, show: isManagement },
     { id: 'COORDINACION', label: 'Coordinación', icon: <IconList size={20}/>, show: isEnsembleCoordinator },
     { id: 'REPERTOIRE', label: 'Repertorio', icon: <IconFileText size={20}/>, show: !isPersonal || userRole === 'archivista' },
     { id: 'MUSICIANS', label: 'Músicos', icon: <IconUsers size={20}/>, show: isManagement || isDirector },
-    { id: 'LOCATIONS', label: 'Locaciones', icon: <IconMapPin size={20}/>, show: isManagement || isDirector },
     { id: 'DATA', label: 'Datos', icon: <IconDatabase size={20}/>, show: isManagement },
     { id: 'USERS', label: 'Usuarios', icon: <IconSettings size={20}/>, show: userRole === 'admin' },
   ];
@@ -325,7 +324,7 @@ const ProtectedApp = () => {
   const mobileNavItems = [
     { id: isPersonal ? 'FULL_AGENDA' : 'GIRAS'},
     { id: 'FULL_AGENDA', icon: <IconCalendar size={24}/>, label: 'Agenda' },
-    { id: 'GIRAS', icon: <IconTruck size={24}/>, label: 'Giras' },
+    { id: 'GIRAS', icon: <IconMap size={24}/>, label: 'Giras' },
     { id: 'COMMENTS', icon: <IconMessageCircle size={24}/>, label: 'Avisos' },
     { id: 'MENU', icon: <IconMenu size={24}/>, label: 'Menú', action: () => setMobileMenuOpen(true) }
   ];
@@ -457,7 +456,9 @@ function App() {
   return (
     <AuthProvider>
         <Routes>
-          <Route path="/public/*" element={<PublicLinkHandler />} />
+          {/* CORRECCIÓN AQUÍ: Cambiado de "/public/*" a "/share/:token" */}
+          <Route path="/share/:token" element={<PublicLinkHandler />} />
+          
           <Route path="/*" element={<AppContent />} />
         </Routes>
     </AuthProvider>

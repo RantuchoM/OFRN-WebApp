@@ -146,6 +146,7 @@ export default function DataView({ supabase }) {
           ],
         },
         { key: "abreviatura", label: "Abrev.", type: "text" },
+        {key: "plaza_extra", label: "Plaza Extra", type: "checkbox" }
       ],
     },
     paises: {

@@ -1214,20 +1214,34 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
       {/* LISTA DE TRANSPORTES */}
       <div className="space-y-4">
-        {transports.map((t) => {
+       {transports.map((t) => {
           const isExpanded = activeTransportId === t.id;
           const myEvents = transportEvents[t.id] || [];
+          
+          // 1. Filtrar pasajeros
           const tPassengers = passengerList.filter((p) =>
             p.logistics?.transports?.some((tr) => tr.id === t.id)
           );
+          
           const tPassengerCount = tPassengers.length;
+
+          // 2. Calcular Plazas de Instrumentos
+          const tInstrumentSeats = tPassengers.filter(
+            (p) => p.instrumentos?.plaza_extra
+          ).length;
+
+          const totalOccupied = tPassengerCount + tInstrumentSeats; // Pax + Instrumentos
+
           const maxCap = t.capacidad_maxima || 0;
-          const isOverbooked = maxCap > 0 && tPassengerCount > maxCap;
+          
+          // 3. Lógica de Colores basada en ocupación TOTAL
+          const isOverbooked = maxCap > 0 && totalOccupied > maxCap;
           const occupancyColor = isOverbooked
             ? "text-red-600 bg-red-50 border-red-200"
-            : maxCap > 0 && tPassengerCount === maxCap
+            : maxCap > 0 && totalOccupied === maxCap
             ? "text-amber-600 bg-amber-50 border-amber-200"
             : "text-indigo-600";
+            
           const incompletePax = tPassengers.filter((p) => {
             const tr = p.logistics?.transports?.find((x) => x.id === t.id);
             return tr && (!tr.subidaId || !tr.bajadaId);
@@ -1255,6 +1269,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                     <IconTruck size={20} />
                   </div>
                   {isEditing ? (
+                    // ... (Formulario de edición igual que antes) ...
                     <div
                       className="flex gap-2 items-center flex-1"
                       onClick={(e) => e.stopPropagation()}
@@ -1324,8 +1339,20 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           className={`font-bold px-2 py-0.5 rounded border ${occupancyColor} flex items-center gap-1`}
                         >
                           {isOverbooked && <IconAlertTriangle size={12} />}
-                          {tPassengerCount}{" "}
-                          {maxCap > 0 ? `/ ${maxCap}` : "Pasajeros"}
+                          
+                          {/* VISUALIZACIÓN: Pax (+Instr) / Capacidad */}
+                          <span>{tPassengerCount}</span>
+                          {tInstrumentSeats > 0 && (
+                            <span className="opacity-80 text-[10px]">
+                               + {tInstrumentSeats} instr.
+                            </span>
+                          )}
+                          
+                          {maxCap > 0 ? (
+                              <span className="opacity-60">/ {maxCap}</span>
+                          ) : (
+                              <span className="opacity-60"></span>
+                          )}
                         </span>
                       </div>
                     </div>

@@ -549,94 +549,118 @@ export default function UnifiedAgenda({
   // --- LÓGICA ELIMINAR ---
   const handleDeleteEvent = async () => {
     if (!editFormData.id) return;
-    const confirm = window.confirm("¿Seguro que deseas eliminar este evento? Esta acción no se puede deshacer.");
+    const confirm = window.confirm(
+      "¿Seguro que deseas eliminar este evento? Esta acción no se puede deshacer."
+    );
     if (!confirm) return;
 
     setLoading(true);
     try {
-        const id = editFormData.id;
-        // Limpiamos relaciones para evitar conflictos
-        await Promise.all([
-            supabase.from("eventos_programas_asociados").delete().eq("id_evento", id),
-            supabase.from("eventos_ensambles").delete().eq("id_evento", id),
-            supabase.from("eventos_asistencia_custom").delete().eq("id_evento", id),
-            supabase.from("eventos_asistencia").delete().eq("id_evento", id)
-        ]);
+      const id = editFormData.id;
+      // Limpiamos relaciones para evitar conflictos
+      await Promise.all([
+        supabase
+          .from("eventos_programas_asociados")
+          .delete()
+          .eq("id_evento", id),
+        supabase.from("eventos_ensambles").delete().eq("id_evento", id),
+        supabase.from("eventos_asistencia_custom").delete().eq("id_evento", id),
+        supabase.from("eventos_asistencia").delete().eq("id_evento", id),
+      ]);
 
-        const { error } = await supabase.from("eventos").delete().eq("id", id);
-        if (error) throw error;
+      const { error } = await supabase.from("eventos").delete().eq("id", id);
+      if (error) throw error;
 
-        setIsEditOpen(false);
-        fetchAgenda();
+      setIsEditOpen(false);
+      fetchAgenda();
     } catch (err) {
-        alert("Error al eliminar: " + err.message);
+      alert("Error al eliminar: " + err.message);
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
   // --- LÓGICA DUPLICAR (CORREGIDA PARA MANTENER ABIERTO) ---
   const handleDuplicateEvent = async () => {
     if (!editFormData.id) return;
-    
+
     // Feedback inicial
-    const confirm = window.confirm("¿Deseas duplicar este evento? Se abrirá la copia para editar.");
+    const confirm = window.confirm(
+      "¿Deseas duplicar este evento? Se abrirá la copia para editar."
+    );
     if (!confirm) return;
 
     setLoading(true);
     try {
-        // 1. Duplicar Evento Base
-        const payload = {
-            descripcion: (editFormData.descripcion || "") + " - Copia",
-            fecha: editFormData.fecha,
-            hora_inicio: editFormData.hora_inicio,
-            hora_fin: editFormData.hora_fin,
-            id_tipo_evento: editFormData.id_tipo_evento || null,
-            id_locacion: editFormData.id_locacion || null,
-            id_gira: editFormData.id_gira || null,
-        };
+      // 1. Duplicar Evento Base
+      const payload = {
+        descripcion: (editFormData.descripcion || "") + " - Copia",
+        fecha: editFormData.fecha,
+        hora_inicio: editFormData.hora_inicio,
+        hora_fin: editFormData.hora_fin,
+        id_tipo_evento: editFormData.id_tipo_evento || null,
+        id_locacion: editFormData.id_locacion || null,
+        id_gira: editFormData.id_gira || null,
+      };
 
-        const { data: newEvent, error: insertError } = await supabase.from("eventos").insert([payload]).select().single();
-        if (insertError) throw insertError;
-        
-        const newEventId = newEvent.id;
-        const originalId = editFormData.id;
+      const { data: newEvent, error: insertError } = await supabase
+        .from("eventos")
+        .insert([payload])
+        .select()
+        .single();
+      if (insertError) throw insertError;
 
-        // 2. Duplicar Relaciones (Ensambles y Programas)
-        const [ensambles, programas] = await Promise.all([
-            supabase.from("eventos_ensambles").select("id_ensamble").eq("id_evento", originalId),
-            supabase.from("eventos_programas_asociados").select("id_programa").eq("id_evento", originalId)
-        ]);
+      const newEventId = newEvent.id;
+      const originalId = editFormData.id;
 
-        const promises = [];
-        if (ensambles.data?.length > 0) {
-            const ensPayload = ensambles.data.map(e => ({ id_evento: newEventId, id_ensamble: e.id_ensamble }));
-            promises.push(supabase.from("eventos_ensambles").insert(ensPayload));
-        }
-        if (programas.data?.length > 0) {
-            const progPayload = programas.data.map(p => ({ id_evento: newEventId, id_programa: p.id_programa }));
-            promises.push(supabase.from("eventos_programas_asociados").insert(progPayload));
-        }
+      // 2. Duplicar Relaciones (Ensambles y Programas)
+      const [ensambles, programas] = await Promise.all([
+        supabase
+          .from("eventos_ensambles")
+          .select("id_ensamble")
+          .eq("id_evento", originalId),
+        supabase
+          .from("eventos_programas_asociados")
+          .select("id_programa")
+          .eq("id_evento", originalId),
+      ]);
 
-        await Promise.all(promises);
+      const promises = [];
+      if (ensambles.data?.length > 0) {
+        const ensPayload = ensambles.data.map((e) => ({
+          id_evento: newEventId,
+          id_ensamble: e.id_ensamble,
+        }));
+        promises.push(supabase.from("eventos_ensambles").insert(ensPayload));
+      }
+      if (programas.data?.length > 0) {
+        const progPayload = programas.data.map((p) => ({
+          id_evento: newEventId,
+          id_programa: p.id_programa,
+        }));
+        promises.push(
+          supabase.from("eventos_programas_asociados").insert(progPayload)
+        );
+      }
 
-        // --- MAGIA AQUÍ: ACTUALIZAMOS EL FORMULARIO EN LUGAR DE CERRARLO ---
-        setEditFormData({
-            ...editFormData,
-            id: newEventId, // Cambiamos al ID nuevo
-            descripcion: payload.descripcion // Mostramos el nuevo nombre
-        });
+      await Promise.all(promises);
 
-        // Recargamos la lista de fondo para que aparezca el nuevo evento
-        fetchAgenda();
-        
-        // Opcional: Feedback visual discreto
-        // alert("Evento duplicado. Editando la copia.");
+      // --- MAGIA AQUÍ: ACTUALIZAMOS EL FORMULARIO EN LUGAR DE CERRARLO ---
+      setEditFormData({
+        ...editFormData,
+        id: newEventId, // Cambiamos al ID nuevo
+        descripcion: payload.descripcion, // Mostramos el nuevo nombre
+      });
 
+      // Recargamos la lista de fondo para que aparezca el nuevo evento
+      fetchAgenda();
+
+      // Opcional: Feedback visual discreto
+      // alert("Evento duplicado. Editando la copia.");
     } catch (err) {
-        alert("Error al duplicar: " + err.message);
+      alert("Error al duplicar: " + err.message);
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -751,8 +775,8 @@ export default function UnifiedAgenda({
         </div>
         {fechaDesde && (
           <span className="hidden md:flex items-center font-normal opacity-70 text-xs whitespace-nowrap ml-auto md:ml-2">
-            <span className="hidden lg:inline mr-1"></span>{" "}
-            {fechaDesde} - {fechaHasta}
+            <span className="hidden lg:inline mr-1"></span> {fechaDesde} -{" "}
+            {fechaHasta}
           </span>
         )}
         <div className="flex-1"></div>
@@ -827,14 +851,16 @@ export default function UnifiedAgenda({
         </div>
 
         {!loading && availableCategories.length > 0 && (
-          <div className="px-4 pb-3 flex flex-wrap gap-2">
+          // CAMBIO 1: Quitamos 'flex-wrap' y agregamos 'overflow-x-auto' para scroll horizontal
+          <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-hide">
             {availableCategories.map((cat) => {
               const isActive = selectedCategoryIds.includes(cat.id);
               return (
                 <button
                   key={cat.id}
                   onClick={() => handleCategoryToggle(cat.id)}
-                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
+                  // CAMBIO 2: Agregamos 'whitespace-nowrap shrink-0' para que no se deformen
+                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-all whitespace-nowrap shrink-0 ${
                     isActive
                       ? "bg-indigo-100 text-indigo-700 border-indigo-200 shadow-sm"
                       : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100"
@@ -849,7 +875,8 @@ export default function UnifiedAgenda({
                 onClick={() =>
                   setSelectedCategoryIds(availableCategories.map((c) => c.id))
                 }
-                className="text-xs text-indigo-600 underline px-2"
+                // CAMBIO 3: Agregamos 'whitespace-nowrap shrink-0' aquí también
+                className="text-xs text-indigo-600 underline px-2 whitespace-nowrap shrink-0"
               >
                 Ver todo
               </button>
@@ -1118,7 +1145,7 @@ export default function UnifiedAgenda({
             setFormData={setEditFormData}
             onSave={handleEditSave}
             onClose={() => setIsEditOpen(false)}
-            onDelete={handleDeleteEvent}      // <--- FUNCIÓN BORRAR CONECTADA
+            onDelete={handleDeleteEvent} // <--- FUNCIÓN BORRAR CONECTADA
             onDuplicate={handleDuplicateEvent} // <--- FUNCIÓN DUPLICAR CONECTADA
             loading={loading}
             eventTypes={formEventTypes}

@@ -175,6 +175,25 @@ const EditableCell = ({ row, col, onSave }) => {
     return "hover:bg-slate-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-500 focus-within:z-10";
   };
 
+  // 1. CHECKBOX (Booleano / Tilde)
+  if (col.type === "checkbox") {
+    return (
+      <div className={`flex items-center justify-center h-full p-1 rounded transition-colors ${getStatusClass()}`}>
+        <input
+          type="checkbox"
+          checked={!!value} // Convierte null/undefined a false
+          onChange={(e) => {
+            const val = e.target.checked;
+            setValue(val);
+            handleSave(val);
+          }}
+          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+        />
+      </div>
+    );
+  }
+
+  // 2. SELECT
   if (col.type === "select") {
     return (
       <div className={`h-full w-full rounded transition-all ${getStatusClass()}`} onFocus={() => setStatus("editing")} onBlur={() => setStatus("idle")}>
@@ -191,6 +210,7 @@ const EditableCell = ({ row, col, onSave }) => {
     );
   }
 
+  // 3. COLOR
   if (col.type === "color") {
     return (
       <div className={`flex items-center gap-2 h-full p-1 rounded ${getStatusClass()}`}>
@@ -206,6 +226,7 @@ const EditableCell = ({ row, col, onSave }) => {
     );
   }
 
+  // 4. TEXTO (Default)
   return (
     <input
       ref={inputRef}
@@ -228,7 +249,7 @@ export default function UniversalTable({
   columns,
   defaultSort = "id",
   onDataChange,
-  onDirtyChange, // NUEVA PROP: Para avisar al padre
+  onDirtyChange,
 }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -250,13 +271,11 @@ export default function UniversalTable({
 
   // --- DETECTAR BORRADORES PARA EL PADRE ---
   useEffect(() => {
-    // Si alguna fila tiene ID "temp-", la tabla está "sucia"
     const hasDrafts = data.some(row => String(row.id).startsWith("temp-"));
     if (onDirtyChange) {
       onDirtyChange(hasDrafts);
     }
     
-    // También activamos el bloqueo nativo del navegador (F5/Cerrar pestaña)
     const handleBeforeUnload = (e) => {
       if (hasDrafts) {
         e.preventDefault();
@@ -305,9 +324,18 @@ export default function UniversalTable({
   const handleCreate = () => {
     const tempId = `temp-${Date.now()}`;
     const newRow = { id: tempId };
+    
+    // Inicializar columnas con valores seguros
     columns.forEach((col) => {
-      newRow[col.key] = col.defaultValue !== undefined ? col.defaultValue : null; 
+      if (col.defaultValue !== undefined) {
+        newRow[col.key] = col.defaultValue;
+      } else if (col.type === "checkbox") {
+        newRow[col.key] = false; // Booleano por defecto false
+      } else {
+        newRow[col.key] = null;
+      }
     });
+
     setData((prev) => [newRow, ...prev]);
   };
 
@@ -359,6 +387,8 @@ export default function UniversalTable({
 
   const processedData = useMemo(() => {
     let result = [...data];
+
+    // Filtrar
     Object.keys(filters).forEach((key) => {
       const filterVal = filters[key].toLowerCase();
       if (filterVal) {
@@ -375,6 +405,7 @@ export default function UniversalTable({
       }
     });
 
+    // Ordenar
     if (sortConfig.key) {
       result.sort((a, b) => {
         const isDraftA = String(a.id).startsWith("temp-");
@@ -480,7 +511,6 @@ export default function UniversalTable({
           <tbody className="divide-y divide-slate-100 bg-white">
             {processedData.map((row) => {
                 const isDraft = String(row.id).startsWith("temp-");
-                // ESTILO DISTINTIVO PARA BORRADOR
                 const rowClass = isDraft 
                     ? "bg-amber-50 hover:bg-amber-100 border-l-4 border-l-amber-400 transition-colors" 
                     : "hover:bg-slate-50 group transition-colors border-l-4 border-l-transparent";
