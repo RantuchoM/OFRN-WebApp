@@ -95,7 +95,7 @@ export function useGiraRoster(supabase, gira) {
         .select(
           `
             id, nombre, apellido, fecha_alta, fecha_baja, condicion, 
-            telefono, mail, alimentacion, id_instr, id_localidad,
+            telefono, mail, alimentacion, es_simulacion, id_instr, id_localidad,
             documentacion, docred, firma,
             dni, fecha_nac, genero,
             instrumentos(instrumento, familia, plaza_extra), 

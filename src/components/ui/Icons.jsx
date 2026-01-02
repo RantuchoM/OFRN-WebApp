@@ -122,6 +122,29 @@ export const IconCloud = ({ size = 24, className = "" }) => (
     <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
   </svg>
 );
+// Agregar al archivo Icons.jsx
+
+
+export const IconExchange = ({ size = 20, className = "" }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <path d="M16 3h5v5"></path>
+    <path d="M4 20L21 3"></path>
+    <path d="M21 16v5h-5"></path>
+    <path d="M15 15l5 5"></path>
+    <path d="M4 4l5 5"></path>
+  </svg>
+);
 export const IconLayoutDashboard = ({ size = 24, className = "", ...props }) => (
   <svg 
     xmlns="http://www.w3.org/2000/svg" 
@@ -1398,6 +1421,40 @@ export const IconHistory = ({ size = 24, className = "" }) => (
     <path d="M12 7v5l4 2" />
   </svg>
 );
+export const IconPencil = ({ size = 20, className = "" }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+  </svg>
+);
+export const IconCircle = ({ size = 20, className = "" }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <circle cx="12" cy="12" r="10"></circle>
+  </svg>
+);
+
 
 export const IconUserMinus = ({ size = 24, className = "" }) => (
   <svg

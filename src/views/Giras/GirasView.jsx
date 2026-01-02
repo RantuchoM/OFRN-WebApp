@@ -29,6 +29,7 @@ import ProgramSeating from "./ProgramSeating";
 import CommentsManager from "../../components/comments/CommentsManager";
 import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer";
 import GiraDifusion from "./GiraDifusion";
+import SectionStatusControl from "../../components/giras/SectionStatusControl"; // <--- IMPORTAR
 
 // Componentes Modularizados
 import GirasListControls from "./GirasListControls";
@@ -54,20 +55,57 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
 
   // --- EFECTO DE NAVEGACIÓN EXTERNA ---
   useEffect(() => {
-      if (initialGiraId && initialTab) {
-          setSearchParams({ 
-              tab: "giras", 
-              view: initialTab,
-              giraId: initialGiraId
-          }, { replace: true });
-      }
+    if (initialGiraId && initialTab) {
+      setSearchParams(
+        {
+          tab: "giras",
+          view: initialTab,
+          giraId: initialGiraId,
+        },
+        { replace: true }
+      );
+    }
   }, [initialGiraId, initialTab, setSearchParams]);
 
   const selectedGira = useMemo(() => {
     if (!giraId || giras.length === 0) return null;
     return giras.find((g) => g.id.toString() === giraId);
   }, [giras, giraId]);
+  const getActiveSection = () => {
+    if (!selectedGira) return null;
 
+    // Vistas principales
+    if (mode === "AGENDA") return { key: "AGENDA", label: "Agenda General" };
+    if (mode === "ROSTER") return { key: "ROSTER", label: "Nómina / Staff" };
+    if (mode === "REPERTOIRE")
+      return { key: "REPERTOIRE", label: "Repertorio" };
+
+    // Logística (Aquí estaba el desajuste)
+    if (mode === "LOGISTICS") {
+      const subTab = currentTab || "coverage"; // 'coverage' es el default en Dashboard
+
+      if (subTab === "rooming")
+        return { key: "ROOMING", label: "Rooming List" };
+
+      // CORRECCIÓN: 'transporte' (como viene de la URL) en vez de 'transport'
+      if (subTab === "transporte")
+        return { key: "TRANSPORTE", label: "Transporte" };
+
+      // NUEVO: Soporte para Viáticos
+      if (subTab === "viaticos") return { key: "VIATICOS", label: "Viáticos" };
+
+      // Agrupamos todas las de comidas
+      if (["meals", "attendance", "report"].includes(subTab)) {
+        return { key: "COMIDAS", label: "Dietas y Catering" };
+      }
+
+      return { key: "LOGISTICA_GRAL", label: "Reglas Generales" };
+    }
+
+    return null;
+  };
+
+  const activeSection = getActiveSection();
   const updateView = (newMode, newGiraId = null, newSubTab = null) => {
     const params = { tab: "giras" };
     if (newMode && newMode !== "LIST") params.view = newMode;
@@ -79,11 +117,11 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
 
   const [commentsState, setCommentsState] = useState(null);
   const [globalCommentsGiraId, setGlobalCommentsGiraId] = useState(null);
-  
+
   const [showRepertoireInCards, setShowRepertoireInCards] = useState(false);
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState(null);
-  
+
   const [filterType, setFilterType] = useState(
     new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band"])
   );
@@ -93,7 +131,7 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
     "Ensamble",
     "Jazz Band",
   ];
-  
+
   // CAMBIO 1: FECHA DE HOY POR DEFECTO
   const today = new Date().toISOString().split("T")[0];
   const [filterDateStart, setFilterDateStart] = useState(today);
@@ -102,10 +140,16 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
-    nombre_gira: "", subtitulo: "", fecha_desde: "", fecha_hasta: "",
-    tipo: "Sinfónico", zona: "", token_publico: "", nomenclador: ""
+    nombre_gira: "",
+    subtitulo: "",
+    fecha_desde: "",
+    fecha_hasta: "",
+    tipo: "Sinfónico",
+    zona: "",
+    token_publico: "",
+    nomenclador: "",
   });
-  
+
   const [selectedLocations, setSelectedLocations] = useState(new Set());
   const [selectedSources, setSelectedSources] = useState([]);
   const [selectedStaff, setSelectedStaff] = useState([]);
@@ -122,7 +166,7 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
         .eq("id_integrante", user.id);
 
       if (data && !error) {
-        const ids = new Set(data.map(item => item.id_ensamble));
+        const ids = new Set(data.map((item) => item.id_ensamble));
         setCoordinatedEnsembles(ids);
       }
     };
@@ -130,7 +174,7 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
   }, [user, supabase]);
 
   useEffect(() => {
-    fetchGiras(); 
+    fetchGiras();
     fetchLocationsList();
     fetchEnsemblesList();
     fetchIntegrantesList();
@@ -193,10 +237,12 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
             );
             if (myOverride && myOverride.estado === "ausente") return false;
             if (myOverride) return true;
-            
+
             const isIncluded = sources.some(
               (s) =>
-                (s.tipo === "ENSAMBLE" && (myEnsembles.has(s.valor_id) || coordinatedEnsembles.has(s.valor_id))) ||
+                (s.tipo === "ENSAMBLE" &&
+                  (myEnsembles.has(s.valor_id) ||
+                    coordinatedEnsembles.has(s.valor_id))) ||
                 (s.tipo === "FAMILIA" && s.valor_texto === myFamily)
             );
             if (isIncluded) {
@@ -275,7 +321,7 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
       tipo: gira.tipo || "Sinfónico",
       zona: gira.zona || "",
       token_publico: gira.token_publico || "",
-      nomenclador: gira.nomenclador || ""
+      nomenclador: gira.nomenclador || "",
     });
 
     const { data } = await supabase
@@ -313,24 +359,30 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
 
   useEffect(() => {
     if (mode === "EDICION" && selectedGira && ensemblesList.length > 0) {
-        loadGiraIntoForm(selectedGira);
+      loadGiraIntoForm(selectedGira);
     }
   }, [mode, selectedGira, ensemblesList.length]);
 
   const handleGiraUpdate = async () => {
     if (!selectedGira) return;
-    const { data } = await supabase.from("programas").select("*").eq("id", selectedGira.id).single();
+    const { data } = await supabase
+      .from("programas")
+      .select("*")
+      .eq("id", selectedGira.id)
+      .single();
     if (data) {
-        setGiras(prev => prev.map(g => g.id === data.id ? { ...g, ...data } : g));
+      setGiras((prev) =>
+        prev.map((g) => (g.id === data.id ? { ...g, ...data } : g))
+      );
     }
   };
 
   const handleSave = async () => {
     if (!formData.nombre_gira) return alert("Nombre obligatorio");
     setLoading(true);
-    
+
     const payload = { ...formData };
-    if (!payload.token_publico) payload.token_publico = null; 
+    if (!payload.token_publico) payload.token_publico = null;
     if (!payload.fecha_desde) payload.fecha_desde = null;
     if (!payload.fecha_hasta) payload.fecha_hasta = null;
 
@@ -387,7 +439,7 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
         });
       }
       await fetchGiras();
-      if(mode === 'LIST') closeForm();
+      if (mode === "LIST") closeForm();
     } catch (err) {
       alert(err.message);
     } finally {
@@ -503,8 +555,8 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
     if (isEditor) return true;
     if (gira.tipo !== "Ensamble") return false;
     const fuentes = gira.giras_fuentes || [];
-    const isMyEnsemble = fuentes.some(f => 
-      f.tipo === "ENSAMBLE" && coordinatedEnsembles.has(f.valor_id)
+    const isMyEnsemble = fuentes.some(
+      (f) => f.tipo === "ENSAMBLE" && coordinatedEnsembles.has(f.valor_id)
     );
     return isMyEnsemble;
   };
@@ -520,7 +572,7 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
       "MEALS_PERSONAL",
       "SEATING",
       "DIFUSION",
-      "EDICION"
+      "EDICION",
     ].includes(mode) && selectedGira;
 
   const tourNavItems = [
@@ -548,6 +600,7 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
               >
                 <IconArrowLeft size={20} />
               </button>
+
               <div className="flex flex-col overflow-hidden">
                 <h2 className="text-m font-bold text-slate-800 truncate leading-tight">{`${selectedGira.mes_letra} | ${selectedGira.nomenclador}. ${selectedGira.nombre_gira}`}</h2>
                 <div className="flex items-center gap-2">
@@ -566,13 +619,26 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
                 </div>
               </div>
             </div>
+            {activeSection && !isGuest && (
+              <div className="hidden md:block ml-4 pl-4 border-l border-slate-200">
+                <SectionStatusControl
+                  supabase={supabase}
+                  giraId={selectedGira.id}
+                  sectionKey={activeSection.key} // Cambia dinámicamente
+                  sectionLabel={activeSection.label} // Cambia dinámicamente
+                  currentUserId={user.id} // Tu ID numérico (Int8)
+                />
+              </div>
+            )}
             {(isEditor || isPersonal) && (
               <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
                 {tourNavItems
                   .filter((item) => {
-                    if (item.mode === "MEALS_PERSONAL") return isGuest && !user.isGeneral;
-                    if (item.mode === "EDICION") return canEditGira(selectedGira);
-                    if (isEditor || canEditGira(selectedGira)) return true; 
+                    if (item.mode === "MEALS_PERSONAL")
+                      return isGuest && !user.isGeneral;
+                    if (item.mode === "EDICION")
+                      return canEditGira(selectedGira);
+                    if (isEditor || canEditGira(selectedGira)) return true;
                     return ["AGENDA", "REPERTOIRE"].includes(item.mode);
                   })
                   .map((item) => {
@@ -713,30 +779,29 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
         )}
 
         {mode === "EDICION" && selectedGira && (
-           <div className="h-full overflow-y-auto bg-slate-50 p-6">
-               <GiraForm 
-                  supabase={supabase}
-                  giraId={selectedGira.id}
-                  formData={formData}
-                  setFormData={setFormData}
-                  onCancel={() => updateView("AGENDA")}
-                  onSave={handleSave}
-                  onRefresh={handleGiraUpdate}
-                  loading={loading}
-                  isNew={false}
-                  enableAutoSave={true} 
-                  
-                  locationsList={locationsList}
-                  selectedLocations={selectedLocations}
-                  setSelectedLocations={setSelectedLocations}
-                  ensemblesList={ensemblesList}
-                  allIntegrantes={allIntegrantes}
-                  selectedSources={selectedSources}
-                  setSelectedSources={setSelectedSources}
-                  selectedStaff={selectedStaff}
-                  setSelectedStaff={setSelectedStaff}
-               />
-           </div>
+          <div className="h-full overflow-y-auto bg-slate-50 p-6">
+            <GiraForm
+              supabase={supabase}
+              giraId={selectedGira.id}
+              formData={formData}
+              setFormData={setFormData}
+              onCancel={() => updateView("AGENDA")}
+              onSave={handleSave}
+              onRefresh={handleGiraUpdate}
+              loading={loading}
+              isNew={false}
+              enableAutoSave={true}
+              locationsList={locationsList}
+              selectedLocations={selectedLocations}
+              setSelectedLocations={setSelectedLocations}
+              ensemblesList={ensemblesList}
+              allIntegrantes={allIntegrantes}
+              selectedSources={selectedSources}
+              setSelectedSources={setSelectedSources}
+              selectedStaff={selectedStaff}
+              setSelectedStaff={setSelectedStaff}
+            />
+          </div>
         )}
 
         {loading && !selectedGira && mode !== "LIST" && mode !== "CALENDAR" && (
@@ -822,8 +887,7 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
                     }}
                     loading={loading}
                     isNew={false}
-                    enableAutoSave={true} 
-                    
+                    enableAutoSave={true}
                     locationsList={locationsList}
                     selectedLocations={selectedLocations}
                     setSelectedLocations={setSelectedLocations}

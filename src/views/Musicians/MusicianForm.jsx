@@ -85,17 +85,27 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     try {
       const payload = { ...formData };
 
-      // Limpieza de campos que no van a la DB
+      // 1. Limpieza de relaciones (Joins) y campos calculados
       delete payload.instrumento;
       delete payload.instrumentos;
       delete payload.ensamble;
       delete payload.integrantes_ensambles;
       delete payload.localidades;
-
-      // --- CORRECCIÓN AQUÍ: Eliminar los alias del join ---
       delete payload.residencia;
       delete payload.viaticos;
+      delete payload.nombre_completo;
 
+      // 2. Limpieza de campos de Gira (Link Table)
+      delete payload.rol_gira;
+      delete payload.estado_gira;
+      delete payload.es_adicional;
+      delete payload.id_gira;
+      delete payload.token_publico;
+
+      // 3. --- NUEVO: Eliminar campo 'is_local' ---
+      delete payload.is_local; // <--- AGREGAR ESTA LÍNEA
+
+      // 4. Guardado
       const { data, error } = await supabase
         .from("integrantes")
         .upsert([payload])
@@ -105,6 +115,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       if (error) throw error;
       onSave(data);
     } catch (error) {
+      console.error(error);
       alert("Error al guardar: " + error.message);
     } finally {
       setLoading(false);
@@ -292,9 +303,9 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                     setFormData({ ...formData, genero: e.target.value })
                   }
                 >
-                  <option value="Masculino">Masculino</option>
-                  <option value="Femenino">Femenino</option>
-                  <option value="Otro">Otro</option>
+                  <option value="M">Masculino</option>
+                  <option value="F">Femenino</option>
+                  <option value="-">Otro</option>
                 </select>
               </div>
               <div>
