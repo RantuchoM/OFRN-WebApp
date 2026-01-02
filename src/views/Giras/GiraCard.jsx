@@ -12,7 +12,7 @@ export default function GiraCard({
   isPersonal,
   userRole,
   startEdit,
-  handleDelete,
+  // handleDelete, // <--- YA NO USAMOS ESTA
   setGlobalCommentsGiraId,
   setCommentsState,
   activeMenuId,
@@ -20,6 +20,9 @@ export default function GiraCard({
   showRepertoireInCards,
   ensemblesList,
   supabase,
+  onMove,
+  onDuplicate,
+  onDelete, // <--- PROPIEDAD IMPORTANTE
 }) {
   const isMenuOpen = activeMenuId === gira.id;
 
@@ -30,7 +33,31 @@ export default function GiraCard({
     return `${d}/${m}`;
   };
 
+  // --- NUEVO: Helper para estilos de estado ---
+  const getStatusBadge = (estado) => {
+    // Si no tiene estado (legacy), asumimos Borrador o no mostramos nada
+    const status = estado || "Borrador"; 
+    
+    let styles = "bg-slate-100 text-slate-600 border-slate-200"; // Default (Borrador)
+    let label = "Borrador";
+
+    if (status === "Vigente") {
+        styles = "bg-green-100 text-green-700 border-green-200";
+        label = "Vigente";
+    } else if (status === "Pausada") {
+        styles = "bg-amber-100 text-amber-700 border-amber-200";
+        label = "Pausada";
+    }
+
+    return (
+        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ml-1 ${styles}`}>
+            {label}
+        </span>
+    );
+  };
+
   const getPersonnelDisplay = (gira) => {
+    // ... (Mismo código que tenías) ...
     const roster = gira.giras_integrantes || [];
     const directors = roster.filter(
       (r) => r.rol === "director" && r.estado === "confirmado"
@@ -61,6 +88,7 @@ export default function GiraCard({
   };
 
   const getSourcesDisplay = (gira) => {
+    // ... (Mismo código que tenías) ...
     const sources = gira.giras_fuentes || [];
     const ensembleMap = new Map(ensemblesList.map((e) => [e.value, e.label]));
     const inclusions = [];
@@ -124,6 +152,7 @@ export default function GiraCard({
   };
 
   const getConcertList = (gira) => {
+    // ... (Mismo código que tenías) ...
     const concerts = (gira.eventos || [])
       .filter(
         (e) =>
@@ -164,22 +193,27 @@ export default function GiraCard({
     ?.map((l) => l.localidades?.localidad)
     .join(", ");
 
+  // Definir color de borde lateral según estado
+  const getBorderColor = (tipo, estado) => {
+      // Si está pausada, gris/ambar sin importar el tipo
+      if (estado === 'Pausada') return 'bg-amber-400';
+      if (estado === 'Borrador') return 'bg-slate-300';
+
+      // Si es vigente, usa el color del tipo
+      if (tipo === "Sinfónico") return "bg-indigo-500";
+      if (tipo === "Ensamble") return "bg-emerald-500";
+      if (tipo === "Jazz Band") return "bg-amber-500";
+      return "bg-fuchsia-500";
+  };
+
   return (
     <div
       className={`bg-white rounded-xl border border-slate-200 shadow-sm p-3 md:p-4 relative border-l-0 overflow-visible transition-all ${
         isMenuOpen ? "z-50" : "z-0"
-      }`}
+      } ${gira.estado === 'Pausada' ? 'opacity-75' : ''}`} // Opacidad si está pausada
     >
       <div
-        className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-xl ${
-          gira.tipo === "Sinfónico"
-            ? "bg-indigo-500"
-            : gira.tipo === "Ensamble"
-            ? "bg-emerald-500"
-            : gira.tipo === "Jazz Band"
-            ? "bg-amber-500"
-            : "bg-fuchsia-500"
-        }`}
+        className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-xl ${getBorderColor(gira.tipo, gira.estado)}`}
       ></div>
       <div className="pl-2 flex flex-col gap-2">
         <div className="flex justify-between items-start gap-2">
@@ -190,25 +224,28 @@ export default function GiraCard({
           >
             <div className="flex flex-col gap-1 mb-2">
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                {/* TIPO: Más grande, mayúsculas y negrita */}
+                {/* TIPO */}
                 <span className="font-black text-slate-800 uppercase tracking-wide">
                   {gira.tipo}
                 </span>
 
-                {/* ZONA: En el medio (si existe) */}
+                {/* --- AQUI INSERTAMOS EL ESTADO --- */}
+                {getStatusBadge(gira.estado)}
+                {/* -------------------------------- */}
+
+                {/* ZONA */}
                 {gira.zona && (
-                  <>
-                    <span className="font-medium text-slate-600">
-                      ({gira.zona})
-                    </span>
-                  </>
+                  <span className="font-medium text-slate-600">
+                    ({gira.zona})
+                  </span>
                 )}
+                
                 {/* FECHAS */}
                 <div className="flex items-center gap-1 whitespace-nowrap ml-auto sm:ml-2 sm:pl-2 sm:border-l border-slate-200">
                   <IconCalendar size={12} />
                   {formatDate(gira.fecha_desde)}-{formatDate(gira.fecha_hasta)}
                 </div>
-                {/* MES | NOMENCLADOR: Al final con fondo gris */}
+                {/* MES | NOMENCLADOR */}
                 <span className="font-bold text-slate-600 bg-slate-100 px-1.5 rounded whitespace-nowrap ml-1">
                   {gira.mes_letra} | {gira.nomenclador}
                 </span>
@@ -229,6 +266,7 @@ export default function GiraCard({
                 </div>
               </div>
             </div>
+            {/* ... Resto del contenido ... */}
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 mt-1">
               {getPersonnelDisplay(gira)}
 
@@ -277,11 +315,16 @@ export default function GiraCard({
               isPersonal={isPersonal}
               userRole={userRole}
               onEdit={() => startEdit(gira)}
-              onDelete={(e) => handleDelete(e, gira.id)}
+              
+              // CAMBIO: onDelete usa la prop recibida del padre (GirasView)
+              onDelete={onDelete}
+              
               onGlobalComments={() => setGlobalCommentsGiraId(gira.id)}
               isOpen={isMenuOpen}
               onToggle={() => setActiveMenuId(isMenuOpen ? null : gira.id)}
               onClose={() => setActiveMenuId(null)}
+              onMove={() => onMove(gira)}
+              onDuplicate={() => onDuplicate(gira)}
             />
           </div>
         </div>

@@ -16,6 +16,8 @@ import {
   IconMessageCircle,
   IconTrash,
   IconChevronDown,
+  IconArrowRight, // Importado para "Trasladar"
+  IconCopy        // Importado para "Duplicar"
 } from "../../components/ui/Icons";
 
 const GiraActionMenu = ({
@@ -27,13 +29,16 @@ const GiraActionMenu = ({
   onEdit,
   onDelete,
   onGlobalComments,
+  // Props nuevas:
+  onMove, 
+  onDuplicate,
+  // Estados del menú:
   isOpen,
   onToggle,
   onClose,
 }) => {
   const [expandedCategory, setExpandedCategory] = useState(null);
   const menuRef = useRef(null);
-  // Lógica robusta para invitado igual que en tu vista principal
   const isGuest = userRole === "invitado";
 
   useEffect(() => {
@@ -55,12 +60,15 @@ const GiraActionMenu = ({
     setExpandedCategory(expandedCategory === key ? null : key);
   };
 
+  // --- SUBCOMPONENTES ---
+
   const SubMenuItem = ({ icon: Icon, label, onClick, className = "" }) => (
     <button
       onClick={(e) => {
         e.stopPropagation();
         onClose();
-        onClick();
+        // FIX: Verificamos que onClick exista antes de ejecutarlo
+        if (onClick) onClick();
       }}
       className={`w-full text-left px-4 py-3 md:py-2 text-sm md:text-xs hover:bg-slate-50 flex items-center gap-3 md:gap-2 text-slate-600 border-l-2 border-transparent hover:border-indigo-500 pl-6 ${className}`}
     >
@@ -108,6 +116,8 @@ const GiraActionMenu = ({
     );
   };
 
+  // --- RENDER ---
+
   return (
     <div className="relative" ref={menuRef}>
       <button
@@ -124,12 +134,15 @@ const GiraActionMenu = ({
       >
         <IconMoreVertical size={20} />
       </button>
+
       {isOpen && (
         <div
           className="absolute right-0 top-full mt-1 w-64 md:w-56 bg-white rounded-xl shadow-2xl border border-slate-200 z-[1000] overflow-hidden animate-in fade-in zoom-in-95 origin-top-right"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="max-h-[60vh] overflow-y-auto">
+            
+            {/* 1. REPERTORIO */}
             <CategoryItem
               label="Repertorio"
               icon={IconMusic}
@@ -151,6 +164,8 @@ const GiraActionMenu = ({
                 onClick={() => onViewChange("REPERTOIRE", "my_parts")}
               />
             </CategoryItem>
+
+            {/* 2. AGENDA */}
             <CategoryItem
               icon={IconCalendar}
               label="Agenda"
@@ -162,6 +177,8 @@ const GiraActionMenu = ({
                 onClick={() => onViewChange("AGENDA")}
               />
             </CategoryItem>
+
+            {/* 3. LOGÍSTICA */}
             <CategoryItem
               label="Logística"
               icon={IconSettingsWheel}
@@ -204,6 +221,8 @@ const GiraActionMenu = ({
                 />
               )}
             </CategoryItem>
+
+            {/* 4. EDICIÓN (Solo editores) */}
             {isEditor && (
               <>
                 <CategoryItem
@@ -228,6 +247,8 @@ const GiraActionMenu = ({
                     onClick={() => onViewChange("DIFUSION")}
                   />
                 </CategoryItem>
+                
+                {/* --- SECCIÓN DE ACCIONES --- */}
                 <CategoryItem
                   label="Edición"
                   icon={IconEdit}
@@ -243,6 +264,25 @@ const GiraActionMenu = ({
                     label="Editar Programa"
                     onClick={onEdit}
                   />
+
+                  {/* NUEVOS BOTONES TRASLADAR / DUPLICAR */}
+                  <div className="my-1 border-t border-slate-100"></div>
+                  
+                  <SubMenuItem
+                    icon={IconArrowRight}
+                    label="Trasladar Fechas"
+                    onClick={onMove} // Asegúrate de que GiraCard pase esta función
+                    className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                  />
+                  <SubMenuItem
+                    icon={IconCopy}
+                    label="Duplicar Gira"
+                    onClick={onDuplicate} // Asegúrate de que GiraCard pase esta función
+                    className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                  />
+
+                  <div className="my-1 border-t border-slate-100"></div>
+
                   <SubMenuItem
                     icon={IconTrash}
                     label="Eliminar Programa"
@@ -252,6 +292,7 @@ const GiraActionMenu = ({
                 </CategoryItem>
               </>
             )}
+            
           </div>
         </div>
       )}

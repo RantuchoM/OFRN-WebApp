@@ -1454,7 +1454,40 @@ export const IconCircle = ({ size = 20, className = "" }) => (
     <circle cx="12" cy="12" r="10"></circle>
   </svg>
 );
+export const IconSpiralNotebook = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    {/* Contorno del Cuaderno */}
+    <rect width="14" height="20" x="5" y="2" rx="2" />
+    
+    {/* Espirales (Izquierda) */}
+    <path d="M5 6h-2" />
+    <path d="M5 10h-2" />
+    <path d="M5 14h-2" />
+    <path d="M5 18h-2" />
 
+    {/* Ítems de la lista */}
+    {/* 1. Tilde (Check) */}
+    <path d="M9 7l1 1 3-3" />
+    
+    {/* 2. Cruz (X) */}
+    <path d="M9 11l4 4" />
+    <path d="M13 11l-4 4" />
+
+    {/* 3. Cuadrado vacío */}
+    <rect x="9" y="17" width="4" height="4" rx="1" />
+  </svg>
+);
 
 export const IconUserMinus = ({ size = 24, className = "" }) => (
   <svg

@@ -1,5 +1,5 @@
-// src/views/Giras/GiraRoster.jsx
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom"; // <--- IMPORTANTE: Importar createPortal
 import {
   IconUsers,
   IconPlus,
@@ -18,7 +18,7 @@ import {
   IconUserPlus,
   IconExchange,
   IconUserMinus,
-  IconPencil // <--- IMPORTANTE: Asegúrate de tener este ícono en Icons.jsx
+  IconPencil 
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import MusicianForm from "../Musicians/MusicianForm";
@@ -345,7 +345,6 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   const handleEditSave = async () => {
     setEditingMusician(null);
     refreshRoster(); // Recargamos la lista para reflejar cambios (nombre, loc, etc)
-    // alert("Datos actualizados correctamente."); // Opcional
   };
 
   const changeRole = async (musician, newRole) => {
@@ -1003,53 +1002,62 @@ export default function GiraRoster({ supabase, gira, onBack }) {
 
       {/* --- MODAL DETALLADO DE CREACIÓN DE MÚSICO --- */}
       {isCreatingDetailed && (
-        <div
-          className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 shadow-2xl"
-          style={{ zIndex: 99999 }}
-        >
-          <div className="w-full max-w-2xl animate-in zoom-in-95 duration-200">
-            <MusicianForm
-              supabase={supabase}
-              musician={{
-                id: generateNumericId(),
-                nombre: tempName.nombre,
-                apellido: tempName.apellido,
-                condicion: "Invitado",
-              }}
-              onSave={handleDetailedSave}
-              onCancel={() => setIsCreatingDetailed(false)}
-            />
-          </div>
-        </div>
+        // CAMBIO: createPortal para evitar problemas de overflow
+        createPortal(
+          <div
+            className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 shadow-2xl"
+            style={{ zIndex: 99999 }}
+          >
+            <div className="w-full max-w-2xl animate-in zoom-in-95 duration-200">
+              <MusicianForm
+                supabase={supabase}
+                musician={{
+                  id: generateNumericId(),
+                  nombre: tempName.nombre,
+                  apellido: tempName.apellido,
+                  condicion: "Invitado",
+                }}
+                onSave={handleDetailedSave}
+                onCancel={() => setIsCreatingDetailed(false)}
+              />
+            </div>
+          </div>,
+          document.body // Portal al body
+        )
       )}
 
       {/* --- MODAL DE EDICIÓN (LÁPIZ) --- */}
       {editingMusician && (
-        <div
-          className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 shadow-2xl"
-          style={{ zIndex: 100000 }} 
-        >
-          <div className="w-full max-w-2xl animate-in zoom-in-95 duration-200 bg-white rounded-xl overflow-hidden shadow-2xl border border-slate-200">
-             {/* Header propio para mejorar UX */}
-             <div className="bg-slate-50 border-b border-slate-100 p-3 flex justify-between items-center">
-                <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                   <IconPencil size={16} className="text-indigo-600"/> 
-                   Editar {editingMusician.es_simulacion ? 'Vacante' : 'Músico'}
-                </h3>
-                <button onClick={() => setEditingMusician(null)} className="text-slate-400 hover:text-red-500">
-                    <IconX size={20}/>
-                </button>
+        // CAMBIO: createPortal + sin overflow-hidden en el contenedor
+        createPortal(
+          <div
+            className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 shadow-2xl"
+            style={{ zIndex: 100000 }} 
+          >
+            <div className="w-full max-w-2xl animate-in zoom-in-95 duration-200 bg-white rounded-xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
+               {/* Header propio para mejorar UX */}
+               <div className="bg-slate-50 border-b border-slate-100 p-3 flex justify-between items-center shrink-0">
+                  <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                     <IconPencil size={16} className="text-indigo-600"/> 
+                     Editar {editingMusician.es_simulacion ? 'Vacante' : 'Músico'}
+                  </h3>
+                  <button onClick={() => setEditingMusician(null)} className="text-slate-400 hover:text-red-500">
+                      <IconX size={20}/>
+                  </button>
+              </div>
+              {/* CAMBIO: No usamos overflow-y-auto aquí, dejamos que MusicianForm maneje el scroll interno */}
+              <div className="flex-1 overflow-hidden flex flex-col">
+                <MusicianForm
+                  supabase={supabase}
+                  musician={editingMusician} 
+                  onSave={handleEditSave}
+                  onCancel={() => setEditingMusician(null)}
+                />
+              </div>
             </div>
-            <div className="max-h-[85vh] overflow-y-auto">
-              <MusicianForm
-                supabase={supabase}
-                musician={editingMusician} 
-                onSave={handleEditSave}
-                onCancel={() => setEditingMusician(null)}
-              />
-            </div>
-          </div>
-        </div>
+          </div>,
+          document.body // Portal al body
+        )
       )}
 
       {/* --- MODALES DE VACANTES (PLACEHOLDERS) --- */}

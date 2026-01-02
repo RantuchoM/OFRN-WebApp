@@ -20,7 +20,8 @@ import {
   IconUserMinus,
   IconLink,
   IconCopy,
-  IconCloud
+  IconCloud,
+  IconSettings,
 } from "../../components/ui/Icons";
 import LocationMultiSelect from "../../components/filters/LocationMultiSelect";
 import DateInput from "../../components/ui/DateInput";
@@ -217,7 +218,7 @@ export default function GiraForm({
   setFormData,
   onCancel,
   onSave,
-  onRefresh, 
+  onRefresh,
   loading,
   isNew = false,
   locationsList = [],
@@ -229,11 +230,11 @@ export default function GiraForm({
   setSelectedSources,
   selectedStaff = [],
   setSelectedStaff,
-  enableAutoSave = false
+  enableAutoSave = false,
 }) {
   const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
   const [tempName, setTempName] = useState({ nombre: "", apellido: "" });
-  const [savingField, setSavingField] = useState(null); 
+  const [savingField, setSavingField] = useState(null);
   const [globalSaving, setGlobalSaving] = useState(false); // Estado general de guardado
   const [isShifting, setIsShifting] = useState(false);
   const [shiftNewDate, setShiftNewDate] = useState("");
@@ -242,7 +243,8 @@ export default function GiraForm({
   const FAMILIES = ["Cuerdas", "Maderas", "Bronces", "Percusión", "-"];
 
   const StatusIndicator = ({ field }) => {
-    if (savingField === field) return <IconLoader size={14} className="animate-spin text-indigo-600" />;
+    if (savingField === field)
+      return <IconLoader size={14} className="animate-spin text-indigo-600" />;
     return null;
   };
 
@@ -253,71 +255,91 @@ export default function GiraForm({
     const value = valueOverride !== null ? valueOverride : formData[fieldName];
     setSavingField(fieldName);
     setGlobalSaving(true);
-    
+
     try {
       const { error } = await supabase
-        .from('programas')
+        .from("programas")
         .update({ [fieldName]: value })
-        .eq('id', giraId);
+        .eq("id", giraId);
 
       if (error) throw error;
       if (onRefresh) onRefresh();
-
     } catch (err) {
       console.error("Error auto-guardando:", err);
     } finally {
       setTimeout(() => {
-          setSavingField(null);
-          setGlobalSaving(false);
+        setSavingField(null);
+        setGlobalSaving(false);
       }, 500);
     }
   };
 
   // --- AUTO-SAVE DE RELACIONES (GRANULAR) ---
-  
+
   // 1. FUENTES (Ensambles / Familias)
   const toggleSource = async (tipo, value, label) => {
     const isId = tipo !== "FAMILIA";
-    
+
     // Check si existe
     const exists = selectedSources.some(
-      (s) => s.tipo === tipo && (isId ? s.valor_id === value : s.valor_texto === value)
+      (s) =>
+        s.tipo === tipo &&
+        (isId ? s.valor_id === value : s.valor_texto === value)
     );
 
     // Actualizar Estado Local
     if (exists) {
-      setSelectedSources((prev) => prev.filter((s) => !(s.tipo === tipo && (isId ? s.valor_id === value : s.valor_texto === value))));
+      setSelectedSources((prev) =>
+        prev.filter(
+          (s) =>
+            !(
+              s.tipo === tipo &&
+              (isId ? s.valor_id === value : s.valor_texto === value)
+            )
+        )
+      );
     } else {
-      const newItem = { tipo, label, valor_id: isId ? value : null, valor_texto: !isId ? value : null };
+      const newItem = {
+        tipo,
+        label,
+        valor_id: isId ? value : null,
+        valor_texto: !isId ? value : null,
+      };
       setSelectedSources((prev) => [...prev, newItem]);
     }
 
     // Auto-Guardado en BD
     if (!isNew && enableAutoSave) {
-        setGlobalSaving(true);
-        try {
-            if (exists) {
-                // Borrar
-                let query = supabase.from('giras_fuentes').delete().eq('id_gira', giraId).eq('tipo', tipo);
-                if (isId) query = query.eq('valor_id', value);
-                else query = query.eq('valor_texto', value);
-                await query;
-            } else {
-                // Insertar
-                await supabase.from('giras_fuentes').insert([{
-                    id_gira: giraId,
-                    tipo,
-                    valor_id: isId ? value : null,
-                    valor_texto: !isId ? value : null
-                }]);
-            }
-            // Sincronizar Drive (opcional, si aplica)
-            // await supabase.functions.invoke("manage-drive", { body: { action: "sync_program", programId: giraId } });
-        } catch (error) {
-            console.error("Error guardando fuente:", error);
-        } finally {
-            setGlobalSaving(false);
+      setGlobalSaving(true);
+      try {
+        if (exists) {
+          // Borrar
+          let query = supabase
+            .from("giras_fuentes")
+            .delete()
+            .eq("id_gira", giraId)
+            .eq("tipo", tipo);
+          if (isId) query = query.eq("valor_id", value);
+          else query = query.eq("valor_texto", value);
+          await query;
+        } else {
+          // Insertar
+          await supabase.from("giras_fuentes").insert([
+            {
+              id_gira: giraId,
+              tipo,
+              valor_id: isId ? value : null,
+              valor_texto: !isId ? value : null,
+            },
+          ]);
         }
+        // Sincronizar Drive (opcional, si aplica)
+        // await supabase.functions.invoke("manage-drive", { body: { action: "sync_program", programId: giraId } });
+      } catch (error) {
+        console.error("Error guardando fuente:", error);
+      } finally {
+        setGlobalSaving(false);
+      }
     }
   };
 
@@ -325,28 +347,35 @@ export default function GiraForm({
   const handleSelectStaff = async (idInt) => {
     const person = allIntegrantes.find((i) => i.value === idInt);
     if (!person) return;
-    
-    const exists = selectedStaff.some((s) => s.id_integrante === idInt && s.rol === staffRole);
+
+    const exists = selectedStaff.some(
+      (s) => s.id_integrante === idInt && s.rol === staffRole
+    );
     if (exists) return; // Ya está
 
     // Local
-    setSelectedStaff([...selectedStaff, { id_integrante: idInt, rol: staffRole, label: person.label }]);
+    setSelectedStaff([
+      ...selectedStaff,
+      { id_integrante: idInt, rol: staffRole, label: person.label },
+    ]);
 
     // BD
     if (!isNew && enableAutoSave) {
-        setGlobalSaving(true);
-        try {
-            await supabase.from("giras_integrantes").insert([{ 
-                id_gira: giraId, 
-                id_integrante: idInt, 
-                rol: staffRole, 
-                estado: "confirmado" 
-            }]);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setGlobalSaving(false);
-        }
+      setGlobalSaving(true);
+      try {
+        await supabase.from("giras_integrantes").insert([
+          {
+            id_gira: giraId,
+            id_integrante: idInt,
+            rol: staffRole,
+            estado: "confirmado",
+          },
+        ]);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setGlobalSaving(false);
+      }
     }
   };
 
@@ -357,65 +386,85 @@ export default function GiraForm({
     setSelectedStaff(newStaff);
 
     if (!isNew && enableAutoSave && staffToRemove) {
-        setGlobalSaving(true);
-        try {
-            await supabase.from("giras_integrantes").delete()
-                .eq('id_gira', giraId)
-                .eq('id_integrante', staffToRemove.id_integrante)
-                .eq('rol', staffToRemove.rol);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setGlobalSaving(false);
-        }
+      setGlobalSaving(true);
+      try {
+        await supabase
+          .from("giras_integrantes")
+          .delete()
+          .eq("id_gira", giraId)
+          .eq("id_integrante", staffToRemove.id_integrante)
+          .eq("rol", staffToRemove.rol);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setGlobalSaving(false);
+      }
     }
   };
 
   // 3. LOCALIDADES
-  // Nota: LocationMultiSelect devuelve un Set nuevo completo. Necesitamos diferenciar qué se agregó/quitó para ser eficientes, 
+  // Nota: LocationMultiSelect devuelve un Set nuevo completo. Necesitamos diferenciar qué se agregó/quitó para ser eficientes,
   // o simplemente hacer un diff simple.
   const handleLocationChange = async (newSet) => {
-      // Calculamos diferencias
-      const added = [...newSet].filter(x => !selectedLocations.has(x));
-      const removed = [...selectedLocations].filter(x => !newSet.has(x));
-      
-      setSelectedLocations(newSet);
+    // Calculamos diferencias
+    const added = [...newSet].filter((x) => !selectedLocations.has(x));
+    const removed = [...selectedLocations].filter((x) => !newSet.has(x));
 
-      if (!isNew && enableAutoSave) {
-          setGlobalSaving(true);
-          try {
-              if (added.length > 0) {
-                  const toInsert = added.map(lid => ({ id_gira: giraId, id_localidad: lid }));
-                  await supabase.from("giras_localidades").insert(toInsert);
-              }
-              if (removed.length > 0) {
-                  await supabase.from("giras_localidades").delete().eq('id_gira', giraId).in('id_localidad', removed);
-              }
-          } catch (e) {
-              console.error(e);
-          } finally {
-              setGlobalSaving(false);
-          }
+    setSelectedLocations(newSet);
+
+    if (!isNew && enableAutoSave) {
+      setGlobalSaving(true);
+      try {
+        if (added.length > 0) {
+          const toInsert = added.map((lid) => ({
+            id_gira: giraId,
+            id_localidad: lid,
+          }));
+          await supabase.from("giras_localidades").insert(toInsert);
+        }
+        if (removed.length > 0) {
+          await supabase
+            .from("giras_localidades")
+            .delete()
+            .eq("id_gira", giraId)
+            .in("id_localidad", removed);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setGlobalSaving(false);
       }
+    }
   };
 
   const removeLocation = async (locId) => {
-      const newLocs = new Set(selectedLocations);
-      newLocs.delete(locId);
-      setSelectedLocations(newLocs);
+    const newLocs = new Set(selectedLocations);
+    newLocs.delete(locId);
+    setSelectedLocations(newLocs);
 
-      if (!isNew && enableAutoSave) {
-          setGlobalSaving(true);
-          try {
-              await supabase.from("giras_localidades").delete().eq('id_gira', giraId).eq('id_localidad', locId);
-          } catch(e) { console.error(e); } finally { setGlobalSaving(false); }
+    if (!isNew && enableAutoSave) {
+      setGlobalSaving(true);
+      try {
+        await supabase
+          .from("giras_localidades")
+          .delete()
+          .eq("id_gira", giraId)
+          .eq("id_localidad", locId);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setGlobalSaving(false);
       }
+    }
   };
 
   // --- OTROS HANDLERS ---
   const handleCreateGuest = (searchText) => {
     const parts = searchText.trim().split(" ");
-    setTempName({ nombre: parts[0] || "", apellido: parts.slice(1).join(" ") || "" });
+    setTempName({
+      nombre: parts[0] || "",
+      apellido: parts.slice(1).join(" ") || "",
+    });
     setIsCreatingDetailed(true);
   };
 
@@ -424,10 +473,24 @@ export default function GiraForm({
       // Siempre insertamos en BD si estamos editando
       if (!isNew && giraId) {
         setGlobalSaving(true);
-        await supabase.from("giras_integrantes").insert([{ id_gira: giraId, id_integrante: newMusician.id, rol: staffRole, estado: "confirmado" }]);
+        await supabase.from("giras_integrantes").insert([
+          {
+            id_gira: giraId,
+            id_integrante: newMusician.id,
+            rol: staffRole,
+            estado: "confirmado",
+          },
+        ]);
         setGlobalSaving(false);
       }
-      setSelectedStaff((prev) => [...prev, { id_integrante: newMusician.id, rol: staffRole, label: `${newMusician.apellido}, ${newMusician.nombre}` }]);
+      setSelectedStaff((prev) => [
+        ...prev,
+        {
+          id_integrante: newMusician.id,
+          rol: staffRole,
+          label: `${newMusician.apellido}, ${newMusician.nombre}`,
+        },
+      ]);
       setIsCreatingDetailed(false);
     } catch (error) {
       console.error(error);
@@ -438,23 +501,31 @@ export default function GiraForm({
   // Link handlers
   const togglePublicLink = async () => {
     const newToken = formData.token_publico ? null : self.crypto.randomUUID();
-    setFormData(prev => ({ ...prev, token_publico: newToken }));
-    if(enableAutoSave) await handleAutoSave('token_publico', newToken);
+    setFormData((prev) => ({ ...prev, token_publico: newToken }));
+    if (enableAutoSave) await handleAutoSave("token_publico", newToken);
   };
   const regenerateLink = async () => {
-    if (!confirm("Si regeneras el enlace, el anterior dejará de funcionar. ¿Continuar?")) return;
+    if (
+      !confirm(
+        "Si regeneras el enlace, el anterior dejará de funcionar. ¿Continuar?"
+      )
+    )
+      return;
     const newToken = self.crypto.randomUUID();
-    setFormData(prev => ({ ...prev, token_publico: newToken }));
-    if(enableAutoSave) await handleAutoSave('token_publico', newToken);
+    setFormData((prev) => ({ ...prev, token_publico: newToken }));
+    if (enableAutoSave) await handleAutoSave("token_publico", newToken);
   };
   const copyLink = () => {
     const url = `${window.location.origin}/share/${formData.token_publico}`;
     navigator.clipboard.writeText(url);
     alert("Enlace copiado");
   };
-  const generateNumericId = () => Math.floor(10000000 + Math.random() * 90000000);
-  const handleShiftProgram = async () => { alert("En desarrollo"); setIsShifting(false); };
-
+  const generateNumericId = () =>
+    Math.floor(10000000 + Math.random() * 90000000);
+  const handleShiftProgram = async () => {
+    alert("En desarrollo");
+    setIsShifting(false);
+  };
 
   return (
     <div
@@ -466,17 +537,29 @@ export default function GiraForm({
     >
       {/* INDICADOR GLOBAL DE GUARDADO */}
       {!isNew && enableAutoSave && (
-          <div className={`absolute top-2 right-14 flex items-center gap-2 text-[10px] font-bold uppercase transition-opacity duration-300 ${globalSaving ? 'opacity-100 text-indigo-600' : 'opacity-0 text-slate-400'}`}>
-              <IconCloud size={12} /> {globalSaving ? 'Guardando...' : 'Guardado'}
-          </div>
+        <div
+          className={`absolute top-2 right-14 flex items-center gap-2 text-[10px] font-bold uppercase transition-opacity duration-300 ${
+            globalSaving
+              ? "opacity-100 text-indigo-600"
+              : "opacity-0 text-slate-400"
+          }`}
+        >
+          <IconCloud size={12} /> {globalSaving ? "Guardando..." : "Guardado"}
+        </div>
       )}
 
       <div className="flex justify-between items-center mb-4 border-b border-indigo-100 pb-2">
         <h3 className="text-indigo-900 font-bold flex items-center gap-2">
           {isNew ? (
-            <> <IconPlus size={18} /> Nuevo Programa </>
+            <>
+              {" "}
+              <IconPlus size={18} /> Nuevo Programa{" "}
+            </>
           ) : (
-            <> <IconEdit size={18} /> Configuración de Gira </>
+            <>
+              {" "}
+              <IconEdit size={18} /> Configuración de Gira{" "}
+            </>
           )}
         </h3>
         {!isNew && !isShifting && (
@@ -492,11 +575,30 @@ export default function GiraForm({
       {isShifting && (
         <div className="mb-6 bg-amber-50 border border-amber-200 p-4 rounded-lg animate-in slide-in-from-top-2">
           {/* ... (UI traslado igual) ... */}
-          <h4 className="text-amber-800 font-bold text-sm mb-2 flex items-center gap-2"><IconRefresh size={16} /> Trasladar Gira Completa</h4>
+          <h4 className="text-amber-800 font-bold text-sm mb-2 flex items-center gap-2">
+            <IconRefresh size={16} /> Trasladar Gira Completa
+          </h4>
           <div className="flex items-end gap-3">
-            <div className="flex-1"><DateInput label="Nueva Fecha Inicio" value={shiftNewDate} onChange={setShiftNewDate} /></div>
-            <button onClick={handleShiftProgram} disabled={shiftLoading} className="px-3 py-1 bg-amber-600 text-white text-xs font-bold rounded mb-1">{shiftLoading ? "..." : "Confirmar"}</button>
-            <button onClick={() => setIsShifting(false)} className="px-3 py-1 bg-white border border-amber-200 text-amber-700 text-xs rounded mb-1">Cancelar</button>
+            <div className="flex-1">
+              <DateInput
+                label="Nueva Fecha Inicio"
+                value={shiftNewDate}
+                onChange={setShiftNewDate}
+              />
+            </div>
+            <button
+              onClick={handleShiftProgram}
+              disabled={shiftLoading}
+              className="px-3 py-1 bg-amber-600 text-white text-xs font-bold rounded mb-1"
+            >
+              {shiftLoading ? "..." : "Confirmar"}
+            </button>
+            <button
+              onClick={() => setIsShifting(false)}
+              className="px-3 py-1 bg-white border border-amber-200 text-amber-700 text-xs rounded mb-1"
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}
@@ -505,37 +607,51 @@ export default function GiraForm({
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
         <div className="md:col-span-8 flex gap-4">
           <div className="flex-1 relative">
-            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Nombre Interno</label>
+            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
+              Nombre Interno
+            </label>
             <input
               type="text"
               className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-medium text-lg"
               value={formData.nombre_gira}
-              onChange={(e) => setFormData({ ...formData, nombre_gira: e.target.value })}
-              onBlur={() => handleAutoSave('nombre_gira')}
+              onChange={(e) =>
+                setFormData({ ...formData, nombre_gira: e.target.value })
+              }
+              onBlur={() => handleAutoSave("nombre_gira")}
             />
-            <div className="absolute right-2 top-8"><StatusIndicator field="nombre_gira"/></div>
+            <div className="absolute right-2 top-8">
+              <StatusIndicator field="nombre_gira" />
+            </div>
           </div>
           <div className="w-1/3 relative">
-            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Subtítulo</label>
+            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
+              Subtítulo
+            </label>
             <input
               type="text"
               className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-sm"
               placeholder="Ej. Ciclo 2025"
               value={formData.subtitulo || ""}
-              onChange={(e) => setFormData({ ...formData, subtitulo: e.target.value })}
-              onBlur={() => handleAutoSave('subtitulo')}
+              onChange={(e) =>
+                setFormData({ ...formData, subtitulo: e.target.value })
+              }
+              onBlur={() => handleAutoSave("subtitulo")}
             />
-            <div className="absolute right-2 top-8"><StatusIndicator field="subtitulo"/></div>
+            <div className="absolute right-2 top-8">
+              <StatusIndicator field="subtitulo" />
+            </div>
           </div>
         </div>
         <div className="md:col-span-4 relative">
-          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Tipo de Programa</label>
+          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
+            Tipo de Programa
+          </label>
           <select
             className="w-full border border-slate-300 p-2 rounded bg-white h-[46px]"
             value={formData.tipo || "Sinfónico"}
             onChange={(e) => {
-                setFormData({ ...formData, tipo: e.target.value });
-                handleAutoSave('tipo', e.target.value);
+              setFormData({ ...formData, tipo: e.target.value });
+              handleAutoSave("tipo", e.target.value);
             }}
           >
             <option value="Sinfónico">Sinfónico</option>
@@ -543,17 +659,18 @@ export default function GiraForm({
             <option value="Ensamble">Ensamble</option>
             <option value="Jazz Band">Jazz Band</option>
           </select>
-          <div className="absolute right-8 top-8"><StatusIndicator field="tipo"/></div>
+          <div className="absolute right-8 top-8">
+            <StatusIndicator field="tipo" />
+          </div>
         </div>
-        
-      
+
         <div className="md:col-span-3">
           <DateInput
             label="Fecha Inicio"
             value={formData.fecha_desde}
             onChange={(val) => {
-                setFormData({ ...formData, fecha_desde: val });
-                handleAutoSave('fecha_desde', val);
+              setFormData({ ...formData, fecha_desde: val });
+              handleAutoSave("fecha_desde", val);
             }}
           />
         </div>
@@ -562,21 +679,63 @@ export default function GiraForm({
             label="Fecha Fin"
             value={formData.fecha_hasta}
             onChange={(val) => {
-                setFormData({ ...formData, fecha_hasta: val });
-                handleAutoSave('fecha_hasta', val);
+              setFormData({ ...formData, fecha_hasta: val });
+              handleAutoSave("fecha_hasta", val);
             }}
           />
         </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-bold text-slate-500 uppercase">
+            Estado
+          </label>
+          <div className="relative">
+            <select
+              value={formData.estado || "Borrador"}
+              onChange={(e) => {
+                const newVal = e.target.value;
+                // 1. Actualizar estado visual
+                setFormData({ ...formData, estado: newVal });
+                // 2. Guardar en Base de Datos
+                handleAutoSave("estado", newVal);
+              }}
+              className={`w-full p-2 pl-9 rounded-lg border appearance-none outline-none font-medium focus:ring-2 focus:ring-indigo-500 ${
+                formData.estado === "Vigente"
+                  ? "bg-green-50 border-green-200 text-green-700"
+                  : formData.estado === "Pausada"
+                  ? "bg-amber-50 border-amber-200 text-amber-700"
+                  : "bg-slate-50 border-slate-200 text-slate-600"
+              }`}
+            >
+              <option value="Borrador">📝 Borrador</option>
+              <option value="Vigente">✅ Vigente</option>
+              <option value="Pausada">⏸️ Pausada</option>
+            </select>
+            {/* Icono decorativo opcional */}
+            <IconSettings
+              size={16}
+              className="absolute left-3 top-3 text-slate-400 pointer-events-none"
+            />
+
+            {/* Indicador de carga específico para este campo */}
+            <div className="absolute right-8 top-3">
+              <StatusIndicator field="estado" />
+            </div>
+          </div>
+        </div>
         <div className="md:col-span-6 relative">
-          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Zona</label>
+          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
+            Zona
+          </label>
           <input
             type="text"
             className="w-full border border-slate-300 p-2 rounded bg-white"
             value={formData.zona || ""}
             onChange={(e) => setFormData({ ...formData, zona: e.target.value })}
-            onBlur={() => handleAutoSave('zona')}
+            onBlur={() => handleAutoSave("zona")}
           />
-          <div className="absolute right-2 top-8"><StatusIndicator field="zona"/></div>
+          <div className="absolute right-2 top-8">
+            <StatusIndicator field="zona" />
+          </div>
         </div>
         <div className="md:col-span-12 pt-2 border-t border-slate-100 mt-2">
           <LocationMultiSelect
@@ -586,12 +745,22 @@ export default function GiraForm({
           />
           <div className="flex flex-wrap gap-2 mt-2">
             {Array.from(selectedLocations).map((locId) => {
-              const locName = locationsList.find((l) => l.id === locId)?.localidad;
+              const locName = locationsList.find(
+                (l) => l.id === locId
+              )?.localidad;
               if (!locName) return null;
               return (
-                <span key={locId} className="inline-flex items-center gap-1.5 px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-xs font-bold uppercase animate-in zoom-in-95">
+                <span
+                  key={locId}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-xs font-bold uppercase animate-in zoom-in-95"
+                >
                   {locName}
-                  <button onClick={() => removeLocation(locId)} className="hover:text-red-500 rounded-full p-0.5"><IconX size={12} /></button>
+                  <button
+                    onClick={() => removeLocation(locId)}
+                    className="hover:text-red-500 rounded-full p-0.5"
+                  >
+                    <IconX size={12} />
+                  </button>
                 </span>
               );
             })}
@@ -607,30 +776,75 @@ export default function GiraForm({
           </h4>
           <div className="grid grid-cols-3 gap-2">
             <SourceMultiSelect
-              title="Ensambles" color="emerald" icon={IconMusic} options={ensemblesList}
-              selectedSet={new Set(selectedSources.filter((s) => s.tipo === "ENSAMBLE").map((s) => s.valor_id))}
+              title="Ensambles"
+              color="emerald"
+              icon={IconMusic}
+              options={ensemblesList}
+              selectedSet={
+                new Set(
+                  selectedSources
+                    .filter((s) => s.tipo === "ENSAMBLE")
+                    .map((s) => s.valor_id)
+                )
+              }
               onToggle={(val, lbl) => toggleSource("ENSAMBLE", val, lbl)}
             />
             <SourceMultiSelect
-              title="Familias" color="indigo" icon={IconUsers} options={FAMILIES.map((f) => ({ value: f, label: f }))}
-              selectedSet={new Set(selectedSources.filter((s) => s.tipo === "FAMILIA").map((s) => s.valor_texto))}
+              title="Familias"
+              color="indigo"
+              icon={IconUsers}
+              options={FAMILIES.map((f) => ({ value: f, label: f }))}
+              selectedSet={
+                new Set(
+                  selectedSources
+                    .filter((s) => s.tipo === "FAMILIA")
+                    .map((s) => s.valor_texto)
+                )
+              }
               onToggle={(val, lbl) => toggleSource("FAMILIA", val, lbl)}
             />
             <SourceMultiSelect
-              title="Excluir Ens." color="red" icon={IconAlertTriangle} options={ensemblesList}
-              selectedSet={new Set(selectedSources.filter((s) => s.tipo === "EXCL_ENSAMBLE").map((s) => s.valor_id))}
+              title="Excluir Ens."
+              color="red"
+              icon={IconAlertTriangle}
+              options={ensemblesList}
+              selectedSet={
+                new Set(
+                  selectedSources
+                    .filter((s) => s.tipo === "EXCL_ENSAMBLE")
+                    .map((s) => s.valor_id)
+                )
+              }
               onToggle={(val, lbl) => toggleSource("EXCL_ENSAMBLE", val, lbl)}
             />
           </div>
           <div className="flex flex-wrap gap-2 min-h-[30px] content-start bg-slate-50 p-2 rounded-lg border border-slate-100">
             {selectedSources.length === 0 ? (
-              <span className="text-[10px] text-slate-400 italic">Nada seleccionado</span>
+              <span className="text-[10px] text-slate-400 italic">
+                Nada seleccionado
+              </span>
             ) : (
               selectedSources.map((s, idx) => (
-                <span key={idx} className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold uppercase border animate-in zoom-in-95 shadow-sm bg-white ${s.tipo === "EXCL_ENSAMBLE" ? "border-red-200 text-red-700" : s.tipo === "FAMILIA" ? "border-indigo-200 text-indigo-700" : "border-emerald-200 text-emerald-700"}`}>
+                <span
+                  key={idx}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold uppercase border animate-in zoom-in-95 shadow-sm bg-white ${
+                    s.tipo === "EXCL_ENSAMBLE"
+                      ? "border-red-200 text-red-700"
+                      : s.tipo === "FAMILIA"
+                      ? "border-indigo-200 text-indigo-700"
+                      : "border-emerald-200 text-emerald-700"
+                  }`}
+                >
                   {s.tipo === "EXCL_ENSAMBLE" && "🚫 "}
                   {s.label}
-                  <button onClick={() => toggleSource(s.tipo, s.valor_id || s.valor_texto, s.label)} className="ml-1 hover:text-black hover:bg-black/5 rounded-full p-0.5"><IconX size={10} /></button>
+                  <button
+                    onClick={() =>
+                      toggleSource(s.tipo, s.valor_id || s.valor_texto, s.label)
+                    }
+                    className="ml-1 hover:text-black hover:bg-black/5 rounded-full p-0.5"
+                  >
+                    <IconX size={10} />
+                  </button>
                 </span>
               ))
             )}
@@ -638,20 +852,45 @@ export default function GiraForm({
         </div>
 
         <div className="md:col-span-5">
-          <h4 className="text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2"><IconUsers size={16} /> Staff Artístico</h4>
+          <h4 className="text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2">
+            <IconUsers size={16} /> Staff Artístico
+          </h4>
           <div className="flex flex-col gap-2 p-3 rounded-lg border bg-fuchsia-50/30 border-fuchsia-100">
             <div className="flex gap-2">
-              <select className="w-1/3 border border-slate-300 p-1.5 rounded text-xs outline-none bg-white font-bold text-fuchsia-800" value={staffRole} onChange={(e) => setStaffRole(e.target.value)}>
+              <select
+                className="w-1/3 border border-slate-300 p-1.5 rounded text-xs outline-none bg-white font-bold text-fuchsia-800"
+                value={staffRole}
+                onChange={(e) => setStaffRole(e.target.value)}
+              >
                 <option value="director">Director</option>
                 <option value="solista">Solista</option>
               </select>
-              <StaffSearchInput options={allIntegrantes} onSelect={handleSelectStaff} onCreateNew={handleCreateGuest} />
+              <StaffSearchInput
+                options={allIntegrantes}
+                onSelect={handleSelectStaff}
+                onCreateNew={handleCreateGuest}
+              />
             </div>
             <div className="flex flex-wrap gap-2 mt-1 content-start min-h-[20px]">
               {selectedStaff.map((s, idx) => (
-                <span key={idx} className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border shadow-sm animate-in zoom-in-95 bg-white ${s.rol === "Director" ? "text-purple-700 border-purple-200" : "text-fuchsia-700 border-fuchsia-200"}`}>
-                  <span className="opacity-50 uppercase mr-0.5 text-[9px]">{s.rol.slice(0, 3)}:</span> {s.label}
-                  <button onClick={() => removeStaff(idx)} className="ml-1 hover:text-red-600 rounded-full hover:bg-slate-100 p-0.5"><IconX size={10} /></button>
+                <span
+                  key={idx}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border shadow-sm animate-in zoom-in-95 bg-white ${
+                    s.rol === "Director"
+                      ? "text-purple-700 border-purple-200"
+                      : "text-fuchsia-700 border-fuchsia-200"
+                  }`}
+                >
+                  <span className="opacity-50 uppercase mr-0.5 text-[9px]">
+                    {s.rol.slice(0, 3)}:
+                  </span>{" "}
+                  {s.label}
+                  <button
+                    onClick={() => removeStaff(idx)}
+                    className="ml-1 hover:text-red-600 rounded-full hover:bg-slate-100 p-0.5"
+                  >
+                    <IconX size={10} />
+                  </button>
                 </span>
               ))}
             </div>
@@ -661,58 +900,110 @@ export default function GiraForm({
 
       {/* --- SECCIÓN: LINK PÚBLICO --- */}
       {!isNew && enableAutoSave && (
-        <div className={`mt-6 p-6 rounded-xl shadow-sm border transition-colors ${formData.token_publico ? 'bg-indigo-50/50 border-indigo-200' : 'bg-slate-50 border-slate-200'}`}>
-            <div className="flex justify-between items-start mb-4">
-                <div>
-                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                        <IconLink className={formData.token_publico ? "text-indigo-600" : "text-slate-400"}/> 
-                        Enlace de Invitado General
-                    </h3>
-                    <p className="text-sm text-slate-500 mt-1">
-                        Permite ver la agenda y detalles de esta gira a cualquier persona con el enlace.
-                    </p>
-                </div>
-                <button onClick={togglePublicLink} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${formData.token_publico ? 'bg-indigo-600' : 'bg-slate-300'}`}>
-                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.token_publico ? 'translate-x-6' : 'translate-x-1'}`}/>
-                </button>
+        <div
+          className={`mt-6 p-6 rounded-xl shadow-sm border transition-colors ${
+            formData.token_publico
+              ? "bg-indigo-50/50 border-indigo-200"
+              : "bg-slate-50 border-slate-200"
+          }`}
+        >
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <IconLink
+                  className={
+                    formData.token_publico
+                      ? "text-indigo-600"
+                      : "text-slate-400"
+                  }
+                />
+                Enlace de Invitado General
+              </h3>
+              <p className="text-sm text-slate-500 mt-1">
+                Permite ver la agenda y detalles de esta gira a cualquier
+                persona con el enlace.
+              </p>
             </div>
+            <button
+              onClick={togglePublicLink}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                formData.token_publico ? "bg-indigo-600" : "bg-slate-300"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  formData.token_publico ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
 
-            {formData.token_publico && (
-                <div className="mt-4 animate-in fade-in slide-in-from-top-2">
-                    <div className="flex gap-2">
-                        <div className="flex-1 bg-white border border-indigo-200 rounded-lg px-3 py-2 text-sm text-slate-600 font-mono truncate select-all">
-                            {`${window.location.origin}/share/${formData.token_publico}`}
-                        </div>
-                        <button onClick={copyLink} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm"><IconCopy size={16}/> Copiar</button>
-                        <button onClick={regenerateLink} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 px-3 py-2 rounded-lg transition-colors"><IconRefresh size={18}/></button>
-                    </div>
+          {formData.token_publico && (
+            <div className="mt-4 animate-in fade-in slide-in-from-top-2">
+              <div className="flex gap-2">
+                <div className="flex-1 bg-white border border-indigo-200 rounded-lg px-3 py-2 text-sm text-slate-600 font-mono truncate select-all">
+                  {`${window.location.origin}/share/${formData.token_publico}`}
                 </div>
-            )}
+                <button
+                  onClick={copyLink}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm"
+                >
+                  <IconCopy size={16} /> Copiar
+                </button>
+                <button
+                  onClick={regenerateLink}
+                  className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 px-3 py-2 rounded-lg transition-colors"
+                >
+                  <IconRefresh size={18} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* FOOTER */}
       <div className="flex justify-end gap-2 mt-8 pt-3 border-t border-indigo-100/50">
-        <button onClick={onCancel} disabled={loading} className="flex items-center gap-1 px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100 text-sm font-medium disabled:opacity-50">
+        <button
+          onClick={onCancel}
+          disabled={loading}
+          className="flex items-center gap-1 px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100 text-sm font-medium disabled:opacity-50"
+        >
           <IconX size={16} /> Cerrar
         </button>
-        
+
         {/* BOTÓN GUARDAR: Solo visible si es NUEVO o si NO está en modo auto-save */}
         {(!enableAutoSave || isNew) && (
-            <button onClick={onSave} disabled={loading} className="flex items-center gap-2 px-4 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-bold shadow-sm disabled:opacity-70 disabled:cursor-not-allowed transition-all">
-            {loading ? <IconLoader className="animate-spin" size={16} /> : <IconCheck size={16} />}
-            {loading ? "Procesando..." : (isNew ? "Crear Gira" : "Guardar Todo")}
-            </button>
+          <button
+            onClick={onSave}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-bold shadow-sm disabled:opacity-70 disabled:cursor-not-allowed transition-all"
+          >
+            {loading ? (
+              <IconLoader className="animate-spin" size={16} />
+            ) : (
+              <IconCheck size={16} />
+            )}
+            {loading ? "Procesando..." : isNew ? "Crear Gira" : "Guardar Todo"}
+          </button>
         )}
       </div>
 
       {/* MODAL DETALLADO DE MÚSICO */}
       {isCreatingDetailed && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4" style={{ zIndex: 99999 }}>
+        <div
+          className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4"
+          style={{ zIndex: 99999 }}
+        >
           <div className="w-full max-w-2xl animate-in zoom-in-95 duration-200">
             <MusicianForm
               supabase={supabase}
-              musician={{ id: generateNumericId(), nombre: tempName.nombre, apellido: tempName.apellido, condicion: "Invitado" }}
+              musician={{
+                id: generateNumericId(),
+                nombre: tempName.nombre,
+                apellido: tempName.apellido,
+                condicion: "Invitado",
+              }}
               onSave={handleDetailedSave}
               onCancel={() => setIsCreatingDetailed(false)}
             />

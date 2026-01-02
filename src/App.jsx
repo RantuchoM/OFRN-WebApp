@@ -19,6 +19,7 @@ import EnsembleCoordinatorView from "./views/Ensembles/EnsembleCoordinatorView";
 import MyPartsViewer from "./views/Giras/MyPartsViewer";
 import MealsAttendancePersonal from "./views/Giras/MealsAttendancePersonal";
 import PublicLinkHandler from "./views/Public/PublicLinkHandler";
+import DashboardGeneral from "./views/Dashboard/DashboardGeneral";
 
 import {
   IconLayoutDashboard,
@@ -38,6 +39,7 @@ import {
   IconUtensils,
   IconChevronLeft,
   IconChevronRight,
+  IconSpiralNotebook,
   IconList,
   IconAlertCircle,
 } from "./components/ui/Icons";
@@ -163,7 +165,7 @@ const ProtectedApp = () => {
   const [mode, setMode] = useState(isPersonal ? "FULL_AGENDA" : "GIRAS");
   const [activeGiraId, setActiveGiraId] = useState(null);
   const [initialGiraView, setInitialGiraView] = useState(null);
-
+  const [initialGiraSubTab, setInitialGiraSubTab] = useState(null); // <--- NUEVO: Soporte para subTab
   // FETCH UNREAD COUNT (Polling simple o Realtime podría mejorarse)
   useEffect(() => {
     if (!user || isGuestRole) return;
@@ -238,9 +240,11 @@ const ProtectedApp = () => {
     const tabParam = params.get("tab");
     const giraIdParam = params.get("giraId");
     const viewParam = params.get("view");
+    const subTabParam = params.get("subTab"); // <--- LEEMOS SUBTAB
 
     if (tabParam) {
       const modeMap = {
+        dashboard: "DASHBOARD",
         giras: "GIRAS",
         agenda: "FULL_AGENDA",
         repertorio: "REPERTOIRE",
@@ -259,18 +263,18 @@ const ProtectedApp = () => {
         if (newMode === "GIRAS" && giraIdParam) {
           setActiveGiraId(giraIdParam);
           if (viewParam) setInitialGiraView(viewParam);
+          if (subTabParam) setInitialGiraSubTab(subTabParam); // <--- SETEAMOS SUBTAB
         }
       }
     }
   }, []);
-
+  // SINCRONIZAR URL CUANDO CAMBIA EL ESTADO
   useEffect(() => {
     if (!user) return;
-
-    // 1. LEEMOS LOS PARÁMETROS ACTUALES (Para no borrar 'subTab' u otros)
     const params = new URLSearchParams(window.location.search);
 
     const modeToTab = {
+      DASHBOARD: "dashboard",
       GIRAS: "giras",
       FULL_AGENDA: "agenda",
       REPERTOIRE: "repertorio",
@@ -284,41 +288,60 @@ const ProtectedApp = () => {
       MY_MEALS: "comidas",
     };
 
-    // 2. Solo actualizamos lo que cambió a nivel global
     if (modeToTab[mode]) params.set("tab", modeToTab[mode]);
 
     if (mode === "GIRAS" && activeGiraId) {
       params.set("giraId", activeGiraId);
+
+      // Manejo de View
       if (initialGiraView) params.set("view", initialGiraView);
+      else params.delete("view");
+
+      // Manejo de SubTab (Nuevo)
+      if (initialGiraSubTab) params.set("subTab", initialGiraSubTab);
+      else params.delete("subTab");
+    } else {
+      params.delete("giraId");
+      params.delete("view");
+      params.delete("subTab");
     }
 
-    // 3. Reemplazamos la URL respetando lo que ya existía (como &subTab=rooming)
     const newUrl = `${window.location.pathname}?${params.toString()}`;
-
-    // Evitamos reemplazar si la URL es idéntica para no romper el historial
     if (window.location.search !== `?${params.toString()}`) {
-      window.history.replaceState(null, "", newUrl);
+      window.history.pushState(null, "", newUrl);
     }
-  }, [mode, activeGiraId, initialGiraView, user]);
+  }, [mode, activeGiraId, initialGiraView, initialGiraSubTab, user]);
 
-  const updateView = (newMode, giraId = null) => {
+  // --- FUNCIÓN DE NAVEGACIÓN PRINCIPAL CORREGIDA ---
+  // Ahora acepta 4 argumentos para cubrir toda la casuística
+  const updateView = (
+    newMode,
+    giraId = null,
+    viewParam = null,
+    subTabParam = null
+  ) => {
     setMode(newMode);
+
     if (giraId) setActiveGiraId(giraId);
+
+    setInitialGiraView(viewParam || null);
+    setInitialGiraSubTab(subTabParam || null); // <--- GUARDAMOS SUBTAB
+
     setMobileMenuOpen(false);
   };
 
-  // --- MANEJO DE NAVEGACIÓN GLOBAL ---
   const handleGlobalNavigation = (targetGiraId, targetView) => {
-    // 1. Establecer parámetros de destino
-    setActiveGiraId(targetGiraId);
-    setInitialGiraView(targetView);
-    setMode("GIRAS");
-
-    // 2. Cerrar modal
+    updateView("GIRAS", targetGiraId, targetView);
     setGlobalCommentsOpen(false);
   };
 
   const allMenuItems = [
+    {
+      id: "DASHBOARD",
+      label: "Dashboard",
+      icon: <IconSpiralNotebook size={20} />,
+      show: isManagement || isDirector,
+    },
     {
       id: "FULL_AGENDA",
       label: "Agenda General",
@@ -351,15 +374,6 @@ const ProtectedApp = () => {
       icon: <IconUsers size={20} />,
       show: isManagement || isDirector,
     },
-
-    // --- LOCACIONES: Oculto para todos (se gestiona desde Datos) ---
-    {
-      id: "LOCATIONS",
-      label: "Locaciones",
-      icon: <IconMapPin size={20} />,
-      show: false,
-    },
-
     {
       id: "DATA",
       label: "Datos",
@@ -373,25 +387,20 @@ const ProtectedApp = () => {
       show: userRole === "admin",
     },
   ];
-
   const visibleMenuItems = allMenuItems.filter((i) => i.show);
 
   const renderContent = () => {
     switch (mode) {
+      case "DASHBOARD":
+        return (
+          <DashboardGeneral supabase={supabase} onViewChange={updateView} />
+        );
       case "GIRAS":
         return (
           <GirasView
             initialGiraId={activeGiraId}
-            initialTab={initialGiraView}
-            updateView={updateView}
-            supabase={supabase}
-          />
-        );
-      case "AGENDA":
-        return (
-          <GirasView
-            initialGiraId={activeGiraId}
-            initialTab="agenda"
+            initialTab={initialGiraView} // Pasamos la view
+            initialSubTab={initialGiraSubTab} // <--- NUEVA PROP AGREGADA            updateView={updateView}
             updateView={updateView}
             supabase={supabase}
           />
@@ -429,14 +438,9 @@ const ProtectedApp = () => {
       case "MY_MEALS":
         return <MealsAttendancePersonal supabase={supabase} />;
       default:
-        return (
-          <div className="p-10 text-center text-slate-400">
-            Vista no encontrada: {mode}
-          </div>
-        );
+        return <div className="p-10 text-center">Vista no encontrada</div>;
     }
   };
-
   const mobileNavItems = [
     ...(userRole !== "invitado"
       ? [
@@ -707,20 +711,14 @@ const ProtectedApp = () => {
     </div>
   );
 };
-
 const AppContent = () => {
   const { user, loading } = useAuth();
-  if (loading)
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-      </div>
-    );
+  if (loading) return <div>Cargando...</div>;
   if (!user) return <LoginView />;
   return <ProtectedApp />;
 };
 
-function App() {
+export default function App() {
   return (
     <AuthProvider>
       <Routes>
@@ -730,5 +728,3 @@ function App() {
     </AuthProvider>
   );
 }
-
-export default App;

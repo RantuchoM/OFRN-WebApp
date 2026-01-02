@@ -7,7 +7,6 @@ import {
   isPast,
   differenceInDays,
   differenceInHours,
-  isSameDay,
 } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -17,16 +16,14 @@ import {
   IconEdit,
   IconArrowLeft,
   IconPlus,
-  IconFilter,
   IconDrive,
   IconList,
   IconChevronDown,
-  IconUserPlus,
   IconMapPin,
   IconCalendar,
   IconAlertTriangle,
-  IconClock,
   IconArrowRight,
+  IconEye, // Nuevo icono para el filtro
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -161,6 +158,9 @@ export default function UnifiedAgenda({
   const [availableCategories, setAvailableCategories] = useState([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
 
+  // --- NUEVO: FILTRO DE ESTADO ---
+  const [showNonActive, setShowNonActive] = useState(false);
+
   const [commentsState, setCommentsState] = useState(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editFormData, setEditFormData] = useState({});
@@ -266,12 +266,27 @@ export default function UnifiedAgenda({
     );
   };
 
-  const filteredItems = items.filter((item) => {
-    if (item.isProgramMarker) return true;
-    const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
-    if (!catId) return true;
-    return selectedCategoryIds.includes(catId);
-  });
+  // --- FILTRADO DE ITEMS (ACTUALIZADO) ---
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      // 1. Filtro de Estado (Nuevo)
+      if (!showNonActive) {
+        // Si el evento pertenece a una gira, verificamos su estado
+        const estadoGira = item.programas?.estado || "Borrador"; // Asumimos Borrador si es legacy
+        if (item.isProgramMarker) {
+          if (estadoGira !== "Vigente") return false;
+        } else if (item.programas && estadoGira !== "Vigente") {
+          return false;
+        }
+      }
+
+      // 2. Filtro de Categoría (Existente)
+      if (item.isProgramMarker) return true;
+      const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
+      if (!catId) return true;
+      return selectedCategoryIds.includes(catId);
+    });
+  }, [items, selectedCategoryIds, showNonActive]);
 
   const checkIsConvoked = (convocadosList, tourRole) => {
     if (!convocadosList || convocadosList.length === 0) return false;
@@ -359,13 +374,13 @@ export default function UnifiedAgenda({
             ),
             programas (
                 id, nombre_gira, nomenclador, google_drive_folder_id, mes_letra, 
-                fecha_desde, fecha_hasta, tipo, zona,
+                fecha_desde, fecha_hasta, tipo, zona, estado,
                 fecha_confirmacion_limite,
                 giras_fuentes(tipo, valor_id, valor_texto), 
                 giras_integrantes(id_integrante, estado, rol)
             ),
             eventos_programas_asociados (
-                programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador )
+                programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador, estado )
             )
         `
         )
@@ -580,11 +595,10 @@ export default function UnifiedAgenda({
     }
   };
 
-  // --- LÓGICA DUPLICAR (CORREGIDA PARA MANTENER ABIERTO) ---
+  // --- LÓGICA DUPLICAR ---
   const handleDuplicateEvent = async () => {
     if (!editFormData.id) return;
 
-    // Feedback inicial
     const confirm = window.confirm(
       "¿Deseas duplicar este evento? Se abrirá la copia para editar."
     );
@@ -592,7 +606,6 @@ export default function UnifiedAgenda({
 
     setLoading(true);
     try {
-      // 1. Duplicar Evento Base
       const payload = {
         descripcion: (editFormData.descripcion || "") + " - Copia",
         fecha: editFormData.fecha,
@@ -613,7 +626,6 @@ export default function UnifiedAgenda({
       const newEventId = newEvent.id;
       const originalId = editFormData.id;
 
-      // 2. Duplicar Relaciones (Ensambles y Programas)
       const [ensambles, programas] = await Promise.all([
         supabase
           .from("eventos_ensambles")
@@ -645,18 +657,13 @@ export default function UnifiedAgenda({
 
       await Promise.all(promises);
 
-      // --- MAGIA AQUÍ: ACTUALIZAMOS EL FORMULARIO EN LUGAR DE CERRARLO ---
       setEditFormData({
         ...editFormData,
-        id: newEventId, // Cambiamos al ID nuevo
-        descripcion: payload.descripcion, // Mostramos el nuevo nombre
+        id: newEventId,
+        descripcion: payload.descripcion,
       });
 
-      // Recargamos la lista de fondo para que aparezca el nuevo evento
       fetchAgenda();
-
-      // Opcional: Feedback visual discreto
-      // alert("Evento duplicado. Editando la copia.");
     } catch (err) {
       alert("Error al duplicar: " + err.message);
     } finally {
@@ -766,6 +773,12 @@ export default function UnifiedAgenda({
               {gira.zona}
             </span>
           )}
+          {gira.estado === "Borrador" && (
+            <span className="bg-slate-200 text-slate-600 px-1.5 rounded text-[10px] uppercase font-bold">Borrador</span>
+          )}
+          {gira.estado === "Pausada" && (
+            <span className="bg-amber-200 text-amber-800 px-1.5 rounded text-[10px] uppercase font-bold">Pausada</span>
+          )}
         </div>
         <span className="opacity-30">|</span>
         <div className="font-bold truncate text-sm sm:text-base flex items-center gap-2 min-w-0">
@@ -840,18 +853,30 @@ export default function UnifiedAgenda({
             </div>
           </div>
 
-          {giraId && canEdit && !isOfflineMode && (
-            <button
-              onClick={handleOpenCreate}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0"
-            >
-              <IconPlus size={20} />
-            </button>
-          )}
+          <div className="flex gap-2">
+            {/* NUEVO BOTÓN: TOGGLE BORRADORES */}
+            {canEdit && !giraId && (
+                <button 
+                    onClick={() => setShowNonActive(!showNonActive)}
+                    className={`p-2 rounded-full transition-colors flex items-center gap-1 ${showNonActive ? 'bg-amber-100 text-amber-700' : 'text-slate-400 hover:bg-slate-100'}`}
+                    title={showNonActive ? "Ocultar borradores" : "Mostrar borradores"}
+                >
+                    <IconEye size={20} className={showNonActive ? "" : "opacity-50"} />
+                </button>
+            )}
+
+            {giraId && canEdit && !isOfflineMode && (
+                <button
+                onClick={handleOpenCreate}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0"
+                >
+                <IconPlus size={20} />
+                </button>
+            )}
+          </div>
         </div>
 
         {!loading && availableCategories.length > 0 && (
-          // CAMBIO 1: Quitamos 'flex-wrap' y agregamos 'overflow-x-auto' para scroll horizontal
           <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-hide">
             {availableCategories.map((cat) => {
               const isActive = selectedCategoryIds.includes(cat.id);
@@ -859,7 +884,6 @@ export default function UnifiedAgenda({
                 <button
                   key={cat.id}
                   onClick={() => handleCategoryToggle(cat.id)}
-                  // CAMBIO 2: Agregamos 'whitespace-nowrap shrink-0' para que no se deformen
                   className={`px-3 py-1 rounded-full text-xs font-bold border transition-all whitespace-nowrap shrink-0 ${
                     isActive
                       ? "bg-indigo-100 text-indigo-700 border-indigo-200 shadow-sm"
@@ -875,7 +899,6 @@ export default function UnifiedAgenda({
                 onClick={() =>
                   setSelectedCategoryIds(availableCategories.map((c) => c.id))
                 }
-                // CAMBIO 3: Agregamos 'whitespace-nowrap shrink-0' aquí también
                 className="text-xs text-indigo-600 underline px-2 whitespace-nowrap shrink-0"
               >
                 Ver todo
@@ -1145,8 +1168,8 @@ export default function UnifiedAgenda({
             setFormData={setEditFormData}
             onSave={handleEditSave}
             onClose={() => setIsEditOpen(false)}
-            onDelete={handleDeleteEvent} // <--- FUNCIÓN BORRAR CONECTADA
-            onDuplicate={handleDuplicateEvent} // <--- FUNCIÓN DUPLICAR CONECTADA
+            onDelete={handleDeleteEvent}
+            onDuplicate={handleDuplicateEvent}
             loading={loading}
             eventTypes={formEventTypes}
             locations={formLocations}

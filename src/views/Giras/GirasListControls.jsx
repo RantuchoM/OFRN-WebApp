@@ -25,6 +25,8 @@ export default function GirasListControls({
   filterType,
   toggleFilterType,
   PROGRAM_TYPES,
+  filterStatus, // <--- NUEVA PROP
+  toggleFilterStatus, // <--- NUEVA PROP
 }) {
   // --- SUB-COMPONENTES DE FILTRO ---
   const renderTypeFilterChips = (isMobile = false) => (
@@ -195,6 +197,28 @@ export default function GirasListControls({
               {renderTypeFilterChips(true)}
             </div>
           )}
+          {/* --- NUEVO FILTRO DE ESTADO --- */}
+      <div className="h-6 w-px bg-slate-300 mx-2 hidden md:block"></div>
+      <div className="flex items-center gap-1">
+         {['Vigente', 'Borrador', 'Pausada'].map(status => {
+             const isActive = filterStatus.has(status);
+             const colors = {
+                 'Vigente': isActive ? 'bg-green-100 text-green-700 border-green-200' : 'text-slate-500 hover:bg-slate-100',
+                 'Borrador': isActive ? 'bg-slate-200 text-slate-700 border-slate-300' : 'text-slate-500 hover:bg-slate-100',
+                 'Pausada': isActive ? 'bg-amber-100 text-amber-700 border-amber-200' : 'text-slate-500 hover:bg-slate-100'
+             };
+             
+             return (
+                 <button
+                    key={status}
+                    onClick={() => toggleFilterStatus(status)}
+                    className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${colors[status]} ${!isActive ? 'border-transparent' : ''}`}
+                 >
+                    {status}
+                 </button>
+             )
+         })}
+      </div>
         </>
       )}
     </div>

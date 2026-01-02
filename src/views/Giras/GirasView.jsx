@@ -30,12 +30,23 @@ import CommentsManager from "../../components/comments/CommentsManager";
 import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer";
 import GiraDifusion from "./GiraDifusion";
 import SectionStatusControl from "../../components/giras/SectionStatusControl"; // <--- IMPORTAR
+import { deleteGira } from "../../services/giraActions";
 
 // Componentes Modularizados
 import GirasListControls from "./GirasListControls";
 import GiraCard from "./GiraCard";
+import {
+  MoveGiraModal,
+  DuplicateGiraModal,
+} from "../../components/giras/GiraManipulationModals"; // IMPORTAR MODALES
+import { moveGira, duplicateGira } from "../../services/giraActions"; // IMPORTAR LÓGICA
 
-export default function GirasView({ supabase, initialGiraId, initialTab }) {
+export default function GirasView({
+  supabase,
+  initialGiraId,
+  initialTab,
+  initialSubTab,
+}) {
   const { user, isEditor } = useAuth();
   const userRole = user?.rol_sistema || "";
 
@@ -52,20 +63,28 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
 
   const [giras, setGiras] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [actionGira, setActionGira] = useState(null); // Gira seleccionada para mover/duplicar
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [showDupModal, setShowDupModal] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   // --- EFECTO DE NAVEGACIÓN EXTERNA ---
   useEffect(() => {
     if (initialGiraId && initialTab) {
-      setSearchParams(
-        {
-          tab: "giras",
-          view: initialTab,
-          giraId: initialGiraId,
-        },
-        { replace: true }
-      );
+      const params = {
+        tab: "giras",
+        view: initialTab,
+        giraId: initialGiraId,
+      };
+
+      // Si hay subTab, lo agregamos a la URL
+      if (initialSubTab) {
+        params.subTab = initialSubTab;
+      }
+
+      setSearchParams(params, { replace: true });
     }
-  }, [initialGiraId, initialTab, setSearchParams]);
+  }, [initialGiraId, initialTab, initialSubTab, setSearchParams]);
 
   const selectedGira = useMemo(() => {
     if (!giraId || giras.length === 0) return null;
@@ -148,6 +167,7 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
     zona: "",
     token_publico: "",
     nomenclador: "",
+    estado: "Borrador", // Default
   });
 
   const [selectedLocations, setSelectedLocations] = useState(new Set());
@@ -322,6 +342,7 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
       zona: gira.zona || "",
       token_publico: gira.token_publico || "",
       nomenclador: gira.nomenclador || "",
+      estado: gira.estado || "Borrador",
     });
 
     const { data } = await supabase
@@ -362,6 +383,47 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
       loadGiraIntoForm(selectedGira);
     }
   }, [mode, selectedGira, ensemblesList.length]);
+
+  const handleOpenMove = (gira) => {
+    setActionGira(gira);
+    setShowMoveModal(true);
+  };
+
+  const handleOpenDup = (gira) => {
+    setActionGira(gira);
+    setShowDupModal(true);
+  };
+
+  const onConfirmMove = async (newDate) => {
+    setActionLoading(true);
+    const res = await moveGira(actionGira.id, newDate);
+    setActionLoading(false);
+    if (res.success) {
+      setShowMoveModal(false);
+      fetchGiras(); // Recargar la lista
+    } else {
+      alert("Error al mover la gira");
+    }
+  };
+
+  const onConfirmDup = async (newDate, newName) => {
+    setActionLoading(true);
+    const res = await duplicateGira(actionGira.id, newDate, newName);
+    setActionLoading(false);
+
+    if (res.success) {
+      setShowDupModal(false);
+      fetchGiras(); // Recargamos la lista
+    } else if (res.error === "DUPLICATE_NAME") {
+      // MENSAJE AMIGABLE
+      alert(
+        `⚠️ Error: El nombre "${newName}" ya existe.\n\nPor favor, modifica el nombre en el formulario (ej: agrega un número o año).`
+      );
+      // NOTA: No cerramos el modal (setShowDupModal(false)) para que el usuario pueda corregirlo ahí mismo.
+    } else {
+      alert("Ocurrió un error inesperado al duplicar la gira.");
+    }
+  };
 
   const handleGiraUpdate = async () => {
     if (!selectedGira) return;
@@ -458,7 +520,26 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
     await fetchGiras();
     setLoading(false);
   };
+  const handleDeleteGira = async (gira) => {
+    if (
+      !window.confirm(
+        `¿Estás SEGURO de que quieres eliminar la gira "${gira.nombre_gira}"?\n\nESTA ACCIÓN ES IRREVERSIBLE.\nSe borrarán todos los eventos, reglas, roster y configuraciones asociadas.`
+      )
+    ) {
+      return;
+    }
 
+    setActionLoading(true); // O un loading global
+    const res = await deleteGira(gira.id);
+    setActionLoading(false);
+
+    if (res.success) {
+      // alert("Gira eliminada."); // Opcional
+      fetchGiras(); // Refrescar la lista para que desaparezca
+    } else {
+      alert(`Error al eliminar: ${res.error}`);
+    }
+  };
   const startEdit = async (gira) => {
     loadGiraIntoForm(gira);
     setIsAdding(false);
@@ -489,15 +570,38 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
     else if (type === "HABITACION")
       updateView("LOGISTICS", currentGira.id, "rooming");
   };
+  // 1. ESTADO DEL FILTRO (Por defecto mostramos todo o lo que prefieras)
+  const [filterStatus, setFilterStatus] = useState(
+    new Set(["Vigente", "Borrador", "Pausada"])
+  );
 
+  // 2. FUNCIÓN TOGGLE
+  const toggleFilterStatus = (status) => {
+    setFilterStatus((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(status)) newSet.delete(status);
+      else newSet.add(status);
+      return newSet;
+    });
+  };
+
+  // 3. ACTUALIZAR EL MEMO DE FILTRADO
   const filteredGiras = useMemo(() => {
     return giras.filter((g) => {
+      // Filtro de Tipo (Existente)
       if (filterType.size > 0 && !filterType.has(g.tipo)) return false;
+      // Filtro de Fechas (Existente)
       if (filterDateStart && g.fecha_hasta < filterDateStart) return false;
       if (filterDateEnd && g.fecha_desde > filterDateEnd) return false;
+
+      // NUEVO: Filtro de Estado
+      // Asumimos que si no tiene estado es 'Vigente' (compatibilidad legacy) o 'Borrador'
+      const estadoGira = g.estado || "Borrador";
+      if (filterStatus.size > 0 && !filterStatus.has(estadoGira)) return false;
+
       return true;
     });
-  }, [giras, filterType, filterDateStart, filterDateEnd]);
+  }, [giras, filterType, filterDateStart, filterDateEnd, filterStatus]); // <--- Agregar filterStatus a dependencias
 
   const toggleFilterType = (type) => {
     setFilterType((prev) => {
@@ -691,6 +795,8 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
             filterType={filterType}
             toggleFilterType={toggleFilterType}
             PROGRAM_TYPES={PROGRAM_TYPES}
+            filterStatus={filterStatus}
+            toggleFilterStatus={toggleFilterStatus}
           />
         )}
       </div>
@@ -917,13 +1023,30 @@ export default function GirasView({ supabase, initialGiraId, initialTab }) {
                   setActiveMenuId={setActiveMenuId}
                   showRepertoireInCards={showRepertoireInCards}
                   ensemblesList={ensemblesList}
+                  onMove={handleOpenMove}
+                  onDuplicate={handleOpenDup}
                   supabase={supabase}
+                  onDelete={() => handleDeleteGira(gira)} // Asegúrate de que GiraCard use esta prop en el GiraActionMenu
                 />
               );
             })}
           </div>
         )}
       </div>
+      <MoveGiraModal
+        isOpen={showMoveModal}
+        onClose={() => setShowMoveModal(false)}
+        onConfirm={onConfirmMove}
+        gira={actionGira}
+        loading={actionLoading}
+      />
+      <DuplicateGiraModal
+        isOpen={showDupModal}
+        onClose={() => setShowDupModal(false)}
+        onConfirm={onConfirmDup}
+        gira={actionGira}
+        loading={actionLoading}
+      />
       {globalCommentsGiraId && (
         <GlobalCommentsViewer
           supabase={supabase}
