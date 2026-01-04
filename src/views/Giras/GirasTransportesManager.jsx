@@ -558,10 +558,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
             .from("localidades")
             .select("id, localidad")
             .order("localidad"),
+          // [UPDATED] Traer id_localidad explícitamente para asegurar mapeo
           supabase
             .from("integrantes")
             .select(
-              "id, nombre, apellido, dni, genero, fecha_nac, nacionalidad, localidades(localidad)"
+              "id, nombre, apellido, dni, genero, fecha_nac, nacionalidad, id_localidad, localidades(localidad)"
             ),
         ]);
 
@@ -729,11 +730,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
         if (error) throw error;
         const eventId = evtData.id;
 
+        // --- SUBIDA (Con Exclusión de Producción) ---
         if (
           tramo.ids_localidades_suben &&
           tramo.ids_localidades_suben.length > 0
         ) {
           tramo.ids_localidades_suben.forEach((locId) => {
+            // 1. Regla Inclusiva (Todos los de la localidad)
             rulesToInsert.push({
               id_gira_transporte: tId,
               alcance: "Localidad",
@@ -741,13 +744,37 @@ export default function GirasTransportesManager({ supabase, gira }) {
               id_evento_subida: eventId,
               solo_logistica: true,
             });
+
+            // 2. Regla Exclusiva (Producción fuera)
+            const prodMembers = roster?.filter((r) => {
+              const rLoc = r.id_localidad || r.localidades?.id;
+              // Normalizamos roles (algunas veces es 'produccion' otras 'Produccion')
+              const role = (r.rol || r.rol_gira || "").toLowerCase();
+              return String(rLoc) === String(locId) && role === "produccion";
+            });
+
+            if (prodMembers && prodMembers.length > 0) {
+              prodMembers.forEach((pm) => {
+                rulesToInsert.push({
+                  id_gira_transporte: tId,
+                  alcance: "Persona",
+                  id_integrante: pm.id,
+                  id_evento_subida: eventId,
+                  solo_logistica: true,
+                  es_exclusion: true, // EXCLUSIÓN
+                });
+              });
+            }
           });
         }
+
+        // --- BAJADA (Con Exclusión de Producción) ---
         if (
           tramo.ids_localidades_bajan &&
           tramo.ids_localidades_bajan.length > 0
         ) {
           tramo.ids_localidades_bajan.forEach((locId) => {
+            // 1. Regla Inclusiva
             rulesToInsert.push({
               id_gira_transporte: tId,
               alcance: "Localidad",
@@ -755,8 +782,29 @@ export default function GirasTransportesManager({ supabase, gira }) {
               id_evento_bajada: eventId,
               solo_logistica: true,
             });
+
+            // 2. Regla Exclusiva
+            const prodMembers = roster?.filter((r) => {
+              const rLoc = r.id_localidad || r.localidades?.id;
+              const role = (r.rol || r.rol_gira || "").toLowerCase();
+              return String(rLoc) === String(locId) && role === "produccion";
+            });
+
+            if (prodMembers && prodMembers.length > 0) {
+              prodMembers.forEach((pm) => {
+                rulesToInsert.push({
+                  id_gira_transporte: tId,
+                  alcance: "Persona",
+                  id_integrante: pm.id,
+                  id_evento_bajada: eventId,
+                  solo_logistica: true,
+                  es_exclusion: true, // EXCLUSIÓN
+                });
+              });
+            }
           });
         }
+
         currentDateTime = addMinutes(
           currentDateTime,
           tramo.duracion_minutos || 60
@@ -1281,7 +1329,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
                     <IconTruck size={20} />
                   </div>
                   {isEditing ? (
-                    // ... (Formulario de edición igual que antes) ...
                     <div
                       className="flex gap-2 items-center flex-1"
                       onClick={(e) => e.stopPropagation()}
@@ -1800,7 +1847,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           passengers={passengerList}
           events={transportEvents[boardingModal.transportId] || []}
           onSaveBoarding={handleSaveBoarding}
-          onDeleteBoarding={handleDeleteBoardingRule} // <--- NUEVA LÍNEA
+          onDeleteBoarding={handleDeleteBoardingRule}
         />
       )}
       {rulesModal.isOpen && (

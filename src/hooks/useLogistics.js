@@ -19,40 +19,70 @@ export const calculateLogisticsSummary = (
     return 1; // General
   };
 
-  // Helper de Coincidencia
+  // Helper de Coincidencia (MATCHING ENGINE)
   const matchesRule = (rule, person) => {
     const scope = rule.alcance;
-    if (scope === "General") return true;
 
-    const pId = String(person.id);
-    const pLoc = String(person.id_localidad);
-    const pReg = String(person.localidades?.id_region);
+    // 1. REGLAS POR PERSONA (Prioridad Máxima - Ignoran Rol)
+    if (scope === "Persona") {
+      const pId = String(person.id);
+      if (rule.target_ids && rule.target_ids.length > 0) {
+        return rule.target_ids.map(String).includes(pId);
+      }
+      return String(rule.id_integrante) === pId;
+    }
 
-    if (
-      rule.target_ids &&
-      Array.isArray(rule.target_ids) &&
-      rule.target_ids.length > 0
-    ) {
-      const targets = rule.target_ids.map(String);
-      if (scope === "Persona" && targets.includes(pId)) return true;
-      if (scope === "Localidad" && targets.includes(pLoc)) return true;
-      if (scope === "Region" && targets.includes(pReg)) return true;
-      if (scope === "Categoria" || scope === "Instrumento") {
+    // 2. REGLAS POR CATEGORÍA (Roles específicos explícitos)
+    if (scope === "Categoria" || scope === "Instrumento") {
+      const targets = (rule.target_ids || []).map(String);
+      const legacyVal = rule.instrumento_familia;
+
+      if (targets.length > 0) {
+        // Roles Especiales
         if (targets.includes("SOLISTAS") && person.rol_gira === "solista") return true;
         if (targets.includes("DIRECTORES") && person.rol_gira === "director") return true;
         if (targets.includes("PRODUCCION") && person.rol_gira === "produccion") return true;
+        if (targets.includes("STAFF") && person.rol_gira === "staff") return true;
+        if (targets.includes("CHOFER") && person.rol_gira === "chofer") return true;
+        
+        // Condición Local
         if (targets.includes("LOCALES") && person.is_local) return true;
         if (targets.includes("NO_LOCALES") && !person.is_local) return true;
+        
+        // Familia Instrumento
         if (person.instrumentos?.familia && targets.includes(person.instrumentos.familia)) return true;
+      } else if (legacyVal) {
+        return person.instrumentos?.familia?.includes(legacyVal);
       }
+      return false;
+    }
+
+    // 3. REGLAS MASIVAS (General, Región, Localidad) -> SOLO MÚSICOS
+    // ------------------------------------------------------------------
+    // Normalizamos el rol. Si viene nulo/undefined, asumimos que es 'musico'.
+    const userRole = (person.rol_gira || "musico").trim().toLowerCase();
+
+    // Si NO es músico, estas reglas masivas NO le aplican.
+    // (Producción, Staff, etc. deben asignarse por Persona o por Categoría explícita)
+    if (userRole !== "musico") return false; 
+    // ------------------------------------------------------------------
+
+    // Si es músico, chequeamos la geografía
+    if (scope === "General") return true;
+
+    const pLoc = String(person.id_localidad);
+    const pReg = String(person.localidades?.id_region);
+
+    if (rule.target_ids && rule.target_ids.length > 0) {
+      const targets = rule.target_ids.map(String);
+      if (scope === "Localidad" && targets.includes(pLoc)) return true;
+      if (scope === "Region" && targets.includes(pReg)) return true;
     } else {
-      if (scope === "Persona" && String(rule.id_integrante) === pId) return true;
+      // Legacy support
       if (scope === "Localidad" && String(rule.id_localidad) === pLoc) return true;
       if (scope === "Region" && String(rule.id_region) === pReg) return true;
-      if ((scope === "Instrumento" || scope === "Categoria") && rule.instrumento_familia) {
-        return person.instrumentos?.familia?.includes(rule.instrumento_familia);
-      }
     }
+
     return false;
   };
 
@@ -83,10 +113,13 @@ export const calculateLogisticsSummary = (
         if (r.hora_checkin) logisticsData.checkin_time = r.hora_checkin;
         if (r.fecha_checkout) { logisticsData.checkout = r.fecha_checkout; logisticsData.checkout_src = src; }
         if (r.hora_checkout) logisticsData.checkout_time = r.hora_checkout;
+        
         if (r.comida_inicio_fecha) { logisticsData.comida_inicio = r.comida_inicio_fecha; logisticsData.comida_inicio_src = src; }
         if (r.comida_inicio_servicio) logisticsData.comida_inicio_svc = r.comida_inicio_servicio;
+        
         if (r.comida_fin_fecha) { logisticsData.comida_fin = r.comida_fin_fecha; logisticsData.comida_fin_src = src; }
         if (r.comida_fin_servicio) logisticsData.comida_fin_svc = r.comida_fin_servicio;
+        
         if (r.prov_desayuno) logisticsData.prov_des = r.prov_desayuno;
         if (r.prov_almuerzo) logisticsData.prov_alm = r.prov_almuerzo;
         if (r.prov_merienda) logisticsData.prov_mer = r.prov_merienda;
@@ -115,11 +148,14 @@ export const calculateLogisticsSummary = (
       Object.keys(transportGroups).forEach((tId) => {
         const { inclusions, exclusions, logisticsOnly } = transportGroups[tId];
 
+        // Si hay exclusión, omitimos todo
         if (exclusions.length > 0) return;
+        // Si no hay inclusión base, no viaja (reglas 'solo logistica' no suben a nadie por sí solas)
         if (inclusions.length === 0) return; 
 
         const allStopRules = [...inclusions, ...logisticsOnly];
         
+        // Base Data del primer match inclusivo
         const tState = {
           baseData: inclusions[0].giras_transportes,
           subida: { id: null, prio: 0 },
@@ -141,7 +177,7 @@ export const calculateLogisticsSummary = (
                  tState.subida.id = r.id_evento_subida;
                  tState.subida.prio = prio;
              }
-          } else if (prio === 5) { // Borrado manual
+          } else if (prio === 5) { // Borrado manual (prioridad persona)
              if (prio >= tState.subida.prio) {
                  tState.subida.id = null;
                  tState.subida.prio = prio;
@@ -167,9 +203,9 @@ export const calculateLogisticsSummary = (
           nombre: tState.baseData?.transportes?.nombre || "Transporte",
           detalle: tState.baseData?.detalle || "",
           subidaId: tState.subida.id,
-          subidaPrio: tState.subida.prio, // <--- NUEVO: Prioridad para saber si es personal
+          subidaPrio: tState.subida.prio, 
           bajadaId: tState.bajada.id,
-          bajadaPrio: tState.bajada.prio, // <--- NUEVO
+          bajadaPrio: tState.bajada.prio, 
           priority: tState.maxPrio,
         });
       });
@@ -192,6 +228,7 @@ export function useLogistics(supabase, gira) {
     if (!giraId) return;
     setRulesLoading(true);
     try {
+      // 1. Reglas de Logística
       const { data: logData } = await supabase
         .from("giras_logistica_reglas")
         .select("*")
@@ -199,6 +236,7 @@ export function useLogistics(supabase, gira) {
         .order("prioridad", { ascending: true });
       setLogisticsRules(logData || []);
 
+      // 2. Reglas de Transporte (Con join para traer info del transporte)
       const { data: transData, error: transError } = await supabase
         .from("giras_logistica_reglas_transportes")
         .select(`*, giras_transportes!inner (id, id_gira, detalle, transportes ( nombre ))`)
@@ -214,6 +252,7 @@ export function useLogistics(supabase, gira) {
   }, [supabase, giraId]);
 
   useEffect(() => { fetchRules(); }, [fetchRules]);
+  
   const refresh = () => { refreshRoster(); fetchRules(); };
   
   const summary = useMemo(

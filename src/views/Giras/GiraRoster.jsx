@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom"; // <--- IMPORTANTE: Importar createPortal
+import { createPortal } from "react-dom"; // <--- 1. IMPORTAR PORTAL
 import {
   IconUsers,
   IconPlus,
@@ -18,19 +18,22 @@ import {
   IconUserPlus,
   IconExchange,
   IconUserMinus,
-  IconPencil 
+  IconPencil,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import MusicianForm from "../Musicians/MusicianForm";
-import { AddVacancyModal, SwapVacancyModal } from "../../components/giras/VacancyTools"; 
+import {
+  AddVacancyModal,
+  SwapVacancyModal,
+} from "../../components/giras/VacancyTools";
 
-// --- HELPERS DE UI ---
+// ... (MANTENER TODOS LOS HELPERS: sortRosterList, MetricBadge, MultiSelectDropdown IGUAL QUE ANTES) ...
+// ... (Para ahorrar espacio, asumo que copias los helpers del archivo anterior aquí) ...
+
 const sortRosterList = (list, criterion) => {
   return [...list].sort((a, b) => {
-    // Ordenar por estado (Ausentes al final)
     if (a.estado_gira === "ausente" && b.estado_gira !== "ausente") return 1;
     if (a.estado_gira !== "ausente" && b.estado_gira === "ausente") return -1;
-
     switch (criterion) {
       case "localidad": {
         const locA = a.localidades?.localidad || "zzz";
@@ -84,7 +87,7 @@ const MetricBadge = ({ label, items, colorBase, icon }) => {
       <div
         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${colorBase}`}
       >
-        {icon}
+        {icon}{" "}
         <span>
           {count} {label}
         </span>
@@ -122,7 +125,6 @@ const MultiSelectDropdown = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
-
   useEffect(() => {
     const handleClick = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target))
@@ -131,14 +133,12 @@ const MultiSelectDropdown = ({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
-
   const toggleOption = (val) => {
     const newSet = new Set(selected);
     if (newSet.has(val)) newSet.delete(val);
     else newSet.add(val);
     onChange(newSet);
   };
-
   return (
     <div className="relative w-full" ref={dropdownRef}>
       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
@@ -192,7 +192,6 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     sources,
     refreshRoster,
   } = useGiraRoster(supabase, gira);
-
   const [localRoster, setLocalRoster] = useState([]);
   const [loadingAction, setLoadingAction] = useState(false);
 
@@ -200,7 +199,6 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   const [addMode, setAddMode] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState([]);
-
   const [sortBy, setSortBy] = useState("rol");
   const [visibleColumns, setVisibleColumns] = useState({
     telefono: false,
@@ -211,20 +209,16 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const columnMenuRef = useRef(null);
 
-  // --- NUEVOS ESTADOS PARA CREACIÓN DETALLADA ---
+  // States Modales
   const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
   const [tempName, setTempName] = useState({ nombre: "", apellido: "" });
-
-  // --- ESTADOS PARA VACANTES ---
   const [isVacancyModalOpen, setIsVacancyModalOpen] = useState(false);
   const [swapTarget, setSwapTarget] = useState(null);
-  const [localitiesList, setLocalitiesList] = useState([]); 
-  const [instrumentsList, setInstrumentsList] = useState([]);
-
-  // --- ESTADO PARA EDICIÓN DE DATOS GENERALES ---
   const [editingMusician, setEditingMusician] = useState(null);
 
-  // Dropdowns States
+  // Data States
+  const [localitiesList, setLocalitiesList] = useState([]);
+  const [instrumentsList, setInstrumentsList] = useState([]);
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [familiesList, setFamiliesList] = useState([]);
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
@@ -235,13 +229,9 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   useEffect(() => {
     fetchDropdownData();
   }, []);
-
   useEffect(() => {
-    if (rawRoster) {
-      setLocalRoster(sortRosterList(rawRoster, sortBy));
-    }
+    if (rawRoster) setLocalRoster(sortRosterList(rawRoster, sortBy));
   }, [rawRoster, sortBy]);
-
   useEffect(() => {
     const inclEnsembles = new Set();
     const inclFamilies = new Set();
@@ -257,11 +247,9 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   }, [sources]);
 
   useEffect(() => {
-    if (addMode === "individual" && searchTerm.length > 0) {
+    if (addMode === "individual" && searchTerm.length > 0)
       searchIndividual(searchTerm);
-    } else {
-      setSearchResults([]);
-    }
+    else setSearchResults([]);
   }, [searchTerm, addMode]);
 
   useEffect(() => {
@@ -269,48 +257,40 @@ export default function GiraRoster({ supabase, gira, onBack }) {
       if (
         columnMenuRef.current &&
         !columnMenuRef.current.contains(event.target)
-      ) {
+      )
         setShowColumnMenu(false);
-      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const fetchDropdownData = async () => {
-    // 1. Ensambles
     const { data: ens } = await supabase
       .from("ensambles")
       .select("id, ensamble");
     if (ens)
       setEnsemblesList(ens.map((e) => ({ value: e.id, label: e.ensamble })));
 
-    // 2. Familias e Instrumentos
     const { data: inst } = await supabase
       .from("instrumentos")
       .select("id, instrumento, familia")
       .order("instrumento");
-    
     if (inst) {
-      setInstrumentsList(inst); // Guardamos lista completa para VacancyTools
+      setInstrumentsList(inst);
       const fams = [...new Set(inst.map((i) => i.familia).filter(Boolean))];
       setFamiliesList(fams.map((f) => ({ value: f, label: f })));
     }
 
-    // 3. Localidades
     const { data: locs } = await supabase
-        .from("localidades")
-        .select("id, localidad")
-        .order("localidad");
-    if (locs) {
-        setLocalitiesList(locs);
-    }
+      .from("localidades")
+      .select("id, localidad")
+      .order("localidad");
+    if (locs) setLocalitiesList(locs);
   };
 
   const generateNumericId = () =>
     Math.floor(10000000 + Math.random() * 90000000);
 
-  // --- LOGICA DE CREACIÓN DETALLADA ---
   const handleOpenDetailedCreate = () => {
     const parts = searchTerm.trim().split(" ");
     setTempName({
@@ -331,7 +311,6 @@ export default function GiraRoster({ supabase, gira, onBack }) {
         },
       ]);
       if (error) throw error;
-
       setIsCreatingDetailed(false);
       setSearchTerm("");
       refreshRoster();
@@ -341,50 +320,57 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     }
   };
 
-  // --- HANDLER PARA GUARDADO DE EDICIÓN ---
   const handleEditSave = async () => {
     setEditingMusician(null);
-    refreshRoster(); // Recargamos la lista para reflejar cambios (nombre, loc, etc)
+    refreshRoster();
   };
 
   const changeRole = async (musician, newRole) => {
-    setLocalRoster((prev) => {
-      const newList = prev.map((m) =>
-        m.id === musician.id ? { ...m, rol_gira: newRole } : m
-      );
-      return sortRosterList(newList, sortBy);
-    });
-    await supabase.from("giras_integrantes").upsert(
-      {
-        id_gira: gira.id,
-        id_integrante: musician.id,
-        rol: newRole,
-        estado: musician.estado_gira,
-      },
-      { onConflict: "id_gira, id_integrante" }
+    setLocalRoster((prev) =>
+      sortRosterList(
+        prev.map((m) =>
+          m.id === musician.id ? { ...m, rol_gira: newRole } : m
+        ),
+        sortBy
+      )
     );
+    await supabase
+      .from("giras_integrantes")
+      .upsert(
+        {
+          id_gira: gira.id,
+          id_integrante: musician.id,
+          rol: newRole,
+          estado: musician.estado_gira,
+        },
+        { onConflict: "id_gira, id_integrante" }
+      );
     refreshRoster();
   };
 
   const toggleStatus = async (musician) => {
     const newStatus =
       musician.estado_gira === "confirmado" ? "ausente" : "confirmado";
-    setLocalRoster((prev) => {
-      const newList = prev.map((m) =>
-        m.id === musician.id ? { ...m, estado_gira: newStatus } : m
-      );
-      return sortRosterList(newList, sortBy);
-    });
+    setLocalRoster((prev) =>
+      sortRosterList(
+        prev.map((m) =>
+          m.id === musician.id ? { ...m, estado_gira: newStatus } : m
+        ),
+        sortBy
+      )
+    );
     if (newStatus === "ausente") {
-      await supabase.from("giras_integrantes").upsert(
-        {
-          id_gira: gira.id,
-          id_integrante: musician.id,
-          estado: newStatus,
-          rol: musician.rol_gira,
-        },
-        { onConflict: "id_gira, id_integrante" }
-      );
+      await supabase
+        .from("giras_integrantes")
+        .upsert(
+          {
+            id_gira: gira.id,
+            id_integrante: musician.id,
+            estado: newStatus,
+            rol: musician.rol_gira,
+          },
+          { onConflict: "id_gira, id_integrante" }
+        );
     } else {
       if (musician.es_adicional) {
         await supabase
@@ -403,7 +389,6 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     refreshRoster();
   };
 
-  // --- LOGICA DE FUENTES (GRUPOS) ---
   const handleUpdateGroups = async () => {
     setLoadingAction(true);
     await supabase.from("giras_fuentes").delete().eq("id_gira", gira.id);
@@ -437,14 +422,15 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     refreshRoster();
   };
 
-  // --- LOGICA MANUAL ---
   const addManualMusician = async (musicianId) => {
-    const { error } = await supabase.from("giras_integrantes").insert({
-      id_gira: gira.id,
-      id_integrante: musicianId,
-      estado: "confirmado",
-      rol: "musico",
-    });
+    const { error } = await supabase
+      .from("giras_integrantes")
+      .insert({
+        id_gira: gira.id,
+        id_integrante: musicianId,
+        estado: "confirmado",
+        rol: "musico",
+      });
     if (!error) {
       setSearchTerm("");
       refreshRoster();
@@ -461,26 +447,26 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     if (!error) refreshRoster();
   };
 
-  // --- NUEVA FUNCIÓN: LIBERAR PLAZA (Inverse Swap) ---
   const handleLiberarPlaza = async (integrante) => {
-    if (!confirm(`⚠️ ¿Estás seguro de dar de baja a ${integrante.nombre} ${integrante.apellido}?\n\nSe creará automáticamente una VACANTE que heredará su habitación, transporte y dietas.`)) return;
-
+    if (
+      !confirm(
+        `⚠️ ¿Estás seguro de dar de baja a ${integrante.nombre} ${integrante.apellido}?\n\nSe creará automáticamente una VACANTE que heredará su habitación, transporte y dietas.`
+      )
+    )
+      return;
     setLoadingAction(true);
     try {
-        const { error } = await supabase.rpc('liberar_plaza_generar_vacante', {
-            p_id_gira: gira.id,
-            p_id_integrante_real: integrante.id
-        });
-
-        if (error) throw error;
-
-        alert("✅ Plaza liberada. Se ha generado la vacante correspondiente.");
-        refreshRoster(); 
+      const { error } = await supabase.rpc("liberar_plaza_generar_vacante", {
+        p_id_gira: gira.id,
+        p_id_integrante_real: integrante.id,
+      });
+      if (error) throw error;
+      alert("✅ Plaza liberada. Se ha generado la vacante correspondiente.");
+      refreshRoster();
     } catch (err) {
-        console.error(err);
-        alert("Error al liberar plaza: " + err.message);
+      alert("Error al liberar plaza: " + err.message);
     } finally {
-        setLoadingAction(false);
+      setLoadingAction(false);
     }
   };
 
@@ -491,11 +477,9 @@ export default function GiraRoster({ supabase, gira, onBack }) {
       .select("id, nombre, apellido, instrumentos(instrumento)");
     if (cleanTerm.includes(" ")) {
       const parts = cleanTerm.split(" ");
-      const first = parts[0];
-      const second = parts.slice(1).join(" ");
       query = query
-        .ilike("nombre", `%${first}%`)
-        .ilike("apellido", `%${second}%`);
+        .ilike("nombre", `%${parts[0]}%`)
+        .ilike("apellido", `%${parts.slice(1).join(" ")}%`);
     } else {
       query = query.or(
         `nombre.ilike.%${cleanTerm}%,apellido.ilike.%${cleanTerm}%`
@@ -517,48 +501,34 @@ export default function GiraRoster({ supabase, gira, onBack }) {
 
   const copyGuestLink = async (integrante) => {
     let token = integrante.token_publico;
-    let nombre = `${integrante.nombre} ${integrante.apellido}`;
-
     if (!token) {
-      const confirmGen = confirm(
-        `El usuario ${nombre} no tiene un enlace generado.\n¿Deseas generar uno ahora?`
-      );
-      if (!confirmGen) return;
-
+      if (!confirm(`Generar enlace para ${integrante.nombre}?`)) return;
       try {
         const newToken = self.crypto.randomUUID();
-        const { error } = await supabase
+        await supabase
           .from("giras_integrantes")
           .update({ token_publico: newToken })
           .eq("id_gira", gira.id)
           .eq("id_integrante", integrante.id);
-
-        if (error) throw error;
         token = newToken;
         integrante.token_publico = newToken;
       } catch (err) {
-        console.error("Error generando token:", err);
-        return alert("Hubo un error al generar el enlace.");
+        return alert("Error generando enlace.");
       }
     }
-
     const url = `${window.location.origin}/share/${token}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      alert(
-        `¡Enlace copiado!\n\nSe ha generado un acceso de invitado para ${nombre}.\n\nEnvialo por WhatsApp: ${url}`
-      );
-    } catch (err) {
-      console.error("Error al copiar al portapapeles:", err);
-      prompt("No se pudo copiar automáticamente. Copia este enlace:", url);
-    }
+    navigator.clipboard
+      .writeText(url)
+      .then(() => alert(`Enlace copiado: ${url}`))
+      .catch(() => prompt("Copiar:", url));
   };
 
   const toggleColumn = (col) =>
     setVisibleColumns((prev) => ({ ...prev, [col]: !prev[col] }));
 
   const getRowClass = (m) => {
-    if (m.es_simulacion) return "bg-amber-50 border-l-4 border-l-amber-400 text-slate-800"; // VACANTE
+    if (m.es_simulacion)
+      return "bg-amber-50 border-l-4 border-l-amber-400 text-slate-800";
     if (m.estado_gira === "ausente")
       return "bg-red-50 text-red-800 opacity-60 grayscale-[50%]";
     const rol = m.rol_gira || "musico";
@@ -595,30 +565,26 @@ export default function GiraRoster({ supabase, gira, onBack }) {
               {gira.nombre_gira}
             </h2>
             <div className="flex gap-2 mt-1 flex-wrap">
-              {sources.map((s) => {
-                const label =
-                  s.tipo === "ENSAMBLE" || s.tipo === "EXCL_ENSAMBLE"
+              {sources.map((s) => (
+                <span
+                  key={s.id}
+                  className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${
+                    s.tipo === "EXCL_ENSAMBLE"
+                      ? "bg-red-50 text-red-700"
+                      : "bg-indigo-50 text-indigo-700"
+                  }`}
+                >
+                  {s.tipo === "ENSAMBLE" || s.tipo === "EXCL_ENSAMBLE"
                     ? ensemblesList.find((e) => e.value === s.valor_id)?.label
-                    : s.valor_texto;
-                const typeClass =
-                  s.tipo === "EXCL_ENSAMBLE"
-                    ? "bg-red-50 text-red-700 border-red-100"
-                    : "bg-indigo-50 text-indigo-700 border-indigo-100";
-                return (
-                  <span
-                    key={s.id}
-                    className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${typeClass}`}
+                    : s.valor_texto}
+                  <button
+                    onClick={() => removeSource(s.id, s.tipo)}
+                    className="ml-1 hover:text-black/70"
                   >
-                    {label}
-                    <button
-                      onClick={() => removeSource(s.id, s.tipo)}
-                      className="ml-1 hover:text-black/70"
-                    >
-                      <IconX size={12} />
-                    </button>
-                  </span>
-                );
-              })}
+                    <IconX size={12} />
+                  </button>
+                </span>
+              ))}
             </div>
           </div>
         </div>
@@ -650,7 +616,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
         </div>
       </div>
 
-      {/* TOOLBAR SUPERIOR */}
+      {/* TOOLBAR */}
       <div className="px-4 py-2 bg-white border-b border-slate-100 flex items-center justify-between gap-4 z-40 relative">
         <div className="flex items-center gap-2">
           <span className="text-[10px] uppercase font-bold text-slate-400">
@@ -714,7 +680,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
         </div>
       </div>
 
-      {/* TOOLBAR INFERIOR */}
+      {/* CONTROLES AGREGAR */}
       <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex gap-3 items-start overflow-visible z-20">
         <div className="flex bg-white border border-slate-200 p-1 rounded-lg shrink-0">
           <button
@@ -739,16 +705,13 @@ export default function GiraRoster({ supabase, gira, onBack }) {
           >
             Individual
           </button>
-          
-          {/* BOTÓN NUEVA VACANTE */}
           <button
             onClick={() => setIsVacancyModalOpen(true)}
             className="px-3 py-1 rounded text-xs font-bold text-amber-600 hover:bg-amber-50 flex items-center gap-1 border-l border-slate-100 ml-1"
           >
-            <IconUserPlus size={14}/> Nueva Vacante
+            <IconUserPlus size={14} /> Nueva Vacante
           </button>
         </div>
-
         {addMode === "groups" && (
           <div className="flex gap-3 flex-wrap animate-in slide-in-from-left-2 items-start bg-white p-3 rounded border border-slate-200 shadow-sm">
             <div className="w-40">
@@ -787,7 +750,6 @@ export default function GiraRoster({ supabase, gira, onBack }) {
             </button>
           </div>
         )}
-
         {addMode === "individual" && (
           <div className="relative w-64 animate-in slide-in-from-left-2 mt-1">
             <input
@@ -873,7 +835,9 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                         {m.apellido}, {m.nombre}
                       </span>
                       {m.es_simulacion && (
-                          <span className="text-[9px] text-amber-600 uppercase font-bold tracking-wider">VACANTE</span>
+                        <span className="text-[9px] text-amber-600 uppercase font-bold tracking-wider">
+                          VACANTE
+                        </span>
                       )}
                     </div>
                   </td>
@@ -928,81 +892,62 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                   </td>
                   <td className="p-3 text-right pr-4">
                     <div className="flex justify-end items-center gap-1">
-                      
-                      {/* BOTÓN EDITAR (LAPICITO) - Visible para TODOS */}
                       <button
                         onClick={() => setEditingMusician(m)}
                         className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-                        title="Editar datos generales"
+                        title="Editar"
                       >
                         <IconPencil size={16} />
                       </button>
-
                       <div className="w-px h-4 bg-slate-200 mx-1"></div>
-
                       {m.es_simulacion ? (
-                          // BOTÓN SWAP (Para Vacantes)
-                          <button
-                              onClick={() => setSwapTarget(m)}
-                              className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-2 py-1.5 rounded shadow-sm flex items-center gap-1"
-                              title="Asignar Titular (Reemplazo)"
-                          >
-                              <IconExchange size={12}/> ASIGNAR
-                          </button>
+                        <button
+                          onClick={() => setSwapTarget(m)}
+                          className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-2 py-1.5 rounded shadow-sm flex items-center gap-1"
+                          title="Asignar"
+                        >
+                          <IconExchange size={12} /> ASIGNAR
+                        </button>
                       ) : (
-                          // ACCIONES PARA MÚSICOS CONFIRMADOS
-                          <>
-                              {/* BOTÓN LIBERAR PLAZA (Solo si está confirmado) */}
-                              {m.estado_gira === 'confirmado' && (
-                                  <button
-                                      onClick={() => handleLiberarPlaza(m)}
-                                      className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
-                                      title="Dar de baja y conservar plaza (Crear Vacante)"
-                                  >
-                                      <IconUserMinus size={16}/> 
-                                  </button>
-                              )}
-
-                              {m.es_adicional && (
-                                  <button
-                                      onClick={() => removeMemberManual(m.id)}
-                                      className="text-slate-300 hover:text-red-500 p-1"
-                                      title="Eliminar registro manual"
-                                  >
-                                      <IconTrash size={16} />
-                                  </button>
-                              )}
-                              <button
-                                  onClick={() => copyGuestLink(m)}
-                                  className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-                                  title="Copiar enlace de invitado"
-                              >
-                                  <IconLink size={16} />
-                              </button>
-                          </>
+                        <>
+                          {m.estado_gira === "confirmado" && (
+                            <button
+                              onClick={() => handleLiberarPlaza(m)}
+                              className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
+                              title="Liberar Plaza"
+                            >
+                              <IconUserMinus size={16} />
+                            </button>
+                          )}
+                          {m.es_adicional && (
+                            <button
+                              onClick={() => removeMemberManual(m.id)}
+                              className="text-slate-300 hover:text-red-500 p-1"
+                              title="Eliminar"
+                            >
+                              <IconTrash size={16} />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => copyGuestLink(m)}
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                            title="Link"
+                          >
+                            <IconLink size={16} />
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
                 </tr>
               ))}
-              {localRoster.length === 0 && !hookLoading && (
-                <tr>
-                  <td
-                    colSpan="10"
-                    className="p-12 text-center text-slate-400 italic"
-                  >
-                    Lista vacía.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* --- MODAL DETALLADO DE CREACIÓN DE MÚSICO --- */}
-      {isCreatingDetailed && (
-        // CAMBIO: createPortal para evitar problemas de overflow
+      {/* --- MODAL DETALLADO --- */}
+      {isCreatingDetailed &&
         createPortal(
           <div
             className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 shadow-2xl"
@@ -1022,57 +967,55 @@ export default function GiraRoster({ supabase, gira, onBack }) {
               />
             </div>
           </div>,
-          document.body // Portal al body
-        )
-      )}
+          document.body
+        )}
 
       {/* --- MODAL DE EDICIÓN (LÁPIZ) --- */}
-      {editingMusician && (
-        // CAMBIO: createPortal + sin overflow-hidden en el contenedor
+      {/* CAMBIO CLAVE: createPortal + Z-Index 50 (menor que el 99999 del dropdown) + Sin overflow hidden */}
+      {editingMusician &&
         createPortal(
           <div
-            className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 shadow-2xl"
-            style={{ zIndex: 100000 }} 
+            className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4"
+            style={{ zIndex: 50 }}
           >
             <div className="w-full max-w-2xl animate-in zoom-in-95 duration-200 bg-white rounded-xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
-               {/* Header propio para mejorar UX */}
-               <div className="bg-slate-50 border-b border-slate-100 p-3 flex justify-between items-center shrink-0">
-                  <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                     <IconPencil size={16} className="text-indigo-600"/> 
-                     Editar {editingMusician.es_simulacion ? 'Vacante' : 'Músico'}
-                  </h3>
-                  <button onClick={() => setEditingMusician(null)} className="text-slate-400 hover:text-red-500">
-                      <IconX size={20}/>
-                  </button>
+              <div className="bg-slate-50 border-b border-slate-100 p-3 flex justify-between items-center shrink-0">
+                <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                  <IconPencil size={16} className="text-indigo-600" />
+                  Editar {editingMusician.es_simulacion ? "Vacante" : "Músico"}
+                </h3>
+                <button
+                  onClick={() => setEditingMusician(null)}
+                  className="text-slate-400 hover:text-red-500"
+                >
+                  <IconX size={20} />
+                </button>
               </div>
-              {/* CAMBIO: No usamos overflow-y-auto aquí, dejamos que MusicianForm maneje el scroll interno */}
-              <div className="flex-1 overflow-hidden flex flex-col">
+              {/* Contenedor flexible SIN overflow-hidden en el padre que corte los absolutos */}
+              <div className="flex-1 flex flex-col min-h-0">
                 <MusicianForm
                   supabase={supabase}
-                  musician={editingMusician} 
+                  musician={editingMusician}
                   onSave={handleEditSave}
                   onCancel={() => setEditingMusician(null)}
                 />
               </div>
             </div>
           </div>,
-          document.body // Portal al body
-        )
-      )}
+          document.body
+        )}
 
-      {/* --- MODALES DE VACANTES (PLACEHOLDERS) --- */}
-      <AddVacancyModal 
+      <AddVacancyModal
         isOpen={isVacancyModalOpen}
         onClose={() => setIsVacancyModalOpen(false)}
         giraId={gira.id}
         supabase={supabase}
         onRefresh={refreshRoster}
-        regions={[]} 
+        regions={[]}
         localities={localitiesList}
-        instruments={instrumentsList} 
-        giraNomenclador={gira.nomenclador || gira.nombre_gira.substring(0, 5)} 
+        instruments={instrumentsList}
+        giraNomenclador={gira.nomenclador || gira.nombre_gira.substring(0, 5)}
       />
-
       <SwapVacancyModal
         isOpen={!!swapTarget}
         onClose={() => setSwapTarget(null)}
@@ -1081,7 +1024,6 @@ export default function GiraRoster({ supabase, gira, onBack }) {
         supabase={supabase}
         onRefresh={refreshRoster}
       />
-
     </div>
   );
 }
