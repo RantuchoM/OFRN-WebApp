@@ -20,7 +20,8 @@ import MyPartsViewer from "./views/Giras/MyPartsViewer";
 import MealsAttendancePersonal from "./views/Giras/MealsAttendancePersonal";
 import PublicLinkHandler from "./views/Public/PublicLinkHandler";
 import DashboardGeneral from "./views/Dashboard/DashboardGeneral";
-
+import NewsModal from "./components/news/NewsModal"; // <--- VISUALIZADOR (Campanita)
+import NewsManager from "./components/news/NewsManager"; // <--- GESTOR (Para admins)
 import {
   IconLayoutDashboard,
   IconMap,
@@ -42,6 +43,7 @@ import {
   IconSpiralNotebook,
   IconList,
   IconAlertCircle,
+  IconBell
 } from "./components/ui/Icons";
 
 // --- MODAL CALENDARIO (Mismo código de antes) ---
@@ -86,6 +88,7 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
             <IconX size={20} />
           </button>
         </div>
+
         <div className="p-6 space-y-6">
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm uppercase tracking-wider">
@@ -381,6 +384,12 @@ const ProtectedApp = () => {
       show: isManagement,
     },
     {
+      id: "NEWS_MANAGER",
+      label: "Comunicación",
+      icon: <IconBell size={20} />,
+      show: isManagement, // Solo visible para admin, editor, coord_general
+    },
+    {
       id: "USERS",
       label: "Usuarios",
       icon: <IconSettings size={20} />,
@@ -405,6 +414,8 @@ const ProtectedApp = () => {
             supabase={supabase}
           />
         );
+      case "NEWS_MANAGER":
+        return <NewsManager supabase={supabase} />;
       case "FULL_AGENDA":
         return <AgendaGeneral onViewChange={updateView} supabase={supabase} />;
       case "ENSAMBLES":
@@ -550,7 +561,7 @@ const ProtectedApp = () => {
 
       {/* MAIN CONTENT */}
       <div className="flex-1 flex flex-col h-full relative overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shadow-sm z-10 shrink-0">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shadow-sm z-100 shrink-0">
           <div className="flex items-center gap-2">
             <div className="md:hidden w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold mr-2">
               O
@@ -571,7 +582,9 @@ const ProtectedApp = () => {
               />
               <span className="text-xs font-bold">Sincronizar</span>
             </button>
-
+            <div className="hidden sm:block">
+              <NewsModal supabase={supabase} />
+            </div>
             {/* BOTÓN ALERTAS CON BADGE (Oculto para isGuestRole) */}
             {!isGuestRole && (
               <button
