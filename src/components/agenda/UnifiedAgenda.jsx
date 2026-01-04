@@ -23,12 +23,14 @@ import {
   IconCalendar,
   IconAlertTriangle,
   IconArrowRight,
-  IconEye, // Nuevo icono para el filtro
+  IconEye,
+  IconUsers
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import EventForm from "../forms/EventForm";
+import SearchableSelect from "../ui/SearchableSelect"; // <--- Importamos el componente
 
 // --- LÓGICA DE FECHA LÍMITE ---
 const getDeadlineStatus = (deadlineISO) => {
@@ -151,6 +153,14 @@ export default function UnifiedAgenda({
   onViewChange = null,
 }) {
   const { user } = useAuth();
+  
+  // --- ESTADOS DE VISUALIZACIÓN "VER COMO" ---
+  const [viewAsUserId, setViewAsUserId] = useState(null);
+  const [musicianOptions, setMusicianOptions] = useState([]);
+  
+  // ID efectivo: Si hay un usuario seleccionado en "Ver como", usamos ese. Si no, el logueado.
+  const effectiveUserId = viewAsUserId || user.id;
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
@@ -174,10 +184,36 @@ export default function UnifiedAgenda({
     user?.rol_sistema
   );
 
-  // 1. Cargar Perfil
+  // 0. Cargar lista de músicos para el dropdown (Solo admins/editores)
+  useEffect(() => {
+    const fetchMusicians = async () => {
+      if (canEdit && navigator.onLine) {
+        try {
+          const { data } = await supabase
+            .from("integrantes")
+            .select("id, nombre, apellido")
+            .order("apellido");
+          
+          if (data) {
+            const options = data.map(m => ({
+              id: m.id,
+              label: `${m.apellido}, ${m.nombre}`,
+              subLabel: null
+            }));
+            setMusicianOptions(options);
+          }
+        } catch (error) {
+          console.error("Error fetching musicians:", error);
+        }
+      }
+    };
+    fetchMusicians();
+  }, [canEdit, supabase]);
+
+  // 1. Cargar Perfil (del Usuario Efectivo)
   useEffect(() => {
     const fetchProfile = async () => {
-      const PROFILE_CACHE_KEY = `profile_cache_${user.id}`;
+      const PROFILE_CACHE_KEY = `profile_cache_${effectiveUserId}`;
       const cachedProfile = localStorage.getItem(PROFILE_CACHE_KEY);
       if (cachedProfile) {
         try {
@@ -187,7 +223,7 @@ export default function UnifiedAgenda({
         }
       }
 
-      if (user.id === "guest-general") {
+      if (effectiveUserId === "guest-general") {
         setUserProfile({
           id: "guest-general",
           nombre: "Invitado",
@@ -207,7 +243,7 @@ export default function UnifiedAgenda({
           .select(
             "*, instrumentos(familia), integrantes_ensambles(id_ensamble)"
           )
-          .eq("id", user.id)
+          .eq("id", effectiveUserId)
           .single();
         if (data) {
           setUserProfile(data);
@@ -218,7 +254,7 @@ export default function UnifiedAgenda({
       }
     };
     fetchProfile();
-  }, [user.id, supabase]);
+  }, [effectiveUserId, supabase]);
 
   // 2. Cargar Catálogos
   useEffect(() => {
@@ -242,7 +278,7 @@ export default function UnifiedAgenda({
     fetchCatalogs();
   }, [canEdit, supabase]);
 
-  // 3. Detectar Conexión
+  // 3. Detectar Conexión y Recargar Agenda al cambiar perfil
   useEffect(() => {
     const handleOnline = () => {
       setIsOfflineMode(false);
@@ -256,7 +292,7 @@ export default function UnifiedAgenda({
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, [userProfile, giraId, monthsLimit]);
+  }, [userProfile, giraId, monthsLimit]); // userProfile cambia cuando effectiveUserId cambia
 
   const handleCategoryToggle = (catId) => {
     setSelectedCategoryIds((prev) =>
@@ -266,13 +302,12 @@ export default function UnifiedAgenda({
     );
   };
 
-  // --- FILTRADO DE ITEMS (ACTUALIZADO) ---
+  // --- FILTRADO DE ITEMS ---
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      // 1. Filtro de Estado (Nuevo)
+      // 1. Filtro de Estado
       if (!showNonActive) {
-        // Si el evento pertenece a una gira, verificamos su estado
-        const estadoGira = item.programas?.estado || "Borrador"; // Asumimos Borrador si es legacy
+        const estadoGira = item.programas?.estado || "Borrador"; 
         if (item.isProgramMarker) {
           if (estadoGira !== "Vigente") return false;
         } else if (item.programas && estadoGira !== "Vigente") {
@@ -280,7 +315,7 @@ export default function UnifiedAgenda({
         }
       }
 
-      // 2. Filtro de Categoría (Existente)
+      // 2. Filtro de Categoría
       if (item.isProgramMarker) return true;
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
       if (!catId) return true;
@@ -308,7 +343,8 @@ export default function UnifiedAgenda({
   // 4. FETCH PRINCIPAL
   const fetchAgenda = async () => {
     setLoading(true);
-    const CACHE_KEY = `agenda_cache_${user.id}_${giraId || "general"}`;
+    // Cache key incluye el ID efectivo para no mezclar agendas
+    const CACHE_KEY = `agenda_cache_${effectiveUserId}_${giraId || "general"}`;
 
     try {
       const cachedData = localStorage.getItem(CACHE_KEY);
@@ -326,9 +362,14 @@ export default function UnifiedAgenda({
 
       const start = startOfDay(new Date()).toISOString();
       const end = addMonths(new Date(), monthsLimit).toISOString();
+      
+      // Usamos el rol del perfil cargado, no el del admin logueado, para simular la vista
+      const profileRole = userProfile?.rol_sistema || "musico";
       const isPersonal =
-        user.rol_sistema === "consulta_personal" ||
-        user.rol_sistema === "personal";
+        profileRole === "consulta_personal" ||
+        profileRole === "personal" ||
+        profileRole === "musico" || // Asumimos músicos ven personalizado
+        profileRole === "archivista";
 
       let myEnsembles = new Set();
       let myFamily = null;
@@ -340,11 +381,12 @@ export default function UnifiedAgenda({
         myFamily = userProfile.instrumentos?.familia;
       }
 
+      // Consultas usando effectiveUserId
       const [customAttendance, ensembleEvents] = await Promise.all([
         supabase
           .from("eventos_asistencia_custom")
           .select("id_evento, tipo, nota")
-          .eq("id_integrante", user.id),
+          .eq("id_integrante", effectiveUserId),
         myEnsembles.size > 0
           ? supabase
               .from("eventos_ensambles")
@@ -396,13 +438,17 @@ export default function UnifiedAgenda({
       // --- FILTRADO DE EVENTOS REALES ---
       const visibleEvents = (eventsData || []).filter((item) => {
         if (giraId) return true;
-        if (!isPersonal) return true;
+        
+        // Si el usuario "visto" tiene rol de gestión, ve todo
+        const isManagementProfile = ["admin", "editor", "coord_general", "director"].includes(profileRole);
+        if (isManagementProfile) return true;
+
         if (customMap.has(item.id)) return true;
         if (myEnsembleEventIds.has(item.id)) return true;
         if (item.programas) {
           const overrides = item.programas.giras_integrantes || [];
           const sources = item.programas.giras_fuentes || [];
-          const myOverride = overrides.find((o) => o.id_integrante === user.id);
+          const myOverride = overrides.find((o) => o.id_integrante === effectiveUserId);
           if (myOverride && myOverride.estado === "ausente") return false;
           if (myOverride) return true;
           return sources.some(
@@ -460,13 +506,13 @@ export default function UnifiedAgenda({
         }
       });
 
-      if (visibleEvents.length > 0 && user.id !== "guest-general") {
+      if (visibleEvents.length > 0 && effectiveUserId !== "guest-general") {
         const eventIds = visibleEvents.map((e) => e.id);
         const { data: attendanceData } = await supabase
           .from("eventos_asistencia")
           .select("id_evento, estado")
           .in("id_evento", eventIds)
-          .eq("id_integrante", user.id);
+          .eq("id_integrante", effectiveUserId);
         const attendanceMap = {};
         attendanceData?.forEach((a) => {
           attendanceMap[a.id_evento] = a.estado;
@@ -474,7 +520,7 @@ export default function UnifiedAgenda({
         visibleEvents.forEach((evt) => {
           evt.mi_asistencia = attendanceMap[evt.id];
           const myTourRecord = evt.programas?.giras_integrantes?.find(
-            (i) => i.id_integrante === user.id
+            (i) => i.id_integrante === effectiveUserId
           );
           const myTourRole = myTourRecord?.rol || "musico";
           evt.is_convoked = checkIsConvoked(evt.convocados, myTourRole);
@@ -524,13 +570,13 @@ export default function UnifiedAgenda({
   };
 
   const toggleMealAttendance = async (eventId, newStatus) => {
-    if (user.id === "guest-general") return;
+    if (effectiveUserId === "guest-general") return;
     setLoading(true);
     try {
       const { error } = await supabase
         .from("eventos_asistencia")
         .upsert(
-          { id_evento: eventId, id_integrante: user.id, estado: newStatus },
+          { id_evento: eventId, id_integrante: effectiveUserId, estado: newStatus },
           { onConflict: "id_evento, id_integrante" }
         );
       if (error) throw error;
@@ -538,7 +584,7 @@ export default function UnifiedAgenda({
         item.id === eventId ? { ...item, mi_asistencia: newStatus } : item
       );
       setItems(newItems);
-      const CACHE_KEY = `agenda_cache_${user.id}_${giraId || "general"}`;
+      const CACHE_KEY = `agenda_cache_${effectiveUserId}_${giraId || "general"}`;
       localStorage.setItem(CACHE_KEY, JSON.stringify(newItems));
     } catch (error) {
       alert("Error: " + error.message);
@@ -877,7 +923,21 @@ export default function UnifiedAgenda({
         </div>
 
         {!loading && availableCategories.length > 0 && (
-          <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-hide">
+          <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-hide items-center">
+            
+            {/* NUEVO SELECTOR "VER COMO" (Solo Admin/Editor) */}
+            {canEdit && musicianOptions.length > 0 && (
+              <div className="shrink-0 w-[200px] border-r border-slate-200 pr-2 mr-2">
+                <SearchableSelect
+                  options={musicianOptions}
+                  value={viewAsUserId}
+                  onChange={setViewAsUserId}
+                  placeholder="Ver como..."
+                  className="w-full"
+                />
+              </div>
+            )}
+
             {availableCategories.map((cat) => {
               const isActive = selectedCategoryIds.includes(cat.id);
               return (
