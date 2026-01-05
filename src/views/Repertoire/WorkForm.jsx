@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { createPortal } from "react-dom";
 import {
   IconMusic,
   IconPlus,
-  IconTrash,
   IconLoader,
   IconCheck,
   IconX,
@@ -12,102 +10,153 @@ import {
   IconList,
   IconUser,
   IconInfo,
+  IconBold,
+  IconItalic,
+  IconTrash,
+
+  IconUnderline,
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { calculateInstrumentation } from "../../utils/instrumentation";
 import DriveMatcherModal from "../../components/repertoire/DriveMatcherModal";
 import LinksManagerModal from "../../components/repertoire/LinksManagerModal";
-import SearchableSelect from "../../components/ui/SearchableSelect"; // Asegúrate de tener este componente
+import SearchableSelect from "../../components/ui/SearchableSelect";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
 
-// --- COMPONENTE EDITOR DE TEXTO ENRIQUECIDO ---
-const RichTextEditor = ({
-  value,
-  onChange,
-  placeholder,
-  rows = 3,
-  className = "",
-  onBlur,
-}) => {
-  const textAreaRef = useRef(null);
+// --- COMPONENTE EDITOR WYSIWYG (Lo que ves es lo que obtienes) ---
+const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
+  const editorRef = useRef(null);
+  const [isFocused, setIsFocused] = useState(false);
 
-  const insertTag = (startTag, endTag = "") => {
-    const textarea = textAreaRef.current;
-    if (!textarea) return;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const text = value || "";
-    const newText =
-      text.substring(0, start) +
-      startTag +
-      text.substring(start, end) +
-      endTag +
-      text.substring(end);
+  // Sincronizar contenido inicial o externo
+  useEffect(() => {
+    if (editorRef.current && value !== editorRef.current.innerHTML) {
+      // Solo actualizamos si está vacío o es drásticamente diferente para no perder cursor
+      if (!editorRef.current.innerHTML || value === "" || value === null) {
+        editorRef.current.innerHTML = value || "";
+      }
+    }
+  }, [value]);
 
-    onChange(newText);
+  const handleInput = () => {
+    if (editorRef.current) {
+      onChange(editorRef.current.innerHTML);
+    }
+  };
 
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(
-        start + startTag.length,
-        end + startTag.length
-      );
-    }, 0);
+  const execCmd = (command, value = null) => {
+    document.execCommand(command, false, value);
+    editorRef.current.focus();
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      const key = e.key.toLowerCase();
+      if (key === "b") {
+        e.preventDefault();
+        execCmd("bold");
+      }
+      if (key === "i") {
+        e.preventDefault();
+        execCmd("italic");
+      }
+      if (key === "u") {
+        e.preventDefault();
+        execCmd("underline");
+      }
+    }
+  };
+
+  const promptLink = () => {
+    const url = prompt("Ingrese la URL:");
+    if (url) execCmd("createLink", url);
   };
 
   return (
     <div
-      className={`border border-slate-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 transition-shadow bg-white ${className}`}
+      className={`border rounded-lg overflow-hidden transition-shadow bg-white flex flex-col ${
+        isFocused
+          ? "ring-2 ring-indigo-500 border-indigo-500"
+          : "border-slate-300"
+      } ${className}`}
     >
-      <div className="flex items-center gap-1 bg-slate-50 border-b border-slate-200 p-1.5 select-none">
+      {/* TOOLBAR */}
+      <div className="flex items-center gap-1 bg-slate-50 border-b border-slate-200 p-1.5 select-none shrink-0">
         <button
           type="button"
-          onClick={() => insertTag("<b>", "</b>")}
-          className="p-1 hover:bg-slate-200 rounded text-slate-600 font-bold text-xs w-6"
-          title="Negrita"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            execCmd("bold");
+          }}
+          className="p-1.5 hover:bg-slate-200 rounded text-slate-600"
+          title="Negrita (Ctrl+B)"
         >
-          B
+          <IconBold size={14} />
         </button>
         <button
           type="button"
-          onClick={() => insertTag("<i>", "</i>")}
-          className="p-1 hover:bg-slate-200 rounded text-slate-600 italic text-xs w-6"
-          title="Cursiva"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            execCmd("italic");
+          }}
+          className="p-1.5 hover:bg-slate-200 rounded text-slate-600"
+          title="Cursiva (Ctrl+I)"
         >
-          I
+          <IconItalic size={14} />
         </button>
-        <div className="w-px h-3 bg-slate-300 mx-1"></div>
         <button
           type="button"
-          onClick={() => insertTag("<ul>\n<li>", "</li>\n</ul>")}
-          className="p-1 hover:bg-slate-200 rounded text-slate-600"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            execCmd("underline");
+          }}
+          className="p-1.5 hover:bg-slate-200 rounded text-slate-600"
+          title="Subrayado (Ctrl+U)"
+        >
+          <IconUnderline size={14} />
+        </button>
+        <div className="w-px h-4 bg-slate-300 mx-1"></div>
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            execCmd("insertUnorderedList");
+          }}
+          className="p-1.5 hover:bg-slate-200 rounded text-slate-600"
           title="Lista"
         >
           <IconList size={14} />
         </button>
         <button
           type="button"
-          onClick={() =>
-            insertTag(
-              '<a href="" target="_blank" class="text-indigo-600 underline">',
-              "</a>"
-            )
-          }
-          className="p-1 hover:bg-slate-200 rounded text-slate-600"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            promptLink();
+          }}
+          className="p-1.5 hover:bg-slate-200 rounded text-slate-600"
           title="Enlace"
         >
           <IconLink size={14} />
         </button>
       </div>
-      <textarea
-        ref={textAreaRef}
-        rows={rows}
-        className="w-full p-3 text-sm outline-none resize-y"
-        placeholder={placeholder}
-        value={value || ""}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={onBlur}
+
+      {/* ÁREA EDITABLE */}
+      <div
+        ref={editorRef}
+        contentEditable
+        onInput={handleInput}
+        onKeyDown={handleKeyDown}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        className="flex-1 p-3 text-sm outline-none overflow-y-auto min-h-[80px] max-h-[300px] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline"
+        data-placeholder={placeholder}
+        style={{ whiteSpace: "pre-wrap" }} // Respetar saltos de línea visuales
       />
+      {!value && !isFocused && (
+        <div className="absolute top-[46px] left-3 text-slate-400 text-sm pointer-events-none">
+          {placeholder}
+        </div>
+      )}
     </div>
   );
 };
@@ -142,18 +191,17 @@ export default function WorkForm({
     duracion: "",
     link_drive: "",
     link_youtube: "",
-    link_partitura: "", // Nuevo campo en UI
-    link_audio: "", // Nuevo campo en UI
+    link_partitura: "",
+    link_audio: "",
     instrumentacion: "",
     anio: "",
     estado: "Oficial",
-    comentarios: "", // Notas internas
-    observaciones: "", // Nuevo campo solicitado
+    comentarios: "",
+    observaciones: "",
   });
 
-  // Estado para Relaciones Múltiples
-  const [selectedComposers, setSelectedComposers] = useState([]); // Array de IDs
-  const [selectedArrangers, setSelectedArrangers] = useState([]); // Array de IDs
+  const [selectedComposers, setSelectedComposers] = useState([]);
+  const [selectedArrangers, setSelectedArrangers] = useState([]);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState("idle");
@@ -162,9 +210,8 @@ export default function WorkForm({
   const [instrumentList, setInstrumentList] = useState(
     catalogoInstrumentos || []
   );
-  const [composersOptions, setComposersOptions] = useState([]); // Formato {id, label} para SearchableSelect
+  const [composersOptions, setComposersOptions] = useState([]);
 
-  // UI Helpers para Particellas
   const [genInstrument, setGenInstrument] = useState("");
   const [genQuantity, setGenQuantity] = useState(1);
   const [instrumentQuery, setInstrumentQuery] = useState("");
@@ -186,7 +233,6 @@ export default function WorkForm({
         duracion: initialData.duracion_segundos
           ? formatSecondsToTime(initialData.duracion_segundos)
           : "",
-        // Mapear campos legacy si existen
         link_audio: initialData.link_audio || "",
         link_partitura: initialData.link_partitura || "",
       }));
@@ -224,18 +270,15 @@ export default function WorkForm({
         observaciones: data.observaciones || "",
       }));
 
-      // Procesar Relaciones Múltiples
       if (data.obras_compositores) {
         const comps = data.obras_compositores
           .filter((oc) => oc.rol === "compositor")
           .map((oc) => oc.compositores?.id)
           .filter(Boolean);
-
         const arrs = data.obras_compositores
           .filter((oc) => oc.rol === "arreglador")
           .map((oc) => oc.compositores?.id)
           .filter(Boolean);
-
         setSelectedComposers(comps);
         setSelectedArrangers(arrs);
       }
@@ -296,7 +339,6 @@ export default function WorkForm({
     }
   };
 
-  // --- AUTOSAVE DE CAMPOS SIMPLES ---
   const saveFieldToDb = async (field, value) => {
     if (!formData.id) return;
     setSaveStatus("saving");
@@ -325,20 +367,15 @@ export default function WorkForm({
     if (formData.id) debouncedSave(field, val);
   };
 
-  // --- GESTIÓN DE RELACIONES (COMPOSITORES / ARREGLADORES) ---
   const updateComposerRelations = async (type, ids) => {
-    if (!formData.id) return; // Si es nueva, se guardan al crear
-
+    if (!formData.id) return;
     setSaveStatus("saving");
     try {
-      // 1. Borrar existentes de ese tipo
       await supabase
         .from("obras_compositores")
         .delete()
         .eq("id_obra", formData.id)
         .eq("rol", type);
-
-      // 2. Insertar nuevos
       if (ids && ids.length > 0) {
         const inserts = ids.map((id) => ({
           id_obra: formData.id,
@@ -347,7 +384,6 @@ export default function WorkForm({
         }));
         await supabase.from("obras_compositores").insert(inserts);
       }
-
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
       if (onSave) onSave(formData.id, false);
@@ -361,13 +397,11 @@ export default function WorkForm({
     setSelectedComposers(newIds);
     updateComposerRelations("compositor", newIds);
   };
-
   const handleArrangersChange = (newIds) => {
     setSelectedArrangers(newIds);
     updateComposerRelations("arreglador", newIds);
   };
 
-  // --- GESTIÓN DE PARTICELLAS (Igual que antes) ---
   const handlePartsChange = async (newPartsList, overrideId = null) => {
     const targetId = overrideId || formData.id;
     setParticellas(newPartsList);
@@ -375,7 +409,6 @@ export default function WorkForm({
     setFormData((prev) => ({ ...prev, instrumentacion: instr }));
 
     if (!targetId) return;
-
     setIsSaving(true);
     try {
       const activeIds = newPartsList.filter((p) => p.id).map((p) => p.id);
@@ -395,7 +428,6 @@ export default function WorkForm({
               .in("id", dbIdsToDelete);
         }
       }
-
       const upserts = newPartsList.map((p) => ({
         id: p.id,
         id_obra: targetId,
@@ -404,12 +436,10 @@ export default function WorkForm({
         nota_organico: p.nota_organico,
         url_archivo: JSON.stringify(p.links || []),
       }));
-
       const toInsert = upserts
         .filter((u) => !u.id)
         .map(({ id, ...rest }) => rest);
       const toUpdate = upserts.filter((u) => u.id);
-
       if (toInsert.length)
         await supabase.from("obras_particellas").insert(toInsert);
       if (toUpdate.length) {
@@ -420,13 +450,11 @@ export default function WorkForm({
             .eq("id", item.id);
         }
       }
-
       if (!overrideId) await fetchParticellas(targetId);
       await supabase
         .from("obras")
         .update({ instrumentacion: instr })
         .eq("id", targetId);
-
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
       if (onSave) onSave(targetId, false);
@@ -462,7 +490,6 @@ export default function WorkForm({
       if (error) throw error;
       const newId = data.id;
 
-      // Guardar relaciones múltiples iniciales
       const inserts = [];
       selectedComposers.forEach((id) =>
         inserts.push({ id_obra: newId, id_compositor: id, rol: "compositor" })
@@ -470,7 +497,6 @@ export default function WorkForm({
       selectedArrangers.forEach((id) =>
         inserts.push({ id_obra: newId, id_compositor: id, rol: "arreglador" })
       );
-
       if (inserts.length > 0)
         await supabase.from("obras_compositores").insert(inserts);
 
@@ -486,7 +512,6 @@ export default function WorkForm({
     }
   };
 
-  // --- LOGICA DE PARTICELAS UI ---
   const allOptions = [...INSTRUMENT_GROUPS, ...instrumentList];
   const filteredInstruments = allOptions.filter((i) =>
     i.instrumento.toLowerCase().includes(instrumentQuery.toLowerCase())
@@ -576,7 +601,6 @@ export default function WorkForm({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
-      {/* HEADER */}
       <div className="flex justify-between items-center border-b pb-4">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -615,19 +639,21 @@ export default function WorkForm({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* TÍTULO (Rich Text) Y ESTADO */}
+        {/* TÍTULO Y ESTADO */}
         <div className="col-span-full grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="md:col-span-3">
+          <div className="md:col-span-3 relative">
             <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex items-center gap-2">
               Título de la Obra{" "}
-              <IconInfo size={12} title="Admite formato enriquecido" />
+              <IconInfo
+                size={12}
+                title="Admite negrita (Ctrl+B) y cursiva (Ctrl+I)"
+              />
             </label>
-            <RichTextEditor
+            <WysiwygEditor
               value={formData.titulo}
               onChange={(val) => updateField("titulo", val)}
               placeholder="Ej: Sinfonía n.5"
-              rows={2}
-              className="shadow-sm"
+              className="shadow-sm min-h-[58px]"
             />
           </div>
           <div>
@@ -635,7 +661,7 @@ export default function WorkForm({
               Estado
             </label>
             <select
-              className="w-full border p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm h-[86px] bg-white cursor-pointer"
+              className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm h-[58px] bg-white cursor-pointer"
               value={formData.estado}
               onChange={(e) => updateField("estado", e.target.value)}
             >
@@ -645,7 +671,7 @@ export default function WorkForm({
           </div>
         </div>
 
-        {/* COMPOSITORES Y ARREGLADORES (Multi) */}
+        {/* COMPOSITORES Y ARREGLADORES */}
         <div className="col-span-full grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-100">
           <div>
             <label className="text-[10px] font-bold uppercase text-indigo-600 mb-1 flex items-center gap-1">
@@ -767,30 +793,39 @@ export default function WorkForm({
           </div>
         </div>
 
-        {/* OBSERVACIONES (NUEVO CAMPO) */}
+        {/* OBSERVACIONES */}
         <div className="col-span-full">
           <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-2">
             Observaciones{" "}
-            <IconInfo size={12} title="Información adicional relevante" />
+            <IconInfo
+              size={12}
+              title="Información adicional (Ediciones, Movimientos, etc.)"
+            />
           </label>
-          <RichTextEditor
+          <WysiwygEditor
             value={formData.observaciones}
             onChange={(val) => updateField("observaciones", val)}
-            placeholder="Detalles sobre ediciones, versiones, etc..."
-            rows={3}
+            placeholder="Detalles sobre la obra..."
           />
         </div>
 
-      
+        {/* COMENTARIOS */}
+        <div className="col-span-full">
+          <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
+            Notas / Instrumentación Detallada
+          </label>
+          <WysiwygEditor
+            value={formData.comentarios}
+            onChange={(val) => updateField("comentarios", val)}
+            placeholder="Desglose detallado..."
+          />
+        </div>
       </div>
 
-      {/* SECCIÓN DE PARTICELLAS */}
       <div className="border-t pt-4">
         <h3 className="text-sm font-bold uppercase text-slate-500 mb-3">
           Gestión de Particellas
         </h3>
-
-        {/* ... (Lógica de particellas sin cambios, solo visual) ... */}
         {!formData.id ? (
           <div className="text-center py-4 text-slate-400 italic bg-slate-50 rounded border border-dashed text-xs">
             Debes crear la solicitud primero para gestionar los archivos
@@ -803,7 +838,6 @@ export default function WorkForm({
           </div>
         ) : (
           <>
-            {/* TOOLBAR PARTICELLAS */}
             <div className="flex gap-2 items-end bg-slate-50 p-3 rounded mb-4 border border-slate-200 shadow-sm">
               <div className="flex-1 relative">
                 <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
