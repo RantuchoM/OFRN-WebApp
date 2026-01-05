@@ -12,19 +12,25 @@ import {
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 
+// --- UTILIDAD: RENDERER DE TEXTO RICO (Importado o Definido Localmente) ---
+const RichTextPreview = ({ content, className = "" }) => {
+    if (!content) return null;
+    return (
+        <div 
+            className={`whitespace-pre-wrap [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:ml-1 inline-block ${className}`} 
+            dangerouslySetInnerHTML={{ __html: content }} 
+        />
+    );
+};
+
 // --- UTILIDAD NUEVA: CONVERTIR LINK DRIVE A IMAGEN (CDN) ---
 const getDirectDriveLink = (url) => {
   if (!url) return null;
-  
-  // 1. Extraer ID del archivo
   const regex = /(?:drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)|drive\.google\.com\/file\/u\/[0-9]\/d\/)([-a-zA-Z0-9]+)/;
   const match = url.match(regex);
-  
   if (match && match[1]) {
-    // 2. Retornar formato de contenido directo (lh3) que suele evitar bloqueos CORS
-    return `https://lh3.googleusercontent.com/d/${match[1]}`;
+    return `https://lh3.googleusercontent.com/d/${match[1]}`; // URL CDN Correcta para imágenes públicas
   }
-  
   return url;
 };
 
@@ -152,7 +158,6 @@ const GeneralLogosManager = ({ supabase }) => {
               return isEditing ? (
                 <div key={logo.id} className="bg-indigo-50 p-3 rounded border border-indigo-200 shadow-sm flex flex-col gap-2">
                   <div className="flex justify-center bg-white p-2 rounded border border-indigo-100 mb-1">
-                      {/* PREVIEW EN EDICIÓN */}
                       <img 
                         src={imgSrc} 
                         alt="Preview" 
@@ -182,7 +187,6 @@ const GeneralLogosManager = ({ supabase }) => {
                 </div>
               ) : (
                 <div key={logo.id} className="bg-white p-2 rounded border border-slate-200 shadow-sm flex items-center gap-3 group hover:border-indigo-300 transition-colors">
-                  {/* PREVIEW EN LISTADO */}
                   <div className="w-10 h-10 shrink-0 bg-slate-50 rounded flex items-center justify-center overflow-hidden border border-slate-100 p-1">
                     <img
                       src={imgSrc}
@@ -289,7 +293,7 @@ const EditableField = ({ label, value, timestamp, editorId, onSave, allIntegrant
   );
 };
 
-// --- COMPONENTE DE PREVISUALIZACIÓN DE LOGO ESPECÍFICO (Versión Compacta) ---
+// --- COMPONENTE DE PREVISUALIZACIÓN DE LOGO ESPECÍFICO ---
 const SpecificLogoPreview = ({ url }) => {
   if (!url) return null;
   const directLink = getDirectDriveLink(url);
@@ -303,7 +307,7 @@ const SpecificLogoPreview = ({ url }) => {
             src={directLink} 
             alt="Logo Preview" 
             className="h-full object-contain relative z-10"
-            referrerPolicy="no-referrer" // IMPORTANTE PARA DRIVE
+            referrerPolicy="no-referrer"
             onError={(e) => e.target.style.display = 'none'}
         />
     </div>
@@ -550,7 +554,10 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
                         <li key={obraItem.id} className="text-sm border-b border-slate-200 last:border-0 pb-1 flex flex-wrap gap-x-2">
                           <span className="font-bold text-slate-700">{getComposerName(obraItem.obras)}</span>
                           <span className="text-slate-300 hidden sm:inline">|</span>
-                          <span className="text-slate-600 italic whitespace-pre-wrap">{obraItem.obras.titulo}</span>
+                          {/* CAMBIO: Usamos RichTextPreview para que se vea el formato */}
+                          <div className="text-slate-600 italic inline-block flex-1 min-w-[200px]">
+                              <RichTextPreview content={obraItem.obras.titulo} />
+                          </div>
                         </li>
                       );
                     })}

@@ -13,7 +13,6 @@ import {
   IconBold,
   IconItalic,
   IconTrash,
-
   IconUnderline,
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";

@@ -24,13 +24,14 @@ import {
   IconAlertTriangle,
   IconArrowRight,
   IconEye,
-  IconUsers
+  IconPrinter,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import EventForm from "../forms/EventForm";
-import SearchableSelect from "../ui/SearchableSelect"; // <--- Importamos el componente
+import SearchableSelect from "../ui/SearchableSelect";
+import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
 
 // --- LÓGICA DE FECHA LÍMITE ---
 const getDeadlineStatus = (deadlineISO) => {
@@ -153,11 +154,11 @@ export default function UnifiedAgenda({
   onViewChange = null,
 }) {
   const { user } = useAuth();
-  
+
   // --- ESTADOS DE VISUALIZACIÓN "VER COMO" ---
   const [viewAsUserId, setViewAsUserId] = useState(null);
   const [musicianOptions, setMusicianOptions] = useState([]);
-  
+
   // ID efectivo: Si hay un usuario seleccionado en "Ver como", usamos ese. Si no, el logueado.
   const effectiveUserId = viewAsUserId || user.id;
 
@@ -168,7 +169,7 @@ export default function UnifiedAgenda({
   const [availableCategories, setAvailableCategories] = useState([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
 
-  // --- NUEVO: FILTRO DE ESTADO ---
+  // --- FILTRO DE ESTADO (Borradores) ---
   const [showNonActive, setShowNonActive] = useState(false);
 
   const [commentsState, setCommentsState] = useState(null);
@@ -193,12 +194,12 @@ export default function UnifiedAgenda({
             .from("integrantes")
             .select("id, nombre, apellido")
             .order("apellido");
-          
+
           if (data) {
-            const options = data.map(m => ({
+            const options = data.map((m) => ({
               id: m.id,
               label: `${m.apellido}, ${m.nombre}`,
-              subLabel: null
+              subLabel: null,
             }));
             setMusicianOptions(options);
           }
@@ -292,7 +293,7 @@ export default function UnifiedAgenda({
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, [userProfile, giraId, monthsLimit]); // userProfile cambia cuando effectiveUserId cambia
+  }, [userProfile, giraId, monthsLimit]);
 
   const handleCategoryToggle = (catId) => {
     setSelectedCategoryIds((prev) =>
@@ -307,7 +308,7 @@ export default function UnifiedAgenda({
     return items.filter((item) => {
       // 1. Filtro de Estado
       if (!showNonActive) {
-        const estadoGira = item.programas?.estado || "Borrador"; 
+        const estadoGira = item.programas?.estado || "Borrador";
         if (item.isProgramMarker) {
           if (estadoGira !== "Vigente") return false;
         } else if (item.programas && estadoGira !== "Vigente") {
@@ -343,7 +344,6 @@ export default function UnifiedAgenda({
   // 4. FETCH PRINCIPAL
   const fetchAgenda = async () => {
     setLoading(true);
-    // Cache key incluye el ID efectivo para no mezclar agendas
     const CACHE_KEY = `agenda_cache_${effectiveUserId}_${giraId || "general"}`;
 
     try {
@@ -362,14 +362,8 @@ export default function UnifiedAgenda({
 
       const start = startOfDay(new Date()).toISOString();
       const end = addMonths(new Date(), monthsLimit).toISOString();
-      
-      // Usamos el rol del perfil cargado, no el del admin logueado, para simular la vista
+
       const profileRole = userProfile?.rol_sistema || "musico";
-      const isPersonal =
-        profileRole === "consulta_personal" ||
-        profileRole === "personal" ||
-        profileRole === "musico" || // Asumimos músicos ven personalizado
-        profileRole === "archivista";
 
       let myEnsembles = new Set();
       let myFamily = null;
@@ -381,7 +375,6 @@ export default function UnifiedAgenda({
         myFamily = userProfile.instrumentos?.familia;
       }
 
-      // Consultas usando effectiveUserId
       const [customAttendance, ensembleEvents] = await Promise.all([
         supabase
           .from("eventos_asistencia_custom")
@@ -435,12 +428,15 @@ export default function UnifiedAgenda({
       const { data: eventsData, error } = await query;
       if (error) throw error;
 
-      // --- FILTRADO DE EVENTOS REALES ---
       const visibleEvents = (eventsData || []).filter((item) => {
         if (giraId) return true;
-        
-        // Si el usuario "visto" tiene rol de gestión, ve todo
-        const isManagementProfile = ["admin", "editor", "coord_general", "director"].includes(profileRole);
+
+        const isManagementProfile = [
+          "admin",
+          "editor",
+          "coord_general",
+          "director",
+        ].includes(profileRole);
         if (isManagementProfile) return true;
 
         if (customMap.has(item.id)) return true;
@@ -448,7 +444,9 @@ export default function UnifiedAgenda({
         if (item.programas) {
           const overrides = item.programas.giras_integrantes || [];
           const sources = item.programas.giras_fuentes || [];
-          const myOverride = overrides.find((o) => o.id_integrante === effectiveUserId);
+          const myOverride = overrides.find(
+            (o) => o.id_integrante === effectiveUserId
+          );
           if (myOverride && myOverride.estado === "ausente") return false;
           if (myOverride) return true;
           return sources.some(
@@ -460,7 +458,6 @@ export default function UnifiedAgenda({
         return false;
       });
 
-      // --- GENERACIÓN DE HITOS DE GIRA ---
       const programStartMarkers = [];
       const processedPrograms = new Set();
 
@@ -576,7 +573,11 @@ export default function UnifiedAgenda({
       const { error } = await supabase
         .from("eventos_asistencia")
         .upsert(
-          { id_evento: eventId, id_integrante: effectiveUserId, estado: newStatus },
+          {
+            id_evento: eventId,
+            id_integrante: effectiveUserId,
+            estado: newStatus,
+          },
           { onConflict: "id_evento, id_integrante" }
         );
       if (error) throw error;
@@ -584,7 +585,9 @@ export default function UnifiedAgenda({
         item.id === eventId ? { ...item, mi_asistencia: newStatus } : item
       );
       setItems(newItems);
-      const CACHE_KEY = `agenda_cache_${effectiveUserId}_${giraId || "general"}`;
+      const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
+        giraId || "general"
+      }`;
       localStorage.setItem(CACHE_KEY, JSON.stringify(newItems));
     } catch (error) {
       alert("Error: " + error.message);
@@ -593,6 +596,27 @@ export default function UnifiedAgenda({
     }
   };
 
+  // --- HANDLER EXPORTAR PDF ---
+  const handleExportPDF = () => {
+    if (filteredItems.length === 0)
+      return alert("No hay eventos para exportar con los filtros actuales.");
+
+    let subTitle = "";
+    // Solo mostramos subtítulo si es una "Vista simulada" (Admin viendo como músico)
+    if (userProfile && userProfile.id !== user.id) {
+      subTitle = `Vista simulada: ${userProfile.apellido}, ${userProfile.nombre}`;
+    }
+    // Si incluye borradores, lo avisamos
+    if (showNonActive) {
+      subTitle += subTitle ? " | Incluye Borradores" : "Incluye Borradores";
+    }
+
+    // Detectar si estamos en una Gira específica para ocultar la columna "Gira"
+    const hideGiraColumn = !!giraId;
+
+    exportAgendaToPDF(filteredItems, title, subTitle, hideGiraColumn);
+  };
+  // --- MODALES DE EDICIÓN ---
   const openEditModal = (evt) => {
     setEditFormData({
       id: evt.id,
@@ -607,7 +631,6 @@ export default function UnifiedAgenda({
     setIsEditOpen(true);
   };
 
-  // --- LÓGICA ELIMINAR ---
   const handleDeleteEvent = async () => {
     if (!editFormData.id) return;
     const confirm = window.confirm(
@@ -618,7 +641,6 @@ export default function UnifiedAgenda({
     setLoading(true);
     try {
       const id = editFormData.id;
-      // Limpiamos relaciones para evitar conflictos
       await Promise.all([
         supabase
           .from("eventos_programas_asociados")
@@ -641,7 +663,6 @@ export default function UnifiedAgenda({
     }
   };
 
-  // --- LÓGICA DUPLICAR ---
   const handleDuplicateEvent = async () => {
     if (!editFormData.id) return;
 
@@ -820,10 +841,14 @@ export default function UnifiedAgenda({
             </span>
           )}
           {gira.estado === "Borrador" && (
-            <span className="bg-slate-200 text-slate-600 px-1.5 rounded text-[10px] uppercase font-bold">Borrador</span>
+            <span className="bg-slate-200 text-slate-600 px-1.5 rounded text-[10px] uppercase font-bold">
+              Borrador
+            </span>
           )}
           {gira.estado === "Pausada" && (
-            <span className="bg-amber-200 text-amber-800 px-1.5 rounded text-[10px] uppercase font-bold">Pausada</span>
+            <span className="bg-amber-200 text-amber-800 px-1.5 rounded text-[10px] uppercase font-bold">
+              Pausada
+            </span>
           )}
         </div>
         <span className="opacity-30">|</span>
@@ -900,32 +925,9 @@ export default function UnifiedAgenda({
           </div>
 
           <div className="flex gap-2">
-            {/* NUEVO BOTÓN: TOGGLE BORRADORES */}
-            {canEdit && !giraId && (
-                <button 
-                    onClick={() => setShowNonActive(!showNonActive)}
-                    className={`p-2 rounded-full transition-colors flex items-center gap-1 ${showNonActive ? 'bg-amber-100 text-amber-700' : 'text-slate-400 hover:bg-slate-100'}`}
-                    title={showNonActive ? "Ocultar borradores" : "Mostrar borradores"}
-                >
-                    <IconEye size={20} className={showNonActive ? "" : "opacity-50"} />
-                </button>
-            )}
-
-            {giraId && canEdit && !isOfflineMode && (
-                <button
-                onClick={handleOpenCreate}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0"
-                >
-                <IconPlus size={20} />
-                </button>
-            )}
-          </div>
-        </div>
-
-        {!loading && availableCategories.length > 0 && (
+             {!loading && availableCategories.length > 0 && (
           <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-hide items-center">
-            
-            {/* NUEVO SELECTOR "VER COMO" (Solo Admin/Editor) */}
+            {/* SELECTOR "VER COMO" */}
             {canEdit && musicianOptions.length > 0 && (
               <div className="shrink-0 w-[200px] border-r border-slate-200 pr-2 mr-2">
                 <SearchableSelect
@@ -966,6 +968,48 @@ export default function UnifiedAgenda({
             )}
           </div>
         )}
+            {/* BOTÓN EXPORTAR PDF */}
+            <button
+              onClick={handleExportPDF}
+              disabled={loading || filteredItems.length === 0}
+              className="p-2 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+              title="Exportar vista actual a PDF"
+            >
+              <IconPrinter size={20} />
+            </button>
+
+            {/* BOTÓN TOGGLE BORRADORES */}
+            {canEdit && !giraId && (
+              <button
+                onClick={() => setShowNonActive(!showNonActive)}
+                className={`p-2 rounded-full transition-colors flex items-center gap-1 ${
+                  showNonActive
+                    ? "bg-amber-100 text-amber-700"
+                    : "text-slate-400 hover:bg-slate-100"
+                }`}
+                title={
+                  showNonActive ? "Ocultar borradores" : "Mostrar borradores"
+                }
+              >
+                <IconEye
+                  size={20}
+                  className={showNonActive ? "" : "opacity-50"}
+                />
+              </button>
+            )}
+
+            {giraId && canEdit && !isOfflineMode && (
+              <button
+                onClick={handleOpenCreate}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0"
+              >
+                <IconPlus size={20} />
+              </button>
+            )}
+          </div>
+        </div>
+
+       
       </div>
 
       <div className="flex-1 overflow-y-auto bg-slate-50/50">
@@ -1113,7 +1157,7 @@ export default function UnifiedAgenda({
                             </button>
                           )}
                         <div className="flex flex-col items-end gap-1 relative">
-                          {canEdit && !isNonConvokedMeal && !isOfflineMode && (
+                          {canEdit && !isOfflineMode && (
                             <button
                               onClick={() => openEditModal(evt)}
                               className="p-1 text-slate-300 hover:text-indigo-600 bg-white rounded-full shadow-sm border border-slate-100 mb-1"
