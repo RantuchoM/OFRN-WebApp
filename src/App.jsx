@@ -43,7 +43,7 @@ import {
   IconSpiralNotebook,
   IconList,
   IconAlertCircle,
-  IconBell
+  IconBell,
 } from "./components/ui/Icons";
 
 // --- MODAL CALENDARIO (Mismo código de antes) ---
@@ -257,6 +257,7 @@ const ProtectedApp = () => {
         datos: "DATA",
         locaciones: "LOCATIONS",
         coordinacion: "COORDINACION",
+        news_manager: "NEWS_MANAGER",
         avisos: "COMMENTS",
         comidas: "MY_MEALS",
       };
@@ -289,6 +290,7 @@ const ProtectedApp = () => {
       COORDINACION: "coordinacion",
       COMMENTS: "avisos",
       MY_MEALS: "comidas",
+      NEWS_MANAGER: "news_manager", 
     };
 
     if (modeToTab[mode]) params.set("tab", modeToTab[mode]);

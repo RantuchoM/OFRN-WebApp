@@ -34,6 +34,17 @@ const ModalPortal = ({ children }) => {
   );
 };
 
+// --- RENDERER DE TEXTO RICO ---
+const RichTextPreview = ({ content, className = "" }) => {
+  if (!content) return null;
+  return (
+    <div
+      className={`whitespace-pre-wrap [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:ml-1 leading-tight ${className}`}
+      dangerouslySetInnerHTML={{ __html: content }}
+    />
+  );
+};
+
 // --- COMPONENTE INTERNO: SELECTOR DE SOLISTA ---
 const SoloistSelect = ({ currentId, musicians, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -125,13 +136,10 @@ export default function RepertoireManager({
   giraId,
   initialData = [],
   isCompact = false,
-  readOnly = undefined, // Nueva prop
+  readOnly = undefined,
 }) {
   const { isEditor: isGlobalEditor } = useAuth();
   
-  // Lógica de permisos:
-  // Si readOnly está definido, lo respetamos (true = solo lectura, false = edición permitida)
-  // Si readOnly es undefined, usamos el rol global de editor
   const isEditor = readOnly !== undefined ? !readOnly : isGlobalEditor;
 
   const [repertorios, setRepertorios] = useState(initialData);
@@ -192,7 +200,6 @@ export default function RepertoireManager({
   const fetchFullRepertoire = async () => {
     if (repertorios.length === 0) setLoading(true);
 
-    // AGREGAMOS "excluir" en el select de repertorio_obras
     const { data: reps, error } = await supabase
       .from("programas_repertorios")
       .select(
@@ -243,21 +250,12 @@ export default function RepertoireManager({
     }
   };
 
-  // --- CALLBACK UNIFICADO DE GUARDADO ---
   const handleWorkSaved = async (savedWorkId, isNew = false) => {
-    // 1. Si es nueva y tenemos un bloque activo, la vinculamos
     if (isNew && activeRepertorioId) {
       await addWorkToBlock(savedWorkId, activeRepertorioId);
-      // Si fue creada desde el buscador/botón flotante, cerramos el buscador pero dejamos el form abierto
-      // para que siga editando si quiere.
       if (isAddModalOpen) setIsAddModalOpen(false);
     }
-
-    // 2. Refrescar SIEMPRE la vista del manager para reflejar cambios (título, duración, etc.)
     fetchFullRepertoire();
-
-    // AutoSync Drive solo si es necesario (opcional para no saturar)
-    // Descomentado para que las ediciones de obras también disparen la sincronización
     if (!isNew) {
       autoSyncDrive();
     }
@@ -337,14 +335,11 @@ export default function RepertoireManager({
         0
       ) || 0;
 
-    // Insertar relación
     await supabase
       .from("repertorio_obras")
       .insert([{ id_repertorio: repId, id_obra: workId, orden: maxOrder + 1 }]);
 
-    // Si se llamó desde el buscador (isAddModalOpen true), refrescamos y cerramos buscador
     if (isAddModalOpen && !targetRepertorioId) {
-      // Solo si no fue llamada interna por handleWorkSaved
       setIsAddModalOpen(false);
       fetchFullRepertoire();
     }
@@ -559,17 +554,20 @@ export default function RepertoireManager({
                     >
                       {getComposers(item.obras)}
                     </td>
+                    
+                    {/* CELDA OBRA: FORMATO RICO */}
                     <td
-                      className="p-1 font-bold text-slate-800 whitespace-pre-wrap"
-                      title={item.obras.titulo}
+                      className="p-1 text-slate-800"
+                      title={item.obras.titulo?.replace(/<[^>]*>?/gm, '')}
                     >
-                      {item.obras.titulo}
+                      <RichTextPreview content={item.obras.titulo} />
                       {item.obras.estado !== "Oficial" && (
-                        <span className="ml-1 text-[8px] bg-amber-100 text-amber-700 px-1 rounded border border-amber-200">
+                        <span className="ml-1 text-[8px] bg-amber-100 text-amber-700 px-1 rounded border border-amber-200 align-text-top">
                           PEND
                         </span>
                       )}
                     </td>
+
                     <td className="p-1 text-center whitespace-pre-line text-[10px] text-slate-500 font-mono">
                       {item.obras.instrumentacion ||
                         calculateInstrumentation(
@@ -602,7 +600,9 @@ export default function RepertoireManager({
                     <td className="p-1 truncate text-slate-500">
                       {getArranger(item.obras)}
                     </td>
-                    <td className="p-0 border-l border-slate-100">
+                    
+                    {/* CELDA NOTAS: FORMATO RICO EN LECTURA */}
+                    <td className="p-0 border-l border-slate-100 align-middle">
                       {isEditor ? (
                         <input
                           type="text"
@@ -618,11 +618,12 @@ export default function RepertoireManager({
                           }
                         />
                       ) : (
-                        <span className="block p-1 truncate">
-                          {item.notas_especificas}
-                        </span>
+                        <div className="block p-1 text-[10px]">
+                          <RichTextPreview content={item.notas_especificas} />
+                        </div>
                       )}
                     </td>
+
                     <td className="p-1 text-center">
                       {item.obras.link_youtube ? (
                         <a
@@ -825,7 +826,7 @@ export default function RepertoireManager({
                           {w.arreglador_full !== "-" ? w.arreglador_full : ""}
                         </td>
                         <td className="p-2 text-slate-800 font-bold truncate">
-                          {w.titulo}
+                          <RichTextPreview content={w.titulo} />
                         </td>
                         <td className="p-2 text-center font-mono text-[10px] text-slate-400">
                           {formatSecondsToTime(w.duracion_segundos)}
@@ -879,7 +880,6 @@ export default function RepertoireManager({
               formData={workFormData}
               onCancel={() => setIsEditWorkModalOpen(false)}
               onSave={handleWorkSaved}
-              isNew={!workFormData.id}
               catalogoInstrumentos={instrumentList}
             />
           </div>
