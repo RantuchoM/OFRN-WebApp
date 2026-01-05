@@ -176,8 +176,10 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
     // --- RENDER HELPERS PARA LA VISTA DE TARJETAS ---
     
     // Renderiza una "Parada" en la línea de tiempo (LAYOUT 2 COLUMNAS)
+    // Renderiza una "Parada" en la línea de tiempo (LAYOUT 2 COLUMNAS)
     const renderStopCard = (index, isLastDest = false) => {
         const tramos = editingTemplate.tramos;
+        const isFirst = index === 0 && !isLastDest; // Identificamos si es la Salida
         
         let locationId, suben, bajan, nota, tipo;
         
@@ -209,21 +211,39 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
             }
         };
 
+        // Lógica de colores dinámica
+        let dotColor = 'bg-indigo-500 border-indigo-600';
+        let borderColor = 'border-slate-200';
+        let colBg = 'bg-slate-50 border-slate-100';
+        let labelText = `Parada ${index}`; // Por defecto index (para que la siguiente a salida sea 1)
+
+        if (isFirst) {
+            dotColor = 'bg-emerald-500 border-emerald-600';
+            borderColor = 'border-emerald-200';
+            colBg = 'bg-emerald-50 border-emerald-100';
+            labelText = 'Salida';
+        } else if (isLastDest) {
+            dotColor = 'bg-rose-500 border-rose-600';
+            borderColor = 'border-rose-100';
+            colBg = 'bg-rose-50 border-rose-100';
+            labelText = 'Destino Final';
+        }
+
         return (
             <div className="relative pl-8 pb-0">
                 {/* Timeline Dot */}
-                <div className={`absolute left-0 top-1/2 -mt-2 w-4 h-4 rounded-full border-2 ${isLastDest ? 'bg-rose-500 border-rose-600' : 'bg-indigo-500 border-indigo-600'} z-10 box-content`}></div>
+                <div className={`absolute left-0 top-1/2 -mt-2 w-4 h-4 rounded-full border-2 ${dotColor} z-10 box-content`}></div>
                 
-                {/* CARD CONTAINER: FLEX ROW PARA 2 COLUMNAS */}
-                <div className={`flex flex-row items-stretch border rounded-lg shadow-sm transition-all hover:shadow-md mb-2 bg-white overflow-hidden ${isLastDest ? 'border-rose-100' : 'border-slate-200'}`}>
+                {/* CARD CONTAINER */}
+                <div className={`flex flex-row items-stretch border rounded-lg shadow-sm transition-all hover:shadow-md mb-2 bg-white overflow-hidden ${borderColor}`}>
                     
-                    {/* COLUMNA 1: LOCACIÓN (35% Ancho) */}
-                    <div className={`w-[35%] min-w-[200px] p-3 border-r ${isLastDest ? 'bg-rose-50 border-rose-100' : 'bg-slate-50 border-slate-100'} flex flex-col justify-center`}>
+                    {/* COLUMNA 1: LOCACIÓN */}
+                    <div className={`w-[35%] min-w-[200px] p-3 border-r ${colBg} flex flex-col justify-center`}>
                         <div className="flex justify-between items-center mb-1">
-                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                                {isLastDest ? 'Destino Final' : `Parada ${index + 1}`}
+                            <label className={`text-[10px] font-bold uppercase tracking-wider block ${isFirst ? 'text-emerald-600' : (isLastDest ? 'text-rose-500' : 'text-slate-400')}`}>
+                                {labelText}
                             </label>
-                            {!isLastDest && (
+                            {!isLastDest && !isFirst && (
                                 <button onClick={() => handleRemoveTramo(index)} className="text-slate-300 hover:text-red-500 p-1" title="Eliminar parada">
                                     <IconTrash size={14}/>
                                 </button>
@@ -238,32 +258,29 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
                         />
                     </div>
 
-                    {/* COLUMNA 2: DETALLES (Resto del ancho) */}
+                    {/* COLUMNA 2: DETALLES */}
                     <div className="flex-1 flex flex-col">
                         
                         {!isLastDest ? (
                             <>
                                 {/* FILA A: TIPO Y NOTA */}
                                 <div className="flex-1 flex items-center border-b border-slate-100 p-2 gap-3">
-                                    {/* Tipo */}
                                     <div className="w-24 border-r border-slate-100 pr-3">
                                         <select 
                                             className="w-full text-xs border-none bg-transparent outline-none text-slate-600 font-bold focus:text-indigo-600 cursor-pointer" 
                                             value={tipo} 
                                             onChange={e => updateTramo(index, 'id_tipo_evento', e.target.value)}
-                                            title="Tipo de evento"
                                         >
                                             <option value="11">Público</option>
                                             <option value="12">Privado</option>
                                         </select>
                                     </div>
-                                    {/* Nota */}
                                     <div className="flex-1 flex items-center gap-2">
                                         <IconMessageCircle size={14} className="text-slate-300"/>
                                         <input 
                                             type="text" 
                                             className="w-full text-xs bg-transparent outline-none placeholder:text-slate-300 text-slate-600" 
-                                            placeholder="Agregar nota (ej: Cena, Espera...)" 
+                                            placeholder="Agregar nota..." 
                                             value={nota || ''} 
                                             onChange={e => updateTramo(index, 'nota', e.target.value)} 
                                         />
@@ -275,15 +292,17 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
                                     
                                     {/* Lado Izquierdo: BAJAN */}
                                     <div className="flex-1 min-w-0">
-                                        {/* Etiqueta nueva */}
-                                        <span className="block text-[9px] font-bold text-rose-500 uppercase mb-0.5 pl-6">
-                                            Bajan (a la vuelta)
-                                        </span>
+                                        {/* Ocultamos etiqueta "Bajan" si es la SALIDA (nadie baja en el arranque) */}
+                                        {!isFirst && (
+                                            <span className="block text-[9px] font-bold text-rose-500 uppercase mb-0.5 pl-6">
+                                                Bajan (a la vuelta)
+                                            </span>
+                                        )}
                                         <div className="flex items-center gap-2">
-                                            <IconUserMinus size={14} className="text-rose-400 shrink-0"/>
+                                            <IconUserMinus size={14} className={`${isFirst ? 'text-slate-200' : 'text-rose-400'} shrink-0`}/>
                                             <div className="flex-1 min-w-0">
-                                                {index === 0 ? (
-                                                    <span className="text-[10px] text-slate-300 italic">Inicio</span>
+                                                {isFirst ? (
+                                                    <span className="text-[10px] text-slate-300 italic">Inicio del recorrido</span>
                                                 ) : (
                                                     <SearchableSelect 
                                                         isMulti={true} 
@@ -298,12 +317,10 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
                                         </div>
                                     </div>
 
-                                    {/* Separador Vertical */}
                                     <div className="w-px h-8 bg-slate-100 self-center"></div>
 
                                     {/* Lado Derecho: SUBEN */}
                                     <div className="flex-1 min-w-0">
-                                        {/* Etiqueta nueva */}
                                         <span className="block text-[9px] font-bold text-emerald-500 uppercase mb-0.5 pl-6">
                                             Suben (a la ida)
                                         </span>
@@ -324,7 +341,7 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
                                 </div>
                             </>
                         ) : (
-                            /* CONTENIDO PARA ÚLTIMA PARADA (Destino Final) */
+                            /* CONTENIDO PARA ÚLTIMA PARADA */
                             <div className="flex flex-col h-full">
                                 <div className="flex-1 flex items-center p-2 gap-2">
                                      <IconUserMinus size={14} className="text-rose-400 shrink-0"/>
