@@ -1,9 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { 
     IconX, IconPlus, IconUserCheck, IconUserX, IconTrash, 
-    IconMapPin, IconArrowRight 
+    IconMapPin, IconChevronDown, IconChevronUp 
 } from '../../components/ui/Icons';
-import SearchableSelect from '../../components/ui/SearchableSelect';
 
 export default function TransportPassengersModal({ 
     isOpen, 
@@ -22,25 +21,32 @@ export default function TransportPassengersModal({
     const [addType, setAddType] = useState('Persona'); // 'Persona', 'Region', 'Localidad'
     const [selectedId, setSelectedId] = useState(null);
     const [loading, setLoading] = useState(false);
+    
+    // NUEVO: Estado para mostrar/ocultar reglas de logística
+    const [showLogistics, setShowLogistics] = useState(false);
 
     // 1. Filtrar reglas de ESTE transporte
     const myRules = useMemo(() => {
         return (transportRules || []).filter(r => r.id_gira_transporte === transport.id);
     }, [transportRules, transport.id]);
 
-    // 2. Ordenar reglas: Exclusiones > Inclusiones > Logística
-    const sortedRules = useMemo(() => {
-        return [...myRules].sort((a, b) => {
-            // 1. Exclusiones primero
-            if (a.es_exclusion && !b.es_exclusion) return -1;
-            if (!a.es_exclusion && b.es_exclusion) return 1;
-            
-            // 2. Inclusiones (Acceso) segundo
-            if (!a.solo_logistica && b.solo_logistica) return -1;
-            if (a.solo_logistica && !b.solo_logistica) return 1;
-            
-            return 0;
+    // 2. Separar reglas Principales (Acceso/Veto) de Logística (Paradas)
+    const { mainRules, logisticsRules } = useMemo(() => {
+        const main = [];
+        const logistics = [];
+        
+        myRules.forEach(r => {
+            if (r.solo_logistica) {
+                logistics.push(r);
+            } else {
+                main.push(r);
+            }
         });
+
+        // Ordenar principales: Exclusiones primero
+        main.sort((a, b) => (a.es_exclusion === b.es_exclusion) ? 0 : a.es_exclusion ? -1 : 1);
+        
+        return { mainRules: main, logisticsRules: logistics };
     }, [myRules]);
 
     // 3. Calcular pasajeros actuales
@@ -94,9 +100,9 @@ export default function TransportPassengersModal({
     const getRuleLabel = (r) => {
         let label = r.alcance;
         if (r.alcance === 'General') label = "Todos los integrantes";
-        if (r.alcance === 'Region') label = `Región: ${regions.find(x=>String(x.id)===String(r.id_region))?.region || '?'}`;
-        if (r.alcance === 'Localidad') label = `Loc.: ${localities.find(x=>String(x.id)===String(r.id_localidad))?.localidad || '?'}`;
-        if (r.alcance === 'Persona') {
+        else if (r.alcance === 'Region') label = `Región: ${regions.find(x=>String(x.id)===String(r.id_region))?.region || '?'}`;
+        else if (r.alcance === 'Localidad') label = `Loc.: ${localities.find(x=>String(x.id)===String(r.id_localidad))?.localidad || '?'}`;
+        else if (r.alcance === 'Persona') {
             const p = roster.find(x=>String(x.id)===String(r.id_integrante));
             label = p ? `${p.apellido}, ${p.nombre}` : `ID #${r.id_integrante}`;
         }
@@ -133,6 +139,35 @@ export default function TransportPassengersModal({
         return [];
     }, [addType, regions, localities, roster]);
 
+
+    const RuleCard = ({ r }) => {
+        const styles = getRuleStyles(r);
+        return (
+            <div className={`flex justify-between items-center p-2 rounded border ${styles.bg} ${styles.border}`}>
+                <div className="flex items-center gap-3">
+                    {styles.icon}
+                    <div>
+                        <div className={`text-[10px] font-bold uppercase ${styles.text} opacity-70`}>
+                            {styles.typeLabel}
+                        </div>
+                        <div className={`text-sm font-medium ${styles.text}`}>
+                            {getRuleLabel(r)}
+                        </div>
+                        {r.solo_logistica && (
+                            <div className="text-[10px] text-slate-500 flex gap-2 mt-0.5">
+                                {r.id_evento_subida && <span>Subida Personalizada</span>}
+                                {r.id_evento_subida && r.id_evento_bajada && <span>•</span>}
+                                {r.id_evento_bajada && <span>Bajada Personalizada</span>}
+                            </div>
+                        )}
+                    </div>
+                </div>
+                <button onClick={() => handleDeleteRule(r.id)} className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-white/50 transition-colors">
+                    <IconTrash size={14} />
+                </button>
+            </div>
+        );
+    };
 
     return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -176,49 +211,43 @@ export default function TransportPassengersModal({
                     {activeTab === 'list' && (
                         <div className="space-y-6">
                             
-                            {/* SECCIÓN 1: REGLAS */}
+                            {/* SECCIÓN 1: REGLAS PRINCIPALES (ACCESO) */}
                             <div>
                                 <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 tracking-wider flex justify-between items-center">
-                                    <span>Reglas Aplicadas</span>
-                                    <span className="text-[10px] font-normal bg-white px-2 rounded border">Orden: Veto {'>'} Acceso {'>'} Logística</span>
+                                    <span>Reglas de Acceso</span>
+                                    <span className="text-[10px] font-normal bg-white px-2 rounded border">Orden: Veto {'>'} Acceso</span>
                                 </h4>
                                 <div className="space-y-2">
-                                    {sortedRules.length === 0 && <p className="text-sm text-slate-400 italic">No hay reglas definidas.</p>}
-                                    {sortedRules.map(r => {
-                                        const styles = getRuleStyles(r);
-                                        return (
-                                            <div key={r.id} className={`flex justify-between items-center p-2 rounded border ${styles.bg} ${styles.border}`}>
-                                                <div className="flex items-center gap-3">
-                                                    {styles.icon}
-                                                    <div>
-                                                        <div className={`text-[10px] font-bold uppercase ${styles.text} opacity-70`}>
-                                                            {styles.typeLabel}
-                                                        </div>
-                                                        <div className={`text-sm font-medium ${styles.text}`}>
-                                                            {getRuleLabel(r)}
-                                                        </div>
-                                                        {/* Mostrar detalle extra si es solo logística */}
-                                                        {r.solo_logistica && (
-                                                            <div className="text-[10px] text-slate-500 flex gap-2 mt-0.5">
-                                                                {r.id_evento_subida && <span>Subida Personalizada</span>}
-                                                                {r.id_evento_subida && r.id_evento_bajada && <span>•</span>}
-                                                                {r.id_evento_bajada && <span>Bajada Personalizada</span>}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <button onClick={() => handleDeleteRule(r.id)} className="text-slate-400 hover:text-red-500 p-1">
-                                                    <IconTrash size={14} />
-                                                </button>
-                                            </div>
-                                        );
-                                    })}
+                                    {mainRules.length === 0 && logisticsRules.length === 0 && <p className="text-sm text-slate-400 italic text-center py-4">No hay reglas definidas.</p>}
+                                    {mainRules.map(r => <RuleCard key={r.id} r={r} />)}
                                 </div>
                             </div>
 
-                            {/* SECCIÓN 2: PERSONAS */}
+                            {/* SECCIÓN 2: REGLAS LOGÍSTICA (COLAPSIBLE) */}
+                            {logisticsRules.length > 0 && (
+                                <div className="border-t border-slate-200 pt-4">
+                                    <button 
+                                        onClick={() => setShowLogistics(!showLogistics)}
+                                        className="w-full flex items-center justify-between text-xs font-bold text-blue-600 bg-blue-50 px-3 py-2 rounded hover:bg-blue-100 transition-colors"
+                                    >
+                                        <span className="flex items-center gap-2">
+                                            <IconMapPin size={14}/> 
+                                            Ajustes de Paradas ({logisticsRules.length})
+                                        </span>
+                                        {showLogistics ? <IconChevronUp size={14}/> : <IconChevronDown size={14}/>}
+                                    </button>
+                                    
+                                    {showLogistics && (
+                                        <div className="mt-2 space-y-2 animate-in slide-in-from-top-2">
+                                            {logisticsRules.map(r => <RuleCard key={r.id} r={r} />)}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* SECCIÓN 3: PERSONAS */}
                             <div>
-                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 tracking-wider mt-6">
+                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 tracking-wider mt-6 border-t pt-4">
                                     Pasajeros Resultantes ({currentPassengers.length})
                                 </h4>
                                 <div className="bg-white rounded border border-slate-200 divide-y divide-slate-100 max-h-60 overflow-y-auto">
@@ -267,7 +296,7 @@ export default function TransportPassengersModal({
 
                                 <label className="block text-xs font-bold text-slate-500 mb-1">Seleccionar {addType}</label>
                                 <select 
-                                    className="w-full border p-2 rounded text-sm mb-6"
+                                    className="w-full border p-2 rounded text-sm mb-6 bg-slate-50 focus:bg-white transition-colors outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                                     value={selectedId || ''}
                                     onChange={(e) => setSelectedId(e.target.value)}
                                 >
@@ -281,14 +310,14 @@ export default function TransportPassengersModal({
                                     <button
                                         onClick={() => handleAddRule(false)}
                                         disabled={!selectedId || loading}
-                                        className="py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-sm flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                                        className="py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-sm flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 transition-all active:scale-95"
                                     >
                                         <IconPlus size={16} /> Incluir (Acceso)
                                     </button>
                                     <button
                                         onClick={() => handleAddRule(true)}
                                         disabled={!selectedId || loading}
-                                        className="py-2 bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 rounded font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                                        className="py-2 bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 rounded font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50 transition-all active:scale-95"
                                     >
                                         <IconUserX size={16} /> Excluir (Veto)
                                     </button>

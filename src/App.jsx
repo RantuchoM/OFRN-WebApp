@@ -318,7 +318,6 @@ const ProtectedApp = () => {
   }, [mode, activeGiraId, initialGiraView, initialGiraSubTab, user]);
 
   // --- FUNCIÓN DE NAVEGACIÓN PRINCIPAL CORREGIDA ---
-  // Ahora acepta 4 argumentos para cubrir toda la casuística
   const updateView = (
     newMode,
     giraId = null,
@@ -327,10 +326,14 @@ const ProtectedApp = () => {
   ) => {
     setMode(newMode);
 
-    if (giraId) setActiveGiraId(giraId);
+    // FIX: Si navegamos a GIRAS, actualizamos el ID. 
+    // Si viene del sidebar, giraId será null, lo que limpia la selección y muestra la lista general.
+    if (newMode === "GIRAS") {
+      setActiveGiraId(giraId);
+    }
 
     setInitialGiraView(viewParam || null);
-    setInitialGiraSubTab(subTabParam || null); // <--- GUARDAMOS SUBTAB
+    setInitialGiraSubTab(subTabParam || null);
 
     setMobileMenuOpen(false);
   };
@@ -409,9 +412,15 @@ const ProtectedApp = () => {
       case "GIRAS":
         return (
           <GirasView
+            // 🔥 SOLUCIÓN AQUÍ: 
+            // Usamos una 'key' dinámica. Cuando activeGiraId cambia (o es null),
+            // React desmonta la vista vieja y monta una nueva limpia.
+            // Esto arregla que se quede "pegado" en el detalle.
+            key={activeGiraId ? `gira-${activeGiraId}` : "giras-list-general"}
+            
             initialGiraId={activeGiraId}
             initialTab={initialGiraView} // Pasamos la view
-            initialSubTab={initialGiraSubTab} // <--- NUEVA PROP AGREGADA            updateView={updateView}
+            initialSubTab={initialGiraSubTab} // <--- NUEVA PROP AGREGADA
             updateView={updateView}
             supabase={supabase}
           />
