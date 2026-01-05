@@ -367,6 +367,12 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
 
     const renderConnector = (index) => {
         const tramo = editingTemplate.tramos[index];
+        const totalMinutos = parseInt(tramo.duracion_minutos) || 0;
+        
+        // Cálculo manual para forzar formato "X hs Y min"
+        const horas = Math.floor(totalMinutos / 60);
+        const minutos = totalMinutos % 60;
+        
         return (
             <div className="relative pl-8 py-1 min-h-[40px] flex items-center">
                 {/* Timeline Line */}
@@ -384,15 +390,14 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
                             onChange={e => updateTramo(index, 'duracion_minutos', e.target.value)}
                         />
                         <span>min</span>
-                        <span className="text-indigo-400 ml-1 font-bold">
-                            ({formatSecondsToTime((parseInt(tramo.duracion_minutos) || 0) * 60)})
+                        <span className="text-indigo-500 ml-1 font-bold">
+                            ({horas} hs {minutos} min)
                         </span>
                     </div>
                 </div>
             </div>
         );
     };
-
     if (!isOpen) return null;
 
     return (
