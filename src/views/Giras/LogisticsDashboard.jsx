@@ -1,4 +1,3 @@
-// src/views/Giras/LogisticsDashboard.jsx
 import React, { useState } from "react";
 import {
   IconUtensils,
@@ -11,9 +10,8 @@ import {
   IconCalendar,
   IconClipboardCheck,
   IconCalculator,
-  IconArrowLeft // Aseguramos importar este icono si se usa
+  IconArrowLeft
 } from "../../components/ui/Icons";
-// 1. IMPORTAR HOOK
 import { useSearchParams } from "react-router-dom";
 
 import LogisticsManager from "./LogisticsManager";
@@ -26,7 +24,6 @@ import RoomingManager from "./RoomingManager";
 import ViaticosManager from "./Viaticos/ViaticosManager";
 
 export default function LogisticsDashboard({ supabase, gira, onBack }) {
-  // 2. REEMPLAZAR STATE POR SEARCH PARAMS
   const [searchParams, setSearchParams] = useSearchParams();
   const [isMealsMenuOpen, setIsMealsMenuOpen] = useState(false);
 
@@ -221,12 +218,16 @@ export default function LogisticsDashboard({ supabase, gira, onBack }) {
         )}
         
         {activeTab === "transporte" && gira?.id && (
-          // CORRECCIÓN: Pasamos 'gira={gira}' en lugar de 'giraId={gira.id}'
           <GirasTransportesManager supabase={supabase} gira={gira} />
         )}
 
+        {/* --- AQUÍ ESTABA EL ERROR --- */}
         {activeTab === "viaticos" && gira?.id && (
-          <ViaticosManager supabase={supabase} giraId={gira.id} />
+          <ViaticosManager 
+            supabase={supabase} 
+            gira={gira} 
+            onClose={handleBack} 
+          />
         )}
       </div>
     </div>

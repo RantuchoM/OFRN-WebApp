@@ -696,144 +696,150 @@ export default function GirasTransportesManager({ supabase, gira }) {
     });
     return [...new Set(summaryParts)].filter(Boolean);
   };
-
   const handleInsertItinerary = async (template, startDate, startTime) => {
     const tId = itineraryModal.transportId;
     if (!tId || !template || !startDate || !startTime) return;
 
     setLoading(true);
     try {
-      let currentDateTime = new Date(`${startDate}T${startTime}`);
+      // 1. PREPARACIÓN DE DATOS Y LÓGICA (ALGORITMO N+1)
       const tramos = (template.plantillas_recorridos_tramos || []).sort(
         (a, b) => a.orden - b.orden
       );
-      const rulesToInsert = [];
 
-      for (let i = 0; i < tramos.length; i++) {
-        const tramo = tramos[i];
-        const eventPayload = {
-          id_gira: giraId,
-          id_gira_transporte: tId,
-          id_locacion: tramo.id_locacion_origen,
+      let currentDateTime = new Date(`${startDate}T${startTime}`);
+      const eventsToCreate = [];
+
+      // A) Crear el PRIMER evento (Origen del primer tramo) - Solo suben
+      if (tramos.length > 0) {
+        const primerTramo = tramos[0];
+        eventsToCreate.push({
           fecha: format(currentDateTime, "yyyy-MM-dd"),
-          hora_inicio: format(currentDateTime, "HH:mm:ss"),
-          descripcion: tramo.nota || "Salida",
-          id_tipo_evento: tramo.id_tipo_evento || 11,
-          convocados: [],
-        };
+          hora: format(currentDateTime, "HH:mm:ss"),
+          id_locacion: primerTramo.id_locacion_origen,
+          descripcion: primerTramo.nota || "Inicio Recorrido",
+          id_tipo_evento: primerTramo.id_tipo_evento || 11,
+          // Acciones lógicas:
+          suben: primerTramo.ids_localidades_suben || [],
+          bajan: [], // Nadie baja en el inicio
+        });
+      }
 
-        const { data: evtData, error } = await supabase
-          .from("eventos")
-          .insert([eventPayload])
-          .select()
-          .single();
-        if (error) throw error;
-        const eventId = evtData.id;
-
-        // --- SUBIDA (Con Exclusión de Producción) ---
-        if (
-          tramo.ids_localidades_suben &&
-          tramo.ids_localidades_suben.length > 0
-        ) {
-          tramo.ids_localidades_suben.forEach((locId) => {
-            // 1. Regla Inclusiva (Todos los de la localidad)
-            rulesToInsert.push({
-              id_gira_transporte: tId,
-              alcance: "Localidad",
-              id_localidad: locId,
-              id_evento_subida: eventId,
-              solo_logistica: true,
-            });
-
-            // 2. Regla Exclusiva (Producción fuera)
-            const prodMembers = roster?.filter((r) => {
-              const rLoc = r.id_localidad || r.localidades?.id;
-              // Normalizamos roles (algunas veces es 'produccion' otras 'Produccion')
-              const role = (r.rol || r.rol_gira || "").toLowerCase();
-              return String(rLoc) === String(locId) && role === "produccion";
-            });
-
-            if (prodMembers && prodMembers.length > 0) {
-              prodMembers.forEach((pm) => {
-                rulesToInsert.push({
-                  id_gira_transporte: tId,
-                  alcance: "Persona",
-                  id_integrante: pm.id,
-                  id_evento_subida: eventId,
-                  solo_logistica: true,
-                  es_exclusion: true, // EXCLUSIÓN
-                });
-              });
-            }
-          });
-        }
-
-        // --- BAJADA (Con Exclusión de Producción) ---
-        if (
-          tramo.ids_localidades_bajan &&
-          tramo.ids_localidades_bajan.length > 0
-        ) {
-          tramo.ids_localidades_bajan.forEach((locId) => {
-            // 1. Regla Inclusiva
-            rulesToInsert.push({
-              id_gira_transporte: tId,
-              alcance: "Localidad",
-              id_localidad: locId,
-              id_evento_bajada: eventId,
-              solo_logistica: true,
-            });
-
-            // 2. Regla Exclusiva
-            const prodMembers = roster?.filter((r) => {
-              const rLoc = r.id_localidad || r.localidades?.id;
-              const role = (r.rol || r.rol_gira || "").toLowerCase();
-              return String(rLoc) === String(locId) && role === "produccion";
-            });
-
-            if (prodMembers && prodMembers.length > 0) {
-              prodMembers.forEach((pm) => {
-                rulesToInsert.push({
-                  id_gira_transporte: tId,
-                  alcance: "Persona",
-                  id_integrante: pm.id,
-                  id_evento_bajada: eventId,
-                  solo_logistica: true,
-                  es_exclusion: true, // EXCLUSIÓN
-                });
-              });
-            }
-          });
-        }
-
+      // B) Recorrer tramos para crear los DESTINOS
+      tramos.forEach((tramo, index) => {
+        // Sumamos el tiempo de viaje
         currentDateTime = addMinutes(
           currentDateTime,
           tramo.duracion_minutos || 60
         );
-      }
 
-      const lastTramo = tramos[tramos.length - 1];
-      if (lastTramo) {
-        await supabase.from("eventos").insert([
-          {
-            id_gira: giraId,
-            id_gira_transporte: tId,
-            id_locacion: lastTramo.id_locacion_destino,
-            fecha: format(currentDateTime, "yyyy-MM-dd"),
-            hora_inicio: format(currentDateTime, "HH:mm:ss"),
-            descripcion: "Llegada",
-            id_tipo_evento: 11,
-          },
-        ]);
-      }
+        const siguienteTramo = tramos[index + 1];
 
-      if (rulesToInsert.length > 0) {
-        await supabase
-          .from("giras_logistica_reglas_transportes")
-          .insert(rulesToInsert);
+        eventsToCreate.push({
+          fecha: format(currentDateTime, "yyyy-MM-dd"),
+          hora: format(currentDateTime, "HH:mm:ss"),
+          id_locacion: tramo.id_locacion_destino, // Llegamos al destino de este tramo
+
+          // Nota/Tipo: Si hay siguiente tramo, usamos sus datos (es una escala). Si no, es Fin.
+          descripcion: siguienteTramo
+            ? siguienteTramo.nota || "Escala"
+            : "Fin de Recorrido",
+          id_tipo_evento: siguienteTramo
+            ? siguienteTramo.id_tipo_evento || 11
+            : 11,
+
+          // Acciones lógicas:
+          // Bajan: Los que venían en ESTE tramo
+          bajan: tramo.ids_localidades_bajan || [],
+          // Suben: Los que van a viajar en el SIGUIENTE tramo
+          suben: siguienteTramo
+            ? siguienteTramo.ids_localidades_suben || []
+            : [],
+        });
+      });
+
+      // 2. EJECUCIÓN EN BASE DE DATOS (INSERTAR EVENTOS Y REGLAS)
+      for (const evtData of eventsToCreate) {
+        // Insertar el Evento
+        const { data: eventDB, error } = await supabase
+          .from("eventos")
+          .insert([
+            {
+              id_gira: giraId,
+              id_gira_transporte: tId,
+              id_locacion: evtData.id_locacion,
+              fecha: evtData.fecha,
+              hora_inicio: evtData.hora,
+              descripcion: evtData.descripcion,
+              id_tipo_evento: evtData.id_tipo_evento,
+              convocados: [],
+            },
+          ])
+          .select()
+          .single();
+
+        if (error) throw error;
+        const eventId = eventDB.id;
+        const rulesToInsert = [];
+
+        // Función auxiliar para generar reglas (Mantiene tu lógica de exclusión de producción)
+        const generateRules = (locIds, type) => {
+          // type: 'subida' o 'bajada'
+          if (!locIds || locIds.length === 0) return;
+
+          locIds.forEach((locId) => {
+            // 1. Regla Inclusiva (Localidad)
+            const rule = {
+              id_gira_transporte: tId,
+              alcance: "Localidad",
+              id_localidad: locId,
+              solo_logistica: true,
+            };
+            if (type === "subida") rule.id_evento_subida = eventId;
+            else rule.id_evento_bajada = eventId;
+
+            rulesToInsert.push(rule);
+
+            // 2. Regla Exclusiva (Producción fuera)
+            const prodMembers = roster?.filter((r) => {
+              const rLoc = r.id_localidad || r.localidades?.id;
+              const role = (r.rol || r.rol_gira || "").toLowerCase();
+              return String(rLoc) === String(locId) && role === "produccion";
+            });
+
+            if (prodMembers && prodMembers.length > 0) {
+              prodMembers.forEach((pm) => {
+                const exclusionRule = {
+                  id_gira_transporte: tId,
+                  alcance: "Persona",
+                  id_integrante: pm.id,
+                  solo_logistica: true,
+                  es_exclusion: true,
+                };
+                if (type === "subida") exclusionRule.id_evento_subida = eventId;
+                else exclusionRule.id_evento_bajada = eventId;
+
+                rulesToInsert.push(exclusionRule);
+              });
+            }
+          });
+        };
+
+        // Generar reglas para este evento
+        generateRules(evtData.suben, "subida");
+        generateRules(evtData.bajan, "bajada");
+
+        // Insertar reglas en lote
+        if (rulesToInsert.length > 0) {
+          await supabase
+            .from("giras_logistica_reglas_transportes")
+            .insert(rulesToInsert);
+        }
       }
 
       fetchData();
       refresh();
+      setItineraryModal({ isOpen: false, transportId: null }); // Cerrar modal al terminar
     } catch (e) {
       console.error(e);
       alert("Error al insertar itinerario: " + e.message);

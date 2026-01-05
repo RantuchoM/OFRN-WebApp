@@ -556,7 +556,7 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
                           <span className="text-slate-300 hidden sm:inline">|</span>
                           {/* CAMBIO: Usamos RichTextPreview para que se vea el formato */}
                           <div className="text-slate-600 italic inline-block flex-1 min-w-[200px]">
-                              <RichTextPreview content={obraItem.obras.titulo} />
+                              <RichTextPreview content={obraItem.obras.titulo.replace(/\[.*?\]/g, "").trim()} />
                           </div>
                         </li>
                       );

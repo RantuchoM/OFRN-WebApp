@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
     IconPlus, IconTrash, IconSave, IconX, IconArrowRight, 
-    IconClock, IconEdit, IconMapPin, IconBuilding 
+    IconClock, IconEdit, IconMapPin, IconBuilding, IconArrowDown, IconUserPlus, IconUserMinus, IconMessageCircle 
 } from '../../components/ui/Icons';
 import TimeInput from '../../components/ui/TimeInput';
 import DateInput from '../../components/ui/DateInput';
@@ -57,13 +57,17 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
         setMode('create');
     };
 
+    // Agregar un tramo nuevo al final
     const handleAddTramo = () => {
-        const lastTramo = editingTemplate.tramos[editingTemplate.tramos.length - 1];
+        const tramos = editingTemplate.tramos;
+        const lastTramo = tramos.length > 0 ? tramos[tramos.length - 1] : null;
+        
+        // Si hay un tramo anterior, el nuevo origen es el destino del anterior
         const defaultOrigen = lastTramo ? lastTramo.id_locacion_destino : '';
 
         setEditingTemplate({
             ...editingTemplate,
-            tramos: [...editingTemplate.tramos, { 
+            tramos: [...tramos, { 
                 id_locacion_origen: defaultOrigen, 
                 id_locacion_destino: '', 
                 duracion_minutos: 60, 
@@ -78,15 +82,33 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
     const updateTramo = (idx, field, value) => {
         const newTramos = [...editingTemplate.tramos];
         newTramos[idx][field] = value;
+        
+        // Sincronización de cadena:
+        // Si cambio el DESTINO de este tramo, el ORIGEN del siguiente debe coincidir
         if (field === 'id_locacion_destino' && newTramos[idx + 1]) {
             newTramos[idx + 1].id_locacion_origen = value;
         }
+        // Si cambio el ORIGEN de este tramo, el DESTINO del anterior debe coincidir
+        if (field === 'id_locacion_origen' && idx > 0 && newTramos[idx - 1]) {
+            newTramos[idx - 1].id_locacion_destino = value;
+        }
+
         setEditingTemplate({ ...editingTemplate, tramos: newTramos });
     };
 
     const handleRemoveTramo = (idx) => {
-        const newTramos = editingTemplate.tramos.filter((_, i) => i !== idx);
-        setEditingTemplate({ ...editingTemplate, tramos: newTramos });
+        // Al eliminar, intentamos conectar el anterior con el siguiente para no romper la cadena
+        const newTramos = [...editingTemplate.tramos];
+        
+        if (idx > 0 && idx < newTramos.length - 1) {
+            // Si borramos uno del medio, el destino del anterior pasa a ser el destino del que borramos
+            newTramos[idx - 1].id_locacion_destino = newTramos[idx].id_locacion_destino;
+            // Y el origen del siguiente ya coincidirá por lógica o se ajusta:
+            newTramos[idx + 1].id_locacion_origen = newTramos[idx].id_locacion_destino;
+        }
+
+        const filtered = newTramos.filter((_, i) => i !== idx);
+        setEditingTemplate({ ...editingTemplate, tramos: filtered });
     };
 
     const handleSaveNewLocation = async () => {
@@ -123,6 +145,11 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
             if (error) { alert("Error"); setLoading(false); return; }
             templateId = data.id;
         }
+        
+        // Validación básica
+        const isValid = editingTemplate.tramos.every(t => t.id_locacion_origen && t.id_locacion_destino);
+        if(!isValid) { alert("Revisa que todas las locaciones de origen y destino estén completas."); setLoading(false); return; }
+
         const tramosToInsert = editingTemplate.tramos.map((t, idx) => ({
             id_plantilla: templateId,
             orden: idx + 1,
@@ -144,6 +171,209 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
         if (!selectedTemplate || !applyConfig.fecha_inicio || !applyConfig.hora_inicio) return alert("Completa fecha y hora");
         onApplyItinerary(selectedTemplate, applyConfig.fecha_inicio, applyConfig.hora_inicio);
         onClose();
+    };
+
+    // --- RENDER HELPERS PARA LA VISTA DE TARJETAS ---
+    
+    // Renderiza una "Parada" en la línea de tiempo (LAYOUT 2 COLUMNAS)
+    const renderStopCard = (index, isLastDest = false) => {
+        const tramos = editingTemplate.tramos;
+        
+        let locationId, suben, bajan, nota, tipo;
+        
+        if (!isLastDest) {
+            // Es el ORIGEN del tramo [index]
+            const currentTramo = tramos[index];
+            const prevTramo = index > 0 ? tramos[index - 1] : null;
+            
+            locationId = currentTramo.id_locacion_origen;
+            suben = currentTramo.ids_localidades_suben;
+            bajan = prevTramo ? prevTramo.ids_localidades_bajan : [];
+            nota = currentTramo.nota;
+            tipo = currentTramo.id_tipo_evento;
+        } else {
+            // Es el DESTINO FINAL
+            const incomingTramo = tramos[index - 1];
+            locationId = incomingTramo.id_locacion_destino;
+            suben = [];
+            bajan = incomingTramo.ids_localidades_bajan;
+            nota = ''; 
+            tipo = null;
+        }
+
+        const handleChangeLocation = (val) => {
+            if (!isLastDest) {
+                updateTramo(index, 'id_locacion_origen', val);
+            } else {
+                updateTramo(index - 1, 'id_locacion_destino', val);
+            }
+        };
+
+        return (
+            <div className="relative pl-8 pb-0">
+                {/* Timeline Dot */}
+                <div className={`absolute left-0 top-1/2 -mt-2 w-4 h-4 rounded-full border-2 ${isLastDest ? 'bg-rose-500 border-rose-600' : 'bg-indigo-500 border-indigo-600'} z-10 box-content`}></div>
+                
+                {/* CARD CONTAINER: FLEX ROW PARA 2 COLUMNAS */}
+                <div className={`flex flex-row items-stretch border rounded-lg shadow-sm transition-all hover:shadow-md mb-2 bg-white overflow-hidden ${isLastDest ? 'border-rose-100' : 'border-slate-200'}`}>
+                    
+                    {/* COLUMNA 1: LOCACIÓN (35% Ancho) */}
+                    <div className={`w-[35%] min-w-[200px] p-3 border-r ${isLastDest ? 'bg-rose-50 border-rose-100' : 'bg-slate-50 border-slate-100'} flex flex-col justify-center`}>
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                {isLastDest ? 'Destino Final' : `Parada ${index + 1}`}
+                            </label>
+                            {!isLastDest && (
+                                <button onClick={() => handleRemoveTramo(index)} className="text-slate-300 hover:text-red-500 p-1" title="Eliminar parada">
+                                    <IconTrash size={14}/>
+                                </button>
+                            )}
+                        </div>
+                        <SearchableSelect 
+                            options={locationOptions} 
+                            value={locationId} 
+                            onChange={handleChangeLocation} 
+                            placeholder="Seleccionar ubicación..." 
+                            className="bg-white"
+                        />
+                    </div>
+
+                    {/* COLUMNA 2: DETALLES (Resto del ancho) */}
+                    <div className="flex-1 flex flex-col">
+                        
+                        {!isLastDest ? (
+                            <>
+                                {/* FILA A: TIPO Y NOTA */}
+                                <div className="flex-1 flex items-center border-b border-slate-100 p-2 gap-3">
+                                    {/* Tipo */}
+                                    <div className="w-24 border-r border-slate-100 pr-3">
+                                        <select 
+                                            className="w-full text-xs border-none bg-transparent outline-none text-slate-600 font-bold focus:text-indigo-600 cursor-pointer" 
+                                            value={tipo} 
+                                            onChange={e => updateTramo(index, 'id_tipo_evento', e.target.value)}
+                                            title="Tipo de evento"
+                                        >
+                                            <option value="11">Público</option>
+                                            <option value="12">Privado</option>
+                                        </select>
+                                    </div>
+                                    {/* Nota */}
+                                    <div className="flex-1 flex items-center gap-2">
+                                        <IconMessageCircle size={14} className="text-slate-300"/>
+                                        <input 
+                                            type="text" 
+                                            className="w-full text-xs bg-transparent outline-none placeholder:text-slate-300 text-slate-600" 
+                                            placeholder="Agregar nota (ej: Cena, Espera...)" 
+                                            value={nota || ''} 
+                                            onChange={e => updateTramo(index, 'nota', e.target.value)} 
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* FILA B: SUBIDA Y BAJADA */}
+                                <div className="flex-1 flex items-start bg-white p-2 gap-3 h-full">
+                                    
+                                    {/* Lado Izquierdo: BAJAN */}
+                                    <div className="flex-1 min-w-0">
+                                        {/* Etiqueta nueva */}
+                                        <span className="block text-[9px] font-bold text-rose-500 uppercase mb-0.5 pl-6">
+                                            Bajan (a la vuelta)
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <IconUserMinus size={14} className="text-rose-400 shrink-0"/>
+                                            <div className="flex-1 min-w-0">
+                                                {index === 0 ? (
+                                                    <span className="text-[10px] text-slate-300 italic">Inicio</span>
+                                                ) : (
+                                                    <SearchableSelect 
+                                                        isMulti={true} 
+                                                        options={localityOptions} 
+                                                        value={bajan} 
+                                                        onChange={(v) => updateTramo(index - 1, 'ids_localidades_bajan', v)} 
+                                                        placeholder="Bajan..." 
+                                                        className="border-none text-xs" 
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Separador Vertical */}
+                                    <div className="w-px h-8 bg-slate-100 self-center"></div>
+
+                                    {/* Lado Derecho: SUBEN */}
+                                    <div className="flex-1 min-w-0">
+                                        {/* Etiqueta nueva */}
+                                        <span className="block text-[9px] font-bold text-emerald-500 uppercase mb-0.5 pl-6">
+                                            Suben (a la ida)
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <IconUserPlus size={14} className="text-emerald-500 shrink-0"/>
+                                            <div className="flex-1 min-w-0">
+                                                <SearchableSelect 
+                                                    isMulti={true} 
+                                                    options={localityOptions} 
+                                                    value={suben} 
+                                                    onChange={(v) => updateTramo(index, 'ids_localidades_suben', v)} 
+                                                    placeholder="Suben..." 
+                                                    className="border-none text-xs" 
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            /* CONTENIDO PARA ÚLTIMA PARADA (Destino Final) */
+                            <div className="flex flex-col h-full">
+                                <div className="flex-1 flex items-center p-2 gap-2">
+                                     <IconUserMinus size={14} className="text-rose-400 shrink-0"/>
+                                     <div className="flex-1">
+                                        <SearchableSelect isMulti={true} options={localityOptions} value={bajan} onChange={(v) => updateTramo(index - 1, 'ids_localidades_bajan', v)} placeholder="Bajan (Fin)..." className="border-none text-xs" />
+                                     </div>
+                                </div>
+                                <div className="border-t border-slate-100 bg-slate-50/50 p-2 flex justify-center">
+                                    <button 
+                                        onClick={handleAddTramo}
+                                        className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors"
+                                    >
+                                        <IconPlus size={12}/> Extender Recorrido
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const renderConnector = (index) => {
+        const tramo = editingTemplate.tramos[index];
+        return (
+            <div className="relative pl-8 py-1 min-h-[40px] flex items-center">
+                {/* Timeline Line */}
+                <div className="absolute left-[9px] top-0 bottom-0 w-0.5 bg-slate-200"></div>
+                
+                {/* Duration Control Compacto */}
+                <div className="flex items-center gap-2 ml-4">
+                    <div className="text-[10px] text-slate-400 flex items-center gap-1 bg-white px-2 py-1 border rounded-full shadow-sm z-10">
+                        <IconArrowDown size={10}/> 
+                        <span>Viaje:</span>
+                        <input 
+                            type="number" 
+                            className="w-8 text-center bg-transparent border-b border-slate-200 focus:border-indigo-500 outline-none font-bold text-slate-600"
+                            value={tramo.duracion_minutos}
+                            onChange={e => updateTramo(index, 'duracion_minutos', e.target.value)}
+                        />
+                        <span>min</span>
+                        <span className="text-indigo-400 ml-1 font-bold">
+                            ({formatSecondsToTime((parseInt(tramo.duracion_minutos) || 0) * 60)})
+                        </span>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     if (!isOpen) return null;
@@ -190,11 +420,12 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
                     )}
 
                     {mode === 'create' && (
-                        <div className="bg-white p-6 rounded-lg shadow-sm border">
-                            <div className="mb-6 flex justify-between items-end gap-4">
+                        <div className="bg-white p-6 rounded-lg shadow-sm border flex flex-col h-full">
+                            {/* Header Editor */}
+                            <div className="mb-6 flex justify-between items-end gap-4 border-b pb-4">
                                 <div className="flex-1">
                                     <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase">Nombre del Recorrido</label>
-                                    <input type="text" className="w-full border p-2 rounded focus:border-indigo-500 outline-none font-bold text-slate-700" placeholder="Ej: Viedma - Bariloche" value={editingTemplate.nombre} onChange={e => setEditingTemplate({...editingTemplate, nombre: e.target.value})} />
+                                    <input type="text" className="w-full border p-2 rounded focus:border-indigo-500 outline-none font-bold text-slate-700 text-lg" placeholder="Ej: Viedma - Bariloche" value={editingTemplate.nombre} onChange={e => setEditingTemplate({...editingTemplate, nombre: e.target.value})} />
                                 </div>
                                 <button 
                                     onClick={() => setIsCreatingLoc(true)}
@@ -204,83 +435,40 @@ export default function ItineraryManagerModal({ supabase, isOpen, onClose, locat
                                 </button>
                             </div>
 
-                            <div className="text-xs text-slate-400 italic mb-2">Cada fila representa un tramo y su evento de SALIDA</div>
-
-                            <div className="space-y-4 mb-6">
-                                {editingTemplate.tramos.map((tramo, idx) => (
-                                    <div key={idx} className="border rounded-lg bg-slate-50 p-3 shadow-sm relative transition-all hover:shadow-md">
-                                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-400 rounded-l"></div>
-                                        
-                                        {/* FILA 1: ORIGEN - DURACIÓN - DESTINO */}
-                                        <div className="grid grid-cols-12 gap-3 items-center border-b border-slate-200 pb-3 mb-2">
-                                            <div className="col-span-4">
-                                                <label className="text-[9px] font-bold text-slate-400 block mb-0.5">ORIGEN (SALIDA)</label>
-                                                <SearchableSelect options={locationOptions} value={tramo.id_locacion_origen} onChange={(v) => updateTramo(idx, 'id_locacion_origen', v)} placeholder="Origen..." />
-                                            </div>
-                                            
-                                            <div className="col-span-2 flex flex-col items-center">
-                                                <label className="text-[9px] font-bold text-slate-400 mb-0.5">DURACIÓN (MIN)</label>
-                                                <div className="flex items-center gap-2">
-                                                    <input 
-                                                        type="number" 
-                                                        className="w-16 text-center text-xs border p-1.5 rounded" 
-                                                        value={tramo.duracion_minutos} 
-                                                        onChange={e => updateTramo(idx, 'duracion_minutos', e.target.value)} 
-                                                    />
-                                                    <span className="text-[10px] text-indigo-600 font-medium whitespace-nowrap min-w-[40px]">
-                                                        {formatSecondsToTime((parseInt(tramo.duracion_minutos) || 0) * 60)}
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            <div className="col-span-4">
-                                                <label className="text-[9px] font-bold text-slate-400 block mb-0.5">DESTINO (LLEGADA)</label>
-                                                <SearchableSelect options={locationOptions} value={tramo.id_locacion_destino} onChange={(v) => updateTramo(idx, 'id_locacion_destino', v)} placeholder="Destino..." />
-                                            </div>
-                                            <div className="col-span-2 text-right">
-                                                <button onClick={() => handleRemoveTramo(idx)} className="text-red-400 hover:text-red-600"><IconTrash size={16}/></button>
-                                            </div>
-                                        </div>
-                                        
-                                        {/* FILA 2: SUBEN - TIPO - NOTA - BAJAN (Reestructurado) */}
-                                        <div className="grid grid-cols-12 gap-3 bg-white p-2 rounded border border-slate-100">
-                                            
-                                            {/* COL 1: SUBEN (Debajo de Origen) */}
-                                            <div className="col-span-3">
-                                                <label className="text-[9px] font-bold text-emerald-600 block mb-0.5">SUBEN AQUÍ</label>
-                                                <SearchableSelect isMulti={true} options={localityOptions} value={tramo.ids_localidades_suben} onChange={(v) => updateTramo(idx, 'ids_localidades_suben', v)} placeholder="Seleccionar..." className="border-emerald-200" />
-                                            </div>
-
-                                            {/* COL 2: TIPO (Debajo de Origen/Duración) */}
-                                            <div className="col-span-2">
-                                                <label className="text-[9px] font-bold text-indigo-400 block mb-0.5">TIPO</label>
-                                                <select className="w-full text-xs border p-1.5 rounded bg-slate-50 outline-none focus:border-indigo-300" value={tramo.id_tipo_evento} onChange={e => updateTramo(idx, 'id_tipo_evento', e.target.value)}>
-                                                    <option value="11">Público</option>
-                                                    <option value="12">Privado</option>
-                                                </select>
-                                            </div>
-
-                                            {/* COL 3: NOTA (Centro) */}
-                                            <div className="col-span-4">
-                                                <label className="text-[9px] font-bold text-indigo-400 block mb-0.5">NOTA</label>
-                                                <input type="text" className="w-full text-xs border p-1.5 rounded bg-slate-50 outline-none focus:border-indigo-300" placeholder="Ej: Almuerzo en ruta" value={tramo.nota || ''} onChange={e => updateTramo(idx, 'nota', e.target.value)} />
-                                            </div>
-
-                                            {/* COL 4: BAJAN (Debajo de Destino) */}
-                                            <div className="col-span-3">
-                                                <label className="text-[9px] font-bold text-rose-600 block mb-0.5">BAJAN AQUÍ</label>
-                                                <SearchableSelect isMulti={true} options={localityOptions} value={tramo.ids_localidades_bajan} onChange={(v) => updateTramo(idx, 'ids_localidades_bajan', v)} placeholder="Seleccionar..." className="border-rose-200" />
-                                            </div>
-                                        </div>
+                            <div className="flex-1 overflow-y-auto pr-2">
+                                {editingTemplate.tramos.length === 0 && (
+                                    <div className="text-center py-10 border-2 border-dashed border-slate-200 rounded-lg">
+                                        <p className="text-slate-400 text-sm mb-4">El recorrido está vacío</p>
+                                        <button onClick={handleAddTramo} className="px-4 py-2 bg-indigo-600 text-white rounded font-bold text-sm hover:bg-indigo-700">Comenzar Recorrido</button>
                                     </div>
-                                ))}
+                                )}
+
+                                {editingTemplate.tramos.length > 0 && (
+                                    <div className="relative pb-10 pl-2">
+                                        {/* Línea base continua */}
+                                        <div className="absolute left-[9px] top-4 bottom-4 w-0.5 bg-slate-200 -z-0"></div>
+
+                                        {editingTemplate.tramos.map((tramo, idx) => (
+                                            <React.Fragment key={idx}>
+                                                {/* Tarjeta de Parada (Origen) */}
+                                                {renderStopCard(idx)}
+                                                
+                                                {/* Conector de Tiempo */}
+                                                {renderConnector(idx)}
+
+                                                {/* Si es el último tramo, renderizamos también el Destino Final */}
+                                                {idx === editingTemplate.tramos.length - 1 && (
+                                                    renderStopCard(idx + 1, true)
+                                                )}
+                                            </React.Fragment>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
-                            <div className="flex justify-between border-t pt-4 sticky bottom-0 bg-white z-10">
-                                <button onClick={handleAddTramo} className="text-xs font-bold text-slate-600 bg-slate-100 px-4 py-2 rounded flex items-center gap-2 hover:bg-slate-200"><IconPlus size={14}/> Agregar Tramo</button>
-                                <div className="flex gap-2">
-                                    <button onClick={() => setMode('list')} className="text-xs font-bold text-slate-500 px-4 py-2 hover:bg-slate-50 rounded">Cancelar</button>
-                                    <button onClick={saveTemplate} className="text-xs font-bold text-white bg-indigo-600 px-6 py-2 rounded flex items-center gap-2 hover:bg-indigo-700 shadow"><IconSave size={14}/> Guardar Recorrido</button>
-                                </div>
+
+                            <div className="flex justify-end gap-2 border-t pt-4 mt-4">
+                                <button onClick={() => setMode('list')} className="text-xs font-bold text-slate-500 px-4 py-2 hover:bg-slate-50 rounded">Cancelar</button>
+                                <button onClick={saveTemplate} className="text-xs font-bold text-white bg-indigo-600 px-6 py-2 rounded flex items-center gap-2 hover:bg-indigo-700 shadow"><IconSave size={14}/> Guardar Recorrido</button>
                             </div>
                         </div>
                     )}
