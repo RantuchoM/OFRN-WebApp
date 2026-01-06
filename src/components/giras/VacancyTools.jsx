@@ -2,21 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { IconUserPlus, IconExchange, IconLoader, IconCheck, IconX } from '../ui/Icons';
 import SearchableSelect from '../ui/SearchableSelect'; 
 
-// --- MODAL 1: CREAR VACANTE (PLACEHOLDER) ---
-export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, localities, instruments }) => {
+// --- MODAL 1: CREAR VACANTE (CORREGIDO) ---
+export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, localities, instruments, giraNomenclador }) => {
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
-        rol: '', // Se usa como "Apellido" visual (ej: "Oboe 2")
+        rol: '', 
         genero: 'F', 
         id_localidad: '',
-        id_instr: '' // NUEVO: Instrumento
+        id_instr: '' 
     });
 
     const localityOptions = localities.map(l => ({ id: l.id, label: l.localidad }));
-    // Mapeamos instrumentos para el select (asumiendo que instruments viene como [{id: 'oboe', instrumento: 'Oboe'}, ...])
     const instrumentOptions = instruments.map(i => ({ id: i.id, label: i.instrumento }));
 
-    // Reiniciar form al abrir
     useEffect(() => {
         if(isOpen) setFormData({ rol: '', genero: 'F', id_localidad: '', id_instr: '' });
     }, [isOpen]);
@@ -29,11 +27,9 @@ export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, 
             const generatedId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 10000);
             const uniqueToken = Date.now().toString().slice(-6);
 
-            // --- LÓGICA DE NOMBRADO MEJORADA ---
-            // Usamos el nomenclador si existe, si no, un string vacío.
+            // CORRECCIÓN 1: 'giraNomenclador' ahora viene de las props y está definido
             const etiquetaGira = giraNomenclador ? `(${giraNomenclador})` : '';
             
-            // Construimos el "Apellido" visual: "Oboe 2 (G-2024)"
             const apellidoCompuesto = `${formData.rol} ${etiquetaGira}`.trim();
 
             const { error: userError } = await supabase
@@ -41,7 +37,7 @@ export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, 
                 .insert([{
                     id: generatedId,
                     nombre: 'Vacante',
-                    apellido: apellidoCompuesto, // <--- AQUÍ GUARDAMOS CON IDENTIFICADOR
+                    apellido: apellidoCompuesto,
                     es_simulacion: true,
                     genero: formData.genero,
                     id_localidad: formData.id_localidad,
@@ -57,8 +53,8 @@ export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, 
                 .from('giras_integrantes')
                 .insert([{
                     id_gira: giraId,
-                    id_integrante: newPlaceholder.id,
-                    rol: 'musico', // Rol genérico en la gira
+                    id_integrante: generatedId, // CORRECCIÓN 2: Usar 'generatedId' en lugar de 'newPlaceholder.id'
+                    rol: 'musico', 
                     estado: 'confirmado' 
                 }]);
 
@@ -103,7 +99,6 @@ export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, 
                         />
                     </div>
 
-                    {/* NUEVO: SELECTOR DE INSTRUMENTO */}
                     <div>
                         <label className="block text-xs font-bold text-slate-600 mb-1">INSTRUMENTO (Opcional)</label>
                         <SearchableSelect 

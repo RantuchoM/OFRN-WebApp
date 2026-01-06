@@ -299,7 +299,40 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     });
     setIsCreatingDetailed(true);
   };
+// --- NUEVA FUNCIÓN: ELIMINAR VACANTE ---
+  const handleDeleteVacancy = async (vacancy) => {
+    if (!confirm(`¿Eliminar definitivamente la vacante "${vacancy.apellido}"?`)) return;
 
+    setLoadingAction(true);
+    try {
+      // 1. Eliminar relación con la Gira
+      const { error: linkError } = await supabase
+        .from('giras_integrantes')
+        .delete()
+        .eq('id_gira', gira.id)
+        .eq('id_integrante', vacancy.id);
+      
+      if (linkError) throw linkError;
+
+      // 2. Eliminar el usuario "falso" de la tabla integrantes (limpieza de BD)
+      const { error: userError } = await supabase
+        .from('integrantes')
+        .delete()
+        .eq('id', vacancy.id);
+
+      if (userError) {
+         // No lanzamos error crítico si falla esto, pero avisamos por consola
+         console.warn("Nota: El integrante simulado no se borró de la tabla global (posible FK): ", userError.message);
+      }
+
+      refreshRoster();
+    } catch (err) {
+      console.error(err);
+      alert("Error al eliminar vacante: " + err.message);
+    } finally {
+      setLoadingAction(false);
+    }
+  };
   const handleDetailedSave = async (newMusician) => {
     try {
       const { error } = await supabase.from("giras_integrantes").insert([
@@ -901,13 +934,23 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                       </button>
                       <div className="w-px h-4 bg-slate-200 mx-1"></div>
                       {m.es_simulacion ? (
-                        <button
-                          onClick={() => setSwapTarget(m)}
-                          className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-2 py-1.5 rounded shadow-sm flex items-center gap-1"
-                          title="Asignar"
-                        >
-                          <IconExchange size={12} /> ASIGNAR
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setSwapTarget(m)}
+                            className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-2 py-1.5 rounded shadow-sm flex items-center gap-1"
+                            title="Asignar titular"
+                          >
+                            <IconExchange size={12} /> ASIGNAR
+                          </button>
+                          {/* BOTÓN ELIMINAR AGREGADO */}
+                          <button
+                            onClick={() => handleDeleteVacancy(m)}
+                            className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                            title="Eliminar Vacante"
+                          >
+                            <IconTrash size={16} />
+                          </button>
+                        </div>
                       ) : (
                         <>
                           {m.estado_gira === "confirmado" && (
@@ -923,7 +966,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                             <button
                               onClick={() => removeMemberManual(m.id)}
                               className="text-slate-300 hover:text-red-500 p-1"
-                              title="Eliminar"
+                              title="Eliminar Manual"
                             >
                               <IconTrash size={16} />
                             </button>
@@ -931,7 +974,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                           <button
                             onClick={() => copyGuestLink(m)}
                             className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-                            title="Link"
+                            title="Copiar Link"
                           >
                             <IconLink size={16} />
                           </button>

@@ -20,8 +20,8 @@ import MyPartsViewer from "./views/Giras/MyPartsViewer";
 import MealsAttendancePersonal from "./views/Giras/MealsAttendancePersonal";
 import PublicLinkHandler from "./views/Public/PublicLinkHandler";
 import DashboardGeneral from "./views/Dashboard/DashboardGeneral";
-import NewsModal from "./components/news/NewsModal"; // <--- VISUALIZADOR (Campanita)
-import NewsManager from "./components/news/NewsManager"; // <--- GESTOR (Para admins)
+import NewsModal from "./components/news/NewsModal"; 
+import NewsManager from "./components/news/NewsManager"; 
 import {
   IconLayoutDashboard,
   IconMap,
@@ -46,7 +46,7 @@ import {
   IconBell,
 } from "./components/ui/Icons";
 
-// --- MODAL CALENDARIO (Mismo código de antes) ---
+// --- MODAL CALENDARIO (Sin cambios) ---
 const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
   if (!isOpen || !userId) return null;
   const BASE_URL =
@@ -168,27 +168,25 @@ const ProtectedApp = () => {
   const [mode, setMode] = useState(isPersonal ? "FULL_AGENDA" : "GIRAS");
   const [activeGiraId, setActiveGiraId] = useState(null);
   const [initialGiraView, setInitialGiraView] = useState(null);
-  const [initialGiraSubTab, setInitialGiraSubTab] = useState(null); // <--- NUEVO: Soporte para subTab
-  // FETCH UNREAD COUNT (Polling simple o Realtime podría mejorarse)
+  const [initialGiraSubTab, setInitialGiraSubTab] = useState(null);
+
+  // FETCH UNREAD COUNT
   useEffect(() => {
     if (!user || isGuestRole) return;
 
     const fetchUnread = async () => {
-      // Lógica simple: contar comentarios pendientes donde estoy etiquetado o soy admin/editor
-      // Esto es una aproximación visual útil.
       const { count } = await supabase
         .from("sistema_comentarios")
         .select("id", { count: "exact", head: true })
         .eq("resuelto", false)
         .eq("deleted", false)
-        .contains("etiquetados", [user.id]); // Solo cuento menciones directas para el badge rojo
+        .contains("etiquetados", [user.id]);
 
       setUnreadCount(count || 0);
     };
 
     fetchUnread();
 
-    // Suscripción Realtime para actualizar badge
     const channel = supabase
       .channel("global-badge")
       .on(
@@ -238,12 +236,17 @@ const ProtectedApp = () => {
     }
   }, [mode, isPersonal, isEnsembleCoordinator]);
 
-  useEffect(() => {
+  // ----------------------------------------------------------------------
+  // LÓGICA DE URL Y NAVEGACIÓN
+  // ----------------------------------------------------------------------
+
+  // 1. Sincronizar Estado <-- URL
+  const syncStateWithUrl = () => {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get("tab");
     const giraIdParam = params.get("giraId");
     const viewParam = params.get("view");
-    const subTabParam = params.get("subTab"); // <--- LEEMOS SUBTAB
+    const subTabParam = params.get("subTab");
 
     if (tabParam) {
       const modeMap = {
@@ -264,15 +267,22 @@ const ProtectedApp = () => {
       const newMode = modeMap[tabParam.toLowerCase()];
       if (newMode) {
         setMode(newMode);
-        if (newMode === "GIRAS" && giraIdParam) {
-          setActiveGiraId(giraIdParam);
-          if (viewParam) setInitialGiraView(viewParam);
-          if (subTabParam) setInitialGiraSubTab(subTabParam); // <--- SETEAMOS SUBTAB
+        if (newMode === "GIRAS") {
+            setActiveGiraId(giraIdParam); 
+            setInitialGiraView(viewParam || null);
+            setInitialGiraSubTab(subTabParam || null);
         }
       }
     }
+  };
+
+  useEffect(() => {
+    syncStateWithUrl(); 
+    window.addEventListener("popstate", syncStateWithUrl); 
+    return () => window.removeEventListener("popstate", syncStateWithUrl);
   }, []);
-  // SINCRONIZAR URL CUANDO CAMBIA EL ESTADO
+
+  // 2. Sincronizar Estado -> URL
   useEffect(() => {
     if (!user) return;
     const params = new URLSearchParams(window.location.search);
@@ -297,15 +307,12 @@ const ProtectedApp = () => {
 
     if (mode === "GIRAS" && activeGiraId) {
       params.set("giraId", activeGiraId);
-
-      // Manejo de View
       if (initialGiraView) params.set("view", initialGiraView);
       else params.delete("view");
-
-      // Manejo de SubTab (Nuevo)
       if (initialGiraSubTab) params.set("subTab", initialGiraSubTab);
       else params.delete("subTab");
     } else {
+      // Limpieza si no hay gira activa
       params.delete("giraId");
       params.delete("view");
       params.delete("subTab");
@@ -317,23 +324,32 @@ const ProtectedApp = () => {
     }
   }, [mode, activeGiraId, initialGiraView, initialGiraSubTab, user]);
 
-  // --- FUNCIÓN DE NAVEGACIÓN PRINCIPAL CORREGIDA ---
   const updateView = (
     newMode,
     giraId = null,
     viewParam = null,
     subTabParam = null
   ) => {
+    // 🔥 FIX: Resetear explícitamente activeGiraId si la nueva vista es GIRAS pero sin ID
+    if (newMode === "GIRAS" && !giraId) {
+        setActiveGiraId(null);
+        setInitialGiraView(null);
+        setInitialGiraSubTab(null);
+    } else if (newMode === "GIRAS") {
+        setActiveGiraId(giraId);
+    }
+    
     setMode(newMode);
-
-    // FIX: Si navegamos a GIRAS, actualizamos el ID. 
-    // Si viene del sidebar, giraId será null, lo que limpia la selección y muestra la lista general.
-    if (newMode === "GIRAS") {
-      setActiveGiraId(giraId);
+    
+    // Si no es Giras, también reseteamos params de gira por seguridad visual
+    if (newMode !== "GIRAS") {
+        setActiveGiraId(null);
     }
 
-    setInitialGiraView(viewParam || null);
-    setInitialGiraSubTab(subTabParam || null);
+    if (giraId && newMode === "GIRAS") {
+        setInitialGiraView(viewParam || null);
+        setInitialGiraSubTab(subTabParam || null);
+    }
 
     setMobileMenuOpen(false);
   };
@@ -392,7 +408,7 @@ const ProtectedApp = () => {
       id: "NEWS_MANAGER",
       label: "Comunicación",
       icon: <IconBell size={20} />,
-      show: isManagement, // Solo visible para admin, editor, coord_general
+      show: isManagement, 
     },
     {
       id: "USERS",
@@ -412,15 +428,11 @@ const ProtectedApp = () => {
       case "GIRAS":
         return (
           <GirasView
-            // 🔥 SOLUCIÓN AQUÍ: 
-            // Usamos una 'key' dinámica. Cuando activeGiraId cambia (o es null),
-            // React desmonta la vista vieja y monta una nueva limpia.
-            // Esto arregla que se quede "pegado" en el detalle.
+            // 🔥 KEY DINÁMICA: Clave para forzar el reinicio
             key={activeGiraId ? `gira-${activeGiraId}` : "giras-list-general"}
-            
             initialGiraId={activeGiraId}
-            initialTab={initialGiraView} // Pasamos la view
-            initialSubTab={initialGiraSubTab} // <--- NUEVA PROP AGREGADA
+            initialTab={initialGiraView}
+            initialSubTab={initialGiraSubTab}
             updateView={updateView}
             supabase={supabase}
           />
@@ -463,6 +475,7 @@ const ProtectedApp = () => {
         return <div className="p-10 text-center">Vista no encontrada</div>;
     }
   };
+  
   const mobileNavItems = [
     ...(userRole !== "invitado"
       ? [
