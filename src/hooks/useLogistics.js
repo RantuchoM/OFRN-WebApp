@@ -57,17 +57,28 @@ export const calculateLogisticsSummary = (
       return false;
     }
 
-    // 3. REGLAS MASIVAS (General, Región, Localidad) -> SOLO MÚSICOS
+    // 3. REGLAS MASIVAS (General, Región, Localidad) -> FILTRO INTELIGENTE
     // ------------------------------------------------------------------
-    // Normalizamos el rol. Si viene nulo/undefined, asumimos que es 'musico'.
     const userRole = (person.rol_gira || "musico").trim().toLowerCase();
+    let applyMassive = false;
 
-    // Si NO es músico, estas reglas masivas NO le aplican.
-    // (Producción, Staff, etc. deben asignarse por Persona o por Categoría explícita)
-    if (userRole !== "musico") return false; 
+    if (userRole === "musico") {
+        // Los músicos (sean estables o refuerzos) generalmente siguen la logística grupal
+        applyMassive = true;
+    } else if (["solista", "director"].includes(userRole)) {
+        // LÓGICA REFINADA:
+        // Si es Solista/Director, solo aplicamos reglas masivas si NO es un adicional (es decir, si es interno).
+        // Si 'es_adicional' es true, es un invitado externo -> Se asume logística manual/VIP.
+        if (!person.es_adicional) {
+            applyMassive = true;
+        }
+    }
+    
+    // Si no pasó el filtro (ej. es Staff, Producción, o Solista Externo), retornamos false.
+    if (!applyMassive) return false; 
     // ------------------------------------------------------------------
 
-    // Si es músico, chequeamos la geografía
+    // Chequeo Geográfico normal
     if (scope === "General") return true;
 
     const pLoc = String(person.id_localidad);
@@ -150,7 +161,7 @@ export const calculateLogisticsSummary = (
 
         // Si hay exclusión, omitimos todo
         if (exclusions.length > 0) return;
-        // Si no hay inclusión base, no viaja (reglas 'solo logistica' no suben a nadie por sí solas)
+        // Si no hay inclusión base, no viaja
         if (inclusions.length === 0) return; 
 
         const allStopRules = [...inclusions, ...logisticsOnly];

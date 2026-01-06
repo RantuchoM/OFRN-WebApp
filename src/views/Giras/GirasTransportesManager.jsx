@@ -226,8 +226,8 @@ const generateRoadmapExcel = async (
     if (ups.length > 0) {
       const subenHeader = worksheet.addRow([
         `SUBEN (${ups.length})`,
-        "NOMBRE",
-        "LOCALIDAD",
+        "NOMBRE / RESIDENCIA", // <--- Cabecera actualizada
+        "DESTINO (BAJADA)", // <--- Usamos esta col para algo útil si quieres, o dejamos LOCALIDAD si prefieres redundancia. Dejaré LOCALIDAD por compatibilidad.
       ]);
       subenHeader.font = { bold: true, color: { argb: "FF2E7D32" } }; // Verde
       subenHeader.getCell(1).fill = {
@@ -237,8 +237,9 @@ const generateRoadmapExcel = async (
       };
 
       ups.forEach((p) => {
-        const loc = paxLocalities[p.id] || "-";
-        worksheet.addRow([p.apellido?.toUpperCase(), p.nombre, loc]);
+        const loc = paxLocalities[p.id] || "";
+        const nombreCompleto = `${p.nombre} ${loc ? `(${loc})` : ""}`; // <--- Nombre + (Localidad)
+        worksheet.addRow([p.apellido?.toUpperCase(), nombreCompleto, loc]);
       });
     }
 
@@ -246,14 +247,15 @@ const generateRoadmapExcel = async (
     if (downs.length > 0) {
       const bajanHeader = worksheet.addRow([
         `BAJAN (${downs.length})`,
-        "NOMBRE",
+        "NOMBRE / RESIDENCIA",
         "LOCALIDAD",
       ]);
       bajanHeader.font = { bold: true, color: { argb: "FFC62828" } }; // Rojo
 
       downs.forEach((p) => {
-        const loc = paxLocalities[p.id] || "-";
-        worksheet.addRow([p.apellido?.toUpperCase(), p.nombre, loc]);
+        const loc = paxLocalities[p.id] || "";
+        const nombreCompleto = `${p.nombre} ${loc ? `(${loc})` : ""}`; // <--- Nombre + (Localidad)
+        worksheet.addRow([p.apellido?.toUpperCase(), nombreCompleto, loc]);
       });
     }
 
@@ -424,21 +426,33 @@ export default function GirasTransportesManager({ supabase, gira }) {
               </p>
             ) : (
               <ul className="divide-y divide-slate-100">
-                {infoListModal.list.map((p) => (
-                  <li
-                    key={p.id}
-                    className="py-2 text-sm flex justify-between items-center"
-                  >
-                    <span className="font-medium text-slate-700">
-                      {p.apellido}, {p.nombre}
-                    </span>
-                    {p.logistics?.transports?.length > 0 && (
-                      <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
-                        x{p.logistics.transports.length} Buses
-                      </span>
-                    )}
-                  </li>
-                ))}
+                {infoListModal.list.map((p) => {
+                  // Recuperamos la localidad del mapa global o del objeto directo
+                  const locNombre = paxLocalities[p.id] || p.localidades?.localidad || "Sin datos";
+                  
+                  return (
+                    <li
+                      key={p.id}
+                      className="py-2 text-sm flex justify-between items-center"
+                    >
+                      <div className="flex flex-col">
+                        <span className="font-medium text-slate-700">
+                          {p.apellido}, {p.nombre}
+                        </span>
+                        {/* AQUI AGREGAMOS LA LOCALIDAD */}
+                        <span className="text-xs text-slate-400">
+                          {locNombre}
+                        </span>
+                      </div>
+                      
+                      {p.logistics?.transports?.length > 0 && (
+                        <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full ml-2">
+                          x{p.logistics.transports.length} Bus
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
