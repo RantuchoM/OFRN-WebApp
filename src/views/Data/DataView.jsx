@@ -11,12 +11,13 @@ import {
   IconUsers,
   IconFileText,
   IconLayout,
+  IconTag, // <--- NUEVO IMPORT (Asegúrate de tener este ícono o usa IconList)
 } from "../../components/ui/Icons";
 import SheetEditor from './SheetEditor';
 
 export default function DataView({ supabase }) {
   const [activeTab, setActiveTab] = useState("regiones");
-  const [isDirty, setIsDirty] = useState(false); // ESTADO PARA CONTROLAR CAMBIOS
+  const [isDirty, setIsDirty] = useState(false);
 
   // --- ESTADO PARA LOS SELECTS (Catálogos Compartidos) ---
   const [catalogos, setCatalogos] = useState({
@@ -72,13 +73,13 @@ export default function DataView({ supabase }) {
         return;
       }
     }
-    // Si confirma (o no está sucio), cambiamos y reseteamos el estado sucio
     setActiveTab(newTabKey);
     setIsDirty(false); 
   };
 
   // --- CONFIGURACIÓN DE TABLAS ---
   const tableConfigs = {
+    
     regiones: {
       label: "Regiones",
       icon: IconMap,
@@ -125,6 +126,14 @@ export default function DataView({ supabase }) {
         { key: "nombre", label: "Nombre Tipo", type: "text" },
         { key: "color", label: "Etiqueta Color", type: "color", defaultValue: "#6366f1" },
         { key: "id_categoria", label: "Categoría", type: "select", options: catalogos.categorias },
+      ],
+    },
+     categorias: {
+      label: "Categorías de Eventos",
+      icon: IconTag, // Icono visual para la pestaña
+      table: "categorias_tipos_eventos",
+      columns: [
+        { key: "nombre", label: "Nombre Categoría", type: "text" }
       ],
     },
     instrumentos: {
@@ -204,7 +213,7 @@ export default function DataView({ supabase }) {
             return (
               <button
                 key={key}
-                onClick={() => handleTabChange(key)} // USAMOS LA NUEVA FUNCIÓN
+                onClick={() => handleTabChange(key)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   isActive
                     ? "bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200"
@@ -223,7 +232,7 @@ export default function DataView({ supabase }) {
           <div className="my-2 border-t border-slate-100 mx-2"></div>
 
           <button
-            onClick={() => handleTabChange("hoja_calculo")} // USAMOS LA NUEVA FUNCIÓN
+            onClick={() => handleTabChange("hoja_calculo")}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
               activeTab === "hoja_calculo"
                 ? "bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200"
@@ -249,7 +258,7 @@ export default function DataView({ supabase }) {
             tableName={currentConfig.table}
             columns={currentConfig.columns}
             onDataChange={fetchCatalogos}
-            onDirtyChange={setIsDirty} // PASAMOS EL SETTER DEL ESTADO
+            onDirtyChange={setIsDirty}
           />
         )}
       </div>

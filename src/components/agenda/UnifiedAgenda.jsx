@@ -27,7 +27,7 @@ import {
   IconPrinter,
   IconUpload,
   IconDownload,
-  IconTruck,
+  IconBus,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -35,7 +35,7 @@ import CommentButton from "../comments/CommentButton";
 import EventForm from "../forms/EventForm";
 import SearchableSelect from "../ui/SearchableSelect";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
-import { calculateLogisticsSummary } from "../../hooks/useLogistics"; 
+import { calculateLogisticsSummary } from "../../hooks/useLogistics";
 
 // --- LÓGICA DE FECHA LÍMITE ---
 const getDeadlineStatus = (deadlineISO) => {
@@ -172,7 +172,10 @@ export default function UnifiedAgenda({
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
 
   const [showNonActive, setShowNonActive] = useState(false);
+
+  // LOGÍSTICA: Mapa de asignaciones y conjunto de giras que TIENEN reglas
   const [myTransportLogistics, setMyTransportLogistics] = useState({});
+  const [toursWithRules, setToursWithRules] = useState(new Set());
 
   const [commentsState, setCommentsState] = useState(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -242,7 +245,8 @@ export default function UnifiedAgenda({
         const { data } = await supabase
           .from("integrantes")
           .select(
-            "*, instrumentos(familia), integrantes_ensambles(id_ensamble), localidades(id, id_region)"
+            // CAMBIO: Usamos '!id_localidad' para especificar la FK exacta y le ponemos alias 'datos_residencia'
+            "*, instrumentos(familia), integrantes_ensambles(id_ensamble), datos_residencia:localidades!id_localidad (id, id_region)"
           )
           .eq("id", effectiveUserId)
           .single();
@@ -337,7 +341,10 @@ export default function UnifiedAgenda({
 
   const fetchAgenda = async () => {
     setLoading(true);
-    const CACHE_KEY = `agenda_cache_${effectiveUserId}_${giraId || "general"}`;
+    // V4 para asegurar limpieza de caché y nueva lógica logística
+    const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
+      giraId || "general"
+    }_v4`;
 
     try {
       const cachedData = localStorage.getItem(CACHE_KEY);
@@ -387,7 +394,7 @@ export default function UnifiedAgenda({
         ensembleEvents.data?.map((e) => e.id_evento)
       );
 
-      // --- TRAER DATOS DEL TRANSPORTE ---
+      // --- 1. TRAER EVENTOS CON DATOS DE TRANSPORTE ---
       let query = supabase
         .from("eventos")
         .select(
@@ -426,107 +433,117 @@ export default function UnifiedAgenda({
       const { data: eventsData, error } = await query;
       if (error) throw error;
 
-      // --- CÁLCULO LOGÍSTICO MASIVO PARA MARCAR TRANSPORTES ---
-      console.log("--- DEBUG LOGISTICA: Inicio del Cálculo ---");
-      console.log("Usuario Efectivo:", effectiveUserId);
-      console.log("Perfil Usuario:", userProfile);
-
+      // --- 2. CÁLCULO LOGÍSTICO ROBUSTO ---
+      console.log("--- DEBUG LOGISTICA: Inicio ---");
       const activeTourIds = new Set();
-      eventsData?.forEach(e => {
-          if (e.id_gira) activeTourIds.add(e.id_gira);
+      eventsData?.forEach((e) => {
+        if (e.id_gira) activeTourIds.add(e.id_gira);
       });
-      console.log("Giras Activas Detectadas:", Array.from(activeTourIds));
 
       let logisticsMap = {};
+      const foundRuleTours = new Set();
 
       if (activeTourIds.size > 0 && userProfile) {
-          const { data: rulesData } = await supabase
-              .from("giras_logistica_reglas_transportes")
-              .select("*, giras_transportes!inner(id, id_gira, detalle, transportes(nombre))")
-              .in("giras_transportes.id_gira", Array.from(activeTourIds));
-          
-          console.log("Reglas Encontradas (Total):", rulesData?.length || 0);
+        const { data: rulesData } = await supabase
+          .from("giras_logistica_reglas_transportes")
+          .select(
+            "*, giras_transportes!inner(id, id_gira, detalle, transportes(nombre))"
+          )
+          .in("giras_transportes.id_gira", Array.from(activeTourIds));
 
-          if (rulesData) {
-              const rulesByGira = {};
-              rulesData.forEach(r => {
-                  const gId = r.giras_transportes.id_gira;
-                  if (!rulesByGira[gId]) rulesByGira[gId] = [];
-                  rulesByGira[gId].push(r);
-              });
+        if (rulesData) {
+          const rulesByGira = {};
+          rulesData.forEach((r) => {
+            const gId = r.giras_transportes.id_gira;
+            foundRuleTours.add(gId); // Marcamos que esta gira TIENE reglas
+            if (!rulesByGira[gId]) rulesByGira[gId] = [];
+            rulesByGira[gId].push(r);
+          });
 
-              Object.keys(rulesByGira).forEach(gId => {
-                  console.groupCollapsed(`Procesando Gira ID: ${gId}`);
-                  const sampleEvt = eventsData.find(e => String(e.id_gira) === String(gId) && e.programas);
-                  if (!sampleEvt || !sampleEvt.programas) {
-                      console.log("No se encontró evento base con programas.");
-                      console.groupEnd();
-                      return;
-                  }
+          Object.keys(rulesByGira).forEach((gId) => {
+            const sampleEvt = eventsData.find(
+              (e) => String(e.id_gira) === String(gId) && e.programas
+            );
+            if (!sampleEvt || !sampleEvt.programas) return;
 
-                  // --- Cálculo manual de 'es_adicional' ---
-                  const sources = sampleEvt.programas.giras_fuentes || [];
-                  let isBase = false;
-                  
-                  // Normalizamos IDs a String
-                  const userEnsembles = (userProfile.integrantes_ensambles || []).map(ie => String(ie.id_ensamble));
-                  const userFamily = userProfile.instrumentos?.familia;
+            // --- Cálculo manual de 'es_adicional' ---
+            const sources = sampleEvt.programas.giras_fuentes || [];
+            let isBase = false;
 
-                  console.log("Fuentes Gira:", sources);
-                  console.log("Usuario Ensambles:", userEnsembles, "Familia:", userFamily);
+            // Normalizamos IDs a String
+            const userEnsembles = (userProfile.integrantes_ensambles || []).map(
+              (ie) => String(ie.id_ensamble)
+            );
+            const userFamily = userProfile.instrumentos?.familia;
 
-                  sources.forEach(src => {
-                      if (src.tipo === 'ENSAMBLE' && userEnsembles.includes(String(src.valor_id))) {
-                          isBase = true;
-                          console.log("-> MATCH Ensamble");
-                      }
-                      if (src.tipo === 'FAMILIA' && src.valor_texto === userFamily) {
-                          isBase = true;
-                          console.log("-> MATCH Familia");
-                      }
-                  });
+            sources.forEach((src) => {
+              if (
+                src.tipo === "ENSAMBLE" &&
+                userEnsembles.includes(String(src.valor_id))
+              )
+                isBase = true;
+              if (src.tipo === "FAMILIA" && src.valor_texto === userFamily)
+                isBase = true;
+            });
 
-                  const myRecord = sampleEvt.programas.giras_integrantes?.find(i => String(i.id_integrante) === String(effectiveUserId));
-                  console.log("Registro Giras_Integrantes:", myRecord);
-                  
-                  // Si tiene override de AUSENTE, no calculamos nada
-                  if (myRecord && myRecord.estado === 'ausente') {
-                      console.log("Usuario marcado como AUSENTE. Saltando.");
-                      console.groupEnd();
-                      return;
-                  }
+            const myRecord = sampleEvt.programas.giras_integrantes?.find(
+              (i) => String(i.id_integrante) === String(effectiveUserId)
+            );
 
-                  const esAdicional = !!myRecord && !isBase;
-                  console.log("Es Adicional?", esAdicional, "(Base:", isBase, ")");
-                  
-                  const mockPerson = {
-                      ...userProfile,
-                      id_localidad: userProfile.id_localidad || userProfile.localidades?.id,
-                      rol_gira: myRecord?.rol || 'musico',
-                      es_adicional: esAdicional,
-                      logistics: {}
-                  };
-                  console.log("Mock Person para Cálculo:", mockPerson);
+            if (myRecord && myRecord.estado === "ausente") return;
 
-                  const result = calculateLogisticsSummary([mockPerson], [], rulesByGira[gId]);
-                  const myTransports = result[0]?.logistics?.transports || [];
-                  
-                  console.log("Transportes Asignados (Resultado):", myTransports);
+            const esAdicional = !!myRecord && !isBase;
+            // --- CORRECCIÓN FINAL: Uso de Alias Explicito ---
+            // Ahora leemos desde 'datos_residencia' que definimos en el fetchProfile
+            const cleanLocId = userProfile.id_localidad
+              ? Number(userProfile.id_localidad)
+              : null;
 
-                  myTransports.forEach(t => {
-                      logisticsMap[t.id] = {
-                          assigned: true,
-                          subidaId: t.subidaId,
-                          bajadaId: t.bajadaId
-                      };
-                  });
-                  console.groupEnd();
-              });
-          }
+            // Verificamos el objeto con el alias correcto
+            const residenciaObj = userProfile.datos_residencia;
+
+            const cleanRegionId = residenciaObj?.id_region
+              ? Number(residenciaObj.id_region)
+              : null;
+
+            const mockPerson = {
+              ...userProfile,
+              id_localidad: cleanLocId,
+              // Construimos el objeto localidades explícitamente para el motor logístico
+              localidades: {
+                id: cleanLocId,
+                id_region: cleanRegionId,
+              },
+              rol_gira: myRecord?.rol || "musico",
+              es_adicional: esAdicional,
+              logistics: {},
+            };
+
+            console.log(
+              `Logística (Alias Check): LocID: ${cleanLocId}, RegID: ${cleanRegionId}`
+            );
+            // Ejecución del motor logístico
+            const result = calculateLogisticsSummary(
+              [mockPerson],
+              [],
+              rulesByGira[gId]
+            );
+
+            const myTransports = result[0]?.logistics?.transports || [];
+            myTransports.forEach((t) => {
+              // Usamos String() para asegurar coincidencia
+              logisticsMap[String(t.id)] = {
+                assigned: true,
+                subidaId: t.subidaId,
+                bajadaId: t.bajadaId,
+              };
+            });
+          });
+        }
       }
-      console.log("MAPA FINAL LOGÍSTICA:", logisticsMap);
-      console.log("--- DEBUG LOGISTICA: Fin ---");
+      console.log("Mapa Calculado:", logisticsMap);
       setMyTransportLogistics(logisticsMap);
+      setToursWithRules(foundRuleTours);
 
       const visibleEvents = (eventsData || []).filter((item) => {
         if (giraId) return true;
@@ -642,44 +659,31 @@ export default function UnifiedAgenda({
       const cat = evt.tipos_evento?.categorias_tipos_eventos;
       if (cat && !categoriesMap[cat.id]) categoriesMap[cat.id] = cat;
     });
+
     const uniqueCats = Object.values(categoriesMap).sort((a, b) =>
       a.nombre.localeCompare(b.nombre)
     );
+
     setAvailableCategories(uniqueCats);
 
+    // CAMBIO: Si no hay selección previa, seleccionamos TODO automáticamente.
+    // Eliminamos la lógica que filtraba por palabras "concierto" o "ensayo".
     if (selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
-      const defaults = uniqueCats
-        .filter((c) => {
-          const n = c.nombre.toLowerCase();
-          return (
-            n.includes("concierto") ||
-            n.includes("ensayo") ||
-            n.includes("concert") ||
-            n.includes("rehearsal")
-          );
-        })
-        .map((c) => c.id);
-
-      setSelectedCategoryIds(
-        defaults.length > 0 ? defaults : uniqueCats.map((c) => c.id)
-      );
+      setSelectedCategoryIds(uniqueCats.map((c) => c.id));
     }
   };
-
   const toggleMealAttendance = async (eventId, newStatus) => {
     if (effectiveUserId === "guest-general") return;
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from("eventos_asistencia")
-        .upsert(
-          {
-            id_evento: eventId,
-            id_integrante: effectiveUserId,
-            estado: newStatus,
-          },
-          { onConflict: "id_evento, id_integrante" }
-        );
+      const { error } = await supabase.from("eventos_asistencia").upsert(
+        {
+          id_evento: eventId,
+          id_integrante: effectiveUserId,
+          estado: newStatus,
+        },
+        { onConflict: "id_evento, id_integrante" }
+      );
       if (error) throw error;
       const newItems = items.map((item) =>
         item.id === eventId ? { ...item, mi_asistencia: newStatus } : item
@@ -687,7 +691,7 @@ export default function UnifiedAgenda({
       setItems(newItems);
       const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
         giraId || "general"
-      }`;
+      }_v4`;
       localStorage.setItem(CACHE_KEY, JSON.stringify(newItems));
     } catch (error) {
       alert("Error: " + error.message);
@@ -1021,48 +1025,67 @@ export default function UnifiedAgenda({
           </div>
 
           <div className="flex gap-2">
-             {!loading && availableCategories.length > 0 && (
-          <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-hide items-center">
-            {canEdit && musicianOptions.length > 0 && (
-              <div className="shrink-0 w-[200px] border-r border-slate-200 pr-2 mr-2">
-                <SearchableSelect
-                  options={musicianOptions}
-                  value={viewAsUserId}
-                  onChange={setViewAsUserId}
-                  placeholder="Ver como..."
-                  className="w-full"
-                />
+            {/* --- BLOQUE DE FILTROS COMPACTO --- */}
+            {!loading && availableCategories.length > 0 && (
+              <div className="px-4 pb-2 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+                {canEdit && musicianOptions.length > 0 && (
+                  <div className="shrink-0 w-[160px] border-r border-slate-200 pr-2 mr-1">
+                    <SearchableSelect
+                      options={musicianOptions}
+                      value={viewAsUserId}
+                      onChange={setViewAsUserId}
+                      placeholder="Ver como..."
+                      className="w-full text-xs"
+                    />
+                  </div>
+                )}
+
+                {/* Botón Toggle Todos (Reemplaza al "Ver todo") */}
+                <button
+                  onClick={() => {
+                    if (
+                      selectedCategoryIds.length === availableCategories.length
+                    ) {
+                      setSelectedCategoryIds([]); // Desmarcar todo
+                    } else {
+                      setSelectedCategoryIds(
+                        availableCategories.map((c) => c.id)
+                      ); // Marcar todo
+                    }
+                  }}
+                  className={`p-1.5 rounded-md border transition-colors shrink-0 ${
+                    selectedCategoryIds.length === availableCategories.length
+                      ? "bg-slate-800 text-white border-slate-800"
+                      : "bg-white text-slate-400 border-slate-200 hover:border-slate-300"
+                  }`}
+                  title={
+                    selectedCategoryIds.length === availableCategories.length
+                      ? "Deseleccionar todo"
+                      : "Ver todo"
+                  }
+                >
+                  <IconList size={14} />
+                </button>
+
+                {/* Lista de Categorías (Chips más pequeños) */}
+                {availableCategories.map((cat) => {
+                  const isActive = selectedCategoryIds.includes(cat.id);
+                  return (
+                    <button
+                      key={cat.id}
+                      onClick={() => handleCategoryToggle(cat.id)}
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-all whitespace-nowrap shrink-0 ${
+                        isActive
+                          ? "bg-indigo-100 text-indigo-700 border-indigo-200 shadow-sm"
+                          : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {cat.nombre}
+                    </button>
+                  );
+                })}
               </div>
             )}
-
-            {availableCategories.map((cat) => {
-              const isActive = selectedCategoryIds.includes(cat.id);
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => handleCategoryToggle(cat.id)}
-                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-all whitespace-nowrap shrink-0 ${
-                    isActive
-                      ? "bg-indigo-100 text-indigo-700 border-indigo-200 shadow-sm"
-                      : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100"
-                  }`}
-                >
-                  {cat.nombre}
-                </button>
-              );
-            })}
-            {selectedCategoryIds.length < availableCategories.length && (
-              <button
-                onClick={() =>
-                  setSelectedCategoryIds(availableCategories.map((c) => c.id))
-                }
-                className="text-xs text-indigo-600 underline px-2 whitespace-nowrap shrink-0"
-              >
-                Ver todo
-              </button>
-            )}
-          </div>
-        )}
             <button
               onClick={handleExportPDF}
               disabled={loading || filteredItems.length === 0}
@@ -1101,8 +1124,6 @@ export default function UnifiedAgenda({
             )}
           </div>
         </div>
-
-       
       </div>
 
       <div className="flex-1 overflow-y-auto bg-slate-50/50">
@@ -1142,26 +1163,39 @@ export default function UnifiedAgenda({
                   [7, 8, 9, 10].includes(evt.id_tipo_evento) ||
                   evt.tipos_evento?.nombre?.toLowerCase().includes("comida");
                 const isNonConvokedMeal = isMeal && !evt.is_convoked;
-                
+
                 const isTransportEvent = !!evt.id_gira_transporte;
                 let isMyTransport = false;
                 let isMyUp = false;
                 let isMyDown = false;
+                let debugReason = null;
 
                 // Datos para el badge de transporte
-                const transportName = evt.giras_transportes?.transportes?.nombre;
+                const transportName =
+                  evt.giras_transportes?.transportes?.nombre;
                 const transportDetail = evt.giras_transportes?.detalle;
 
-                if (isTransportEvent) {
-                    const myStatus = myTransportLogistics[evt.id_gira_transporte];
-                    if (myStatus && myStatus.assigned) {
-                        isMyTransport = true;
-                        if (String(myStatus.subidaId) === String(evt.id)) isMyUp = true;
-                        if (String(myStatus.bajadaId) === String(evt.id)) isMyDown = true;
-                    }
+                if (isTransportEvent && evt.id_gira_transporte) {
+                  const transportIdStr = String(evt.id_gira_transporte);
+                  const myStatus = myTransportLogistics[transportIdStr];
+
+                  if (myStatus && myStatus.assigned) {
+                    isMyTransport = true;
+                    if (String(myStatus.subidaId) === String(evt.id))
+                      isMyUp = true;
+                    if (String(myStatus.bajadaId) === String(evt.id))
+                      isMyDown = true;
+                  } else {
+                    // Diagnóstico visual
+                    const tourHasRules = toursWithRules.has(evt.id_gira);
+                    debugReason = tourHasRules ? "No Match" : "Sin Reglas";
+                  }
                 }
-                
-                const shouldDim = isNonConvokedMeal || evt.is_absent || (isTransportEvent && !isMyTransport);
+
+                const shouldDim =
+                  isNonConvokedMeal ||
+                  evt.is_absent ||
+                  (isTransportEvent && !isMyTransport);
 
                 const deadlineStatus =
                   isMeal && evt.is_convoked
@@ -1187,17 +1221,21 @@ export default function UnifiedAgenda({
 
                     <div
                       className={`relative flex flex-row items-stretch px-4 py-2 border-b border-slate-100 bg-white transition-colors hover:bg-slate-50 group gap-2 ${
-                        shouldDim
-                          ? "opacity-50 grayscale"
+                        shouldDim ? "opacity-50 grayscale" : ""
+                      } ${evt.is_guest ? "bg-emerald-50/30" : ""} ${
+                        isMyTransport
+                          ? "bg-indigo-50/30 border-l-4 border-l-indigo-400"
                           : ""
-                      } ${evt.is_guest ? "bg-emerald-50/30" : ""} ${isMyTransport ? "bg-indigo-50/30 border-l-4 border-l-indigo-400" : ""}`}
+                      }`}
                     >
                       <div
                         className="absolute left-0 top-0 bottom-0 w-[4px]"
                         style={{
                           backgroundColor: evt.is_absent
                             ? "#94a3b8"
-                            : (isMyTransport ? 'transparent' : eventColor),
+                            : isMyTransport
+                            ? "transparent"
+                            : eventColor,
                         }}
                       ></div>
 
@@ -1232,32 +1270,51 @@ export default function UnifiedAgenda({
                         <div className="flex flex-col md:flex-row md:items-center md:gap-4 flex-1 min-w-0">
                           <h4
                             className={`text-sm font-bold leading-tight truncate ${
-                              shouldDim
-                                ? "text-slate-400"
-                                : "text-slate-800"
+                              shouldDim ? "text-slate-400" : "text-slate-800"
                             }`}
                           >
                             {evt.descripcion || evt.tipos_evento?.nombre}
                           </h4>
 
-                          {/* --- CAMBIO 3: BADGE DE TRANSPORTE Y MARCADORES --- */}
+                          {/* --- BADGE DE TRANSPORTE Y MARCADORES --- */}
                           <div className="flex flex-wrap gap-1">
                             {isTransportEvent && transportName && (
-                                <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${isMyTransport ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                                    <IconTruck size={10} />
-                                    {transportName} {transportDetail && <span className="font-normal opacity-80">({transportDetail})</span>}
-                                </span>
+                              <span
+                                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
+                                  isMyTransport
+                                    ? "bg-indigo-100 text-indigo-700 border-indigo-200"
+                                    : "bg-slate-100 text-slate-500 border-slate-200"
+                                }`}
+                              >
+                                <IconBus size={10} />
+                                {transportName}{" "}
+                                {transportDetail && (
+                                  <span className="font-normal opacity-80">
+                                    ({transportDetail})
+                                  </span>
+                                )}
+                              </span>
                             )}
 
                             {isMyUp && (
-                                <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 animate-pulse">
-                                    <IconUpload size={12}/> Mi Subida
-                                </span>
+                              <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 animate-pulse">
+                                <IconUpload size={12} /> Mi Subida
+                              </span>
                             )}
                             {isMyDown && (
-                                <span className="flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 animate-pulse">
-                                    <IconDownload size={12}/> Mi Bajada
-                                </span>
+                              <span className="flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 animate-pulse">
+                                <IconDownload size={12} /> Mi Bajada
+                              </span>
+                            )}
+
+                            {/* DIAGNÓSTICO VISUAL */}
+                            {isTransportEvent && !isMyTransport && (
+                              <span
+                                className="text-[8px] text-red-300 font-mono select-none"
+                                title="El sistema no te asignó este transporte."
+                              >
+                                [{debugReason}]
+                              </span>
                             )}
                           </div>
                           {/* ------------------------------------------------ */}

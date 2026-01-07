@@ -47,29 +47,24 @@ import {
   IconCopy
 } from "./components/ui/Icons";
 
-// --- MODAL CALENDARIO (CORREGIDO) ---
+// --- MODAL CALENDARIO (ACTUALIZADO) ---
 const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
   if (!isOpen || !userId) return null;
   
-  // URL DE TU EDGE FUNCTION (Asegúrate de que sea la correcta)
   const BASE_URL = "https://muxrbuivopnawnxlcjxq.supabase.co/functions/v1/calendar-export";
 
   const getLinks = (mode) => {
-    // 1. Construir URL base con parámetros
     let url = `${BASE_URL}?uid=${userId}`;
     if (mode === "musical") url += "&mode=musical"; 
     else if (mode === "otros") url += "&mode=otros"; 
     
-    // 2. Enlace HTTPS (Para copiar manual)
+    // 1. Enlace HTTPS directo (Para copiar manual)
     const httpsLink = url;
 
-    // 3. Enlace WEBCAL (Para iOS/Mac y para el CID de Google)
-    // Reemplazar https por webcal fuerza a los calendarios a suscribirse
+    // 2. Enlace WEBCAL (Para iOS/Mac y CID)
     const webcalLink = url.replace(/^https:/, "webcal:");
 
-    // 4. Enlace Mágico de Google Calendar
-    // FIX: Usamos webcal:// dentro del CID y encodeURIComponent estricto.
-    // Esto le dice a Google "Suscríbete a este iCal" en vez de "Descarga este archivo".
+    // 3. Enlace Mágico Google
     const googleMagicLink = `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcalLink)}`;
 
     return { httpsLink, webcalLink, googleMagicLink };
@@ -84,7 +79,7 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
       window.location.href = webcalLink; 
     } else if (platform === "COPY") {
       navigator.clipboard.writeText(httpsLink).then(() => {
-        alert("🔗 Enlace copiado al portapapeles.");
+        alert("🔗 Enlace copiado. Pégalo manualmente en la sección 'Agregar por URL' de tu calendario.");
       });
     }
   };
@@ -115,7 +110,6 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
             <p className="text-xs text-slate-500 mb-2">Ideal para no saturar tu agenda personal. Solo eventos artísticos.</p>
             
             <div className="grid grid-cols-2 gap-3">
-              {/* GOOGLE PRIMERO */}
               <button
                 onClick={() => handleSubscribe("GOOGLE", "musical")}
                 className="flex items-center justify-center gap-2 p-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs shadow-sm hover:shadow"
@@ -128,6 +122,12 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
               >
                 iPhone / Mac
               </button>
+            </div>
+            {/* BOTÓN COPIAR MUSICAL */}
+            <div className="text-center">
+                <button onClick={() => handleSubscribe("COPY", "musical")} className="text-[10px] text-slate-400 hover:text-indigo-600 flex items-center justify-center gap-1 mx-auto transition-colors group">
+                    <IconCopy size={10} className="group-hover:scale-110"/> Copiar enlace manual (Musical)
+                </button>
             </div>
           </div>
 
@@ -157,13 +157,19 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
                 iPhone / Mac
               </button>
             </div>
+            {/* BOTÓN COPIAR OTROS */}
+            <div className="text-center">
+                <button onClick={() => handleSubscribe("COPY", "otros")} className="text-[10px] text-slate-400 hover:text-slate-600 flex items-center justify-center gap-1 mx-auto transition-colors group">
+                    <IconCopy size={10} className="group-hover:scale-110"/> Copiar enlace manual (Otros)
+                </button>
+            </div>
           </div>
 
+          {/* FOOTER: ENLACE COMPLETO (OPCIONAL) */}
           <div className="text-center pt-2 border-t border-slate-50 mt-4">
-             <button onClick={() => handleSubscribe("COPY", "full")} className="text-xs text-slate-500 hover:text-indigo-600 flex items-center justify-center gap-1 mx-auto transition-colors font-medium group">
-                <IconCopy size={12} className="group-hover:scale-110 transition-transform"/> Copiar enlace manual (Agenda Completa)
+             <button onClick={() => handleSubscribe("COPY", "full")} className="text-xs text-slate-300 hover:text-indigo-600 flex items-center justify-center gap-1 mx-auto transition-colors">
+                <IconCopy size={12}/> Copiar enlace de Agenda Completa (Todo unificado)
              </button>
-             <p className="text-[9px] text-slate-300 mt-1">Si la sincronización automática falla, usa la opción "Desde URL" de tu calendario y pega este enlace.</p>
           </div>
 
         </div>
@@ -172,7 +178,7 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
   );
 };
 
-// --- APP PROTEGIDA (Sin cambios mayores) ---
+// --- APP PROTEGIDA ---
 const ProtectedApp = () => {
   const { user, logout } = useAuth();
 
