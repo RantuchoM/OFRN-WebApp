@@ -8,7 +8,9 @@ import {
   IconMapPin,
   IconChevronDown,
   IconChevronUp,
+  IconUsers,
 } from "../../components/ui/Icons";
+import SearchableSelect from "../../components/ui/SearchableSelect";
 
 export default function TransportPassengersModal({
   isOpen,
@@ -28,8 +30,11 @@ export default function TransportPassengersModal({
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // NUEVO: Estado para mostrar/ocultar reglas de logística
+  // Estado para mostrar/ocultar reglas de logística
   const [showLogistics, setShowLogistics] = useState(false);
+  
+  // Estado para expandir los miembros de una regla
+  const [expandedRuleId, setExpandedRuleId] = useState(null);
 
   // 1. Filtrar reglas de ESTE transporte
   const myRules = useMemo(() => {
@@ -61,12 +66,109 @@ export default function TransportPassengersModal({
 
   // 3. Calcular pasajeros actuales
   const currentPassengers = useMemo(() => {
-    return roster.filter((p) =>
+    const list = roster.filter((p) =>
       p.logistics?.transports?.some((t) => t.id === transport.id)
     );
+    return list.sort((a, b) => a.apellido.localeCompare(b.apellido));
   }, [roster, transport.id]);
 
-  // --- ACCIONES ---
+  // --- FUNCIÓN CORREGIDA: Calcular coincidencias de una regla ---
+  const getRuleMatches = (rule) => {
+    return roster.filter((person) => {
+      // 1. FILTRO DE PRESENCIA: Ignorar a los que están marcados como 'ausente' en la gira
+      if (person.estado_gira === 'ausente') return false;
+
+      const scope = rule.alcance;
+      const pId = String(person.id);
+
+      // 2. Lógica de coincidencia por alcance
+      if (scope === "Persona") {
+        if (rule.target_ids && rule.target_ids.length > 0)
+          return rule.target_ids.map(String).includes(pId);
+        return String(rule.id_integrante) === pId;
+      }
+
+      if (scope === "Categoria" || scope === "Instrumento") {
+        const targets = (rule.target_ids || []).map(String);
+        if (targets.length > 0) {
+          if (targets.includes("SOLISTAS") && person.rol_gira === "solista") return true;
+          if (targets.includes("DIRECTORES") && person.rol_gira === "director") return true;
+          if (targets.includes("PRODUCCION") && person.rol_gira === "produccion") return true;
+          if (targets.includes("STAFF") && person.rol_gira === "staff") return true;
+          if (targets.includes("CHOFER") && person.rol_gira === "chofer") return true;
+          if (targets.includes("LOCALES") && person.is_local) return true;
+          if (targets.includes("NO_LOCALES") && !person.is_local) return true;
+          if (person.instrumentos?.familia && targets.includes(person.instrumentos.familia))
+            return true;
+        }
+        return false;
+      }
+
+      // Reglas Masivas
+      const userRole = (person.rol_gira || "musico").trim().toLowerCase();
+      let applyMassive = false;
+      if (userRole === "musico") applyMassive = true;
+      else if (["solista", "director"].includes(userRole)) {
+        if (!person.es_adicional) applyMassive = true;
+      }
+      if (!applyMassive) return false;
+
+      if (scope === "General") return true;
+
+      const pLoc = String(person.id_localidad);
+      const pReg = String(person.localidades?.id_region);
+      const targets = (rule.target_ids || []).map(String);
+
+      if (scope === "Localidad") {
+        return targets.length > 0
+          ? targets.includes(pLoc)
+          : String(rule.id_localidad) === pLoc;
+      }
+      if (scope === "Region") {
+        return targets.length > 0
+          ? targets.includes(pReg)
+          : String(rule.id_region) === pReg;
+      }
+
+      return false;
+    });
+  };
+
+  // --- Helper para renderizar la lista de afectados ---
+  const renderAffectedMembers = (rule, isExclusion) => {
+    const matches = getRuleMatches(rule);
+
+    return (
+      <div className="mt-2 bg-white/90 rounded p-2 text-xs border border-slate-200 animate-in slide-in-from-top-2">
+        <div className="font-bold text-slate-500 mb-1 border-b pb-1 flex justify-between">
+          <span>
+            {isExclusion ? "Excluidos" : "Incluidos"} por esta regla ({matches.length}):
+          </span>
+        </div>
+        <div className="max-h-32 overflow-y-auto space-y-1">
+          {matches.length > 0 ? (
+            matches.map((m) => (
+              <div key={m.id} className="text-slate-700 flex justify-between">
+                <span>
+                  {m.apellido}, {m.nombre}
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  (
+                  {localities.find((l) => String(l.id) === String(m.id_localidad))
+                    ?.localidad || "-"}
+                  )
+                </span>
+              </div>
+            ))
+          ) : (
+            <span className="text-slate-400 italic">
+              Sin coincidencias (validas) en el roster.
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   const handleAddRule = async (isExclusion = false) => {
     if (!selectedId) return;
@@ -76,7 +178,7 @@ export default function TransportPassengersModal({
         id_gira_transporte: transport.id,
         alcance: addType,
         es_exclusion: isExclusion,
-        solo_logistica: false, // Desde este modal siempre agregamos reglas de acceso por defecto
+        solo_logistica: false,
       };
 
       if (addType === "Persona") payload.id_integrante = selectedId;
@@ -112,8 +214,6 @@ export default function TransportPassengersModal({
       setLoading(false);
     }
   };
-
-  // --- UI HELPERS ---
 
   const getRuleLabel = (r) => {
     let label = r.alcance;
@@ -163,51 +263,78 @@ export default function TransportPassengersModal({
     };
   };
 
+  // --- CORRECCIÓN: Usar 'id' como clave para SearchableSelect ---
   const selectOptions = useMemo(() => {
     if (addType === "Region")
-      return regions.map((r) => ({ value: r.id, label: r.region }));
+      return regions.map((r) => ({ id: r.id, label: r.region })); // key id
     if (addType === "Localidad")
-      return localities.map((l) => ({ value: l.id, label: l.localidad }));
+      return localities.map((l) => ({ id: l.id, label: l.localidad })); // key id
     if (addType === "Persona")
-      return roster.map((p) => ({
-        value: p.id,
-        label: `${p.apellido}, ${p.nombre}`,
-      }));
+      return roster.map((p) => {
+        const locName =
+          localities.find((l) => String(l.id) === String(p.id_localidad))?.localidad ||
+          p.localidades?.localidad ||
+          "-";
+        return {
+          id: p.id, // key id
+          label: `${p.apellido}, ${p.nombre} (${locName})`,
+        };
+      });
     return [];
   }, [addType, regions, localities, roster]);
 
   const RuleCard = ({ r }) => {
     const styles = getRuleStyles(r);
+    const isExpanded = expandedRuleId === r.id;
+
     return (
       <div
-        className={`flex justify-between items-center p-2 rounded border ${styles.bg} ${styles.border}`}
+        className={`flex flex-col p-2 rounded border transition-all ${styles.bg} ${styles.border}`}
       >
-        <div className="flex items-center gap-3">
-          {styles.icon}
-          <div>
-            <div
-              className={`text-[10px] font-bold uppercase ${styles.text} opacity-70`}
-            >
-              {styles.typeLabel}
-            </div>
-            <div className={`text-sm font-medium ${styles.text}`}>
-              {getRuleLabel(r)}
-            </div>
-            {r.solo_logistica && (
-              <div className="text-[10px] text-slate-500 flex gap-2 mt-0.5">
-                {r.id_evento_subida && <span>Subida Personalizada</span>}
-                {r.id_evento_subida && r.id_evento_bajada && <span>•</span>}
-                {r.id_evento_bajada && <span>Bajada Personalizada</span>}
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            {styles.icon}
+            <div>
+              <div
+                className={`text-[10px] font-bold uppercase ${styles.text} opacity-70`}
+              >
+                {styles.typeLabel}
               </div>
-            )}
+              <div className={`text-sm font-medium ${styles.text}`}>
+                {getRuleLabel(r)}
+              </div>
+              {r.solo_logistica && (
+                <div className="text-[10px] text-slate-500 flex gap-2 mt-0.5">
+                  {r.id_evento_subida && <span>Subida Personalizada</span>}
+                  {r.id_evento_subida && r.id_evento_bajada && <span>•</span>}
+                  {r.id_evento_bajada && <span>Bajada Personalizada</span>}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setExpandedRuleId(isExpanded ? null : r.id)}
+              className={`p-1.5 rounded transition-colors flex items-center gap-1 text-[10px] font-bold uppercase ${
+                styles.text
+              } hover:bg-white/50`}
+              title="Ver personas afectadas"
+            >
+              <IconUsers size={14} />
+              {isExpanded ? <IconChevronUp size={12} /> : <IconChevronDown size={12} />}
+            </button>
+
+            <button
+              onClick={() => handleDeleteRule(r.id)}
+              className="text-slate-400 hover:text-red-500 p-1.5 rounded hover:bg-white/50 transition-colors ml-1"
+              title="Eliminar regla"
+            >
+              <IconTrash size={14} />
+            </button>
           </div>
         </div>
-        <button
-          onClick={() => handleDeleteRule(r.id)}
-          className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-white/50 transition-colors"
-        >
-          <IconTrash size={14} />
-        </button>
+        
+        {isExpanded && renderAffectedMembers(r, r.es_exclusion)}
       </div>
     );
   };
@@ -317,8 +444,6 @@ export default function TransportPassengersModal({
                 </h4>
                 <div className="bg-white rounded border border-slate-200 divide-y divide-slate-100 max-h-60 overflow-y-auto">
                   {currentPassengers.map((p) => {
-                    // Búsqueda robusta de la localidad usando el ID de residencia (id_localidad)
-                    // Prioridad: 1. Objeto anidado (si existe) 2. Búsqueda en catálogo por ID
                     const nombreLoc =
                       p.localidades?.localidad ||
                       localities.find(
@@ -335,7 +460,6 @@ export default function TransportPassengersModal({
                           <span className="text-slate-700 font-medium">
                             {p.apellido}, {p.nombre}
                           </span>
-                          {/* MOSTRAR LOCALIDAD ENTRE PARÉNTESIS */}
                           <span className="text-[11px] text-slate-400">
                             ({nombreLoc})
                           </span>
@@ -411,18 +535,16 @@ export default function TransportPassengersModal({
                 <label className="block text-xs font-bold text-slate-500 mb-1">
                   Seleccionar {addType}
                 </label>
-                <select
-                  className="w-full border p-2 rounded text-sm mb-6 bg-slate-50 focus:bg-white transition-colors outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                  value={selectedId || ""}
-                  onChange={(e) => setSelectedId(e.target.value)}
-                >
-                  <option value="">-- Seleccionar --</option>
-                  {selectOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                
+                <div className="mb-6">
+                  <SearchableSelect
+                    options={selectOptions}
+                    value={selectedId}
+                    onChange={setSelectedId}
+                    placeholder={`Buscar ${addType.toLowerCase()}...`}
+                    className="w-full"
+                  />
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <button

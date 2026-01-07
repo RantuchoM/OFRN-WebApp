@@ -25,6 +25,9 @@ import {
   IconArrowRight,
   IconEye,
   IconPrinter,
+  IconUpload,
+  IconDownload,
+  IconTruck,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -32,6 +35,7 @@ import CommentButton from "../comments/CommentButton";
 import EventForm from "../forms/EventForm";
 import SearchableSelect from "../ui/SearchableSelect";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
+import { calculateLogisticsSummary } from "../../hooks/useLogistics"; 
 
 // --- LÓGICA DE FECHA LÍMITE ---
 const getDeadlineStatus = (deadlineISO) => {
@@ -155,11 +159,9 @@ export default function UnifiedAgenda({
 }) {
   const { user } = useAuth();
 
-  // --- ESTADOS DE VISUALIZACIÓN "VER COMO" ---
   const [viewAsUserId, setViewAsUserId] = useState(null);
   const [musicianOptions, setMusicianOptions] = useState([]);
 
-  // ID efectivo: Si hay un usuario seleccionado en "Ver como", usamos ese. Si no, el logueado.
   const effectiveUserId = viewAsUserId || user.id;
 
   const [items, setItems] = useState([]);
@@ -169,8 +171,8 @@ export default function UnifiedAgenda({
   const [availableCategories, setAvailableCategories] = useState([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
 
-  // --- FILTRO DE ESTADO (Borradores) ---
   const [showNonActive, setShowNonActive] = useState(false);
+  const [myTransportLogistics, setMyTransportLogistics] = useState({});
 
   const [commentsState, setCommentsState] = useState(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -185,7 +187,6 @@ export default function UnifiedAgenda({
     user?.rol_sistema
   );
 
-  // 0. Cargar lista de músicos para el dropdown (Solo admins/editores)
   useEffect(() => {
     const fetchMusicians = async () => {
       if (canEdit && navigator.onLine) {
@@ -211,7 +212,6 @@ export default function UnifiedAgenda({
     fetchMusicians();
   }, [canEdit, supabase]);
 
-  // 1. Cargar Perfil (del Usuario Efectivo)
   useEffect(() => {
     const fetchProfile = async () => {
       const PROFILE_CACHE_KEY = `profile_cache_${effectiveUserId}`;
@@ -242,7 +242,7 @@ export default function UnifiedAgenda({
         const { data } = await supabase
           .from("integrantes")
           .select(
-            "*, instrumentos(familia), integrantes_ensambles(id_ensamble)"
+            "*, instrumentos(familia), integrantes_ensambles(id_ensamble), localidades(id, id_region)"
           )
           .eq("id", effectiveUserId)
           .single();
@@ -257,7 +257,6 @@ export default function UnifiedAgenda({
     fetchProfile();
   }, [effectiveUserId, supabase]);
 
-  // 2. Cargar Catálogos
   useEffect(() => {
     const fetchCatalogs = async () => {
       if (!canEdit || !navigator.onLine) return;
@@ -279,7 +278,6 @@ export default function UnifiedAgenda({
     fetchCatalogs();
   }, [canEdit, supabase]);
 
-  // 3. Detectar Conexión y Recargar Agenda al cambiar perfil
   useEffect(() => {
     const handleOnline = () => {
       setIsOfflineMode(false);
@@ -303,10 +301,8 @@ export default function UnifiedAgenda({
     );
   };
 
-  // --- FILTRADO DE ITEMS ---
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      // 1. Filtro de Estado
       if (!showNonActive) {
         const estadoGira = item.programas?.estado || "Borrador";
         if (item.isProgramMarker) {
@@ -315,8 +311,6 @@ export default function UnifiedAgenda({
           return false;
         }
       }
-
-      // 2. Filtro de Categoría
       if (item.isProgramMarker) return true;
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
       if (!catId) return true;
@@ -341,7 +335,6 @@ export default function UnifiedAgenda({
     });
   };
 
-  // 4. FETCH PRINCIPAL
   const fetchAgenda = async () => {
     setLoading(true);
     const CACHE_KEY = `agenda_cache_${effectiveUserId}_${giraId || "general"}`;
@@ -394,11 +387,16 @@ export default function UnifiedAgenda({
         ensembleEvents.data?.map((e) => e.id_evento)
       );
 
+      // --- TRAER DATOS DEL TRANSPORTE ---
       let query = supabase
         .from("eventos")
         .select(
           `
-            id, fecha, hora_inicio, hora_fin, descripcion, convocados, id_tipo_evento, id_locacion, id_gira,
+            id, fecha, hora_inicio, hora_fin, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte,
+            giras_transportes (
+                id, detalle,
+                transportes ( nombre )
+            ),
             tipos_evento (
                 id, nombre, color,
                 categorias_tipos_eventos (id, nombre)
@@ -427,6 +425,108 @@ export default function UnifiedAgenda({
 
       const { data: eventsData, error } = await query;
       if (error) throw error;
+
+      // --- CÁLCULO LOGÍSTICO MASIVO PARA MARCAR TRANSPORTES ---
+      console.log("--- DEBUG LOGISTICA: Inicio del Cálculo ---");
+      console.log("Usuario Efectivo:", effectiveUserId);
+      console.log("Perfil Usuario:", userProfile);
+
+      const activeTourIds = new Set();
+      eventsData?.forEach(e => {
+          if (e.id_gira) activeTourIds.add(e.id_gira);
+      });
+      console.log("Giras Activas Detectadas:", Array.from(activeTourIds));
+
+      let logisticsMap = {};
+
+      if (activeTourIds.size > 0 && userProfile) {
+          const { data: rulesData } = await supabase
+              .from("giras_logistica_reglas_transportes")
+              .select("*, giras_transportes!inner(id, id_gira, detalle, transportes(nombre))")
+              .in("giras_transportes.id_gira", Array.from(activeTourIds));
+          
+          console.log("Reglas Encontradas (Total):", rulesData?.length || 0);
+
+          if (rulesData) {
+              const rulesByGira = {};
+              rulesData.forEach(r => {
+                  const gId = r.giras_transportes.id_gira;
+                  if (!rulesByGira[gId]) rulesByGira[gId] = [];
+                  rulesByGira[gId].push(r);
+              });
+
+              Object.keys(rulesByGira).forEach(gId => {
+                  console.groupCollapsed(`Procesando Gira ID: ${gId}`);
+                  const sampleEvt = eventsData.find(e => String(e.id_gira) === String(gId) && e.programas);
+                  if (!sampleEvt || !sampleEvt.programas) {
+                      console.log("No se encontró evento base con programas.");
+                      console.groupEnd();
+                      return;
+                  }
+
+                  // --- Cálculo manual de 'es_adicional' ---
+                  const sources = sampleEvt.programas.giras_fuentes || [];
+                  let isBase = false;
+                  
+                  // Normalizamos IDs a String
+                  const userEnsembles = (userProfile.integrantes_ensambles || []).map(ie => String(ie.id_ensamble));
+                  const userFamily = userProfile.instrumentos?.familia;
+
+                  console.log("Fuentes Gira:", sources);
+                  console.log("Usuario Ensambles:", userEnsembles, "Familia:", userFamily);
+
+                  sources.forEach(src => {
+                      if (src.tipo === 'ENSAMBLE' && userEnsembles.includes(String(src.valor_id))) {
+                          isBase = true;
+                          console.log("-> MATCH Ensamble");
+                      }
+                      if (src.tipo === 'FAMILIA' && src.valor_texto === userFamily) {
+                          isBase = true;
+                          console.log("-> MATCH Familia");
+                      }
+                  });
+
+                  const myRecord = sampleEvt.programas.giras_integrantes?.find(i => String(i.id_integrante) === String(effectiveUserId));
+                  console.log("Registro Giras_Integrantes:", myRecord);
+                  
+                  // Si tiene override de AUSENTE, no calculamos nada
+                  if (myRecord && myRecord.estado === 'ausente') {
+                      console.log("Usuario marcado como AUSENTE. Saltando.");
+                      console.groupEnd();
+                      return;
+                  }
+
+                  const esAdicional = !!myRecord && !isBase;
+                  console.log("Es Adicional?", esAdicional, "(Base:", isBase, ")");
+                  
+                  const mockPerson = {
+                      ...userProfile,
+                      id_localidad: userProfile.id_localidad || userProfile.localidades?.id,
+                      rol_gira: myRecord?.rol || 'musico',
+                      es_adicional: esAdicional,
+                      logistics: {}
+                  };
+                  console.log("Mock Person para Cálculo:", mockPerson);
+
+                  const result = calculateLogisticsSummary([mockPerson], [], rulesByGira[gId]);
+                  const myTransports = result[0]?.logistics?.transports || [];
+                  
+                  console.log("Transportes Asignados (Resultado):", myTransports);
+
+                  myTransports.forEach(t => {
+                      logisticsMap[t.id] = {
+                          assigned: true,
+                          subidaId: t.subidaId,
+                          bajadaId: t.bajadaId
+                      };
+                  });
+                  console.groupEnd();
+              });
+          }
+      }
+      console.log("MAPA FINAL LOGÍSTICA:", logisticsMap);
+      console.log("--- DEBUG LOGISTICA: Fin ---");
+      setMyTransportLogistics(logisticsMap);
 
       const visibleEvents = (eventsData || []).filter((item) => {
         if (giraId) return true;
@@ -596,27 +696,23 @@ export default function UnifiedAgenda({
     }
   };
 
-  // --- HANDLER EXPORTAR PDF ---
   const handleExportPDF = () => {
     if (filteredItems.length === 0)
       return alert("No hay eventos para exportar con los filtros actuales.");
 
     let subTitle = "";
-    // Solo mostramos subtítulo si es una "Vista simulada" (Admin viendo como músico)
     if (userProfile && userProfile.id !== user.id) {
       subTitle = `Vista simulada: ${userProfile.apellido}, ${userProfile.nombre}`;
     }
-    // Si incluye borradores, lo avisamos
     if (showNonActive) {
       subTitle += subTitle ? " | Incluye Borradores" : "Incluye Borradores";
     }
 
-    // Detectar si estamos en una Gira específica para ocultar la columna "Gira"
     const hideGiraColumn = !!giraId;
 
     exportAgendaToPDF(filteredItems, title, subTitle, hideGiraColumn);
   };
-  // --- MODALES DE EDICIÓN ---
+
   const openEditModal = (evt) => {
     setEditFormData({
       id: evt.id,
@@ -927,7 +1023,6 @@ export default function UnifiedAgenda({
           <div className="flex gap-2">
              {!loading && availableCategories.length > 0 && (
           <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-hide items-center">
-            {/* SELECTOR "VER COMO" */}
             {canEdit && musicianOptions.length > 0 && (
               <div className="shrink-0 w-[200px] border-r border-slate-200 pr-2 mr-2">
                 <SearchableSelect
@@ -968,7 +1063,6 @@ export default function UnifiedAgenda({
             )}
           </div>
         )}
-            {/* BOTÓN EXPORTAR PDF */}
             <button
               onClick={handleExportPDF}
               disabled={loading || filteredItems.length === 0}
@@ -978,7 +1072,6 @@ export default function UnifiedAgenda({
               <IconPrinter size={20} />
             </button>
 
-            {/* BOTÓN TOGGLE BORRADORES */}
             {canEdit && !giraId && (
               <button
                 onClick={() => setShowNonActive(!showNonActive)}
@@ -1049,6 +1142,27 @@ export default function UnifiedAgenda({
                   [7, 8, 9, 10].includes(evt.id_tipo_evento) ||
                   evt.tipos_evento?.nombre?.toLowerCase().includes("comida");
                 const isNonConvokedMeal = isMeal && !evt.is_convoked;
+                
+                const isTransportEvent = !!evt.id_gira_transporte;
+                let isMyTransport = false;
+                let isMyUp = false;
+                let isMyDown = false;
+
+                // Datos para el badge de transporte
+                const transportName = evt.giras_transportes?.transportes?.nombre;
+                const transportDetail = evt.giras_transportes?.detalle;
+
+                if (isTransportEvent) {
+                    const myStatus = myTransportLogistics[evt.id_gira_transporte];
+                    if (myStatus && myStatus.assigned) {
+                        isMyTransport = true;
+                        if (String(myStatus.subidaId) === String(evt.id)) isMyUp = true;
+                        if (String(myStatus.bajadaId) === String(evt.id)) isMyDown = true;
+                    }
+                }
+                
+                const shouldDim = isNonConvokedMeal || evt.is_absent || (isTransportEvent && !isMyTransport);
+
                 const deadlineStatus =
                   isMeal && evt.is_convoked
                     ? getDeadlineStatus(
@@ -1073,17 +1187,17 @@ export default function UnifiedAgenda({
 
                     <div
                       className={`relative flex flex-row items-stretch px-4 py-2 border-b border-slate-100 bg-white transition-colors hover:bg-slate-50 group gap-2 ${
-                        isNonConvokedMeal || evt.is_absent
-                          ? "opacity-60 grayscale"
+                        shouldDim
+                          ? "opacity-50 grayscale"
                           : ""
-                      } ${evt.is_guest ? "bg-emerald-50/30" : ""}`}
+                      } ${evt.is_guest ? "bg-emerald-50/30" : ""} ${isMyTransport ? "bg-indigo-50/30 border-l-4 border-l-indigo-400" : ""}`}
                     >
                       <div
                         className="absolute left-0 top-0 bottom-0 w-[4px]"
                         style={{
                           backgroundColor: evt.is_absent
                             ? "#94a3b8"
-                            : eventColor,
+                            : (isMyTransport ? 'transparent' : eventColor),
                         }}
                       ></div>
 
@@ -1118,13 +1232,35 @@ export default function UnifiedAgenda({
                         <div className="flex flex-col md:flex-row md:items-center md:gap-4 flex-1 min-w-0">
                           <h4
                             className={`text-sm font-bold leading-tight truncate ${
-                              isNonConvokedMeal || evt.is_absent
-                                ? "line-through text-slate-400"
+                              shouldDim
+                                ? "text-slate-400"
                                 : "text-slate-800"
                             }`}
                           >
                             {evt.descripcion || evt.tipos_evento?.nombre}
                           </h4>
+
+                          {/* --- CAMBIO 3: BADGE DE TRANSPORTE Y MARCADORES --- */}
+                          <div className="flex flex-wrap gap-1">
+                            {isTransportEvent && transportName && (
+                                <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${isMyTransport ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                                    <IconTruck size={10} />
+                                    {transportName} {transportDetail && <span className="font-normal opacity-80">({transportDetail})</span>}
+                                </span>
+                            )}
+
+                            {isMyUp && (
+                                <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 animate-pulse">
+                                    <IconUpload size={12}/> Mi Subida
+                                </span>
+                            )}
+                            {isMyDown && (
+                                <span className="flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 animate-pulse">
+                                    <IconDownload size={12}/> Mi Bajada
+                                </span>
+                            )}
+                          </div>
+                          {/* ------------------------------------------------ */}
 
                           {locName && (
                             <div className="flex items-center gap-1 text-xs text-slate-500 md:border-l md:border-slate-200 md:pl-3 truncate mt-0.5 md:mt-0">

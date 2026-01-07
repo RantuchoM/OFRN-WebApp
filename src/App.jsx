@@ -44,98 +44,135 @@ import {
   IconList,
   IconAlertCircle,
   IconBell,
+  IconCopy
 } from "./components/ui/Icons";
 
-// --- MODAL CALENDARIO (Sin cambios) ---
+// --- MODAL CALENDARIO (CORREGIDO) ---
 const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
   if (!isOpen || !userId) return null;
-  const BASE_URL =
-    "https://muxrbuivopnawnxlcjxq.supabase.co/functions/v1/calendar-export";
-  const generateLinks = (mode) => {
-    let sourceLink = `${BASE_URL}?uid=${userId}`;
-    if (mode === "essential") sourceLink += "&mode=essential";
-    sourceLink += "&file=agenda.ics";
-    const webcalLink = sourceLink.replace(/^https?:\/\//, "webcal://");
-    return {
-      https: sourceLink,
-      webcal: webcalLink,
-      google: `https://www.google.com/calendar/render?cid=${encodeURIComponent(
-        webcalLink
-      )}`,
-    };
+  
+  // URL DE TU EDGE FUNCTION (Asegúrate de que sea la correcta)
+  const BASE_URL = "https://muxrbuivopnawnxlcjxq.supabase.co/functions/v1/calendar-export";
+
+  const getLinks = (mode) => {
+    // 1. Construir URL base con parámetros
+    let url = `${BASE_URL}?uid=${userId}`;
+    if (mode === "musical") url += "&mode=musical"; 
+    else if (mode === "otros") url += "&mode=otros"; 
+    
+    // 2. Enlace HTTPS (Para copiar manual)
+    const httpsLink = url;
+
+    // 3. Enlace WEBCAL (Para iOS/Mac y para el CID de Google)
+    // Reemplazar https por webcal fuerza a los calendarios a suscribirse
+    const webcalLink = url.replace(/^https:/, "webcal:");
+
+    // 4. Enlace Mágico de Google Calendar
+    // FIX: Usamos webcal:// dentro del CID y encodeURIComponent estricto.
+    // Esto le dice a Google "Suscríbete a este iCal" en vez de "Descarga este archivo".
+    const googleMagicLink = `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcalLink)}`;
+
+    return { httpsLink, webcalLink, googleMagicLink };
   };
-  const handleAction = (platform, mode) => {
-    const links = generateLinks(mode);
-    if (platform === "COPY") {
-      navigator.clipboard.writeText(links.https).then(() => {
+
+  const handleSubscribe = (platform, mode) => {
+    const { webcalLink, googleMagicLink, httpsLink } = getLinks(mode);
+
+    if (platform === "GOOGLE") {
+      window.open(googleMagicLink, "_blank");
+    } else if (platform === "IOS") {
+      window.location.href = webcalLink; 
+    } else if (platform === "COPY") {
+      navigator.clipboard.writeText(httpsLink).then(() => {
         alert("🔗 Enlace copiado al portapapeles.");
       });
-    } else if (platform === "GOOGLE") window.open(links.google, "_blank");
-    else if (platform === "IOS") window.location.href = links.webcal;
+    }
   };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+        
         <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <IconCalendar size={20} className="text-indigo-600" /> Sincronizar
-            Calendario
+            <IconCalendar size={20} className="text-indigo-600" /> Sincronizar Calendario
           </h3>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-full hover:bg-slate-200"
-          >
+          <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-200 transition-colors">
             <IconX size={20} />
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-8">
+          
+          {/* OPCIÓN 1: MUSICAL */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm uppercase tracking-wider">
-              <IconMusic size={16} /> Solo Musical
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm uppercase tracking-wider">
+                    <IconMusic size={18} /> Solo Musical
+                </div>
+                <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">Ensayos y Conciertos</span>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <p className="text-xs text-slate-500 mb-2">Ideal para no saturar tu agenda personal. Solo eventos artísticos.</p>
+            
+            <div className="grid grid-cols-2 gap-3">
+              {/* GOOGLE PRIMERO */}
               <button
-                onClick={() => handleAction("GOOGLE", "essential")}
-                className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs"
+                onClick={() => handleSubscribe("GOOGLE", "musical")}
+                className="flex items-center justify-center gap-2 p-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs shadow-sm hover:shadow"
               >
-                Google / Android
+                Google Calendar
               </button>
               <button
-                onClick={() => handleAction("IOS", "essential")}
-                className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs"
+                onClick={() => handleSubscribe("IOS", "musical")}
+                className="flex items-center justify-center gap-2 p-3 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs shadow-sm hover:shadow"
               >
                 iPhone / Mac
               </button>
             </div>
           </div>
+
           <div className="h-px bg-slate-100"></div>
+
+          {/* OPCIÓN 2: OTROS EVENTOS */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2 text-slate-700 font-bold text-sm uppercase tracking-wider">
-              <IconLayoutDashboard size={16} /> Agenda Completa
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-slate-700 font-bold text-sm uppercase tracking-wider">
+                    <IconLayoutDashboard size={18} /> Otros Eventos
+                </div>
+                <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold">Logística y Giras</span>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <p className="text-xs text-slate-500 mb-2">Incluye hitos de gira, logística de transporte, comidas y trámites.</p>
+            
+            <div className="grid grid-cols-2 gap-3">
               <button
-                onClick={() => handleAction("GOOGLE", "full")}
-                className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs"
+                onClick={() => handleSubscribe("GOOGLE", "otros")}
+                className="flex items-center justify-center gap-2 p-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs shadow-sm hover:shadow"
               >
-                Google / Android
+                Google Calendar
               </button>
               <button
-                onClick={() => handleAction("IOS", "full")}
-                className="flex items-center justify-center gap-2 p-2.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs"
+                onClick={() => handleSubscribe("IOS", "otros")}
+                className="flex items-center justify-center gap-2 p-3 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs shadow-sm hover:shadow"
               >
                 iPhone / Mac
               </button>
             </div>
           </div>
+
+          <div className="text-center pt-2 border-t border-slate-50 mt-4">
+             <button onClick={() => handleSubscribe("COPY", "full")} className="text-xs text-slate-500 hover:text-indigo-600 flex items-center justify-center gap-1 mx-auto transition-colors font-medium group">
+                <IconCopy size={12} className="group-hover:scale-110 transition-transform"/> Copiar enlace manual (Agenda Completa)
+             </button>
+             <p className="text-[9px] text-slate-300 mt-1">Si la sincronización automática falla, usa la opción "Desde URL" de tu calendario y pega este enlace.</p>
+          </div>
+
         </div>
       </div>
     </div>
   );
 };
 
-// --- APP PROTEGIDA ---
+// --- APP PROTEGIDA (Sin cambios mayores) ---
 const ProtectedApp = () => {
   const { user, logout } = useAuth();
 
@@ -150,7 +187,6 @@ const ProtectedApp = () => {
   const [isEnsembleCoordinator, setIsEnsembleCoordinator] = useState(false);
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
 
-  // ESTADO PARA BADGE DE NOTIFICACIONES
   const [unreadCount, setUnreadCount] = useState(0);
 
   const userRole = user?.rol_sistema || "";
@@ -170,7 +206,6 @@ const ProtectedApp = () => {
   const [initialGiraView, setInitialGiraView] = useState(null);
   const [initialGiraSubTab, setInitialGiraSubTab] = useState(null);
 
-  // FETCH UNREAD COUNT
   useEffect(() => {
     if (!user || isGuestRole) return;
 
@@ -236,11 +271,6 @@ const ProtectedApp = () => {
     }
   }, [mode, isPersonal, isEnsembleCoordinator]);
 
-  // ----------------------------------------------------------------------
-  // LÓGICA DE URL Y NAVEGACIÓN
-  // ----------------------------------------------------------------------
-
-  // 1. Sincronizar Estado <-- URL
   const syncStateWithUrl = () => {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get("tab");
@@ -282,7 +312,6 @@ const ProtectedApp = () => {
     return () => window.removeEventListener("popstate", syncStateWithUrl);
   }, []);
 
-  // 2. Sincronizar Estado -> URL
   useEffect(() => {
     if (!user) return;
     const params = new URLSearchParams(window.location.search);
@@ -312,7 +341,6 @@ const ProtectedApp = () => {
       if (initialGiraSubTab) params.set("subTab", initialGiraSubTab);
       else params.delete("subTab");
     } else {
-      // Limpieza si no hay gira activa
       params.delete("giraId");
       params.delete("view");
       params.delete("subTab");
@@ -330,7 +358,6 @@ const ProtectedApp = () => {
     viewParam = null,
     subTabParam = null
   ) => {
-    // 🔥 FIX: Resetear explícitamente activeGiraId si la nueva vista es GIRAS pero sin ID
     if (newMode === "GIRAS" && !giraId) {
         setActiveGiraId(null);
         setInitialGiraView(null);
@@ -341,7 +368,6 @@ const ProtectedApp = () => {
     
     setMode(newMode);
     
-    // Si no es Giras, también reseteamos params de gira por seguridad visual
     if (newMode !== "GIRAS") {
         setActiveGiraId(null);
     }
@@ -428,7 +454,6 @@ const ProtectedApp = () => {
       case "GIRAS":
         return (
           <GirasView
-            // 🔥 KEY DINÁMICA: Clave para forzar el reinicio
             key={activeGiraId ? `gira-${activeGiraId}` : "giras-list-general"}
             initialGiraId={activeGiraId}
             initialTab={initialGiraView}
@@ -609,7 +634,7 @@ const ProtectedApp = () => {
             <div className="hidden sm:block">
               <NewsModal supabase={supabase} />
             </div>
-            {/* BOTÓN ALERTAS CON BADGE (Oculto para isGuestRole) */}
+            {/* ALERTAS */}
             {!isGuestRole && (
               <button
                 onClick={() => setGlobalCommentsOpen(true)}

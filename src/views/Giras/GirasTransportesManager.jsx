@@ -401,13 +401,115 @@ export default function GirasTransportesManager({ supabase, gira }) {
     isOpen: false,
     title: "",
     list: [],
+    transportId: null, // <--- CAMPO IMPORTANTE AGREGADO
   });
 
+  // --- COMPONENTE MODAL INTERNO ACTUALIZADO ---
   const InfoListModal = () => {
     if (!infoListModal.isOpen) return null;
+
+    // Detectamos si es el modo "Falta Asignar Paradas" por la presencia de transportId
+    const isValidationMode = !!infoListModal.transportId;
+
+    const renderContent = () => {
+      // MODO A: Validación de Paradas (Agrupado por localidad + Detalle de error)
+      if (isValidationMode && infoListModal.list.length > 0) {
+        // 1. Agrupar
+        const grouped = {};
+        infoListModal.list.forEach((p) => {
+          const locName =
+            paxLocalities[p.id] ||
+            p.localidades?.localidad ||
+            "Sin registro de localidad";
+          if (!grouped[locName]) grouped[locName] = [];
+          grouped[locName].push(p);
+        });
+
+        // 2. Renderizar grupos
+        return (
+          <div className="space-y-4">
+            {Object.keys(grouped)
+              .sort()
+              .map((locName) => (
+                <div key={locName}>
+                  <h4 className="bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 uppercase tracking-wider mb-1 rounded flex justify-between items-center">
+                    <span>{locName}</span>
+                    <span className="bg-white px-2 py-0.5 rounded text-slate-400 border text-[10px]">
+                      {grouped[locName].length}
+                    </span>
+                  </h4>
+                  <ul className="divide-y divide-slate-50">
+                    {grouped[locName].map((p) => {
+                      // Analizar qué falta
+                      const trData = p.logistics?.transports?.find(
+                        (t) => t.id === infoListModal.transportId
+                      );
+                      const missingUp = !trData?.subidaId;
+                      const missingDown = !trData?.bajadaId;
+
+                      return (
+                        <li
+                          key={p.id}
+                          className="py-2 text-sm flex justify-between items-center pl-2 hover:bg-white"
+                        >
+                          <span className="font-medium text-slate-700">
+                            {p.apellido}, {p.nombre}
+                          </span>
+                          <div className="flex gap-1 text-[10px] font-bold">
+                            {missingUp && (
+                              // CAMBIO: Color verde (emerald) para Subida
+                              <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
+                                <IconAlertTriangle size={10} /> Falta Subida
+                              </span>
+                            )}
+                            {missingDown && (
+                              <span className="bg-orange-50 text-orange-600 px-2 py-0.5 rounded border border-orange-100 flex items-center gap-1">
+                                <IconAlertTriangle size={10} /> Falta Bajada
+                              </span>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+          </div>
+        );
+      }
+
+      // MODO B: Listado Simple (Listas de espera, Multi-transporte, etc.)
+      return (
+        <ul className="divide-y divide-slate-100">
+          {infoListModal.list.map((p) => {
+            const locNombre =
+              paxLocalities[p.id] || p.localidades?.localidad || "Sin datos";
+            return (
+              <li
+                key={p.id}
+                className="py-2 text-sm flex justify-between items-center"
+              >
+                <div className="flex flex-col">
+                  <span className="font-medium text-slate-700">
+                    {p.apellido}, {p.nombre}
+                  </span>
+                  <span className="text-xs text-slate-400">{locNombre}</span>
+                </div>
+                {p.logistics?.transports?.length > 0 && (
+                  <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full ml-2">
+                    x{p.logistics.transports.length} Bus
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      );
+    };
+
     return (
-      <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
+      <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col animate-in zoom-in-95">
           <div className="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-lg">
             <h3 className="font-bold text-slate-700">{infoListModal.title}</h3>
             <button
@@ -419,41 +521,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
               <IconX size={20} />
             </button>
           </div>
-          <div className="p-4 overflow-y-auto flex-1">
+          <div className="p-4 overflow-y-auto flex-1 bg-white/50">
             {infoListModal.list.length === 0 ? (
               <p className="text-center text-slate-500 italic">
                 La lista está vacía.
               </p>
             ) : (
-              <ul className="divide-y divide-slate-100">
-                {infoListModal.list.map((p) => {
-                  // Recuperamos la localidad del mapa global o del objeto directo
-                  const locNombre = paxLocalities[p.id] || p.localidades?.localidad || "Sin datos";
-                  
-                  return (
-                    <li
-                      key={p.id}
-                      className="py-2 text-sm flex justify-between items-center"
-                    >
-                      <div className="flex flex-col">
-                        <span className="font-medium text-slate-700">
-                          {p.apellido}, {p.nombre}
-                        </span>
-                        {/* AQUI AGREGAMOS LA LOCALIDAD */}
-                        <span className="text-xs text-slate-400">
-                          {locNombre}
-                        </span>
-                      </div>
-                      
-                      {p.logistics?.transports?.length > 0 && (
-                        <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full ml-2">
-                          x{p.logistics.transports.length} Bus
-                        </span>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+              renderContent()
             )}
           </div>
           <div className="p-3 border-t bg-slate-50 rounded-b-lg text-right">
@@ -1450,6 +1524,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                               t.detalle || "Transporte"
                             }`,
                             list: incompletePax,
+                            transportId: t.id, // <--- AGREGAR ESTA LÍNEA
                           });
                         }}
                         className="flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 border border-amber-300 rounded text-[10px] font-bold hover:bg-amber-200 animate-pulse"
