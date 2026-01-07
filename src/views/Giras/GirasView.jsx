@@ -3,7 +3,7 @@ import {
   IconPlus,
   IconLoader,
   IconArrowLeft,
-  IconDrive,
+  IconDrive, // <--- Icono Drive
   IconUsers,
   IconCalendar,
   IconMusic,
@@ -11,6 +11,7 @@ import {
   IconSettings,
   IconMegaphone,
   IconUtensils,
+  IconLayoutDashboard, 
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
@@ -29,7 +30,7 @@ import ProgramSeating from "./ProgramSeating";
 import CommentsManager from "../../components/comments/CommentsManager";
 import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer";
 import GiraDifusion from "./GiraDifusion";
-import SectionStatusControl from "../../components/giras/SectionStatusControl"; // <--- IMPORTAR
+import SectionStatusControl from "../../components/giras/SectionStatusControl"; 
 import { deleteGira } from "../../services/giraActions";
 
 // Componentes Modularizados
@@ -38,8 +39,8 @@ import GiraCard from "./GiraCard";
 import {
   MoveGiraModal,
   DuplicateGiraModal,
-} from "../../components/giras/GiraManipulationModals"; // IMPORTAR MODALES
-import { moveGira, duplicateGira } from "../../services/giraActions"; // IMPORTAR LÓGICA
+} from "../../components/giras/GiraManipulationModals"; 
+import { moveGira, duplicateGira } from "../../services/giraActions"; 
 
 export default function GirasView({
   supabase,
@@ -63,7 +64,7 @@ export default function GirasView({
 
   const [giras, setGiras] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [actionGira, setActionGira] = useState(null); // Gira seleccionada para mover/duplicar
+  const [actionGira, setActionGira] = useState(null); 
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showDupModal, setShowDupModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -77,7 +78,6 @@ export default function GirasView({
         giraId: initialGiraId,
       };
 
-      // Si hay subTab, lo agregamos a la URL
       if (initialSubTab) {
         params.subTab = initialSubTab;
       }
@@ -90,30 +90,26 @@ export default function GirasView({
     if (!giraId || giras.length === 0) return null;
     return giras.find((g) => g.id.toString() === giraId);
   }, [giras, giraId]);
+
   const getActiveSection = () => {
     if (!selectedGira) return null;
 
-    // Vistas principales
     if (mode === "AGENDA") return { key: "AGENDA", label: "Agenda General" };
     if (mode === "ROSTER") return { key: "ROSTER", label: "Nómina / Staff" };
     if (mode === "REPERTOIRE")
       return { key: "REPERTOIRE", label: "Repertorio" };
 
-    // Logística (Aquí estaba el desajuste)
     if (mode === "LOGISTICS") {
-      const subTab = currentTab || "coverage"; // 'coverage' es el default en Dashboard
+      const subTab = currentTab || "coverage"; 
 
       if (subTab === "rooming")
         return { key: "ROOMING", label: "Rooming List" };
 
-      // CORRECCIÓN: 'transporte' (como viene de la URL) en vez de 'transport'
       if (subTab === "transporte")
         return { key: "TRANSPORTE", label: "Transporte" };
 
-      // NUEVO: Soporte para Viáticos
       if (subTab === "viaticos") return { key: "VIATICOS", label: "Viáticos" };
 
-      // Agrupamos todas las de comidas
       if (["meals", "attendance", "report"].includes(subTab)) {
         return { key: "COMIDAS", label: "Dietas y Catering" };
       }
@@ -151,7 +147,6 @@ export default function GirasView({
     "Jazz Band",
   ];
 
-  // CAMBIO 1: FECHA DE HOY POR DEFECTO
   const today = new Date().toISOString().split("T")[0];
   const [filterDateStart, setFilterDateStart] = useState(today);
   const [filterDateEnd, setFilterDateEnd] = useState("");
@@ -167,7 +162,7 @@ export default function GirasView({
     zona: "",
     token_publico: "",
     nomenclador: "",
-    estado: "Borrador", // Default
+    estado: "Borrador",
   });
 
   const [selectedLocations, setSelectedLocations] = useState(new Set());
@@ -242,7 +237,6 @@ export default function GirasView({
           .select(
             `*, giras_localidades(id_localidad, localidades(localidad)), giras_fuentes(*), eventos (id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)), giras_integrantes (id_integrante, estado, rol, integrantes (nombre, apellido))`
           )
-          // CAMBIO 2: ORDEN CRONOLÓGICO (ASCENDENTE)
           .order("fecha_desde", { ascending: true });
 
         if (error) throw error;
@@ -400,7 +394,7 @@ export default function GirasView({
     setActionLoading(false);
     if (res.success) {
       setShowMoveModal(false);
-      fetchGiras(); // Recargar la lista
+      fetchGiras(); 
     } else {
       alert("Error al mover la gira");
     }
@@ -413,13 +407,11 @@ export default function GirasView({
 
     if (res.success) {
       setShowDupModal(false);
-      fetchGiras(); // Recargamos la lista
+      fetchGiras(); 
     } else if (res.error === "DUPLICATE_NAME") {
-      // MENSAJE AMIGABLE
       alert(
         `⚠️ Error: El nombre "${newName}" ya existe.\n\nPor favor, modifica el nombre en el formulario (ej: agrega un número o año).`
       );
-      // NOTA: No cerramos el modal (setShowDupModal(false)) para que el usuario pueda corregirlo ahí mismo.
     } else {
       alert("Ocurrió un error inesperado al duplicar la gira.");
     }
@@ -436,6 +428,41 @@ export default function GirasView({
       setGiras((prev) =>
         prev.map((g) => (g.id === data.id ? { ...g, ...data } : g))
       );
+    }
+  };
+
+  // --- FUNCIÓN GLOBAL DE SINCRONIZACIÓN (BOTÓN SUPERIOR) ---
+  const handleGlobalSync = async () => {
+    if (!confirm("¿Recalcular nomencladores y carpetas de Drive para TODAS las giras vigentes? (Esto puede tomar unos segundos)")) return;
+    
+    // Feedback
+    const btn = document.getElementById("btn-sync-global");
+    if(btn) {
+        btn.disabled = true;
+        btn.classList.add("opacity-50", "cursor-wait");
+    }
+
+    try {
+        // CAMBIO: Usar 'drive-manager' en lugar de 'calendar-export'
+        const { error } = await supabase.functions.invoke("manage-drive", { 
+            body: { 
+                action: "sync_program", 
+                // No enviamos programId para que procese el año actual completo
+            }
+        });
+
+        if (error) throw error;
+        
+        alert("Sincronización completada. Verifica los cambios en Drive y en los nombres de las giras.");
+        await fetchGiras(); // Refrescar lista
+    } catch (err) {
+        console.error(err);
+        alert("Error al sincronizar: " + err.message);
+    } finally {
+        if(btn) {
+            btn.disabled = false;
+            btn.classList.remove("opacity-50", "cursor-wait");
+        }
     }
   };
 
@@ -496,7 +523,9 @@ export default function GirasView({
         }));
         if (staffPayload.length > 0)
           await supabase.from("giras_integrantes").insert(staffPayload);
-        await supabase.functions.invoke("manage-drive", {
+        
+        // Sincronizar al guardar
+        await supabase.functions.invoke("drive-manager", {
           body: { action: "sync_program", programId: targetId },
         });
       }
@@ -513,7 +542,7 @@ export default function GirasView({
     if (e) e.stopPropagation();
     if (!confirm("¿Eliminar?")) return;
     setLoading(true);
-    await supabase.functions.invoke("manage-drive", {
+    await supabase.functions.invoke("drive-manager", {
       body: { action: "delete_program", programId: id },
     });
     await supabase.from("programas").delete().eq("id", id);
@@ -529,13 +558,12 @@ export default function GirasView({
       return;
     }
 
-    setActionLoading(true); // O un loading global
+    setActionLoading(true); 
     const res = await deleteGira(gira.id);
     setActionLoading(false);
 
     if (res.success) {
-      // alert("Gira eliminada."); // Opcional
-      fetchGiras(); // Refrescar la lista para que desaparezca
+      fetchGiras(); 
     } else {
       alert(`Error al eliminar: ${res.error}`);
     }
@@ -570,12 +598,11 @@ export default function GirasView({
     else if (type === "HABITACION")
       updateView("LOGISTICS", currentGira.id, "rooming");
   };
-  // 1. ESTADO DEL FILTRO (Por defecto mostramos todo o lo que prefieras)
+  
   const [filterStatus, setFilterStatus] = useState(
     new Set(["Vigente", "Borrador", "Pausada"])
   );
 
-  // 2. FUNCIÓN TOGGLE
   const toggleFilterStatus = (status) => {
     setFilterStatus((prev) => {
       const newSet = new Set(prev);
@@ -585,23 +612,18 @@ export default function GirasView({
     });
   };
 
-  // 3. ACTUALIZAR EL MEMO DE FILTRADO
   const filteredGiras = useMemo(() => {
     return giras.filter((g) => {
-      // Filtro de Tipo (Existente)
       if (filterType.size > 0 && !filterType.has(g.tipo)) return false;
-      // Filtro de Fechas (Existente)
       if (filterDateStart && g.fecha_hasta < filterDateStart) return false;
       if (filterDateEnd && g.fecha_desde > filterDateEnd) return false;
 
-      // NUEVO: Filtro de Estado
-      // Asumimos que si no tiene estado es 'Vigente' (compatibilidad legacy) o 'Borrador'
       const estadoGira = g.estado || "Borrador";
       if (filterStatus.size > 0 && !filterStatus.has(estadoGira)) return false;
 
       return true;
     });
-  }, [giras, filterType, filterDateStart, filterDateEnd, filterStatus]); // <--- Agregar filterStatus a dependencias
+  }, [giras, filterType, filterDateStart, filterDateEnd, filterStatus]); 
 
   const toggleFilterType = (type) => {
     setFilterType((prev) => {
@@ -728,9 +750,9 @@ export default function GirasView({
                 <SectionStatusControl
                   supabase={supabase}
                   giraId={selectedGira.id}
-                  sectionKey={activeSection.key} // Cambia dinámicamente
-                  sectionLabel={activeSection.label} // Cambia dinámicamente
-                  currentUserId={user.id} // Tu ID numérico (Int8)
+                  sectionKey={activeSection.key} 
+                  sectionLabel={activeSection.label} 
+                  currentUserId={user.id} 
                 />
               </div>
             )}
@@ -781,23 +803,44 @@ export default function GirasView({
             )}
           </div>
         ) : (
-          <GirasListControls
-            mode={mode}
-            updateView={updateView}
-            showRepertoireInCards={showRepertoireInCards}
-            setShowRepertoireInCards={setShowRepertoireInCards}
-            showFiltersMobile={showFiltersMobile}
-            setShowFiltersMobile={setShowFiltersMobile}
-            filterDateStart={filterDateStart}
-            setFilterDateStart={setFilterDateStart}
-            filterDateEnd={filterDateEnd}
-            setFilterDateEnd={setFilterDateEnd}
-            filterType={filterType}
-            toggleFilterType={toggleFilterType}
-            PROGRAM_TYPES={PROGRAM_TYPES}
-            filterStatus={filterStatus}
-            toggleFilterStatus={toggleFilterStatus}
-          />
+          <div className="px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-4">
+             {/* HEADER PRINCIPAL LISTADO */}
+            
+
+             <div className="w-full sm:w-auto">
+                <GirasListControls
+                    mode={mode}
+                    updateView={updateView}
+                    showRepertoireInCards={showRepertoireInCards}
+                    setShowRepertoireInCards={setShowRepertoireInCards}
+                    showFiltersMobile={showFiltersMobile}
+                    setShowFiltersMobile={setShowFiltersMobile}
+                    filterDateStart={filterDateStart}
+                    setFilterDateStart={setFilterDateStart}
+                    filterDateEnd={filterDateEnd}
+                    setFilterDateEnd={setFilterDateEnd}
+                    filterType={filterType}
+                    toggleFilterType={toggleFilterType}
+                    PROGRAM_TYPES={PROGRAM_TYPES}
+                    filterStatus={filterStatus}
+                    toggleFilterStatus={toggleFilterStatus}
+                />
+             </div>
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:block">
+                    {/* Botón de recálculo masivo: Drive Icon junto al título */}
+                    <button 
+                        id="btn-sync-global"
+                        onClick={handleGlobalSync}
+                        className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-2 rounded-full transition-colors flex items-center justify-center border border-indigo-200"
+                        title="Actualizar nomencladores y carpetas en Drive"
+                    >
+                        <IconDrive size={20} />
+                    </button>
+                </div>
+                
+             </div>
+          </div>
         )}
       </div>
 
@@ -987,9 +1030,6 @@ export default function GirasView({
                     onSave={handleSave}
                     onRefresh={async () => {
                       await fetchGiras();
-                      // closeForm(); // No cerramos para que pueda seguir editando si así lo desea, o lo cerramos si queremos que sea modal
-                      // El usuario pidió que el autoguardado funcione "también en la vista desde GiraMenuAction"
-                      // Pero si es modal, quizás sea mejor cerrar al guardar explícito
                     }}
                     loading={loading}
                     isNew={false}
@@ -1026,7 +1066,7 @@ export default function GirasView({
                   onMove={handleOpenMove}
                   onDuplicate={handleOpenDup}
                   supabase={supabase}
-                  onDelete={() => handleDeleteGira(gira)} // Asegúrate de que GiraCard use esta prop en el GiraActionMenu
+                  onDelete={() => handleDeleteGira(gira)} 
                 />
               );
             })}

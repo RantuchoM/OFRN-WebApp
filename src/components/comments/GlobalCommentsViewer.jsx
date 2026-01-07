@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   IconCheckCircle,
   IconX,
@@ -14,7 +14,9 @@ import {
   IconBed,
   IconMusic,
   IconCalendar,
-  IconMessageCircle
+  IconUser,
+  IconEye,
+  IconEyeOff 
 } from "../ui/Icons";
 import { format, isBefore, isToday, addDays, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -29,21 +31,26 @@ const GlobalThreadItem = ({
   onDelete,
   onUpdateDate,
   onNavigate,
+  onMarkRead,
+  onMarkUnread, 
   editingDateId,
   setEditingDateId,
   isGlobalView,
+  lastReadMap
 }) => {
-  // Datos del contexto (tomamos del primer mensaje para info general)
   const contextData = thread.contextData;
-  const messages = thread.messages; // Ya vienen ordenados cronológicamente
-  
-  // Para la lógica de "estado del hilo", miramos el último mensaje
+  const messages = thread.messages; 
   const lastMessage = messages[messages.length - 1];
   
-  // Verificar si hay menciones en CUALQUIER mensaje del hilo
+  const threadKey = `${contextData.entidad_tipo}_${contextData.entidad_id}`;
+  const lastReadAt = lastReadMap[threadKey] ? new Date(lastReadMap[threadKey]) : new Date(0);
+
+  const hasUnreadMessages = messages.some(m => 
+    m.id_autor !== user.id && new Date(m.created_at) > lastReadAt
+  );
+
   const isMentionedInThread = messages.some(m => m.etiquetados?.includes(user.id));
 
-  // Estado local para la edición de fecha
   const [tempDate, setTempDate] = useState(
     lastMessage.fecha_limite ? lastMessage.fecha_limite.split("T")[0] : ""
   );
@@ -53,7 +60,6 @@ const GlobalThreadItem = ({
   }, [lastMessage.fecha_limite]);
 
   const handleSaveDate = () => {
-    // Actualizamos la fecha sobre el último mensaje (que representa el estado actual del hilo)
     onUpdateDate(lastMessage.id, tempDate);
     setEditingDateId(null);
   };
@@ -72,6 +78,8 @@ const GlobalThreadItem = ({
 
   const handleNavigate = () => {
     if (!onNavigate) return;
+    if (hasUnreadMessages) onMarkRead(thread);
+
     let targetView = "AGENDA";
     if (contextData.entidad_tipo === "OBRA") targetView = "REPERTOIRE";
     if (contextData.entidad_tipo === "HABITACION") targetView = "LOGISTICS";
@@ -86,7 +94,6 @@ const GlobalThreadItem = ({
     }
   };
 
-  // Cálculo de clases para la fecha límite
   let deadlineClass = "bg-slate-100 text-slate-500 border-slate-200";
   if (lastMessage.fecha_limite && !lastMessage.resuelto) {
     const d = parseISO(lastMessage.fecha_limite);
@@ -98,11 +105,18 @@ const GlobalThreadItem = ({
   }
 
   return (
-    <div className={`bg-white rounded-lg border shadow-sm flex flex-col transition-all hover:shadow-md ${isMentionedInThread ? "border-l-4 border-l-indigo-500 ring-1 ring-indigo-50" : "border-slate-200"}`}>
+    <div className={`bg-white rounded-lg border shadow-sm flex flex-col transition-all hover:shadow-md relative ${
+        hasUnreadMessages ? "border-l-4 border-l-blue-500 ring-1 ring-blue-50" : 
+        isMentionedInThread ? "border-l-4 border-l-indigo-300" : "border-slate-200"
+    }`}>
       
-      {/* 1. HEADER (Contexto) */}
-      <div className="p-3 border-b border-slate-100 bg-slate-50/50 flex justify-between items-start rounded-t-lg">
-        <div className="flex flex-col gap-1 max-w-[75%]">
+      {hasUnreadMessages && (
+          <span className="absolute -top-1 -left-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-white shadow-sm z-10 animate-pulse"></span>
+      )}
+
+      {/* HEADER */}
+      <div className={`p-3 border-b border-slate-100 flex justify-between items-start rounded-t-lg ${hasUnreadMessages ? 'bg-blue-50/30' : 'bg-slate-50/50'}`}>
+        <div className="flex flex-col gap-1 max-w-[70%]">
           <div className="flex items-center gap-2 flex-wrap text-[10px] uppercase font-bold text-slate-400">
             {isGlobalView && contextData.nombre_gira ? (
               <>
@@ -113,12 +127,22 @@ const GlobalThreadItem = ({
             ) : null}
             <span>{contextData.entidad_tipo}</span>
           </div>
-          <span className="text-sm font-bold text-slate-800 truncate" title={contextData.contexto || "General"}>
+          <span className={`text-sm truncate ${hasUnreadMessages ? 'font-black text-slate-900' : 'font-bold text-slate-700'}`} title={contextData.contexto || "General"}>
             {contextData.contexto || "General"}
           </span>
         </div>
 
         <div className="flex gap-1 shrink-0">
+          {hasUnreadMessages ? (
+              <button onClick={(e) => { e.stopPropagation(); onMarkRead(thread); }} className="p-1.5 rounded bg-white text-blue-500 hover:bg-blue-100 border border-blue-100 transition-all mr-1" title="Marcar como Leído">
+                <IconEye size={16} />
+              </button>
+          ) : (
+              <button onClick={(e) => { e.stopPropagation(); onMarkUnread(thread); }} className="p-1.5 rounded text-slate-300 hover:text-blue-500 hover:bg-blue-50 transition-all mr-1" title="Marcar como No Leído">
+                <IconEyeOff size={16} />
+              </button>
+          )}
+
           {onNavigate && (
             <button onClick={handleNavigate} className="p-1.5 rounded bg-slate-50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 border border-transparent hover:border-indigo-100 transition-all mr-1" title="Ir al detalle">
               {getContextIcon(contextData.entidad_tipo)}
@@ -135,13 +159,14 @@ const GlobalThreadItem = ({
         </div>
       </div>
 
-      {/* 2. BODY (Lista de Mensajes) */}
+      {/* BODY */}
       <div className="p-3 flex flex-col gap-3">
         {messages.map((msg) => {
             const isMine = msg.id_autor === user.id;
+            const isMsgUnread = !isMine && new Date(msg.created_at) > lastReadAt;
             return (
-                <div key={msg.id} className="flex flex-col gap-1 group/msg">
-                    <div className="flex justify-between items-baseline">
+                <div key={msg.id} className={`flex flex-col gap-1 group/msg transition-colors rounded p-1 -mx-1 ${isMsgUnread ? 'bg-blue-50/50' : ''}`}>
+                    <div className="flex justify-between items-baseline px-1">
                         <div className="flex items-center gap-2">
                             <span className={`text-xs font-bold ${isMine ? 'text-indigo-700' : 'text-slate-700'}`}>
                                 {isMine ? 'Yo' : `${msg.integrantes?.nombre} ${msg.integrantes?.apellido}`}
@@ -149,6 +174,7 @@ const GlobalThreadItem = ({
                             <span className="text-[10px] text-slate-400">
                                 {format(new Date(msg.created_at), "dd/MM HH:mm", { locale: es })}
                             </span>
+                            {isMsgUnread && <span className="w-1.5 h-1.5 bg-blue-400 rounded-full"></span>}
                         </div>
                         {(isMine || user.rol_sistema === 'admin') && (
                             <button onClick={() => onDelete(msg.id)} className="opacity-0 group-hover/msg:opacity-100 text-slate-300 hover:text-red-400 transition-opacity" title="Eliminar mensaje">
@@ -156,7 +182,7 @@ const GlobalThreadItem = ({
                             </button>
                         )}
                     </div>
-                    <p className="text-sm text-slate-600 whitespace-pre-wrap pl-2 border-l-2 border-slate-100">
+                    <p className="text-sm text-slate-600 whitespace-pre-wrap pl-3 border-l-2 border-slate-100">
                         {msg.contenido}
                     </p>
                 </div>
@@ -164,10 +190,9 @@ const GlobalThreadItem = ({
         })}
       </div>
 
-      {/* 3. FOOTER (Fecha y Menciones) */}
+      {/* FOOTER */}
       <div className="px-3 py-2 border-t border-slate-50 flex justify-between items-center bg-slate-50/30 rounded-b-lg">
          <div className="flex items-center gap-2">
-            {/* Edición de Fecha (sobre el último mensaje) */}
             <div className="flex items-center group/date">
               {editingDateId === thread.key ? (
                 <div className="flex items-center gap-1 bg-white border border-indigo-300 rounded px-1 shadow-sm z-10 animate-in zoom-in-95">
@@ -204,7 +229,6 @@ const GlobalThreadItem = ({
               )}
             </div>
          </div>
-         
          {isMentionedInThread && (
            <span className="text-[9px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
              <IconAtSign size={10} /> Para mí
@@ -221,21 +245,29 @@ export default function GlobalCommentsViewer({
   giraId = null,
   onClose,
   onNavigate,
+  onCountsChange, 
 }) {
   const { user } = useAuth();
   
-  // Estado ahora maneja HILOS, no mensajes sueltos
   const [threads, setThreads] = useState([]); 
   const [filteredThreads, setFilteredThreads] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [lastReadMap, setLastReadMap] = useState({});
 
-  // Filtros y Estados UI
   const [filterMentioned, setFilterMentioned] = useState(false);
-  const [replyingThread, setReplyingThread] = useState(null); // Hilo seleccionado para responder
+  const [filterUnread, setFilterUnread] = useState(false);
+
+  const [replyingThread, setReplyingThread] = useState(null); 
   const [newResponse, setNewResponse] = useState("");
   const [sending, setSending] = useState(false);
-  const [editingDateId, setEditingDateId] = useState(null); // ID del hilo (key) que edita fecha
+  const [editingDateId, setEditingDateId] = useState(null);
   const [usersList, setUsersList] = useState([]);
+
+  const [mentionQuery, setMentionQuery] = useState(null); 
+  const [showMentions, setShowMentions] = useState(false); 
+  const replyInputRef = useRef(null);
+
+  const [counts, setCounts] = useState({ total: 0, mentioned: 0 });
 
   useEffect(() => {
     fetchGlobalComments();
@@ -243,186 +275,269 @@ export default function GlobalCommentsViewer({
   }, [giraId]);
 
   useEffect(() => {
-    if (!filterMentioned) {
-      setFilteredThreads(threads);
-    } else {
-      setFilteredThreads(
-        // Filtrar hilos donde CUALQUIER mensaje me mencione
-        threads.filter((t) => t.messages.some(m => m.etiquetados?.includes(user.id)))
-      );
+    let result = threads;
+    if (filterMentioned) {
+      result = result.filter(t => t.messages.some(m => m.etiquetados?.includes(user.id)));
     }
-  }, [filterMentioned, threads, user.id]);
+    if (filterUnread) {
+      result = result.filter(t => {
+         const key = t.key;
+         const lastRead = lastReadMap[key] ? new Date(lastReadMap[key]) : new Date(0);
+         return t.messages.some(m => m.id_autor !== user.id && new Date(m.created_at) > lastRead);
+      });
+    }
+    setFilteredThreads(result);
+  }, [filterMentioned, filterUnread, threads, user.id, lastReadMap]);
 
   const fetchUsers = async () => {
     const { data } = await supabase.from("integrantes").select("id, nombre, apellido, rol_sistema").order("nombre");
-    if (data) setUsersList(data);
+    if(data) setUsersList(data);
   };
 
   const fetchGlobalComments = async () => {
     setLoading(true);
     try {
-      // 1. Fetch de TODOS los comentarios pendientes
       let query = supabase
         .from("sistema_comentarios")
         .select("*, integrantes(nombre, apellido)")
         .eq("resuelto", false)
         .eq("deleted", false)
-        .order("created_at", { ascending: true }); // Orden ascendente para construir la historia
+        .order("created_at", { ascending: true });
 
       const { data: allComments } = await query;
       let rawComments = allComments || [];
 
-      // 2. ENRIQUECIMIENTO DE DATOS (Contexto)
-      // Mantenemos tu lógica original de enriquecimiento para Giras/Eventos/Obras
+      // Traer lecturas
+      const { data: readings } = await supabase
+        .from("comentarios_lecturas")
+        .select("entidad_tipo, entidad_id, last_read_at")
+        .eq("user_id", user.id);
+      
+      const readingsMap = {};
+      readings?.forEach(r => {
+          readingsMap[`${r.entidad_tipo}_${r.entidad_id}`] = r.last_read_at;
+      });
+      setLastReadMap(readingsMap);
+
       if (giraId) {
         const contextMap = await buildContextMapForGira(giraId);
         rawComments = rawComments.filter((c) => {
           if (c.entidad_tipo === "GIRA" && c.entidad_id === giraId.toString()) {
-            c.contexto = "General de Gira";
-            return true;
+            c.contexto = "General de Gira"; return true;
           }
           const key = `${c.entidad_tipo}_${c.entidad_id}`;
           if (contextMap[key]) {
-            c.contexto = contextMap[key];
-            return true;
+            c.contexto = contextMap[key]; return true;
           }
           return false;
         });
       } else {
-        // Lógica Global (Bulk fetch)
         const eventIds = rawComments.filter((c) => c.entidad_tipo === "EVENTO").map((c) => c.entidad_id);
         const workIds = rawComments.filter((c) => c.entidad_tipo === "OBRA").map((c) => c.entidad_id);
         const roomIds = rawComments.filter((c) => c.entidad_tipo === "HABITACION").map((c) => c.entidad_id);
 
-        // Fetch de Nombres de Programas
         const { data: progs } = await supabase.from("programas").select("id, nombre_gira, nomenclador, mes_letra");
         const progMap = {}; progs?.forEach((p) => (progMap[p.id] = p));
         const contextMap = {};
 
-        // Fetch Eventos
         if (eventIds.length > 0) {
             const { data: evs } = await supabase.from("eventos").select("id, descripcion, fecha, id_gira").in("id", eventIds);
-            evs?.forEach((e) => { 
-                contextMap[`EVENTO_${e.id}`] = { 
-                    contexto: `${e.descripcion} (${format(new Date(e.fecha), "dd/MM")})`, 
-                    gira_id: e.id_gira 
-                }; 
-            });
+            evs?.forEach((e) => { contextMap[`EVENTO_${e.id}`] = { contexto: `${e.descripcion} (${format(new Date(e.fecha), "dd/MM")})`, gira_id: e.id_gira }; });
         }
-        // Fetch Obras
+        
+        // --- CORRECCIÓN CRÍTICA: CONSULTA A REPERTORIO_OBRAS ---
         if (workIds.length > 0) {
-             const { data: reps } = await supabase.from("programas_repertorios").select(`id, id_programa, repertorio_obras (obras (titulo, obras_compositores (compositores (nombre, apellido))))`).in("id", workIds);
+             // Consultamos directamente la tabla de vínculo (que es la que tiene el ID)
+             const { data: reps } = await supabase
+                .from("repertorio_obras")
+                .select(`
+                    id, 
+                    programas_repertorios ( id_programa ),
+                    obras ( 
+                        titulo, 
+                        obras_compositores ( compositores ( nombre, apellido ) ) 
+                    )
+                `)
+                .in("id", workIds);
+             
              reps?.forEach((r) => {
-                let titulo = "Obra"; let autor = "";
-                const obraData = r.repertorio_obras?.[0]?.obras || r.repertorio_obras?.obras;
-                if(obraData) {
-                    titulo = obraData.titulo;
-                    const comp = obraData.obras_compositores?.[0]?.compositores;
-                    if(comp) autor = `${comp.apellido}`;
+                const obraData = r.obras;
+                const titulo = obraData?.titulo || "Sin Título";
+                
+                let autorString = "";
+                const compositores = obraData?.obras_compositores || [];
+                if (compositores.length > 0 && compositores[0].compositores) {
+                    const comp = compositores[0].compositores;
+                    autorString = ` (${comp.apellido}, ${comp.nombre})`;
                 }
+
+                // Extraemos el id_programa desde el padre programas_repertorios
+                const tourId = r.programas_repertorios?.id_programa;
+
                 contextMap[`OBRA_${r.id}`] = { 
-                    contexto: `Obra: ${titulo} ${autor?`(${autor})`:''}`, 
-                    gira_id: r.id_programa 
+                    contexto: `Obra: ${titulo}${autorString}`, 
+                    gira_id: tourId 
                 };
              });
         }
-        // Fetch Habitaciones
+        // -----------------------------------------------------
+
         if (roomIds.length > 0) {
             const { data: rooms } = await supabase.from("hospedaje_habitaciones").select("id, orden, programas_hospedajes(id_programa, hoteles(nombre))").in("id", roomIds);
-            rooms?.forEach((r) => { 
-                contextMap[`HABITACION_${r.id}`] = { 
-                    contexto: `Hab. ${r.orden} (${r.programas_hospedajes?.hoteles?.nombre})`, 
-                    gira_id: r.programas_hospedajes?.id_programa 
-                }; 
-            });
+            rooms?.forEach((r) => { contextMap[`HABITACION_${r.id}`] = { contexto: `Hab. ${r.orden} (${r.programas_hospedajes?.hoteles?.nombre})`, gira_id: r.programas_hospedajes?.id_programa }; });
         }
 
-        // Asignar contexto a cada mensaje
         rawComments = rawComments.map((c) => {
             let info = { contexto: `${c.entidad_tipo} #${c.entidad_id}`, gira_id: null };
-            if (c.entidad_tipo === "GIRA") { 
-                info.gira_id = parseInt(c.entidad_id); 
-                info.contexto = "General"; 
-            } else { 
-                const key = `${c.entidad_tipo}_${c.entidad_id}`; 
-                if (contextMap[key]) info = contextMap[key]; 
-            }
+            if (c.entidad_tipo === "GIRA") { info.gira_id = parseInt(c.entidad_id); info.contexto = "General"; } 
+            else { const key = `${c.entidad_tipo}_${c.entidad_id}`; if (contextMap[key]) info = contextMap[key]; }
             
             const progData = progMap[info.gira_id];
-            return { 
-                ...c, 
-                contexto: info.contexto, 
-                gira_id: info.gira_id, 
-                nombre_gira: progData ? progData.nombre_gira : "Sin Asignar", 
-                nomenclador: progData ? `${progData.mes_letra} | ${progData.nomenclador}` : "" 
-            };
+            return { ...c, contexto: info.contexto, gira_id: info.gira_id, nombre_gira: progData ? progData.nombre_gira : "Sin Asignar", nomenclador: progData ? `${progData.mes_letra} | ${progData.nomenclador}` : "" };
         });
       }
 
-      // 3. AGRUPACIÓN POR HILO (Clave Única: Tipo + ID)
       const threadsMap = rawComments.reduce((acc, comment) => {
           const key = `${comment.entidad_tipo}_${comment.entidad_id}`;
           if (!acc[key]) {
-              acc[key] = {
-                  key,
-                  contextData: { ...comment }, // Guardamos metadatos del contexto
-                  messages: []
-              };
+              acc[key] = { key, contextData: { ...comment }, messages: [] };
           }
           acc[key].messages.push(comment);
           return acc;
       }, {});
 
-      // Ordenar hilos por fecha del ÚLTIMO mensaje (los más recientes primero)
       const sortedThreads = Object.values(threadsMap).sort((a, b) => {
           const dateA = new Date(a.messages[a.messages.length - 1].created_at);
           const dateB = new Date(b.messages[b.messages.length - 1].created_at);
-          return dateB - dateA; // Descendente
+          return dateB - dateA;
       });
 
       setThreads(sortedThreads);
 
+      let unreadThreadCount = 0;
+      let unreadMentionCount = 0;
+
+      sortedThreads.forEach(t => {
+          const key = t.key;
+          const lastRead = readingsMap[key] ? new Date(readingsMap[key]) : new Date(0);
+          const hasUnread = t.messages.some(m => m.id_autor !== user.id && new Date(m.created_at) > lastRead);
+          if (hasUnread) unreadThreadCount++;
+          const hasUnreadMention = t.messages.some(m => m.etiquetados?.includes(user.id) && m.id_autor !== user.id && new Date(m.created_at) > lastRead);
+          if (hasUnreadMention) unreadMentionCount++;
+      });
+      
+      setCounts({ total: unreadThreadCount, mentioned: unreadMentionCount });
+      if (onCountsChange) onCountsChange({ total: unreadThreadCount, mentioned: unreadMentionCount });
+
     } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
-  // Helper para mapa de contexto local (Idéntico a tu código original)
   const buildContextMapForGira = async (targetId) => {
     const map = {};
     const { data: evs } = await supabase.from("eventos").select("id, descripcion, fecha").eq("id_gira", targetId);
     evs?.forEach((e) => { map[`EVENTO_${e.id}`] = `${e.descripcion} (${format(new Date(e.fecha), "dd/MM")})`; });
-
-    const { data: reps } = await supabase.from("programas_repertorios").select(`id, repertorio_obras (obras (titulo, obras_compositores (compositores (nombre, apellido))))`).eq("id_programa", targetId);
+    
+    // --- FETCH OBRAS GIRA (CORREGIDO) ---
+    // Usamos la misma lógica: atacar repertorio_obras directamente y filtrar por el programa padre
+    const { data: reps } = await supabase
+        .from("repertorio_obras")
+        .select(`
+            id, 
+            obras ( 
+                titulo, 
+                obras_compositores ( compositores ( nombre, apellido ) ) 
+            ),
+            programas_repertorios!inner ( id_programa ) 
+        `)
+        .eq("programas_repertorios.id_programa", targetId); // Filtrado relacional
+    
     reps?.forEach((r) => {
-        let titulo = "Obra"; let autor = "";
-        const obraData = r.repertorio_obras?.[0]?.obras || r.repertorio_obras?.obras;
-        if(obraData) { titulo = obraData.titulo; const comp = obraData.obras_compositores?.[0]?.compositores; if(comp) autor = `${comp.apellido}`; }
-        map[`OBRA_${r.id}`] = `Obra: ${titulo} ${autor?`(${autor})`:''}`;
+        const obraData = r.obras;
+        const titulo = obraData?.titulo || "Sin Título";
+        
+        let autorString = "";
+        const compositores = obraData?.obras_compositores || [];
+        if (compositores.length > 0 && compositores[0].compositores) {
+            const comp = compositores[0].compositores;
+            autorString = ` (${comp.apellido}, ${comp.nombre})`;
+        }
+        
+        map[`OBRA_${r.id}`] = `Obra: ${titulo}${autorString}`;
     });
+    // ------------------------------------
 
     const { data: hosp } = await supabase.from("programas_hospedajes").select("id, hoteles(nombre), hospedaje_habitaciones(id, orden)").eq("id_programa", targetId);
     hosp?.forEach((h) => { h.hospedaje_habitaciones?.forEach((room) => { map[`HABITACION_${room.id}`] = `Hab. ${room.orden} (${h.hoteles?.nombre})`; }); });
-    
     return map;
   };
 
-  // --- ACTIONS ---
+  const handleMarkThreadRead = async (thread) => {
+      const context = thread.contextData;
+      const now = new Date().toISOString();
+      const key = thread.key;
+      setLastReadMap(prev => ({ ...prev, [key]: now }));
+      const { error } = await supabase.from('comentarios_lecturas').upsert({
+          user_id: user.id,
+          entidad_tipo: context.entidad_tipo,
+          entidad_id: context.entidad_id,
+          last_read_at: now
+      }, { onConflict: 'user_id, entidad_tipo, entidad_id' });
+      if(!error) fetchGlobalComments();
+  };
+
+  const handleMarkThreadUnread = async (thread) => {
+      const context = thread.contextData;
+      const key = thread.key;
+      setLastReadMap(prev => ({ ...prev, [key]: new Date(0).toISOString() }));
+      const { error } = await supabase.from('comentarios_lecturas').delete().match({
+          user_id: user.id,
+          entidad_tipo: context.entidad_tipo,
+          entidad_id: context.entidad_id
+      });
+      if(!error) fetchGlobalComments();
+  };
+
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setNewResponse(val);
+    const words = val.split(" ");
+    const lastWord = words[words.length - 1];
+    if (lastWord.startsWith("@")) {
+      setMentionQuery(lastWord.slice(1));
+      setShowMentions(true);
+    } else {
+      setShowMentions(false);
+      setMentionQuery(null);
+    }
+  };
+
+  const selectMentionUser = (u) => {
+    const words = newResponse.split(" ");
+    words.pop(); 
+    const userNameTag = `@${u.nombre}${u.apellido}`;
+    const newText = [...words, userNameTag, ""].join(" ");
+    setNewResponse(newText);
+    setShowMentions(false);
+    if(replyInputRef.current) replyInputRef.current.focus();
+  };
 
   const handleReplySubmit = async (e) => {
     e.preventDefault();
     if (!newResponse.trim() || !replyingThread) return;
     setSending(true);
     
+    handleMarkThreadRead(replyingThread);
+
     const context = replyingThread.contextData;
-    const taggedIds = usersList.filter((u) => newResponse.includes(`@${u.nombre}${u.apellido}`)).map((u) => u.id);
-    
-    // Usamos el ID del último mensaje como parent_id para mantener la cadena (opcional, o null si es plano por contexto)
+    const taggedIds = usersList.filter((u) => {
+        const tag = `@${u.nombre}${u.apellido}`;
+        return newResponse.includes(tag);
+    }).map((u) => u.id);
     const lastMsgId = replyingThread.messages[replyingThread.messages.length - 1].id;
 
     const payload = {
       entidad_tipo: context.entidad_tipo,
       entidad_id: context.entidad_id,
-      // Mantenemos campos legacy si existen
-      id_gira: context.gira_id, 
       id_autor: user.id,
       contenido: newResponse,
       etiquetados: taggedIds,
@@ -431,16 +546,21 @@ export default function GlobalCommentsViewer({
       deleted: false
     };
     
-    await supabase.from("sistema_comentarios").insert([payload]);
-    setNewResponse("");
-    setReplyingThread(null);
-    fetchGlobalComments();
-    setSending(false);
+    try {
+        const { error } = await supabase.from("sistema_comentarios").insert([payload]);
+        if (error) throw error;
+        setNewResponse("");
+        setReplyingThread(null);
+        await fetchGlobalComments();
+    } catch (err) {
+        alert("Error al guardar: " + err.message);
+    } finally {
+        setSending(false);
+    }
   };
 
   const handleResolveThread = async (thread) => {
     if(!confirm("¿Marcar todo este hilo como resuelto?")) return;
-    // Resolver todos los mensajes del hilo
     const ids = thread.messages.map(m => m.id);
     await supabase.from("sistema_comentarios").update({ resuelto: true, fecha_resolucion: new Date().toISOString(), resuelto_por: user.id }).in("id", ids);
     fetchGlobalComments();
@@ -453,25 +573,39 @@ export default function GlobalCommentsViewer({
   };
 
   const handleUpdateDate = async (id, date) => {
-    // Actualizamos fecha límite en la BD para el mensaje específico
     await supabase.from("sistema_comentarios").update({ fecha_limite: date || null }).eq("id", id);
     fetchGlobalComments();
   };
 
+  const filteredUsers = usersList.filter(u => 
+    mentionQuery === "" || 
+    `${u.nombre} ${u.apellido}`.toLowerCase().includes(mentionQuery?.toLowerCase())
+  );
+
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-white w-full max-w-4xl h-[85vh] rounded-xl shadow-2xl flex flex-col overflow-hidden">
-        
-        {/* HEADER */}
+      <div className="bg-white w-full max-w-4xl h-[85vh] rounded-xl shadow-2xl flex flex-col relative">
         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
           <div className="flex items-center gap-3">
             <div className="bg-amber-100 p-2 rounded-full text-amber-600"><IconAlertCircle size={20} /></div>
             <div>
               <h3 className="font-bold text-slate-800 text-lg">{giraId ? "Pendientes de Gira" : "Gestor General de Pendientes"}</h3>
-              <p className="text-xs text-slate-500">{filteredThreads.length} conversaciones activas {filterMentioned ? "(Filtrado)" : ""}</p>
+              <div className="flex items-center gap-2 mt-1">
+                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${counts.total > 0 ? 'bg-indigo-100 text-indigo-600 border-indigo-200' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
+                    {counts.total} hilos no leídos
+                 </span>
+                 {counts.mentioned > 0 && (
+                     <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold border border-red-200 animate-pulse">
+                        @{counts.mentioned} menciones no leídas
+                     </span>
+                 )}
+              </div>
             </div>
           </div>
           <div className="flex gap-2">
+            <button onClick={() => setFilterUnread(!filterUnread)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${filterUnread ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>
+              <IconEyeOff size={14} /> {filterUnread ? "Solo No Leídos" : "Filtrar No Leídos"}
+            </button>
             <button onClick={() => setFilterMentioned(!filterMentioned)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${filterMentioned ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>
               <IconAtSign size={14} /> {filterMentioned ? "Mis menciones" : "Filtrar Menciones"}
             </button>
@@ -479,14 +613,13 @@ export default function GlobalCommentsViewer({
           </div>
         </div>
 
-        {/* LISTA DE HILOS */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30">
           {loading && <div className="text-center py-10"><IconLoader className="animate-spin inline text-indigo-500" /></div>}
           {!loading && filteredThreads.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-60">
               <IconCheckCircle size={64} className="text-emerald-200 mb-4" />
               <p className="font-medium">¡Todo al día!</p>
-              <p className="text-sm">No hay pendientes con los filtros actuales.</p>
+              <p className="text-sm">No hay mensajes pendientes.</p>
             </div>
           )}
 
@@ -495,11 +628,14 @@ export default function GlobalCommentsViewer({
               key={thread.key}
               thread={thread}
               user={user}
+              lastReadMap={lastReadMap}
               onReply={(t) => setReplyingThread(t)}
               onResolve={handleResolveThread}
               onDelete={handleArchiveMsg}
               onUpdateDate={handleUpdateDate}
               onNavigate={onNavigate}
+              onMarkRead={handleMarkThreadRead}
+              onMarkUnread={handleMarkThreadUnread}
               editingDateId={editingDateId}
               setEditingDateId={setEditingDateId}
               isGlobalView={!giraId}
@@ -507,27 +643,25 @@ export default function GlobalCommentsViewer({
           ))}
         </div>
 
-        {/* INPUT DE RESPUESTA FLOTANTE */}
         {replyingThread && (
-          <div className="p-4 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] animate-in slide-in-from-bottom-5 z-20">
+          <div className="p-4 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] animate-in slide-in-from-bottom-5 z-20 relative">
+            {showMentions && (
+                <div className="absolute bottom-full left-4 mb-2 w-64 bg-white border border-slate-200 shadow-2xl rounded-lg max-h-48 overflow-y-auto z-[100]">
+                    <div className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 uppercase">Sugerencias</div>
+                    {filteredUsers.length > 0 ? filteredUsers.map(u => (
+                        <div key={u.id} onMouseDown={(e) => { e.preventDefault(); selectMentionUser(u); }} className="px-3 py-2 text-sm hover:bg-indigo-50 cursor-pointer flex items-center gap-2 text-slate-700">
+                            <IconUser size={14} className="text-slate-400"/>{u.nombre} {u.apellido}
+                        </div>
+                    )) : <div className="p-2 text-xs text-slate-400 italic">No encontrado</div>}
+                </div>
+            )}
             <div className="flex justify-between items-center mb-2 text-xs text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
-              <span className="truncate max-w-[80%]">
-                  Respondiendo a: <b>{replyingThread.contextData.contexto}</b>
-              </span>
+              <span className="truncate max-w-[80%]">Respondiendo a: <b>{replyingThread.contextData.contexto}</b></span>
               <button onClick={() => setReplyingThread(null)} className="text-slate-400 hover:text-red-500 transition-colors"><IconX size={16} /></button>
             </div>
-            <form onSubmit={handleReplySubmit} className="flex gap-2">
-              <input 
-                autoFocus 
-                type="text" 
-                className="flex-1 border border-slate-300 p-2.5 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
-                placeholder="Escribe tu respuesta..." 
-                value={newResponse} 
-                onChange={(e) => setNewResponse(e.target.value)} 
-              />
-              <button disabled={sending} className="bg-indigo-600 text-white px-4 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center min-w-[50px]">
-                {sending ? <IconLoader className="animate-spin" size={20}/> : <IconSend size={20}/>}
-              </button>
+            <form onSubmit={handleReplySubmit} className="flex gap-2 relative">
+              <input ref={replyInputRef} autoFocus type="text" className="flex-1 border border-slate-300 p-2.5 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="Escribe tu respuesta... (Usa @ para mencionar)" value={newResponse} onChange={handleInputChange} onKeyDown={(e) => { if(e.key === 'Escape') setShowMentions(false); }}/>
+              <button disabled={sending} className="bg-indigo-600 text-white px-4 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center min-w-[50px]">{sending ? <IconLoader className="animate-spin" size={20}/> : <IconSend size={20}/>}</button>
             </form>
           </div>
         )}
