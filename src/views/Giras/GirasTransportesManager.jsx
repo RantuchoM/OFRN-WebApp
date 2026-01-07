@@ -1963,7 +1963,12 @@ export default function GirasTransportesManager({ supabase, gira }) {
           giraId={giraId}
           regions={regionsList}
           localities={localitiesList}
-          musicians={musiciansList}
+          // --- CORRECCIÓN AQUÍ ---
+          // Antes: musicians={musiciansList}
+          // Ahora: Pasamos 'roster' para que el selector sepa quiénes están en la gira
+          musicians={roster}
+          // -----------------------
+
           onRefresh={fetchData}
         />
       )}

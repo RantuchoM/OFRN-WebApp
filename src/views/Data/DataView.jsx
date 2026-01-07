@@ -113,7 +113,6 @@ export default function DataView({ supabase }) {
       table: "hoteles",
       columns: [
         { key: "nombre", label: "Nombre Hotel", type: "text" },
-        { key: "estrellas", label: "Estrellas/Cat", type: "text" },
         { key: "direccion", label: "Dirección", type: "text" },
         { key: "id_localidad", label: "Localidad", type: "select", options: catalogos.localidades },
       ],
