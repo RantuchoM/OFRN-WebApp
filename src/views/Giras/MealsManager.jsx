@@ -425,7 +425,7 @@ export default function MealsManager({ supabase, gira, roster }) {
                       const isSaving = savingRows.has(row.id);
                       const isTemp = row.isTemp;
                       const showConvokedAlert = !isTemp && (!row.convocados || row.convocados.length === 0);
-                      const rowClass = isTemp ? "bg-slate-50/80 grayscale text-slate-500" : "hover:bg-slate-50"; 
+                      const rowClass = isTemp ? "bg-slate-200 grayscale text-slate-500" : "hover:bg-slate-50"; 
                       const disableInputs = isSaving && isTemp;
 
                       return (

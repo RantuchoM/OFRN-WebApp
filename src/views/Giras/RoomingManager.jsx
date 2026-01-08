@@ -14,12 +14,88 @@ import {
   IconRefresh,
   IconX,
   IconList,
+  IconHelpCircle, // Asegúrate de tener este icono o usa IconInfo
 } from "../../components/ui/Icons";
 import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
 import RoomingReportModal from "./RoomingReport";
-import InitialOrderReportModal from "./RoomingInitialOrderReport"; // <--- NUEVO IMPORT
+import InitialOrderReportModal from "./RoomingInitialOrderReport";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+
+// --- MODAL DE AYUDA ---
+const HelpModal = ({ onClose }) => (
+  <div
+    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in"
+    onClick={onClose}
+  >
+    <div
+      className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 relative"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        onClick={onClose}
+        className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"
+      >
+        <IconX size={20} />
+      </button>
+      <h3 className="text-xl font-bold text-indigo-900 mb-4 flex items-center gap-2">
+        <IconHelpCircle className="text-indigo-600" /> Cómo usar el Rooming
+      </h3>
+      <div className="space-y-4 text-sm text-slate-600">
+        <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+          <h4 className="font-bold text-slate-800 mb-1">
+            🖱️ Selección y Arrastre
+          </h4>
+          <ul className="list-disc list-inside space-y-1 ml-1">
+            <li>
+              <strong>Click:</strong> Selecciona una persona.
+            </li>
+            <li>
+              <strong>Ctrl + Click:</strong> Selecciona varias personas
+              individualmente.
+            </li>
+            <li>
+              <strong>Shift + Click:</strong> Selecciona un rango de personas.
+            </li>
+            <li>
+              <strong>Arrastrar:</strong> Mueve a todas las personas
+              seleccionadas a una habitación o a "Nueva".
+            </li>
+            <li>
+              <strong>Esc:</strong> Cancela la selección actual.
+            </li>
+          </ul>
+        </div>
+        <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+          <h4 className="font-bold text-slate-800 mb-1">
+            🏨 Gestión de Habitaciones
+          </h4>
+          <ul className="list-disc list-inside space-y-1 ml-1">
+            <li>
+              Las habitaciones más nuevas aparecen <strong>arriba</strong>.
+            </li>
+            <li>
+              Usa el menú <strong>(...)</strong> en cada tarjeta para editar,
+              comentar, mover o eliminar.
+            </li>
+            <li>
+              Puedes arrastrar personas al cuadro punteado para crear una
+              habitación nueva automáticamente.
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div className="mt-6 flex justify-end">
+        <button
+          onClick={onClose}
+          className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700"
+        >
+          Entendido
+        </button>
+      </div>
+    </div>
+  </div>
+);
 
 // --- MODAL: AGREGAR/EDITAR HOTEL ---
 const HotelForm = ({
@@ -383,23 +459,40 @@ const RoomForm = ({ onSubmit, onClose, initialData }) => {
   );
 };
 
-const MusicianCard = ({ m, onDragStart, isInRoom, onRemove, isLocal }) => {
+// --- COMPONENTE CARD DE MÚSICO ---
+const MusicianCard = ({
+  m,
+  onDragStart,
+  isInRoom,
+  onRemove,
+  isLocal,
+  isSelected,
+  onClick,
+}) => {
   const loc = m.localidades?.localidad || "S/D";
   const isLocalWarning = isInRoom && isLocal;
+
   return (
     <div
       draggable
       onDragStart={(e) => {
-        e.stopPropagation();
         onDragStart(e, m);
       }}
-      className={`p-1.5 rounded border text-xs flex justify-between items-center shadow-sm cursor-grab active:cursor-grabbing select-none transition-colors ${
-        isLocalWarning
-          ? "bg-orange-100 border-orange-400 text-orange-900 ring-2 ring-orange-300/50 font-medium"
-          : isLocal
-          ? "bg-slate-100 text-slate-400 border-slate-200 grayscale opacity-80"
-          : "bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50"
-      }`}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (onClick) onClick(e, m);
+      }}
+      className={`p-1.5 rounded border text-xs flex justify-between items-center shadow-sm cursor-grab active:cursor-grabbing select-none transition-all duration-100
+        ${
+          isSelected
+            ? "bg-indigo-600 text-white border-indigo-700 ring-2 ring-indigo-300"
+            : isLocalWarning
+            ? "bg-orange-100 border-orange-400 text-orange-900 ring-2 ring-orange-300/50 font-medium"
+            : isLocal
+            ? "bg-slate-100 text-slate-400 border-slate-200 grayscale opacity-80"
+            : "bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50"
+        }
+      `}
       title={
         isLocalWarning
           ? "¡Atención! Músico local asignado a hotel"
@@ -420,6 +513,8 @@ const MusicianCard = ({ m, onDragStart, isInRoom, onRemove, isLocal }) => {
           className={`text-[9px] px-1 rounded uppercase border ${
             isLocalWarning
               ? "bg-orange-200 border-orange-300 text-orange-800"
+              : isSelected
+              ? "text-white border-white/30 bg-white/20"
               : "text-slate-400 bg-black/5 border-transparent"
           }`}
         >
@@ -431,7 +526,11 @@ const MusicianCard = ({ m, onDragStart, isInRoom, onRemove, isLocal }) => {
               e.stopPropagation();
               onRemove(m);
             }}
-            className="text-slate-300 hover:text-red-500 ml-1"
+            className={`ml-1 ${
+              isSelected
+                ? "text-white hover:text-red-200"
+                : "text-slate-300 hover:text-red-500"
+            }`}
           >
             <IconX size={10} />
           </button>
@@ -441,6 +540,7 @@ const MusicianCard = ({ m, onDragStart, isInRoom, onRemove, isLocal }) => {
   );
 };
 
+// --- LISTA LATERAL ---
 const MusicianListColumn = ({
   title,
   color,
@@ -449,6 +549,8 @@ const MusicianListColumn = ({
   onDragStart,
   onDragOver,
   onDrop,
+  selectedIds,
+  onMusicianClick,
 }) => {
   const [showLocals, setShowLocals] = useState(false);
   const locals = musicians.filter((m) => m.is_local);
@@ -460,6 +562,7 @@ const MusicianListColumn = ({
     return acc;
   }, {});
   const sortedCities = Object.keys(byCity).sort();
+
   return (
     <div
       className={`w-48 flex flex-col bg-${color}-50/50 rounded-xl border border-${color}-100 p-3 overflow-y-auto transition-colors ${
@@ -489,6 +592,8 @@ const MusicianListColumn = ({
                   m={m}
                   onDragStart={onDragStart}
                   isLocal={false}
+                  isSelected={selectedIds.has(m.id)}
+                  onClick={(e) => onMusicianClick(e, m, musicians)}
                 />
               ))}
             </div>
@@ -531,6 +636,8 @@ const MusicianListColumn = ({
                   m={m}
                   onDragStart={onDragStart}
                   isLocal={true}
+                  isSelected={selectedIds.has(m.id)}
+                  onClick={(e) => onMusicianClick(e, m, musicians)}
                 />
               ))}
             </div>
@@ -541,6 +648,7 @@ const MusicianListColumn = ({
   );
 };
 
+// --- HABITACIÓN ---
 const RoomCard = ({
   room,
   index,
@@ -558,11 +666,15 @@ const RoomCard = ({
   getCapacityLabel,
   getRoomColor,
   supabase,
+  selectedIds,
+  onMusicianClick,
 }) => {
   const isPlus = room.tipo === "Plus";
   const count = room.occupants.length;
   let colorClass = getRoomColor(count);
   const [isOver, setIsOver] = useState(false);
+  const [showMenu, setShowMenu] = useState(false); // Menu 3 puntos
+
   return (
     <div
       onDragOver={(e) => {
@@ -576,7 +688,7 @@ const RoomCard = ({
       }}
       className={`rounded-lg border shadow-sm flex flex-col transition-all duration-200 ${colorClass} ${
         isPlus ? "ring-2 ring-amber-400 ring-offset-1" : ""
-      } ${isOver ? "ring-4 ring-indigo-400 scale-105 z-10" : ""}`}
+      } ${isOver ? "ring-4 ring-indigo-400 scale-105 z-10" : ""} relative`}
     >
       <div className="p-2 border-b border-black/5 flex justify-between items-start">
         <div className="flex-1">
@@ -595,53 +707,77 @@ const RoomCard = ({
             {room.con_cuna && <span>• Cuna</span>}
           </div>
         </div>
-        <div className="flex items-center gap-0.5">
-          <CommentButton
-            supabase={supabase}
-            entityType="HABITACION"
-            entityId={room.id}
-            onClick={onComment}
-            className="mr-1"
-          />
-          {onTransfer && (
-            <button
-              onClick={onTransfer}
-              className="text-slate-400 hover:text-indigo-600 p-0.5 rounded hover:bg-white/50 mr-1"
-              title="Mover a otro hotel"
+
+        {/* MENÚ 3 PUNTOS */}
+        <div className="relative">
+          <button
+            onClick={() => setShowMenu(!showMenu)}
+            className="p-1 rounded-full hover:bg-black/10 text-slate-500 transition-colors"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <IconArrowRight size={12} />
-            </button>
+              <circle cx="12" cy="12" r="1" />
+              <circle cx="12" cy="5" r="1" />
+              <circle cx="12" cy="19" r="1" />
+            </svg>
+          </button>
+          {showMenu && (
+            <>
+              <div
+                className="fixed inset-0 z-20"
+                onClick={() => setShowMenu(false)}
+              />
+              <div className="absolute right-0 top-6 w-36 bg-white rounded-lg shadow-xl border border-slate-200 z-30 py-1 flex flex-col text-xs animate-in fade-in zoom-in-95 origin-top-right">
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    onComment();
+                  }}
+                  className="px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2 text-slate-700"
+                >
+                  <IconFileText size={14} /> Comentarios
+                </button>
+                {onTransfer && (
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      onTransfer();
+                    }}
+                    className="px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2 text-slate-700 border-t border-slate-100"
+                  >
+                    <IconArrowRight size={14} /> Trasladar
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    onEdit();
+                  }}
+                  className="px-3 py-2 text-left hover:bg-slate-50 flex items-center gap-2 text-indigo-600 border-t border-slate-100"
+                >
+                  <IconEdit size={14} /> Editar
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMenu(false);
+                    onDelete(room.id);
+                  }}
+                  className="px-3 py-2 text-left hover:bg-red-50 flex items-center gap-2 text-red-600"
+                >
+                  <IconTrash size={14} /> Eliminar
+                </button>
+              </div>
+            </>
           )}
-          <div className="flex flex-col mr-1">
-            {index > 0 && (
-              <button
-                onClick={() => onMove(index, -1, room)}
-                className="text-slate-400 hover:text-indigo-600"
-              >
-                <IconChevronDown size={12} className="rotate-180" />
-              </button>
-            )}
-            {index < total - 1 && (
-              <button
-                onClick={() => onMove(index, 1, room)}
-                className="text-slate-400 hover:text-indigo-600"
-              >
-                <IconChevronDown size={12} />
-              </button>
-            )}
-          </div>
-          <button
-            onClick={onEdit}
-            className="text-slate-400 hover:text-indigo-600 p-0.5 rounded hover:bg-white/50"
-          >
-            <IconEdit size={12} />
-          </button>
-          <button
-            onClick={() => onDelete(room.id)}
-            className="text-slate-400 hover:text-red-600 p-0.5 rounded hover:bg-white/50"
-          >
-            <IconTrash size={12} />
-          </button>
         </div>
       </div>
       <div className="p-1.5 space-y-1 min-h-[50px] flex-1">
@@ -653,6 +789,8 @@ const RoomCard = ({
             isInRoom={true}
             onRemove={(mus) => onRemoveMusician(mus, room.id)}
             isLocal={m.is_local}
+            isSelected={selectedIds.has(m.id)}
+            onClick={(e) => onMusicianClick(e, m, room.occupants)}
           />
         ))}
         {count === 0 && (
@@ -675,17 +813,17 @@ const RoomCard = ({
 
 // --- COMPONENTE PRINCIPAL ---
 export default function RoomingManager({ supabase, program, onBack }) {
-  // 1. HOOK CENTRALIZADO (Fuente de verdad)
   const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
 
-  const [musicians, setMusicians] = useState([]); // Lista de "Sin asignar"
+  const [musicians, setMusicians] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [logisticsRules, setLogisticsRules] = useState([]);
   const [logisticsMap, setLogisticsMap] = useState({});
   const [showReport, setShowReport] = useState(false);
-  const [showInitialOrder, setShowInitialOrder] = useState(false); // <--- NUEVO ESTADO
+  const [showInitialOrder, setShowInitialOrder] = useState(false);
+  const [showHelp, setShowHelp] = useState(false); // Estado para ayuda
 
   // Estados UI
   const [showRoomForm, setShowRoomForm] = useState(false);
@@ -702,10 +840,269 @@ export default function RoomingManager({ supabase, program, onBack }) {
   const [draggedMusician, setDraggedMusician] = useState(null);
   const [commentsState, setCommentsState] = useState(null);
 
-  // Recalcular todo cuando cambia el programa o el roster cargado
+  // --- NUEVOS ESTADOS PARA SELECCIÓN MÚLTIPLE ---
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setSelectedIds(new Set());
+        setLastSelectedId(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   useEffect(() => {
     if (program.id && !rosterLoading) fetchInitialData();
-  }, [program.id, rosterLoading, roster]); // Dependencia del roster
+  }, [program.id, rosterLoading, roster]);
+
+  // --- LÓGICA DE SELECCIÓN ---
+  const handleMusicianClick = (e, musician, contextList) => {
+    const newSelected = new Set(selectedIds);
+    const id = musician.id;
+
+    if (e.shiftKey && lastSelectedId && contextList) {
+      const start = contextList.findIndex((p) => p.id === lastSelectedId);
+      const end = contextList.findIndex((p) => p.id === id);
+      if (start !== -1 && end !== -1) {
+        const low = Math.min(start, end);
+        const high = Math.max(start, end);
+        for (let i = low; i <= high; i++) {
+          newSelected.add(contextList[i].id);
+        }
+      }
+    } else if (e.ctrlKey || e.metaKey) {
+      if (newSelected.has(id)) {
+        newSelected.delete(id);
+      } else {
+        newSelected.add(id);
+        setLastSelectedId(id);
+      }
+    } else {
+      if (!newSelected.has(id) || newSelected.size > 1) {
+        newSelected.clear();
+        newSelected.add(id);
+        setLastSelectedId(id);
+      }
+    }
+    setSelectedIds(newSelected);
+  };
+
+  // --- DRAG HANDLERS ---
+  const handleDragStart = (e, musician, sourceRoomId = null) => {
+    let itemsToDrag = [];
+    if (selectedIds.has(musician.id)) {
+      itemsToDrag = Array.from(selectedIds);
+    } else {
+      itemsToDrag = [musician.id];
+      setSelectedIds(new Set([musician.id]));
+    }
+    e.dataTransfer.setData(
+      "application/json",
+      JSON.stringify({
+        type: "PEOPLE_BATCH",
+        ids: itemsToDrag,
+        sourceRoomId,
+      })
+    );
+    e.dataTransfer.effectAllowed = "move";
+    setDraggedMusician({ ...musician, sourceRoomId });
+    setIsDragging(true);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const processDrop = (targetRoomId, draggedIds) => {
+    let newRooms = [...rooms];
+    let newMusicians = [...musicians];
+
+    let targetRoomIndex = -1;
+    if (targetRoomId) {
+      targetRoomIndex = newRooms.findIndex((r) => r.id === targetRoomId);
+      if (targetRoomIndex === -1) return;
+    }
+
+    draggedIds.forEach((id) => {
+      let sourceRoomIndex = -1;
+      let musicianObj = null;
+
+      const mIndex = newMusicians.findIndex((m) => m.id === id);
+      if (mIndex !== -1) {
+        musicianObj = newMusicians[mIndex];
+        newMusicians.splice(mIndex, 1);
+      } else {
+        for (let i = 0; i < newRooms.length; i++) {
+          const occupantIndex = newRooms[i].occupants.findIndex(
+            (m) => m.id === id
+          );
+          if (occupantIndex !== -1) {
+            sourceRoomIndex = i;
+            musicianObj = newRooms[i].occupants[occupantIndex];
+            const srcRoom = { ...newRooms[i] };
+            srcRoom.occupants = [...srcRoom.occupants];
+            srcRoom.occupants.splice(occupantIndex, 1);
+            srcRoom.roomGender = calculateRoomGender(srcRoom.occupants);
+            newRooms[i] = srcRoom;
+            syncRoomOccupants(srcRoom.id, srcRoom.occupants);
+            break;
+          }
+        }
+      }
+
+      if (musicianObj) {
+        if (targetRoomId) {
+          const targetRoom = newRooms[targetRoomIndex];
+          if (!targetRoom.occupants.find((m) => m.id === id)) {
+            targetRoom.occupants = [...targetRoom.occupants, musicianObj];
+            targetRoom.roomGender = calculateRoomGender(targetRoom.occupants);
+            newRooms[targetRoomIndex] = targetRoom;
+          }
+        } else {
+          newMusicians.push(musicianObj);
+        }
+      }
+    });
+
+    newMusicians.sort((a, b) => {
+      if (a.is_local !== b.is_local) return a.is_local ? 1 : -1;
+      return a.apellido.localeCompare(b.apellido);
+    });
+
+    if (targetRoomId) {
+      const finalTarget =
+        newRooms[newRooms.findIndex((r) => r.id === targetRoomId)];
+      syncRoomOccupants(targetRoomId, finalTarget.occupants);
+    }
+
+    updateLocalState(newRooms, newMusicians);
+    setSelectedIds(new Set());
+    setDraggedMusician(null);
+    setIsDragging(false);
+  };
+
+  const handleDropOnRoom = (e, targetRoomId) => {
+    e.preventDefault();
+    const dataStr = e.dataTransfer.getData("application/json");
+    if (!dataStr) return;
+    try {
+      const data = JSON.parse(dataStr);
+      if (data.type === "PEOPLE_BATCH" && data.ids) {
+        processDrop(targetRoomId, data.ids);
+      }
+    } catch (err) {
+      console.error("Error drag data", err);
+    }
+  };
+
+  const handleDropOnUnassigned = (e) => {
+    e.preventDefault();
+    const dataStr = e.dataTransfer.getData("application/json");
+    if (!dataStr) return;
+    try {
+      const data = JSON.parse(dataStr);
+      if (data.type === "PEOPLE_BATCH" && data.ids) processDrop(null, data.ids);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDropOnNewRoom = async (e, bookingId) => {
+    e.preventDefault();
+    const dataStr = e.dataTransfer.getData("application/json");
+    if (!dataStr) return;
+
+    try {
+      const data = JSON.parse(dataStr);
+      if (data.type === "PEOPLE_BATCH" && data.ids.length > 0) {
+        setLoading(true);
+        // Calculamos orden alto para que quede arriba en DB
+        const currentMaxOrder =
+          rooms.length > 0 ? Math.max(...rooms.map((r) => r.orden || 0)) : 0;
+
+        const { data: newRoomData } = await supabase
+          .from("hospedaje_habitaciones")
+          .insert([
+            {
+              id_hospedaje: bookingId,
+              tipo: "Común",
+              configuracion: "Simple",
+              id_integrantes_asignados: [],
+              orden: currentMaxOrder + 10,
+            },
+          ])
+          .select()
+          .single();
+
+        if (newRoomData) {
+          const newRoomObj = {
+            ...newRoomData,
+            occupants: [],
+            roomGender: "Mixto",
+          };
+
+          // CAMBIO 1: Prepend en estado (poner al principio)
+          setRooms((prev) => [newRoomObj, ...prev]);
+
+          // CAMBIO 2: Construir lista local con la nueva habitación AL PRINCIPIO
+          let currentRooms = [newRoomObj, ...rooms];
+          let currentMusicians = [...musicians];
+          const movedPeople = [];
+
+          data.ids.forEach((id) => {
+            const mIndex = currentMusicians.findIndex((m) => m.id === id);
+            if (mIndex !== -1) {
+              movedPeople.push(currentMusicians[mIndex]);
+              currentMusicians.splice(mIndex, 1);
+            } else {
+              // CAMBIO 3: Buscar en rooms existentes (empezando desde índice 1 porque la 0 es la nueva)
+              for (let i = 1; i < currentRooms.length; i++) {
+                const r = currentRooms[i];
+                const occIdx = r.occupants.findIndex((m) => m.id === id);
+                if (occIdx !== -1) {
+                  const p = r.occupants[occIdx];
+                  const newSrc = {
+                    ...r,
+                    occupants: r.occupants.filter((m) => m.id !== id),
+                  };
+                  newSrc.roomGender = calculateRoomGender(newSrc.occupants);
+                  currentRooms[i] = newSrc;
+                  syncRoomOccupants(newSrc.id, newSrc.occupants);
+                  movedPeople.push(p);
+                  break;
+                }
+              }
+            }
+          });
+
+          const targetR = {
+            ...newRoomObj,
+            occupants: movedPeople,
+            roomGender: calculateRoomGender(movedPeople),
+          };
+
+          // CAMBIO 4: Actualizar la habitación en la posición 0
+          currentRooms[0] = targetR;
+
+          syncRoomOccupants(targetR.id, movedPeople);
+
+          updateLocalState(currentRooms, currentMusicians);
+          setSelectedIds(new Set());
+          setDraggedMusician(null);
+          setIsDragging(false);
+        }
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error(err);
+      setLoading(false);
+    }
+  };
 
   const calculateLogisticsForMusician = (person, rules) => {
     const applicable = rules.filter((r) => {
@@ -744,7 +1141,6 @@ export default function RoomingManager({ supabase, program, onBack }) {
   };
 
   const enrichRosterWithGender = async (baseRoster) => {
-    // El hook puede no traer género, fecha_nac o dni. Los pedimos extra aquí.
     if (baseRoster.length === 0) return [];
     const ids = baseRoster.map((m) => m.id);
     const { data } = await supabase
@@ -753,13 +1149,12 @@ export default function RoomingManager({ supabase, program, onBack }) {
       .in("id", ids);
     const map = {};
     data?.forEach((d) => (map[d.id] = d));
-    return baseRoster.map((m) => ({ ...m, ...map[m.id] })); // Merge
+    return baseRoster.map((m) => ({ ...m, ...map[m.id] }));
   };
 
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-      // 1. Cargar Bookings
       const { data: bookingsData } = await supabase
         .from("programas_hospedajes")
         .select("*, hoteles(nombre, localidades(localidad))")
@@ -768,7 +1163,6 @@ export default function RoomingManager({ supabase, program, onBack }) {
       setBookings(bookingsData || []);
       const bookingIds = (bookingsData || []).map((b) => b.id);
 
-      // 2. Cargar Localidades y Maestro
       const { data: locs } = await supabase
         .from("localidades")
         .select("id, localidad")
@@ -780,18 +1174,16 @@ export default function RoomingManager({ supabase, program, onBack }) {
         .order("nombre");
       setMasterHotels(allHotels || []);
 
-      // 3. Habitaciones
       let roomsData = [];
       if (bookingIds.length > 0) {
         const { data } = await supabase
           .from("hospedaje_habitaciones")
           .select("*")
           .in("id_hospedaje", bookingIds)
-          .order("orden", { ascending: true });
+          .order("orden", { ascending: false }); // DESCENDENTE
         roomsData = data || [];
       }
 
-      // 4. Reglas
       const { data: rules } = await supabase
         .from("giras_logistica_reglas")
         .select("*")
@@ -810,14 +1202,11 @@ export default function RoomingManager({ supabase, program, onBack }) {
       }));
       setLogisticsRules(normalizedRules);
 
-      // 5. Preparar Roster (Enriquecido)
-      const fullMusicians = await enrichRosterWithGender(roster); // Traer género
+      const fullMusicians = await enrichRosterWithGender(roster);
       const logMap = {};
       const allMusiciansMap = new Map();
 
       fullMusicians.forEach((m) => {
-        // El hook ya calculó 'rol_gira', 'is_local', 'estado_gira'
-        // Solo filtramos los ausentes si no queremos asignarles habitación (opcional)
         if (m.estado_gira !== "ausente") {
           logMap[m.id] = calculateLogisticsForMusician(m, normalizedRules);
           allMusiciansMap.set(m.id, m);
@@ -870,14 +1259,13 @@ export default function RoomingManager({ supabase, program, onBack }) {
   };
   const calculateRoomGender = (occupants) => {
     if (!occupants || occupants.length === 0) return "Mixto";
-    // El genero viene del enrichment step
     const genders = new Set(occupants.map((m) => m.genero));
     if (genders.has("F") && !genders.has("M")) return "F";
     if (genders.has("M") && !genders.has("F")) return "M";
     return "Mixto";
   };
 
-  // ... (RESTO DE HANDLERS IGUALES AL ORIGINAL) ...
+  // ... (HANDLERS) ...
   const handleSaveHotel = async ({
     id_hotel,
     nombre,
@@ -987,158 +1375,6 @@ export default function RoomingManager({ supabase, program, onBack }) {
       setLoading(false);
     }
   };
-
-  // ... (DRAG HANDLERS SIMPLIFICADOS PARA USAR CAMPOS STANDARIZADOS DEL HOOK) ...
-  const handleDragStart = (e, musician, sourceRoomId = null) => {
-    e.dataTransfer.setData("text/plain", musician.id);
-    e.dataTransfer.effectAllowed = "move";
-    setDraggedMusician({ ...musician, sourceRoomId });
-    setIsDragging(true);
-  };
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  };
-
-  const handleDropOnRoom = (e, targetRoomId) => {
-    e.preventDefault();
-    if (!draggedMusician) return;
-    const targetIndex = rooms.findIndex((r) => r.id === targetRoomId);
-    if (targetIndex === -1) return;
-    const targetRoom = { ...rooms[targetIndex] };
-    if (targetRoom.occupants.find((m) => m.id === draggedMusician.id)) {
-      setIsDragging(false);
-      return;
-    }
-    let newRooms = [...rooms];
-    let newMusicians = [...musicians];
-    if (draggedMusician.sourceRoomId) {
-      const srcIndex = newRooms.findIndex(
-        (r) => r.id === draggedMusician.sourceRoomId
-      );
-      if (srcIndex !== -1) {
-        const srcRoom = { ...newRooms[srcIndex] };
-        srcRoom.occupants = srcRoom.occupants.filter(
-          (m) => m.id !== draggedMusician.id
-        );
-        if (srcRoom.occupants.length === 0) {
-          newRooms.splice(srcIndex, 1);
-          supabase
-            .from("hospedaje_habitaciones")
-            .delete()
-            .eq("id", srcRoom.id)
-            .then();
-          if (srcIndex < targetIndex) {
-            /* Lógica reordenamiento si es necesario */
-          }
-        } else {
-          srcRoom.roomGender = calculateRoomGender(srcRoom.occupants);
-          newRooms[srcIndex] = srcRoom;
-          syncRoomOccupants(srcRoom.id, srcRoom.occupants);
-        }
-      }
-    } else
-      newMusicians = newMusicians.filter((m) => m.id !== draggedMusician.id);
-    const finalTargetIndex = newRooms.findIndex((r) => r.id === targetRoomId);
-    if (finalTargetIndex !== -1) {
-      const finalTarget = { ...newRooms[finalTargetIndex] };
-      finalTarget.occupants = [...finalTarget.occupants, draggedMusician];
-      finalTarget.roomGender = calculateRoomGender(finalTarget.occupants);
-      newRooms[finalTargetIndex] = finalTarget;
-      syncRoomOccupants(targetRoomId, finalTarget.occupants);
-    }
-    updateLocalState(newRooms, newMusicians);
-    setDraggedMusician(null);
-    setIsDragging(false);
-  };
-  const handleDropOnUnassigned = (e) => {
-    e.preventDefault();
-    if (!draggedMusician || !draggedMusician.sourceRoomId) return;
-    let newRooms = [...rooms];
-    const srcIndex = newRooms.findIndex(
-      (r) => r.id === draggedMusician.sourceRoomId
-    );
-    if (srcIndex !== -1) {
-      const srcRoom = { ...newRooms[srcIndex] };
-      srcRoom.occupants = srcRoom.occupants.filter(
-        (m) => m.id !== draggedMusician.id
-      );
-      if (srcRoom.occupants.length === 0) {
-        newRooms.splice(srcIndex, 1);
-        supabase
-          .from("hospedaje_habitaciones")
-          .delete()
-          .eq("id", srcRoom.id)
-          .then();
-      } else {
-        srcRoom.roomGender = calculateRoomGender(srcRoom.occupants);
-        newRooms[srcIndex] = srcRoom;
-        syncRoomOccupants(srcRoom.id, srcRoom.occupants);
-      }
-      const newMusicians = [...musicians, draggedMusician].sort((a, b) => {
-        if (a.is_local !== b.is_local) return a.is_local ? 1 : -1;
-        return a.apellido.localeCompare(b.apellido);
-      });
-      updateLocalState(newRooms, newMusicians);
-    }
-    setDraggedMusician(null);
-    setIsDragging(false);
-  };
-  const handleDropOnNewRoom = async (e, bookingId) => {
-    e.preventDefault();
-    if (!draggedMusician) return;
-    setLoading(true);
-    let newRooms = [...rooms];
-    let newMusicians = [...musicians];
-    if (draggedMusician.sourceRoomId) {
-      const srcIndex = newRooms.findIndex(
-        (r) => r.id === draggedMusician.sourceRoomId
-      );
-      if (srcIndex !== -1) {
-        const srcRoom = { ...newRooms[srcIndex] };
-        srcRoom.occupants = srcRoom.occupants.filter(
-          (m) => m.id !== draggedMusician.id
-        );
-        if (srcRoom.occupants.length === 0) {
-          newRooms.splice(srcIndex, 1);
-          await supabase
-            .from("hospedaje_habitaciones")
-            .delete()
-            .eq("id", srcRoom.id);
-        } else {
-          srcRoom.roomGender = calculateRoomGender(srcRoom.occupants);
-          newRooms[srcIndex] = srcRoom;
-          syncRoomOccupants(srcRoom.id, srcRoom.occupants);
-        }
-      }
-    } else
-      newMusicians = newMusicians.filter((m) => m.id !== draggedMusician.id);
-    updateLocalState(newRooms, newMusicians);
-    const { data } = await supabase
-      .from("hospedaje_habitaciones")
-      .insert([
-        {
-          id_hospedaje: bookingId,
-          tipo: "Común",
-          configuracion: "Simple",
-          id_integrantes_asignados: [draggedMusician.id],
-          orden: rooms.length + 100,
-        },
-      ])
-      .select()
-      .single();
-    if (data) {
-      const newRoom = {
-        ...data,
-        occupants: [draggedMusician],
-        roomGender: calculateRoomGender([draggedMusician]),
-      };
-      setRooms((prev) => [...prev, newRoom]);
-    }
-    setDraggedMusician(null);
-    setIsDragging(false);
-    setLoading(false);
-  };
   const handleRemoveFromRoom = (musician, roomId) => {
     const roomIndex = rooms.findIndex((r) => r.id === roomId);
     if (roomIndex === -1) return;
@@ -1162,6 +1398,9 @@ export default function RoomingManager({ supabase, program, onBack }) {
     updateLocalState(newRooms, newMusicians);
   };
   const handleSaveRoom = async (roomData) => {
+    const currentMaxOrder =
+      rooms.length > 0 ? Math.max(...rooms.map((r) => r.orden || 0)) : 0;
+
     if (roomData.id) {
       setRooms((prev) =>
         prev.map((r) => (r.id === roomData.id ? { ...r, ...roomData } : r))
@@ -1179,14 +1418,16 @@ export default function RoomingManager({ supabase, program, onBack }) {
             ...roomData,
             id_hospedaje: activeBookingIdForNewRoom,
             id_integrantes_asignados: [],
-            orden: rooms.length + 10,
+            orden: currentMaxOrder + 10,
           },
         ])
         .select()
         .single();
+
       if (data) {
         const newRoom = { ...data, occupants: [], roomGender: "Mixto" };
-        setRooms((prev) => [...prev, newRoom]);
+        // CAMBIO: Prepend (poner al principio) en lugar de append
+        setRooms((prev) => [newRoom, ...prev]);
       }
       setLoading(false);
     }
@@ -1208,27 +1449,34 @@ export default function RoomingManager({ supabase, program, onBack }) {
   const handleMoveRoom = async (index, direction, currentRoom) => {
     const hotelRooms = rooms
       .filter((r) => r.id_hospedaje === currentRoom.id_hospedaje)
-      .sort((a, b) => (a.orden || 0) - (b.orden || 0));
+      .sort((a, b) => (b.orden || 0) - (a.orden || 0)); // Visual Sort (Desc)
+
     const currentIndex = hotelRooms.findIndex((r) => r.id === currentRoom.id);
     if (
       (direction === -1 && currentIndex === 0) ||
       (direction === 1 && currentIndex === hotelRooms.length - 1)
     )
       return;
+
     const otherRoom = hotelRooms[currentIndex + direction];
     const globalIdxA = rooms.findIndex((r) => r.id === currentRoom.id);
     const globalIdxB = rooms.findIndex((r) => r.id === otherRoom.id);
+
     const newRooms = [...rooms];
-    newRooms[globalIdxA] = otherRoom;
-    newRooms[globalIdxB] = currentRoom;
+    const ordenA = currentRoom.orden;
+    const ordenB = otherRoom.orden;
+
+    newRooms[globalIdxA] = { ...currentRoom, orden: ordenB };
+    newRooms[globalIdxB] = { ...otherRoom, orden: ordenA };
     setRooms(newRooms);
+
     await supabase
       .from("hospedaje_habitaciones")
-      .update({ orden: otherRoom.orden || 0 })
+      .update({ orden: ordenB })
       .eq("id", currentRoom.id);
     await supabase
       .from("hospedaje_habitaciones")
-      .update({ orden: currentRoom.orden || 0 })
+      .update({ orden: ordenA })
       .eq("id", otherRoom.id);
   };
 
@@ -1283,6 +1531,12 @@ export default function RoomingManager({ supabase, program, onBack }) {
             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
               Gestión Integral Rooming
             </h2>
+            <button
+              onClick={() => setShowHelp(true)}
+              className="text-indigo-600 hover:text-indigo-800"
+            >
+              <IconHelpCircle size={20} />
+            </button>
           </div>
           <div className="flex gap-2">
             <button
@@ -1294,7 +1548,6 @@ export default function RoomingManager({ supabase, program, onBack }) {
             >
               <IconPlus size={16} /> Agregar Hotel
             </button>
-            {/* NUEVO BOTÓN: PEDIDO INICIAL */}
             <button
               onClick={() => setShowInitialOrder(true)}
               className="bg-white text-slate-600 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-2 shadow-sm"
@@ -1332,6 +1585,7 @@ export default function RoomingManager({ supabase, program, onBack }) {
           <span className="text-purple-600">⚤ {stats.Mix} Mixtas</span>
         </div>
       </div>
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showReport && (
         <RoomingReportModal
           bookings={bookings}
@@ -1346,7 +1600,6 @@ export default function RoomingManager({ supabase, program, onBack }) {
           logisticsMap={logisticsMap}
           rooms={rooms}
           onClose={() => setShowInitialOrder(false)}
-          // CAMBIO AQUÍ: Usamos Nomenclador | Zona
           programName={`${program.nomenclador || ""} | ${program.zona || ""}`}
         />
       )}
@@ -1410,6 +1663,8 @@ export default function RoomingManager({ supabase, program, onBack }) {
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
             onDrop={handleDropOnUnassigned}
+            selectedIds={selectedIds}
+            onMusicianClick={handleMusicianClick}
           />
           <div className="flex-1 overflow-y-auto pr-2 space-y-8">
             {bookings.length === 0 && (
@@ -1510,6 +1765,8 @@ export default function RoomingManager({ supabase, program, onBack }) {
                               )} en ${bk.hoteles.nombre}`,
                             })
                           }
+                          selectedIds={selectedIds}
+                          onMusicianClick={handleMusicianClick}
                         />
                       ))}
                     </div>
@@ -1566,6 +1823,8 @@ export default function RoomingManager({ supabase, program, onBack }) {
                               )} en ${bk.hoteles.nombre}`,
                             })
                           }
+                          selectedIds={selectedIds}
+                          onMusicianClick={handleMusicianClick}
                         />
                       ))}
                     </div>
@@ -1600,6 +1859,8 @@ export default function RoomingManager({ supabase, program, onBack }) {
                               )} en ${bk.hoteles.nombre}`,
                             })
                           }
+                          selectedIds={selectedIds}
+                          onMusicianClick={handleMusicianClick}
                         />
                       ))}
                     </div>
@@ -1616,6 +1877,8 @@ export default function RoomingManager({ supabase, program, onBack }) {
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
             onDrop={handleDropOnUnassigned}
+            selectedIds={selectedIds}
+            onMusicianClick={handleMusicianClick}
           />
         </div>
       )}

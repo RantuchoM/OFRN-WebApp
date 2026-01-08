@@ -8,7 +8,6 @@ import {
   IconId,
   IconFileText,
   IconMapPin,
-  IconCalendar,
 } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect"; 
 import DateInput from "../../components/ui/DateInput";
@@ -25,13 +24,13 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const [formData, setFormData] = useState({
     nombre: "",
     apellido: "",
-    id_instr: "",
+    id_instr: "", // Se gestiona validación en submit
     dni: "",
     cuil: "",
     mail: "",
     telefono: "",
     condicion: "Planta",
-    genero: "Masculino",
+    genero: "M", // Valor por defecto seguro para Enums (M/F)
     alimentacion: "",
     nacionalidad: "Argentina",
     fecha_nac: "",
@@ -67,7 +66,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         .order("localidad");
 
       if (locData) {
-        // CORRECCIÓN: Usamos 'id' (no value) porque SearchableSelect usa .id
         setLocationsOptions(
           locData.map((l) => ({ id: l.id, label: l.localidad }))
         );
@@ -90,12 +88,22 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     try {
       const payload = { ...formData };
 
-      // Limpieza de fechas vacías
+      // --- LIMPIEZA DE DATOS (Vacíos -> Null) ---
+      
+      // 1. Fechas
       if (!payload.fecha_nac) payload.fecha_nac = null;
       if (!payload.fecha_alta) payload.fecha_alta = null;
       if (!payload.fecha_baja) payload.fecha_baja = null;
 
-      // Limpieza de campos relacionales/calculados
+      // 2. Claves Foráneas (Integers)
+      if (!payload.id_instr) payload.id_instr = null;
+      if (!payload.id_localidad) payload.id_localidad = null;
+      if (!payload.id_loc_viaticos) payload.id_loc_viaticos = null;
+
+      // 3. Campos Texto Opcionales
+      if (!payload.cuil) payload.cuil = null;
+
+      // --- LIMPIEZA DE CAMPOS RELACIONALES (Solo lectura) ---
       delete payload.instrumento;
       delete payload.instrumentos;
       delete payload.ensamble;
@@ -110,6 +118,13 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       delete payload.id_gira;
       delete payload.token_publico;
       delete payload.is_local; 
+
+      // --- GESTIÓN DE ID ---
+      // Si NO hay ID (es creación), generamos uno numérico usando timestamp
+      // para satisfacer la restricción NOT NULL de int8.
+      if (!payload.id) {
+          payload.id = Date.now(); 
+      }
 
       // Guardado
       const { data, error } = await supabase
@@ -328,7 +343,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 </div>
               </div>
 
-              {/* FECHAS ALTA / BAJA (NUEVO) */}
+              {/* FECHAS ALTA / BAJA */}
               <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded-lg border border-slate-100">
                 <div>
                   <DateInput
@@ -350,7 +365,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 </div>
               </div>
 
-              {/* SECCIÓN LOCALIDADES (SearchableSelect con z-index alto) */}
+              {/* SECCIÓN LOCALIDADES */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-100 relative z-50">
                 <div className="relative z-50">
                   <label className={`${labelClass} flex items-center gap-1`}>
@@ -384,12 +399,10 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 </div>
               </div>
               
-              {/* Espacio extra al final para que el dropdown tenga sitio al desplegarse hacia abajo */}
               <div className="h-20 md:h-32"></div> 
             </div>
           )}
 
-          {/* Las otras pestañas (docs, acceso) sin cambios significativos */}
           {activeTab === "docs" && (
             <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <div>
