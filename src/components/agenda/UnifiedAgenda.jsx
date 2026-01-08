@@ -434,7 +434,7 @@ export default function UnifiedAgenda({
       if (error) throw error;
 
       // --- 2. CÁLCULO LOGÍSTICO ROBUSTO ---
-      console.log("--- DEBUG LOGISTICA: Inicio ---");
+      //console.log("--- DEBUG LOGISTICA: Inicio ---");
       const activeTourIds = new Set();
       eventsData?.forEach((e) => {
         if (e.id_gira) activeTourIds.add(e.id_gira);
@@ -519,9 +519,7 @@ export default function UnifiedAgenda({
               logistics: {},
             };
 
-            console.log(
-              `Logística (Alias Check): LocID: ${cleanLocId}, RegID: ${cleanRegionId}`
-            );
+            //console.log(              `Logística (Alias Check): LocID: ${cleanLocId}, RegID: ${cleanRegionId}            );
             // Ejecución del motor logístico
             const result = calculateLogisticsSummary(
               [mockPerson],
@@ -541,7 +539,7 @@ export default function UnifiedAgenda({
           });
         }
       }
-      console.log("Mapa Calculado:", logisticsMap);
+      //console.log("Mapa Calculado:", logisticsMap);
       setMyTransportLogistics(logisticsMap);
       setToursWithRules(foundRuleTours);
 

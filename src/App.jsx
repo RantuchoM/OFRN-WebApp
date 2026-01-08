@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useSearchParams, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { supabase } from "./services/supabase";
 
@@ -13,7 +13,6 @@ import RepertoireView from "./views/Repertoire/RepertoireView";
 import DataView from "./views/Data/DataView";
 import UsersManager from "./views/Users/UsersManager";
 import AgendaGeneral from "./views/Giras/AgendaGeneral";
-import LogisticsDashboard from "./views/Giras/LogisticsDashboard";
 import GlobalCommentsViewer from "./components/comments/GlobalCommentsViewer";
 import EnsembleCoordinatorView from "./views/Ensembles/EnsembleCoordinatorView";
 import MyPartsViewer from "./views/Giras/MyPartsViewer";
@@ -27,8 +26,8 @@ import {
   IconMap,
   IconMusic,
   IconUsers,
-  IconMapPin,
-  IconFileText,
+  IconMapPin,     // Restaurado
+  IconFileText,   // Restaurado (Causante del error)
   IconDatabase,
   IconSettings,
   IconLogOut,
@@ -36,8 +35,8 @@ import {
   IconMessageCircle,
   IconMenu,
   IconX,
-  IconCheck,
-  IconUtensils,
+  IconCheck,      // Restaurado
+  IconUtensils,   // Restaurado
   IconChevronLeft,
   IconChevronRight,
   IconSpiralNotebook,
@@ -47,7 +46,7 @@ import {
   IconCopy,
 } from "./components/ui/Icons";
 
-// --- MODAL CALENDARIO (ACTUALIZADO) ---
+// --- MODAL CALENDARIO (Mantenido igual) ---
 const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
   if (!isOpen || !userId) return null;
 
@@ -192,6 +191,10 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
 // --- APP PROTEGIDA ---
 const ProtectedApp = () => {
   const { user, logout } = useAuth();
+  // USAR HOOKS DE ROUTER
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
@@ -222,19 +225,118 @@ const ProtectedApp = () => {
   const isGuestRole =
     userRole === "invitado" || userRole === "consulta_personal";
 
-  const [mode, setMode] = useState(isPersonal ? "FULL_AGENDA" : "GIRAS");
-  const [activeGiraId, setActiveGiraId] = useState(null);
-  const [initialGiraView, setInitialGiraView] = useState(null);
-  const [initialGiraSubTab, setInitialGiraSubTab] = useState(null);
+  // Mapeo inverso de Tab a Modo (para inicialización)
+  const tabToMode = {
+    dashboard: "DASHBOARD",
+    giras: "GIRAS",
+    agenda: "FULL_AGENDA",
+    repertorio: "REPERTOIRE",
+    ensambles: "ENSAMBLES",
+    musicos: "MUSICIANS",
+    usuarios: "USERS",
+    datos: "DATA",
+    locaciones: "LOCATIONS",
+    coordinacion: "COORDINACION",
+    news_manager: "NEWS_MANAGER",
+    avisos: "COMMENTS",
+    comidas: "MY_MEALS",
+  };
+  
+  // Mapeo de Modo a Tab (para actualización)
+  const modeToTab = {
+    DASHBOARD: "dashboard",
+    GIRAS: "giras",
+    FULL_AGENDA: "agenda",
+    REPERTOIRE: "repertorio",
+    ENSAMBLES: "ensambles",
+    MUSICIANS: "musicos",
+    USERS: "usuarios",
+    DATA: "datos",
+    LOCATIONS: "locaciones",
+    COORDINACION: "coordinacion",
+    COMMENTS: "avisos",
+    MY_MEALS: "comidas",
+    NEWS_MANAGER: "news_manager",
+  };
 
-  // --- LÓGICA DE CONTADORES CORREGIDA ---
+  // ESTADO DERIVADO DE URL (Single Source of Truth)
+  const currentTab = searchParams.get("tab");
+  const defaultMode = isPersonal ? "FULL_AGENDA" : "GIRAS";
+  const [mode, setMode] = useState(tabToMode[currentTab] || defaultMode);
+
+  const [activeGiraId, setActiveGiraId] = useState(searchParams.get("giraId"));
+  const [initialGiraView, setInitialGiraView] = useState(searchParams.get("view"));
+  const [initialGiraSubTab, setInitialGiraSubTab] = useState(searchParams.get("subTab"));
+
+  // --- EFECTO PARA SINCRONIZAR URL -> ESTADO LOCAL ---
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    const giraIdParam = searchParams.get("giraId");
+    const viewParam = searchParams.get("view");
+    const subTabParam = searchParams.get("subTab");
+
+    const newMode = tabToMode[tabParam] || defaultMode;
+    
+    // Solo actualizamos si hay cambios reales para evitar re-renders
+    if (newMode !== mode) setMode(newMode);
+    
+    if (newMode === "GIRAS") {
+      setActiveGiraId(giraIdParam);
+      setInitialGiraView(viewParam || null);
+      setInitialGiraSubTab(subTabParam || null);
+    } else {
+      setActiveGiraId(null);
+    }
+  }, [searchParams, defaultMode]); // Dependencia clave: searchParams
+
+  // --- LÓGICA DE ACTUALIZACIÓN DE VISTA (Estado -> URL) ---
+  const updateView = (
+    newMode,
+    giraId = null,
+    viewParam = null,
+    subTabParam = null
+  ) => {
+    const newParams = new URLSearchParams(searchParams);
+    
+    // 1. Establecer el Tab Principal
+    const targetTab = modeToTab[newMode];
+    if (targetTab) {
+        newParams.set("tab", targetTab);
+    } else {
+        newParams.delete("tab");
+    }
+
+    // 2. Manejo de Parámetros de Gira
+    if (newMode === "GIRAS" && giraId) {
+      newParams.set("giraId", giraId);
+      if (viewParam) newParams.set("view", viewParam);
+      else newParams.delete("view");
+      
+      if (subTabParam) newParams.set("subTab", subTabParam);
+      else newParams.delete("subTab");
+    } else {
+      // Limpiar parámetros específicos de gira si cambiamos de módulo
+      newParams.delete("giraId");
+      newParams.delete("view");
+      newParams.delete("subTab");
+    }
+
+    // 3. Actualizar URL (React Router se encargará del resto)
+    setSearchParams(newParams);
+    setMobileMenuOpen(false);
+  };
+
+  const handleGlobalNavigation = (targetGiraId, targetView) => {
+    updateView("GIRAS", targetGiraId, targetView);
+    setGlobalCommentsOpen(false);
+  };
+
+  // --- LÓGICA DE CONTADORES (Mantenida) ---
   useEffect(() => {
     if (!user || isGuestRole) return;
 
     const fetchCommentCounts = async () => {
       try {
-        // 1. Obtener comentarios pendientes (no resueltos ni borrados)
-        // Necesitamos 'created_at' y 'id_autor' para comparar fechas y propiedad
         const { data: comments, error } = await supabase
           .from("sistema_comentarios")
           .select("created_at, id_autor, etiquetados, entidad_tipo, entidad_id")
@@ -243,13 +345,11 @@ const ProtectedApp = () => {
 
         if (error) throw error;
 
-        // 2. Obtener registro de lecturas del usuario actual
         const { data: readings } = await supabase
           .from("comentarios_lecturas")
           .select("entidad_tipo, entidad_id, last_read_at")
           .eq("user_id", user.id);
 
-        // Mapa rápido: "TIPO_ID" -> Fecha de última lectura
         const readMap = {};
         readings?.forEach((r) => {
           readMap[`${r.entidad_tipo}_${r.entidad_id}`] = new Date(
@@ -257,23 +357,17 @@ const ProtectedApp = () => {
           );
         });
 
-        // 3. Calcular hilos realmente NO LEÍDOS
         const uniqueUnreadThreads = new Set();
         const uniqueMentionedThreads = new Set();
 
         comments.forEach((c) => {
-          // Si el comentario es mío, no cuenta como no leído
           if (c.id_autor === user.id) return;
-
           const key = `${c.entidad_tipo}_${c.entidad_id}`;
-          const lastRead = readMap[key] || new Date(0); // Si no hay lectura previa, asumimos fecha 0 (todo es nuevo)
+          const lastRead = readMap[key] || new Date(0); 
           const commentDate = new Date(c.created_at);
 
-          // Solo sumamos si el mensaje es POSTERIOR a mi última lectura
           if (commentDate > lastRead) {
             uniqueUnreadThreads.add(key);
-
-            // Verificamos si en este mensaje no leído estoy etiquetado
             if (c.etiquetados && c.etiquetados.includes(user.id)) {
               uniqueMentionedThreads.add(key);
             }
@@ -290,8 +384,6 @@ const ProtectedApp = () => {
     };
 
     fetchCommentCounts();
-
-    // Suscripción para actualizaciones en tiempo real
     const channel = supabase
       .channel("global-badge")
       .on(
@@ -303,7 +395,8 @@ const ProtectedApp = () => {
 
     return () => supabase.removeChannel(channel);
   }, [user, isGuestRole]);
-  // Resto de efectos y lógica (sin cambios)
+
+  // --- PERMISOS ---
   useEffect(() => {
     const checkPermissions = async () => {
       if (!user) return;
@@ -327,6 +420,7 @@ const ProtectedApp = () => {
     checkPermissions();
   }, [user, userRole]);
 
+  // Redirección forzada para roles limitados
   useEffect(() => {
     if (isPersonal && !isEnsembleCoordinator) {
       const allowedModes = [
@@ -337,116 +431,13 @@ const ProtectedApp = () => {
         "COMMENTS",
         "MY_PARTS",
       ];
-      if (!allowedModes.includes(mode)) setMode("FULL_AGENDA");
+      if (!allowedModes.includes(mode)) {
+          // Usar updateView en lugar de setMode directo para mantener consistencia URL
+           updateView("FULL_AGENDA");
+      }
     }
   }, [mode, isPersonal, isEnsembleCoordinator]);
 
-  const syncStateWithUrl = () => {
-    const params = new URLSearchParams(window.location.search);
-    const tabParam = params.get("tab");
-    const giraIdParam = params.get("giraId");
-    const viewParam = params.get("view");
-    const subTabParam = params.get("subTab");
-
-    if (tabParam) {
-      const modeMap = {
-        dashboard: "DASHBOARD",
-        giras: "GIRAS",
-        agenda: "FULL_AGENDA",
-        repertorio: "REPERTOIRE",
-        ensambles: "ENSAMBLES",
-        musicos: "MUSICIANS",
-        usuarios: "USERS",
-        datos: "DATA",
-        locaciones: "LOCATIONS",
-        coordinacion: "COORDINACION",
-        news_manager: "NEWS_MANAGER",
-        avisos: "COMMENTS",
-        comidas: "MY_MEALS",
-      };
-      const newMode = modeMap[tabParam.toLowerCase()];
-      if (newMode) {
-        setMode(newMode);
-        if (newMode === "GIRAS") {
-          setActiveGiraId(giraIdParam);
-          setInitialGiraView(viewParam || null);
-          setInitialGiraSubTab(subTabParam || null);
-        }
-      }
-    }
-  };
-
-  useEffect(() => {
-    syncStateWithUrl();
-    window.addEventListener("popstate", syncStateWithUrl);
-    return () => window.removeEventListener("popstate", syncStateWithUrl);
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    const params = new URLSearchParams(window.location.search);
-    const modeToTab = {
-      DASHBOARD: "dashboard",
-      GIRAS: "giras",
-      FULL_AGENDA: "agenda",
-      REPERTOIRE: "repertorio",
-      ENSAMBLES: "ensambles",
-      MUSICIANS: "musicos",
-      USERS: "usuarios",
-      DATA: "datos",
-      LOCATIONS: "locaciones",
-      COORDINACION: "coordinacion",
-      COMMENTS: "avisos",
-      MY_MEALS: "comidas",
-      NEWS_MANAGER: "news_manager",
-    };
-
-    if (modeToTab[mode]) params.set("tab", modeToTab[mode]);
-
-    if (mode === "GIRAS" && activeGiraId) {
-      params.set("giraId", activeGiraId);
-      if (initialGiraView) params.set("view", initialGiraView);
-      else params.delete("view");
-      if (initialGiraSubTab) params.set("subTab", initialGiraSubTab);
-      else params.delete("subTab");
-    } else {
-      params.delete("giraId");
-      params.delete("view");
-      params.delete("subTab");
-    }
-
-    const newUrl = `${window.location.pathname}?${params.toString()}`;
-    if (window.location.search !== `?${params.toString()}`) {
-      window.history.pushState(null, "", newUrl);
-    }
-  }, [mode, activeGiraId, initialGiraView, initialGiraSubTab, user]);
-
-  const updateView = (
-    newMode,
-    giraId = null,
-    viewParam = null,
-    subTabParam = null
-  ) => {
-    if (newMode === "GIRAS" && !giraId) {
-      setActiveGiraId(null);
-      setInitialGiraView(null);
-      setInitialGiraSubTab(null);
-    } else if (newMode === "GIRAS") {
-      setActiveGiraId(giraId);
-    }
-    setMode(newMode);
-    if (newMode !== "GIRAS") setActiveGiraId(null);
-    if (giraId && newMode === "GIRAS") {
-      setInitialGiraView(viewParam || null);
-      setInitialGiraSubTab(subTabParam || null);
-    }
-    setMobileMenuOpen(false);
-  };
-
-  const handleGlobalNavigation = (targetGiraId, targetView) => {
-    updateView("GIRAS", targetGiraId, targetView);
-    setGlobalCommentsOpen(false);
-  };
 
   const allMenuItems = [
     {
@@ -508,16 +499,21 @@ const ProtectedApp = () => {
   ];
   const visibleMenuItems = allMenuItems.filter((i) => i.show);
 
+  // --- RENDERIZADO CONDICIONAL ---
   const renderContent = () => {
+    // Clave para forzar re-render limpio cuando cambiamos de módulo
+    const commonProps = { supabase };
+
     switch (mode) {
       case "DASHBOARD":
         return (
-          <DashboardGeneral supabase={supabase} onViewChange={updateView} />
+          <DashboardGeneral {...commonProps} onViewChange={updateView} />
         );
       case "GIRAS":
         return (
           <GirasView
-            key={activeGiraId ? `gira-${activeGiraId}` : "giras-list-general"}
+            // Usamos key para forzar remontaje si cambia la gira activa radicalmente
+            key={activeGiraId ? `gira-${activeGiraId}` : "giras-list"}
             initialGiraId={activeGiraId}
             initialTab={initialGiraView}
             initialSubTab={initialGiraSubTab}
@@ -526,39 +522,39 @@ const ProtectedApp = () => {
           />
         );
       case "NEWS_MANAGER":
-        return <NewsManager supabase={supabase} />;
+        return <NewsManager {...commonProps} />;
       case "FULL_AGENDA":
-        return <AgendaGeneral onViewChange={updateView} supabase={supabase} />;
+        return <AgendaGeneral onViewChange={updateView} {...commonProps} />;
       case "ENSAMBLES":
-        return <EnsemblesView supabase={supabase} />;
+        return <EnsemblesView {...commonProps} />;
       case "COORDINACION":
-        return <EnsembleCoordinatorView supabase={supabase} />;
+        return <EnsembleCoordinatorView {...commonProps} />;
       case "MUSICIANS":
         return (
           <MusiciansView
-            supabase={supabase}
+            {...commonProps}
             catalogoInstrumentos={catalogoInstrumentos}
           />
         );
       case "LOCATIONS":
-        return <LocationsView supabase={supabase} />;
+        return <LocationsView {...commonProps} />;
       case "REPERTOIRE":
         return (
           <RepertoireView
-            supabase={supabase}
+            {...commonProps}
             catalogoInstrumentos={catalogoInstrumentos}
           />
         );
       case "DATA":
-        return <DataView supabase={supabase} />;
+        return <DataView {...commonProps} />;
       case "USERS":
-        return <UsersManager supabase={supabase} />;
+        return <UsersManager {...commonProps} />;
       case "COMMENTS":
-        return <GlobalCommentsViewer supabase={supabase} />;
+        return <GlobalCommentsViewer {...commonProps} />;
       case "MY_PARTS":
-        return <MyPartsViewer supabase={supabase} />;
+        return <MyPartsViewer {...commonProps} />;
       case "MY_MEALS":
-        return <MealsAttendancePersonal supabase={supabase} />;
+        return <MealsAttendancePersonal {...commonProps} />;
       default:
         return <div className="p-10 text-center">Vista no encontrada</div>;
     }

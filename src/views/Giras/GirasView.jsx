@@ -3,7 +3,7 @@ import {
   IconPlus,
   IconLoader,
   IconArrowLeft,
-  IconDrive, // <--- Icono Drive
+  IconDrive,
   IconUsers,
   IconCalendar,
   IconMusic,
@@ -44,9 +44,8 @@ import { moveGira, duplicateGira } from "../../services/giraActions";
 
 export default function GirasView({
   supabase,
-  initialGiraId,
-  initialTab,
-  initialSubTab,
+  // Las props initial... ya no se usan para forzar la navegación
+  // para evitar conflictos con la URL.
 }) {
   const { user, isEditor } = useAuth();
   const userRole = user?.rol_sistema || "";
@@ -57,7 +56,9 @@ export default function GirasView({
 
   const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
 
+  // --- ÚNICA FUENTE DE VERDAD: LA URL ---
   const [searchParams, setSearchParams] = useSearchParams();
+  
   const mode = searchParams.get("view") || "LIST";
   const giraId = searchParams.get("giraId");
   const currentTab = searchParams.get("subTab");
@@ -69,28 +70,16 @@ export default function GirasView({
   const [showDupModal, setShowDupModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  // --- EFECTO DE NAVEGACIÓN EXTERNA ---
-  useEffect(() => {
-    if (initialGiraId && initialTab) {
-      const params = {
-        tab: "giras",
-        view: initialTab,
-        giraId: initialGiraId,
-      };
+  // NOTA: Se ha eliminado el useEffect que sincronizaba "initialGiraId" con setSearchParams
+  // porque causaba bucles infinitos y glitches al navegar.
 
-      if (initialSubTab) {
-        params.subTab = initialSubTab;
-      }
-
-      setSearchParams(params, { replace: true });
-    }
-  }, [initialGiraId, initialTab, initialSubTab, setSearchParams]);
-
+  // --- MEMO SELECTED GIRA ---
   const selectedGira = useMemo(() => {
     if (!giraId || giras.length === 0) return null;
     return giras.find((g) => g.id.toString() === giraId);
   }, [giras, giraId]);
 
+  // --- FUNCIONES AUXILIARES ---
   const getActiveSection = () => {
     if (!selectedGira) return null;
 
@@ -121,12 +110,26 @@ export default function GirasView({
   };
 
   const activeSection = getActiveSection();
+
+  // --- UPDATE VIEW SEGURO ---
   const updateView = (newMode, newGiraId = null, newSubTab = null) => {
     const params = { tab: "giras" };
-    if (newMode && newMode !== "LIST") params.view = newMode;
-    const gId = newGiraId || giraId || (selectedGira ? selectedGira.id : null);
-    if (gId) params.giraId = gId;
-    if (newSubTab) params.subTab = newSubTab;
+    
+    // Si NO es lista, mantenemos el ID de la gira y la vista
+    if (newMode && newMode !== "LIST") {
+        params.view = newMode;
+        
+        // Prioridad: ID nuevo > ID en URL > ID de la gira seleccionada actual
+        const gId = newGiraId || giraId || (selectedGira ? selectedGira.id : null);
+        
+        if (gId) {
+            params.giraId = gId;
+        }
+        
+        if (newSubTab) params.subTab = newSubTab;
+    }
+    // Si es LIST, params queda limpio { tab: "giras" } y React Router limpia la URL.
+
     setSearchParams(params);
   };
 
@@ -279,6 +282,7 @@ export default function GirasView({
     }
   };
 
+  // Validación de invitado (se mantiene porque es seguridad/lógica de negocio)
   useEffect(() => {
     if (isGuest && user?.active_gira_id) {
       const needsFiltering =
@@ -431,11 +435,9 @@ export default function GirasView({
     }
   };
 
-  // --- FUNCIÓN GLOBAL DE SINCRONIZACIÓN (BOTÓN SUPERIOR) ---
   const handleGlobalSync = async () => {
     if (!confirm("¿Recalcular nomencladores y carpetas de Drive para TODAS las giras vigentes? (Esto puede tomar unos segundos)")) return;
     
-    // Feedback
     const btn = document.getElementById("btn-sync-global");
     if(btn) {
         btn.disabled = true;
@@ -443,18 +445,16 @@ export default function GirasView({
     }
 
     try {
-        // CAMBIO: Usar 'drive-manager' en lugar de 'calendar-export'
         const { error } = await supabase.functions.invoke("manage-drive", { 
             body: { 
                 action: "sync_program", 
-                // No enviamos programId para que procese el año actual completo
             }
         });
 
         if (error) throw error;
         
         alert("Sincronización completada. Verifica los cambios en Drive y en los nombres de las giras.");
-        await fetchGiras(); // Refrescar lista
+        await fetchGiras();
     } catch (err) {
         console.error(err);
         alert("Error al sincronizar: " + err.message);
@@ -524,7 +524,6 @@ export default function GirasView({
         if (staffPayload.length > 0)
           await supabase.from("giras_integrantes").insert(staffPayload);
         
-        // Sincronizar al guardar
         await supabase.functions.invoke("drive-manager", {
           body: { action: "sync_program", programId: targetId },
         });
