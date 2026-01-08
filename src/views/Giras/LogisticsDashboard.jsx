@@ -221,11 +221,11 @@ export default function LogisticsDashboard({ supabase, gira, onBack }) {
           <GirasTransportesManager supabase={supabase} gira={gira} />
         )}
 
-        {/* --- AQUÍ ESTABA EL ERROR --- */}
+        {/* --- CORRECCIÓN CRÍTICA AQUÍ --- */}
         {activeTab === "viaticos" && gira?.id && (
           <ViaticosManager 
             supabase={supabase} 
-            gira={gira} 
+            giraId={gira.id} // <-- Se cambió 'gira={gira}' por 'giraId={gira.id}'
             onClose={handleBack} 
           />
         )}

@@ -1,4 +1,3 @@
-// src/views/Giras/MealsReport.jsx
 import React, { useState, useEffect, useMemo } from "react";
 import { IconLoader, IconPrinter } from "../../components/ui/Icons";
 import { format, parseISO } from "date-fns";
@@ -42,7 +41,8 @@ export default function MealsReport({ supabase, gira }) {
             // 3. Obtener Eventos
             const { data: events } = await supabase
                 .from("eventos")
-                .select("*, tipos_evento(nombre), locaciones(nombre), convocados") 
+                // CAMBIO AQUÍ: Agregamos localidades(localidad) a la query
+                .select("*, tipos_evento(nombre), locaciones(nombre, localidades(localidad)), convocados") 
                 .eq("id_gira", gira.id)
                 .in("id_tipo_evento", [7, 8, 9, 10])
                 .order("fecha", { ascending: true })
@@ -108,12 +108,17 @@ export default function MealsReport({ supabase, gira }) {
                     }
                 });
 
+                // CAMBIO AQUÍ: Formatear string de Lugar - Localidad
+                const locName = evt.locaciones?.nombre || "Sin ubicación";
+                const locCity = evt.locaciones?.localidades?.localidad;
+                const lugarFull = locCity ? `${locName} - ${locCity}` : locName;
+
                 return {
                     id: evt.id,
                     fecha: evt.fecha,
                     hora: evt.hora_inicio?.slice(0,5),
                     servicio: SERVICE_IDS[evt.id_tipo_evento] || evt.tipos_evento?.nombre,
-                    lugar: evt.locaciones?.nombre || "Sin ubicación",
+                    lugar: lugarFull,
                     counts
                 };
             });
