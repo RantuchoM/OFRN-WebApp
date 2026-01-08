@@ -27,20 +27,17 @@ export const calculateLogisticsSummary = (
     const scope = normalize(rule.alcance);
     const pId = String(person.id);
 
-    // -----------------------------------------------------------------------
     // 1. REGLAS POR PERSONA (SUPREMACÍA ABSOLUTA)
-    // -----------------------------------------------------------------------
-    // Estas reglas ignoran rol, categoría o cualquier otra condición.
     if (scope === "persona") {
+      const matchIndividual = String(rule.id_integrante) === pId;
+      let matchTargets = false;
       if (rule.target_ids && Array.isArray(rule.target_ids) && rule.target_ids.length > 0) {
-        return rule.target_ids.map(String).includes(pId);
+        matchTargets = rule.target_ids.map(String).includes(pId);
       }
-      return String(rule.id_integrante) === pId;
+      return matchIndividual || matchTargets;
     }
 
-    // -----------------------------------------------------------------------
     // 2. REGLAS POR CATEGORÍA / INSTRUMENTO
-    // -----------------------------------------------------------------------
     if (scope === "categoria" || scope === "instrumento") {
       const targets = (rule.target_ids || []).map(t => String(t).toUpperCase());
       const legacyVal = rule.instrumento_familia;
@@ -59,18 +56,10 @@ export const calculateLogisticsSummary = (
       } else if (legacyVal) {
         return person.instrumentos?.familia?.includes(legacyVal);
       }
-      
-      // Si es regla de categoría y no aplica, retornamos false aquí.
-      // No permitimos que "caiga" a las reglas generales.
       return false; 
     }
 
-    // -----------------------------------------------------------------------
-    // 3. FILTRO DE ROLES PARA REGLAS MASIVAS (GEOGRÁFICAS/GENERALES)
-    // -----------------------------------------------------------------------
-    // Solo Músicos (y directores/solistas de planta) ven reglas generales.
-    // Producción/Staff NO ven reglas generales (a menos que tengan regla explícita arriba).
-    
+    // 3. FILTRO DE ROLES PARA REGLAS MASIVAS
     const userRole = normalize(person.rol_gira || "musico");
     let allowMassive = false;
 
@@ -82,10 +71,7 @@ export const calculateLogisticsSummary = (
     
     if (!allowMassive) return false; 
 
-    // -----------------------------------------------------------------------
     // 4. CHEQUEO GEOGRÁFICO / GENERAL
-    // -----------------------------------------------------------------------
-
     if (scope === "general") return true;
 
     const pLoc = String(person.id_localidad);
@@ -127,7 +113,6 @@ export const calculateLogisticsSummary = (
     logisticsRules.forEach((r) => {
       if (matchesRule(r, person)) {
         const src = getSourceCode(r.alcance);
-        // ... (Lógica de asignación de hotel/comida se mantiene igual)
         if (r.fecha_checkin) { logisticsData.checkin = r.fecha_checkin; logisticsData.checkin_src = src; }
         if (r.hora_checkin) logisticsData.checkin_time = r.hora_checkin;
         if (r.fecha_checkout) { logisticsData.checkout = r.fecha_checkout; logisticsData.checkout_src = src; }
@@ -147,13 +132,11 @@ export const calculateLogisticsSummary = (
       }
     });
 
-    // 2. TRANSPORTE - LÓGICA DE PRIORIDADES MEJORADA
+    // 2. TRANSPORTE
     if (transportRules) {
-      // a) Buscar TODAS las reglas que coincidan con la persona
       const matching = transportRules.filter((r) => matchesRule(r, person));
       const transportGroups = {};
 
-      // b) Agrupar por Transporte
       matching.forEach((r) => {
         const tId = r.id_gira_transporte;
         if (!transportGroups[tId]) {
@@ -169,55 +152,57 @@ export const calculateLogisticsSummary = (
       Object.keys(transportGroups).forEach((tId) => {
         const { inclusions, exclusions, logisticsOnly } = transportGroups[tId];
 
-        // -----------------------------------------------------
-        // PASO CRÍTICO: RESOLUCIÓN DE CONFLICTOS
-        // -----------------------------------------------------
-        
-        // 1. ¿Existe una regla explícita "POR PERSONA"?
         const personalInclusion = inclusions.find(r => normalize(r.alcance) === 'persona');
         const personalExclusion = exclusions.find(r => normalize(r.alcance) === 'persona');
         const personalLogistics = logisticsOnly.find(r => normalize(r.alcance) === 'persona');
 
         const hasPersonalRule = !!(personalInclusion || personalLogistics);
 
-        // 2. Lógica de VETO (Exclusión)
-        // Solo un veto "Persona" puede matar a una inclusión "Persona".
-        if (personalExclusion) return; // Veto explícito personal -> NO viaja.
+        // --- LÓGICA DE RESOLUCIÓN DE VETOS MEJORADA ---
+        
+        // Caso A: Veto Duro (Manual). El usuario hizo clic en "Excluir". 
+        // Identificado porque es exclusión Y NO es "solo_logistica".
+        const isHardVeto = personalExclusion && !personalExclusion.solo_logistica;
+        if (isHardVeto) return; 
 
-        // Si NO hay inclusión personal, las exclusiones generales (categoría/región) aplican.
-        // Si SÍ hay inclusión personal, IGNORAMOS las exclusiones generales.
+        // Caso B: Veto Suave (Logístico/Automático).
+        // Si hay una exclusión logística (ej: generada por itinerario) PERO existe una inclusión personal manual,
+        // la inclusión manual debe GANAR.
+        if (personalExclusion && !personalInclusion) {
+           // Si solo hay exclusión (y no inclusión que lo salve), entonces sí aplicamos el veto.
+           return;
+        }
+
+        // --- LÓGICA DE ADMISIÓN ---
+        
+        // Si no hay veto efectivo, revisamos si tiene permiso para entrar.
+        // Si tiene exclusión general (categoria/region) y NO tiene regla personal, queda fuera.
         if (!hasPersonalRule) {
              if (exclusions.length > 0) return;
         }
 
-        // 3. Lógica de ADMISIÓN (Inclusión)
         let admitted = false;
-
         if (hasPersonalRule) {
-            // Si tiene regla personal (inclusión o logística), entra directo.
             admitted = true;
         } else {
-            // Si no es personal, debe cumplir criterios estándar:
             const hasExplicitInclusion = inclusions.length > 0;
             const hasRoleInclusion = inclusions.some(r => ['categoria', 'instrumento'].includes(normalize(r.alcance)));
-            
-            // Si hay inclusión explícita (general/cat) o por rol -> entra.
             if (hasExplicitInclusion || hasRoleInclusion) admitted = true;
         }
 
         if (!admitted) return;
 
-        // -----------------------------------------------------
+        // --- CÁLCULO DE PARADAS ---
 
-        // Recuperar datos base del transporte
         const allStopRules = [...inclusions, ...logisticsOnly];
-        const ruleWithData = allStopRules.find(r => r.giras_transportes);
+        // Nota: Si la regla que "salvó" era una exclusión logística, técnicamente no está en inclusions/logisticsOnly 
+        // (porque estaba en exclusions), pero si tiene datos de paradas, deberíamos considerarla si queremos respetar esa parada.
+        // Sin embargo, si es una exclusión, probablemente no queremos usar sus paradas. Usaremos la de Inclusión Personal.
         
+        const ruleWithData = allStopRules.find(r => r.giras_transportes);
         if (!ruleWithData) return;
 
         const baseData = ruleWithData.giras_transportes;
-        
-        // Calcular prioridad visual
         let maxPrio = 0;
         allStopRules.forEach(r => {
              const p = getPriorityValue(r.alcance);
@@ -234,21 +219,18 @@ export const calculateLogisticsSummary = (
         allStopRules.forEach((r) => {
           const prio = getPriorityValue(r.alcance);
 
-          // Subida
           if (r.id_evento_subida) {
              if (prio >= tState.subida.prio) {
                  tState.subida.id = r.id_evento_subida;
                  tState.subida.prio = prio;
              }
           } else if (prio === 5) { 
-             // Reset manual si es regla persona
              if (prio >= tState.subida.prio) {
                  tState.subida.id = null;
                  tState.subida.prio = prio;
              }
           }
 
-          // Bajada
           if (r.id_evento_bajada) {
              if (prio >= tState.bajada.prio) {
                  tState.bajada.id = r.id_evento_bajada;
@@ -292,7 +274,6 @@ export function useLogistics(supabase, gira) {
     if (!giraId) return;
     setRulesLoading(true);
     try {
-      // 1. Reglas de Logística
       const { data: logData } = await supabase
         .from("giras_logistica_reglas")
         .select("*")
@@ -300,7 +281,6 @@ export function useLogistics(supabase, gira) {
         .order("prioridad", { ascending: true });
       setLogisticsRules(logData || []);
 
-      // 2. Reglas de Transporte
       const { data: transData, error: transError } = await supabase
         .from("giras_logistica_reglas_transportes")
         .select(`*, giras_transportes!inner (id, id_gira, detalle, transportes ( nombre ))`)
