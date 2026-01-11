@@ -1,6 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import path from "path";
+
+// Solución para __dirname en módulos ES (por si tu proyecto lo requiere)
+const __dirname = path.resolve();
 
 export default defineConfig({
   plugins: [
@@ -8,13 +12,9 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
-      
-      // 1. Configuración de Workbox (Aquí es donde se arregla el error de límite de tamaño)
       workbox: {
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 4MB
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // Subimos a 5MB por seguridad
       },
-
-      // 2. Configuración del Manifiesto (Apariencia de la App)
       manifest: {
         name: "Gestor de Giras",
         short_name: "Giras",
@@ -24,24 +24,34 @@ export default defineConfig({
         display: "standalone",
         orientation: "portrait",
         icons: [
-          {
-            src: "pwa-192x192.png",
-            sizes: "192x192",
-            type: "image/png",
-          },
-          {
-            src: "pwa-512x512.png",
-            sizes: "512x512",
-            type: "image/png",
-          },
-          {
-            src: "pwa-512x512.png",
-            sizes: "512x512",
-            type: "image/png",
-            purpose: "any maskable",
-          },
+          { src: "pwa-192x192.png", sizes: "192x192", type: "image/png" },
+          { src: "pwa-512x512.png", sizes: "512x512", type: "image/png" },
+          { src: "pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
         ],
       },
     }),
   ],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  // --- AQUÍ ESTÁ LA SOLUCIÓN REFORZADA ---
+  optimizeDeps: {
+    // Forzamos la inclusión de todas las dependencias problemáticas
+    include: [
+      "react-filerobot-image-editor",
+      "@scaleflex/ui/core",
+      "react-konva",
+      "konva",
+      "styled-components"
+    ],
+    esbuildOptions: {
+      // Inyectamos el shim en TODAS ellas
+      inject: [path.resolve(__dirname, "./src/react-shim.js")],
+    },
+  },
+  define: {
+    global: "window", // Polyfill adicional
+  },
 });

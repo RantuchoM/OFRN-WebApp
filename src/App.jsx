@@ -21,13 +21,16 @@ import PublicLinkHandler from "./views/Public/PublicLinkHandler";
 import DashboardGeneral from "./views/Dashboard/DashboardGeneral";
 import NewsModal from "./components/news/NewsModal";
 import NewsManager from "./components/news/NewsManager";
+import FeedbackWidget from "./components/ui/FeedbackWidget"; 
+import FeedbackAdmin from "./views/Feedback/FeedbackAdmin"; // <--- NUEVO IMPORT
+
 import {
   IconLayoutDashboard,
   IconMap,
   IconMusic,
   IconUsers,
-  IconMapPin,     // Restaurado
-  IconFileText,   // Restaurado (Causante del error)
+  IconMapPin,
+  IconFileText,
   IconDatabase,
   IconSettings,
   IconLogOut,
@@ -35,8 +38,8 @@ import {
   IconMessageCircle,
   IconMenu,
   IconX,
-  IconCheck,      // Restaurado
-  IconUtensils,   // Restaurado
+  IconCheck,
+  IconUtensils,
   IconChevronLeft,
   IconChevronRight,
   IconSpiralNotebook,
@@ -44,6 +47,7 @@ import {
   IconAlertCircle,
   IconBell,
   IconCopy,
+  IconDrive // Asegúrate de tener este importado si lo usas abajo
 } from "./components/ui/Icons";
 
 // --- MODAL CALENDARIO (Mantenido igual) ---
@@ -240,6 +244,7 @@ const ProtectedApp = () => {
     news_manager: "NEWS_MANAGER",
     avisos: "COMMENTS",
     comidas: "MY_MEALS",
+    feedback: "FEEDBACK_ADMIN", // <--- NUEVO
   };
   
   // Mapeo de Modo a Tab (para actualización)
@@ -257,6 +262,7 @@ const ProtectedApp = () => {
     COMMENTS: "avisos",
     MY_MEALS: "comidas",
     NEWS_MANAGER: "news_manager",
+    FEEDBACK_ADMIN: "feedback", // <--- NUEVO
   };
 
   // ESTADO DERIVADO DE URL (Single Source of Truth)
@@ -496,6 +502,12 @@ const ProtectedApp = () => {
       icon: <IconSettings size={20} />,
       show: userRole === "admin",
     },
+    {
+      id: "FEEDBACK_ADMIN",
+      label: "Feedback",
+      icon: <IconMessageCircle size={20} />,
+      show: userRole === "admin", // <--- VISIBLE SOLO PARA ADMIN
+    },
   ];
   const visibleMenuItems = allMenuItems.filter((i) => i.show);
 
@@ -555,6 +567,8 @@ const ProtectedApp = () => {
         return <MyPartsViewer {...commonProps} />;
       case "MY_MEALS":
         return <MealsAttendancePersonal {...commonProps} />;
+      case "FEEDBACK_ADMIN":
+        return <FeedbackAdmin {...commonProps} />; // <--- RENDERIZADO DE VISTA ADMIN
       default:
         return <div className="p-10 text-center">Vista no encontrada</div>;
     }
@@ -852,6 +866,9 @@ const ProtectedApp = () => {
         onClose={() => setCalendarModalOpen(false)}
         userId={user?.id}
       />
+      
+      {/* WIDGET DE FEEDBACK */}
+      <FeedbackWidget supabase={supabase} userEmail={user?.email} />
     </div>
   );
 };

@@ -1,4 +1,6 @@
 import React from 'react'
+import './global-shim'; // <--- ESTA DEBE SER LA LÍNEA 1
+window.React = React; // <--- ESTA LÍNEA SOLUCIONA EL ERROR
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom' // <--- IMPORTAR
 import App from './App.jsx'

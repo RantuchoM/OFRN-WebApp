@@ -9,7 +9,7 @@ import {
   IconFileText,
   IconMapPin,
 } from "../../components/ui/Icons";
-import SearchableSelect from "../../components/ui/SearchableSelect"; 
+import SearchableSelect from "../../components/ui/SearchableSelect";
 import DateInput from "../../components/ui/DateInput";
 
 export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
@@ -18,7 +18,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const [showPassword, setShowPassword] = useState(false);
 
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
-  const [locationsOptions, setLocationsOptions] = useState([]); 
+  const [locationsOptions, setLocationsOptions] = useState([]);
 
   // Inicialización del Formulario
   const [formData, setFormData] = useState({
@@ -29,7 +29,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     cuil: "",
     mail: "",
     telefono: "",
-    condicion: "Planta",
+    condicion: "Estable",
     genero: "M", // Valor por defecto seguro para Enums (M/F)
     alimentacion: "",
     nacionalidad: "Argentina",
@@ -89,7 +89,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       const payload = { ...formData };
 
       // --- LIMPIEZA DE DATOS (Vacíos -> Null) ---
-      
+
       // 1. Fechas
       if (!payload.fecha_nac) payload.fecha_nac = null;
       if (!payload.fecha_alta) payload.fecha_alta = null;
@@ -117,13 +117,13 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       delete payload.es_adicional;
       delete payload.id_gira;
       delete payload.token_publico;
-      delete payload.is_local; 
+      delete payload.is_local;
 
       // --- GESTIÓN DE ID ---
       // Si NO hay ID (es creación), generamos uno numérico usando timestamp
       // para satisfacer la restricción NOT NULL de int8.
       if (!payload.id) {
-          payload.id = Date.now(); 
+        payload.id = Date.now();
       }
 
       // Guardado
@@ -150,7 +150,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-3xl w-full mx-auto flex flex-col max-h-[90vh]">
-      
       {/* Header Fijo */}
       <div className="bg-slate-50 p-4 border-b flex justify-between items-center shrink-0 rounded-t-xl">
         <h3 className="font-bold text-slate-800 flex items-center gap-2">
@@ -310,10 +309,11 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       setFormData({ ...formData, condicion: e.target.value })
                     }
                   >
-                    <option value="Planta">Planta</option>
+                    <option value="Estable">Estable</option>
                     <option value="Contratado">Contratado</option>
                     <option value="Invitado">Invitado</option>
                     <option value="Refuerzo">Refuerzo</option>
+                    <option value="Pasante">Pasante</option>
                   </select>
                 </div>
                 <div>
@@ -398,8 +398,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                   />
                 </div>
               </div>
-              
-              <div className="h-20 md:h-32"></div> 
+
+              <div className="h-20 md:h-32"></div>
             </div>
           )}
 
@@ -418,7 +418,9 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 />
               </div>
               <div>
-                <label className={labelClass}>Link Documentación Reducida</label>
+                <label className={labelClass}>
+                  Link Documentación Reducida
+                </label>
                 <input
                   type="text"
                   placeholder="https://..."

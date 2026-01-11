@@ -5,9 +5,9 @@ import {
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
-import { useLogistics, calculateLogisticsSummary } from "../../hooks/useLogistics"; // Importamos el helper
+import { useLogistics, calculateLogisticsSummary } from "../../hooks/useLogistics";
 
-// --- HELPERS (Igual que antes) ---
+// --- HELPERS ---
 const CATEGORIA_OPTIONS = [
   { val: "SOLISTAS", label: "Solistas" }, { val: "DIRECTORES", label: "Directores" },
   { val: "PRODUCCION", label: "Producción" }, { val: "LOCALES", label: "Locales" }, { val: "NO_LOCALES", label: "No Locales" },
@@ -84,7 +84,16 @@ const MultiSelectCell = ({ options, selectedIds, onChange, placeholder = "Selecc
 
 // --- COMPONENTE PRINCIPAL ---
 export default function LogisticsManager({ supabase, gira }) {
-  const { roster, logisticsRules, transportRules, loading, refresh } = useLogistics(supabase, gira);
+  // ADAPTACIÓN: Usamos el nuevo hook con soporte de Admisión/Rutas
+  const { 
+    roster, 
+    logisticsRules, 
+    admissionRules, // Nuevo
+    routeRules,     // Nuevo
+    transportes,    // Nuevo
+    loading, 
+    refresh 
+  } = useLogistics(supabase, gira);
   
   const [localRules, setLocalRules] = useState([]);
   const [savingRows, setSavingRows] = useState(new Set());
@@ -118,12 +127,12 @@ export default function LogisticsManager({ supabase, gira }) {
   }, []);
 
   // --- CÁLCULO DE RESUMEN INSTANTÁNEO ---
-  // Usamos localRules para que el cuadro de abajo refleje lo que escribes al instante
+  // ADAPTACIÓN: Pasamos las nuevas reglas de transporte al calculador
   const summary = useMemo(() => {
       // Ordenamos localRules por prioridad antes de calcular (0 -> 4)
       const sortedLocal = [...localRules].sort((a,b) => (a.prioridad || 0) - (b.prioridad || 0));
-      return calculateLogisticsSummary(roster, sortedLocal, transportRules);
-  }, [roster, localRules, transportRules]);
+      return calculateLogisticsSummary(roster, sortedLocal, admissionRules, routeRules, transportes);
+  }, [roster, localRules, admissionRules, routeRules, transportes]);
 
   // --- CRUD ---
   const addEmptyRow = async () => {
