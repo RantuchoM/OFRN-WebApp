@@ -213,12 +213,14 @@ export function useLogistics(supabase, gira, trigger = 0) {
   const [transportes, setTransportes] = useState([]);
   const [rooms, setRooms] = useState([]);
   
-  // Estado para meta-información de viáticos (Solo lo exportado y sedes)
   const [viaticosMeta, setViaticosMeta] = useState({ 
     exportedPeopleIds: [], 
     exportedLocationIds: [], 
+    tourLocationIds: [],
     sedeIds: []
   });
+
+  const [mealsMeta, setMealsMeta] = useState({ events: [], responses: [] });
 
   const [rulesLoading, setRulesLoading] = useState(true);
   const giraId = gira?.id;
@@ -227,6 +229,7 @@ export function useLogistics(supabase, gira, trigger = 0) {
     if (!giraId) return;
     setRulesLoading(true);
     try {
+      // 1. CARGA GENERAL DE LOGÍSTICA
       const { data: logData } = await supabase.from("giras_logistica_reglas").select("*").eq("id_gira", giraId).order("prioridad", { ascending: true });
       setLogisticsRules(logData || []);
 
@@ -236,7 +239,7 @@ export function useLogistics(supabase, gira, trigger = 0) {
       const { data: admData } = await supabase.from("giras_logistica_admision").select("*").eq("id_gira", giraId);
       setAdmissionRules(admData || []);
 
-      const { data: routeData } = await supabase.from("giras_logistica_rutas").select(`*, evento_subida: id_evento_subida ( id, fecha, hora_inicio, descripcion, locaciones ( localidades ( localidad ) ) ), evento_bajada: id_evento_bajada ( id, fecha, hora_inicio, descripcion, locaciones ( localidades ( localidad ) ) )`).eq("id_gira", giraId);
+      const { data: routeData } = await supabase.from("giras_logistica_rutas").select(`*, evento_subida: id_evento_subida ( id, fecha, hora_inicio, descripcion, locaciones ( id_localidad, localidades ( localidad ) ) ), evento_bajada: id_evento_bajada ( id, fecha, hora_inicio, descripcion, locaciones ( id_localidad, localidades ( localidad ) ) )`).eq("id_gira", giraId);
       setRouteRules(routeData || []);
 
       const { data: hospedajes } = await supabase.from("programas_hospedajes").select("id").eq("id_programa", giraId);
@@ -248,40 +251,39 @@ export function useLogistics(supabase, gira, trigger = 0) {
         setRooms([]);
       }
 
-      // --- VIÁTICOS: EXTRACCIÓN DE DATOS ---
-      
-      // 1. Personas exportadas (Viáticos Individuales)
-      // Solo traemos los que tienen fecha de exportación confirmada
-      const { data: vDetalle } = await supabase
-        .from('giras_viaticos_detalle')
-        .select('id_integrante')
-        .eq('id_gira', giraId)
-        .not('fecha_ultima_exportacion', 'is', null);
-      
+      // --- VIÁTICOS ---
+      const { data: vDetalle } = await supabase.from('giras_viaticos_detalle').select('id_integrante').eq('id_gira', giraId).not('fecha_ultima_exportacion', 'is', null);
       const exportedPeopleIds = (vDetalle || []).map(r => r.id_integrante);
 
-      // 2. Localidades exportadas (Destaques)
-      // Solo traemos los que tienen fecha de exportación
-      const { data: destConfig } = await supabase
-        .from('giras_destaques_config')
-        .select('id_localidad')
-        .eq('id_gira', giraId)
-        .not('fecha_ultima_exportacion', 'is', null);
-
+      const { data: destConfig } = await supabase.from('giras_destaques_config').select('id_localidad').eq('id_gira', giraId).not('fecha_ultima_exportacion', 'is', null);
       const exportedLocationIds = (destConfig || []).map(r => r.id_localidad);
 
-      // 3. Sedes (Localidades marcadas como sede)
-      const { data: sedesData } = await supabase
-        .from('giras_localidades')
-        .select('id_localidad')
-        .eq('id_gira', giraId);
-      
+      const { data: sedesData } = await supabase.from('giras_localidades').select('id_localidad').eq('id_gira', giraId);
       const sedeIds = (sedesData || []).map(s => s.id_localidad);
 
-      setViaticosMeta({
-        exportedPeopleIds,
-        exportedLocationIds,
-        sedeIds
+      const destinations = new Set();
+      routeData?.forEach(route => {
+          if (route.evento_subida?.locaciones?.id_localidad) destinations.add(route.evento_subida.locaciones.id_localidad);
+          if (route.evento_bajada?.locaciones?.id_localidad) destinations.add(route.evento_bajada.locaciones.id_localidad);
+      });
+      const tourLocationIds = Array.from(destinations);
+
+      setViaticosMeta({ exportedPeopleIds, exportedLocationIds, tourLocationIds, sedeIds });
+
+      // --- COMIDAS: Agregamos campo 'convocados' ---
+      const { data: mealEvents } = await supabase
+        .from('giras_comidas_eventos') 
+        .select('id, convocados') // <--- CAMBIO AQUÍ: Traemos convocados
+        .eq('id_gira', giraId);
+
+      const { data: mealResps } = await supabase
+        .from('giras_comidas_respuestas') 
+        .select('id_integrante, id_comida_evento')
+        .eq('id_gira', giraId);
+
+      setMealsMeta({
+          events: mealEvents || [],
+          responses: mealResps || []
       });
 
     } catch (error) {
@@ -304,9 +306,10 @@ export function useLogistics(supabase, gira, trigger = 0) {
     const computedRoster = calculateLogisticsSummary(baseRoster, logisticsRules, admissionRules, routeRules, transportes, rooms);
     if (computedRoster && Array.isArray(computedRoster)) {
         computedRoster.viaticosMeta = viaticosMeta;
+        computedRoster.mealsMeta = mealsMeta;
     }
     return computedRoster;
-  }, [baseRoster, logisticsRules, admissionRules, routeRules, transportes, rooms, viaticosMeta]);
+  }, [baseRoster, logisticsRules, admissionRules, routeRules, transportes, rooms, viaticosMeta, mealsMeta]);
 
   return { summary: summary || [], roster: baseRoster, rooms, logisticsRules, admissionRules, routeRules, transportes, loading: rosterLoading || rulesLoading, refresh, helpers: { matchesRule } };
 }

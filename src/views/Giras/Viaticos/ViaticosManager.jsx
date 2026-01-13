@@ -12,7 +12,7 @@ import RendicionForm from "./RendicionForm";
 import DestaquesLocationPanel from "./DestaquesLocationPanel";
 import ViaticosTable from "./ViaticosTable";
 import { PDFDocument } from "pdf-lib";
-
+import ManualTrigger from '../../../components/manual/ManualTrigger'; // Ajusta la ruta según donde estés
 // --- UTILIDADES ---
 const calculateDaysDiff = (dSal, hSal, dLleg, hLleg) => {
   if (!dSal || !dLleg) return 0;
@@ -711,6 +711,7 @@ export default function ViaticosManager({ supabase, giraId }) {
         </div>
         {showIndividualPanel && (
             <div className="animate-in slide-in-from-top-2 duration-200">
+              <ManualTrigger section="vi_ticos_intro_mkd1at12" />
                 <div className="px-6 pb-4 flex flex-col gap-4">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="flex gap-2 flex-wrap">

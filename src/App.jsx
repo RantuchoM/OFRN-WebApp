@@ -23,7 +23,9 @@ import NewsModal from "./components/news/NewsModal";
 import NewsManager from "./components/news/NewsManager";
 import FeedbackWidget from "./components/ui/FeedbackWidget"; 
 import FeedbackAdmin from "./views/Feedback/FeedbackAdmin"; // <--- NUEVO IMPORT
-
+import { ManualProvider } from './context/ManualContext';
+import ManualIndex from './views/Manual/ManualIndex';
+import ManualAdmin from './views/Manual/ManualAdmin';
 import {
   IconLayoutDashboard,
   IconMap,
@@ -47,7 +49,9 @@ import {
   IconAlertCircle,
   IconBell,
   IconCopy,
-  IconDrive // Asegúrate de tener este importado si lo usas abajo
+  IconDrive, // Asegúrate de tener este importado si lo usas abajo
+  IconBookOpen, // <--- AGREGADO: Asegúrate de tener este ícono en Icons.jsx
+  IconEdit
 } from "./components/ui/Icons";
 
 // --- MODAL CALENDARIO (Mantenido igual) ---
@@ -245,6 +249,8 @@ const ProtectedApp = () => {
     avisos: "COMMENTS",
     comidas: "MY_MEALS",
     feedback: "FEEDBACK_ADMIN", // <--- NUEVO
+    manual: "MANUAL_INDEX",       // <--- NUEVO
+    manual_admin: "MANUAL_ADMIN"  // <--- NUEVO
   };
   
   // Mapeo de Modo a Tab (para actualización)
@@ -263,6 +269,8 @@ const ProtectedApp = () => {
     MY_MEALS: "comidas",
     NEWS_MANAGER: "news_manager",
     FEEDBACK_ADMIN: "feedback", // <--- NUEVO
+    MANUAL_INDEX: "manual",       // <--- NUEVO
+    MANUAL_ADMIN: "manual_admin"  // <--- NUEVO
   };
 
   // ESTADO DERIVADO DE URL (Single Source of Truth)
@@ -497,6 +505,18 @@ const ProtectedApp = () => {
       show: isManagement,
     },
     {
+      id: "MANUAL_INDEX",
+      label: "Manual de Usuario",
+      icon: <IconBookOpen size={20} />, 
+      show: userRole !== "invitado", // Visible para todos los usuarios reales
+    },
+    {
+      id: "MANUAL_ADMIN",
+      label: "Editor Manual",
+      icon: <IconEdit size={20} />, 
+      show: isManagement, // Solo admins/editores pueden editar el manual
+    },
+    {
       id: "USERS",
       label: "Usuarios",
       icon: <IconSettings size={20} />,
@@ -569,7 +589,11 @@ const ProtectedApp = () => {
         return <MealsAttendancePersonal {...commonProps} />;
       case "FEEDBACK_ADMIN":
         return <FeedbackAdmin {...commonProps} />; // <--- RENDERIZADO DE VISTA ADMIN
-      default:
+      case "MANUAL_INDEX":
+        return <ManualIndex {...commonProps} />;
+      case "MANUAL_ADMIN":
+        return <ManualAdmin {...commonProps} />;
+        default:
         return <div className="p-10 text-center">Vista no encontrada</div>;
     }
   };
@@ -878,14 +902,15 @@ const AppContent = () => {
   if (!user) return <LoginView />;
   return <ProtectedApp />;
 };
-
 export default function App() {
   return (
     <AuthProvider>
-      <Routes>
-        <Route path="/share/:token" element={<PublicLinkHandler />} />
-        <Route path="/*" element={<AppContent />} />
-      </Routes>
+      <ManualProvider> {/* <--- AQUÍ ENVUELVES TODO EL SISTEMA */}
+        <Routes>
+          <Route path="/share/:token" element={<PublicLinkHandler />} />
+          <Route path="/*" element={<AppContent />} />
+        </Routes>
+      </ManualProvider>
     </AuthProvider>
   );
 }

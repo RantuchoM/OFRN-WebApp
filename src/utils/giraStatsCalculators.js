@@ -1,8 +1,9 @@
 /**
  * src/utils/giraStatsCalculators.js
  */
+import { isUserConvoked } from './giraUtils';
 
-// --- HELPER ---
+// --- HELPER DE NORMALIZACIÓN ---
 const normalize = (str) => (str || "").toLowerCase().trim();
 
 // --- CÁLCULOS PUROS (RAW) ---
@@ -60,7 +61,7 @@ export const computeTransporteRaw = (data) => {
   };
 };
 
-// 4. VIÁTICOS (LOGICA DE EXCLUSIÓN MUTUA)
+// 4. VIÁTICOS
 export const computeViaticosRaw = (data) => {
   const { roster } = data;
   if (!roster || !Array.isArray(roster)) return null;
@@ -68,125 +69,170 @@ export const computeViaticosRaw = (data) => {
   const meta = roster.viaticosMeta;
   if (!meta) return { kpi: [{ label: "Calc...", value: "-", color: "amber" }] };
 
-  const sedeSet = new Set((meta.sedeIds || []).map(Number));
+  const sedeSet = new Set(meta.sedeIds || []);
   
-  // Arrays para clasificar a la gente activa
-  const potentialIndividualIds = [];
-  const poolForLocations = []; // Gente que genera potencial de localidad (Estables/Musicos)
+  // A. PERSONAS
+  const potentialPeopleIds = roster
+    .filter(p => {
+        const estado = normalize(p.estado_gira || p.estado);
+        if (estado === "ausente" || estado === "rechazado" || estado === "baja") return false;
+        const condicion = normalize(p.condicion);
+        const rol = normalize(p.rol_gira || p.rol);
+        const isEstable = condicion === 'estable';
+        const isMusicoOrSolista = rol === 'musico' || rol === 'solista';
+        return (!isEstable) || (!isMusicoOrSolista);
+    })
+    .map(p => p.id);
+  
+  const totalPotentialPeople = potentialPeopleIds.length;
+  const exportedPeopleSet = new Set(meta.exportedPeopleIds || []);
+  const totalExportedPeople = potentialPeopleIds.filter(id => exportedPeopleSet.has(id)).length;
 
-  // 1. CLASIFICACIÓN DE PERSONAL
-  roster.forEach(p => {
-      // Filtro de actividad
+  // B. LOCALIDADES
+  const activeMusicians = roster.filter(p => {
       const estado = normalize(p.estado_gira || p.estado);
-      if (estado === "ausente" || estado === "rechazado" || estado === "baja") return;
-
-      const condicion = normalize(p.condicion);
-      const rol = normalize(p.rol_gira || p.rol);
-
-      // Regla Individual: (NO es estable) O (rol NO es musico/solista)
-      const isEstable = condicion === 'estable';
-      const isMusicoOrSolista = rol === 'musico' || rol === 'solista';
-      const isIndividual = (!isEstable) || (!isMusicoOrSolista);
-
-      if (isIndividual) {
-          potentialIndividualIds.push(p.id);
-      } else {
-          // Si NO es individual, contribuye al cálculo de localidades/destaques
-          poolForLocations.push(p);
-      }
+      return estado !== "ausente" && estado !== "rechazado" && estado !== "baja";
   });
+  const uniqueResidenceIds = new Set();
+  activeMusicians.forEach(p => { if (p.id_localidad) uniqueResidenceIds.add(Number(p.id_localidad)); });
+  const potentialLocIds = Array.from(uniqueResidenceIds).filter(locId => !sedeSet.has(locId));
+  const totalPotentialLocations = potentialLocIds.length;
+  const exportedLocSet = new Set(meta.exportedLocationIds || []);
+  const totalExportedLocations = potentialLocIds.filter(id => exportedLocSet.has(id)).length;
 
-  // --- A. CÁLCULO DE INDIVIDUALES ---
-  const totalPotentialPeople = potentialIndividualIds.length;
-  const exportedPeopleSet = new Set((meta.exportedPeopleIds || []).map(Number));
-  // Cuántos de los potenciales individuales están exportados
-  const totalExportedPeople = potentialIndividualIds.filter(id => exportedPeopleSet.has(Number(id))).length;
-
-
-  // --- B. CÁLCULO DE LOCALIDADES (DESTAQUES) ---
-  // Solo usamos 'poolForLocations' (excluyendo a los directores/staff/contratados que ya fueron contados arriba)
-  const potentialLocsMap = new Map(); // ID -> Nombre
-
-  poolForLocations.forEach(p => {
-      // Determinación de localidad (Viático > Residencia)
-      let locId = null;
-      let locName = "";
-
-      if (p.viaticos && p.viaticos.id) {
-          locId = p.viaticos.id;
-          locName = p.viaticos.localidad;
-      } else if (p.id_loc_viaticos) {
-          locId = p.id_loc_viaticos;
-          locName = `Loc ${locId}`;
-      } else if (p.localidades && p.localidades.id) {
-          locId = p.localidades.id;
-          locName = p.localidades.localidad;
-      } else if (p.id_localidad) {
-          locId = p.id_localidad;
-          locName = `Loc ${locId}`;
-      }
-
-      // Si tiene localidad y NO es Sede, es potencial
-      if (locId && !sedeSet.has(Number(locId))) {
-          potentialLocsMap.set(Number(locId), locName || "Desconocida");
-      }
-  });
-
-  const totalPotentialLocations = potentialLocsMap.size;
-  const exportedLocSet = new Set((meta.exportedLocationIds || []).map(Number));
-  
-  // Cuántas de las localidades potenciales están exportadas
-  const exportedCount = Array.from(potentialLocsMap.keys()).filter(id => exportedLocSet.has(id)).length;
-  
-  // Identificar faltantes para tooltip
-  const missingLocNames = [];
-  potentialLocsMap.forEach((name, id) => {
-      if (!exportedLocSet.has(id)) missingLocNames.push(name);
-  });
-
-
-  // --- C. RESULTADO ---
   if (totalPotentialPeople === 0 && totalPotentialLocations === 0) {
       return { kpi: [{ label: "Viáticos N/A", value: "OK", color: "green" }] };
   }
 
   const peopleComplete = totalExportedPeople >= totalPotentialPeople;
-  const locsComplete = exportedCount >= totalPotentialLocations;
+  const locsComplete = totalExportedLocations >= totalPotentialLocations;
   const isFullyComplete = peopleComplete && locsComplete;
 
   let color = "red";
   if (isFullyComplete) color = "green";
-  else if (totalExportedPeople > 0 || exportedCount > 0) color = "amber";
-
-  const valueString = `P:${totalExportedPeople}/${totalPotentialPeople} L:${exportedCount}/${totalPotentialLocations}`;
-  
-  let tooltip = `ESTADO VIÁTICOS:
-  • Individuales: ${totalExportedPeople} exportados de ${totalPotentialPeople}.
-  • Localidades: ${exportedCount} exportadas de ${totalPotentialLocations}.`;
-  
-  if (missingLocNames.length > 0) {
-      const displayNames = missingLocNames.slice(0, 3).join(", ");
-      const extraCount = missingLocNames.length - 3;
-      const extraText = extraCount > 0 ? ` (+${extraCount})` : "";
-      tooltip += `\n\nFALTAN LOCALIDADES:\n• ${displayNames}${extraText}`;
-  }
+  else if (totalExportedPeople > 0 || totalExportedLocations > 0) color = "amber";
 
   return {
     kpi: [{
       label: isFullyComplete ? "Viáticos OK" : "Pendiente",
-      value: valueString,
+      value: `P:${totalExportedPeople}/${totalPotentialPeople} L:${totalExportedLocations}/${totalPotentialLocations}`,
       color: color,
     }],
-    tooltip: tooltip
+    tooltip: `PERSONAS: ${totalExportedPeople} exportadas de ${totalPotentialPeople} potenciales.\nLUGARES: ${totalExportedLocations} exportados de ${totalPotentialLocations} potenciales.`
   };
 };
+
+// 5. COMIDAS (DEBUGGEADO)
+export const computeMealsRaw = (data) => {
+  const { roster } = data;
+  if (!roster || !Array.isArray(roster)) return null;
+
+  const meta = roster.mealsMeta;
+  if (!meta || !meta.events) return { kpi: [{ label: "Calc...", value: "-", color: "amber" }] };
+
+  const events = meta.events || [];
+  const responses = meta.responses || [];
+
+  console.groupCollapsed("🍔 [MEALS DEBUG] Diagnóstico de Cálculo de Comidas");
+  console.log(`Total Eventos Comida: ${events.length}`);
+  
+  if (events.length === 0) {
+      console.groupEnd();
+      return { kpi: [{ label: "Sin Comidas", value: "N/A", color: "gray" }], tooltip: "No hay eventos de comida creados." };
+  }
+
+  // Filtrar roster activo
+  const activePax = roster.filter(p => {
+      const estado = normalize(p.estado_gira || p.estado);
+      return estado !== "ausente" && estado !== "rechazado" && estado !== "baja";
+  });
+  console.log(`Total Roster Activo: ${activePax.length}`);
+
+  // --- DEBUG POR EVENTO ---
+  console.group("Análisis por Evento (Convocados vs Respuestas)");
+  events.forEach((evt, idx) => {
+      // Calculamos quiénes DEBERÍAN estar en este evento
+      const convokedForEvent = activePax.filter(p => isUserConvoked(evt.convocados, p));
+      
+      // Calculamos cuántos de esos tienen respuesta registrada
+      const answersForEvent = responses.filter(r => 
+          r.id_comida_evento === evt.id && 
+          convokedForEvent.some(p => p.id === r.id_integrante)
+      );
+
+      console.log(`Evento #${idx + 1} (ID ${evt.id}): Convocados: ${convokedForEvent.length} | Respuestas: ${answersForEvent.length}`);
+      // Si quieres ver los tags: console.log("   Tags:", evt.convocados);
+  });
+  console.groupEnd();
+
+  // --- CÁLCULO POR PERSONA ---
+  let countComplete = 0;
+  let countPartial = 0;
+  let countNone = 0;
+  let totalEligiblePax = 0;
+
+  activePax.forEach(person => {
+      // 1. Identificar a qué eventos está convocado ESTA persona
+      const myEvents = events.filter(evt => isUserConvoked(evt.convocados, person));
+
+      if (myEvents.length === 0) {
+          // Si no está convocado a nada, no cuenta para el denominador
+          return;
+      }
+
+      totalEligiblePax++;
+
+      // 2. Contar cuántos de esos eventos tienen respuesta
+      const respondedCount = myEvents.filter(evt => 
+          responses.some(r => r.id_comida_evento === evt.id && r.id_integrante === person.id)
+      ).length;
+
+      if (respondedCount === myEvents.length) {
+          countComplete++;
+      } else if (respondedCount === 0) {
+          countNone++;
+      } else {
+          countPartial++;
+      }
+  });
+
+  console.log(`RESULTADO FINAL: Eligibles: ${totalEligiblePax} | Completos: ${countComplete} | Parciales: ${countPartial} | Nada: ${countNone}`);
+  console.groupEnd();
+
+  if (totalEligiblePax === 0) {
+      return { kpi: [{ label: "Nadie Convocado", value: "-", color: "gray" }] };
+  }
+
+  const isAllComplete = countComplete === totalEligiblePax;
+  let color = "red";
+  if (isAllComplete) color = "green";
+  else if (countComplete > 0 || countPartial > 0) color = "amber";
+
+  return {
+    kpi: [{
+      label: isAllComplete ? "Asistencia OK" : "Incompleto",
+      value: `OK:${countComplete} P:${countPartial} 0:${countNone}`,
+      color: color,
+    }],
+    tooltip: `ASISTENCIA A COMIDAS:
+    • Completos: ${countComplete} (Respondieron todo lo convocado)
+    • Parciales: ${countPartial}
+    • Sin respuesta: ${countNone}
+    (Total convocados: ${totalEligiblePax})`
+  };
+};
+
+// --- CONFIGURACIÓN ---
 
 const RAW_CALCULATORS = {
   ROSTER: computeRosterRaw,
   ROOMING: computeRoomingRaw,
   TRANSPORTE: computeTransporteRaw,
   VIATICOS: computeViaticosRaw, 
+  MEALS: computeMealsRaw, 
 };
+
+// --- EXPORTACIONES ---
 
 export const hasCalculator = (sectionKey) => {
   if (!sectionKey) return false;
