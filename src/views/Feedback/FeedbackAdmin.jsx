@@ -13,6 +13,7 @@ import {
   IconCalendar,
   IconEdit,
   IconClock,
+  IconBulb,
 } from "../../components/ui/Icons";
 
 export default function FeedbackAdmin({ supabase }) {
@@ -123,7 +124,7 @@ export default function FeedbackAdmin({ supabase }) {
       case "Ayuda":
         return <IconHelpCircle className="text-blue-500" />;
       default:
-        return <IconMessageCircle className="text-emerald-500" />;
+        return <IconBulb className="text-emerald-500" />;
     }
   };
 

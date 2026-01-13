@@ -11,11 +11,12 @@ import {
   IconSettings,
   IconMegaphone,
   IconUtensils,
-  IconLayoutDashboard, 
+  IconLayoutDashboard,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
-
+import { useGiraRoster } from "../../hooks/useGiraRoster"; // <--- IMPORTAR EL HOOK
+import { useLogistics } from "../../hooks/useLogistics"; // <--- AGREGAR ESTA LÍNEA
 // Sub-vistas
 import GiraForm from "./GiraForm";
 import GiraRoster from "./GiraRoster";
@@ -30,7 +31,7 @@ import ProgramSeating from "./ProgramSeating";
 import CommentsManager from "../../components/comments/CommentsManager";
 import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer";
 import GiraDifusion from "./GiraDifusion";
-import SectionStatusControl from "../../components/giras/SectionStatusControl"; 
+import SectionStatusControl from "../../components/giras/SectionStatusControl";
 import { deleteGira } from "../../services/giraActions";
 
 // Componentes Modularizados
@@ -39,17 +40,24 @@ import GiraCard from "./GiraCard";
 import {
   MoveGiraModal,
   DuplicateGiraModal,
-} from "../../components/giras/GiraManipulationModals"; 
-import { moveGira, duplicateGira } from "../../services/giraActions"; 
+} from "../../components/giras/GiraManipulationModals";
+import { moveGira, duplicateGira } from "../../services/giraActions";
 
 export default function GirasView({
-  supabase,
+  supabase, trigger = 0
   // Las props initial... ya no se usan para forzar la navegación
   // para evitar conflictos con la URL.
 }) {
   const { user, isEditor } = useAuth();
   const userRole = user?.rol_sistema || "";
+  // 1. ESTADO DE SEÑAL DE REFRESCO
+  const [statsRefreshTrigger, setStatsRefreshTrigger] = useState(0);
 
+  // 2. FUNCIÓN QUE PASAREMOS A LOS HIJOS
+  // "Cuando guardes algo, llámame para actualizar los numeritos de arriba"
+  const handleChildDataChange = () => {
+    setStatsRefreshTrigger((prev) => prev + 1);
+  };
   const isGuest = userRole === "invitado" || user?.id === "guest-general";
   const isPersonal =
     userRole === "consulta_personal" || userRole === "personal" || isGuest;
@@ -58,14 +66,14 @@ export default function GirasView({
 
   // --- ÚNICA FUENTE DE VERDAD: LA URL ---
   const [searchParams, setSearchParams] = useSearchParams();
-  
+
   const mode = searchParams.get("view") || "LIST";
   const giraId = searchParams.get("giraId");
   const currentTab = searchParams.get("subTab");
 
   const [giras, setGiras] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [actionGira, setActionGira] = useState(null); 
+  const [actionGira, setActionGira] = useState(null);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showDupModal, setShowDupModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -89,7 +97,7 @@ export default function GirasView({
       return { key: "REPERTOIRE", label: "Repertorio" };
 
     if (mode === "LOGISTICS") {
-      const subTab = currentTab || "coverage"; 
+      const subTab = currentTab || "coverage";
 
       if (subTab === "rooming")
         return { key: "ROOMING", label: "Rooming List" };
@@ -110,23 +118,26 @@ export default function GirasView({
   };
 
   const activeSection = getActiveSection();
+  const { summary: enrichedRosterData, loading: logisticsLoading } =
+    useLogistics(supabase, selectedGira, statsRefreshTrigger);
 
   // --- UPDATE VIEW SEGURO ---
   const updateView = (newMode, newGiraId = null, newSubTab = null) => {
     const params = { tab: "giras" };
-    
+
     // Si NO es lista, mantenemos el ID de la gira y la vista
     if (newMode && newMode !== "LIST") {
-        params.view = newMode;
-        
-        // Prioridad: ID nuevo > ID en URL > ID de la gira seleccionada actual
-        const gId = newGiraId || giraId || (selectedGira ? selectedGira.id : null);
-        
-        if (gId) {
-            params.giraId = gId;
-        }
-        
-        if (newSubTab) params.subTab = newSubTab;
+      params.view = newMode;
+
+      // Prioridad: ID nuevo > ID en URL > ID de la gira seleccionada actual
+      const gId =
+        newGiraId || giraId || (selectedGira ? selectedGira.id : null);
+
+      if (gId) {
+        params.giraId = gId;
+      }
+
+      if (newSubTab) params.subTab = newSubTab;
     }
     // Si es LIST, params queda limpio { tab: "giras" } y React Router limpia la URL.
 
@@ -398,7 +409,7 @@ export default function GirasView({
     setActionLoading(false);
     if (res.success) {
       setShowMoveModal(false);
-      fetchGiras(); 
+      fetchGiras();
     } else {
       alert("Error al mover la gira");
     }
@@ -411,7 +422,7 @@ export default function GirasView({
 
     if (res.success) {
       setShowDupModal(false);
-      fetchGiras(); 
+      fetchGiras();
     } else if (res.error === "DUPLICATE_NAME") {
       alert(
         `⚠️ Error: El nombre "${newName}" ya existe.\n\nPor favor, modifica el nombre en el formulario (ej: agrega un número o año).`
@@ -436,33 +447,40 @@ export default function GirasView({
   };
 
   const handleGlobalSync = async () => {
-    if (!confirm("¿Recalcular nomencladores y carpetas de Drive para TODAS las giras vigentes? (Esto puede tomar unos segundos)")) return;
-    
+    if (
+      !confirm(
+        "¿Recalcular nomencladores y carpetas de Drive para TODAS las giras vigentes? (Esto puede tomar unos segundos)"
+      )
+    )
+      return;
+
     const btn = document.getElementById("btn-sync-global");
-    if(btn) {
-        btn.disabled = true;
-        btn.classList.add("opacity-50", "cursor-wait");
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.add("opacity-50", "cursor-wait");
     }
 
     try {
-        const { error } = await supabase.functions.invoke("manage-drive", { 
-            body: { 
-                action: "sync_program", 
-            }
-        });
+      const { error } = await supabase.functions.invoke("manage-drive", {
+        body: {
+          action: "sync_program",
+        },
+      });
 
-        if (error) throw error;
-        
-        alert("Sincronización completada. Verifica los cambios en Drive y en los nombres de las giras.");
-        await fetchGiras();
+      if (error) throw error;
+
+      alert(
+        "Sincronización completada. Verifica los cambios en Drive y en los nombres de las giras."
+      );
+      await fetchGiras();
     } catch (err) {
-        console.error(err);
-        alert("Error al sincronizar: " + err.message);
+      console.error(err);
+      alert("Error al sincronizar: " + err.message);
     } finally {
-        if(btn) {
-            btn.disabled = false;
-            btn.classList.remove("opacity-50", "cursor-wait");
-        }
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove("opacity-50", "cursor-wait");
+      }
     }
   };
 
@@ -523,7 +541,7 @@ export default function GirasView({
         }));
         if (staffPayload.length > 0)
           await supabase.from("giras_integrantes").insert(staffPayload);
-        
+
         await supabase.functions.invoke("drive-manager", {
           body: { action: "sync_program", programId: targetId },
         });
@@ -557,12 +575,12 @@ export default function GirasView({
       return;
     }
 
-    setActionLoading(true); 
+    setActionLoading(true);
     const res = await deleteGira(gira.id);
     setActionLoading(false);
 
     if (res.success) {
-      fetchGiras(); 
+      fetchGiras();
     } else {
       alert(`Error al eliminar: ${res.error}`);
     }
@@ -597,11 +615,22 @@ export default function GirasView({
     else if (type === "HABITACION")
       updateView("LOGISTICS", currentGira.id, "rooming");
   };
-  
+
   const [filterStatus, setFilterStatus] = useState(
     new Set(["Vigente", "Borrador", "Pausada"])
   );
+  // 1. Agregamos un estado para el contexto de cálculo
+  const [resolvedRoster, setResolvedRoster] = useState(null);
 
+  // 2. Pasamos una función a los hijos para que "devuelvan" el Roster cargado
+  const handleRosterResolved = (rosterData) => {
+    setResolvedRoster(rosterData);
+  };
+  // El enrichedRoster ahora es simplemente el summary del hook filtrado por validez
+  const enrichedRoster = useMemo(() => {
+    if (!enrichedRosterData) return [];
+    return enrichedRosterData;
+  }, [enrichedRosterData]);
   const toggleFilterStatus = (status) => {
     setFilterStatus((prev) => {
       const newSet = new Set(prev);
@@ -622,7 +651,7 @@ export default function GirasView({
 
       return true;
     });
-  }, [giras, filterType, filterDateStart, filterDateEnd, filterStatus]); 
+  }, [giras, filterType, filterDateStart, filterDateEnd, filterStatus]);
 
   const toggleFilterType = (type) => {
     setFilterType((prev) => {
@@ -746,13 +775,19 @@ export default function GirasView({
             </div>
             {activeSection && !isGuest && (
               <div className="hidden md:block ml-4 pl-4 border-l border-slate-200">
+               {activeSection && !isGuest && (
+              <div className="hidden md:block ml-4 pl-4 border-l border-slate-200">
                 <SectionStatusControl
                   supabase={supabase}
                   giraId={selectedGira.id}
-                  sectionKey={activeSection.key} 
-                  sectionLabel={activeSection.label} 
-                  currentUserId={user.id} 
+                  sectionKey={activeSection.key}
+                  sectionLabel={activeSection.label}
+                  currentUserId={user.id}
+                  triggerRefresh={statsRefreshTrigger}
+                  roster={enrichedRoster} // <--- Asegúrate que esta variable sea la del useMemo anterior
                 />
+              </div>
+            )}
               </div>
             )}
             {(isEditor || isPersonal) && (
@@ -803,42 +838,40 @@ export default function GirasView({
           </div>
         ) : (
           <div className="px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-4">
-             {/* HEADER PRINCIPAL LISTADO */}
-            
+            {/* HEADER PRINCIPAL LISTADO */}
 
-             <div className="w-full sm:w-auto">
-                <GirasListControls
-                    mode={mode}
-                    updateView={updateView}
-                    showRepertoireInCards={showRepertoireInCards}
-                    setShowRepertoireInCards={setShowRepertoireInCards}
-                    showFiltersMobile={showFiltersMobile}
-                    setShowFiltersMobile={setShowFiltersMobile}
-                    filterDateStart={filterDateStart}
-                    setFilterDateStart={setFilterDateStart}
-                    filterDateEnd={filterDateEnd}
-                    setFilterDateEnd={setFilterDateEnd}
-                    filterType={filterType}
-                    toggleFilterType={toggleFilterType}
-                    PROGRAM_TYPES={PROGRAM_TYPES}
-                    filterStatus={filterStatus}
-                    toggleFilterStatus={toggleFilterStatus}
-                />
-             </div>
-              <div className="flex items-center gap-3">
-                <div className="hidden sm:block">
-                    {/* Botón de recálculo masivo: Drive Icon junto al título */}
-                    <button 
-                        id="btn-sync-global"
-                        onClick={handleGlobalSync}
-                        className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-2 rounded-full transition-colors flex items-center justify-center border border-indigo-200"
-                        title="Actualizar nomencladores y carpetas en Drive"
-                    >
-                        <IconDrive size={20} />
-                    </button>
-                </div>
-                
-             </div>
+            <div className="w-full sm:w-auto">
+              <GirasListControls
+                mode={mode}
+                updateView={updateView}
+                showRepertoireInCards={showRepertoireInCards}
+                setShowRepertoireInCards={setShowRepertoireInCards}
+                showFiltersMobile={showFiltersMobile}
+                setShowFiltersMobile={setShowFiltersMobile}
+                filterDateStart={filterDateStart}
+                setFilterDateStart={setFilterDateStart}
+                filterDateEnd={filterDateEnd}
+                setFilterDateEnd={setFilterDateEnd}
+                filterType={filterType}
+                toggleFilterType={toggleFilterType}
+                PROGRAM_TYPES={PROGRAM_TYPES}
+                filterStatus={filterStatus}
+                toggleFilterStatus={toggleFilterStatus}
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:block">
+                {/* Botón de recálculo masivo: Drive Icon junto al título */}
+                <button
+                  id="btn-sync-global"
+                  onClick={handleGlobalSync}
+                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-2 rounded-full transition-colors flex items-center justify-center border border-indigo-200"
+                  title="Actualizar nomencladores y carpetas en Drive"
+                >
+                  <IconDrive size={20} />
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -881,6 +914,7 @@ export default function GirasView({
             supabase={supabase}
             gira={selectedGira}
             onBack={() => updateView("LIST")}
+            onDataChange={handleChildDataChange}
           />
         )}
         {mode === "DIFUSION" && selectedGira && (
@@ -896,6 +930,7 @@ export default function GirasView({
             gira={selectedGira}
             initialTab={currentTab}
             onBack={() => updateView("LIST")}
+            onDataChange={handleChildDataChange}
           />
         )}
         {mode === "MEALS_PERSONAL" && selectedGira && (
@@ -1065,7 +1100,7 @@ export default function GirasView({
                   onMove={handleOpenMove}
                   onDuplicate={handleOpenDup}
                   supabase={supabase}
-                  onDelete={() => handleDeleteGira(gira)} 
+                  onDelete={() => handleDeleteGira(gira)}
                 />
               );
             })}

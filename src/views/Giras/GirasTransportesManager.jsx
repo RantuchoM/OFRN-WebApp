@@ -231,7 +231,7 @@ const generateRoadmapExcel = async (
         "NOMBRE / RESIDENCIA",
         "DESTINO (BAJADA)",
       ]);
-      subenHeader.font = { bold: true, color: { argb: "FF2E7D32" } }; 
+      subenHeader.font = { bold: true, color: { argb: "FF2E7D32" } };
       subenHeader.getCell(1).fill = {
         type: "pattern",
         pattern: "solid",
@@ -439,7 +439,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
                   <ul className="divide-y divide-slate-50">
                     {grouped[locName].map((p) => {
                       const trData = p.logistics?.transports?.find(
-                        (t) => String(t.id) === String(infoListModal.transportId)
+                        (t) =>
+                          String(t.id) === String(infoListModal.transportId)
                       );
                       const missingUp = !trData?.subidaId;
                       const missingDown = !trData?.bajadaId;
@@ -611,6 +612,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
     const stats = { none: [], single: [], multiple: [] };
     passengerList.forEach((p) => {
+      if (p.estado_gira === "ausente") return;
       const count = p.logistics?.transports?.length || 0;
       if (count === 0) stats.none.push(p);
       else if (count === 1) stats.single.push(p);
@@ -722,12 +724,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   const getEventRulesSummary = (eventId, type, transportId) => {
     if (!routeRules) return [];
-    
+
     const relevantRules = routeRules.filter((r) => {
       // Comparación estricta de strings por seguridad
-      if (String(r.id_transporte_fisico) !== String(transportId)) return false; 
+      if (String(r.id_transporte_fisico) !== String(transportId)) return false;
       if (type === "up") return String(r.id_evento_subida) === String(eventId);
-      if (type === "down") return String(r.id_evento_bajada) === String(eventId);
+      if (type === "down")
+        return String(r.id_evento_bajada) === String(eventId);
       return false;
     });
 
@@ -777,6 +780,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     return [...new Set(summaryParts)].filter(Boolean);
   };
 
+  // --- FUNCIÓN CLAVE: INSERTAR ITINERARIO CON PERSONAS ---
   const handleInsertItinerary = async (template, startDate, startTime) => {
     const tId = itineraryModal.transportId;
     if (!tId || !template || !startDate || !startTime) return;
@@ -786,10 +790,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
       const tramos = (template.plantillas_recorridos_tramos || []).sort(
         (a, b) => a.orden - b.orden
       );
-
       let currentDateTime = new Date(`${startDate}T${startTime}`);
       const eventsToCreate = [];
 
+      // 1. Crear Evento Inicial (Salida)
       if (tramos.length > 0) {
         const primerTramo = tramos[0];
         eventsToCreate.push({
@@ -798,11 +802,17 @@ export default function GirasTransportesManager({ supabase, gira }) {
           id_locacion: primerTramo.id_locacion_origen,
           descripcion: primerTramo.nota || "Inicio Recorrido",
           id_tipo_evento: primerTramo.id_tipo_evento || 11,
+          // LOCALIDADES
           suben: primerTramo.ids_localidades_suben || [],
+          // PERSONAS (Nuevo)
+          subenInd: primerTramo.ids_integrantes_suben || [],
+
           bajan: [],
+          bajanInd: [],
         });
       }
 
+      // 2. Crear Eventos Intermedios/Finales
       tramos.forEach((tramo, index) => {
         currentDateTime = addMinutes(
           currentDateTime,
@@ -814,13 +824,28 @@ export default function GirasTransportesManager({ supabase, gira }) {
           fecha: format(currentDateTime, "yyyy-MM-dd"),
           hora: format(currentDateTime, "HH:mm:ss"),
           id_locacion: tramo.id_locacion_destino,
-          descripcion: siguienteTramo ? siguienteTramo.nota || "Escala" : "Fin de Recorrido",
-          id_tipo_evento: siguienteTramo ? siguienteTramo.id_tipo_evento || 11 : 11,
+          descripcion: siguienteTramo
+            ? siguienteTramo.nota || "Escala"
+            : "Fin de Recorrido",
+          id_tipo_evento: siguienteTramo
+            ? siguienteTramo.id_tipo_evento || 11
+            : 11,
+
+          // Bajada de este tramo
           bajan: tramo.ids_localidades_bajan || [],
-          suben: siguienteTramo ? siguienteTramo.ids_localidades_suben || [] : [],
+          bajanInd: tramo.ids_integrantes_bajan || [],
+
+          // Subida del siguiente
+          suben: siguienteTramo
+            ? siguienteTramo.ids_localidades_suben || []
+            : [],
+          subenInd: siguienteTramo
+            ? siguienteTramo.ids_integrantes_suben || []
+            : [],
         });
       });
 
+      // 3. Insertar en DB
       for (const evtData of eventsToCreate) {
         const { data: eventDB, error } = await supabase
           .from("eventos")
@@ -841,55 +866,38 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
         if (error) throw error;
         const eventId = eventDB.id;
-        
+
         const routeRulesToInsert = [];
-        const admissionExclusionsToInsert = [];
 
-        const generateRules = (locIds, type) => {
-          if (!locIds || locIds.length === 0) return;
-
-          locIds.forEach((locId) => {
+        // Helper para insertar reglas
+        const addRules = (ids, type, scope) => {
+          if (!ids || ids.length === 0) return;
+          ids.forEach((id) => {
             const rule = {
               id_gira: giraId,
               id_transporte_fisico: tId,
-              alcance: "Localidad",
-              id_localidad: locId,
-              prioridad: 3, 
+              alcance: scope, // 'Localidad' o 'Persona'
+              [scope === "Localidad" ? "id_localidad" : "id_integrante"]: id,
+              prioridad: scope === "Persona" ? 5 : 3, // Reglas por persona tienen prioridad alta
             };
             if (type === "subida") rule.id_evento_subida = eventId;
             else rule.id_evento_bajada = eventId;
-
             routeRulesToInsert.push(rule);
-
-            const prodMembers = roster?.filter((r) => {
-              const rLoc = r.id_localidad || r.localidades?.id;
-              const role = (r.rol || r.rol_gira || "").toLowerCase();
-              return String(rLoc) === String(locId) && role === "produccion";
-            });
-
-            if (prodMembers && prodMembers.length > 0) {
-              prodMembers.forEach((pm) => {
-                admissionExclusionsToInsert.push({
-                  id_gira: giraId,
-                  id_transporte_fisico: tId,
-                  alcance: "Persona",
-                  tipo: "EXCLUSION", 
-                  id_integrante: pm.id,
-                  prioridad: 5,
-                });
-              });
-            }
           });
         };
 
-        generateRules(evtData.suben, "subida");
-        generateRules(evtData.bajan, "bajada");
+        // Procesar Localidades
+        addRules(evtData.suben, "subida", "Localidad");
+        addRules(evtData.bajan, "bajada", "Localidad");
+
+        // Procesar Personas (AQUÍ ESTABA EL FALTANTE)
+        addRules(evtData.subenInd, "subida", "Persona");
+        addRules(evtData.bajanInd, "bajada", "Persona");
 
         if (routeRulesToInsert.length > 0) {
-          await supabase.from("giras_logistica_rutas").insert(routeRulesToInsert);
-        }
-        if (admissionExclusionsToInsert.length > 0) {
-          await supabase.from("giras_logistica_admision").insert(admissionExclusionsToInsert);
+          await supabase
+            .from("giras_logistica_rutas")
+            .insert(routeRulesToInsert);
         }
       }
 
@@ -1047,7 +1055,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       } else {
         await supabase.from("giras_logistica_rutas").insert([
           {
-            id_gira: giraId, 
+            id_gira: giraId,
             id_transporte_fisico: boardingModal.transportId,
             alcance: "Persona",
             id_integrante: personId,
@@ -1114,7 +1122,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
     const tPax = passengerList.filter((p) => {
       // CORRECCIÓN: Usar String comparison para IDs
-      const transportData = p.logistics?.transports?.find((t) => String(t.id) === String(tId));
+      const transportData = p.logistics?.transports?.find(
+        (t) => String(t.id) === String(tId)
+      );
       if (!transportData) return false;
       const pInIdx = sortedEvts.findIndex(
         (e) => String(e.id) === String(transportData.subidaId)
@@ -1343,7 +1353,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
           // 1. Filtrar pasajeros - CORRECCIÓN: String comparison
           const tPassengers = passengerList.filter((p) =>
-            p.logistics?.transports?.some((tr) => String(tr.id) === String(t.id))
+            p.logistics?.transports?.some(
+              (tr) => String(tr.id) === String(t.id)
+            )
           );
 
           const tPassengerCount = tPassengers.length;
@@ -1365,7 +1377,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
             : "text-indigo-600";
 
           const incompletePax = tPassengers.filter((p) => {
-            const tr = p.logistics?.transports?.find((x) => String(x.id) === String(t.id));
+            const tr = p.logistics?.transports?.find(
+              (x) => String(x.id) === String(t.id)
+            );
             return tr && (!tr.subidaId || !tr.bajadaId);
           });
           const isEditing = editingTransportId === t.id;
@@ -1895,8 +1909,19 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onClose={() =>
             setItineraryModal({ isOpen: false, transportId: null })
           }
+          giraId={giraId}
+          // Obtenemos el transporte actual de la lista
+          transportId={itineraryModal.transportId}
+          transportName={
+            transports.find((t) => t.id === itineraryModal.transportId)
+              ?.detalle ||
+            transports.find((t) => t.id === itineraryModal.transportId)
+              ?.transportes?.nombre ||
+            "Transporte"
+          }
           locations={locationsList}
           localities={localitiesList}
+          roster={roster} // Pasamos el roster completo
           onApplyItinerary={handleInsertItinerary}
         />
       )}

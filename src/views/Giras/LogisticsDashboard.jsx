@@ -23,7 +23,7 @@ import { useGiraRoster } from "../../hooks/useGiraRoster";
 import RoomingManager from "./RoomingManager";
 import ViaticosManager from "./Viaticos/ViaticosManager";
 
-export default function LogisticsDashboard({ supabase, gira, onBack }) {
+export default function LogisticsDashboard({ supabase, gira, onBack, onDataChange }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isMealsMenuOpen, setIsMealsMenuOpen] = useState(false);
 
@@ -204,21 +204,21 @@ export default function LogisticsDashboard({ supabase, gira, onBack }) {
         )}
 
         {activeTab === "meals" && (
-          <MealsManager supabase={supabase} gira={gira} roster={roster} />
+          <MealsManager supabase={supabase} gira={gira} roster={roster} onDataChange={onDataChange} />
         )}
         {activeTab === "attendance" && (
-          <MealsAttendance supabase={supabase} gira={gira} roster={roster} />
+          <MealsAttendance supabase={supabase} gira={gira} roster={roster} onDataChange={onDataChange}/>
         )}
         {activeTab === "report" && (
-          <MealsReport supabase={supabase} gira={gira} roster={roster} />
+          <MealsReport supabase={supabase} gira={gira} roster={roster} onDataChange={onDataChange}/>
         )}
         
         {activeTab === "rooming" && (
-          <RoomingManager supabase={supabase} program={gira} />
+          <RoomingManager supabase={supabase} program={gira} onDataChange={onDataChange}/>
         )}
         
         {activeTab === "transporte" && gira?.id && (
-          <GirasTransportesManager supabase={supabase} gira={gira} />
+          <GirasTransportesManager supabase={supabase} gira={gira} onDataChange={onDataChange} />
         )}
 
         {/* --- CORRECCIÓN CRÍTICA AQUÍ --- */}
@@ -227,6 +227,7 @@ export default function LogisticsDashboard({ supabase, gira, onBack }) {
             supabase={supabase} 
             giraId={gira.id} // <-- Se cambió 'gira={gira}' por 'giraId={gira.id}'
             onClose={handleBack} 
+            onDataChange={onDataChange}
           />
         )}
       </div>

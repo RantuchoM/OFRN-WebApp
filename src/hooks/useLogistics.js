@@ -1,10 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useGiraRoster } from "./useGiraRoster";
 
-// ==========================================
-// 1. HELPERS DE MATCHING
-// ==========================================
-
+// --- HELPERS (Sin cambios) ---
 export const normalize = (str) => (str || "").toLowerCase().trim();
 
 export const getPriorityValue = (scope) => {
@@ -13,17 +10,13 @@ export const getPriorityValue = (scope) => {
   if (s === "categoria" || s === "instrumento") return 4;
   if (s === "localidad") return 3;
   if (s === "region") return 2;
-  return 1; // General
+  return 1;
 };
 
-/**
- * Matching Engine Estricto.
- */
 export const matchesRule = (rule, person) => {
   const scope = normalize(rule.alcance);
-  const pId = String(person.id);
+  const pId = String(person.id || person.id_integrante); 
 
-  // 1. PERSONA: Siempre gana, sin filtros.
   if (scope === "persona") {
     const matchIndividual = String(rule.id_integrante) === pId;
     let matchTargets = false;
@@ -33,12 +26,11 @@ export const matchesRule = (rule, person) => {
     return matchIndividual || matchTargets;
   }
 
-  const pRole = normalize(person.rol_gira);
-  const userRole = normalize(person.rol_gira || "musico");
+  const pRole = normalize(person.rol_gira || person.rol || "");
+  const userRole = pRole || "musico";
 
-  // 2. CATEGORÍA / INSTRUMENTO
   if (scope === "categoria" || scope === "instrumento") {
-    const targets = (rule.target_ids || []).map(t => String(t).toUpperCase());
+    const targets = (rule.target_ids || []).map((t) => String(t).toUpperCase());
     const legacyVal = rule.instrumento_familia; 
     let personFamily = person.instrumentos?.familia ? person.instrumentos.familia.toUpperCase() : null;
 
@@ -52,51 +44,46 @@ export const matchesRule = (rule, person) => {
       if (targets.includes("NO_LOCALES") && !person.is_local) return true;
       if (personFamily && targets.includes(personFamily)) return true;
       if (legacyVal && targets.includes(legacyVal.toUpperCase())) return true;
-    } 
+    }
     if (legacyVal && person.instrumentos?.familia?.includes(legacyVal)) return true;
-    return false; 
+    return false;
   }
 
-  // 3. GENERAL
   if (scope === "general") return true;
 
-  // 4. REGIÓN / LOCALIDAD
   if (scope === "localidad" || scope === "region") {
-      // --- FILTRO CRÍTICO ---
-      // Producción, Staff y Directores NO participan, salvo regla explícita superior.
-      const condicion = normalize(person.condicion || "");
-      
-      // Debe ser estable (Tolerante a mayúsculas/minúsculas)
-      if (condicion !== "estable") return false;
-      
-      // No debe ser rol de gestión/técnico
-      if (["produccion", "staff", "director", "chofer"].includes(userRole)) return false;
+    const condicion = normalize(person.condicion || "");
+    if (condicion !== "estable") return false;
+    if (["produccion", "staff", "director", "chofer"].includes(userRole)) return false;
 
-      const pLoc = String(person.id_localidad);
-      const pReg = String(person.localidades?.id_region);
+    const pLoc = String(person.id_localidad);
+    const pReg = String(person.localidades?.id_region);
 
-      if (rule.target_ids && rule.target_ids.length > 0) {
-        const targets = rule.target_ids.map(String);
-        if (scope === "localidad" && targets.includes(pLoc)) return true;
-        if (scope === "region" && targets.includes(pReg)) return true;
-      } else {
-        if (scope === "localidad" && String(rule.id_localidad) === pLoc) return true;
-        if (scope === "region" && String(rule.id_region) === pReg) return true;
-      }
+    if (rule.target_ids && rule.target_ids.length > 0) {
+      const targets = rule.target_ids.map(String);
+      if (scope === "localidad" && targets.includes(pLoc)) return true;
+      if (scope === "region" && targets.includes(pReg)) return true;
+    } else {
+      if (scope === "localidad" && String(rule.id_localidad) === pLoc) return true;
+      if (scope === "region" && String(rule.id_region) === pReg) return true;
+    }
   }
-
   return false;
 };
 
-// ==========================================
-// 2. LOGICA DE CÁLCULO (CAPAS)
-// ==========================================
-
-export const calculateLogisticsSummary = (roster, logisticsRules, admissionRules, routeRules, transportesFisicos) => {
+// --- CALCULATOR CORE (Sin cambios) ---
+export const calculateLogisticsSummary = (
+  roster,
+  logisticsRules,
+  admissionRules,
+  routeRules,
+  transportesFisicos,
+  allRooms
+) => {
   if (!roster || roster.length === 0) return [];
 
   const transportMap = {};
-  transportesFisicos?.forEach(t => transportMap[t.id] = t);
+  transportesFisicos?.forEach((t) => (transportMap[t.id] = t));
 
   const getSourceCode = (type) => {
     const s = normalize(type);
@@ -109,29 +96,32 @@ export const calculateLogisticsSummary = (roster, logisticsRules, admissionRules
   };
 
   const enrichEvent = (evt) => {
-      if (!evt) return null;
-      return {
-          ...evt,
-          hora: evt.hora_inicio || evt.hora, 
-          nombre_localidad: evt?.locaciones?.localidades?.localidad || null
-      };
+    if (!evt) return null;
+    return {
+      ...evt,
+      hora: evt.hora_inicio || evt.hora,
+      nombre_localidad: evt?.locaciones?.localidades?.localidad || null,
+    };
   };
 
   return roster.map((person) => {
+    const pId = person.id || person.id_integrante;
+
     let logisticsData = {
-      // Hotel/Comida
+      habitacion:
+        allRooms?.find((room) => {
+          const assignedIds = room.id_integrantes_asignados || [];
+          const occupantsIds = (room.occupants || []).map((occ) => occ.id);
+          return assignedIds.includes(pId) || occupantsIds.includes(pId);
+        }) || null,
       checkin: null, checkin_src: "-", checkin_time: null,
       checkout: null, checkout_src: "-", checkout_time: null,
       comida_inicio: null, comida_inicio_svc: null, comida_inicio_src: "-",
       comida_fin: null, comida_fin_svc: null, comida_fin_src: "-",
       prov_des: null, prov_alm: null, prov_mer: null, prov_cen: null, prov_src: "-",
-      
-      // TRANSPORTE
-      transports: [], 
-      transports_src: "-",
+      transports: [], transports_src: "-",
     };
 
-    // --- A. LOGÍSTICA HOTEL/COMIDA ---
     logisticsRules.forEach((r) => {
       if (matchesRule(r, person)) {
         const src = getSourceCode(r.alcance);
@@ -151,162 +141,172 @@ export const calculateLogisticsSummary = (roster, logisticsRules, admissionRules
       }
     });
 
-    // --- B. TRANSPORTE (Lógica de 2 Capas) ---
     if (admissionRules && routeRules) {
-        
-        // 1. Determinar en qué transportes está ADMITIDO
-        const myTransportIds = new Set();
-        const groupedAdmissions = {}; 
+      const myTransportIds = new Set();
+      const groupedAdmissions = {};
 
-        admissionRules.forEach(r => {
-            if (matchesRule(r, person)) {
-                const tId = r.id_transporte_fisico;
-                if(!groupedAdmissions[tId]) groupedAdmissions[tId] = { inclusions: [], exclusions: [] };
-                if (r.tipo === 'EXCLUSION') groupedAdmissions[tId].exclusions.push(r);
-                else groupedAdmissions[tId].inclusions.push(r);
-            }
-        });
-
-        Object.keys(groupedAdmissions).forEach(tId => {
-            const { inclusions, exclusions } = groupedAdmissions[tId];
-            
-            const personalExclusion = exclusions.find(r => normalize(r.alcance) === 'persona');
-            const personalInclusion = inclusions.find(r => normalize(r.alcance) === 'persona');
-
-            if (personalExclusion) return; 
-            if (personalInclusion) { myTransportIds.add(tId); return; } 
-
-            if (exclusions.length > 0) return; 
-            if (inclusions.length > 0) myTransportIds.add(tId); 
-        });
-
-        // 2. Para cada transporte admitido, buscar la mejor RUTA
-        myTransportIds.forEach(tId => {
-            const transportRaw = transportMap[tId];
-            
-            const myRoutes = routeRules.filter(r => 
-                String(r.id_transporte_fisico) === String(tId) &&
-                matchesRule(r, person)
-            );
-
-            let subida = { id: null, prio: 0, evt: null };
-            let bajada = { id: null, prio: 0, evt: null };
-            let maxPrio = 0;
-
-            myRoutes.forEach(r => {
-                const p = getPriorityValue(r.alcance);
-                if (p > maxPrio) maxPrio = p;
-
-                if (r.id_evento_subida && p >= subida.prio) {
-                    subida = { id: r.id_evento_subida, prio: p, evt: r.evento_subida };
-                }
-                if (r.id_evento_bajada && p >= bajada.prio) {
-                    bajada = { id: r.id_evento_bajada, prio: p, evt: r.evento_bajada };
-                }
-            });
-
-            // Extraemos el nombre correctamente desde la relación
-            const typeName = transportRaw?.transportes?.nombre || "Transporte";
-
-            logisticsData.transports.push({
-                id: Number(tId),
-                nombre: typeName,
-                detalle: transportRaw?.detalle || "",
-                subidaId: subida.id,
-                bajadaId: bajada.id,
-                subidaData: enrichEvent(subida.evt),
-                bajadaData: enrichEvent(bajada.evt),
-                priority: maxPrio
-            });
-        });
-
-        if (logisticsData.transports.length > 0) {
-             const maxP = Math.max(...logisticsData.transports.map(t => t.priority));
-             logisticsData.transports_src = maxP === 5 ? "P" : maxP === 4 ? "C" : maxP === 3 ? "L" : maxP === 2 ? "R" : "G";
+      admissionRules.forEach((r) => {
+        if (matchesRule(r, person)) {
+          const tId = r.id_transporte_fisico;
+          if (!groupedAdmissions[tId]) groupedAdmissions[tId] = { inclusions: [], exclusions: [] };
+          if (r.tipo === "EXCLUSION") groupedAdmissions[tId].exclusions.push(r);
+          else groupedAdmissions[tId].inclusions.push(r);
         }
-    }
+      });
 
-    return { ...person, logistics: logisticsData };
+      Object.keys(groupedAdmissions).forEach((tId) => {
+        const { inclusions, exclusions } = groupedAdmissions[tId];
+        const personalExclusion = exclusions.find((r) => normalize(r.alcance) === "persona");
+        const personalInclusion = inclusions.find((r) => normalize(r.alcance) === "persona");
+        if (personalExclusion) return;
+        if (personalInclusion) { myTransportIds.add(tId); return; }
+        if (exclusions.length > 0) return;
+        if (inclusions.length > 0) myTransportIds.add(tId);
+      });
+
+      myTransportIds.forEach((tId) => {
+        const transportRaw = transportMap[tId];
+        const myRoutes = routeRules.filter((r) => String(r.id_transporte_fisico) === String(tId) && matchesRule(r, person));
+        let subida = { id: null, prio: 0, evt: null };
+        let bajada = { id: null, prio: 0, evt: null };
+        let maxPrio = 0;
+        myRoutes.forEach((r) => {
+          const p = getPriorityValue(r.alcance);
+          if (p > maxPrio) maxPrio = p;
+          if (r.id_evento_subida && p >= subida.prio) subida = { id: r.id_evento_subida, prio: p, evt: r.evento_subida };
+          if (r.id_evento_bajada && p >= bajada.prio) bajada = { id: r.id_evento_bajada, prio: p, evt: r.evento_bajada };
+        });
+        const typeName = transportRaw?.transportes?.nombre || "Transporte";
+        logisticsData.transports.push({
+          id: Number(tId),
+          nombre: typeName,
+          detalle: transportRaw?.detalle || "",
+          subidaId: subida.id,
+          bajadaId: bajada.id,
+          subidaData: enrichEvent(subida.evt),
+          bajadaData: enrichEvent(bajada.evt),
+          priority: maxPrio,
+        });
+      });
+
+      if (logisticsData.transports.length > 0) {
+        const maxP = Math.max(...logisticsData.transports.map((t) => t.priority));
+        logisticsData.transports_src = maxP === 5 ? "P" : maxP === 4 ? "C" : maxP === 3 ? "L" : maxP === 2 ? "R" : "G";
+      }
+    }
+    return { ...person, ...logisticsData, logistics: logisticsData };
   });
 };
 
-// ==========================================
-// 3. HOOK
-// ==========================================
+// --- HOOK PRINCIPAL ---
 
-export function useLogistics(supabase, gira) {
-  const { roster: baseRoster, loading: rosterLoading, refreshRoster } = useGiraRoster(supabase, gira);
+export function useLogistics(supabase, gira, trigger = 0) {
+  const {
+    roster: baseRoster,
+    loading: rosterLoading,
+    refreshRoster,
+  } = useGiraRoster(supabase, gira);
+
   const [logisticsRules, setLogisticsRules] = useState([]);
   const [admissionRules, setAdmissionRules] = useState([]);
   const [routeRules, setRouteRules] = useState([]);
   const [transportes, setTransportes] = useState([]);
+  const [rooms, setRooms] = useState([]);
+  
+  // Estado para meta-información de viáticos (Solo lo exportado y sedes)
+  const [viaticosMeta, setViaticosMeta] = useState({ 
+    exportedPeopleIds: [], 
+    exportedLocationIds: [], 
+    sedeIds: []
+  });
+
   const [rulesLoading, setRulesLoading] = useState(true);
   const giraId = gira?.id;
 
-  const fetchRules = useCallback(async () => {
+  const fetchLogisticsData = useCallback(async () => {
     if (!giraId) return;
     setRulesLoading(true);
     try {
-      // 1. Reglas Hotel
-      const { data: logData } = await supabase
-        .from("giras_logistica_reglas")
-        .select("*")
-        .eq("id_gira", giraId)
-        .order("prioridad", { ascending: true });
+      const { data: logData } = await supabase.from("giras_logistica_reglas").select("*").eq("id_gira", giraId).order("prioridad", { ascending: true });
       setLogisticsRules(logData || []);
 
-      // 2. Transportes Físicos (CORREGIDO: JOIN con transportes)
-      const { data: transData } = await supabase
-        .from("giras_transportes")
-        .select("id, detalle, capacidad_maxima, transportes ( nombre )")
-        .eq("id_gira", giraId);
+      const { data: transData } = await supabase.from("giras_transportes").select("id, detalle, capacidad_maxima, transportes ( nombre )").eq("id_gira", giraId);
       setTransportes(transData || []);
 
-      // 3. Reglas ADMISIÓN
-      const { data: admData } = await supabase
-        .from("giras_logistica_admision")
-        .select("*")
-        .eq("id_gira", giraId);
+      const { data: admData } = await supabase.from("giras_logistica_admision").select("*").eq("id_gira", giraId);
       setAdmissionRules(admData || []);
 
-      // 4. Reglas RUTAS
-      const { data: routeData, error: routeError } = await supabase
-        .from("giras_logistica_rutas")
-        .select(`
-            *,
-            evento_subida: id_evento_subida ( id, fecha, hora_inicio, descripcion, locaciones ( localidades ( localidad ) ) ),
-            evento_bajada: id_evento_bajada ( id, fecha, hora_inicio, descripcion, locaciones ( localidades ( localidad ) ) )
-        `)
-        .eq("id_gira", giraId);
-      
-      if (routeError) console.error("Error routes:", routeError);
+      const { data: routeData } = await supabase.from("giras_logistica_rutas").select(`*, evento_subida: id_evento_subida ( id, fecha, hora_inicio, descripcion, locaciones ( localidades ( localidad ) ) ), evento_bajada: id_evento_bajada ( id, fecha, hora_inicio, descripcion, locaciones ( localidades ( localidad ) ) )`).eq("id_gira", giraId);
       setRouteRules(routeData || []);
 
+      const { data: hospedajes } = await supabase.from("programas_hospedajes").select("id").eq("id_programa", giraId);
+      const hospIds = (hospedajes || []).map((h) => h.id);
+      if (hospIds.length > 0) {
+        const { data: roomsData } = await supabase.from("hospedaje_habitaciones").select("*").in("id_hospedaje", hospIds);
+        setRooms(roomsData || []);
+      } else {
+        setRooms([]);
+      }
+
+      // --- VIÁTICOS: EXTRACCIÓN DE DATOS ---
+      
+      // 1. Personas exportadas (Viáticos Individuales)
+      // Solo traemos los que tienen fecha de exportación confirmada
+      const { data: vDetalle } = await supabase
+        .from('giras_viaticos_detalle')
+        .select('id_integrante')
+        .eq('id_gira', giraId)
+        .not('fecha_ultima_exportacion', 'is', null);
+      
+      const exportedPeopleIds = (vDetalle || []).map(r => r.id_integrante);
+
+      // 2. Localidades exportadas (Destaques)
+      // Solo traemos los que tienen fecha de exportación
+      const { data: destConfig } = await supabase
+        .from('giras_destaques_config')
+        .select('id_localidad')
+        .eq('id_gira', giraId)
+        .not('fecha_ultima_exportacion', 'is', null);
+
+      const exportedLocationIds = (destConfig || []).map(r => r.id_localidad);
+
+      // 3. Sedes (Localidades marcadas como sede)
+      const { data: sedesData } = await supabase
+        .from('giras_localidades')
+        .select('id_localidad')
+        .eq('id_gira', giraId);
+      
+      const sedeIds = (sedesData || []).map(s => s.id_localidad);
+
+      setViaticosMeta({
+        exportedPeopleIds,
+        exportedLocationIds,
+        sedeIds
+      });
+
     } catch (error) {
-      console.error(error);
+      console.error("[useLogistics] Error:", error);
     } finally {
       setRulesLoading(false);
     }
   }, [supabase, giraId]);
 
-  useEffect(() => { fetchRules(); }, [fetchRules]);
-  
-  const refresh = () => { refreshRoster(); fetchRules(); };
-  
-  const summary = useMemo(
-    () => calculateLogisticsSummary(baseRoster, logisticsRules, admissionRules, routeRules, transportes),
-    [baseRoster, logisticsRules, admissionRules, routeRules, transportes]
-  );
+  useEffect(() => {
+    fetchLogisticsData();
+  }, [fetchLogisticsData, trigger]);
 
-  return {
-    summary: summary || [],
-    roster: baseRoster,
-    logisticsRules,
-    admissionRules,
-    routeRules,
-    transportes, // Exportamos la lista para los modales
-    loading: rosterLoading || rulesLoading,
-    refresh,
-    helpers: { matchesRule }
+  const refresh = () => {
+    refreshRoster();
+    fetchLogisticsData();
   };
+
+  const summary = useMemo(() => {
+    const computedRoster = calculateLogisticsSummary(baseRoster, logisticsRules, admissionRules, routeRules, transportes, rooms);
+    if (computedRoster && Array.isArray(computedRoster)) {
+        computedRoster.viaticosMeta = viaticosMeta;
+    }
+    return computedRoster;
+  }, [baseRoster, logisticsRules, admissionRules, routeRules, transportes, rooms, viaticosMeta]);
+
+  return { summary: summary || [], roster: baseRoster, rooms, logisticsRules, admissionRules, routeRules, transportes, loading: rosterLoading || rulesLoading, refresh, helpers: { matchesRule } };
 }

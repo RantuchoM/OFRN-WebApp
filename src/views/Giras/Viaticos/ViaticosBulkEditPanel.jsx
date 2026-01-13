@@ -7,7 +7,9 @@ import {
   IconCloudUpload,
   IconFileText,
   IconArrowLeft,
-  IconChevronRight
+  IconChevronRight,
+  IconUsers,
+  IconUser
 } from "../../../components/ui/Icons";
 import DateInput from "../../../components/ui/DateInput";
 import TimeInput from "../../../components/ui/TimeInput";
@@ -25,20 +27,20 @@ export default function ViaticosBulkEditPanel({
 }) {
   const [showExportMenu, setShowExportMenu] = useState(false);
 
-  // Opciones de exportación actualizadas
+  // Opciones de exportación
   const [exportOptions, setExportOptions] = useState({
     viatico: true,
     destaque: false,
-    rendicion: false, // Ahora se puede activar
+    rendicion: false,
     docComun: false,
-    docReducida: false
+    docReducida: false,
+    unifyFiles: false
   });
 
   const handleConfirmExport = () => {
     onExport(exportOptions);
   };
 
-  // Lógica de validación: habilita si al menos una opción está marcada
   const isAnyOptionSelected = 
     exportOptions.viatico || 
     exportOptions.destaque || 
@@ -68,39 +70,17 @@ export default function ViaticosBulkEditPanel({
             <IconCalendar size={12} /> Viaje (Auto-cálculo)
           </label>
           <div className="grid grid-cols-2 gap-2">
-            <DateInput
-              value={values.fecha_salida}
-              onChange={(val) => setValues((prev) => ({ ...prev, fecha_salida: val }))}
-              className="w-full border rounded text-xs px-2 py-2 h-9"
-            />
-            <TimeInput
-              value={values.hora_salida}
-              onChange={(val) => setValues((prev) => ({ ...prev, hora_salida: val }))}
-              className="w-full border rounded text-xs px-2 py-2 h-9"
-            />
-            <DateInput
-              value={values.fecha_llegada}
-              onChange={(val) => setValues((prev) => ({ ...prev, fecha_llegada: val }))}
-              className="w-full border rounded text-xs px-2 py-2 h-9"
-            />
-            <TimeInput
-              value={values.hora_llegada}
-              onChange={(val) => setValues((prev) => ({ ...prev, hora_llegada: val }))}
-              className="w-full border rounded text-xs px-2 py-2 h-9"
-            />
+            <DateInput value={values.fecha_salida} onChange={(val) => setValues((prev) => ({ ...prev, fecha_salida: val }))} className="w-full border rounded text-xs px-2 py-2 h-9" />
+            <TimeInput value={values.hora_salida} onChange={(val) => setValues((prev) => ({ ...prev, hora_salida: val }))} className="w-full border rounded text-xs px-2 py-2 h-9" />
+            <DateInput value={values.fecha_llegada} onChange={(val) => setValues((prev) => ({ ...prev, fecha_llegada: val }))} className="w-full border rounded text-xs px-2 py-2 h-9" />
+            <TimeInput value={values.hora_llegada} onChange={(val) => setValues((prev) => ({ ...prev, hora_llegada: val }))} className="w-full border rounded text-xs px-2 py-2 h-9" />
           </div>
         </div>
 
         {/* SECCIÓN DATOS LABORALES */}
         <div className="space-y-2 border-t pt-4">
           <label className="text-xs font-bold text-slate-700 uppercase">Datos Laborales</label>
-          <input
-            type="text"
-            className="w-full p-2 border rounded text-xs"
-            placeholder="Cargo/Función"
-            value={values.cargo}
-            onChange={(e) => setValues({ ...values, cargo: e.target.value })}
-          />
+          <input type="text" className="w-full p-2 border rounded text-xs" placeholder="Cargo/Función" value={values.cargo} onChange={(e) => setValues({ ...values, cargo: e.target.value })} />
         </div>
 
         {/* SECCIÓN GASTOS */}
@@ -117,19 +97,11 @@ export default function ViaticosBulkEditPanel({
       <div className="p-4 border-t bg-slate-50 mt-auto">
         {!showExportMenu ? (
           <div className="space-y-3">
-            <button
-              onClick={onApply}
-              disabled={loading || isExporting}
-              className="w-full py-3 bg-indigo-600 text-white font-bold rounded shadow hover:bg-indigo-700 flex justify-center gap-2 disabled:opacity-50"
-            >
+            <button onClick={onApply} disabled={loading || isExporting} className="w-full py-3 bg-indigo-600 text-white font-bold rounded shadow hover:bg-indigo-700 flex justify-center gap-2 disabled:opacity-50">
               {loading ? <IconLoader className="animate-spin" /> : <IconSave />} Aplicar Cambios
             </button>
             <hr className="border-slate-200" />
-            <button
-              onClick={() => setShowExportMenu(true)}
-              disabled={loading || isExporting}
-              className="w-full py-3 bg-green-600 text-white font-bold rounded shadow hover:bg-green-700 flex justify-center items-center gap-2 disabled:opacity-50"
-            >
+            <button onClick={() => setShowExportMenu(true)} disabled={loading || isExporting} className="w-full py-3 bg-green-600 text-white font-bold rounded shadow hover:bg-green-700 flex justify-center items-center gap-2 disabled:opacity-50">
               <IconCloudUpload /> Exportar a Drive... <IconChevronRight size={16}/>
             </button>
           </div>
@@ -151,27 +123,45 @@ export default function ViaticosBulkEditPanel({
                 <input type="checkbox" checked={exportOptions.destaque} onChange={(e) => setExportOptions(prev => ({...prev, destaque: e.target.checked}))} className="rounded text-green-600" />
                 <span className="flex-1">2. Destaque (Sin montos)</span>
               </label>
-              
-              {/* OPCIÓN RENDICIÓN HABILITADA */}
               <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded">
-                <input 
-                  type="checkbox" 
-                  checked={exportOptions.rendicion} 
-                  onChange={(e) => setExportOptions(prev => ({...prev, rendicion: e.target.checked}))}
-                  className="rounded text-green-600" 
-                />
+                <input type="checkbox" checked={exportOptions.rendicion} onChange={(e) => setExportOptions(prev => ({...prev, rendicion: e.target.checked}))} className="rounded text-green-600" />
                 <span className="flex-1">3. Rendición</span>
               </label>
               
               <div className="h-px bg-slate-100 my-1"></div>
+              
               <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded">
                 <input type="checkbox" checked={exportOptions.docComun} onChange={(e) => setExportOptions(prev => ({...prev, docComun: e.target.checked}))} className="rounded text-green-600" />
-                <span className="flex-1 flex items-center gap-1"><IconFileText size={10}/> Doc. Común</span>
+                <span className="flex-1 flex items-center gap-1"><IconFileText size={10}/> Doc. Común (Incluir)</span>
               </label>
               <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded">
-                <input type="checkbox" checked={exportOptions.docReducida} onChange={(e) => setExportOptions(prev => ({...prev, docComun: e.target.checked}))} className="rounded text-green-600" />
-                <span className="flex-1 flex items-center gap-1"><IconFileText size={10}/> Doc. Reducida</span>
+                <input type="checkbox" checked={exportOptions.docReducida} onChange={(e) => setExportOptions(prev => ({...prev, docReducida: e.target.checked}))} className="rounded text-green-600" />
+                <span className="flex-1 flex items-center gap-1"><IconFileText size={10}/> Doc. Reducida (Incluir)</span>
               </label>
+
+              <div className="h-px bg-slate-100 my-1"></div>
+
+              {/* TOGGLE CORREGIDO VISUALMENTE */}
+              <div 
+                onClick={() => setExportOptions(prev => ({...prev, unifyFiles: !prev.unifyFiles}))} 
+                className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer hover:bg-slate-50 p-2 rounded border border-slate-100 mt-2 bg-slate-50"
+              >
+                {/* Contenedor del Switch */}
+                <div className={`w-9 h-5 flex items-center rounded-full p-1 duration-300 ${exportOptions.unifyFiles ? "bg-indigo-500" : "bg-slate-300"}`}>
+                    {/* El círculo */}
+                    <div className={`bg-white w-3 h-3 rounded-full shadow-md transform duration-300 ${exportOptions.unifyFiles ? "translate-x-4" : "translate-x-0"}`}></div>
+                </div>
+                
+                <div className="flex flex-col">
+                    <span className="font-bold text-[10px] uppercase text-slate-500">
+                        {exportOptions.unifyFiles ? "Archivo Unificado" : "Archivos Separados"}
+                    </span>
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                        {exportOptions.unifyFiles ? <IconUsers size={10}/> : <IconUser size={10}/>}
+                        {exportOptions.unifyFiles ? "1 Solo PDF Gigante" : "1 PDF por persona"}
+                    </span>
+                </div>
+              </div>
             </div>
 
             <button
@@ -187,7 +177,7 @@ export default function ViaticosBulkEditPanel({
           </div>
         )}
         {exportStatus && (
-          <div className="text-[10px] text-center text-slate-500 font-mono bg-slate-100 p-2 rounded mt-2">
+          <div className="text-[10px] text-center text-slate-500 font-mono bg-slate-100 p-2 rounded mt-2 break-words">
             {exportStatus}
           </div>
         )}

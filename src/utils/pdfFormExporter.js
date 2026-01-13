@@ -111,7 +111,7 @@ export const exportViaticosToPDFForm = async (
 
     try {
       if (mode === "rendicion") {
-        // ... (Lógica de Rendición se mantiene IDÉNTICA usando fmtMoney directo porque rendición siempre lleva montos) ...
+        // ... (Lógica de Rendición se mantiene IDÉNTICA) ...
         const f = (name, val) => {
           try {
             form.getTextField(name).setText(String(val || ""));
@@ -221,13 +221,14 @@ export const exportViaticosToPDFForm = async (
             form.getTextField(name).setText(String(val || ""));
           } catch (e) {}
         };
+
+        // --- CORRECCIÓN AQUÍ: Tratamos checks como TEXTO para poner 'X' ---
         const chk = (name, val) => {
-          if (val) {
-            try {
-              form.getCheckBox(name).check();
-            } catch (e) {
-              console.warn("Checkbox no encontrado:", name);
-            }
+          try {
+            // Escribimos "X" si es verdadero, "" si es falso
+            form.getTextField(name).setText(val ? "X" : "");
+          } catch (e) {
+            console.warn(`Campo check (texto) no encontrado: ${name}`);
           }
         };
 
@@ -245,7 +246,6 @@ export const exportViaticosToPDFForm = async (
         f("hora_llegada", fmtTime(data.hora_llegada));
         f("dias_computados", String(data.dias_computables || 0));
 
-        // Aquí usamos 'money()' que devuelve "" si es destaque
         f("valor_diario", money(data.valorDiarioCalc));
         f("porcentaje_viatico", String(data.porcentaje || 0));
 
@@ -253,7 +253,7 @@ export const exportViaticosToPDFForm = async (
         f("gasto_alojamiento", money(data.gasto_alojamiento));
         f("gasto_anticipo", money(data.subtotal));
 
-        // Detalle adaptado para destaque (sin montos explicítos en texto si es destaque)
+        // Detalle adaptado para destaque
         let descAnticipo;
         if (mode === "destaque") {
           descAnticipo = `( ${
@@ -270,6 +270,7 @@ export const exportViaticosToPDFForm = async (
         }
         f("descripcion_anticipo", descAnticipo);
 
+        // Checks como "X"
         chk("check_aereos", data.check_aereo);
         chk("check_terrestre", data.check_terrestre);
         chk("check_patente", data.check_patente_oficial);
@@ -308,6 +309,7 @@ export const exportViaticosToPDFForm = async (
   const pdfBytes = await finalPdf.save();
   return pdfBytes;
 };
+
 // --- HELPER ROBUSTO PARA FIRMA ---
 async function insertImageSignature(pdfDoc, form, fieldName, firmaUrl) {
   if (!firmaUrl || firmaUrl === "NULL") return;

@@ -7,7 +7,7 @@ import { useAuth } from "../../context/AuthContext"; // Para capturar el usuario
 
 import { 
   IconMessageCircle, IconX, IconCamera, IconLoader, IconCheck, 
-  IconAlertCircle, IconSend, IconTrash, IconEdit, IconClip, IconImage
+  IconAlertCircle, IconSend, IconTrash, IconEdit, IconClip, IconImage, IconBulb
 } from "./Icons"; 
 
 export default function FeedbackWidget({ supabase }) {
@@ -185,7 +185,7 @@ export default function FeedbackWidget({ supabase }) {
             className="bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-full shadow-lg transition-all transform hover:scale-110 flex items-center gap-2 group"
             title="Enviar sugerencia o reporte"
           >
-            <IconMessageCircle size={24} />
+            <IconBulb size={24} />
             <span className="max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-500 ease-in-out whitespace-nowrap text-sm font-bold">
               Feedback
             </span>
@@ -196,7 +196,7 @@ export default function FeedbackWidget({ supabase }) {
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-80 sm:w-96 overflow-hidden animate-in slide-in-from-bottom-10 fade-in duration-200 flex flex-col">
             
             <div className="bg-indigo-600 p-4 flex justify-between items-center text-white">
-              <h3 className="font-bold flex items-center gap-2"><IconMessageCircle size={20} /> Feedback & Ayuda</h3>
+              <h3 className="font-bold flex items-center gap-2"><IconBulb size={20} /> Feedback & Ayuda</h3>
               <button onClick={() => setIsOpen(false)} className="hover:bg-indigo-500 p-1 rounded"><IconX size={20} /></button>
             </div>
 

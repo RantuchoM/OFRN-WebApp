@@ -66,9 +66,10 @@ const sortRosterList = (list, criterion) => {
           director: 1,
           solista: 2,
           musico: 3,
-          produccion: 4,
-          staff: 5,
-          chofer: 6,
+          mus_prod: 4,
+          produccion: 5,
+          staff: 6,
+          chofer: 7,
         };
         const pA = rolesPrio[a.rol_gira || "musico"] || 99;
         const pB = rolesPrio[b.rol_gira || "musico"] || 99;
@@ -299,30 +300,34 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     });
     setIsCreatingDetailed(true);
   };
-// --- NUEVA FUNCIÓN: ELIMINAR VACANTE ---
+  // --- NUEVA FUNCIÓN: ELIMINAR VACANTE ---
   const handleDeleteVacancy = async (vacancy) => {
-    if (!confirm(`¿Eliminar definitivamente la vacante "${vacancy.apellido}"?`)) return;
+    if (!confirm(`¿Eliminar definitivamente la vacante "${vacancy.apellido}"?`))
+      return;
 
     setLoadingAction(true);
     try {
       // 1. Eliminar relación con la Gira
       const { error: linkError } = await supabase
-        .from('giras_integrantes')
+        .from("giras_integrantes")
         .delete()
-        .eq('id_gira', gira.id)
-        .eq('id_integrante', vacancy.id);
-      
+        .eq("id_gira", gira.id)
+        .eq("id_integrante", vacancy.id);
+
       if (linkError) throw linkError;
 
       // 2. Eliminar el usuario "falso" de la tabla integrantes (limpieza de BD)
       const { error: userError } = await supabase
-        .from('integrantes')
+        .from("integrantes")
         .delete()
-        .eq('id', vacancy.id);
+        .eq("id", vacancy.id);
 
       if (userError) {
-         // No lanzamos error crítico si falla esto, pero avisamos por consola
-         console.warn("Nota: El integrante simulado no se borró de la tabla global (posible FK): ", userError.message);
+        // No lanzamos error crítico si falla esto, pero avisamos por consola
+        console.warn(
+          "Nota: El integrante simulado no se borró de la tabla global (posible FK): ",
+          userError.message
+        );
       }
 
       refreshRoster();
@@ -367,17 +372,15 @@ export default function GiraRoster({ supabase, gira, onBack }) {
         sortBy
       )
     );
-    await supabase
-      .from("giras_integrantes")
-      .upsert(
-        {
-          id_gira: gira.id,
-          id_integrante: musician.id,
-          rol: newRole,
-          estado: musician.estado_gira,
-        },
-        { onConflict: "id_gira, id_integrante" }
-      );
+    await supabase.from("giras_integrantes").upsert(
+      {
+        id_gira: gira.id,
+        id_integrante: musician.id,
+        rol: newRole,
+        estado: musician.estado_gira,
+      },
+      { onConflict: "id_gira, id_integrante" }
+    );
     refreshRoster();
   };
 
@@ -393,17 +396,15 @@ export default function GiraRoster({ supabase, gira, onBack }) {
       )
     );
     if (newStatus === "ausente") {
-      await supabase
-        .from("giras_integrantes")
-        .upsert(
-          {
-            id_gira: gira.id,
-            id_integrante: musician.id,
-            estado: newStatus,
-            rol: musician.rol_gira,
-          },
-          { onConflict: "id_gira, id_integrante" }
-        );
+      await supabase.from("giras_integrantes").upsert(
+        {
+          id_gira: gira.id,
+          id_integrante: musician.id,
+          estado: newStatus,
+          rol: musician.rol_gira,
+        },
+        { onConflict: "id_gira, id_integrante" }
+      );
     } else {
       if (musician.es_adicional) {
         await supabase
@@ -456,14 +457,12 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   };
 
   const addManualMusician = async (musicianId) => {
-    const { error } = await supabase
-      .from("giras_integrantes")
-      .insert({
-        id_gira: gira.id,
-        id_integrante: musicianId,
-        estado: "confirmado",
-        rol: "musico",
-      });
+    const { error } = await supabase.from("giras_integrantes").insert({
+      id_gira: gira.id,
+      id_integrante: musicianId,
+      estado: "confirmado",
+      rol: "musico",
+    });
     if (!error) {
       setSearchTerm("");
       refreshRoster();
@@ -507,7 +506,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     const cleanTerm = term.trim();
     let query = supabase
       .from("integrantes")
-      .select("id, nombre, apellido, instrumentos(instrumento)");
+      .select("id, nombre, apellido, instrumentos(instrumento), cuil");
     if (cleanTerm.includes(" ")) {
       const parts = cleanTerm.split(" ");
       query = query
@@ -569,7 +568,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
       return "bg-indigo-50 border-l-4 border-l-indigo-500";
     if (rol === "solista")
       return "bg-fuchsia-50 border-l-4 border-l-fuchsia-500";
-    if (["produccion", "staff", "chofer"].includes(rol))
+    if (["produccion", "staff", "chofer", "mus_prod"].includes(rol))
       return "bg-slate-100 border-l-4 border-l-slate-400 text-slate-600";
     if (m.es_adicional) return "bg-amber-50/60 border-l-4 border-l-amber-200";
     return "bg-white border-l-4 border-l-transparent hover:bg-slate-50";
@@ -858,6 +857,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                       <option value="solista">Solista</option>
                       <option value="musico">Músico</option>
                       <option value="produccion">Producción</option>
+                      <option value="mus_prod">Mús./Prod.</option>
                       <option value="staff">Staff</option>
                       <option value="chofer">Chofer</option>
                     </select>

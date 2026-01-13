@@ -122,7 +122,7 @@ export function useGiraRoster(supabase, gira) {
                 telefono, mail, alimentacion, es_simulacion, id_instr,
                 id_localidad, id_loc_viaticos,
                 documentacion, docred, firma,
-                dni, fecha_nac, genero,
+                dni, fecha_nac, genero, cuil,
                 instrumentos(instrumento, familia, plaza_extra), 
                 residencia:localidades!id_localidad(id, localidad, id_region, regiones(region)), 
                 viaticos:localidades!id_loc_viaticos(id, localidad, id_region, regiones(region))

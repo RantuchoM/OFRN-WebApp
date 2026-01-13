@@ -812,7 +812,12 @@ const RoomCard = ({
 };
 
 // --- COMPONENTE PRINCIPAL ---
-export default function RoomingManager({ supabase, program, onBack }) {
+export default function RoomingManager({
+  supabase,
+  program,
+  onBack,
+  onDataChange,
+}) {
   const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
 
   const [musicians, setMusicians] = useState([]);
@@ -1090,7 +1095,7 @@ export default function RoomingManager({ supabase, program, onBack }) {
           currentRooms[0] = targetR;
 
           syncRoomOccupants(targetR.id, movedPeople);
-
+          if (onDataChange) onDataChange();
           updateLocalState(currentRooms, currentMusicians);
           setSelectedIds(new Set());
           setDraggedMusician(null);
@@ -1252,10 +1257,13 @@ export default function RoomingManager({ supabase, program, onBack }) {
   };
   const syncRoomOccupants = async (roomId, occupants) => {
     const ids = occupants.map((m) => m.id);
-    await supabase
+    const { error } = await supabase
       .from("hospedaje_habitaciones")
       .update({ id_integrantes_asignados: ids })
       .eq("id", roomId);
+
+    // AGREGAR ESTO:
+    if (!error && onDataChange) onDataChange();
   };
   const calculateRoomGender = (occupants) => {
     if (!occupants || occupants.length === 0) return "Mixto";
@@ -1431,6 +1439,7 @@ export default function RoomingManager({ supabase, program, onBack }) {
       }
       setLoading(false);
     }
+    if (onDataChange) onDataChange();
     setEditingRoomData(null);
   };
   const handleDeleteRoom = async (id) => {
@@ -1445,6 +1454,7 @@ export default function RoomingManager({ supabase, program, onBack }) {
     );
     updateLocalState(newRooms, newMusicians);
     await supabase.from("hospedaje_habitaciones").delete().eq("id", id);
+    if (onDataChange) onDataChange();
   };
   const handleMoveRoom = async (index, direction, currentRoom) => {
     const hotelRooms = rooms
