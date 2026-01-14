@@ -231,6 +231,17 @@ const ProtectedApp = () => {
     mentioned: 0,
   });
 
+  // --- ESCALADO DE UI ---
+  const [uiScale, setUiScale] = useState(() => {
+    const saved = localStorage.getItem("app_ui_scale");
+    return saved ? parseInt(saved, 10) : 100;
+  });
+
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${uiScale}%`;
+    localStorage.setItem("app_ui_scale", uiScale);
+  }, [uiScale]);
+
   const userRole = user?.rol_sistema || "";
   const isManagement = ["admin", "editor", "coord_general"].includes(userRole);
   const isDirector = userRole === "director";
@@ -922,58 +933,96 @@ const ProtectedApp = () => {
       )}
 
       {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-sm md:hidden flex flex-col p-6 animate-in fade-in slide-in-from-bottom-10 duration-200">
-          <div className="flex justify-between items-center mb-8">
-            <h2 className="text-white text-2xl font-bold">Menú</h2>
-            <button
-              onClick={() => setMobileMenuOpen(false)}
-              className="p-2 bg-white/10 rounded-full text-white"
-            >
-              <IconX size={24} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-2">
-            {visibleMenuItems.map((item) => (
+        <div className="fixed inset-0 z-50 flex">
+          {/* Fondo oscuro con blur */}
+          <div 
+            className="absolute inset-0 bg-slate-900/95 backdrop-blur-sm animate-in fade-in"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          
+          {/* Panel Lateral */}
+          <div className="relative w-72 bg-slate-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300">
+            <div className="p-6 flex justify-between items-center border-b border-slate-800">
+              <h2 className="text-white text-2xl font-bold">Menú</h2>
               <button
-                key={item.id}
-                onClick={() => updateView(item.id)}
-                className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-lg font-medium transition-all ${
-                  mode === item.id
-                    ? "bg-indigo-600 text-white shadow-lg"
-                    : "bg-white/5 text-slate-300"
-                }`}
+                onClick={() => setMobileMenuOpen(false)}
+                className="p-2 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors"
               >
-                {item.icon}
-                {item.label}
+                <IconX size={24} />
               </button>
-            ))}
-            <button
-              onClick={() => {
-                setMobileMenuOpen(false);
-                setCalendarModalOpen(true);
-              }}
-              className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-lg font-medium bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 mt-4"
-            >
-              <IconCalendar size={24} /> Sincronizar Calendario
-            </button>
-            {!isGuestRole && (
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {visibleMenuItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => updateView(item.id)}
+                  className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-lg font-medium transition-all ${
+                    mode === item.id
+                      ? "bg-indigo-600 text-white shadow-lg"
+                      : "text-slate-300 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  {item.icon}
+                  {item.label}
+                </button>
+              ))}
+              
+              <div className="h-px bg-slate-800 my-4"></div>
+
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
-                  setGlobalCommentsOpen(true);
+                  setCalendarModalOpen(true);
                 }}
-                className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-lg font-medium bg-amber-600/20 text-amber-400 border border-amber-500/30 mt-2"
+                className="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-lg font-medium text-emerald-400 hover:bg-emerald-500/10 transition-colors"
               >
-                <IconAlertCircle size={24} /> Pendientes Globales
+                <IconCalendar size={24} /> Sincronizar Calendario
               </button>
-            )}
+              {!isGuestRole && (
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    setGlobalCommentsOpen(true);
+                  }}
+                  className="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-lg font-medium text-amber-400 hover:bg-amber-500/10 transition-colors"
+                >
+                  <IconAlertCircle size={24} /> Pendientes Globales
+                </button>
+              )}
+            </div>
+
+            {/* --- CONTROL DE ESCALA DE UI (SLIDER) --- */}
+            <div className="p-4 border-t border-slate-800 bg-slate-900/50">
+                <div className="flex justify-between text-xs font-bold text-slate-400 uppercase mb-3">
+                    <span>Tamaño de Texto / Interfaz</span>
+                    <span className="text-indigo-400">{uiScale}%</span>
+                </div>
+                <input 
+                    type="range" 
+                    min="80" 
+                    max="115" 
+                    step="5"
+                    value={uiScale} 
+                    onChange={(e) => setUiScale(Number(e.target.value))}
+                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                />
+                <div className="flex justify-between text-[10px] text-slate-500 mt-2 font-medium">
+                    <span>Compacto</span>
+                    <span>Normal</span>
+                    <span>Grande</span>
+                </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-800">
+              <button
+                onClick={logout}
+                className="w-full py-3 bg-rose-600/90 hover:bg-rose-600 rounded-xl text-white font-bold flex items-center justify-center gap-2 transition-colors"
+              >
+                <IconLogOut size={20} /> Cerrar Sesión
+              </button>
+            </div>
           </div>
-          <button
-            onClick={logout}
-            className="mt-6 w-full py-4 bg-rose-600 rounded-xl text-white font-bold flex items-center justify-center gap-2"
-          >
-            <IconLogOut size={20} /> Cerrar Sesión
-          </button>
         </div>
       )}
 
