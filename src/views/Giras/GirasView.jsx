@@ -200,7 +200,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       const timer = setTimeout(() => {
         //console.log("📍 Apagando highlight (Timer)");
         setHighlightedGiraId(null);
-      }, 3000); // 3 segundos
+      }, 2000); // 3 segundos
 
       return () => clearTimeout(timer);
     }

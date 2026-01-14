@@ -134,53 +134,106 @@ export default function GiraCard({
       );
     return output.length > 0 ? output : null;
   };
-
   const getSourcesDisplay = (gira) => {
     const sources = gira.giras_fuentes || [];
-    const ensembleMap = new Map(ensemblesList.map((e) => [e.value, e.label]));
+
+    // Aseguramos que ensemblesList sea un array antes de mapear
+    const safeEnsemblesList = Array.isArray(ensemblesList) ? ensemblesList : [];
+
+    // Creamos el mapa asegurando tipos (todo a string para evitar problemas de "1" vs 1)
+    const ensembleMap = new Map(
+      safeEnsemblesList.map((e) => [String(e.value), e.label])
+    );
+
     const inclusions = [];
     const exclusions = [];
+
     sources.forEach((s) => {
       let label = "";
-      if (s.tipo === "ENSAMBLE")
-        label = ensembleMap.get(s.valor_id) || `Ensamble ID:${s.valor_id}`;
-      else if (s.tipo === "FAMILIA") label = s.valor_texto;
+
+      if (s.tipo === "ENSAMBLE") {
+        // Buscamos convirtiendo el ID a string
+        const foundLabel = ensembleMap.get(String(s.valor_id));
+
+        // Si encontramos el label, lo usamos. Si no, fallback.
+        // Importante: Verificamos que foundLabel sea string, si es objeto lo stringificamos (debug)
+        label = foundLabel
+          ? typeof foundLabel === "object"
+            ? JSON.stringify(foundLabel)
+            : foundLabel
+          : `Ensamble ${s.valor_id}`;
+      } else if (s.tipo === "FAMILIA") {
+        label = s.valor_texto;
+      }
+
+      // Si por alguna razón label sigue siendo un objeto (error de datos), forzamos string
+      if (typeof label === "object") label = "Error de Datos";
+
+      const element = (
+        <span
+          key={s.id || Math.random()} // Key única
+          className={
+            s.tipo === "EXCL_ENSAMBLE"
+              ? "text-gray-700 font-medium line-through"
+              : s.tipo === "ENSAMBLE"
+              ? "text-black-700 font-medium"
+              : "text-gray-700 font-medium"
+          }
+        >
+          {label}
+        </span>
+      );
 
       if (s.tipo === "EXCL_ENSAMBLE") {
+        // Para exclusiones también necesitamos buscar el nombre
+        let exclLabel =
+          ensembleMap.get(String(s.valor_id)) || `Ensamble ${s.valor_id}`;
         exclusions.push(
           <span key={s.id} className="text-gray-700 font-medium line-through">
-            {label}
+            {exclLabel}
           </span>
         );
       } else {
-        inclusions.push(
-          <span
-            key={s.id}
-            className={
-              s.tipo === "ENSAMBLE"
-                ? "text-black-700 font-medium"
-                : "text-gray-700 font-medium"
-            }
-          >
-            {label}
-          </span>
-        );
+        inclusions.push(element);
       }
     });
+
     if (inclusions.length === 0 && exclusions.length === 0) return null;
+
     return (
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs ml-2 pl-2 border-l border-slate-200 shrink-0">
-        {inclusions.join(" | ")}
+        {/* Renderizamos con reduce para agregar separadores si es necesario */}
+        {inclusions.reduce((acc, curr, idx) => {
+          return idx === 0
+            ? [curr]
+            : [
+                ...acc,
+                <span key={`sep-${idx}`} className="text-slate-300">
+                  |
+                </span>,
+                curr,
+              ];
+        }, [])}
+
         {exclusions.length > 0 && (
           <>
-            {" "}
-            <span className="text-slate-300">|</span> {exclusions}{" "}
+            {inclusions.length > 0 && <span className="text-slate-300">|</span>}
+            {exclusions.reduce((acc, curr, idx) => {
+              return idx === 0
+                ? [curr]
+                : [
+                    ...acc,
+                    <span key={`sep-ex-${idx}`} className="text-slate-300">
+                      |
+                    </span>,
+                    curr,
+                  ];
+            }, [])}
           </>
         )}
       </div>
     );
   };
-
   const getConcertList = (gira) => {
     const concerts = (gira.eventos || [])
       .filter(
@@ -236,9 +289,10 @@ export default function GiraCard({
         ${colors.bg}
 
         /* HIGHLIGHT VS NORMAL */
-        ${isHighlighted 
+        ${
+          isHighlighted
             ? `!border-transparent ring-4 ${colors.ring} shadow-xl z-40` // QUITAMOS 'scale-[1.01]'
-            : 'bg-white border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md' 
+            : "bg-white border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md"
         }
       `}
     >
