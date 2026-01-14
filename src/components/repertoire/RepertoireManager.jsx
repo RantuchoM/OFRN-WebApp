@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   IconMusic,
@@ -138,7 +138,7 @@ export default function RepertoireManager({
   isCompact = false,
   readOnly = undefined,
 }) {
-  const { isEditor: isGlobalEditor } = useAuth();
+  const { user, isEditor: isGlobalEditor } = useAuth();
   
   const isEditor = readOnly !== undefined ? !readOnly : isGlobalEditor;
 
@@ -162,9 +162,15 @@ export default function RepertoireManager({
   });
   const [workFormData, setWorkFormData] = useState({});
 
+  const userInstrumentId = useMemo(() => {
+    if (!user || musicians.length === 0) return null;
+    const me = musicians.find(m => m.id === user.id);
+    return me?.id_instr;
+  }, [musicians, user]);
+
   useEffect(() => {
     if (!initialData.length && programId) fetchFullRepertoire();
-    else if (initialData.length)
+    else if (initialData.length) {
       setRepertorios(
         initialData.map((r) => ({
           ...r,
@@ -172,6 +178,8 @@ export default function RepertoireManager({
             r.repertorio_obras?.sort((a, b) => a.orden - b.orden) || [],
         }))
       );
+      fetchFullRepertoire(); 
+    }
     if (musicians.length === 0) fetchMusicians();
   }, [programId]);
 
@@ -185,10 +193,11 @@ export default function RepertoireManager({
   const fetchMusicians = async () => {
     const { data } = await supabase
       .from("integrantes")
-      .select("id, nombre, apellido, instrumentos(instrumento)")
+      .select("id, nombre, apellido, id_instr, instrumentos(instrumento)")
       .order("apellido");
     if (data) setMusicians(data);
   };
+
   const fetchInstruments = async () => {
     const { data } = await supabase
       .from("instrumentos")
@@ -199,11 +208,19 @@ export default function RepertoireManager({
 
   const fetchFullRepertoire = async () => {
     if (repertorios.length === 0) setLoading(true);
-
     const { data: reps, error } = await supabase
       .from("programas_repertorios")
       .select(
-        `*, repertorio_obras (id, orden, notas_especificas, id_solista, google_drive_shortcut_id, excluir, obras (id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, compositores (id, apellido, nombre), obras_compositores (rol, compositores(id, apellido, nombre)), obras_particellas (nombre_archivo, nota_organico, instrumentos (instrumento))), integrantes (id, apellido, nombre))`
+        `*, repertorio_obras (
+            id, orden, notas_especificas, id_solista, google_drive_shortcut_id, excluir, 
+            obras (
+                id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, 
+                compositores (id, apellido, nombre), 
+                obras_compositores (rol, compositores(id, apellido, nombre)),
+                obras_particellas (nombre_archivo, nota_organico, id_instrumento, url_archivo, instrumentos (instrumento))
+            ), 
+            integrantes (id, apellido, nombre)
+        )`
       )
       .eq("id_programa", programId)
       .order("orden", { ascending: true });
@@ -218,6 +235,7 @@ export default function RepertoireManager({
       );
     setLoading(false);
   };
+
   const fetchLibrary = async () => {
     setLoadingLibrary(true);
     const { data, error } = await supabase
@@ -419,6 +437,49 @@ export default function RepertoireManager({
       : "-";
   };
 
+  // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE (VERTICAL Y COMPACTO) ---
+  const renderMyPartBadge = (obra) => {
+    if (!userInstrumentId) return null;
+
+    const myPart = obra.obras_particellas?.find(
+        p => p.id_instrumento === userInstrumentId
+    );
+
+    let cleanUrl = null;
+    if (myPart?.url_archivo) {
+        try {
+            if (myPart.url_archivo.trim().startsWith("[")) {
+                const parsed = JSON.parse(myPart.url_archivo);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    cleanUrl = parsed[0].url;
+                }
+            } else {
+                cleanUrl = myPart.url_archivo;
+            }
+        } catch (e) {
+            cleanUrl = myPart.url_archivo;
+        }
+    }
+
+    if (!cleanUrl) return null;
+
+    return (
+      <a 
+         href={cleanUrl} 
+         target="_blank" 
+         rel="noreferrer"
+         onClick={(e) => e.stopPropagation()}
+         className="mt-0.5 w-fit inline-flex items-center gap-1 px-1.5 py-px bg-indigo-50 text-indigo-600 text-[8px] font-bold uppercase tracking-wide rounded border border-indigo-100 hover:bg-indigo-100 transition-colors no-underline leading-none"
+         title={`Abrir particella: ${myPart.nombre_archivo || 'Mi Parte'}`}
+      >
+         <IconMusic size={8} /> 
+         <span className="truncate max-w-[90px]">
+            {myPart.nombre_archivo || "Mi Parte"}
+         </span>
+      </a>
+    );
+  };
+
   const filteredLibrary = worksLibrary.filter(
     (w) =>
       (!filters.titulo ||
@@ -548,14 +609,17 @@ export default function RepertoireManager({
                         <span className="text-slate-200">-</span>
                       )}
                     </td>
-                    <td
-                      className="p-1 truncate text-slate-600"
-                      title={getComposers(item.obras)}
-                    >
-                      {getComposers(item.obras)}
-                    </td>
                     
-                    {/* CELDA OBRA: FORMATO RICO */}
+                    {/* CELDA COMPOSITOR (VERTICAL) */}
+                    <td className="p-1 text-slate-600 align-middle">
+                      <div className="flex flex-col justify-center">
+                          <span className="truncate text-[11px] font-medium leading-tight" title={getComposers(item.obras)}>
+                            {getComposers(item.obras)}
+                          </span>
+                          {renderMyPartBadge(item.obras)}
+                      </div>
+                    </td>
+
                     <td
                       className="p-1 text-slate-800"
                       title={item.obras.titulo?.replace(/<[^>]*>?/gm, '')}
@@ -600,8 +664,6 @@ export default function RepertoireManager({
                     <td className="p-1 truncate text-slate-500">
                       {getArranger(item.obras)}
                     </td>
-                    
-                    {/* CELDA NOTAS: FORMATO RICO EN LECTURA */}
                     <td className="p-0 border-l border-slate-100 align-middle">
                       {isEditor ? (
                         <input
@@ -671,7 +733,6 @@ export default function RepertoireManager({
                         )}
                       </div>
                     </td>
-                    {/* NUEVA CELDA CHECKBOX EXCLUIR */}
                     <td className="p-1 text-center align-middle">
                       {isEditor ? (
                         <input
@@ -736,7 +797,7 @@ export default function RepertoireManager({
         </div>
       )}
 
-      {/* MODAL BUSCAR  */}
+      {/* MODAL BUSCAR */}
       {isAddModalOpen && isEditor && (
         <ModalPortal>
           <div className="bg-white w-full max-w-5xl h-[80vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
@@ -797,7 +858,6 @@ export default function RepertoireManager({
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              {/* ... TABLA DE BÚSQUEDA IGUAL ... */}
               {loadingLibrary ? (
                 <div className="p-8 text-center text-indigo-600">
                   <IconLoader className="animate-spin inline" />

@@ -836,7 +836,7 @@ const ProtectedApp = () => {
             </div>
 
             {/* --- BOTÓN DE ALERTAS MEJORADO --- */}
-            {!isGuestRole && (
+            {isManagement && (
               <button
                 onClick={() => setGlobalCommentsOpen(true)}
                 className="hidden sm:flex p-2 rounded-full text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors relative group"
@@ -979,7 +979,7 @@ const ProtectedApp = () => {
               >
                 <IconCalendar size={24} /> Sincronizar Calendario
               </button>
-              {!isGuestRole && (
+              {isManagement && (
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);

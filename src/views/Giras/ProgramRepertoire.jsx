@@ -25,7 +25,7 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
   );
 
   const [repertoireKey, setRepertoireKey] = useState(0);
-  
+
   // --- NUEVO ESTADO: Saber si el usuario coordina ESTE programa ---
   const [canEdit, setCanEdit] = useState(false);
 
@@ -40,21 +40,24 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
 
       // 2. Si no es editor, chequeamos si coordina el ensamble de este programa
       // Solo aplica si el programa es de tipo 'Ensamble'
-      if (program.tipo === 'Ensamble') {
+      if (program.tipo === "Ensamble") {
         const fuentes = program.giras_fuentes || [];
-        
+
         const { data: coordData, error } = await supabase
           .from("ensambles_coordinadores")
           .select("id_ensamble")
           .eq("id_integrante", user.id);
 
         if (!error && coordData) {
-          const myCoordinatedEnsembles = new Set(coordData.map(c => c.id_ensamble));
-          
-          const isCoordinator = fuentes.some(f => 
-            f.tipo === 'ENSAMBLE' && myCoordinatedEnsembles.has(f.valor_id)
+          const myCoordinatedEnsembles = new Set(
+            coordData.map((c) => c.id_ensamble)
           );
-          
+
+          const isCoordinator = fuentes.some(
+            (f) =>
+              f.tipo === "ENSAMBLE" && myCoordinatedEnsembles.has(f.valor_id)
+          );
+
           if (isCoordinator) {
             setCanEdit(true);
           }
@@ -63,7 +66,7 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
     };
 
     if (program && user) {
-        checkPermissions();
+      checkPermissions();
     }
   }, [user, isEditor, program, supabase]);
 
@@ -183,7 +186,7 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
               supabase={supabase}
               program={program}
               repertoireBlocks={repertorios}
-              onBack={() => handleTabChange("repertoire")} 
+              onBack={() => handleTabChange("repertoire")}
             />
           </div>
         )}
@@ -193,7 +196,7 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
             <MyPartsViewer
               supabase={supabase}
               gira={program}
-              onOpenSeating={() => handleTabChange("seating")} 
+              onOpenSeating={() => handleTabChange("seating")}
             />
           </div>
         )}
