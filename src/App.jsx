@@ -747,10 +747,25 @@ const ProtectedApp = () => {
       {/* MAIN CONTENT */}
       <div className="flex-1 flex flex-col h-full relative overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shadow-sm z-100 shrink-0">
+          
+          {/* ZONA IZQUIERDA: HAMBURGUESA + TÍTULO */}
           <div className="flex items-center gap-2">
+            
+            {/* --- NUEVO: BOTÓN HAMBURGUESA (Solo Móvil) --- */}
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="md:hidden p-2 -ml-2 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-full transition-colors mr-1"
+              title="Abrir Menú"
+            >
+              <IconMenu size={24} />
+            </button>
+            {/* --------------------------------------------- */}
+
             <div className="md:hidden w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold mr-2">
               O
             </div>
+            
+            {/* Título de la sección actual (Visible en escritorio, opcional en móvil) */}
             <h2 className="text-xl font-bold text-slate-800 hidden sm:block">
               {allMenuItems.find((m) => m.id === mode)?.label || "Panel"}
             </h2>

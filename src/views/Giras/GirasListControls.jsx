@@ -5,9 +5,9 @@ import {
   IconInfo,
   IconList,
   IconEye,
-  IconFilter,
   IconMusic,
   IconMap,
+  IconFilter,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 
@@ -16,210 +16,160 @@ export default function GirasListControls({
   updateView,
   showRepertoireInCards,
   setShowRepertoireInCards,
-  showFiltersMobile,
-  setShowFiltersMobile,
   filterDateStart,
   setFilterDateStart,
   filterDateEnd,
   setFilterDateEnd,
   filterType,
   toggleFilterType,
-  PROGRAM_TYPES,
-  filterStatus, // <--- NUEVA PROP
-  toggleFilterStatus, // <--- NUEVA PROP
+  filterStatus,
+  toggleFilterStatus,
 }) {
-  // --- SUB-COMPONENTES DE FILTRO ---
-  const renderTypeFilterChips = (isMobile = false) => (
-    <div className={`flex flex-wrap gap-2 ${isMobile ? "pt-2" : ""}`}>
-      {PROGRAM_TYPES.map((type) => (
-        <button
-          key={type}
-          onClick={() => toggleFilterType(type)}
-          className={`px-3 py-1 rounded-full text-xs font-bold transition-all border ${
-            filterType.has(type)
-              ? "bg-indigo-600 text-white border-indigo-700"
-              : "bg-white text-slate-500 border-slate-300 hover:bg-slate-50"
-          }`}
-        >
-          {type}
-        </button>
-      ))}
-    </div>
-  );
+  // --- LÓGICA DE GRUPOS UNIFICADOS ---
+  
+  // 1. Sinfónico + Camerata
+  const isSinfonicoActive = filterType.has("Sinfónico") || filterType.has("Camerata Filarmónica");
+  const toggleSinfonicoGroup = () => {
+    // Alternamos ambos valores para que funcionen como un solo bloque
+    toggleFilterType("Sinfónico");
+    toggleFilterType("Camerata Filarmónica");
+  };
 
-  const renderDateInputs = (isMobile = false) => (
-    <div className="flex items-center gap-2">
-      <div className={`${isMobile ? "w-full" : "w-32"}`}>
-        <DateInput
-          label={null}
-          value={filterDateStart}
-          onChange={setFilterDateStart}
-          placeholder="Desde"
-          className="w-full"
-        />
-      </div>
-      <span className="text-slate-400 text-xs">-</span>
-      <div className={`${isMobile ? "w-full" : "w-32"}`}>
-        <DateInput
-          label={null}
-          value={filterDateEnd}
-          onChange={setFilterDateEnd}
-          placeholder="Hasta"
-          className="w-full"
-        />
-      </div>
-    </div>
-  );
+  // 2. Cámara (Ensamble)
+  const isCamaraActive = filterType.has("Ensamble");
+  const toggleCamaraGroup = () => {
+    toggleFilterType("Ensamble");
+  };
+
+  // 3. Jazz Band (Directo)
+  const isJazzActive = filterType.has("Jazz Band");
 
   return (
-    <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-      <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-3 w-full">
+      
+      {/* 1. TÍTULO Y VISTAS */}
+      <div className="flex items-center gap-2 mr-auto sm:mr-0">
         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-          {mode === "CALENDAR" ? (
-            <IconCalendar className="text-indigo-600" />
-          ) : mode === "WEEKLY" ? (
-            <IconColumns className="text-indigo-600" />
-          ) : mode === "FULL_AGENDA" ? (
-            <IconMusic className="text-indigo-600" />
-          ) : (
-            <IconMap className="text-indigo-600" />
-          )}
-          <span className="hidden sm:inline">
-            {mode === "CALENDAR"
-              ? "Calendario Mensual"
-              : mode === "WEEKLY"
-              ? "Vista Semanal"
-              : mode === "FULL_AGENDA"
-              ? "Agenda Completa"
-              : "Programas"}
+          {mode === "CALENDAR" ? <IconCalendar className="text-indigo-600" /> : 
+           mode === "WEEKLY" ? <IconColumns className="text-indigo-600" /> : 
+           mode === "FULL_AGENDA" ? <IconMusic className="text-indigo-600" /> : 
+           <IconMap className="text-indigo-600" />}
+          <span className="hidden xl:inline">
+            {mode === "CALENDAR" ? "Calendario" : mode === "WEEKLY" ? "Semanal" : mode === "FULL_AGENDA" ? "Agenda" : "Programas"}
           </span>
         </h2>
 
-        {/* BOTONES DE CAMBIO DE VISTA (RECUPERADOS) */}
-        <div className="flex bg-slate-100 p-0.5 rounded-lg ml-2">
-          <button
-            onClick={() => updateView("LIST")}
-            className={`p-1.5 rounded-md transition-all ${
-              ["LIST"].includes(mode)
-                ? "bg-white shadow-sm text-indigo-600"
-                : "text-slate-400 hover:text-slate-600"
-            }`}
-            title="Lista"
-          >
-            <IconList size={18} />
-          </button>
-          <button
-            onClick={() => updateView("CALENDAR")}
-            className={`p-1.5 rounded-md transition-all ${
-              mode === "CALENDAR"
-                ? "bg-white shadow-sm text-indigo-600"
-                : "text-slate-400 hover:text-slate-600"
-            }`}
-            title="Mes"
-          >
-            <IconCalendar size={18} />
-          </button>
-          <button
-            onClick={() => updateView("WEEKLY")}
-            className={`p-1.5 rounded-md transition-all ${
-              mode === "WEEKLY"
-                ? "bg-white shadow-sm text-indigo-600"
-                : "text-slate-400 hover:text-slate-600"
-            }`}
-            title="Semana"
-          >
-            <IconColumns size={18} />
-          </button>
-          <button
-            onClick={() => updateView("FULL_AGENDA")}
-            className={`p-1.5 rounded-md transition-all ${
-              mode === "FULL_AGENDA"
-                ? "bg-white shadow-sm text-indigo-600"
-                : "text-slate-400 hover:text-slate-600"
-            }`}
-            title="Agenda"
-          >
-            <IconInfo size={24} />
-          </button>
+        {/* Selector de Vistas Compacto */}
+        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+          {[
+            { id: "LIST", icon: IconList, title: "Lista" },
+            { id: "CALENDAR", icon: IconCalendar, title: "Mes" },
+            { id: "WEEKLY", icon: IconColumns, title: "Semana" },
+            { id: "FULL_AGENDA", icon: IconInfo, title: "Info" },
+          ].map((v) => (
+            <button
+              key={v.id}
+              onClick={() => updateView(v.id)}
+              className={`p-1 rounded-md transition-all ${
+                mode === v.id ? "bg-white shadow-sm text-indigo-600" : "text-slate-400 hover:text-slate-600"
+              }`}
+              title={v.title}
+            >
+              <v.icon size={16} />
+            </button>
+          ))}
         </div>
       </div>
 
-      {mode === "LIST" && (
-        <>
-          {/* BARRA DE FILTROS ESCRITORIO */}
-          <div className="p-2 md:p-0 space-y-3 md:space-y-0 md:flex md:items-center md:gap-4">
-            <button
-              onClick={() => setShowRepertoireInCards(!showRepertoireInCards)}
-              className={`hidden md:flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
-                showRepertoireInCards
-                  ? "bg-indigo-100 text-indigo-700 border-indigo-200"
-                  : "bg-white text-slate-500 border-slate-200 hover:text-indigo-600"
-              }`}
-            >
-              <IconEye size={16} />
-              <span>
-                {showRepertoireInCards ? "Ocultar Obras" : "Ver Obras"}
-              </span>
-            </button>
-            
-            <button
-              className="md:hidden p-2 text-slate-500"
-              onClick={() => setShowFiltersMobile(!showFiltersMobile)}
-            >
-              <IconFilter size={20} />
-            </button>
+      {/* SEPARADOR */}
+      <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
 
-            <div className="hidden md:flex items-center gap-4">
-              {renderDateInputs()}
-              {renderTypeFilterChips()}
+      {/* 2. CONTROLES DE FILTRO (Solo en modo Lista) */}
+      {mode === "LIST" && (
+        <div className="flex flex-1 items-center gap-3 overflow-x-auto no-scrollbar pb-1 md:pb-0">
+          
+          {/* FECHAS COMPACTAS */}
+          <div className="flex items-center gap-1 min-w-fit">
+            <div className="w-24">
+              <DateInput value={filterDateStart} onChange={setFilterDateStart} placeholder="Desde" className="h-7 text-xs py-0" />
+            </div>
+            <span className="text-slate-300 text-[10px]">➜</span>
+            <div className="w-24">
+              <DateInput value={filterDateEnd} onChange={setFilterDateEnd} placeholder="Hasta" className="h-7 text-xs py-0" />
             </div>
           </div>
 
-          {/* BARRA DE FILTROS MÓVIL */}
-          {showFiltersMobile && (
-            <div className="w-full md:hidden px-4 pb-3 flex flex-col gap-2 border-t border-slate-100 mt-2 pt-2">
-              <button
-                onClick={() => setShowRepertoireInCards(!showRepertoireInCards)}
-                className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-bold transition-colors border ${
-                  showRepertoireInCards
-                    ? "bg-indigo-100 text-indigo-700 border-indigo-200"
-                    : "bg-white text-slate-500 border-slate-200"
-                }`}
-              >
-                <IconMusic size={16} />
-                <span>
-                  {showRepertoireInCards
-                    ? "Ocultar Repertorio"
-                    : "Ver Repertorio"}
-                </span>
-              </button>
-              <div className="flex gap-2">{renderDateInputs(true)}</div>
-              {renderTypeFilterChips(true)}
-            </div>
-          )}
-          {/* --- NUEVO FILTRO DE ESTADO --- */}
-      <div className="h-6 w-px bg-slate-300 mx-2 hidden md:block"></div>
-      <div className="flex items-center gap-1">
-         {['Vigente', 'Borrador', 'Pausada'].map(status => {
-             const isActive = filterStatus.has(status);
-             const colors = {
-                 'Vigente': isActive ? 'bg-green-100 text-green-700 border-green-200' : 'text-slate-500 hover:bg-slate-100',
-                 'Borrador': isActive ? 'bg-slate-200 text-slate-700 border-slate-300' : 'text-slate-500 hover:bg-slate-100',
-                 'Pausada': isActive ? 'bg-amber-100 text-amber-700 border-amber-200' : 'text-slate-500 hover:bg-slate-100'
-             };
-             
-             return (
-                 <button
-                    key={status}
-                    onClick={() => toggleFilterStatus(status)}
-                    className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${colors[status]} ${!isActive ? 'border-transparent' : ''}`}
-                 >
-                    {status}
-                 </button>
-             )
-         })}
-      </div>
-        </>
+          <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
+
+          {/* TIPOS UNIFICADOS */}
+          <div className="flex bg-slate-50 p-0.5 rounded-lg border border-slate-200 min-w-fit">
+            <button
+              onClick={toggleSinfonicoGroup}
+              className={`px-2.5 py-0.5 rounded text-[11px] font-bold transition-all ${
+                isSinfonicoActive ? "bg-white text-indigo-600 shadow-sm border border-slate-100" : "text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              Sinfónico
+            </button>
+            <div className="w-px bg-slate-200 my-1"></div>
+            <button
+              onClick={toggleCamaraGroup}
+              className={`px-2.5 py-0.5 rounded text-[11px] font-bold transition-all ${
+                isCamaraActive ? "bg-white text-emerald-600 shadow-sm border border-slate-100" : "text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              Cámara
+            </button>
+            <div className="w-px bg-slate-200 my-1"></div>
+            <button
+              onClick={() => toggleFilterType("Jazz Band")}
+              className={`px-2.5 py-0.5 rounded text-[11px] font-bold transition-all ${
+                isJazzActive ? "bg-white text-amber-600 shadow-sm border border-slate-100" : "text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              Jazz
+            </button>
+          </div>
+
+          <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
+
+          {/* ESTADOS */}
+          <div className="flex gap-1 min-w-fit">
+            {["Vigente", "Borrador", "Pausada"].map((status) => {
+              const isActive = filterStatus.has(status);
+              const activeClasses = {
+                Vigente: "bg-green-100 text-green-700 border-green-200",
+                Borrador: "bg-slate-200 text-slate-700 border-slate-300",
+                Pausada: "bg-amber-100 text-amber-700 border-amber-200",
+              };
+              return (
+                <button
+                  key={status}
+                  onClick={() => toggleFilterStatus(status)}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-all ${
+                    isActive ? activeClasses[status] : "bg-white border-slate-200 text-slate-300 hover:border-slate-300"
+                  }`}
+                  title={`Filtrar ${status}`}
+                >
+                  {status.slice(0, 3)}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* VER OBRAS (Al final) */}
+          <button
+            onClick={() => setShowRepertoireInCards(!showRepertoireInCards)}
+            className={`ml-auto px-2 py-1 rounded-md border transition-all flex items-center gap-1.5 ${
+              showRepertoireInCards
+                ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                : "bg-white border-slate-200 text-slate-400 hover:text-slate-600"
+            }`}
+            title="Ver Repertorio en tarjetas"
+          >
+            <IconEye size={16} />
+          </button>
+        </div>
       )}
     </div>
   );
