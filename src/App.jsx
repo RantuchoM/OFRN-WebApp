@@ -33,6 +33,8 @@ import { ManualProvider } from "./context/ManualContext";
 import ManualIndex from "./views/Manual/ManualIndex";
 import ManualAdmin from "./views/Manual/ManualAdmin";
 import ManualTrigger from "./components/manual/ManualTrigger";
+import { useManual } from "./context/ManualContext";
+import { IconEye, IconEyeOff } from "./components/ui/Icons";
 import {
   IconLayoutDashboard,
   IconMap,
@@ -56,6 +58,7 @@ import {
   IconAlertCircle,
   IconBell,
   IconCopy,
+  IconBulb,
   IconDrive, // Asegúrate de tener este importado si lo usas abajo
   IconBookOpen, // <--- AGREGADO: Asegúrate de tener este ícono en Icons.jsx
   IconEdit,
@@ -221,7 +224,7 @@ const ProtectedApp = () => {
 
   const [isEnsembleCoordinator, setIsEnsembleCoordinator] = useState(false);
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
-
+  const { toggleVisibility, showTriggers } = useManual();
   // --- NUEVO ESTADO DE CONTADORES ---
   const [commentCounts, setCommentCounts] = useState({
     total: 0,
@@ -535,7 +538,7 @@ const ProtectedApp = () => {
     {
       id: "FEEDBACK_ADMIN",
       label: "Feedback",
-      icon: <IconMessageCircle size={20} />,
+      icon: <IconBulb size={20} />,
       show: userRole === "admin", // <--- VISIBLE SOLO PARA ADMIN
     },
   ];
@@ -753,14 +756,47 @@ const ProtectedApp = () => {
             </h2>
           </div>
           <div className="flex items-center gap-4">
-            <ManualTrigger
-              section={activeManualSection}
-              size="md"
-              className="ml-2 text-indigo-400 hover:text-indigo-600 bg-transparent border-0"
-            />
+            {/* --- ZONA DE CONTROL DE MANUAL (CÁPSULA UNIFICADA) --- */}
+            <div className="flex items-center ml-4 bg-white border border-slate-200 rounded-full shadow-sm p-1 transition-all duration-200 hover:shadow-md hover:border-slate-300">
+              {/* 1. Toggle de Visibilidad (Interruptor) */}
+              <button
+                onClick={toggleVisibility}
+                className={`p-1.5 rounded-full transition-all duration-200 flex items-center justify-center ${
+                  !showTriggers
+                    ? "text-slate-400 hover:text-slate-600 hover:bg-slate-100" // Estado Apagado
+                    : "text-sky-600 bg-sky-50 hover:bg-sky-100 ring-1 ring-sky-100" // Estado Prendido (Activo)
+                }`}
+                title={
+                  showTriggers
+                    ? "Ocultar ayudas visuales"
+                    : "Mostrar ayudas visuales"
+                }
+              >
+                {showTriggers ? (
+                  <IconEye size={18} />
+                ) : (
+                  <IconEyeOff size={18} />
+                )}
+              </button>
+
+              {/* 2. El Trigger Contextual (Solo si está activo) */}
+              {showTriggers && (
+                <>
+                  {/* Separador Vertical (El "Pegamento" visual) */}
+                  <div className="w-px h-5 bg-slate-200 mx-1"></div>
+
+                  {/* El Librito */}
+                  <ManualTrigger
+                    section={activeManualSection}
+                    size="md"
+                    className="border-0 bg-sky hover:bg-sky-100 text-sky-500 hover:text-sky-600 shadow-none !p-1.5"
+                  />
+                </>
+              )}
+            </div>
             <button
               onClick={() => setCalendarModalOpen(true)}
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-full transition-colors border border-indigo-200 shadow-sm group"
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-600 rounded-full transition-colors border border-sky-200 shadow-sm group"
               title="Sincronizar con Google Calendar"
             >
               <IconCalendar
@@ -966,7 +1002,6 @@ export default function App() {
         <Routes>
           <Route path="/share/:token" element={<PublicLinkHandler />} />
           <Route path="/*" element={<AppContent />} />
-         
         </Routes>
       </ManualProvider>
     </AuthProvider>

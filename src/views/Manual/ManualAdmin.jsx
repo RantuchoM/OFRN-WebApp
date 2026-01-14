@@ -49,6 +49,7 @@ const TreeItem = ({
   isExpanded,
   onToggle,
   style,
+  dragOffset,
 }) => {
   const {
     attributes,
@@ -60,9 +61,11 @@ const TreeItem = ({
     over,
   } = useSortable({ id: item.id, data: { item, depth } });
 
-  // DETECTAR INTENCIÓN DE ANIDAR (Si paso por encima sin soltar rápido)
+  // LÓGICA VISUAL MEJORADA
   const isOverMe = over?.id === item.id;
-  const isNestTarget = isOverMe && !isDragging;
+
+  // Solo mostramos "Hacer Padre" si estamos encima Y el usuario movió el mouse a la derecha
+  const isIntendingToNest = isOverMe && !isDragging && dragOffset > 30;
 
   const draggingStyle = {
     transform: CSS.Translate.toString(transform),
@@ -76,14 +79,18 @@ const TreeItem = ({
     <div
       ref={setNodeRef}
       style={draggingStyle}
-      // Si es target de anidamiento, lo pintamos de Sky fuerte
-      className={`group relative py-1 pr-2 transition-colors duration-200 
+      // Si intentamos anidar (derecha) -> Azul fuerte
+      // Si estamos encima pero a la izquierda -> Gris suave (indica reordenar)
+      className={`group relative py-1 pr-2 transition-colors duration-200 rounded my-1
         ${
-          isNestTarget
-            ? "bg-sky-100 ring-2 ring-inset ring-sky-400 z-10 rounded my-1"
-            : ""
+          isIntendingToNest
+            ? "bg-sky-100 ring-2 ring-inset ring-sky-400 z-10"
+            : isOverMe && !isDragging
+            ? "bg-slate-100"
+            : "" // Feedback sutil para reordenar
         }`}
     >
+      {/* Línea guía de profundidad */}
       {depth > 0 && (
         <div
           className="absolute left-0 top-0 bottom-0 border-l border-slate-200"
@@ -95,7 +102,7 @@ const TreeItem = ({
         className={`flex items-center gap-1 p-1.5 rounded cursor-pointer transition-colors ${
           isSelected
             ? "bg-sky-50 text-sky-700 font-bold ring-1 ring-sky-200"
-            : "hover:bg-slate-100 text-slate-600"
+            : "text-slate-600"
         }`}
       >
         <div
@@ -124,12 +131,19 @@ const TreeItem = ({
 
         <div
           onClick={() => onSelect(item)}
-          className="flex-1 truncate select-none text-sm"
+          className="flex-1 truncate select-none text-sm flex items-center justify-between"
         >
-          {item.title}
-          {isNestTarget && (
-            <span className="ml-2 text-[10px] bg-sky-600 text-white px-1.5 py-0.5 rounded-full uppercase font-bold tracking-wider">
-              Hacer Padre
+          <span>{item.title}</span>
+
+          {/* ETIQUETAS DE AYUDA VISUAL */}
+          {isIntendingToNest && (
+            <span className="text-[9px] bg-sky-600 text-white px-1.5 py-0.5 rounded-full uppercase font-bold tracking-wider animate-in fade-in">
+              Hacer Hijo
+            </span>
+          )}
+          {isOverMe && !isDragging && !isIntendingToNest && (
+            <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider opacity-50">
+              Reordenar
             </span>
           )}
         </div>
@@ -160,8 +174,8 @@ export default function ManualAdmin({ supabase }) {
   const [isKeyLocked, setIsKeyLocked] = useState(true);
 
   // Hook para detectar si venimos desde el modal de lectura
-const [searchParams, setSearchParams] = useSearchParams();
-
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [dragOffset, setDragOffset] = useState(0); // <--- NUEVO ESTADO: Movimiento horizontal
   const [formData, setFormData] = useState({
     id: null,
     title: "",
@@ -222,13 +236,13 @@ const [searchParams, setSearchParams] = useSearchParams();
 
   // --- EFECTO PARA ABRIR DESDE URL (Edición Directa) ---
   // --- EFECTO PARA ABRIR DESDE URL (Editar O Crear) ---
-useEffect(() => {
-    const editId = searchParams.get('editId');
-    const createKey = searchParams.get('createKey');
+  useEffect(() => {
+    const editId = searchParams.get("editId");
+    const createKey = searchParams.get("createKey");
 
     // 1. MODO EDICIÓN
     if (!loading && items.length > 0 && editId) {
-      const targetItem = items.find(i => i.id === editId);
+      const targetItem = items.find((i) => i.id === editId);
       if (targetItem) {
         handleSelect(targetItem);
         // Expandir padres...
@@ -236,46 +250,51 @@ useEffect(() => {
         let currentParent = targetItem.parent_id;
         while (currentParent) {
           parentsToExpand.add(currentParent);
-          const parentObj = items.find(i => i.id === currentParent);
+          const parentObj = items.find((i) => i.id === currentParent);
           currentParent = parentObj ? parentObj.parent_id : null;
         }
-        setExpandedIds(prev => {
-           const newSet = new Set(prev);
-           parentsToExpand.forEach(id => newSet.add(id));
-           return newSet;
+        setExpandedIds((prev) => {
+          const newSet = new Set(prev);
+          parentsToExpand.forEach((id) => newSet.add(id));
+          return newSet;
         });
-        
+
         // LIMPIEZA SEGURA: Quitamos editId pero DEJAMOS el tab
-        setSearchParams(prev => {
+        setSearchParams(
+          (prev) => {
             const newParams = new URLSearchParams(prev);
-            newParams.delete('editId');
+            newParams.delete("editId");
             return newParams;
-        }, { replace: true });
+          },
+          { replace: true }
+        );
       }
     }
 
     // 2. MODO CREACIÓN
     if (!loading && createKey) {
-        setIsKeyLocked(false);
-        setFormData({
-            id: null,
-            title: `Nueva Sección (${createKey})`,
-            section_key: createKey,
-            content: '<p>Contenido...</p>',
-            parent_id: null,
-            sort_order: items.length + 1,
-            video_url: ''
-        });
-        setSelectedItem(null);
-        
-        // LIMPIEZA SEGURA
-        setSearchParams(prev => {
-            const newParams = new URLSearchParams(prev);
-            newParams.delete('createKey');
-            return newParams;
-        }, { replace: true });
-    }
+      setIsKeyLocked(false);
+      setFormData({
+        id: null,
+        title: `Nueva Sección (${createKey})`,
+        section_key: createKey,
+        content: "<p>Contenido...</p>",
+        parent_id: null,
+        sort_order: items.length + 1,
+        video_url: "",
+      });
+      setSelectedItem(null);
 
+      // LIMPIEZA SEGURA
+      setSearchParams(
+        (prev) => {
+          const newParams = new URLSearchParams(prev);
+          newParams.delete("createKey");
+          return newParams;
+        },
+        { replace: true }
+      );
+    }
   }, [loading, items, searchParams, setSearchParams]);
 
   const loadData = async () => {
@@ -335,53 +354,123 @@ useEffect(() => {
   };
 
   // --- DRAG & DROP LOGIC ---
-  const handleDragStart = (event) => setActiveId(event.active.id);
+  const handleDragStart = (event) => {
+    setActiveId(event.active.id);
+    setDragOffset(0); // Resetear
+  };
 
+  // NUEVO: Detectar movimiento para saber la intención
+  const handleDragMove = (event) => {
+    setDragOffset(event.delta.x); // Guardamos cuánto se movió en X
+  };
+
+  // Reemplaza la función handleDragEnd por esta:
   const handleDragEnd = async (event) => {
-    const { active, over } = event;
+    const { active, over, delta } = event;
     setActiveId(null);
+    setDragOffset(0);
+
     if (!over) return;
     if (active.id === over.id) return;
 
-    const activeItem = items.find((i) => i.id === active.id);
-    const overItem = items.find((i) => i.id === over.id);
+    const activeItem = items.find(i => i.id === active.id);
+    const overItem = items.find(i => i.id === over.id);
     if (!activeItem || !overItem) return;
 
+    // 1. DETERMINAR LA INTENCIÓN (Padre Nuevo)
     let newParentId = activeItem.parent_id;
-    let newSortOrder = activeItem.sort_order;
-
-    // REGLA 1: ANIDAMIENTO EXPLÍCITO (Soltar 'A' sobre 'B')
-    const isDroppingOnDifferentItem = activeItem.parent_id !== overItem.id;
-
-    if (isDroppingOnDifferentItem) {
-      newParentId = overItem.id;
-      const currentChildrenCount = items.filter(
-        (i) => i.parent_id === overItem.id
-      ).length;
-      newSortOrder = currentChildrenCount + 1;
-      toggleExpand(overItem.id, true);
-    } else {
-      // REGLA 2: REORDENAMIENTO (Mismo Padre)
-      newParentId = overItem.parent_id;
-      newSortOrder = overItem.sort_order;
+    const isMovingRight = delta.x > 30; // Umbral para anidar
+    
+    // CASO A: HACER HIJO (Nesting)
+    if (isMovingRight && activeItem.parent_id !== overItem.id) {
+        newParentId = overItem.id;
+        // Se agregará al final de los hijos de este nuevo padre
+    } 
+    // CASO B: REORDENAR (Mismo nivel que el destino)
+    else {
+        newParentId = overItem.parent_id;
     }
 
+    // 2. CALCULAR EL NUEVO ORDEN LOCALMENTE (Array Manipulation)
+    const newItems = [...items];
+    
+    // a. Sacamos el item que estamos moviendo de la lista temporal
+    const remainingItems = newItems.filter(i => i.id !== activeItem.id);
+
+    // b. Filtramos quiénes serán sus NUEVOS hermanos (incluyendo al destino)
+    const targetSiblings = remainingItems
+        .filter(i => i.parent_id === newParentId)
+        .sort((a, b) => a.sort_order - b.sort_order);
+
+    // c. Encontrar dónde insertarlo
+    let insertIndex;
+    
+    if (newParentId === overItem.id) {
+        // Si estamos anidando, va al final (o principio)
+        insertIndex = targetSiblings.length; 
+    } else {
+        // Si estamos reordenando entre hermanos
+        const overSiblingIndex = targetSiblings.findIndex(i => i.id === overItem.id);
+        
+        // Decidir si va antes o después basado en la dirección visual
+        // Si veníamos de "arriba" (índice original menor) -> insertamos después del over
+        // Esto es una aproximación, para sortable exacto usamos active.sort_order
+        const isMovingDown = activeItem.sort_order < overItem.sort_order;
+        insertIndex = isMovingDown ? overSiblingIndex + 1 : overSiblingIndex;
+    }
+
+    // d. Insertar el item en la posición calculada
+    targetSiblings.splice(insertIndex, 0, {
+        ...activeItem,
+        parent_id: newParentId
+    });
+
+    // 3. RE-INDEXAR (Asignar 0, 1, 2, 3... a todos los hermanos para evitar conflictos)
+    const updates = [];
+    const updatedSiblings = targetSiblings.map((item, index) => {
+        const hasChanged = item.sort_order !== index || item.parent_id !== newParentId;
+        const newItem = { ...item, sort_order: index, parent_id: newParentId };
+        
+        if (hasChanged) {
+             updates.push({ id: newItem.id, parent_id: newItem.parent_id, sort_order: newItem.sort_order });
+        }
+        return newItem;
+    });
+
+    // 4. ACTUALIZAR ESTADO LOCAL (UI Inmediata)
+    // Reemplazamos en el array general los items actualizados
+    const finalItems = newItems.map(item => {
+        const updated = updatedSiblings.find(u => u.id === item.id);
+        if (updated) return updated; // Si es uno de los afectados, usamos la nueva versión
+        if (item.id === activeItem.id) return updatedSiblings.find(u => u.id === activeItem.id); // Caso especial para el movido
+        return item; // El resto queda igual
+    });
+    
+    setItems(finalItems);
+    
+    // Si anidamos, abrimos la carpeta automáticamente
+    if (newParentId === overItem.id) {
+        toggleExpand(overItem.id, true);
+    }
+
+    // 5. ACTUALIZAR BACKEND (Batch Update)
     try {
-      setItems((prev) =>
-        prev.map((item) =>
-          item.id === activeItem.id
-            ? { ...item, parent_id: newParentId, sort_order: newSortOrder }
-            : item
-        )
-      );
-      await manualService.moveItem(activeItem.id, newParentId, newSortOrder);
+        // Enviamos actualización para TODOS los afectados (no solo el movido)
+        // para asegurar que el orden se mantenga consistente en la BD.
+        const promises = updates.map(u => 
+             manualService.update(u.id, { 
+                 parent_id: u.parent_id, 
+                 sort_order: u.sort_order 
+             })
+        );
+        
+        await Promise.all(promises);
+        
     } catch (e) {
-      console.error(e);
-      alert("Error moviendo item: " + e.message);
-      loadData();
+        console.error("Error guardando orden:", e);
+        // Si falla, podrías revertir con loadData()
     }
   };
-
   // --- CRUD ---
   const handleCreateRoot = () => {
     setIsKeyLocked(false);
@@ -417,7 +506,16 @@ useEffect(() => {
   const handleSelect = (item) => {
     setIsKeyLocked(true);
     setSelectedItem(item.id);
-    setFormData({ ...item, content: item.content || "" });
+
+    // --- CORRECCIÓN: SANITIZAR EL OBJETO ---
+    // Extraemos las propiedades visuales (depth, hasChildren) que NO van a la BD
+    // para quedarnos solo con los datos reales ('cleanItem').
+    const { depth, hasChildren, children, ...cleanItem } = item;
+
+    setFormData({
+      ...cleanItem,
+      content: cleanItem.content || "",
+    });
   };
 
   const handleSave = async () => {
@@ -461,6 +559,7 @@ useEffect(() => {
       sensors={sensors}
       collisionDetection={closestCenter}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove} // <--- IMPORTANTE AGREGAR ESTO
       onDragEnd={handleDragEnd}
     >
       <div className="flex h-full bg-slate-50">
@@ -512,6 +611,7 @@ useEffect(() => {
                       isExpanded={expandedIds.has(item.id)}
                       onSelect={handleSelect}
                       onToggle={toggleExpand}
+                      dragOffset={dragOffset} // <--- PASAR EL OFFSET AQUÍ
                     />
                   ))}
                 </div>

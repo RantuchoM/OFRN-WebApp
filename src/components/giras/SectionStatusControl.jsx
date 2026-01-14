@@ -6,6 +6,7 @@ import {
   calculateStatsFromData,
   hasCalculator,
 } from "../../utils/giraStatsCalculators";
+import ManualTrigger from '../../components/manual/ManualTrigger';
 
 export default function SectionStatusControl({
   supabase,
@@ -222,6 +223,7 @@ export default function SectionStatusControl({
   return (
     <div className="flex items-center relative z-20 select-none">
       {/* BADGE KPI */}
+      <ManualTrigger section="section_status" size="sm" />
       {estado !== "NOT_APPLICABLE" && (
           <>
             {stats?.kpi?.[0] ? (
