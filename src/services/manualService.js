@@ -1,13 +1,12 @@
 import { supabase } from './supabase';
 
 export const manualService = {
-  // --- LECTURA ---
+  // Obtener lista plana (la recursividad la haremos en el frontend para no matar la DB)
   getAll: async () => {
     const { data, error } = await supabase
       .from('app_manual')
       .select('*')
-      .order('category', { ascending: true })
-      .order('sort_order', { ascending: true });
+      .order('sort_order', { ascending: true }); // Orden relativo base
     
     if (error) throw error;
     return data;
@@ -19,121 +18,128 @@ export const manualService = {
       .select('*')
       .eq('section_key', sectionKey)
       .single();
-    
-    // Si no existe, no lanzamos error, devolvemos null para manejarlo suavemente
-    if (error && error.code !== 'PGRST116') {
-      console.warn("Error fetching manual section:", error);
-    }
+    if (error && error.code !== 'PGRST116') console.warn(error);
     return data || null;
   },
 
-  // --- ESCRITURA ---
+  // --- CRUD BÁSICO ---
   create: async (payload) => {
-    // 1. LIMPIEZA CRÍTICA: Quitamos 'id' si es null para que Postgres genere el UUID
     const { id, ...cleanPayload } = payload;
-
-    // 2. Fallback para section_key
-    if (!cleanPayload.section_key) {
-      cleanPayload.section_key = `key_${Date.now()}`;
+    // Si no tiene padre, asumimos que la "Categoría" es el título mismo (o General)
+    if (!cleanPayload.category) {
+       cleanPayload.category = 'General'; // Fallback para compatibilidad
     }
-
-    const { data, error } = await supabase
-      .from('app_manual')
-      .insert([cleanPayload]) // Enviamos el objeto sin la propiedad 'id'
-      .select();
-
+    
+    if (!cleanPayload.section_key) cleanPayload.section_key = `key_${Date.now()}`;
+    
+    const { data, error } = await supabase.from('app_manual').insert([cleanPayload]).select();
     if (error) throw error;
     return data[0];
   },
 
   update: async (id, payload) => {
-    const { data, error } = await supabase
-      .from('app_manual')
-      .update(payload)
-      .eq('id', id)
-      .select();
-
+    const { data, error } = await supabase.from('app_manual').update(payload).eq('id', id).select();
     if (error) throw error;
     return data[0];
   },
 
   delete: async (id) => {
+    // Supabase debería tener ON DELETE CASCADE configurado en la FK parent_id
+    // Si no, esto fallará si tiene hijos. 
+    // Por seguridad, primero borramos hijos (recursividad simple o confiar en DB)
+    const { error } = await supabase.from('app_manual').delete().eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+
+  // --- ACTUALIZACIÓN DE MOVIMIENTOS ---
+  // Esta función recibe el item movido y sus nuevas coordenadas
+  moveItem: async (itemId, newParentId, newSortOrder) => {
     const { error } = await supabase
       .from('app_manual')
-      .delete()
-      .eq('id', id);
-
+      .update({ 
+        parent_id: newParentId, 
+        sort_order: newSortOrder,
+        // Opcional: Actualizar category string por compatibilidad, 
+        // aunque ya no la usaremos para lógica.
+      })
+      .eq('id', itemId);
+    
     if (error) throw error;
     return true;
   },
-  // --- NUEVA FUNCIÓN PARA REORDENAR ---
-  updateBatchOrder: async (itemsToUpdate) => {
-    // Usamos Promise.all para actualizar uno por uno. 
-    // Es más seguro que upsert cuando hay campos obligatorios que no estamos enviando.
-    const promises = itemsToUpdate.map(item => 
-      supabase
-        .from('app_manual')
-        .update({ sort_order: item.sort_order }) // Solo tocamos el orden
-        .eq('id', item.id)
-    );
-
-    const results = await Promise.all(promises);
-    
-    // Verificar si hubo algún error en alguna de las peticiones
-    const error = results.find(r => r.error)?.error;
-    if (error) throw error;
-    
-    return true;
-  },
+  // --- NAVEGACIÓN CONTEXTUAL (ÁRBOL INFINITO) ---
+ // --- NAVEGACIÓN CONTEXTUAL ---
   getNavigationContext: async (currentId) => {
-    // 1. Traemos todo PERO solo las columnas ligeras (sin 'content')
+    // 1. Traemos todo
     const { data, error } = await supabase
       .from('app_manual')
-      .select('id, title, category, parent_id, sort_order, section_key')
-      .order('category', { ascending: true })
+      .select('id, title, parent_id, sort_order, section_key, category')
       .order('sort_order', { ascending: true });
 
     if (error) return null;
 
-    // 2. Aplanamos la lista respetando la jerarquía (Padre -> Hijos)
-    const flatList = [];
-    const tree = {};
-
-    // Agrupar por categorías
-    data.forEach(item => {
-      if (!tree[item.category]) tree[item.category] = { roots: [], orphans: [] };
-      if (!item.parent_id) tree[item.category].roots.push({ ...item, children: [] });
-      else tree[item.category].orphans.push(item);
-    });
-
-    // Construir lista plana ordenada
-    Object.keys(tree).forEach(cat => {
-      const catData = tree[cat];
+    // 2. Construir árbol recursivo
+    const buildTree = (items) => {
+      const map = {};
+      const roots = [];
       
-      // Asignar hijos
-      catData.orphans.forEach(child => {
-        const parent = catData.roots.find(r => r.id === child.parent_id);
-        if (parent) parent.children.push(child);
+      items.forEach(item => {
+        map[item.id] = { ...item, children: [] };
       });
 
-      // Ordenar y aplanar
-      catData.roots.sort((a, b) => a.sort_order - b.sort_order);
-      catData.roots.forEach(root => {
-        flatList.push(root); // Añadir Padre
-        // Ordenar hijos y añadirlos inmediatamente después del padre
-        root.children.sort((a, b) => a.sort_order - b.sort_order);
-        root.children.forEach(child => flatList.push(child));
+      items.forEach(item => {
+        if (item.parent_id && map[item.parent_id]) {
+          map[item.parent_id].children.push(map[item.id]);
+        } else {
+          roots.push(map[item.id]);
+        }
       });
-    });
 
-    // 3. Buscar vecinos
+      const sortNodes = (nodes) => {
+        nodes.sort((a, b) => a.sort_order - b.sort_order);
+        nodes.forEach(node => {
+          if (node.children.length > 0) sortNodes(node.children);
+        });
+      };
+      
+      sortNodes(roots);
+      return { roots, map };
+    };
+
+    const { map, roots } = buildTree(data);
+
+    // 3. Aplanar para prev/next
+    const flatList = [];
+    const flatten = (nodes) => {
+      nodes.forEach(node => {
+        flatList.push(node);
+        if (node.children.length > 0) flatten(node.children);
+      });
+    };
+    flatten(roots);
+
     const currentIndex = flatList.findIndex(i => i.id === currentId);
-    if (currentIndex === -1) return null;
+    
+    // 4. Breadcrumbs
+    const breadcrumbs = [];
+    let currentParentId = map[currentId]?.parent_id;
+    while (currentParentId && map[currentParentId]) {
+      breadcrumbs.unshift(map[currentParentId]);
+      currentParentId = map[currentParentId].parent_id;
+    }
+
+    // --- 5. NUEVO: OBTENER HIJOS DIRECTOS ---
+    // Como el mapa ya tiene los 'children' poblados y ordenados, es directo:
+    const currentItemNode = map[currentId];
+    const directChildren = currentItemNode ? currentItemNode.children : [];
 
     return {
       prev: flatList[currentIndex - 1] || null,
       next: flatList[currentIndex + 1] || null,
-      parent: flatList.find(i => i.id === flatList[currentIndex].parent_id) || null
+      breadcrumbs: breadcrumbs,
+      children: directChildren // <--- Agregamos esto
     };
   }
+
 };

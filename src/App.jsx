@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { Routes, Route, useSearchParams, useLocation, useNavigate } from "react-router-dom";
+import {
+  Routes,
+  Route,
+  useSearchParams,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { supabase } from "./services/supabase";
 
@@ -21,11 +27,12 @@ import PublicLinkHandler from "./views/Public/PublicLinkHandler";
 import DashboardGeneral from "./views/Dashboard/DashboardGeneral";
 import NewsModal from "./components/news/NewsModal";
 import NewsManager from "./components/news/NewsManager";
-import FeedbackWidget from "./components/ui/FeedbackWidget"; 
+import FeedbackWidget from "./components/ui/FeedbackWidget";
 import FeedbackAdmin from "./views/Feedback/FeedbackAdmin"; // <--- NUEVO IMPORT
-import { ManualProvider } from './context/ManualContext';
-import ManualIndex from './views/Manual/ManualIndex';
-import ManualAdmin from './views/Manual/ManualAdmin';
+import { ManualProvider } from "./context/ManualContext";
+import ManualIndex from "./views/Manual/ManualIndex";
+import ManualAdmin from "./views/Manual/ManualAdmin";
+import ManualTrigger from "./components/manual/ManualTrigger";
 import {
   IconLayoutDashboard,
   IconMap,
@@ -51,7 +58,7 @@ import {
   IconCopy,
   IconDrive, // Asegúrate de tener este importado si lo usas abajo
   IconBookOpen, // <--- AGREGADO: Asegúrate de tener este ícono en Icons.jsx
-  IconEdit
+  IconEdit,
 } from "./components/ui/Icons";
 
 // --- MODAL CALENDARIO (Mantenido igual) ---
@@ -249,10 +256,10 @@ const ProtectedApp = () => {
     avisos: "COMMENTS",
     comidas: "MY_MEALS",
     feedback: "FEEDBACK_ADMIN", // <--- NUEVO
-    manual: "MANUAL_INDEX",       // <--- NUEVO
-    manual_admin: "MANUAL_ADMIN"  // <--- NUEVO
+    manual: "MANUAL_INDEX", // <--- NUEVO
+    manual_admin: "MANUAL_ADMIN", // <--- NUEVO
   };
-  
+
   // Mapeo de Modo a Tab (para actualización)
   const modeToTab = {
     DASHBOARD: "dashboard",
@@ -269,8 +276,8 @@ const ProtectedApp = () => {
     MY_MEALS: "comidas",
     NEWS_MANAGER: "news_manager",
     FEEDBACK_ADMIN: "feedback", // <--- NUEVO
-    MANUAL_INDEX: "manual",       // <--- NUEVO
-    MANUAL_ADMIN: "manual_admin"  // <--- NUEVO
+    MANUAL_INDEX: "manual", // <--- NUEVO
+    MANUAL_ADMIN: "manual_admin", // <--- NUEVO
   };
 
   // ESTADO DERIVADO DE URL (Single Source of Truth)
@@ -279,8 +286,12 @@ const ProtectedApp = () => {
   const [mode, setMode] = useState(tabToMode[currentTab] || defaultMode);
 
   const [activeGiraId, setActiveGiraId] = useState(searchParams.get("giraId"));
-  const [initialGiraView, setInitialGiraView] = useState(searchParams.get("view"));
-  const [initialGiraSubTab, setInitialGiraSubTab] = useState(searchParams.get("subTab"));
+  const [initialGiraView, setInitialGiraView] = useState(
+    searchParams.get("view")
+  );
+  const [initialGiraSubTab, setInitialGiraSubTab] = useState(
+    searchParams.get("subTab")
+  );
 
   // --- EFECTO PARA SINCRONIZAR URL -> ESTADO LOCAL ---
   useEffect(() => {
@@ -290,10 +301,10 @@ const ProtectedApp = () => {
     const subTabParam = searchParams.get("subTab");
 
     const newMode = tabToMode[tabParam] || defaultMode;
-    
+
     // Solo actualizamos si hay cambios reales para evitar re-renders
     if (newMode !== mode) setMode(newMode);
-    
+
     if (newMode === "GIRAS") {
       setActiveGiraId(giraIdParam);
       setInitialGiraView(viewParam || null);
@@ -311,13 +322,13 @@ const ProtectedApp = () => {
     subTabParam = null
   ) => {
     const newParams = new URLSearchParams(searchParams);
-    
+
     // 1. Establecer el Tab Principal
     const targetTab = modeToTab[newMode];
     if (targetTab) {
-        newParams.set("tab", targetTab);
+      newParams.set("tab", targetTab);
     } else {
-        newParams.delete("tab");
+      newParams.delete("tab");
     }
 
     // 2. Manejo de Parámetros de Gira
@@ -325,7 +336,7 @@ const ProtectedApp = () => {
       newParams.set("giraId", giraId);
       if (viewParam) newParams.set("view", viewParam);
       else newParams.delete("view");
-      
+
       if (subTabParam) newParams.set("subTab", subTabParam);
       else newParams.delete("subTab");
     } else {
@@ -377,7 +388,7 @@ const ProtectedApp = () => {
         comments.forEach((c) => {
           if (c.id_autor === user.id) return;
           const key = `${c.entidad_tipo}_${c.entidad_id}`;
-          const lastRead = readMap[key] || new Date(0); 
+          const lastRead = readMap[key] || new Date(0);
           const commentDate = new Date(c.created_at);
 
           if (commentDate > lastRead) {
@@ -446,12 +457,11 @@ const ProtectedApp = () => {
         "MY_PARTS",
       ];
       if (!allowedModes.includes(mode)) {
-          // Usar updateView en lugar de setMode directo para mantener consistencia URL
-           updateView("FULL_AGENDA");
+        // Usar updateView en lugar de setMode directo para mantener consistencia URL
+        updateView("FULL_AGENDA");
       }
     }
   }, [mode, isPersonal, isEnsembleCoordinator]);
-
 
   const allMenuItems = [
     {
@@ -507,13 +517,13 @@ const ProtectedApp = () => {
     {
       id: "MANUAL_INDEX",
       label: "Manual de Usuario",
-      icon: <IconBookOpen size={20} />, 
+      icon: <IconBookOpen size={20} />,
       show: userRole !== "invitado", // Visible para todos los usuarios reales
     },
     {
       id: "MANUAL_ADMIN",
       label: "Editor Manual",
-      icon: <IconEdit size={20} />, 
+      icon: <IconEdit size={20} />,
       show: isManagement, // Solo admins/editores pueden editar el manual
     },
     {
@@ -538,9 +548,7 @@ const ProtectedApp = () => {
 
     switch (mode) {
       case "DASHBOARD":
-        return (
-          <DashboardGeneral {...commonProps} onViewChange={updateView} />
-        );
+        return <DashboardGeneral {...commonProps} onViewChange={updateView} />;
       case "GIRAS":
         return (
           <GirasView
@@ -593,7 +601,7 @@ const ProtectedApp = () => {
         return <ManualIndex {...commonProps} />;
       case "MANUAL_ADMIN":
         return <ManualAdmin {...commonProps} />;
-        default:
+      default:
         return <div className="p-10 text-center">Vista no encontrada</div>;
     }
   };
@@ -617,7 +625,35 @@ const ProtectedApp = () => {
       action: () => setMobileMenuOpen(true),
     },
   ];
+  const getCurrentManualSection = () => {
+    // Caso A: Estamos dentro de una Gira específica
+    if (mode === "GIRAS" && activeGiraId) {
+      const view = searchParams.get("view") || "resumen"; // Vista (Logística, Pasajes, etc.)
+      const subTab = searchParams.get("subTab"); // Sub-pestaña si existe
 
+      // Retorna algo como: 'gira_logistica', 'gira_logistica_aereos', 'gira_resumen'
+      if (subTab) return `gira_${view}_${subTab}`;
+      return `gira_${view}`;
+    }
+
+    // Caso B: Estamos en un módulo principal
+    // Retorna: 'dashboard_general', 'giras_listado', 'musicos_general', etc.
+    if (mode === "GIRAS" && !activeGiraId) return "giras_listado";
+
+    // Mapeo directo del modo a una clave
+    const modeMap = {
+      DASHBOARD: "dashboard_general",
+      FULL_AGENDA: "agenda_general",
+      ENSAMBLES: "ensambles_general",
+      MUSICIANS: "musicos_general",
+      USERS: "usuarios_admin",
+      // Agrega los que faltan...
+    };
+
+    return modeMap[mode] || "app_intro_general";
+  };
+
+  const activeManualSection = getCurrentManualSection();
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
       {/* SIDEBAR */}
@@ -717,6 +753,11 @@ const ProtectedApp = () => {
             </h2>
           </div>
           <div className="flex items-center gap-4">
+            <ManualTrigger
+              section={activeManualSection}
+              size="md"
+              className="ml-2 text-indigo-400 hover:text-indigo-600 bg-transparent border-0"
+            />
             <button
               onClick={() => setCalendarModalOpen(true)}
               className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-full transition-colors border border-indigo-200 shadow-sm group"
@@ -890,7 +931,7 @@ const ProtectedApp = () => {
         onClose={() => setCalendarModalOpen(false)}
         userId={user?.id}
       />
-      
+
       {/* WIDGET DE FEEDBACK */}
       <FeedbackWidget supabase={supabase} userEmail={user?.email} />
     </div>
@@ -902,13 +943,30 @@ const AppContent = () => {
   if (!user) return <LoginView />;
   return <ProtectedApp />;
 };
+const ProtectedManualAdmin = ({ supabase }) => {
+  const { user, loading } = useAuth();
+  if (loading)
+    return (
+      <div className="flex h-screen items-center justify-center">
+        Cargando...
+      </div>
+    );
+  if (!user) return <LoginView />;
+  // Opcional: Verificar rol aquí si quieres doble seguridad
+  // if (user.rol_sistema !== 'admin') return <div>Acceso denegado</div>;
+
+  return <ManualAdmin supabase={supabase} />;
+};
 export default function App() {
   return (
     <AuthProvider>
-      <ManualProvider> {/* <--- AQUÍ ENVUELVES TODO EL SISTEMA */}
+      <ManualProvider>
+        {" "}
+        {/* <--- AQUÍ ENVUELVES TODO EL SISTEMA */}
         <Routes>
           <Route path="/share/:token" element={<PublicLinkHandler />} />
           <Route path="/*" element={<AppContent />} />
+         
         </Routes>
       </ManualProvider>
     </AuthProvider>

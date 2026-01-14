@@ -719,8 +719,24 @@ export const IconGripVertical = ({ size = 24, className = "" }) => (
     <circle cx="15" cy="19" r="1" />
   </svg>
 );
-// --- ÍCONOS PARA EL MANUAL DE USUARIO ---
 
+export const IconLockOpen = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+    <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+  </svg>
+);
 // Flecha diagonal hacia arriba-izquierda (usada a veces para "volver al padre")
 export const IconArrowUpLeft = ({ size = 24, className = "" }) => (
   <svg

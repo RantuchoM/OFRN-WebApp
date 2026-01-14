@@ -18,7 +18,7 @@ const ManualTrigger = ({ section, size = 'md', className = "" }) => {
         e.stopPropagation();
         openManual(section);
       }}
-      className={`inline-flex items-center justify-center rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white hover:shadow-md transition-all duration-200 border border-indigo-100 ${sizes[size].btn} ${className}`}
+      className={`inline-flex items-center justify-center rounded-full bg-sky-50 text-sky-600 hover:bg-sky-600 hover:text-white hover:shadow-md transition-all duration-200 border border-sky-100 ${sizes[size].btn} ${className}`}
       title="Ver ayuda"
     >
       <IconBookOpen size={sizes[size].icon} />
