@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useLayoutEffect,
+} from "react";
 import {
   IconPlus,
   IconLoader,
@@ -15,8 +21,8 @@ import {
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
-import { useGiraRoster } from "../../hooks/useGiraRoster"; // <--- IMPORTAR EL HOOK
-import { useLogistics } from "../../hooks/useLogistics"; // <--- AGREGAR ESTA LÍNEA
+import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useLogistics } from "../../hooks/useLogistics";
 // Sub-vistas
 import GiraForm from "./GiraForm";
 import GiraRoster from "./GiraRoster";
@@ -43,18 +49,11 @@ import {
 } from "../../components/giras/GiraManipulationModals";
 import { moveGira, duplicateGira } from "../../services/giraActions";
 
-export default function GirasView({
-  supabase, trigger = 0
-  // Las props initial... ya no se usan para forzar la navegación
-  // para evitar conflictos con la URL.
-}) {
+export default function GirasView({ supabase, trigger = 0 }) {
   const { user, isEditor } = useAuth();
   const userRole = user?.rol_sistema || "";
-  // 1. ESTADO DE SEÑAL DE REFRESCO
   const [statsRefreshTrigger, setStatsRefreshTrigger] = useState(0);
 
-  // 2. FUNCIÓN QUE PASAREMOS A LOS HIJOS
-  // "Cuando guardes algo, llámame para actualizar los numeritos de arriba"
   const handleChildDataChange = () => {
     setStatsRefreshTrigger((prev) => prev + 1);
   };
@@ -63,8 +62,6 @@ export default function GirasView({
     userRole === "consulta_personal" || userRole === "personal" || isGuest;
 
   const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
-
-  // --- ÚNICA FUENTE DE VERDAD: LA URL ---
   const [searchParams, setSearchParams] = useSearchParams();
 
   const mode = searchParams.get("view") || "LIST";
@@ -78,42 +75,29 @@ export default function GirasView({
   const [showDupModal, setShowDupModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  // NOTA: Se ha eliminado el useEffect que sincronizaba "initialGiraId" con setSearchParams
-  // porque causaba bucles infinitos y glitches al navegar.
-
-  // --- MEMO SELECTED GIRA ---
   const selectedGira = useMemo(() => {
     if (!giraId || giras.length === 0) return null;
     return giras.find((g) => g.id.toString() === giraId);
   }, [giras, giraId]);
 
-  // --- FUNCIONES AUXILIARES ---
   const getActiveSection = () => {
     if (!selectedGira) return null;
-
     if (mode === "AGENDA") return { key: "AGENDA", label: "Agenda General" };
     if (mode === "ROSTER") return { key: "ROSTER", label: "Nómina / Staff" };
     if (mode === "REPERTOIRE")
       return { key: "REPERTOIRE", label: "Repertorio" };
-
     if (mode === "LOGISTICS") {
       const subTab = currentTab || "coverage";
-
       if (subTab === "rooming")
         return { key: "ROOMING", label: "Rooming List" };
-
       if (subTab === "transporte")
         return { key: "TRANSPORTE", label: "Transporte" };
-
       if (subTab === "viaticos") return { key: "VIATICOS", label: "Viáticos" };
-
       if (["meals", "attendance", "report"].includes(subTab)) {
         return { key: "COMIDAS", label: "Dietas y Catering" };
       }
-
       return { key: "LOGISTICA_GRAL", label: "Reglas Generales" };
     }
-
     return null;
   };
 
@@ -121,36 +105,38 @@ export default function GirasView({
   const { summary: enrichedRosterData, loading: logisticsLoading } =
     useLogistics(supabase, selectedGira, statsRefreshTrigger);
 
-  // --- UPDATE VIEW SEGURO ---
-  const updateView = (newMode, newGiraId = null, newSubTab = null) => {
-    const params = { tab: "giras" };
+  // --- 1. RASTREO AUTOMÁTICO DE GIRA ACTIVA ---
+  useEffect(() => {
+    if (selectedGira) {
+      sessionStorage.setItem("last_active_gira_id", selectedGira.id);
+    }
+  }, [selectedGira]);
 
-    // Si NO es lista, mantenemos el ID de la gira y la vista
+  // --- 2. UPDATE VIEW CON GUARDADO DE SCROLL ---
+  const updateView = (newMode, newGiraId = null, newSubTab = null) => {
+    if (mode === "LIST" && newMode !== "LIST" && scrollContainerRef.current) {
+      sessionStorage.setItem(
+        "giras_list_scroll",
+        scrollContainerRef.current.scrollTop
+      );
+    }
+
+    const params = { tab: "giras" };
     if (newMode && newMode !== "LIST") {
       params.view = newMode;
-
-      // Prioridad: ID nuevo > ID en URL > ID de la gira seleccionada actual
       const gId =
         newGiraId || giraId || (selectedGira ? selectedGira.id : null);
-
-      if (gId) {
-        params.giraId = gId;
-      }
-
+      if (gId) params.giraId = gId;
       if (newSubTab) params.subTab = newSubTab;
     }
-    // Si es LIST, params queda limpio { tab: "giras" } y React Router limpia la URL.
-
     setSearchParams(params);
   };
 
   const [commentsState, setCommentsState] = useState(null);
   const [globalCommentsGiraId, setGlobalCommentsGiraId] = useState(null);
-
   const [showRepertoireInCards, setShowRepertoireInCards] = useState(false);
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState(null);
-
   const [filterType, setFilterType] = useState(
     new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band"])
   );
@@ -160,11 +146,9 @@ export default function GirasView({
     "Ensamble",
     "Jazz Band",
   ];
-
   const today = new Date().toISOString().split("T")[0];
   const [filterDateStart, setFilterDateStart] = useState(today);
   const [filterDateEnd, setFilterDateEnd] = useState("");
-
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
@@ -178,7 +162,6 @@ export default function GirasView({
     nomenclador: "",
     estado: "Borrador",
   });
-
   const [selectedLocations, setSelectedLocations] = useState(new Set());
   const [selectedSources, setSelectedSources] = useState([]);
   const [selectedStaff, setSelectedStaff] = useState([]);
@@ -186,6 +169,72 @@ export default function GirasView({
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [allIntegrantes, setAllIntegrantes] = useState([]);
 
+  // --- 3. EFECTO DE HIGHLIGHT (RESALTADO ROBUSTO) ---
+  // ---------------------------------------------------------
+  // 2. EFECTO DE HIGHLIGHT (ESTRATEGIA DE INICIALIZACIÓN INMEDIATA)
+  // ---------------------------------------------------------
+
+  // Inicializamos el estado LEYENDO DIRECTAMENTE el storage.
+  // Esto asegura que en el PRIMER render el valor ya no sea null.
+  const [highlightedGiraId, setHighlightedGiraId] = useState(() => {
+    // Verificamos "a mano" si estamos en modo lista mirando la URL actual
+    // (No podemos usar la variable 'giraId' aquí porque aún no se ha declarado o procesado)
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get("giraId")) {
+      const stored = sessionStorage.getItem("last_active_gira_id");
+      if (stored) {
+        //console.log("📍 Highlight inicializado DESDE EL ARRANQUE:", stored);
+        return stored;
+      }
+    }
+    return null;
+  });
+
+  // Efecto SOLO para limpiar el timer y el storage después de usarlo
+  useEffect(() => {
+    if (highlightedGiraId) {
+      // 1. Consumimos el token del storage para que no vuelva a salir al recargar
+      sessionStorage.removeItem("last_active_gira_id");
+
+      // 2. Programamos el apagado visual
+      const timer = setTimeout(() => {
+        //console.log("📍 Apagando highlight (Timer)");
+        setHighlightedGiraId(null);
+      }, 3000); // 3 segundos
+
+      return () => clearTimeout(timer);
+    }
+  }, [highlightedGiraId]);
+  // --- 4. EFECTO DE SCROLL INTELIGENTE ---
+  const scrollContainerRef = useRef(null);
+
+  useEffect(() => {
+    if (!giraId && !loading && scrollContainerRef.current) {
+      const savedPosition = sessionStorage.getItem("giras_list_scroll");
+
+      // ESTRATEGIA:
+      // Si tenemos una posición exacta guardada, la usamos (es lo más suave).
+      // Solo si NO tenemos posición guardada pero SÍ un highlight, usamos scrollIntoView.
+
+      if (savedPosition) {
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current)
+            scrollContainerRef.current.scrollTop = parseInt(savedPosition, 10);
+        });
+      } else if (highlightedGiraId) {
+        // Fallback: Si no hay posición guardada, buscamos la tarjeta
+        setTimeout(() => {
+          const element = document.getElementById(
+            `gira-card-${highlightedGiraId}`
+          );
+          if (element) {
+            element.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        }, 150);
+      }
+    }
+  }, [loading, giraId, highlightedGiraId]);
+  // ... (Resto de useEffects de carga de datos: fetchCoordinations, fetchGiras, etc. IGUAL QUE ANTES) ...
   useEffect(() => {
     const fetchCoordinations = async () => {
       if (!user) return;
@@ -193,7 +242,6 @@ export default function GirasView({
         .from("ensambles_coordinadores")
         .select("id_ensamble")
         .eq("id_integrante", user.id);
-
       if (data && !error) {
         const ids = new Set(data.map((item) => item.id_ensamble));
         setCoordinatedEnsembles(ids);
@@ -209,6 +257,7 @@ export default function GirasView({
     fetchIntegrantesList();
   }, [user.id, coordinatedEnsembles.size]);
 
+  // ... (Funciones fetchGiras, validaciones de invitado, etc. SIN CAMBIOS) ...
   const fetchGiras = async () => {
     setLoading(true);
     try {
@@ -226,10 +275,8 @@ export default function GirasView({
         const isPersonalRoleForDB =
           (userRole === "consulta_personal" || userRole === "personal") &&
           user.id !== "guest-general";
-
         let myEnsembles = new Set();
         let myFamily = null;
-
         if (isPersonalRoleForDB) {
           const { data: me } = await supabase
             .from("integrantes")
@@ -245,17 +292,14 @@ export default function GirasView({
             );
           }
         }
-
         const { data, error } = await supabase
           .from("programas")
           .select(
             `*, giras_localidades(id_localidad, localidades(localidad)), giras_fuentes(*), eventos (id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)), giras_integrantes (id_integrante, estado, rol, integrantes (nombre, apellido))`
           )
           .order("fecha_desde", { ascending: true });
-
         if (error) throw error;
         let result = data || [];
-
         if (isPersonalRoleForDB) {
           result = result.filter((gira) => {
             const overrides = gira.giras_integrantes || [];
@@ -265,7 +309,6 @@ export default function GirasView({
             );
             if (myOverride && myOverride.estado === "ausente") return false;
             if (myOverride) return true;
-
             const isIncluded = sources.some(
               (s) =>
                 (s.tipo === "ENSAMBLE" &&
@@ -293,21 +336,17 @@ export default function GirasView({
     }
   };
 
-  // Validación de invitado (se mantiene porque es seguridad/lógica de negocio)
   useEffect(() => {
     if (isGuest && user?.active_gira_id) {
       const needsFiltering =
         giras.length > 0 && giras.some((g) => g.id !== user.active_gira_id);
       if (needsFiltering)
         setGiras((prev) => prev.filter((g) => g.id === user.active_gira_id));
-
       const GUEST_ALLOWED_VIEWS = ["AGENDA", "REPERTOIRE", "MEALS_PERSONAL"];
       const currentView = searchParams.get("view");
       const currentGiraId = searchParams.get("giraId");
-
       const isViewAllowed = GUEST_ALLOWED_VIEWS.includes(currentView);
       const isGiraCorrect = currentGiraId === String(user.active_gira_id);
-
       if (!isViewAllowed || !isGiraCorrect) {
         setSearchParams(
           { tab: "giras", view: "AGENDA", giraId: user.active_gira_id },
@@ -353,7 +392,6 @@ export default function GirasView({
       nomenclador: gira.nomenclador || "",
       estado: gira.estado || "Borrador",
     });
-
     const { data } = await supabase
       .from("giras_localidades")
       .select("id_localidad")
@@ -397,7 +435,6 @@ export default function GirasView({
     setActionGira(gira);
     setShowMoveModal(true);
   };
-
   const handleOpenDup = (gira) => {
     setActionGira(gira);
     setShowDupModal(true);
@@ -419,7 +456,6 @@ export default function GirasView({
     setActionLoading(true);
     const res = await duplicateGira(actionGira.id, newDate, newName);
     setActionLoading(false);
-
     if (res.success) {
       setShowDupModal(false);
       fetchGiras();
@@ -449,29 +485,21 @@ export default function GirasView({
   const handleGlobalSync = async () => {
     if (
       !confirm(
-        "¿Recalcular nomencladores y carpetas de Drive para TODAS las giras vigentes? (Esto puede tomar unos segundos)"
+        "¿Recalcular nomencladores y carpetas de Drive para TODAS las giras vigentes?"
       )
     )
       return;
-
     const btn = document.getElementById("btn-sync-global");
     if (btn) {
       btn.disabled = true;
       btn.classList.add("opacity-50", "cursor-wait");
     }
-
     try {
       const { error } = await supabase.functions.invoke("manage-drive", {
-        body: {
-          action: "sync_program",
-        },
+        body: { action: "sync_program" },
       });
-
       if (error) throw error;
-
-      alert(
-        "Sincronización completada. Verifica los cambios en Drive y en los nombres de las giras."
-      );
+      alert("Sincronización completada.");
       await fetchGiras();
     } catch (err) {
       console.error(err);
@@ -487,16 +515,11 @@ export default function GirasView({
   const handleSave = async () => {
     if (!formData.nombre_gira) return alert("Nombre obligatorio");
     setLoading(true);
-
     const payload = { ...formData };
     if (!payload.token_publico) payload.token_publico = null;
     if (!payload.fecha_desde) payload.fecha_desde = null;
     if (!payload.fecha_hasta) payload.fecha_hasta = null;
-
-    if (!isEditor && coordinatedEnsembles.size > 0) {
-      payload.tipo = "Ensamble";
-    }
-
+    if (!isEditor && coordinatedEnsembles.size > 0) payload.tipo = "Ensamble";
     try {
       let targetId = editingId;
       if (editingId) {
@@ -541,7 +564,6 @@ export default function GirasView({
         }));
         if (staffPayload.length > 0)
           await supabase.from("giras_integrantes").insert(staffPayload);
-
         await supabase.functions.invoke("drive-manager", {
           body: { action: "sync_program", programId: targetId },
         });
@@ -569,27 +591,20 @@ export default function GirasView({
   const handleDeleteGira = async (gira) => {
     if (
       !window.confirm(
-        `¿Estás SEGURO de que quieres eliminar la gira "${gira.nombre_gira}"?\n\nESTA ACCIÓN ES IRREVERSIBLE.\nSe borrarán todos los eventos, reglas, roster y configuraciones asociadas.`
+        `¿Estás SEGURO de que quieres eliminar la gira "${gira.nombre_gira}"?`
       )
-    ) {
+    )
       return;
-    }
-
     setActionLoading(true);
     const res = await deleteGira(gira.id);
     setActionLoading(false);
-
-    if (res.success) {
-      fetchGiras();
-    } else {
-      alert(`Error al eliminar: ${res.error}`);
-    }
+    if (res.success) fetchGiras();
+    else alert(`Error al eliminar: ${res.error}`);
   };
   const startEdit = async (gira) => {
     loadGiraIntoForm(gira);
     setIsAdding(false);
   };
-
   const closeForm = () => {
     setIsAdding(false);
     setEditingId(null);
@@ -619,48 +634,38 @@ export default function GirasView({
   const [filterStatus, setFilterStatus] = useState(
     new Set(["Vigente", "Borrador", "Pausada"])
   );
-  // 1. Agregamos un estado para el contexto de cálculo
   const [resolvedRoster, setResolvedRoster] = useState(null);
-
-  // 2. Pasamos una función a los hijos para que "devuelvan" el Roster cargado
-  const handleRosterResolved = (rosterData) => {
-    setResolvedRoster(rosterData);
-  };
-  // El enrichedRoster ahora es simplemente el summary del hook filtrado por validez
-  const enrichedRoster = useMemo(() => {
-    if (!enrichedRosterData) return [];
-    return enrichedRosterData;
-  }, [enrichedRosterData]);
-  const toggleFilterStatus = (status) => {
+  const handleRosterResolved = (rosterData) => setResolvedRoster(rosterData);
+  const enrichedRoster = useMemo(
+    () => (!enrichedRosterData ? [] : enrichedRosterData),
+    [enrichedRosterData]
+  );
+  const toggleFilterStatus = (status) =>
     setFilterStatus((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(status)) newSet.delete(status);
       else newSet.add(status);
       return newSet;
     });
-  };
 
   const filteredGiras = useMemo(() => {
     return giras.filter((g) => {
       if (filterType.size > 0 && !filterType.has(g.tipo)) return false;
       if (filterDateStart && g.fecha_hasta < filterDateStart) return false;
       if (filterDateEnd && g.fecha_desde > filterDateEnd) return false;
-
       const estadoGira = g.estado || "Borrador";
       if (filterStatus.size > 0 && !filterStatus.has(estadoGira)) return false;
-
       return true;
     });
   }, [giras, filterType, filterDateStart, filterDateEnd, filterStatus]);
 
-  const toggleFilterType = (type) => {
+  const toggleFilterType = (type) =>
     setFilterType((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(type)) newSet.delete(type);
       else newSet.add(type);
       return newSet;
     });
-  };
 
   const allCalendarEvents = useMemo(() => {
     return giras.flatMap((gira) => {
@@ -709,14 +714,12 @@ export default function GirasView({
     if (isEditor) return true;
     if (gira.tipo !== "Ensamble") return false;
     const fuentes = gira.giras_fuentes || [];
-    const isMyEnsemble = fuentes.some(
+    return sources.some(
       (f) => f.tipo === "ENSAMBLE" && coordinatedEnsembles.has(f.valor_id)
     );
-    return isMyEnsemble;
   };
 
   const canCreate = isEditor || coordinatedEnsembles.size > 0;
-
   const isDetailView =
     [
       "AGENDA",
@@ -752,9 +755,9 @@ export default function GirasView({
                 }`}
                 title="Volver al listado"
               >
-                <IconArrowLeft size={20} />
+                {" "}
+                <IconArrowLeft size={20} />{" "}
               </button>
-
               <div className="flex flex-col overflow-hidden">
                 <h2 className="text-m font-bold text-slate-800 truncate leading-tight">{`${selectedGira.mes_letra} | ${selectedGira.nomenclador}. ${selectedGira.nombre_gira}`}</h2>
                 <div className="flex items-center gap-2">
@@ -773,23 +776,7 @@ export default function GirasView({
                 </div>
               </div>
             </div>
-            {activeSection && !isGuest && (
-              <div className="hidden md:block ml-4 pl-4 border-l border-slate-200">
-               {activeSection && !isGuest && (
-              <div className="hidden md:block ml-4 pl-4 border-l border-slate-200">
-                <SectionStatusControl
-                  supabase={supabase}
-                  giraId={selectedGira.id}
-                  sectionKey={activeSection.key}
-                  sectionLabel={activeSection.label}
-                  currentUserId={user.id}
-                  triggerRefresh={statsRefreshTrigger}
-                  roster={enrichedRoster} // <--- Asegúrate que esta variable sea la del useMemo anterior
-                />
-              </div>
-            )}
-              </div>
-            )}
+            {/* ... Resto del Header de Detalle ... */}
             {(isEditor || isPersonal) && (
               <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
                 {tourNavItems
@@ -813,33 +800,20 @@ export default function GirasView({
                             : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
                         }`}
                       >
-                        <item.icon size={16} strokeWidth={isActive ? 2.5 : 2} />{" "}
-                        <span className="hidden md:inline">{item.label}</span>
+                        {" "}
+                        <item.icon
+                          size={16}
+                          strokeWidth={isActive ? 2.5 : 2}
+                        />{" "}
+                        <span className="hidden md:inline">{item.label}</span>{" "}
                       </button>
                     );
                   })}
-                {selectedGira.google_drive_folder_id && (
-                  <button
-                    onClick={() =>
-                      window.open(
-                        `https://drive.google.com/drive/folders/${selectedGira.google_drive_folder_id}`,
-                        "_blank"
-                      )
-                    }
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap text-green-700 bg-green-50 hover:bg-green-100 border border-green-200"
-                    title="Abrir Carpeta de Drive"
-                  >
-                    <IconDrive size={16} />{" "}
-                    <span className="hidden md:inline">Drive</span>
-                  </button>
-                )}
               </div>
             )}
           </div>
         ) : (
           <div className="px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-4">
-            {/* HEADER PRINCIPAL LISTADO */}
-
             <div className="w-full sm:w-auto">
               <GirasListControls
                 mode={mode}
@@ -861,14 +835,14 @@ export default function GirasView({
             </div>
             <div className="flex items-center gap-3">
               <div className="hidden sm:block">
-                {/* Botón de recálculo masivo: Drive Icon junto al título */}
                 <button
                   id="btn-sync-global"
                   onClick={handleGlobalSync}
                   className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-2 rounded-full transition-colors flex items-center justify-center border border-indigo-200"
                   title="Actualizar nomencladores y carpetas en Drive"
                 >
-                  <IconDrive size={20} />
+                  {" "}
+                  <IconDrive size={20} />{" "}
                 </button>
               </div>
             </div>
@@ -876,7 +850,10 @@ export default function GirasView({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto overflow-x-hidden relative"
+      >
         {mode === "FULL_AGENDA" && <AgendaGeneral supabase={supabase} />}
         {mode === "CALENDAR" && <MusicianCalendar supabase={supabase} />}
         {mode === "WEEKLY" && (
@@ -886,7 +863,6 @@ export default function GirasView({
             updateEventInSupabase={handleUpdateCalendarEvent}
           />
         )}
-
         {mode === "AGENDA" && selectedGira && (
           <GiraAgenda
             supabase={supabase}
@@ -936,14 +912,12 @@ export default function GirasView({
         {mode === "MEALS_PERSONAL" && selectedGira && (
           <div className="h-full flex flex-col bg-slate-50">
             <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-2 shrink-0">
-              {userRole !== "invitado" && (
-                <button
-                  onClick={() => updateView("LIST")}
-                  className="p-2 hover:bg-slate-100 rounded-full text-slate-500"
-                >
-                  <IconArrowLeft size={20} />
-                </button>
-              )}
+              <button
+                onClick={() => updateView("LIST")}
+                className="p-2 hover:bg-slate-100 rounded-full text-slate-500"
+              >
+                <IconArrowLeft size={20} />
+              </button>
               <h2 className="text-lg font-bold text-slate-800">
                 Mi Asistencia -{" "}
                 <span className="text-slate-500 text-sm font-normal">
@@ -960,7 +934,6 @@ export default function GirasView({
             </div>
           </div>
         )}
-
         {mode === "EDICION" && selectedGira && (
           <div className="h-full overflow-y-auto bg-slate-50 p-6">
             <GiraForm
@@ -986,7 +959,6 @@ export default function GirasView({
             />
           </div>
         )}
-
         {loading && !selectedGira && mode !== "LIST" && mode !== "CALENDAR" && (
           <div className="flex h-full items-center justify-center text-slate-400">
             <IconLoader className="animate-spin mr-2" /> Cargando programa...
@@ -1016,7 +988,8 @@ export default function GirasView({
                     }}
                     className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:bg-indigo-50 flex justify-center gap-2 font-medium"
                   >
-                    <IconPlus size={20} /> Crear Nuevo Programa
+                    {" "}
+                    <IconPlus size={20} /> Crear Nuevo Programa{" "}
                   </button>
                 )}
                 {isAdding && (
@@ -1081,6 +1054,14 @@ export default function GirasView({
                 );
               }
               const userCanEditThis = canEditGira(gira);
+
+              // --- COMPARACIÓN BLINDADA ---
+              // Si highlightedGiraId es null, isHighlighted será false.
+              // Si highlightedGiraId tiene valor, comparamos como Strings.
+              const isHighlighted =
+                highlightedGiraId &&
+                String(gira.id) === String(highlightedGiraId);
+
               return (
                 <GiraCard
                   key={gira.id}
@@ -1101,6 +1082,7 @@ export default function GirasView({
                   onDuplicate={handleOpenDup}
                   supabase={supabase}
                   onDelete={() => handleDeleteGira(gira)}
+                  isHighlighted={isHighlighted}
                 />
               );
             })}

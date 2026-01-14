@@ -796,7 +796,7 @@ const ProtectedApp = () => {
             </div>
             <button
               onClick={() => setCalendarModalOpen(true)}
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-600 rounded-full transition-colors border border-sky-200 shadow-sm group"
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-full transition-colors border border-indigo-200 shadow-sm group"
               title="Sincronizar con Google Calendar"
             >
               <IconCalendar

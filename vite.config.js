@@ -16,9 +16,9 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // Subimos a 5MB por seguridad
       },
       manifest: {
-        name: "Gestor de Giras",
-        short_name: "Giras",
-        description: "Gestión de seating y agenda para músicos",
+        name: "OFRN - App",
+        short_name: "OFRN",
+        description: "",
         theme_color: "#ffffff",
         background_color: "#ffffff",
         display: "standalone",
