@@ -144,6 +144,10 @@ export default function RepertoireManager({
 
   const [repertorios, setRepertorios] = useState(initialData);
   const [musicians, setMusicians] = useState([]);
+  
+  // --- CORRECCIÓN AQUÍ: Definimos seatingMap correctamente ---
+  const [seatingMap, setSeatingMap] = useState({}); 
+  
   const [loading, setLoading] = useState(false);
   const [syncingDrive, setSyncingDrive] = useState(false);
   const [editingBlock, setEditingBlock] = useState({ id: null, nombre: "" });
@@ -181,6 +185,9 @@ export default function RepertoireManager({
       fetchFullRepertoire(); 
     }
     if (musicians.length === 0) fetchMusicians();
+    
+    // CALL THE NEW FETCH
+    fetchSeating();
   }, [programId]);
 
   useEffect(() => {
@@ -196,6 +203,61 @@ export default function RepertoireManager({
       .select("id, nombre, apellido, id_instr, instrumentos(instrumento)")
       .order("apellido");
     if (data) setMusicians(data);
+  };
+
+  // --- FETCH SEATING LOGIC ---
+  const fetchSeating = async () => {
+    // 1. Fetch Containers (Rows) for this program
+    const { data: containers, error: errCont } = await supabase
+      .from("seating_contenedores")
+      .select("id, nombre, id_instrumento, orden")
+      .eq("id_programa", programId)
+      .order("orden");
+
+    if (errCont || !containers) return;
+
+    // 2. Fetch Items (Musicians) in those containers
+    const containerIds = containers.map(c => c.id);
+    if (containerIds.length === 0) return;
+
+    const { data: items, error: errItems } = await supabase
+      .from("seating_contenedores_items")
+      .select("id_contenedor, id_musico, orden")
+      .in("id_contenedor", containerIds)
+      .order("orden");
+
+    if (errItems || !items) return;
+
+    // 3. Build the Map: User ID -> { desk: X }
+    const newMap = {};
+
+    // Group items by container
+    const itemsByContainer = {};
+    items.forEach(item => {
+        if (!itemsByContainer[item.id_contenedor]) itemsByContainer[item.id_contenedor] = [];
+        itemsByContainer[item.id_contenedor].push(item);
+    });
+
+    // Process each container to find desks
+    containers.forEach(container => {
+        const containerItems = itemsByContainer[container.id] || [];
+        // Sort by order just in case
+        containerItems.sort((a, b) => a.orden - b.orden);
+
+        containerItems.forEach((item, index) => {
+            if (item.id_musico) {
+                // Logic: Index 0,1 -> Desk 1. Index 2,3 -> Desk 2.
+                const deskNumber = Math.floor(index / 2) + 1;
+                
+                newMap[item.id_musico] = { 
+                    desk: deskNumber, 
+                    containerName: container.nombre 
+                };
+            }
+        });
+    });
+
+    setSeatingMap(newMap);
   };
 
   const fetchInstruments = async () => {
@@ -437,10 +499,11 @@ export default function RepertoireManager({
       : "-";
   };
 
-  // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE (VERTICAL Y COMPACTO) ---
-  const renderMyPartBadge = (obra) => {
+  // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL ---
+  const renderMyPartBadge = (obra, repertoireId) => {
     if (!userInstrumentId) return null;
 
+    // 1. Link Logic (Same as before)
     const myPart = obra.obras_particellas?.find(
         p => p.id_instrumento === userInstrumentId
     );
@@ -463,19 +526,32 @@ export default function RepertoireManager({
 
     if (!cleanUrl) return null;
 
+    // 2. Desk Logic using the new Map
+    const userSeating = user ? seatingMap[user.id] : null;
+
     return (
       <a 
          href={cleanUrl} 
          target="_blank" 
          rel="noreferrer"
          onClick={(e) => e.stopPropagation()}
-         className="mt-0.5 w-fit inline-flex items-center gap-1 px-1.5 py-px bg-indigo-50 text-indigo-600 text-[8px] font-bold uppercase tracking-wide rounded border border-indigo-100 hover:bg-indigo-100 transition-colors no-underline leading-none"
+         className="mt-0.5 w-fit flex flex-col px-1.5 py-px bg-emerald-50 rounded border border-emerald-100 hover:bg-emerald-100 transition-colors no-underline group text-left"
          title={`Abrir particella: ${myPart.nombre_archivo || 'Mi Parte'}`}
       >
-         <IconMusic size={8} /> 
-         <span className="truncate max-w-[90px]">
-            {myPart.nombre_archivo || "Mi Parte"}
-         </span>
+         {/* Parte Principal */}
+         <div className="flex items-center gap-1 text-emerald-600 text-[8px] font-bold uppercase tracking-wide leading-none">
+             <IconMusic size={8} /> 
+             <span className="truncate max-w-[90px]">
+                {myPart.nombre_archivo || "Mi Parte"}
+             </span>
+         </div>
+         
+         {/* Show Desk if found */}
+         {userSeating && (
+             <span className="text-[9px] text-emerald-400 font-normal leading-none mt-0.5">
+                 Atril {userSeating.desk}
+             </span>
+         )}
       </a>
     );
   };
@@ -616,7 +692,8 @@ export default function RepertoireManager({
                           <span className="truncate text-[11px] font-medium leading-tight" title={getComposers(item.obras)}>
                             {getComposers(item.obras)}
                           </span>
-                          {renderMyPartBadge(item.obras)}
+                          {/* Pasamos rep.id para buscar el seating correcto */}
+                          {renderMyPartBadge(item.obras, rep.id)}
                       </div>
                     </td>
 
