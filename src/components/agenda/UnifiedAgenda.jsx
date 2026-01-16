@@ -21,7 +21,6 @@ import {
   IconChevronDown,
   IconMapPin,
   IconCalendar,
-  IconAlertTriangle,
   IconArrowRight,
   IconEye,
   IconPrinter,
@@ -36,6 +35,24 @@ import EventForm from "../forms/EventForm";
 import SearchableSelect from "../ui/SearchableSelect";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
 import { calculateLogisticsSummary } from "../../hooks/useLogistics";
+
+// --- ICONO FILTRO (SVG INLINE para asegurar compatibilidad) ---
+const IconFilter = ({ size = 20, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+  </svg>
+);
 
 // --- LÓGICA DE FECHA LÍMITE ---
 const getDeadlineStatus = (deadlineISO) => {
@@ -169,11 +186,19 @@ export default function UnifiedAgenda({
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
+  
+  // --- ESTADOS DE FILTROS ---
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
-
   const [showNonActive, setShowNonActive] = useState(false);
+  const [showOnlyMyTransport, setShowOnlyMyTransport] = useState(false);
+  const [showOnlyMyMeals, setShowOnlyMyMeals] = useState(false);
+  
+  // UI Dropdown
+  const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
+  const filterMenuRef = useRef(null);
+  useOutsideAlerter(filterMenuRef, () => setIsFilterMenuOpen(false));
 
-  // LOGÍSTICA: Mapa de asignaciones y conjunto de giras que TIENEN reglas
+  // LOGÍSTICA
   const [myTransportLogistics, setMyTransportLogistics] = useState({});
   const [toursWithRules, setToursWithRules] = useState(new Set());
 
@@ -245,8 +270,7 @@ export default function UnifiedAgenda({
         const { data } = await supabase
           .from("integrantes")
           .select(
-            // CAMBIO: Usamos '!id_localidad' para especificar la FK exacta y le ponemos alias 'datos_residencia'
-            "*, instrumentos(familia), integrantes_ensambles(id_ensamble), datos_residencia:localidades!id_localidad (id, id_region)"
+            "*, instrumentos(familia, instrumento), integrantes_ensambles(id_ensamble), datos_residencia:localidades!id_localidad (id, id_region)"
           )
           .eq("id", effectiveUserId)
           .single();
@@ -307,6 +331,7 @@ export default function UnifiedAgenda({
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      // 1. Filtro Borradores
       if (!showNonActive) {
         const estadoGira = item.programas?.estado || "Borrador";
         if (item.isProgramMarker) {
@@ -315,12 +340,30 @@ export default function UnifiedAgenda({
           return false;
         }
       }
+
       if (item.isProgramMarker) return true;
+
+      // 2. Filtro Categoría
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
-      if (!catId) return true;
-      return selectedCategoryIds.includes(catId);
+      if (catId && !selectedCategoryIds.includes(catId)) return false;
+
+      // 3. Filtro Solo Mi Transporte (Ocultar filas grises de transporte)
+      if (showOnlyMyTransport && item.id_gira_transporte) {
+         const tId = String(item.id_gira_transporte);
+         // Si no está asignado en mi logística, lo ocultamos
+         if (!myTransportLogistics[tId]?.assigned) return false;
+      }
+
+      // 4. Filtro Solo Mis Comidas (Ocultar filas grises de comida)
+      if (showOnlyMyMeals) {
+         const isMeal = [7, 8, 9, 10].includes(item.id_tipo_evento) || item.tipos_evento?.nombre?.toLowerCase().includes("comida");
+         // Si es comida y NO estoy convocado, ocultar
+         if (isMeal && !item.is_convoked) return false;
+      }
+
+      return true;
     });
-  }, [items, selectedCategoryIds, showNonActive]);
+  }, [items, selectedCategoryIds, showNonActive, showOnlyMyTransport, showOnlyMyMeals, myTransportLogistics]);
 
   const checkIsConvoked = (convocadosList, tourRole) => {
     if (!convocadosList || convocadosList.length === 0) return false;
@@ -341,10 +384,9 @@ export default function UnifiedAgenda({
 
   const fetchAgenda = async () => {
     setLoading(true);
-    // V4 para asegurar limpieza de caché y nueva lógica logística
     const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
       giraId || "general"
-    }_v4`;
+    }_v5`;
 
     try {
       const cachedData = localStorage.getItem(CACHE_KEY);
@@ -394,7 +436,6 @@ export default function UnifiedAgenda({
         ensembleEvents.data?.map((e) => e.id_evento)
       );
 
-      // --- 1. TRAER EVENTOS CON DATOS DE TRANSPORTE ---
       let query = supabase
         .from("eventos")
         .select(
@@ -433,8 +474,7 @@ export default function UnifiedAgenda({
       const { data: eventsData, error } = await query;
       if (error) throw error;
 
-      // --- 2. CÁLCULO LOGÍSTICO ROBUSTO ---
-      //console.log("--- DEBUG LOGISTICA: Inicio ---");
+      // LOGÍSTICA
       const activeTourIds = new Set();
       eventsData?.forEach((e) => {
         if (e.id_gira) activeTourIds.add(e.id_gira);
@@ -444,102 +484,125 @@ export default function UnifiedAgenda({
       const foundRuleTours = new Set();
 
       if (activeTourIds.size > 0 && userProfile) {
-        const { data: rulesData } = await supabase
-          .from("giras_logistica_reglas_transportes")
-          .select(
-            "*, giras_transportes!inner(id, id_gira, detalle, transportes(nombre))"
-          )
-          .in("giras_transportes.id_gira", Array.from(activeTourIds));
+        
+        const [admRes, routesRes, transRes] = await Promise.all([
+          supabase
+            .from("giras_logistica_admision")
+            .select("*")
+            .in("id_gira", Array.from(activeTourIds)),
+          supabase
+            .from("giras_logistica_rutas")
+            .select("*, evento_subida:id_evento_subida(id, fecha, hora_inicio), evento_bajada:id_evento_bajada(id, fecha, hora_inicio)")
+            .in("id_gira", Array.from(activeTourIds)),
+          supabase
+            .from("giras_transportes")
+            .select("id, id_gira, detalle, transportes(nombre)")
+            .in("id_gira", Array.from(activeTourIds))
+        ]);
 
-        if (rulesData) {
-          const rulesByGira = {};
-          rulesData.forEach((r) => {
-            const gId = r.giras_transportes.id_gira;
-            foundRuleTours.add(gId); // Marcamos que esta gira TIENE reglas
-            if (!rulesByGira[gId]) rulesByGira[gId] = [];
-            rulesByGira[gId].push(r);
+        const admissionData = admRes.data || [];
+        const routesData = routesRes.data || [];
+        const transportsData = transRes.data || [];
+
+        if (transportsData.length > 0) {
+          const admissionByGira = {};
+          const routesByGira = {};
+          const transportsByGira = {};
+
+          admissionData.forEach((r) => {
+             if (!admissionByGira[r.id_gira]) admissionByGira[r.id_gira] = [];
+             admissionByGira[r.id_gira].push(r);
+             foundRuleTours.add(r.id_gira);
           });
 
-          Object.keys(rulesByGira).forEach((gId) => {
+          routesData.forEach((r) => {
+             if (!routesByGira[r.id_gira]) routesByGira[r.id_gira] = [];
+             routesByGira[r.id_gira].push(r);
+             foundRuleTours.add(r.id_gira);
+          });
+
+          transportsData.forEach((t) => {
+            if (!transportsByGira[t.id_gira]) transportsByGira[t.id_gira] = [];
+            transportsByGira[t.id_gira].push(t);
+          });
+
+          activeTourIds.forEach((gId) => {
             const sampleEvt = eventsData.find(
               (e) => String(e.id_gira) === String(gId) && e.programas
             );
-            if (!sampleEvt || !sampleEvt.programas) return;
+            
+            const currentTransports = transportsByGira[gId] || [];
+            if (currentTransports.length === 0) return;
 
-            // --- Cálculo manual de 'es_adicional' ---
-            const sources = sampleEvt.programas.giras_fuentes || [];
-            let isBase = false;
+            let esAdicional = false;
+            let myRecord = null;
+            
+            if (sampleEvt && sampleEvt.programas) {
+                const sources = sampleEvt.programas.giras_fuentes || [];
+                let isBase = false;
+                const userEnsembles = (userProfile.integrantes_ensambles || []).map(
+                  (ie) => String(ie.id_ensamble)
+                );
+                const userFamily = userProfile.instrumentos?.familia;
+    
+                sources.forEach((src) => {
+                  if (
+                    src.tipo === "ENSAMBLE" &&
+                    userEnsembles.includes(String(src.valor_id))
+                  )
+                    isBase = true;
+                  if (src.tipo === "FAMILIA" && src.valor_texto === userFamily)
+                    isBase = true;
+                });
+    
+                myRecord = sampleEvt.programas.giras_integrantes?.find(
+                  (i) => String(i.id_integrante) === String(effectiveUserId)
+                );
+                
+                if (myRecord && myRecord.estado === "ausente") return; 
+                esAdicional = !!myRecord && !isBase;
+            }
 
-            // Normalizamos IDs a String
-            const userEnsembles = (userProfile.integrantes_ensambles || []).map(
-              (ie) => String(ie.id_ensamble)
-            );
-            const userFamily = userProfile.instrumentos?.familia;
-
-            sources.forEach((src) => {
-              if (
-                src.tipo === "ENSAMBLE" &&
-                userEnsembles.includes(String(src.valor_id))
-              )
-                isBase = true;
-              if (src.tipo === "FAMILIA" && src.valor_texto === userFamily)
-                isBase = true;
-            });
-
-            const myRecord = sampleEvt.programas.giras_integrantes?.find(
-              (i) => String(i.id_integrante) === String(effectiveUserId)
-            );
-
-            if (myRecord && myRecord.estado === "ausente") return;
-
-            const esAdicional = !!myRecord && !isBase;
-            // --- CORRECCIÓN FINAL: Uso de Alias Explicito ---
-            // Ahora leemos desde 'datos_residencia' que definimos en el fetchProfile
-            const cleanLocId = userProfile.id_localidad
-              ? Number(userProfile.id_localidad)
-              : null;
-
-            // Verificamos el objeto con el alias correcto
+            const cleanLocId = userProfile.id_localidad ? Number(userProfile.id_localidad) : null;
             const residenciaObj = userProfile.datos_residencia;
-
-            const cleanRegionId = residenciaObj?.id_region
-              ? Number(residenciaObj.id_region)
-              : null;
+            const cleanRegionId = residenciaObj?.id_region ? Number(residenciaObj.id_region) : null;
 
             const mockPerson = {
               ...userProfile,
+              id: userProfile.id, 
               id_localidad: cleanLocId,
-              // Construimos el objeto localidades explícitamente para el motor logístico
               localidades: {
                 id: cleanLocId,
                 id_region: cleanRegionId,
               },
+              instrumentos: userProfile.instrumentos || {}, 
               rol_gira: myRecord?.rol || "musico",
               es_adicional: esAdicional,
               logistics: {},
             };
 
-            //console.log(              `Logística (Alias Check): LocID: ${cleanLocId}, RegID: ${cleanRegionId}            );
-            // Ejecución del motor logístico
             const result = calculateLogisticsSummary(
-              [mockPerson],
-              [],
-              rulesByGira[gId]
+              [mockPerson],          
+              [],                     
+              admissionByGira[gId] || [],
+              routesByGira[gId] || [],   
+              currentTransports,      
+              []                     
             );
 
             const myTransports = result[0]?.logistics?.transports || [];
             myTransports.forEach((t) => {
-              // Usamos String() para asegurar coincidencia
               logisticsMap[String(t.id)] = {
                 assigned: true,
                 subidaId: t.subidaId,
                 bajadaId: t.bajadaId,
+                priority: t.priority
               };
             });
           });
         }
       }
-      //console.log("Mapa Calculado:", logisticsMap);
+      
       setMyTransportLogistics(logisticsMap);
       setToursWithRules(foundRuleTours);
 
@@ -664,8 +727,6 @@ export default function UnifiedAgenda({
 
     setAvailableCategories(uniqueCats);
 
-    // CAMBIO: Si no hay selección previa, seleccionamos TODO automáticamente.
-    // Eliminamos la lógica que filtraba por palabras "concierto" o "ensayo".
     if (selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
       setSelectedCategoryIds(uniqueCats.map((c) => c.id));
     }
@@ -689,7 +750,7 @@ export default function UnifiedAgenda({
       setItems(newItems);
       const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
         giraId || "general"
-      }_v4`;
+      }_v5`;
       localStorage.setItem(CACHE_KEY, JSON.stringify(newItems));
     } catch (error) {
       alert("Error: " + error.message);
@@ -1022,95 +1083,149 @@ export default function UnifiedAgenda({
             </div>
           </div>
 
-          <div className="flex gap-2">
-            {/* --- BLOQUE DE FILTROS COMPACTO --- */}
+          <div className="flex gap-2 relative">
             {!loading && availableCategories.length > 0 && (
-              <div className="px-4 pb-2 flex items-center gap-2 overflow-x-auto scrollbar-hide">
-                {canEdit && musicianOptions.length > 0 && (
-                  <div className="shrink-0 w-[160px] border-r border-slate-200 pr-2 mr-1">
-                    <SearchableSelect
-                      options={musicianOptions}
-                      value={viewAsUserId}
-                      onChange={setViewAsUserId}
-                      placeholder="Ver como..."
-                      className="w-full text-xs"
-                    />
-                  </div>
-                )}
-
-                {/* Botón Toggle Todos (Reemplaza al "Ver todo") */}
-                <button
-                  onClick={() => {
-                    if (
-                      selectedCategoryIds.length === availableCategories.length
-                    ) {
-                      setSelectedCategoryIds([]); // Desmarcar todo
-                    } else {
-                      setSelectedCategoryIds(
-                        availableCategories.map((c) => c.id)
-                      ); // Marcar todo
-                    }
-                  }}
-                  className={`p-1.5 rounded-md border transition-colors shrink-0 ${
-                    selectedCategoryIds.length === availableCategories.length
-                      ? "bg-slate-800 text-white border-slate-800"
-                      : "bg-white text-slate-400 border-slate-200 hover:border-slate-300"
-                  }`}
-                  title={
-                    selectedCategoryIds.length === availableCategories.length
-                      ? "Deseleccionar todo"
-                      : "Ver todo"
-                  }
-                >
-                  <IconList size={14} />
-                </button>
-
-                {/* Lista de Categorías (Chips más pequeños) */}
-                {availableCategories.map((cat) => {
-                  const isActive = selectedCategoryIds.includes(cat.id);
-                  return (
+              <>
+                 {/* BOTÓN FILTROS */}
+                 <div className="relative" ref={filterMenuRef}>
                     <button
-                      key={cat.id}
-                      onClick={() => handleCategoryToggle(cat.id)}
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-all whitespace-nowrap shrink-0 ${
-                        isActive
-                          ? "bg-indigo-100 text-indigo-700 border-indigo-200 shadow-sm"
-                          : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-                      }`}
+                       onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
+                       className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-bold shadow-sm hover:shadow-md ${
+                          isFilterMenuOpen || selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals
+                          ? "bg-slate-800 text-white border-slate-800"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                       }`}
                     >
-                      {cat.nombre}
+                       <IconFilter size={16} />
+                       <span className="hidden sm:inline">Filtros</span>
+                       {(selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals) && (
+                         <span className="flex h-2 w-2 rounded-full bg-indigo-400"></span>
+                       )}
                     </button>
-                  );
-                })}
-              </div>
+
+                    {isFilterMenuOpen && (
+                      <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden animate-in zoom-in-95 origin-top-right">
+                         <div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Opciones de Vista</span>
+                            <button 
+                               onClick={() => {
+                                 setSelectedCategoryIds(availableCategories.map(c => c.id));
+                                 setShowOnlyMyTransport(false);
+                                 setShowOnlyMyMeals(false);
+                               }}
+                               className="text-[10px] text-indigo-600 hover:underline font-bold"
+                            >
+                               Restablecer
+                            </button>
+                         </div>
+                         
+                         {/* TOGGLES ESPECIALES */}
+                         <div className="p-2 border-b border-slate-100 space-y-1">
+                            <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
+                               <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                                  <IconBus size={16} className="text-indigo-500" />
+                                  <span>Solo mi transporte</span>
+                               </div>
+                               <input 
+                                 type="checkbox" 
+                                 className="accent-indigo-600 w-4 h-4"
+                                 checked={showOnlyMyTransport}
+                                 onChange={(e) => setShowOnlyMyTransport(e.target.checked)}
+                               />
+                            </label>
+                            <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
+                               <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                                  <span className="text-amber-500 text-lg leading-none">🍴</span>
+                                  <span>Solo mis comidas</span>
+                               </div>
+                               <input 
+                                 type="checkbox" 
+                                 className="accent-indigo-600 w-4 h-4"
+                                 checked={showOnlyMyMeals}
+                                 onChange={(e) => setShowOnlyMyMeals(e.target.checked)}
+                               />
+                            </label>
+                         </div>
+
+                         <div className="p-3 border-b border-slate-100 bg-slate-50">
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Categorías</span>
+                         </div>
+                         <div className="max-h-60 overflow-y-auto p-2">
+                           <div className="grid grid-cols-1 gap-1">
+                             <button
+                               onClick={() => {
+                                 if (selectedCategoryIds.length === availableCategories.length) setSelectedCategoryIds([]);
+                                 else setSelectedCategoryIds(availableCategories.map(c => c.id));
+                               }}
+                               className={`px-3 py-2 rounded text-xs font-bold border transition-colors flex justify-between items-center ${
+                                 selectedCategoryIds.length === availableCategories.length 
+                                 ? "bg-slate-800 text-white border-slate-800" 
+                                 : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                               }`}
+                             >
+                               <span>{selectedCategoryIds.length === availableCategories.length ? "Deseleccionar todo" : "Seleccionar todo"}</span>
+                               <IconList size={14} />
+                             </button>
+
+                             {availableCategories.map((cat) => {
+                               const isActive = selectedCategoryIds.includes(cat.id);
+                               return (
+                                 <button
+                                   key={cat.id}
+                                   onClick={() => handleCategoryToggle(cat.id)}
+                                   className={`px-3 py-2 rounded text-xs font-bold border transition-all flex justify-between items-center ${
+                                     isActive
+                                       ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                       : "bg-white text-slate-400 border-transparent hover:bg-slate-50"
+                                   }`}
+                                 >
+                                   <span>{cat.nombre}</span>
+                                   {isActive && <IconCheck size={14} />}
+                                 </button>
+                               );
+                             })}
+                           </div>
+                         </div>
+                         
+                         {canEdit && (
+                            <div className="p-2 border-t border-slate-100 bg-amber-50/50">
+                               <label className="flex items-center gap-2 cursor-pointer p-2">
+                                  <input 
+                                    type="checkbox" 
+                                    className="accent-amber-600"
+                                    checked={showNonActive}
+                                    onChange={(e) => setShowNonActive(e.target.checked)}
+                                  />
+                                  <span className="text-xs font-bold text-amber-800">Mostrar borradores</span>
+                               </label>
+                            </div>
+                         )}
+                      </div>
+                    )}
+                 </div>
+
+                 {canEdit && musicianOptions.length > 0 && (
+                    <div className="shrink-0 w-[40px] md:w-[160px]">
+                      <SearchableSelect
+                        options={musicianOptions}
+                        value={viewAsUserId}
+                        onChange={setViewAsUserId}
+                        placeholder={viewAsUserId ? "" : "Ver como..."}
+                        className="w-full text-xs"
+                      />
+                    </div>
+                 )}
+              </>
             )}
+
             <button
               onClick={handleExportPDF}
               disabled={loading || filteredItems.length === 0}
-              className="p-2 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+              className="p-2 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50 border border-transparent hover:border-indigo-100"
               title="Exportar vista actual a PDF"
             >
               <IconPrinter size={20} />
             </button>
-
-            {canEdit && !giraId && (
-              <button
-                onClick={() => setShowNonActive(!showNonActive)}
-                className={`p-2 rounded-full transition-colors flex items-center gap-1 ${
-                  showNonActive
-                    ? "bg-amber-100 text-amber-700"
-                    : "text-slate-400 hover:bg-slate-100"
-                }`}
-                title={
-                  showNonActive ? "Ocultar borradores" : "Mostrar borradores"
-                }
-              >
-                <IconEye
-                  size={20}
-                  className={showNonActive ? "" : "opacity-50"}
-                />
-              </button>
-            )}
 
             {giraId && canEdit && !isOfflineMode && (
               <button
@@ -1159,7 +1274,9 @@ export default function UnifiedAgenda({
                 const eventColor = evt.tipos_evento?.color || "#6366f1";
                 const isMeal =
                   [7, 8, 9, 10].includes(evt.id_tipo_evento) ||
-                  evt.tipos_evento?.nombre?.toLowerCase().includes("comida");
+                  evt.tipos_evento?.nombre
+                    ?.toLowerCase()
+                    .includes("comida");
                 const isNonConvokedMeal = isMeal && !evt.is_convoked;
 
                 const isTransportEvent = !!evt.id_gira_transporte;
@@ -1168,7 +1285,6 @@ export default function UnifiedAgenda({
                 let isMyDown = false;
                 let debugReason = null;
 
-                // Datos para el badge de transporte
                 const transportName =
                   evt.giras_transportes?.transportes?.nombre;
                 const transportDetail = evt.giras_transportes?.detalle;
@@ -1184,7 +1300,6 @@ export default function UnifiedAgenda({
                     if (String(myStatus.bajadaId) === String(evt.id))
                       isMyDown = true;
                   } else {
-                    // Diagnóstico visual
                     const tourHasRules = toursWithRules.has(evt.id_gira);
                     debugReason = tourHasRules ? "No Match" : "Sin Reglas";
                   }
@@ -1208,6 +1323,11 @@ export default function UnifiedAgenda({
                 const locName = evt.locaciones?.nombre || "";
                 const locCity = evt.locaciones?.localidades?.localidad;
 
+                // TINTADO SUAVE DEL FONDO
+                const cardStyle = {
+                    backgroundColor: `${eventColor}10`, // Hex alpha ~6%
+                };
+
                 return (
                   <React.Fragment key={evt.id}>
                     {showDay && (
@@ -1218,13 +1338,14 @@ export default function UnifiedAgenda({
                     )}
 
                     <div
-                      className={`relative flex flex-row items-stretch px-4 py-2 border-b border-slate-100 bg-white transition-colors hover:bg-slate-50 group gap-2 ${
+                      className={`relative flex flex-row items-stretch px-4 py-2 border-b border-slate-100 transition-colors hover:bg-slate-50 group gap-2 ${
                         shouldDim ? "opacity-50 grayscale" : ""
                       } ${evt.is_guest ? "bg-emerald-50/30" : ""} ${
                         isMyTransport
                           ? "bg-indigo-50/30 border-l-4 border-l-indigo-400"
                           : ""
                       }`}
+                      style={!shouldDim && !evt.is_guest && !isMyTransport ? cardStyle : {}}
                     >
                       <div
                         className="absolute left-0 top-0 bottom-0 w-[4px]"
@@ -1274,7 +1395,6 @@ export default function UnifiedAgenda({
                             {evt.descripcion || evt.tipos_evento?.nombre}
                           </h4>
 
-                          {/* --- BADGE DE TRANSPORTE Y MARCADORES --- */}
                           <div className="flex flex-wrap gap-1">
                             {isTransportEvent && transportName && (
                               <span
@@ -1305,7 +1425,6 @@ export default function UnifiedAgenda({
                               </span>
                             )}
 
-                            {/* DIAGNÓSTICO VISUAL */}
                             {isTransportEvent && !isMyTransport && (
                               <span
                                 className="text-[8px] text-red-300 font-mono select-none"
@@ -1315,7 +1434,6 @@ export default function UnifiedAgenda({
                               </span>
                             )}
                           </div>
-                          {/* ------------------------------------------------ */}
 
                           {locName && (
                             <div className="flex items-center gap-1 text-xs text-slate-500 md:border-l md:border-slate-200 md:pl-3 truncate mt-0.5 md:mt-0">

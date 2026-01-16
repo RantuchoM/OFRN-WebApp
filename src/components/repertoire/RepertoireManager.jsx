@@ -500,10 +500,11 @@ export default function RepertoireManager({
   };
 
   // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL ---
-  const renderMyPartBadge = (obra, repertoireId) => {
+// --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL (MODIFICADO) ---
+  const renderMyPartBadge = (obra) => {
     if (!userInstrumentId) return null;
 
-    // 1. Link Logic (Same as before)
+    // 1. Link Logic
     const myPart = obra.obras_particellas?.find(
         p => p.id_instrumento === userInstrumentId
     );
@@ -526,32 +527,17 @@ export default function RepertoireManager({
 
     if (!cleanUrl) return null;
 
-    // 2. Desk Logic using the new Map
-    const userSeating = user ? seatingMap[user.id] : null;
-
+    // 2. Simplificado: Solo Icono
     return (
       <a 
          href={cleanUrl} 
          target="_blank" 
          rel="noreferrer"
          onClick={(e) => e.stopPropagation()}
-         className="mt-0.5 w-fit flex flex-col px-1.5 py-px bg-emerald-50 rounded border border-emerald-100 hover:bg-emerald-100 transition-colors no-underline group text-left"
+         className="mt-1 inline-flex items-center justify-center w-6 h-6 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
          title={`Abrir particella: ${myPart.nombre_archivo || 'Mi Parte'}`}
       >
-         {/* Parte Principal */}
-         <div className="flex items-center gap-1 text-emerald-600 text-[8px] font-bold uppercase tracking-wide leading-none">
-             <IconMusic size={8} /> 
-             <span className="truncate max-w-[90px]">
-                {myPart.nombre_archivo || "Mi Parte"}
-             </span>
-         </div>
-         
-         {/* Show Desk if found */}
-         {userSeating && (
-             <span className="text-[9px] text-emerald-400 font-normal leading-none mt-0.5">
-                 Atril {userSeating.desk}
-             </span>
-         )}
+         <IconMusic size={14} /> 
       </a>
     );
   };
@@ -572,287 +558,317 @@ export default function RepertoireManager({
 
   return (
     <div className={containerClasses(isCompact)}>
-      {repertorios.map((rep) => (
-        <div
-          key={rep.id}
-          className={`border border-slate-200 ${
-            isCompact ? "mb-4 rounded shadow-sm" : "shadow-sm bg-white mb-6"
-          }`}
-        >
-          {/* HEADER BLOQUE */}
-          <div className="bg-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center h-10">
-            <div className="flex items-center gap-2">
-              <IconMusic size={14} className="text-indigo-600" />
-              {editingBlock.id === rep.id ? (
-                <input
-                  autoFocus
-                  type="text"
-                  className="w-full text-xs p-1 border border-indigo-300 rounded outline-none"
-                  value={editingBlock.nombre}
-                  onChange={(e) =>
-                    setEditingBlock({ ...editingBlock, nombre: e.target.value })
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveBlockName();
-                  }}
-                  onBlur={saveBlockName}
-                />
-              ) : (
-                <span
-                  className="font-bold text-slate-800 text-xs uppercase flex items-center gap-2 group cursor-pointer"
-                  onClick={() => isEditor && startEditBlock(rep)}
-                >
-                  {rep.nombre}{" "}
-                  {isEditor && (
-                    <IconEdit
-                      size={12}
-                      className="opacity-0 group-hover:opacity-100 text-slate-400"
-                    />
-                  )}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono font-bold text-slate-600 bg-white px-1.5 rounded border">
-                Total: {calculateTotalDuration(rep.repertorio_obras)}
-              </span>
-              {isEditor && (
-                <button
-                  onClick={() => deleteRepertoireBlock(rep.id)}
-                  className="text-slate-400 hover:text-red-600 p-1"
-                >
-                  <IconTrash size={12} />
-                </button>
-              )}
-            </div>
-          </div>
+      {repertorios.map((rep) => {
+        // 1. Calculamos el seating para este usuario (si existe)
+        const userSeating = user ? seatingMap[user.id] : null;
 
-          {/* TABLA OBRAS */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1000px]">
-              <thead className={tableHeaderClasses(isCompact)}>
-                <tr>
-                  <th className="p-1 w-8 text-center">#</th>
-                  <th className="p-1 w-8 text-center">GD</th>
-                  <th className="p-1 w-32">Compositor</th>
-                  <th className="p-1 w-110">Obra</th>
-                  <th className="p-1 w-58 text-center">Instr.</th>
-                  <th className="p-1 w-12 text-center">Dur.</th>
-                  <th className="p-1 w-32">Solista</th>
-                  <th className="p-1 w-24">Arr.</th>
-                  <th className="p-1 w-30">Notas</th>
-                  <th className="p-1 w-8 text-center">YT</th>
-                  <th className="p-1 w-16 text-right"></th>
-                  <th className="p-1 w-8 text-center">Excl.</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {rep.repertorio_obras.map((item, idx) => (
-                  <tr key={item.id} className="hover:bg-yellow-50 group">
-                    <td className="p-1 text-center font-bold text-slate-500">
-                      <div className="flex flex-col items-center">
-                        {isEditor && !isCompact && (
-                          <button
-                            onClick={() => moveWork(rep.id, item.id, -1)}
-                            disabled={idx === 0}
-                            className="text-slate-300 hover:text-indigo-600 disabled:opacity-0 p-0.5"
-                          >
-                            <IconChevronDown size={8} className="rotate-180" />
-                          </button>
-                        )}
-                        <span>{idx + 1}</span>
-                        {isEditor && !isCompact && (
-                          <button
-                            onClick={() => moveWork(rep.id, item.id, 1)}
-                            disabled={idx === rep.repertorio_obras.length - 1}
-                            className="text-slate-300 hover:text-indigo-600 disabled:opacity-0 p-0.5"
-                          >
-                            <IconChevronDown size={8} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-1 text-center">
-                      {item.google_drive_shortcut_id ? (
-                        <IconDrive className="w-3.5 h-3.5 mx-auto text-slate-600" />
-                      ) : item.obras.link_drive ? (
-                        <a
-                          href={item.obras.link_drive}
-                          target="_blank"
-                          className="block w-2 h-2 bg-amber-400 rounded-full mx-auto"
-                        ></a>
-                      ) : (
-                        <span className="text-slate-200">-</span>
+        return (
+          <div
+            key={rep.id}
+            className={`border border-slate-200 ${
+              isCompact ? "mb-4 rounded shadow-sm" : "shadow-sm bg-white mb-6"
+            }`}
+          >
+            {/* HEADER BLOQUE */}
+            <div className="bg-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center h-10">
+              <div className="flex items-center gap-2">
+                <IconMusic size={14} className="text-indigo-600" />
+                {editingBlock.id === rep.id ? (
+                  <input
+                    autoFocus
+                    type="text"
+                    className="w-full text-xs p-1 border border-indigo-300 rounded outline-none"
+                    value={editingBlock.nombre}
+                    onChange={(e) =>
+                      setEditingBlock({
+                        ...editingBlock,
+                        nombre: e.target.value,
+                      })
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveBlockName();
+                    }}
+                    onBlur={saveBlockName}
+                  />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="font-bold text-slate-800 text-xs uppercase flex items-center gap-2 group cursor-pointer"
+                      onClick={() => isEditor && startEditBlock(rep)}
+                    >
+                      {rep.nombre}{" "}
+                      {isEditor && (
+                        <IconEdit
+                          size={12}
+                          className="opacity-0 group-hover:opacity-100 text-slate-400"
+                        />
                       )}
-                    </td>
-                    
-                    {/* CELDA COMPOSITOR (VERTICAL) */}
-                    <td className="p-1 text-slate-600 align-middle">
-                      <div className="flex flex-col justify-center">
-                          <span className="truncate text-[11px] font-medium leading-tight" title={getComposers(item.obras)}>
+                    </span>
+
+                    {/* --- AQUÍ MOSTRAMOS EL ATRIL (si existe) --- */}
+                    {userSeating && (
+                      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-white border border-indigo-200 rounded text-[10px] text-indigo-700 shadow-sm animate-in fade-in">
+                        <span className="font-bold">
+                          {userSeating.containerName}
+                        </span>
+                        <span className="text-indigo-200">|</span>
+                        <span className="font-medium">
+                          Atril {userSeating.desk}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono font-bold text-slate-600 bg-white px-1.5 rounded border">
+                  Total: {calculateTotalDuration(rep.repertorio_obras)}
+                </span>
+                {isEditor && (
+                  <button
+                    onClick={() => deleteRepertoireBlock(rep.id)}
+                    className="text-slate-400 hover:text-red-600 p-1"
+                  >
+                    <IconTrash size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* TABLA OBRAS */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1000px]">
+                <thead className={tableHeaderClasses(isCompact)}>
+                  <tr>
+                    <th className="p-1 w-8 text-center">#</th>
+                    <th className="p-1 w-8 text-center">GD</th>
+                    <th className="p-1 w-32">Compositor</th>
+                    <th className="p-1 w-110">Obra</th>
+                    <th className="p-1 w-58 text-center">Instr.</th>
+                    <th className="p-1 w-12 text-center">Dur.</th>
+                    <th className="p-1 w-32">Solista</th>
+                    <th className="p-1 w-24">Arr.</th>
+                    <th className="p-1 w-30">Notas</th>
+                    <th className="p-1 w-8 text-center">YT</th>
+                    <th className="p-1 w-16 text-right"></th>
+                    <th className="p-1 w-8 text-center">Excl.</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {rep.repertorio_obras.map((item, idx) => (
+                    <tr key={item.id} className="hover:bg-yellow-50 group">
+                      <td className="p-1 text-center font-bold text-slate-500">
+                        <div className="flex flex-col items-center">
+                          {isEditor && !isCompact && (
+                            <button
+                              onClick={() => moveWork(rep.id, item.id, -1)}
+                              disabled={idx === 0}
+                              className="text-slate-300 hover:text-indigo-600 disabled:opacity-0 p-0.5"
+                            >
+                              <IconChevronDown
+                                size={8}
+                                className="rotate-180"
+                              />
+                            </button>
+                          )}
+                          <span>{idx + 1}</span>
+                          {isEditor && !isCompact && (
+                            <button
+                              onClick={() => moveWork(rep.id, item.id, 1)}
+                              disabled={idx === rep.repertorio_obras.length - 1}
+                              className="text-slate-300 hover:text-indigo-600 disabled:opacity-0 p-0.5"
+                            >
+                              <IconChevronDown size={8} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-1 text-center">
+                        {item.google_drive_shortcut_id ? (
+                          <IconDrive className="w-3.5 h-3.5 mx-auto text-slate-600" />
+                        ) : item.obras.link_drive ? (
+                          <a
+                            href={item.obras.link_drive}
+                            target="_blank"
+                            className="block w-2 h-2 bg-amber-400 rounded-full mx-auto"
+                          ></a>
+                        ) : (
+                          <span className="text-slate-200">-</span>
+                        )}
+                      </td>
+
+                      {/* CELDA COMPOSITOR (VERTICAL) */}
+                      <td className="p-1 text-slate-600 align-middle">
+                        <div className="flex flex-col justify-center">
+                          <span
+                            className="truncate text-[11px] font-medium leading-tight"
+                            title={getComposers(item.obras)}
+                          >
                             {getComposers(item.obras)}
                           </span>
-                          {/* Pasamos rep.id para buscar el seating correcto */}
-                          {renderMyPartBadge(item.obras, rep.id)}
-                      </div>
-                    </td>
+                          {/* Badge simplificado (solo Icono) */}
+                          {renderMyPartBadge(item.obras)}
+                        </div>
+                      </td>
 
-                    <td
-                      className="p-1 text-slate-800"
-                      title={item.obras.titulo?.replace(/<[^>]*>?/gm, '')}
-                    >
-                      <RichTextPreview content={item.obras.titulo} />
-                      {item.obras.estado !== "Oficial" && (
-                        <span className="ml-1 text-[8px] bg-amber-100 text-amber-700 px-1 rounded border border-amber-200 align-text-top">
-                          PEND
-                        </span>
-                      )}
-                    </td>
+                      <td
+                        className="p-1 text-slate-800"
+                        title={item.obras.titulo?.replace(/<[^>]*>?/gm, "")}
+                      >
+                        <RichTextPreview content={item.obras.titulo} />
+                        {item.obras.estado !== "Oficial" && (
+                          <span className="ml-1 text-[8px] bg-amber-100 text-amber-700 px-1 rounded border border-amber-200 align-text-top">
+                            PEND
+                          </span>
+                        )}
+                      </td>
 
-                    <td className="p-1 text-center whitespace-pre-line text-[10px] text-slate-500 font-mono">
-                      {item.obras.instrumentacion ||
-                        calculateInstrumentation(
-                          item.obras.obras_particellas
-                        ) ||
-                        "-"}
-                    </td>
-                    <td className="p-1 text-center font-mono">
-                      {formatSecondsToTime(item.obras.duracion_segundos)}
-                    </td>
-                    <td className="p-0 border-l border-slate-100 align-middle">
-                      {isEditor ? (
-                        <div className="px-1">
-                          <SoloistSelect
-                            currentId={item.id_solista}
-                            musicians={musicians}
-                            onChange={(newId) =>
-                              updateWorkDetail(item.id, "id_solista", newId)
+                      <td className="p-1 text-center whitespace-pre-line text-[10px] text-slate-500 font-mono">
+                        {item.obras.instrumentacion ||
+                          calculateInstrumentation(
+                            item.obras.obras_particellas
+                          ) ||
+                          "-"}
+                      </td>
+                      <td className="p-1 text-center font-mono">
+                        {formatSecondsToTime(item.obras.duracion_segundos)}
+                      </td>
+                      <td className="p-0 border-l border-slate-100 align-middle">
+                        {isEditor ? (
+                          <div className="px-1">
+                            <SoloistSelect
+                              currentId={item.id_solista}
+                              musicians={musicians}
+                              onChange={(newId) =>
+                                updateWorkDetail(item.id, "id_solista", newId)
+                              }
+                            />
+                          </div>
+                        ) : (
+                          <span className="block p-1 truncate text-[10px]">
+                            {item.integrantes
+                              ? `${item.integrantes.apellido}, ${item.integrantes.nombre}`
+                              : "-"}
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-1 truncate text-slate-500">
+                        {getArranger(item.obras)}
+                      </td>
+                      <td className="p-0 border-l border-slate-100 align-middle">
+                        {isEditor ? (
+                          <input
+                            type="text"
+                            className="w-full bg-transparent p-1 text-[10px] outline-none"
+                            placeholder="..."
+                            value={item.notas_especificas || ""}
+                            onChange={(e) =>
+                              updateWorkDetail(
+                                item.id,
+                                "notas_especificas",
+                                e.target.value
+                              )
                             }
                           />
-                        </div>
-                      ) : (
-                        <span className="block p-1 truncate text-[10px]">
-                          {item.integrantes
-                            ? `${item.integrantes.apellido}, ${item.integrantes.nombre}`
-                            : "-"}
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-1 truncate text-slate-500">
-                      {getArranger(item.obras)}
-                    </td>
-                    <td className="p-0 border-l border-slate-100 align-middle">
-                      {isEditor ? (
-                        <input
-                          type="text"
-                          className="w-full bg-transparent p-1 text-[10px] outline-none"
-                          placeholder="..."
-                          value={item.notas_especificas || ""}
-                          onChange={(e) =>
-                            updateWorkDetail(
-                              item.id,
-                              "notas_especificas",
-                              e.target.value
-                            )
-                          }
-                        />
-                      ) : (
-                        <div className="block p-1 text-[10px]">
-                          <RichTextPreview content={item.notas_especificas} />
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="p-1 text-center">
-                      {item.obras.link_youtube ? (
-                        <a
-                          href={item.obras.link_youtube}
-                          target="_blank"
-                          className="text-red-600"
-                        >
-                          <IconYoutube size={14} />
-                        </a>
-                      ) : (
-                        <span className="text-slate-200">-</span>
-                      )}
-                    </td>
-
-                    <td className="p-1 text-right">
-                      <div className="flex justify-end gap-1">
-                        <CommentButton
-                          supabase={supabase}
-                          entityType="OBRA"
-                          entityId={item.id}
-                          onClick={() =>
-                            setCommentsState({
-                              type: "OBRA",
-                              id: item.id,
-                              title: item.obras.titulo,
-                            })
-                          }
-                          className="p-1"
-                        />
-                        {isEditor && (
-                          <>
-                            <button
-                              onClick={() => openEditModal(item)}
-                              className="text-slate-300 hover:text-indigo-600 p-1"
-                            >
-                              <IconEdit size={12} />
-                            </button>
-                            <button
-                              onClick={() => removeWork(item.id)}
-                              className="text-slate-300 hover:text-red-600 p-1"
-                            >
-                              <IconX size={12} />
-                            </button>
-                          </>
+                        ) : (
+                          <div className="block p-1 text-[10px]">
+                            <RichTextPreview content={item.notas_especificas} />
+                          </div>
                         )}
-                      </div>
-                    </td>
-                    <td className="p-1 text-center align-middle">
-                      {isEditor ? (
-                        <input
-                          type="checkbox"
-                          className="cursor-pointer accent-red-600"
-                          checked={!!item.excluir}
-                          onChange={(e) =>
-                            updateWorkDetail(
-                              item.id,
-                              "excluir",
-                              e.target.checked
-                            )
-                          }
-                          title="Excluir de la programación"
-                        />
-                      ) : item.excluir ? (
-                        <span className="text-red-600 font-bold text-[10px]">
-                          NO
-                        </span>
-                      ) : (
-                        <span className="text-slate-200">-</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {isEditor && (
-            <div className="bg-slate-50 border-t p-1">
-              <button
-                onClick={() => {
-                  setActiveRepertorioId(rep.id);
-                  setIsAddModalOpen(true);
-                }}
-                className="w-full py-1 text-slate-400 hover:text-indigo-600 text-[10px] font-bold uppercase flex justify-center gap-1 hover:bg-slate-100"
-              >
-                <IconPlus size={10} /> Agregar Obra
-              </button>
+                      </td>
+
+                      <td className="p-1 text-center">
+                        {item.obras.link_youtube ? (
+                          <a
+                            href={item.obras.link_youtube}
+                            target="_blank"
+                            className="text-red-600"
+                          >
+                            <IconYoutube size={14} />
+                          </a>
+                        ) : (
+                          <span className="text-slate-200">-</span>
+                        )}
+                      </td>
+
+                      <td className="p-1 text-right">
+                        <div className="flex justify-end gap-1">
+                          <CommentButton
+                            supabase={supabase}
+                            entityType="OBRA"
+                            entityId={item.id}
+                            onClick={() =>
+                              setCommentsState({
+                                type: "OBRA",
+                                id: item.id,
+                                title: item.obras.titulo,
+                              })
+                            }
+                            className="p-1"
+                          />
+                          {isEditor && (
+                            <>
+                              <button
+                                onClick={() => openEditModal(item)}
+                                className="text-slate-300 hover:text-indigo-600 p-1"
+                              >
+                                <IconEdit size={12} />
+                              </button>
+                              <button
+                                onClick={() => removeWork(item.id)}
+                                className="text-slate-300 hover:text-red-600 p-1"
+                              >
+                                <IconX size={12} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-1 text-center align-middle">
+                        {isEditor ? (
+                          <input
+                            type="checkbox"
+                            className="cursor-pointer accent-red-600"
+                            checked={!!item.excluir}
+                            onChange={(e) =>
+                              updateWorkDetail(
+                                item.id,
+                                "excluir",
+                                e.target.checked
+                              )
+                            }
+                            title="Excluir de la programación"
+                          />
+                        ) : item.excluir ? (
+                          <span className="text-red-600 font-bold text-[10px]">
+                            NO
+                          </span>
+                        ) : (
+                          <span className="text-slate-200">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
-      ))}
+            {isEditor && (
+              <div className="bg-slate-50 border-t p-1">
+                <button
+                  onClick={() => {
+                    setActiveRepertorioId(rep.id);
+                    setIsAddModalOpen(true);
+                  }}
+                  className="w-full py-1 text-slate-400 hover:text-indigo-600 text-[10px] font-bold uppercase flex justify-center gap-1 hover:bg-slate-100"
+                >
+                  <IconPlus size={10} /> Agregar Obra
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
       {!isCompact && (
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-2">
