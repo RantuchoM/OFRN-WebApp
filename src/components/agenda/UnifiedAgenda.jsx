@@ -1097,7 +1097,7 @@ export default function UnifiedAgenda({
                        }`}
                     >
                        <IconFilter size={16} />
-                       <span className="hidden sm:inline">Filtros</span>
+                       <span className=" sm:inline">Filtros</span>
                        {(selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals) && (
                          <span className="flex h-2 w-2 rounded-full bg-indigo-400"></span>
                        )}
