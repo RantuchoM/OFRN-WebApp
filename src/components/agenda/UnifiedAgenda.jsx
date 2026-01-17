@@ -36,7 +36,7 @@ import SearchableSelect from "../ui/SearchableSelect";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
 import { calculateLogisticsSummary } from "../../hooks/useLogistics";
 
-// --- ICONO FILTRO (SVG INLINE para asegurar compatibilidad) ---
+// --- ICONO FILTRO ---
 const IconFilter = ({ size = 20, className = "" }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -180,18 +180,70 @@ export default function UnifiedAgenda({
   const [musicianOptions, setMusicianOptions] = useState([]);
 
   const effectiveUserId = viewAsUserId || user.id;
+  const STORAGE_KEY = `unified_agenda_filters_v3_${effectiveUserId}`;
+
+  // --- ESTADOS DE FILTROS CON INICIALIZACIÓN PEREZOSA ---
+  // Leemos localStorage ANTES de renderizar para evitar parpadeos o sobrescritura
+  const getInitialFilterState = (key, defaultVal) => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (p[key] !== undefined) return p[key];
+      }
+    } catch (e) {
+      console.error("Error reading filters", e);
+    }
+    return defaultVal;
+  };
+
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState(() => getInitialFilterState('categories', []));
+  const [showNonActive, setShowNonActive] = useState(() => getInitialFilterState('showNonActive', false));
+  const [showOnlyMyTransport, setShowOnlyMyTransport] = useState(() => getInitialFilterState('showOnlyMyTransport', false));
+  const [showOnlyMyMeals, setShowOnlyMyMeals] = useState(() => getInitialFilterState('showOnlyMyMeals', false));
+
+  // --- PERSISTENCIA AUTOMÁTICA ---
+  // Guardamos cada vez que cambia algún filtro
+  useEffect(() => {
+    const data = {
+      categories: selectedCategoryIds,
+      showNonActive,
+      showOnlyMyTransport,
+      showOnlyMyMeals
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }, [selectedCategoryIds, showNonActive, showOnlyMyTransport, showOnlyMyMeals, STORAGE_KEY]);
+
+  // Si cambiamos de usuario (Ver como...), intentamos recargar su configuración
+  const prevUserIdRef = useRef(effectiveUserId);
+  useEffect(() => {
+    if (prevUserIdRef.current !== effectiveUserId) {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const p = JSON.parse(saved);
+                setSelectedCategoryIds(p.categories || []);
+                setShowNonActive(p.showNonActive || false);
+                setShowOnlyMyTransport(p.showOnlyMyTransport || false);
+                setShowOnlyMyMeals(p.showOnlyMyMeals || false);
+            } else {
+                // Si no hay config para este usuario, reseteamos a defaults
+                setSelectedCategoryIds([]);
+                setShowNonActive(false);
+                setShowOnlyMyTransport(false);
+                setShowOnlyMyMeals(false);
+            }
+        } catch(e) { console.error(e); }
+        prevUserIdRef.current = effectiveUserId;
+    }
+  }, [effectiveUserId, STORAGE_KEY]);
+
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
-  
-  // --- ESTADOS DE FILTROS ---
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
-  const [showNonActive, setShowNonActive] = useState(false);
-  const [showOnlyMyTransport, setShowOnlyMyTransport] = useState(false);
-  const [showOnlyMyMeals, setShowOnlyMyMeals] = useState(false);
   
   // UI Dropdown
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
@@ -727,7 +779,16 @@ export default function UnifiedAgenda({
 
     setAvailableCategories(uniqueCats);
 
-    if (selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
+    // FIX: Solo marcar todos por defecto SI NO HAY nada seleccionado Y NO estamos cargando de storage
+    // Como inicializamos selectedCategoryIds desde storage, si está vacío es porque el usuario lo quiso así
+    // O porque es la primera vez. 
+    // Para no romper la primera vez:
+    
+    // Verificamos si ya hay algo en storage para este usuario
+    const hasStored = localStorage.getItem(STORAGE_KEY);
+    
+    if (!hasStored && selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
+      // Solo si es la PRIMERA VEZ absoluta (no hay storage), seleccionamos todo
       setSelectedCategoryIds(uniqueCats.map((c) => c.id));
     }
   };
@@ -1097,7 +1158,7 @@ export default function UnifiedAgenda({
                        }`}
                     >
                        <IconFilter size={16} />
-                       <span className=" sm:inline">Filtros</span>
+                       <span className="hidden sm:inline">Filtros</span>
                        {(selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals) && (
                          <span className="flex h-2 w-2 rounded-full bg-indigo-400"></span>
                        )}

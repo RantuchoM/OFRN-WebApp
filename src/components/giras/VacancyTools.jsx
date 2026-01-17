@@ -43,7 +43,8 @@ export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, 
                     id_localidad: formData.id_localidad,
                     id_instr: formData.id_instr || null,
                     dni: `SIM-${uniqueToken}`, 
-                    mail: `vacante-${uniqueToken}@placeholder.system`
+                    mail: `vacante-${uniqueToken}@placeholder.system`,
+                    condicion: 'Refuerzo' // <--- CORRECCIÓN: Asignar condición "Refuerzo" explícitamente
                 }]);
 
             if (userError) throw userError;

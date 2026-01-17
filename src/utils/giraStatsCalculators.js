@@ -8,6 +8,29 @@ const normalize = (str) => (str || "").toLowerCase().trim();
 
 // --- CÁLCULOS PUROS (RAW) ---
 
+// 0. GENERAL
+export const computeGeneralRaw = (data) => {
+  const { roster } = data;
+  if (!roster || !Array.isArray(roster)) return null;
+  const activePax = roster.filter((p) => {
+    const estado = normalize(p.estado_gira || p.estado);
+    return estado !== "ausente" && estado !== "rechazado" && estado !== "baja";
+  });
+  const vacantes = activePax.filter(p => p.es_simulacion).length;
+  const total = activePax.length;
+  if (total === 0) return { kpi: [{ label: "Sin Pax", value: "-", color: "gray" }], tooltip: "No hay personal en la lista." };
+  if (vacantes > 0) {
+      return { 
+          kpi: [{ label: "Vacantes", value: vacantes, color: "red" }],
+          tooltip: `Atención: ${vacantes} posiciones sin cubrir de ${total} totales.` 
+      };
+  }
+  return { 
+      kpi: [{ label: "Staff OK", value: total, color: "green" }],
+      tooltip: `Plantilla completa: ${total} personas confirmadas.`
+  };
+};
+
 // 1. ROSTER
 export const computeRosterRaw = (data) => {
   const { vacantesCount } = data;
@@ -122,7 +145,7 @@ export const computeViaticosRaw = (data) => {
   };
 };
 
-// 5. COMIDAS (DEBUGGEADO)
+// 5. COMIDAS (CORREGIDO PARA eventos_asistencia)
 export const computeMealsRaw = (data) => {
   const { roster } = data;
   if (!roster || !Array.isArray(roster)) return null;
@@ -133,61 +156,45 @@ export const computeMealsRaw = (data) => {
   const events = meta.events || [];
   const responses = meta.responses || [];
 
-  console.groupCollapsed("🍔 [MEALS DEBUG] Diagnóstico de Cálculo de Comidas");
-  console.log(`Total Eventos Comida: ${events.length}`);
-  
   if (events.length === 0) {
-      console.groupEnd();
       return { kpi: [{ label: "Sin Comidas", value: "N/A", color: "gray" }], tooltip: "No hay eventos de comida creados." };
   }
 
-  // Filtrar roster activo
+  // 1. Mapa de respuestas
+  // Se usa 'id_evento' porque estamos leyendo de 'eventos_asistencia'
+  const responseSet = new Set();
+  responses.forEach(r => {
+      // Usamos r.id_evento (nombre en eventos_asistencia)
+      if(r.id_evento && r.id_integrante) {
+          responseSet.add(`${r.id_evento}_${r.id_integrante}`);
+      }
+  });
+
+  // 2. Filtrar roster activo
   const activePax = roster.filter(p => {
       const estado = normalize(p.estado_gira || p.estado);
       return estado !== "ausente" && estado !== "rechazado" && estado !== "baja";
   });
-  console.log(`Total Roster Activo: ${activePax.length}`);
 
-  // --- DEBUG POR EVENTO ---
-  console.group("Análisis por Evento (Convocados vs Respuestas)");
-  events.forEach((evt, idx) => {
-      // Calculamos quiénes DEBERÍAN estar en este evento
-      const convokedForEvent = activePax.filter(p => isUserConvoked(evt.convocados, p));
-      
-      // Calculamos cuántos de esos tienen respuesta registrada
-      const answersForEvent = responses.filter(r => 
-          r.id_comida_evento === evt.id && 
-          convokedForEvent.some(p => p.id === r.id_integrante)
-      );
-
-      console.log(`Evento #${idx + 1} (ID ${evt.id}): Convocados: ${convokedForEvent.length} | Respuestas: ${answersForEvent.length}`);
-      // Si quieres ver los tags: console.log("   Tags:", evt.convocados);
-  });
-  console.groupEnd();
-
-  // --- CÁLCULO POR PERSONA ---
-  let countComplete = 0;
-  let countPartial = 0;
-  let countNone = 0;
+  // 3. Contadores
+  let countComplete = 0; 
+  let countPartial = 0;  
+  let countNone = 0;     
   let totalEligiblePax = 0;
 
   activePax.forEach(person => {
-      // 1. Identificar a qué eventos está convocado ESTA persona
-      const myEvents = events.filter(evt => isUserConvoked(evt.convocados, person));
+      const myRequiredEvents = events.filter(evt => isUserConvoked(evt.convocados, person));
+      const totalRequired = myRequiredEvents.length;
 
-      if (myEvents.length === 0) {
-          // Si no está convocado a nada, no cuenta para el denominador
-          return;
-      }
+      if (totalRequired === 0) return;
 
       totalEligiblePax++;
 
-      // 2. Contar cuántos de esos eventos tienen respuesta
-      const respondedCount = myEvents.filter(evt => 
-          responses.some(r => r.id_comida_evento === evt.id && r.id_integrante === person.id)
+      const respondedCount = myRequiredEvents.filter(evt => 
+          responseSet.has(`${evt.id}_${person.id}`)
       ).length;
 
-      if (respondedCount === myEvents.length) {
+      if (respondedCount === totalRequired) {
           countComplete++;
       } else if (respondedCount === 0) {
           countNone++;
@@ -196,40 +203,38 @@ export const computeMealsRaw = (data) => {
       }
   });
 
-  console.log(`RESULTADO FINAL: Eligibles: ${totalEligiblePax} | Completos: ${countComplete} | Parciales: ${countPartial} | Nada: ${countNone}`);
-  console.groupEnd();
-
   if (totalEligiblePax === 0) {
-      return { kpi: [{ label: "Nadie Convocado", value: "-", color: "gray" }] };
+      return { kpi: [{ label: "Nadie Convocado", value: "-", color: "gray" }], tooltip: "Hay eventos de comida, pero nadie cumple los criterios de convocados." };
   }
 
   const isAllComplete = countComplete === totalEligiblePax;
+  
   let color = "red";
   if (isAllComplete) color = "green";
   else if (countComplete > 0 || countPartial > 0) color = "amber";
 
   return {
     kpi: [{
-      label: isAllComplete ? "Asistencia OK" : "Incompleto",
-      value: `OK:${countComplete} P:${countPartial} 0:${countNone}`,
+      label: isAllComplete ? "Asistencia OK" : "",
+      value: `✅:${countComplete} ➖:${countPartial} ❌:${countNone}`,
       color: color,
     }],
-    tooltip: `ASISTENCIA A COMIDAS:
-    • Completos: ${countComplete} (Respondieron todo lo convocado)
-    • Parciales: ${countPartial}
-    • Sin respuesta: ${countNone}
-    (Total convocados: ${totalEligiblePax})`
+    tooltip: `ESTADO DE RESPUESTAS (Sobre ${totalEligiblePax} convocados):
+    • Completos: ${countComplete} (Respondieron todo lo asignado)
+    • Parciales: ${countPartial} (Faltan algunas respuestas)
+    • Sin respuesta: ${countNone} (No han respondido nada)`
   };
 };
 
 // --- CONFIGURACIÓN ---
 
 const RAW_CALCULATORS = {
+  GENERAL: computeGeneralRaw,
   ROSTER: computeRosterRaw,
   ROOMING: computeRoomingRaw,
   TRANSPORTE: computeTransporteRaw,
   VIATICOS: computeViaticosRaw, 
-  MEALS: computeMealsRaw, 
+  MEALS_ATTENDANCE: computeMealsRaw, // Solo se calcula en la pestaña de Asistencia
 };
 
 // --- EXPORTACIONES ---

@@ -270,16 +270,49 @@ export function useLogistics(supabase, gira, trigger = 0) {
 
       setViaticosMeta({ exportedPeopleIds, exportedLocationIds, tourLocationIds, sedeIds });
 
-      // --- COMIDAS: Agregamos campo 'convocados' ---
-      const { data: mealEvents } = await supabase
-        .from('giras_comidas_eventos') 
-        .select('id, convocados') // <--- CAMBIO AQUÍ: Traemos convocados
+      // --- COMIDAS: Recuperación robusta desde 'eventos' y 'eventos_asistencia' ---
+      
+      // A) Obtener Eventos de la Gira que sean Comidas
+      const { data: rawMealEvents } = await supabase
+        .from('eventos')
+        .select(`
+          id, 
+          convocados,
+          tipos_evento!inner (
+            id,
+            nombre,
+            id_categoria,
+            categorias_tipos_eventos ( nombre )
+          )
+        `)
         .eq('id_gira', giraId);
 
-      const { data: mealResps } = await supabase
-        .from('giras_comidas_respuestas') 
-        .select('id_integrante, id_comida_evento')
-        .eq('id_gira', giraId);
+      const mealEvents = (rawMealEvents || []).filter(evt => {
+        const catId = evt.tipos_evento?.id_categoria;
+        const catName = evt.tipos_evento?.categorias_tipos_eventos?.nombre || "";
+        const typeName = evt.tipos_evento?.nombre || "";
+        
+        return (
+            catId === 4 || // ID 4 de Comidas según tu esquema
+            normalize(catName).includes("comida") || 
+            normalize(typeName).includes("comida") ||
+            normalize(typeName).includes("catering") ||
+            normalize(typeName).includes("cena") ||
+            normalize(typeName).includes("almuerzo")
+        );
+      });
+
+      // B) Obtener Asistencia (Respuestas) SOLO de esos eventos
+      let mealResps = [];
+      if (mealEvents.length > 0) {
+        const eventIds = mealEvents.map(e => e.id);
+        const { data: attendanceData } = await supabase
+          .from('eventos_asistencia') 
+          .select('id_integrante, id_evento, estado')
+          .in('id_evento', eventIds);
+        
+        mealResps = attendanceData || [];
+      }
 
       setMealsMeta({
           events: mealEvents || [],

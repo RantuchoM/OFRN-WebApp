@@ -85,13 +85,15 @@ export default function GiraCard({
 
   const getStatusBadge = (estado) => {
     const status = estado || "Borrador";
+
+    // --- CAMBIO: Si es Vigente, no mostramos nada ---
+    if (status === "Vigente") return null;
+    // -----------------------------------------------
+
     let styles = "bg-slate-100 text-slate-600 border-slate-200";
     let label = "Borrador";
 
-    if (status === "Vigente") {
-      styles = "bg-green-100 text-green-700 border-green-200";
-      label = "Vigente";
-    } else if (status === "Pausada") {
+    if (status === "Pausada") {
       styles = "bg-amber-100 text-amber-700 border-amber-200";
       label = "Pausada";
     }
@@ -104,7 +106,6 @@ export default function GiraCard({
       </span>
     );
   };
-
   // ... (getPersonnelDisplay, getSourcesDisplay, getConcertList siguen igual)
   const getPersonnelDisplay = (gira) => {
     const roster = gira.giras_integrantes || [];

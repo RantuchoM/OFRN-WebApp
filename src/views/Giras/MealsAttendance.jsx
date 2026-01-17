@@ -2,20 +2,19 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   IconLoader, IconSearch, IconClock, IconUsers, IconAlertTriangle,
-  IconCheck, IconX, IconHelpCircle, IconArrowUp, IconArrowDown,
+  IconCheck, IconX, IconHelpCircle, IconArrowUp, IconArrowDown, IconFilter
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import { format, parseISO, isAfter, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
-import { useGiraRoster } from "../../hooks/useGiraRoster"; // <--- IMPORTAR HOOK
+import { useGiraRoster } from "../../hooks/useGiraRoster";
 
-// Helper simplificado: Ya no necesita calcular lógica compleja, solo verifica
+// Helper simplificado: Verifica si una persona está convocada a un evento
 const parseConvocation = (convocadosList, person) => {
   if (!convocadosList || convocadosList.length === 0) return false;
   return convocadosList.some((tag) => {
     if (tag === "GRP:TUTTI") return true;
-    // Usamos las propiedades ya calculadas por el hook (is_local, rol_gira)
     if (tag === "GRP:LOCALES") return person.is_local;
     if (tag === "GRP:NO_LOCALES") return !person.is_local;
     
@@ -30,24 +29,24 @@ const parseConvocation = (convocadosList, person) => {
 };
 
 export default function MealsAttendance({ supabase, gira }) {
-  // 1. Usar el Hook para obtener la "Verdad Única" del roster
   const { roster, loading: rosterLoading } = useGiraRoster(supabase, gira);
 
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState([]);
   const [attendanceMap, setAttendanceMap] = useState({});
+  
+  // FILTROS Y ESTADOS DE UI
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterResponse, setFilterResponse] = useState("ALL"); // 'ALL', 'COMPLETE', 'PARTIAL', 'NONE'
   const [updatingCell, setUpdatingCell] = useState(null);
+  const [sortConfig, setSortConfig] = useState({ key: "apellido", direction: "asc" });
 
   // Fecha límite
   const [deadlineDate, setDeadlineDate] = useState("");
   const [deadlineTime, setDeadlineTime] = useState("");
 
-  const [sortConfig, setSortConfig] = useState({ key: "apellido", direction: "asc" });
-
   useEffect(() => {
     if (gira?.id) {
-      // Configurar fecha límite visual
       if (gira.fecha_confirmacion_limite) {
         try {
           const dateObj = new Date(gira.fecha_confirmacion_limite);
@@ -72,28 +71,34 @@ export default function MealsAttendance({ supabase, gira }) {
   const fetchMatrixData = async () => {
     setLoading(true);
     try {
-      // Traer eventos de comida (Tipos 7, 8, 9, 10)
+      // Traer eventos de comida (Tipos 7, 8, 9, 10 o con nombre 'comida')
+      // Nota: Si usas IDs fijos asegúrate que coincidan con tu BD
       const { data: evts, error: errEvt } = await supabase
         .from("eventos")
-        .select(`*, tipos_evento (nombre)`)
+        .select(`*, tipos_evento (nombre, id_categoria)`)
         .eq("id_gira", gira.id)
-        .in("id_tipo_evento", [7, 8, 9, 10])
         .order("fecha", { ascending: true })
         .order("hora_inicio", { ascending: true });
 
       if (errEvt) throw errEvt;
 
-      if (evts.length === 0) {
+      // Filtramos en JS para asegurar que sean comidas (por ID o nombre)
+      const mealEvents = (evts || []).filter(e => {
+          const catId = e.tipos_evento?.id_categoria;
+          const typeName = (e.tipos_evento?.nombre || "").toLowerCase();
+          return catId === 4 || [7,8,9,10].includes(e.id_tipo_evento) || typeName.includes("comida") || typeName.includes("cena") || typeName.includes("almuerzo");
+      });
+
+      if (mealEvents.length === 0) {
           setEvents([]);
           setLoading(false);
           return;
       }
 
-      // Traer asistencias
       const { data: att, error: errAtt } = await supabase
         .from("eventos_asistencia")
         .select("*")
-        .in("id_evento", evts.map((e) => e.id));
+        .in("id_evento", mealEvents.map((e) => e.id));
 
       if (errAtt) throw errAtt;
 
@@ -102,7 +107,7 @@ export default function MealsAttendance({ supabase, gira }) {
         map[`${a.id_evento}-${a.id_integrante}`] = { estado: a.estado, id: a.id };
       });
 
-      setEvents(evts);
+      setEvents(mealEvents);
       setAttendanceMap(map);
     } catch (error) {
       console.error("Error fetching attendance:", error);
@@ -112,7 +117,6 @@ export default function MealsAttendance({ supabase, gira }) {
   };
 
   const handleAttendanceChange = async (eventId, memberId, currentStatus) => {
-    // Toggle: null -> P -> A -> null
     let newStatus = "P";
     if (currentStatus === "P") newStatus = "A";
     else if (currentStatus === "A") newStatus = null;
@@ -178,15 +182,38 @@ export default function MealsAttendance({ supabase, gira }) {
     }));
   };
 
-  // Filtrado y Ordenamiento usando el Roster del Hook
+  // --- LÓGICA DE FILTRADO UNIFICADA ---
   const sortedRoster = useMemo(() => {
     if (!roster) return [];
     
-    // Filtrar visualmente (pero usamos el estado_gira del hook)
-    // Generalmente aquí mostramos a todos los "confirmados" o quizás todos para gestionar?
-    // Asumiremos que mostramos a todos los que trae el hook (incluye ausentes al final)
     let data = [...roster]; 
 
+    // 1. Filtro de Estado de Respuesta (NUEVO)
+    if (filterResponse !== "ALL") {
+      data = data.filter((person) => {
+        let requiredCount = 0;
+        let answeredCount = 0;
+
+        events.forEach((evt) => {
+          if (parseConvocation(evt.convocados, person)) {
+            requiredCount++;
+            const key = `${evt.id}-${person.id}`;
+            if (attendanceMap[key]?.estado) answeredCount++;
+          }
+        });
+
+        // Si no tenía nada que contestar, lo excluimos de los filtros específicos (salvo que sea ALL)
+        if (requiredCount === 0) return false;
+
+        if (filterResponse === "COMPLETE") return answeredCount === requiredCount;
+        if (filterResponse === "PARTIAL") return answeredCount > 0 && answeredCount < requiredCount;
+        if (filterResponse === "NONE") return answeredCount === 0;
+        
+        return true;
+      });
+    }
+
+    // 2. Filtro de Búsqueda
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
       data = data.filter((p) =>
@@ -196,6 +223,7 @@ export default function MealsAttendance({ supabase, gira }) {
       );
     }
 
+    // 3. Ordenamiento
     return data.sort((a, b) => {
       let valA, valB;
       switch (sortConfig.key) {
@@ -219,7 +247,7 @@ export default function MealsAttendance({ supabase, gira }) {
       if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
       return 0;
     });
-  }, [roster, searchTerm, sortConfig]);
+  }, [roster, searchTerm, sortConfig, filterResponse, events, attendanceMap]);
 
   const eventsByDate = useMemo(() => {
     const groups = {};
@@ -248,6 +276,22 @@ export default function MealsAttendance({ supabase, gira }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-4">
+          
+          {/* NUEVO: Filtro de Respuestas */}
+          <div className="flex items-center gap-2 bg-white border border-slate-200 px-2 py-1.5 rounded-lg shadow-sm">
+            <IconFilter size={14} className="text-slate-400" />
+            <select 
+              value={filterResponse}
+              onChange={(e) => setFilterResponse(e.target.value)}
+              className="bg-transparent text-xs font-bold text-slate-600 outline-none cursor-pointer pr-1"
+            >
+              <option value="ALL">Todos</option>
+              <option value="COMPLETE">Completos (100%)</option>
+              <option value="PARTIAL">Parciales</option>
+              <option value="NONE">Sin Respuesta</option>
+            </select>
+          </div>
+
           <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm">
             <div className="flex flex-col">
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Cierre Confirmación</span>

@@ -21,6 +21,7 @@ export default function SectionStatusControl({
   roster = null, 
   onRefreshRequest = null 
 }) {
+  console.log(sectionKey);
   const [progresoId, setProgresoId] = useState(null);
   const [estado, setEstado] = useState("PENDING");
   const [observaciones, setObservaciones] = useState("");
@@ -79,7 +80,10 @@ export default function SectionStatusControl({
 
   // Carga Inicial
   useEffect(() => {
-    if (giraId && sectionKey) loadInitialData();
+    if (giraId && sectionKey) {
+        setStats(null); // <--- ESTO LIMPIA LA ESTADÍSTICA ANTERIOR
+        loadInitialData();
+    }
   }, [giraId, sectionKey]);
 
   async function loadInitialData() {

@@ -26,7 +26,7 @@ const TOUR_SECTIONS = [
       { label: "Rooming", view: "LOGISTICS", subTab: "rooming", icon: IconBed, statusKey: "ROOMING" },
       { label: "Transporte", view: "LOGISTICS", subTab: "transporte", icon: IconBus, statusKey: "TRANSPORTE" },
       { label: "Viáticos", view: "LOGISTICS", subTab: "viaticos", icon: IconCalculator, statusKey: "VIATICOS" },
-      { label: "Comidas", view: "LOGISTICS", subTab: "meals", icon: IconUtensils, statusKey: "MEALS" },
+      { label: "Comidas", view: "LOGISTICS", subTab: "meals", icon: IconUtensils, statusKey: "MEALS_ATTENDANCE" },
       { label: "Reglas Gral.", view: "LOGISTICS", subTab: "coverage", icon: IconMap, statusKey: "LOGISTICA_GRAL" },
     ],
   },

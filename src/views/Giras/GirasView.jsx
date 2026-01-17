@@ -93,9 +93,12 @@ export default function GirasView({ supabase, trigger = 0 }) {
       if (subTab === "transporte")
         return { key: "TRANSPORTE", label: "Transporte" };
       if (subTab === "viaticos") return { key: "VIATICOS", label: "Viáticos" };
-      if (["meals", "attendance", "report"].includes(subTab)) {
-        return { key: "COMIDAS", label: "Dietas y Catering" };
-      }
+      if (subTab === "meals")
+        return { key: "MEALS_AGENDA", label: "Agenda de Comidas" };
+      if (subTab === "attendance")
+        return { key: "MEALS_ATTENDANCE", label: "Control de Asistencia" };
+      if (subTab === "report")
+        return { key: "MEALS_REPORT", label: "Reportes de Alimentación" };
       return { key: "LOGISTICA_GRAL", label: "Reglas Generales" };
     }
     return null;
@@ -631,9 +634,13 @@ export default function GirasView({ supabase, trigger = 0 }) {
       updateView("LOGISTICS", currentGira.id, "rooming");
   };
 
-  const [filterStatus, setFilterStatus] = useState(
-    new Set(["Vigente", "Borrador", "Pausada"])
-  );
+  const [filterStatus, setFilterStatus] = useState(() => {
+    // Si es personal/invitado, por defecto solo ve Vigentes
+    if (isPersonal) return new Set(["Vigente"]);
+    // Si es editor/admin, ve todo
+    return new Set(["Vigente", "Borrador", "Pausada"]);
+  });
+  // -----------------------------------------------
   const [resolvedRoster, setResolvedRoster] = useState(null);
   const handleRosterResolved = (rosterData) => setResolvedRoster(rosterData);
   const enrichedRoster = useMemo(
@@ -776,6 +783,22 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 </div>
               </div>
             </div>
+            {/* INICIO DE LA INSERCIÓN */}
+            <div className="hidden xl:block">
+              <div className="hidden xl:block">
+                <SectionStatusControl
+                  supabase={supabase}
+                  giraId={selectedGira.id}
+                  // Usamos la sección activa o "GENERAL" por defecto (ej. para Difusión/Edición)
+                  sectionKey={activeSection?.key || "GENERAL"}
+                  sectionLabel={activeSection?.label || "Estado General"}
+                  currentUserId={user.id}
+                  onUpdate={fetchGiras}
+                  roster={enrichedRoster} // Datos para el cálculo de estadísticas
+                />
+              </div>
+            </div>
+            {/* FIN DE LA INSERCIÓN */}
             {/* ... Resto del Header de Detalle ... */}
             {(isEditor || isPersonal) && (
               <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
