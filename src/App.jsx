@@ -37,6 +37,8 @@ import { useManual } from "./context/ManualContext";
 import { IconEye, IconEyeOff } from "./components/ui/Icons";
 import {
   IconLayoutDashboard,
+  IconDownload,
+  IconSettingsWheel,
   IconMap,
   IconMusic,
   IconUsers,
@@ -65,28 +67,49 @@ import {
 } from "./components/ui/Icons";
 
 // --- MODAL CALENDARIO (Mantenido igual) ---
-const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
+const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
   if (!isOpen || !userId) return null;
 
-  const BASE_URL =
-    "webcal://muxrbuivopnawnxlcjxq.supabase.co/functions/v1/calendar-export";
+  // URLs de las dos funciones Edge
+  const USER_BASE_URL = "webcal://muxrbuivopnawnxlcjxq.supabase.co/functions/v1/calendar-export";
+  const ADMIN_BASE_URL = "webcal://muxrbuivopnawnxlcjxq.supabase.co/functions/v1/ics-export-admin";
 
-  const getLinks = (mode) => {
-    let url = `${BASE_URL}?uid=${userId}`;
+  // Estado para manejar pestañas si es admin
+  const [activeTab, setActiveTab] = useState('PERSONAL'); // 'PERSONAL' | 'ADMIN'
+
+  // --- LÓGICA DE USUARIO (PERSONAL) ---
+  const getUserLinks = (mode) => {
+    let url = `${USER_BASE_URL}?uid=${userId}`;
     if (mode === "musical") url += "&mode=musical";
     else if (mode === "otros") url += "&mode=otros";
 
-    const httpsLink = url;
-    const webcalLink = url.replace(/^https:/, "webcal:");
-    const googleMagicLink = `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(
-      webcalLink
-    )}`;
-
-    return { httpsLink, webcalLink, googleMagicLink };
+    return formatLinks(url);
   };
 
-  const handleSubscribe = (platform, mode) => {
-    const { webcalLink, googleMagicLink, httpsLink } = getLinks(mode);
+  // --- LÓGICA DE ADMIN (MASTER) ---
+  const getAdminLinks = (type, mode) => {
+    // type: 'Sinfónico' | 'Ensamble' | 'Jazz Band'
+    // mode: 'musical' | 'logistics' | 'full'
+    let url = `${ADMIN_BASE_URL}?type=${encodeURIComponent(type)}&mode=${mode}`;
+    return formatLinks(url);
+  };
+
+  // Helper común para formatear los 3 tipos de enlace
+  const formatLinks = (webcalUrl) => {
+    const httpsLink = webcalUrl.replace(/^webcal:/, "https:");
+    const googleMagicLink = `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcalUrl)}`;
+    return { webcalLink: webcalUrl, googleMagicLink, httpsLink };
+  };
+
+  const handleSubscribe = (platform, category, mode, isAdminContext = false) => {
+    let links;
+    if (isAdminContext) {
+        links = getAdminLinks(category, mode); // category es el 'type' (Sinfónico, etc)
+    } else {
+        links = getUserLinks(category); // category es el 'mode' (musical/otros)
+    }
+
+    const { webcalLink, googleMagicLink, httpsLink } = links;
 
     if (platform === "GOOGLE") {
       window.open(googleMagicLink, "_blank");
@@ -94,118 +117,158 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId }) => {
       window.location.href = webcalLink;
     } else if (platform === "COPY") {
       navigator.clipboard.writeText(httpsLink).then(() => {
-        alert(
-          "🔗 Enlace copiado. Pégalo manualmente en la sección 'Agregar por URL' de tu calendario."
-        );
+        alert("🔗 Enlace copiado al portapapeles.");
       });
     }
   };
 
+  // --- RENDERIZADO ---
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+        
+        {/* HEADER */}
+        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <IconCalendar size={20} className="text-indigo-600" /> Sincronizar
-            Calendario
+            <IconCalendar size={20} className="text-indigo-600" /> 
+            Sincronizar Calendario
           </h3>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-full hover:bg-slate-200 transition-colors"
-          >
+          <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-200 transition-colors">
             <IconX size={20} />
           </button>
         </div>
-        <div className="p-6 space-y-8">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm uppercase tracking-wider">
-                <IconMusic size={18} /> Solo Musical
-              </div>
-              <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">
-                Ensayos y Conciertos
-              </span>
+
+        {/* PESTAÑAS (SOLO SI ES ADMIN) */}
+        {isAdmin && (
+            <div className="flex border-b border-slate-100 shrink-0">
+                <button 
+                    onClick={() => setActiveTab('PERSONAL')}
+                    className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider text-center transition-colors ${activeTab === 'PERSONAL' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                >
+                    Mi Agenda
+                </button>
+                <button 
+                    onClick={() => setActiveTab('ADMIN')}
+                    className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider text-center transition-colors ${activeTab === 'ADMIN' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                >
+                    Master (Admin)
+                </button>
             </div>
-            <p className="text-xs text-slate-500 mb-2">
-              Ideal para no saturar tu agenda personal. Solo eventos artísticos.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => handleSubscribe("GOOGLE", "musical")}
-                className="flex items-center justify-center gap-2 p-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs shadow-sm hover:shadow"
-              >
-                Google Calendar
-              </button>
-              <button
-                onClick={() => handleSubscribe("IOS", "musical")}
-                className="flex items-center justify-center gap-2 p-3 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs shadow-sm hover:shadow"
-              >
-                iPhone / Mac
-              </button>
-            </div>
-            <div className="text-center">
-              <button
-                onClick={() => handleSubscribe("COPY", "musical")}
-                className="text-[10px] text-slate-400 hover:text-indigo-600 flex items-center justify-center gap-1 mx-auto transition-colors group"
-              >
-                <IconCopy size={10} className="group-hover:scale-110" /> Copiar
-                enlace manual (Musical)
-              </button>
-            </div>
-          </div>
-          <div className="h-px bg-slate-100"></div>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-slate-700 font-bold text-sm uppercase tracking-wider">
-                <IconLayoutDashboard size={18} /> Otros Eventos
-              </div>
-              <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold">
-                Logística y Giras
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mb-2">
-              Incluye hitos de gira, logística de transporte, comidas y
-              trámites.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => handleSubscribe("GOOGLE", "otros")}
-                className="flex items-center justify-center gap-2 p-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs shadow-sm hover:shadow"
-              >
-                Google Calendar
-              </button>
-              <button
-                onClick={() => handleSubscribe("IOS", "otros")}
-                className="flex items-center justify-center gap-2 p-3 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs shadow-sm hover:shadow"
-              >
-                iPhone / Mac
-              </button>
-            </div>
-            <div className="text-center">
-              <button
-                onClick={() => handleSubscribe("COPY", "otros")}
-                className="text-[10px] text-slate-400 hover:text-slate-600 flex items-center justify-center gap-1 mx-auto transition-colors group"
-              >
-                <IconCopy size={10} className="group-hover:scale-110" /> Copiar
-                enlace manual (Otros)
-              </button>
-            </div>
-          </div>
-          <div className="text-center pt-2 border-t border-slate-50 mt-4">
-            <button
-              onClick={() => handleSubscribe("COPY", "full")}
-              className="text-xs text-slate-300 hover:text-indigo-600 flex items-center justify-center gap-1 mx-auto transition-colors"
-            >
-              <IconCopy size={12} /> Copiar enlace de Agenda Completa (Todo
-              unificado)
-            </button>
-          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-8">
+            
+            {/* --- VISTA PERSONAL --- */}
+            {(!isAdmin || activeTab === 'PERSONAL') && (
+                <>
+                    {/* Sección Musical */}
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm uppercase tracking-wider">
+                                <IconMusic size={18} /> Solo Musical
+                            </div>
+                            <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">
+                                Ensayos y Conciertos
+                            </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-2">Ideal para no saturar tu agenda personal. Solo eventos artísticos asignados a ti.</p>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button onClick={() => handleSubscribe("GOOGLE", "musical", null)} className="btn-calendar-google">Google Calendar</button>
+                            <button onClick={() => handleSubscribe("IOS", "musical", null)} className="btn-calendar-ios">iPhone / Mac</button>
+                        </div>
+                        <button onClick={() => handleSubscribe("COPY", "musical", null)} className="btn-calendar-copy">
+                            <IconCopy size={10} /> Copiar enlace manual
+                        </button>
+                    </div>
+
+                    <div className="h-px bg-slate-100"></div>
+
+                    {/* Sección Logística */}
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-slate-700 font-bold text-sm uppercase tracking-wider">
+                                <IconLayoutDashboard size={18} /> Otros Eventos
+                            </div>
+                            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold">Logística y Giras</span>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-2">Incluye hitos de gira, logística de transporte, comidas y trámites asignados.</p>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button onClick={() => handleSubscribe("GOOGLE", "otros", null)} className="btn-calendar-google">Google Calendar</button>
+                            <button onClick={() => handleSubscribe("IOS", "otros", null)} className="btn-calendar-ios">iPhone / Mac</button>
+                        </div>
+                        <button onClick={() => handleSubscribe("COPY", "otros", null)} className="btn-calendar-copy">
+                            <IconCopy size={10} /> Copiar enlace manual
+                        </button>
+                    </div>
+
+                    {/* Full */}
+                    <div className="text-center pt-2 border-t border-slate-50 mt-4">
+                        <button onClick={() => handleSubscribe("COPY", "full", null)} className="text-xs text-slate-300 hover:text-indigo-600 flex items-center justify-center gap-1 mx-auto transition-colors">
+                            <IconCopy size={12} /> Copiar enlace de Agenda Completa
+                        </button>
+                    </div>
+                </>
+            )}
+
+            {/* --- VISTA ADMIN (MASTER) --- */}
+            {isAdmin && activeTab === 'ADMIN' && (
+                <div className="space-y-6">
+                    <p className="text-xs text-slate-500 bg-blue-50 border border-blue-100 p-3 rounded-lg">
+                        Estos calendarios incluyen <strong>toda la actividad vigente</strong> de cada organismo, sin filtrar por personal asignado.
+                    </p>
+
+                    {/* Mapeamos los 3 organismos */}
+                    {[
+                        { label: "Sinfónico", type: "Sinfónico", color: "text-indigo-600", bg: "bg-indigo-50" },
+                        { label: "Cámara / Ensamble", type: "Ensamble", color: "text-emerald-600", bg: "bg-emerald-50" },
+                        { label: "Jazz Band", type: "Jazz Band", color: "text-amber-600", bg: "bg-amber-50" }
+                    ].map((org) => (
+                        <div key={org.type} className="border border-slate-200 rounded-lg overflow-hidden">
+                            <div className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest ${org.bg} ${org.color} border-b border-slate-100`}>
+                                {org.label}
+                            </div>
+                            <div className="p-3 grid grid-cols-1 gap-2">
+                                {/* Fila Musical */}
+                                <div className="flex items-center justify-between group">
+                                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                                        <IconMusic size={14} className="text-slate-400" /> Musical
+                                    </div>
+                                    <div className="flex gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                                        <button onClick={() => handleSubscribe("GOOGLE", org.type, "musical", true)} title="Google" className="p-1 hover:text-blue-600"><IconCalendar size={14}/></button>
+                                        <button onClick={() => handleSubscribe("IOS", org.type, "musical", true)} title="Apple/Outlook" className="p-1 hover:text-slate-900"><IconDownload size={14}/></button>
+                                        <button onClick={() => handleSubscribe("COPY", org.type, "musical", true)} title="Copiar" className="p-1 hover:text-indigo-600"><IconCopy size={14}/></button>
+                                    </div>
+                                </div>
+                                {/* Fila Logística */}
+                                <div className="flex items-center justify-between group border-t border-slate-50 pt-2">
+                                    <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                                        <IconSettingsWheel size={14} className="text-slate-400" /> Logística
+                                    </div>
+                                    <div className="flex gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                                        <button onClick={() => handleSubscribe("GOOGLE", org.type, "logistics", true)} title="Google" className="p-1 hover:text-blue-600"><IconCalendar size={14}/></button>
+                                        <button onClick={() => handleSubscribe("IOS", org.type, "logistics", true)} title="Apple/Outlook" className="p-1 hover:text-slate-900"><IconDownload size={14}/></button>
+                                        <button onClick={() => handleSubscribe("COPY", org.type, "logistics", true)} title="Copiar" className="p-1 hover:text-indigo-600"><IconCopy size={14}/></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
         </div>
       </div>
+
+      {/* Estilos inline para botones repetitivos (puedes moverlos a CSS) */}
+      <style>{`
+        .btn-calendar-google { @apply flex items-center justify-center gap-2 p-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-bold text-xs shadow-sm hover:shadow; }
+        .btn-calendar-ios { @apply flex items-center justify-center gap-2 p-3 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 transition-all font-bold text-xs shadow-sm hover:shadow; }
+        .btn-calendar-copy { @apply text-[10px] text-slate-400 hover:text-indigo-600 flex items-center justify-center gap-1 mx-auto transition-colors group mt-2; }
+      `}</style>
     </div>
   );
 };
-
 // --- APP PROTEGIDA ---
 const ProtectedApp = () => {
   const { user, logout } = useAuth();
@@ -1030,6 +1093,7 @@ const ProtectedApp = () => {
         isOpen={calendarModalOpen}
         onClose={() => setCalendarModalOpen(false)}
         userId={user?.id}
+        isAdmin={isManagement}
       />
 
       {/* WIDGET DE FEEDBACK */}
