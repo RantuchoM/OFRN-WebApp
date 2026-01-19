@@ -11,7 +11,7 @@ import {
   IconUsers,
   IconFileText,
   IconLayout,
-  IconTag, // <--- NUEVO IMPORT (Asegúrate de tener este ícono o usa IconList)
+  IconTag, 
 } from "../../components/ui/Icons";
 import SheetEditor from './SheetEditor';
 
@@ -127,9 +127,9 @@ export default function DataView({ supabase }) {
         { key: "id_categoria", label: "Categoría", type: "select", options: catalogos.categorias },
       ],
     },
-     categorias: {
+      categorias: {
       label: "Categorías de Eventos",
-      icon: IconTag, // Icono visual para la pestaña
+      icon: IconTag, 
       table: "categorias_tipos_eventos",
       columns: [
         { key: "nombre", label: "Nombre Categoría", type: "text" }
@@ -166,13 +166,16 @@ export default function DataView({ supabase }) {
         { key: "iso", label: "ISO Code", type: "text" },
       ],
     },
+    // --- AQUÍ ESTÁ EL CAMBIO ---
     transportes: {
       label: "Transporte",
       icon: IconTruck,
       table: "transportes",
       columns: [
-        { key: "id", label: "ID", type: "number" },
+        { key: "id", label: "ID", type: "number" }, // Generalmente readonly, UniversalTable lo maneja
         { key: "nombre", label: "Nombre", type: "text" },
+        // Nueva columna de color:
+        { key: "color", label: "Color Chip", type: "color", defaultValue: "#6366f1" } 
       ],
     },
     ensambles: {

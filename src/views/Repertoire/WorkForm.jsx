@@ -205,6 +205,8 @@ export default function WorkForm({
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState("idle");
   const [particellas, setParticellas] = useState([]);
+  // --- NUEVO ESTADO PARA ARCOS ---
+  const [arcos, setArcos] = useState([]);
 
   const [instrumentList, setInstrumentList] = useState(
     catalogoInstrumentos || []
@@ -239,6 +241,7 @@ export default function WorkForm({
 
     if (initialData?.id) {
       fetchParticellas(initialData.id);
+      fetchArcos(initialData.id); // <--- FETCH ARCOS
       fetchWorkDetails(initialData.id);
     }
   }, [initialData?.id]);
@@ -598,6 +601,49 @@ export default function WorkForm({
     handlePartsChange(updated);
   };
 
+  // --- LÓGICA DE ARCOS (BOWINGS) ---
+  const fetchArcos = async (workId) => {
+    const { data } = await supabase
+      .from("obras_arcos")
+      .select("*")
+      .eq("id_obra", workId)
+      .order("created_at", { ascending: false });
+    if (data) setArcos(data);
+  };
+
+  const handleSaveArco = async (arco) => {
+    if (!formData.id) return alert("Guarda la obra primero.");
+    setSaveStatus("saving");
+    try {
+      const payload = { ...arco, id_obra: formData.id };
+      delete payload.tempId; // Limpiar ID temporal si existe
+
+      const query = arco.id
+        ? supabase.from("obras_arcos").update(payload).eq("id", arco.id)
+        : supabase.from("obras_arcos").insert([payload]);
+
+      const { error } = await query;
+      if (error) throw error;
+
+      await fetchArcos(formData.id);
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch (e) {
+      console.error(e);
+      setSaveStatus("error");
+    }
+  };
+
+  const handleDeleteArco = async (id) => {
+    if (!confirm("¿Eliminar este set de arcos?")) return;
+    try {
+      await supabase.from("obras_arcos").delete().eq("id", id);
+      await fetchArcos(formData.id);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
       <div className="flex justify-between items-center border-b pb-4">
@@ -819,6 +865,116 @@ export default function WorkForm({
             placeholder="Desglose detallado..."
           />
         </div>
+      </div>
+
+      {/* GESTIÓN DE ARCOS */}
+      <div className="border-t pt-4">
+        <h3 className="text-sm font-bold uppercase text-slate-500 mb-3 flex items-center gap-2">
+          Gestión de Arcos / Bowings
+        </h3>
+        {!formData.id ? (
+          <div className="text-center py-4 text-slate-400 italic bg-slate-50 rounded border border-dashed text-xs">
+            Debes guardar la obra primero para gestionar arcos.
+          </div>
+        ) : (
+          <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+            <div className="grid grid-cols-1 gap-2 mb-2">
+              {arcos.length === 0 && (
+                <span className="text-xs text-slate-400 italic">
+                  No hay arcos registrados.
+                </span>
+              )}
+              {arcos.map((arco) => (
+                <div
+                  key={arco.id}
+                  className="flex gap-2 items-center bg-white p-2 rounded border shadow-sm"
+                >
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <input
+                      type="text"
+                      className="input text-xs font-bold"
+                      defaultValue={arco.nombre}
+                      onBlur={(e) =>
+                        handleSaveArco({ ...arco, nombre: e.target.value })
+                      }
+                      placeholder="Nombre (ej: Versión 2024)"
+                    />
+                    <input
+                      type="text"
+                      className="input text-xs"
+                      defaultValue={arco.descripcion}
+                      onBlur={(e) =>
+                        handleSaveArco({ ...arco, descripcion: e.target.value })
+                      }
+                      placeholder="Descripción (Opcional)"
+                    />
+                    <div className="flex items-center gap-1">
+                      <IconLink size={14} className="text-slate-400" />
+                      <input
+                        type="text"
+                        className="input text-xs text-blue-600"
+                        defaultValue={arco.link}
+                        onBlur={(e) =>
+                          handleSaveArco({ ...arco, link: e.target.value })
+                        }
+                        placeholder="Link a Drive/PDF"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteArco(arco.id)}
+                    className="text-slate-400 hover:text-red-500 p-1"
+                  >
+                    <IconTrash size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Formulario Nuevo Arco Rápido */}
+            <div className="flex gap-2 items-center mt-3 border-t border-dashed pt-3">
+              <span className="text-xs font-bold text-indigo-600">Nuevo:</span>
+              <input
+                id="newArcoName"
+                type="text"
+                className="input text-xs w-1/3"
+                placeholder="Nombre"
+              />
+              <input
+                id="newArcoDesc"
+                type="text"
+                className="input text-xs w-1/3"
+                placeholder="Descripción"
+              />
+              <input
+                id="newArcoLink"
+                type="text"
+                className="input text-xs w-1/3"
+                placeholder="Link"
+              />
+              <button
+                onClick={() => {
+                  const name = document.getElementById("newArcoName").value;
+                  const desc = document.getElementById("newArcoDesc").value;
+                  const link = document.getElementById("newArcoLink").value;
+                  if (!name) return;
+                  handleSaveArco({
+                    nombre: name,
+                    descripcion: desc,
+                    link: link,
+                  });
+                  // Limpiar inputs
+                  document.getElementById("newArcoName").value = "";
+                  document.getElementById("newArcoDesc").value = "";
+                  document.getElementById("newArcoLink").value = "";
+                }}
+                className="bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700"
+              >
+                <IconPlus size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="border-t pt-4">

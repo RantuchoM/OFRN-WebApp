@@ -274,9 +274,10 @@ export default function RepertoireManager({
       .from("programas_repertorios")
       .select(
         `*, repertorio_obras (
-            id, orden, notas_especificas, id_solista, google_drive_shortcut_id, excluir, 
+            id, orden, notas_especificas, id_solista, google_drive_shortcut_id, excluir, id_arco_seleccionado, 
             obras (
                 id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, 
+                obras_arcos (id, nombre, link, descripcion),
                 compositores (id, apellido, nombre), 
                 obras_compositores (rol, compositores(id, apellido, nombre)),
                 obras_particellas (nombre_archivo, nota_organico, id_instrumento, url_archivo, instrumentos (instrumento))
@@ -648,6 +649,7 @@ export default function RepertoireManager({
                     <th className="p-1 w-12 text-center">Dur.</th>
                     <th className="p-1 w-32">Solista</th>
                     <th className="p-1 w-24">Arr.</th>
+                    <th className="p-1 w-24 text-center">Arcos</th>
                     <th className="p-1 w-30">Notas</th>
                     <th className="p-1 w-8 text-center">YT</th>
                     <th className="p-1 w-16 text-right"></th>
@@ -755,6 +757,63 @@ export default function RepertoireManager({
                       <td className="p-1 truncate text-slate-500">
                         {getArranger(item.obras)}
                       </td>
+
+                      {/* --- COLUMNA DE SELECCIÓN DE ARCOS --- */}
+                      <td className="p-1 align-middle text-center">
+                        {item.obras.obras_arcos &&
+                        item.obras.obras_arcos.length > 0 ? (
+                          isEditor ? (
+                            <select
+                              className="w-full text-[10px] border rounded bg-slate-50 p-1 outline-none focus:border-indigo-500 text-indigo-700 font-medium"
+                              value={item.id_arco_seleccionado || ""}
+                              onChange={(e) => {
+                                const val =
+                                  e.target.value === "" ? null : e.target.value;
+                                updateWorkDetail(
+                                  item.id,
+                                  "id_arco_seleccionado",
+                                  val
+                                );
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <option value="">Elegir...</option>
+                              {item.obras.obras_arcos.map((arco) => (
+                                <option key={arco.id} value={arco.id}>
+                                  {arco.nombre}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            (() => {
+                              const selected = item.obras.obras_arcos.find(
+                                (a) => a.id === item.id_arco_seleccionado
+                              );
+                              return selected ? (
+                                <a
+                                  href={selected.link}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center justify-center gap-1 text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100 hover:bg-indigo-100 truncate"
+                                  title={
+                                    selected.descripcion || selected.nombre
+                                  }
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <IconLink size={10} /> {selected.nombre}
+                                </a>
+                              ) : (
+                                <span className="text-slate-300 text-[10px]">
+                                  -
+                                </span>
+                              );
+                            })()
+                          )
+                        ) : (
+                          <span className="text-slate-200 text-[10px]">-</span>
+                        )}
+                      </td>
+
                       <td className="p-0 border-l border-slate-100 align-middle">
                         {isEditor ? (
                           <input

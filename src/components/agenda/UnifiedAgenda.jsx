@@ -22,7 +22,7 @@ import {
   IconMapPin,
   IconCalendar,
   IconArrowRight,
-  IconEye,
+  IconEye, // Usado para el icono de "Ver todo"
   IconPrinter,
   IconUpload,
   IconDownload,
@@ -180,10 +180,9 @@ export default function UnifiedAgenda({
   const [musicianOptions, setMusicianOptions] = useState([]);
 
   const effectiveUserId = viewAsUserId || user.id;
-  const STORAGE_KEY = `unified_agenda_filters_v3_${effectiveUserId}`;
+  const STORAGE_KEY = `unified_agenda_filters_v4_${effectiveUserId}`; // Incrementé versión del key
 
-  // --- ESTADOS DE FILTROS CON INICIALIZACIÓN PEREZOSA ---
-  // Leemos localStorage ANTES de renderizar para evitar parpadeos o sobrescritura
+  // --- ESTADOS DE FILTROS ---
   const getInitialFilterState = (key, defaultVal) => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -201,20 +200,22 @@ export default function UnifiedAgenda({
   const [showNonActive, setShowNonActive] = useState(() => getInitialFilterState('showNonActive', false));
   const [showOnlyMyTransport, setShowOnlyMyTransport] = useState(() => getInitialFilterState('showOnlyMyTransport', false));
   const [showOnlyMyMeals, setShowOnlyMyMeals] = useState(() => getInitialFilterState('showOnlyMyMeals', false));
+  // NUEVO FILTRO: Ver todo el transporte (sin grisar)
+  const [showAllTransport, setShowAllTransport] = useState(() => getInitialFilterState('showAllTransport', false));
 
   // --- PERSISTENCIA AUTOMÁTICA ---
-  // Guardamos cada vez que cambia algún filtro
   useEffect(() => {
     const data = {
       categories: selectedCategoryIds,
       showNonActive,
       showOnlyMyTransport,
-      showOnlyMyMeals
+      showOnlyMyMeals,
+      showAllTransport // Guardamos el nuevo estado
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [selectedCategoryIds, showNonActive, showOnlyMyTransport, showOnlyMyMeals, STORAGE_KEY]);
+  }, [selectedCategoryIds, showNonActive, showOnlyMyTransport, showOnlyMyMeals, showAllTransport, STORAGE_KEY]);
 
-  // Si cambiamos de usuario (Ver como...), intentamos recargar su configuración
+  // Si cambiamos de usuario
   const prevUserIdRef = useRef(effectiveUserId);
   useEffect(() => {
     if (prevUserIdRef.current !== effectiveUserId) {
@@ -226,12 +227,13 @@ export default function UnifiedAgenda({
                 setShowNonActive(p.showNonActive || false);
                 setShowOnlyMyTransport(p.showOnlyMyTransport || false);
                 setShowOnlyMyMeals(p.showOnlyMyMeals || false);
+                setShowAllTransport(p.showAllTransport || false);
             } else {
-                // Si no hay config para este usuario, reseteamos a defaults
                 setSelectedCategoryIds([]);
                 setShowNonActive(false);
                 setShowOnlyMyTransport(false);
                 setShowOnlyMyMeals(false);
+                setShowAllTransport(false);
             }
         } catch(e) { console.error(e); }
         prevUserIdRef.current = effectiveUserId;
@@ -267,6 +269,7 @@ export default function UnifiedAgenda({
     user?.rol_sistema
   );
 
+  // ... (Efectos de carga de músicos, perfil y catálogos iguales) ...
   useEffect(() => {
     const fetchMusicians = async () => {
       if (canEdit && navigator.onLine) {
@@ -399,17 +402,15 @@ export default function UnifiedAgenda({
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
       if (catId && !selectedCategoryIds.includes(catId)) return false;
 
-      // 3. Filtro Solo Mi Transporte (Ocultar filas grises de transporte)
+      // 3. Filtro Solo Mi Transporte
       if (showOnlyMyTransport && item.id_gira_transporte) {
          const tId = String(item.id_gira_transporte);
-         // Si no está asignado en mi logística, lo ocultamos
          if (!myTransportLogistics[tId]?.assigned) return false;
       }
 
-      // 4. Filtro Solo Mis Comidas (Ocultar filas grises de comida)
+      // 4. Filtro Solo Mis Comidas
       if (showOnlyMyMeals) {
          const isMeal = [7, 8, 9, 10].includes(item.id_tipo_evento) || item.tipos_evento?.nombre?.toLowerCase().includes("comida");
-         // Si es comida y NO estoy convocado, ocultar
          if (isMeal && !item.is_convoked) return false;
       }
 
@@ -438,7 +439,7 @@ export default function UnifiedAgenda({
     setLoading(true);
     const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
       giraId || "general"
-    }_v5`;
+    }_v5`; // Mantenemos v5 o subimos si cambiamos estructura drástica
 
     try {
       const cachedData = localStorage.getItem(CACHE_KEY);
@@ -488,6 +489,8 @@ export default function UnifiedAgenda({
         ensembleEvents.data?.map((e) => e.id_evento)
       );
 
+      // --- AQUÍ EL CAMBIO DE QUERY ---
+      // Se agregó 'color' a la tabla transportes
       let query = supabase
         .from("eventos")
         .select(
@@ -495,7 +498,7 @@ export default function UnifiedAgenda({
             id, fecha, hora_inicio, hora_fin, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte,
             giras_transportes (
                 id, detalle,
-                transportes ( nombre )
+                transportes ( nombre, color ) 
             ),
             tipos_evento (
                 id, nombre, color,
@@ -634,12 +637,12 @@ export default function UnifiedAgenda({
             };
 
             const result = calculateLogisticsSummary(
-              [mockPerson],          
-              [],                     
+              [mockPerson],           
+              [],                      
               admissionByGira[gId] || [],
               routesByGira[gId] || [],   
-              currentTransports,      
-              []                     
+              currentTransports,       
+              []                      
             );
 
             const myTransports = result[0]?.logistics?.transports || [];
@@ -765,6 +768,7 @@ export default function UnifiedAgenda({
     }
   };
 
+  // ... (Funciones auxiliares iguales: processCategories, toggleMealAttendance, etc.) ...
   const processCategories = (eventsList) => {
     const categoriesMap = {};
     eventsList.forEach((evt) => {
@@ -778,20 +782,13 @@ export default function UnifiedAgenda({
     );
 
     setAvailableCategories(uniqueCats);
-
-    // FIX: Solo marcar todos por defecto SI NO HAY nada seleccionado Y NO estamos cargando de storage
-    // Como inicializamos selectedCategoryIds desde storage, si está vacío es porque el usuario lo quiso así
-    // O porque es la primera vez. 
-    // Para no romper la primera vez:
     
-    // Verificamos si ya hay algo en storage para este usuario
     const hasStored = localStorage.getItem(STORAGE_KEY);
-    
     if (!hasStored && selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
-      // Solo si es la PRIMERA VEZ absoluta (no hay storage), seleccionamos todo
       setSelectedCategoryIds(uniqueCats.map((c) => c.id));
     }
   };
+
   const toggleMealAttendance = async (eventId, newStatus) => {
     if (effectiveUserId === "guest-general") return;
     setLoading(true);
@@ -1152,36 +1149,37 @@ export default function UnifiedAgenda({
                     <button
                        onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
                        className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-bold shadow-sm hover:shadow-md ${
-                          isFilterMenuOpen || selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals
+                          isFilterMenuOpen || selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals || showAllTransport
                           ? "bg-slate-800 text-white border-slate-800"
                           : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                        }`}
                     >
                        <IconFilter size={16} />
                        <span className="hidden sm:inline">Filtros</span>
-                       {(selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals) && (
+                       {(selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals || showAllTransport) && (
                          <span className="flex h-2 w-2 rounded-full bg-indigo-400"></span>
                        )}
                     </button>
 
                     {isFilterMenuOpen && (
                       <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden animate-in zoom-in-95 origin-top-right">
-                         <div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                          <div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Opciones de Vista</span>
                             <button 
                                onClick={() => {
                                  setSelectedCategoryIds(availableCategories.map(c => c.id));
                                  setShowOnlyMyTransport(false);
                                  setShowOnlyMyMeals(false);
+                                 setShowAllTransport(false);
                                }}
                                className="text-[10px] text-indigo-600 hover:underline font-bold"
                             >
                                Restablecer
                             </button>
-                         </div>
-                         
-                         {/* TOGGLES ESPECIALES */}
-                         <div className="p-2 border-b border-slate-100 space-y-1">
+                          </div>
+                          
+                          {/* TOGGLES ESPECIALES */}
+                          <div className="p-2 border-b border-slate-100 space-y-1">
                             <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
                                <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
                                   <IconBus size={16} className="text-indigo-500" />
@@ -1191,9 +1189,30 @@ export default function UnifiedAgenda({
                                  type="checkbox" 
                                  className="accent-indigo-600 w-4 h-4"
                                  checked={showOnlyMyTransport}
-                                 onChange={(e) => setShowOnlyMyTransport(e.target.checked)}
+                                 onChange={(e) => {
+                                     setShowOnlyMyTransport(e.target.checked);
+                                     if(e.target.checked) setShowAllTransport(false); // Mutually exclusive UI preference
+                                 }}
                                />
                             </label>
+                            
+                            {/* NUEVA OPCIÓN: VER TODO TRANSPORTE */}
+                            <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
+                               <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                                  <IconEye size={16} className="text-slate-500" />
+                                  <span>Transporte (sin grises)</span>
+                               </div>
+                               <input 
+                                 type="checkbox" 
+                                 className="accent-slate-600 w-4 h-4"
+                                 checked={showAllTransport}
+                                 onChange={(e) => {
+                                     setShowAllTransport(e.target.checked);
+                                     if(e.target.checked) setShowOnlyMyTransport(false);
+                                 }}
+                               />
+                            </label>
+
                             <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
                                <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
                                   <span className="text-amber-500 text-lg leading-none">🍴</span>
@@ -1206,49 +1225,49 @@ export default function UnifiedAgenda({
                                  onChange={(e) => setShowOnlyMyMeals(e.target.checked)}
                                />
                             </label>
-                         </div>
+                          </div>
 
-                         <div className="p-3 border-b border-slate-100 bg-slate-50">
+                          <div className="p-3 border-b border-slate-100 bg-slate-50">
                             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Categorías</span>
-                         </div>
-                         <div className="max-h-60 overflow-y-auto p-2">
-                           <div className="grid grid-cols-1 gap-1">
-                             <button
-                               onClick={() => {
-                                 if (selectedCategoryIds.length === availableCategories.length) setSelectedCategoryIds([]);
-                                 else setSelectedCategoryIds(availableCategories.map(c => c.id));
-                               }}
-                               className={`px-3 py-2 rounded text-xs font-bold border transition-colors flex justify-between items-center ${
-                                 selectedCategoryIds.length === availableCategories.length 
-                                 ? "bg-slate-800 text-white border-slate-800" 
-                                 : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-                               }`}
-                             >
-                               <span>{selectedCategoryIds.length === availableCategories.length ? "Deseleccionar todo" : "Seleccionar todo"}</span>
-                               <IconList size={14} />
-                             </button>
+                          </div>
+                          <div className="max-h-60 overflow-y-auto p-2">
+                            <div className="grid grid-cols-1 gap-1">
+                              <button
+                                onClick={() => {
+                                  if (selectedCategoryIds.length === availableCategories.length) setSelectedCategoryIds([]);
+                                  else setSelectedCategoryIds(availableCategories.map(c => c.id));
+                                }}
+                                className={`px-3 py-2 rounded text-xs font-bold border transition-colors flex justify-between items-center ${
+                                  selectedCategoryIds.length === availableCategories.length 
+                                  ? "bg-slate-800 text-white border-slate-800" 
+                                  : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                                }`}
+                              >
+                                <span>{selectedCategoryIds.length === availableCategories.length ? "Deseleccionar todo" : "Seleccionar todo"}</span>
+                                <IconList size={14} />
+                              </button>
 
-                             {availableCategories.map((cat) => {
-                               const isActive = selectedCategoryIds.includes(cat.id);
-                               return (
-                                 <button
-                                   key={cat.id}
-                                   onClick={() => handleCategoryToggle(cat.id)}
-                                   className={`px-3 py-2 rounded text-xs font-bold border transition-all flex justify-between items-center ${
-                                     isActive
-                                       ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                       : "bg-white text-slate-400 border-transparent hover:bg-slate-50"
-                                   }`}
-                                 >
-                                   <span>{cat.nombre}</span>
-                                   {isActive && <IconCheck size={14} />}
-                                 </button>
-                               );
-                             })}
-                           </div>
-                         </div>
-                         
-                         {canEdit && (
+                              {availableCategories.map((cat) => {
+                                const isActive = selectedCategoryIds.includes(cat.id);
+                                return (
+                                  <button
+                                    key={cat.id}
+                                    onClick={() => handleCategoryToggle(cat.id)}
+                                    className={`px-3 py-2 rounded text-xs font-bold border transition-all flex justify-between items-center ${
+                                      isActive
+                                        ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                        : "bg-white text-slate-400 border-transparent hover:bg-slate-50"
+                                    }`}
+                                  >
+                                    <span>{cat.nombre}</span>
+                                    {isActive && <IconCheck size={14} />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          
+                          {canEdit && (
                             <div className="p-2 border-t border-slate-100 bg-amber-50/50">
                                <label className="flex items-center gap-2 cursor-pointer p-2">
                                   <input 
@@ -1260,7 +1279,7 @@ export default function UnifiedAgenda({
                                   <span className="text-xs font-bold text-amber-800">Mostrar borradores</span>
                                </label>
                             </div>
-                         )}
+                          )}
                       </div>
                     )}
                  </div>
@@ -1349,6 +1368,8 @@ export default function UnifiedAgenda({
                 const transportName =
                   evt.giras_transportes?.transportes?.nombre;
                 const transportDetail = evt.giras_transportes?.detalle;
+                // NUEVO: Obtener color
+                const transportColor = evt.giras_transportes?.transportes?.color || "#6366f1";
 
                 if (isTransportEvent && evt.id_gira_transporte) {
                   const transportIdStr = String(evt.id_gira_transporte);
@@ -1366,10 +1387,15 @@ export default function UnifiedAgenda({
                   }
                 }
 
+                // NUEVA LÓGICA DE DIMMING
+                // Si showAllTransport es true, NO dimmeamos los eventos de transporte, aunque no sean míos
+                let isTransportDimmed = isTransportEvent && !isMyTransport;
+                if (showAllTransport && isTransportEvent) isTransportDimmed = false;
+
                 const shouldDim =
                   isNonConvokedMeal ||
                   evt.is_absent ||
-                  (isTransportEvent && !isMyTransport);
+                  isTransportDimmed;
 
                 const deadlineStatus =
                   isMeal && evt.is_convoked
@@ -1457,13 +1483,18 @@ export default function UnifiedAgenda({
                           </h4>
 
                           <div className="flex flex-wrap gap-1">
+                            {/* CHIP DE TRANSPORTE CON COLOR PERSONALIZADO */}
                             {isTransportEvent && transportName && (
                               <span
-                                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
-                                  isMyTransport
-                                    ? "bg-indigo-100 text-indigo-700 border-indigo-200"
-                                    : "bg-slate-100 text-slate-500 border-slate-200"
-                                }`}
+                                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border`}
+                                style={{
+                                    // Si es mi transporte, uso estilo destacado (indigo por defecto o el color del bus si lo prefieres)
+                                    // Aquí priorizamos la visibilidad del "Mi transporte" con la estructura existente,
+                                    // pero si NO es mío o es "ver todo", usamos el color custom.
+                                    backgroundColor: isMyTransport ? '#e0e7ff' : `${transportColor}15`, // lighten
+                                    color: isMyTransport ? '#4338ca' : transportColor,
+                                    borderColor: isMyTransport ? '#c7d2fe' : `${transportColor}40`,
+                                }}
                               >
                                 <IconBus size={10} />
                                 {transportName}{" "}
@@ -1486,7 +1517,7 @@ export default function UnifiedAgenda({
                               </span>
                             )}
 
-                            {isTransportEvent && !isMyTransport && (
+                            {isTransportEvent && !isMyTransport && !showAllTransport && (
                               <span
                                 className="text-[8px] text-red-300 font-mono select-none"
                                 title="El sistema no te asignó este transporte."
