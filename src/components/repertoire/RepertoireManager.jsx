@@ -30,7 +30,7 @@ const ModalPortal = ({ children }) => {
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       {children}
     </div>,
-    document.body
+    document.body,
   );
 };
 
@@ -64,7 +64,7 @@ const SoloistSelect = ({ currentId, musicians, onChange }) => {
   }, []);
 
   const filtered = musicians.filter((m) =>
-    `${m.apellido}, ${m.nombre}`.toLowerCase().includes(search.toLowerCase())
+    `${m.apellido}, ${m.nombre}`.toLowerCase().includes(search.toLowerCase()),
   );
 
   return (
@@ -139,15 +139,15 @@ export default function RepertoireManager({
   readOnly = undefined,
 }) {
   const { user, isEditor: isGlobalEditor } = useAuth();
-  
+
   const isEditor = readOnly !== undefined ? !readOnly : isGlobalEditor;
 
   const [repertorios, setRepertorios] = useState(initialData);
   const [musicians, setMusicians] = useState([]);
-  
+
   // --- CORRECCIÓN AQUÍ: Definimos seatingMap correctamente ---
-  const [seatingMap, setSeatingMap] = useState({}); 
-  
+  const [seatingMap, setSeatingMap] = useState({});
+
   const [loading, setLoading] = useState(false);
   const [syncingDrive, setSyncingDrive] = useState(false);
   const [editingBlock, setEditingBlock] = useState({ id: null, nombre: "" });
@@ -165,10 +165,21 @@ export default function RepertoireManager({
     arreglador: "",
   });
   const [workFormData, setWorkFormData] = useState({});
-
+  // --- CALCULAR MAPA DE ARCOS DISPONIBLES ---
+  const arcosByWork = useMemo(() => {
+    const map = {};
+    repertorios.forEach((rep) => {
+      rep.repertorio_obras?.forEach((item) => {
+        if (item.obras && item.obras.obras_arcos) {
+          map[item.obras.id] = item.obras.obras_arcos;
+        }
+      });
+    });
+    return map;
+  }, [repertorios]);
   const userInstrumentId = useMemo(() => {
     if (!user || musicians.length === 0) return null;
-    const me = musicians.find(m => m.id === user.id);
+    const me = musicians.find((m) => m.id === user.id);
     return me?.id_instr;
   }, [musicians, user]);
 
@@ -180,12 +191,12 @@ export default function RepertoireManager({
           ...r,
           repertorio_obras:
             r.repertorio_obras?.sort((a, b) => a.orden - b.orden) || [],
-        }))
+        })),
       );
-      fetchFullRepertoire(); 
+      fetchFullRepertoire();
     }
     if (musicians.length === 0) fetchMusicians();
-    
+
     // CALL THE NEW FETCH
     fetchSeating();
   }, [programId]);
@@ -217,7 +228,7 @@ export default function RepertoireManager({
     if (errCont || !containers) return;
 
     // 2. Fetch Items (Musicians) in those containers
-    const containerIds = containers.map(c => c.id);
+    const containerIds = containers.map((c) => c.id);
     if (containerIds.length === 0) return;
 
     const { data: items, error: errItems } = await supabase
@@ -233,28 +244,29 @@ export default function RepertoireManager({
 
     // Group items by container
     const itemsByContainer = {};
-    items.forEach(item => {
-        if (!itemsByContainer[item.id_contenedor]) itemsByContainer[item.id_contenedor] = [];
-        itemsByContainer[item.id_contenedor].push(item);
+    items.forEach((item) => {
+      if (!itemsByContainer[item.id_contenedor])
+        itemsByContainer[item.id_contenedor] = [];
+      itemsByContainer[item.id_contenedor].push(item);
     });
 
     // Process each container to find desks
-    containers.forEach(container => {
-        const containerItems = itemsByContainer[container.id] || [];
-        // Sort by order just in case
-        containerItems.sort((a, b) => a.orden - b.orden);
+    containers.forEach((container) => {
+      const containerItems = itemsByContainer[container.id] || [];
+      // Sort by order just in case
+      containerItems.sort((a, b) => a.orden - b.orden);
 
-        containerItems.forEach((item, index) => {
-            if (item.id_musico) {
-                // Logic: Index 0,1 -> Desk 1. Index 2,3 -> Desk 2.
-                const deskNumber = Math.floor(index / 2) + 1;
-                
-                newMap[item.id_musico] = { 
-                    desk: deskNumber, 
-                    containerName: container.nombre 
-                };
-            }
-        });
+      containerItems.forEach((item, index) => {
+        if (item.id_musico) {
+          // Logic: Index 0,1 -> Desk 1. Index 2,3 -> Desk 2.
+          const deskNumber = Math.floor(index / 2) + 1;
+
+          newMap[item.id_musico] = {
+            desk: deskNumber,
+            containerName: container.nombre,
+          };
+        }
+      });
     });
 
     setSeatingMap(newMap);
@@ -283,7 +295,7 @@ export default function RepertoireManager({
                 obras_particellas (nombre_archivo, nota_organico, id_instrumento, url_archivo, instrumentos (instrumento))
             ), 
             integrantes (id, apellido, nombre)
-        )`
+        )`,
       )
       .eq("id_programa", programId)
       .order("orden", { ascending: true });
@@ -294,7 +306,7 @@ export default function RepertoireManager({
           ...r,
           repertorio_obras:
             r.repertorio_obras?.sort((a, b) => a.orden - b.orden) || [],
-        }))
+        })),
       );
     setLoading(false);
   };
@@ -304,7 +316,7 @@ export default function RepertoireManager({
     const { data, error } = await supabase
       .from("obras")
       .select(
-        `*, obras_compositores (rol, compositores (apellido, nombre)), obras_palabras_clave (palabras_clave (tag)), obras_particellas (nombre_archivo, nota_organico, instrumentos (instrumento))`
+        `*, obras_compositores (rol, compositores (apellido, nombre)), obras_palabras_clave (palabras_clave (tag)), obras_particellas (nombre_archivo, nota_organico, instrumentos (instrumento))`,
       )
       .order("titulo");
     if (!error && data)
@@ -313,7 +325,7 @@ export default function RepertoireManager({
           ...w,
           compositor_full: getComposers(w),
           arreglador_full: getArranger(w),
-        }))
+        })),
       );
     setLoadingLibrary(false);
   };
@@ -367,8 +379,8 @@ export default function RepertoireManager({
     if (!editingBlock.nombre.trim()) return;
     setRepertorios(
       repertorios.map((r) =>
-        r.id === editingBlock.id ? { ...r, nombre: editingBlock.nombre } : r
-      )
+        r.id === editingBlock.id ? { ...r, nombre: editingBlock.nombre } : r,
+      ),
     );
     await supabase
       .from("programas_repertorios")
@@ -413,7 +425,7 @@ export default function RepertoireManager({
     const maxOrder =
       currentRep?.repertorio_obras?.reduce(
         (max, o) => (o.orden > max ? o.orden : max),
-        0
+        0,
       ) || 0;
 
     await supabase
@@ -427,13 +439,45 @@ export default function RepertoireManager({
     autoSyncDrive();
   };
 
+  // --- ELIMINAR OBRA (CON LIMPIEZA DE SHORTCUTS ROBUSTA) ---
   const removeWork = async (itemId) => {
     if (!confirm("¿Quitar obra?")) return;
-    await supabase.from("repertorio_obras").delete().eq("id", itemId);
-    fetchFullRepertoire();
-    autoSyncDrive();
-  };
 
+    // Buscar la obra para obtener su título (necesario para borrar el shortcut por nombre)
+    let workTitle = null;
+    repertorios.forEach((rep) => {
+      const found = rep.repertorio_obras?.find((o) => o.id === itemId);
+      if (found && found.obras) {
+        workTitle = found.obras.titulo;
+      }
+    });
+
+    try {
+      setLoading(true);
+
+      // 1. Llamar a Edge Function para limpiar shortcuts asociados a este título en la carpeta de arcos
+      if (workTitle) {
+        await supabase.functions.invoke("manage-drive", {
+          body: {
+            action: "delete_work_shortcuts",
+            programId: programId || giraId,
+            obraTitulo: workTitle,
+          },
+        });
+      }
+
+      // 2. Borrar registro de BD
+      await supabase.from("repertorio_obras").delete().eq("id", itemId);
+
+      // 3. Actualizar UI
+      fetchFullRepertoire();
+    } catch (error) {
+      console.error("Error al eliminar obra:", error);
+      alert("Error al eliminar obra.");
+    } finally {
+      setLoading(false);
+    }
+  };
   const addRepertoireBlock = async () => {
     const nombre = prompt("Nombre del bloque:", "Nuevo Bloque");
     if (!nombre) return;
@@ -457,9 +501,9 @@ export default function RepertoireManager({
       repertorios.map((r) => ({
         ...r,
         repertorio_obras: r.repertorio_obras.map((o) =>
-          o.id === itemId ? { ...o, [field]: value } : o
+          o.id === itemId ? { ...o, [field]: value } : o,
         ),
-      }))
+      })),
     );
     await supabase
       .from("repertorio_obras")
@@ -474,7 +518,7 @@ export default function RepertoireManager({
             rol: "solista",
             estado: "confirmado",
           },
-          { onConflict: "id_gira, id_integrante" }
+          { onConflict: "id_gira, id_integrante" },
         );
       } catch (e) {
         console.error(e);
@@ -487,12 +531,12 @@ export default function RepertoireManager({
       ? obra.obras_compositores
           .filter((oc) => !oc.rol || oc.rol === "compositor")
           .map(
-            (oc) => `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`
+            (oc) => `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`,
           )
           .join(" / ")
       : obra.compositores
-      ? `${obra.compositores.apellido}, ${obra.compositores.nombre}`
-      : "Anónimo";
+        ? `${obra.compositores.apellido}, ${obra.compositores.nombre}`
+        : "Anónimo";
   const getArranger = (obra) => {
     const arr = obra.obras_compositores?.find((oc) => oc.rol === "arreglador");
     return arr
@@ -501,44 +545,44 @@ export default function RepertoireManager({
   };
 
   // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL ---
-// --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL (MODIFICADO) ---
+  // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL (MODIFICADO) ---
   const renderMyPartBadge = (obra) => {
     if (!userInstrumentId) return null;
 
     // 1. Link Logic
     const myPart = obra.obras_particellas?.find(
-        p => p.id_instrumento === userInstrumentId
+      (p) => p.id_instrumento === userInstrumentId,
     );
 
     let cleanUrl = null;
     if (myPart?.url_archivo) {
-        try {
-            if (myPart.url_archivo.trim().startsWith("[")) {
-                const parsed = JSON.parse(myPart.url_archivo);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    cleanUrl = parsed[0].url;
-                }
-            } else {
-                cleanUrl = myPart.url_archivo;
-            }
-        } catch (e) {
-            cleanUrl = myPart.url_archivo;
+      try {
+        if (myPart.url_archivo.trim().startsWith("[")) {
+          const parsed = JSON.parse(myPart.url_archivo);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            cleanUrl = parsed[0].url;
+          }
+        } else {
+          cleanUrl = myPart.url_archivo;
         }
+      } catch (e) {
+        cleanUrl = myPart.url_archivo;
+      }
     }
 
     if (!cleanUrl) return null;
 
     // 2. Simplificado: Solo Icono
     return (
-      <a 
-         href={cleanUrl} 
-         target="_blank" 
-         rel="noreferrer"
-         onClick={(e) => e.stopPropagation()}
-         className="mt-1 inline-flex items-center justify-center w-6 h-6 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
-         title={`Abrir particella: ${myPart.nombre_archivo || 'Mi Parte'}`}
+      <a
+        href={cleanUrl}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="mt-1 inline-flex items-center justify-center w-6 h-6 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
+        title={`Abrir particella: ${myPart.nombre_archivo || "Mi Parte"}`}
       >
-         <IconMusic size={14} /> 
+        <IconMusic size={14} />
       </a>
     );
   };
@@ -554,9 +598,166 @@ export default function RepertoireManager({
       (!filters.arreglador ||
         w.arreglador_full
           ?.toLowerCase()
-          .includes(filters.arreglador.toLowerCase()))
+          .includes(filters.arreglador.toLowerCase())),
   );
+  // --- MANEJADOR CAMBIO DE ARCO (BD + DRIVE) ---
+  const handleArcoSelectionChange = async (item, newArcoId) => {
+    // 1. Actualización optimista en BD
+    // Nota: updateWorkDetail devuelve una promesa, pero no necesitamos esperarla para seguir
+    updateWorkDetail(item.id, "id_arco_seleccionado", newArcoId);
 
+    // 2. Si es null (deselección), no hay que crear shortcut
+    if (!newArcoId) return;
+
+    // 3. Obtener datos del arco
+    const selectedArco = arcosByWork[item.obras.id]?.find(
+      (a) => a.id == newArcoId,
+    );
+
+    if (!selectedArco) return;
+
+    // INTENTO DE RECUPERACIÓN DE ID:
+    // Si no tiene id_drive_folder (legacy), intentamos sacarlo del link
+    let targetId = selectedArco.id_drive_folder;
+    if (!targetId && selectedArco.link) {
+      const match = selectedArco.link.match(/[-\w]{25,}/);
+      if (match) targetId = match[0];
+    }
+
+    if (!targetId) {
+      console.warn(
+        "No se pudo obtener ID de Drive para el arco seleccionado. Solo se actualizó BD.",
+      );
+      return;
+    }
+
+    console.log(
+      "Iniciando Sync Drive para:",
+      item.obras.titulo,
+      "->",
+      selectedArco.nombre,
+    );
+
+    // 4. Llamar a Edge Function
+    supabase.functions
+      .invoke("manage-drive", {
+        body: {
+          action: "link_existing_arco",
+          programId: programId || giraId,
+          targetDriveId: targetId,
+          obraTitulo: item.obras.titulo,
+          nombreSet: selectedArco.nombre,
+        },
+      })
+      .then(({ data, error }) => {
+        if (error) console.error("Error en Edge Function:", error);
+        else console.log("Drive Sync exitoso:", data);
+      })
+      .catch((err) => console.error("Error de red/fetch:", err));
+  };
+  // --- NUEVA FUNCIÓN: Crear Set de Arcos ---
+  const handleCreateBowingSet = async (workId, workTitle) => {
+    // Validación previa
+    if (!programId && !giraId) {
+      alert("Error: No se identifica el ID del programa/gira.");
+      return;
+    }
+
+    const nombreSet = prompt(
+      "Nombre para el nuevo set de arcos:",
+      `Arcos ${new Date().getFullYear()}`,
+    );
+    if (!nombreSet) return;
+
+    try {
+      setLoading(true);
+
+      // 1. Llamar a Edge Function
+      const { data: driveData, error: driveError } =
+        await supabase.functions.invoke("manage-drive", {
+          body: {
+            action: "create_bowing_set",
+            // Aseguramos enviar un ID válido (programId suele ser el id numérico de la tabla programas)
+            programId: programId || giraId,
+            nombreSet: nombreSet,
+            obraTitulo: workTitle,
+          },
+        });
+
+      // Manejo detallado del error 400/500
+      if (driveError) {
+        // Intentamos leer el mensaje que envió la Edge Function (ej: "La gira no tiene carpeta...")
+        let serverMessage = driveError.message;
+        try {
+          // A veces el error viene en el cuerpo de la respuesta si es un 400 manejado
+          if (
+            driveError.context &&
+            typeof driveError.context.json === "function"
+          ) {
+            const body = await driveError.context.json();
+            if (body.error) serverMessage = body.error;
+          }
+        } catch (e) {}
+
+        throw new Error(serverMessage);
+      }
+
+      if (!driveData || !driveData.success) {
+        throw new Error("La respuesta del servidor no fue exitosa.");
+      }
+
+      // 2. Crear registro en BD
+      const { data: newArco, error: dbError } = await supabase
+        .from("obras_arcos")
+        .insert({
+          id_obra: workId,
+          nombre: nombreSet,
+          link: driveData.webViewLink,
+          id_drive_folder: driveData.folderId,
+          descripcion: `Creado automáticamente desde Gira`,
+        })
+        .select()
+        .single();
+
+      if (dbError) throw dbError;
+
+      // 3. Asignar este nuevo arco a la obra
+      // Buscamos el item específico en la estructura de repertorios
+      let targetItem = null;
+      for (const r of repertorios) {
+        const found = r.repertorio_obras.find((o) => o.obras.id === workId);
+        if (found) {
+          targetItem = found;
+          break;
+        }
+      }
+
+      if (targetItem) {
+        await updateWorkDetail(
+          targetItem.id,
+          "id_arco_seleccionado",
+          newArco.id,
+        );
+        // Recargar forzada para refrescar los arcos disponibles en el select
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error("Error creando set de arcos:", error);
+      // Mensaje amigable si es el error de la carpeta
+      if (
+        error.message.includes("no tiene carpeta") ||
+        error.message.includes("Bad Request")
+      ) {
+        alert(
+          "Error: La Gira no tiene carpeta en Drive.\n\nPor favor, haz clic en el botón de sincronizar (icono de nube/recarga) en el panel principal de la gira primero.",
+        );
+      } else {
+        alert(`Error: ${error.message}`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <div className={containerClasses(isCompact)}>
       {repertorios.map((rep) => {
@@ -649,8 +850,9 @@ export default function RepertoireManager({
                     <th className="p-1 w-12 text-center">Dur.</th>
                     <th className="p-1 w-32">Solista</th>
                     <th className="p-1 w-24">Arr.</th>
-                    <th className="p-1 w-24 text-center">Arcos</th>
                     <th className="p-1 w-30">Notas</th>
+                    <th className="p-1 w-24 text-center">Arcos</th>
+
                     <th className="p-1 w-8 text-center">YT</th>
                     <th className="p-1 w-16 text-right"></th>
                     <th className="p-1 w-8 text-center">Excl.</th>
@@ -728,7 +930,7 @@ export default function RepertoireManager({
                       <td className="p-1 text-center whitespace-pre-line text-[10px] text-slate-500 font-mono">
                         {item.obras.instrumentacion ||
                           calculateInstrumentation(
-                            item.obras.obras_particellas
+                            item.obras.obras_particellas,
                           ) ||
                           "-"}
                       </td>
@@ -758,62 +960,6 @@ export default function RepertoireManager({
                         {getArranger(item.obras)}
                       </td>
 
-                      {/* --- COLUMNA DE SELECCIÓN DE ARCOS --- */}
-                      <td className="p-1 align-middle text-center">
-                        {item.obras.obras_arcos &&
-                        item.obras.obras_arcos.length > 0 ? (
-                          isEditor ? (
-                            <select
-                              className="w-full text-[10px] border rounded bg-slate-50 p-1 outline-none focus:border-indigo-500 text-indigo-700 font-medium"
-                              value={item.id_arco_seleccionado || ""}
-                              onChange={(e) => {
-                                const val =
-                                  e.target.value === "" ? null : e.target.value;
-                                updateWorkDetail(
-                                  item.id,
-                                  "id_arco_seleccionado",
-                                  val
-                                );
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <option value="">Elegir...</option>
-                              {item.obras.obras_arcos.map((arco) => (
-                                <option key={arco.id} value={arco.id}>
-                                  {arco.nombre}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            (() => {
-                              const selected = item.obras.obras_arcos.find(
-                                (a) => a.id === item.id_arco_seleccionado
-                              );
-                              return selected ? (
-                                <a
-                                  href={selected.link}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="flex items-center justify-center gap-1 text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100 hover:bg-indigo-100 truncate"
-                                  title={
-                                    selected.descripcion || selected.nombre
-                                  }
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <IconLink size={10} /> {selected.nombre}
-                                </a>
-                              ) : (
-                                <span className="text-slate-300 text-[10px]">
-                                  -
-                                </span>
-                              );
-                            })()
-                          )
-                        ) : (
-                          <span className="text-slate-200 text-[10px]">-</span>
-                        )}
-                      </td>
-
                       <td className="p-0 border-l border-slate-100 align-middle">
                         {isEditor ? (
                           <input
@@ -825,7 +971,7 @@ export default function RepertoireManager({
                               updateWorkDetail(
                                 item.id,
                                 "notas_especificas",
-                                e.target.value
+                                e.target.value,
                               )
                             }
                           />
@@ -835,7 +981,88 @@ export default function RepertoireManager({
                           </div>
                         )}
                       </td>
+                      {/* --- COLUMNA ARCOS (DISEÑO CHIP) --- */}
+                      <td className="px-2 py-4 align-middle">
+                        <div className="flex flex-row items-center gap-2 w-full max-w-[160px]">
+                          {/* Contenedor del "Chip" Select */}
+                          <div className="relative flex-1 min-w-0 group">
+                            {/* 1. CAPA VISUAL (LO QUE EL USUARIO VE) */}
+                            <div
+                              className={`flex items-center justify-between px-2 py-1 rounded-full border text-[10px] font-medium truncate transition-all ${
+                                item.id_arco_seleccionado
+                                  ? "bg-indigo-50 border-indigo-200 text-indigo-700 group-hover:border-indigo-300"
+                                  : "bg-white border-slate-200 text-slate-400 border-dashed group-hover:border-indigo-300 group-hover:text-indigo-400"
+                              }`}
+                            >
+                              <span className="truncate w-full text-center">
+                                {item.id_arco_seleccionado
+                                  ? arcosByWork[item.obras.id]?.find(
+                                      (a) => a.id == item.id_arco_seleccionado,
+                                    )?.nombre
+                                  : "+ Asignar Arcos"}
+                              </span>
+                            </div>
 
+                            {/* 2. CAPA INTERACTIVA (SELECT INVISIBLE ENCIMA) */}
+                            <select
+                              value={item.id_arco_seleccionado || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === "NEW_SET_ACTION") {
+                                  handleCreateBowingSet(
+                                    item.obras.id,
+                                    item.obras.titulo,
+                                  );
+                                } else {
+                                  handleArcoSelectionChange(
+                                    item,
+                                    val === "" ? null : val,
+                                  );
+                                }
+                              }}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                              title={
+                                // Tooltip nativo al pasar el mouse
+                                item.id_arco_seleccionado
+                                  ? arcosByWork[item.obras.id]?.find(
+                                      (a) => a.id == item.id_arco_seleccionado,
+                                    )?.nombre
+                                  : "Seleccionar set de arcos"
+                              }
+                            >
+                              <option value="">-- Sin definir --</option>
+
+                              {arcosByWork[item.obras.id]?.map((arco) => (
+                                <option key={arco.id} value={arco.id}>
+                                  {arco.nombre}
+                                </option>
+                              ))}
+
+                              <option disabled>──────────</option>
+                              <option value="NEW_SET_ACTION">
+                                + Crear Nuevo Set...
+                              </option>
+                            </select>
+                          </div>
+
+                          {/* BOTÓN LINK DRIVE (Visible solo si hay selección) */}
+                          {item.id_arco_seleccionado && (
+                            <a
+                              href={
+                                arcosByWork[item.obras.id]?.find(
+                                  (a) => a.id == item.id_arco_seleccionado,
+                                )?.link
+                              }
+                              target="_blank"
+                              rel="noreferrer"
+                              className="shrink-0 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors"
+                              title="Ver carpeta en Drive"
+                            >
+                              <IconLink size={14} />
+                            </a>
+                          )}
+                        </div>
+                      </td>
                       <td className="p-1 text-center">
                         {item.obras.link_youtube ? (
                           <a
@@ -893,7 +1120,7 @@ export default function RepertoireManager({
                               updateWorkDetail(
                                 item.id,
                                 "excluir",
-                                e.target.checked
+                                e.target.checked,
                               )
                             }
                             title="Excluir de la programación"
@@ -1113,7 +1340,8 @@ export default function RepertoireManager({
             />
           </div>
         </div>
-      )}
+      )}{/* BOTÓN TEMPORAL DE ADMIN PARA ARREGLAR PERMISOS */}
+      
     </div>
   );
 }

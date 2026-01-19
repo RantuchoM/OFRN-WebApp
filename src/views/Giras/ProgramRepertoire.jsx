@@ -5,6 +5,7 @@ import {
   IconUsers,
   IconFileText,
   IconArrowLeft,
+  IconFolderMusic,
 } from "../../components/ui/Icons";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext"; // Importar useAuth
@@ -21,7 +22,7 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
   const activeTab = searchParams.get("subTab") || "repertoire";
 
   const [repertorios, setRepertorios] = useState(
-    program?.programas_repertorios || []
+    program?.programas_repertorios || [],
   );
 
   const [repertoireKey, setRepertoireKey] = useState(0);
@@ -50,12 +51,12 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
 
         if (!error && coordData) {
           const myCoordinatedEnsembles = new Set(
-            coordData.map((c) => c.id_ensamble)
+            coordData.map((c) => c.id_ensamble),
           );
 
           const isCoordinator = fuentes.some(
             (f) =>
-              f.tipo === "ENSAMBLE" && myCoordinatedEnsembles.has(f.valor_id)
+              f.tipo === "ENSAMBLE" && myCoordinatedEnsembles.has(f.valor_id),
           );
 
           if (isCoordinator) {
@@ -128,8 +129,8 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
           </div>
         </div>
 
-        {/* Selector de Vistas (Pestañas) - AHORA USAN handleTabChange */}
-        <div className="flex bg-slate-100 p-1 rounded-lg self-end md:self-auto overflow-x-auto max-w-full">
+        {/* Selector de Vistas (Pestañas) */}
+        <div className="flex bg-slate-100 p-1 rounded-lg self-end md:self-auto overflow-x-auto max-w-full items-center">
           <button
             onClick={() => handleTabChange("repertoire")}
             className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
@@ -162,6 +163,24 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
           >
             <IconFileText size={16} /> Mis Partes
           </button>
+
+          {/* --- NUEVO: LINK A DRIVE --- */}
+          {program.google_drive_folder_id && (
+            <>
+              {/* Divisor vertical */}
+              <div className="w-px h-4 bg-slate-300 mx-1"></div>
+
+              <a
+                href={`https://drive.google.com/drive/folders/${program.google_drive_folder_id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-2 py-1.5 rounded-md text-slate-500 hover:text-green-700 hover:bg-white transition-all flex items-center"
+                title="Abrir Carpeta de Gira en Drive"
+              >
+                <IconFolderMusic size={18} />
+              </a>
+            </>
+          )}
         </div>
       </div>
 
