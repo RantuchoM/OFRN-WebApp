@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   IconUtensils,
   IconLoader,
@@ -14,12 +14,15 @@ import {
 } from "../../components/ui/Icons";
 import { useSearchParams } from "react-router-dom";
 
+// Hooks
+import { useLogistics } from "../../hooks/useLogistics";
+
+// Sub-vistas
 import LogisticsManager from "./LogisticsManager";
 import MealsManager from "./MealsManager";
 import MealsAttendance from "./MealsAttendance";
 import MealsReport from "./MealsReport";
 import GirasTransportesManager from "./GirasTransportesManager";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
 import RoomingManager from "./RoomingManager";
 import ViaticosManager from "./Viaticos/ViaticosManager";
 
@@ -27,173 +30,199 @@ export default function LogisticsDashboard({ supabase, gira, onBack, onDataChang
   const [searchParams, setSearchParams] = useSearchParams();
   const [isMealsMenuOpen, setIsMealsMenuOpen] = useState(false);
 
-  // Leemos la sub-pestaña de la URL. Por defecto "coverage" (Reglas)
+  // Pestaña activa desde URL
   const activeTab = searchParams.get("subTab") || "coverage";
 
-  // Hook Centralizado
-  const { roster, loading: loadingRoster } = useGiraRoster(supabase, gira);
+  // Hook de Logística
+  const { summary, loading } = useLogistics(supabase, gira);
 
-  // Función para cambiar de tab sin perder otros parámetros de la URL
+  // --- ESTADÍSTICAS MATRIZ DOBLE ENTRADA ---
+  const stats = useMemo(() => {
+    const data = {
+        m_local: 0, m_viajero: 0,
+        f_local: 0, f_viajero: 0,
+        total: 0
+    };
+
+    if (!summary || summary.length === 0) return data;
+
+    // IDs de localidades sede (extraídos de la metadata que useLogistics adjunta al array)
+    const sedeIds = summary.viaticosMeta?.sedeIds || [];
+
+    summary.forEach((curr) => {
+      // ---------------------------------------------------------
+      // CORRECCIÓN: Usar 'estado_gira' en lugar de 'estado'
+      // ---------------------------------------------------------
+      const estado = (curr.estado_gira || "").toUpperCase();
+      
+      // Filtrar bajas o ausentes
+      if (estado === "BAJA" || estado === "AUSENTE") return;
+
+      data.total++;
+      
+      // 1. Determinar Localía (Comparando ID localidad vs Sedes)
+      const pLoc = curr.id_localidad ? parseInt(curr.id_localidad) : null;
+      const isLocal = pLoc && sedeIds.includes(pLoc);
+
+      // 2. Determinar Género
+      const g = (curr.genero || "").toUpperCase();
+      const isMale = g.startsWith("M");
+      const isFemale = g.startsWith("F");
+
+      // 3. Llenar Matriz
+      if (isMale) {
+          if (isLocal) data.m_local++;
+          else data.m_viajero++;
+      } else if (isFemale) {
+          if (isLocal) data.f_local++;
+          else data.f_viajero++;
+      }
+      // (Otros géneros suman al total pero no entran en la matriz binaria M/F visual)
+    });
+
+    return data;
+  }, [summary]);
+
   const handleTabChange = (newTab) => {
     setSearchParams((prev) => {
       const newParams = new URLSearchParams(prev);
       newParams.set("subTab", newTab);
       return newParams;
     });
-    setIsMealsMenuOpen(false); // Cerramos menú si estaba abierto
-  };
-
-  // Botón "Atrás": Si estamos en una pestaña profunda, volvemos a la principal. Si no, salimos.
-  const handleBack = () => {
-    if (activeTab !== "coverage") {
-      handleTabChange("coverage");
-    } else {
-      onBack();
-    }
+    setIsMealsMenuOpen(false);
   };
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
-      {/* HEADER DEL DASHBOARD */}
-      <div className="bg-white border-b border-slate-200 shadow-sm px-4 py-3 flex flex-col gap- print:hidden">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={handleBack}
-              className="text-slate-400 hover:text-indigo-600 font-medium text-sm flex items-center gap-1"
-            >
-              <IconArrowLeft size={16} /> 
-              {activeTab !== "coverage" ? "Volver a Reglas" : "Volver"}
-            </button>
-          </div>
-          <div className="flex justify-between items-end mb-4 border-b border-slate-200">
-            <div className="flex gap-6 text-sm font-medium overflow-visible">
+      
+      {/* HEADER UNIFICADO */}
+      <div className="bg-white border-b border-slate-200 shadow-sm px-4 pt-3 pb-0 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 shrink-0 print:hidden relative z-20 min-h-[3.5rem]">
+        
+        {/* IZQUIERDA: Botón Volver + Loader */}
+        <div className="flex items-center gap-4 mb-3">
+          <button
+            onClick={onBack}
+            className="text-slate-400 hover:text-indigo-600 font-bold text-xs flex items-center gap-1 transition-colors uppercase tracking-wider"
+            title="Salir del Dashboard"
+          >
+            <IconArrowLeft size={16} /> Volver
+          </button>
+          
+          {loading && (
+            <div className="flex items-center gap-2 text-[10px] text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100">
+              <IconLoader className="animate-spin" size={12} /> Actualizando...
+            </div>
+          )}
+        </div>
+
+        {/* DERECHA: Cuadro Resumen + Pestañas */}
+        <div className="flex flex-wrap items-end justify-end gap-4 h-full">
+            
+            {/* CUADRO RESUMEN (DOBLE ENTRADA) */}
+            {!loading && (
+              <div className="hidden lg:grid grid-cols-4 gap-x-2 gap-y-0.5 bg-slate-50 border border-slate-200 rounded-md p-1.5 mb-2 shadow-sm select-none text-[9px] leading-none">
+                  {/* Headers Columnas */}
+                  <div className="text-transparent">.</div>
+                  <div className="font-bold text-slate-400 text-center" title="Locales (Sede)">Loc</div>
+                  <div className="font-bold text-slate-400 text-center" title="Viajeros (No Sede)">Viaj</div>
+                  <div className="font-bold text-slate-300 text-center">Tot</div>
+
+                  {/* Fila Masculino */}
+                  <div className="font-bold text-slate-500">Masc</div>
+                  <div className="font-bold text-slate-700 text-center">{stats.m_local}</div>
+                  <div className="font-bold text-slate-700 text-center">{stats.m_viajero}</div>
+                  <div className="text-slate-400 text-center">{stats.m_local + stats.m_viajero}</div>
+
+                  {/* Fila Femenino */}
+                  <div className="font-bold text-slate-500">Fem</div>
+                  <div className="font-bold text-slate-700 text-center">{stats.f_local}</div>
+                  <div className="font-bold text-slate-700 text-center">{stats.f_viajero}</div>
+                  <div className="text-slate-400 text-center">{stats.f_local + stats.f_viajero}</div>
+
+                  {/* Fila Totales */}
+                  <div className="font-bold text-indigo-500 pt-1 border-t border-slate-200">Total</div>
+                  <div className="font-bold text-indigo-600 text-center pt-1 border-t border-slate-200">{stats.m_local + stats.f_local}</div>
+                  <div className="font-bold text-indigo-600 text-center pt-1 border-t border-slate-200">{stats.m_viajero + stats.f_viajero}</div>
+                  <div className="font-bold text-indigo-600 text-center pt-1 border-t border-slate-200">{stats.total}</div>
+              </div>
+            )}
+
+            {/* PESTAÑAS */}
+            <div className="flex gap-1 h-full overflow-visible items-end pb-[1px]"> 
               
-              {/* 1. REGLAS */}
-              <button
-                onClick={() => handleTabChange("coverage")}
-                className={`pb-2 flex items-center gap-2 transition-colors border-b-2 whitespace-nowrap ${
-                  activeTab === "coverage"
-                    ? "border-indigo-600 text-indigo-700"
-                    : "border-transparent text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                <IconClipboardCheck size={16} /> Reglas
-              </button>
+              <TabButton 
+                active={activeTab === "coverage"} 
+                onClick={() => handleTabChange("coverage")} 
+                icon={<IconClipboardCheck size={16} />} 
+                label="Reglas" 
+              />
 
-              {/* 2. TRANSPORTE */}
-              <button
-                onClick={() => handleTabChange("transporte")}
-                className={`pb-2 flex items-center gap-2 transition-colors border-b-2 whitespace-nowrap ${
-                  activeTab === "transporte"
-                    ? "border-slate-800 text-slate-900"
-                    : "border-transparent text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                <IconBus size={16} /> Transporte
-              </button>
+              <TabButton 
+                active={activeTab === "transporte"} 
+                onClick={() => handleTabChange("transporte")} 
+                icon={<IconBus size={16} />} 
+                label="Transporte" 
+              />
 
-              {/* 3. ROOMING */}
-              <button
-                onClick={() => handleTabChange("rooming")}
-                className={`pb-2 flex items-center gap-2 transition-colors border-b-2 whitespace-nowrap ${
-                  activeTab === "rooming"
-                    ? "border-blue-600 text-blue-700"
-                    : "border-transparent text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                <IconHotel size={16} /> Rooming
-              </button>
+              <TabButton 
+                active={activeTab === "rooming"} 
+                onClick={() => handleTabChange("rooming")} 
+                icon={<IconHotel size={16} />} 
+                label="Rooming" 
+              />
 
-              {/* 4. VIÁTICOS */}
-              <button
-                onClick={() => handleTabChange("viaticos")}
-                className={`pb-2 flex items-center gap-2 transition-colors border-b-2 whitespace-nowrap ${
-                  activeTab === "viaticos"
-                    ? "border-emerald-600 text-emerald-700"
-                    : "border-transparent text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                <IconCalculator size={16} /> Viáticos
-              </button>
+              <TabButton 
+                active={activeTab === "viaticos"} 
+                onClick={() => handleTabChange("viaticos")} 
+                icon={<IconCalculator size={16} />} 
+                label="Viáticos" 
+              />
 
-              {/* 5. COMIDAS (Dropdown) */}
+              {/* Dropdown Comidas */}
               <div
-                className="relative group"
+                className="relative h-full flex items-end"
                 onMouseEnter={() => setIsMealsMenuOpen(true)}
                 onMouseLeave={() => setIsMealsMenuOpen(false)}
               >
                 <button
-                  onClick={() => setIsMealsMenuOpen(!isMealsMenuOpen)}
-                  className={`pb-2 flex items-center gap-2 transition-colors border-b-2 whitespace-nowrap ${
+                  className={`px-4 pb-3 pt-2 text-sm font-bold border-b-[3px] flex items-center gap-2 transition-colors whitespace-nowrap ${
                     ["meals", "attendance", "report"].includes(activeTab)
-                      ? "border-orange-500 text-orange-700"
-                      : "border-transparent text-slate-500 hover:text-slate-700"
+                      ? "border-orange-500 text-orange-600 bg-gradient-to-t from-orange-50/50 to-transparent"
+                      : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"
                   }`}
                 >
                   <IconUtensils size={16} />
                   Comidas
-                  <IconChevronDown
-                    size={14}
-                    className={`transition-transform duration-200 ${
-                      isMealsMenuOpen ? "rotate-180" : ""
-                    }`}
-                  />
+                  <IconChevronDown size={12} className={`transition-transform ${isMealsMenuOpen ? "rotate-180" : ""}`} />
                 </button>
 
                 {isMealsMenuOpen && (
-                  <div className="absolute top-full left-0 mt-[-2px] bg-white border border-slate-200 rounded-b-lg shadow-xl z-50 flex flex-col min-w-[180px] py-1 animate-in fade-in zoom-in-95 duration-150">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTabChange("meals");
-                      }}
-                      className={`px-4 py-2 text-left text-xs flex items-center gap-2 hover:bg-orange-50 ${
-                        activeTab === "meals"
-                          ? "text-orange-700 font-bold bg-orange-50/50"
-                          : "text-slate-600"
-                      }`}
-                    >
-                      <IconCalendar size={14} /> Agenda
-                    </button>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTabChange("attendance");
-                      }}
-                      className={`px-4 py-2 text-left text-xs flex items-center gap-2 hover:bg-emerald-50 ${
-                        activeTab === "attendance"
-                          ? "text-emerald-700 font-bold bg-emerald-50/50"
-                          : "text-slate-600"
-                      }`}
-                    >
-                      <IconUsers size={14} /> Asistencia
-                    </button>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTabChange("report");
-                      }}
-                      className={`px-4 py-2 text-left text-xs flex items-center gap-2 hover:bg-slate-50 ${
-                        activeTab === "report"
-                          ? "text-slate-900 font-bold bg-slate-100"
-                          : "text-slate-600"
-                      }`}
-                    >
-                      <IconPrinter size={14} /> Reporte
-                    </button>
+                  <div className="absolute top-full right-0 mt-[-2px] bg-white border border-slate-200 rounded-b-lg shadow-xl z-50 flex flex-col min-w-[160px] py-1 animate-in fade-in zoom-in-95">
+                    <DropdownItem 
+                      active={activeTab === "meals"} 
+                      onClick={() => handleTabChange("meals")} 
+                      icon={<IconCalendar size={14} />} 
+                      label="Agenda / Menú" 
+                      colorClass="text-orange-700 bg-orange-50"
+                    />
+                    <DropdownItem 
+                      active={activeTab === "attendance"} 
+                      onClick={() => handleTabChange("attendance")} 
+                      icon={<IconUsers size={14} />} 
+                      label="Asistencia" 
+                      colorClass="text-emerald-700 bg-emerald-50"
+                    />
+                    <DropdownItem 
+                      active={activeTab === "report"} 
+                      onClick={() => handleTabChange("report")} 
+                      icon={<IconPrinter size={14} />} 
+                      label="Reporte" 
+                      colorClass="text-slate-900 bg-slate-100"
+                    />
                   </div>
                 )}
               </div>
             </div>
-          </div>
-          {loadingRoster && (
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <IconLoader className="animate-spin" /> Cargando padrón...
-            </div>
-          )}
         </div>
       </div>
 
@@ -204,13 +233,13 @@ export default function LogisticsDashboard({ supabase, gira, onBack, onDataChang
         )}
 
         {activeTab === "meals" && (
-          <MealsManager supabase={supabase} gira={gira} roster={roster} onDataChange={onDataChange} />
+          <MealsManager supabase={supabase} gira={gira} roster={summary} onDataChange={onDataChange} />
         )}
         {activeTab === "attendance" && (
-          <MealsAttendance supabase={supabase} gira={gira} roster={roster} onDataChange={onDataChange}/>
+          <MealsAttendance supabase={supabase} gira={gira} roster={summary} onDataChange={onDataChange}/>
         )}
         {activeTab === "report" && (
-          <MealsReport supabase={supabase} gira={gira} roster={roster} onDataChange={onDataChange}/>
+          <MealsReport supabase={supabase} gira={gira} roster={summary} onDataChange={onDataChange}/>
         )}
         
         {activeTab === "rooming" && (
@@ -221,12 +250,11 @@ export default function LogisticsDashboard({ supabase, gira, onBack, onDataChang
           <GirasTransportesManager supabase={supabase} gira={gira} onDataChange={onDataChange} />
         )}
 
-        {/* --- CORRECCIÓN CRÍTICA AQUÍ --- */}
         {activeTab === "viaticos" && gira?.id && (
           <ViaticosManager 
             supabase={supabase} 
-            giraId={gira.id} // <-- Se cambió 'gira={gira}' por 'giraId={gira.id}'
-            onClose={handleBack} 
+            giraId={gira.id}
+            onClose={onBack} 
             onDataChange={onDataChange}
           />
         )}
@@ -234,3 +262,32 @@ export default function LogisticsDashboard({ supabase, gira, onBack, onDataChang
     </div>
   );
 }
+
+// --- SUB-COMPONENTES ---
+
+const TabButton = ({ active, onClick, icon, label }) => (
+  <button
+    onClick={onClick}
+    className={`px-4 pb-3 pt-2 text-sm font-bold border-b-[3px] flex items-center gap-2 transition-colors whitespace-nowrap ${
+      active
+        ? "border-indigo-600 text-indigo-700 bg-gradient-to-t from-indigo-50/50 to-transparent"
+        : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+    }`}
+  >
+    {icon} {label}
+  </button>
+);
+
+const DropdownItem = ({ active, onClick, icon, label, colorClass }) => (
+  <button
+    onClick={(e) => {
+      e.stopPropagation();
+      onClick();
+    }}
+    className={`px-4 py-2 text-left text-xs flex items-center gap-2 w-full hover:bg-slate-50 transition-colors ${
+      active ? `${colorClass} font-bold` : "text-slate-600"
+    }`}
+  >
+    {icon} {label}
+  </button>
+);

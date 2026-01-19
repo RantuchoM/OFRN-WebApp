@@ -14,7 +14,7 @@ import {
   IconRefresh,
   IconX,
   IconList,
-  IconHelpCircle, // Asegúrate de tener este icono o usa IconInfo
+  IconHelpCircle,
 } from "../../components/ui/Icons";
 import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
@@ -482,7 +482,7 @@ const MusicianCard = ({
         e.stopPropagation();
         if (onClick) onClick(e, m);
       }}
-      className={`p-1.5 rounded border text-xs flex justify-between items-center shadow-sm cursor-grab active:cursor-grabbing select-none transition-all duration-100
+      className={`p-1.5 rounded border text-xs flex justify-between items-center shadow-sm cursor-grab active:cursor-grabbing select-none transition-all duration-100 
         ${
           isSelected
             ? "bg-indigo-600 text-white border-indigo-700 ring-2 ring-indigo-300"
@@ -1514,11 +1514,23 @@ export default function RoomingManager({
       .length,
     M: rooms.filter((r) => r.roomGender === "M" && r.occupants.length > 0)
       .length,
-    Mix: rooms.filter((r) => r.roomGender === "Mixto" && r.occupants.length > 0)
-      .length,
+    Mix: rooms.filter(
+      (r) => r.roomGender === "Mixto" && r.occupants.length > 0
+    ).length,
   };
+
   const women = musicians.filter((m) => m.genero === "F");
   const men = musicians.filter((m) => m.genero !== "F");
+
+  // --- CALCULO DE TOTALES POR GÉNERO ---
+  const lodgedWomen = rooms.reduce(
+    (acc, r) => acc + r.occupants.filter((m) => m.genero === "F").length,
+    0
+  );
+  const lodgedMen = rooms.reduce(
+    (acc, r) => acc + r.occupants.filter((m) => m.genero !== "F").length,
+    0
+  );
 
   if (rosterLoading)
     return (
@@ -1590,9 +1602,20 @@ export default function RoomingManager({
             {stats.QDP}
           </span>
           <div className="w-px h-4 bg-slate-300 mx-1"></div>
+          {/* Conteo de Habitaciones */}
           <span className="text-pink-600">♀ {stats.F} Habs</span>
           <span className="text-blue-600">♂ {stats.M} Habs</span>
           <span className="text-purple-600">⚤ {stats.Mix} Mixtas</span>
+
+          <div className="w-px h-4 bg-slate-300 mx-1"></div>
+
+          {/* Conteo de Personas (Total real independiente de la habitación) */}
+          <span className="text-pink-700 font-black" title="Total Mujeres">
+            F: {lodgedWomen}
+          </span>
+          <span className="text-blue-700 font-black" title="Total Varones">
+            M: {lodgedMen}
+          </span>
         </div>
       </div>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}

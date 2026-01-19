@@ -22,11 +22,12 @@ import {
   IconMapPin,
   IconCalendar,
   IconArrowRight,
-  IconEye, // Usado para el icono de "Ver todo"
+  IconEye,
   IconPrinter,
   IconUpload,
   IconDownload,
   IconBus,
+  IconAlertTriangle,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -180,7 +181,7 @@ export default function UnifiedAgenda({
   const [musicianOptions, setMusicianOptions] = useState([]);
 
   const effectiveUserId = viewAsUserId || user.id;
-  const STORAGE_KEY = `unified_agenda_filters_v4_${effectiveUserId}`; // Incrementé versión del key
+  const STORAGE_KEY = `unified_agenda_filters_v4_${effectiveUserId}`;
 
   // --- ESTADOS DE FILTROS ---
   const getInitialFilterState = (key, defaultVal) => {
@@ -200,22 +201,20 @@ export default function UnifiedAgenda({
   const [showNonActive, setShowNonActive] = useState(() => getInitialFilterState('showNonActive', false));
   const [showOnlyMyTransport, setShowOnlyMyTransport] = useState(() => getInitialFilterState('showOnlyMyTransport', false));
   const [showOnlyMyMeals, setShowOnlyMyMeals] = useState(() => getInitialFilterState('showOnlyMyMeals', false));
-  // NUEVO FILTRO: Ver todo el transporte (sin grisar)
-  const [showAllTransport, setShowAllTransport] = useState(() => getInitialFilterState('showAllTransport', false));
+  // "Sin Grises" (antes showAllTransport)
+  const [showNoGray, setShowNoGray] = useState(() => getInitialFilterState('showAllTransport', false));
 
-  // --- PERSISTENCIA AUTOMÁTICA ---
   useEffect(() => {
     const data = {
       categories: selectedCategoryIds,
       showNonActive,
       showOnlyMyTransport,
       showOnlyMyMeals,
-      showAllTransport // Guardamos el nuevo estado
+      showAllTransport: showNoGray // Guardamos con el mismo nombre en storage por compatibilidad o migramos
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [selectedCategoryIds, showNonActive, showOnlyMyTransport, showOnlyMyMeals, showAllTransport, STORAGE_KEY]);
+  }, [selectedCategoryIds, showNonActive, showOnlyMyTransport, showOnlyMyMeals, showNoGray, STORAGE_KEY]);
 
-  // Si cambiamos de usuario
   const prevUserIdRef = useRef(effectiveUserId);
   useEffect(() => {
     if (prevUserIdRef.current !== effectiveUserId) {
@@ -227,13 +226,13 @@ export default function UnifiedAgenda({
                 setShowNonActive(p.showNonActive || false);
                 setShowOnlyMyTransport(p.showOnlyMyTransport || false);
                 setShowOnlyMyMeals(p.showOnlyMyMeals || false);
-                setShowAllTransport(p.showAllTransport || false);
+                setShowNoGray(p.showAllTransport || false);
             } else {
                 setSelectedCategoryIds([]);
                 setShowNonActive(false);
                 setShowOnlyMyTransport(false);
                 setShowOnlyMyMeals(false);
-                setShowAllTransport(false);
+                setShowNoGray(false);
             }
         } catch(e) { console.error(e); }
         prevUserIdRef.current = effectiveUserId;
@@ -247,12 +246,10 @@ export default function UnifiedAgenda({
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
   
-  // UI Dropdown
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const filterMenuRef = useRef(null);
   useOutsideAlerter(filterMenuRef, () => setIsFilterMenuOpen(false));
 
-  // LOGÍSTICA
   const [myTransportLogistics, setMyTransportLogistics] = useState({});
   const [toursWithRules, setToursWithRules] = useState(new Set());
 
@@ -269,7 +266,6 @@ export default function UnifiedAgenda({
     user?.rol_sistema
   );
 
-  // ... (Efectos de carga de músicos, perfil y catálogos iguales) ...
   useEffect(() => {
     const fetchMusicians = async () => {
       if (canEdit && navigator.onLine) {
@@ -386,7 +382,6 @@ export default function UnifiedAgenda({
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      // 1. Filtro Borradores
       if (!showNonActive) {
         const estadoGira = item.programas?.estado || "Borrador";
         if (item.isProgramMarker) {
@@ -398,17 +393,14 @@ export default function UnifiedAgenda({
 
       if (item.isProgramMarker) return true;
 
-      // 2. Filtro Categoría
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
       if (catId && !selectedCategoryIds.includes(catId)) return false;
 
-      // 3. Filtro Solo Mi Transporte
       if (showOnlyMyTransport && item.id_gira_transporte) {
          const tId = String(item.id_gira_transporte);
          if (!myTransportLogistics[tId]?.assigned) return false;
       }
 
-      // 4. Filtro Solo Mis Comidas
       if (showOnlyMyMeals) {
          const isMeal = [7, 8, 9, 10].includes(item.id_tipo_evento) || item.tipos_evento?.nombre?.toLowerCase().includes("comida");
          if (isMeal && !item.is_convoked) return false;
@@ -439,7 +431,7 @@ export default function UnifiedAgenda({
     setLoading(true);
     const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
       giraId || "general"
-    }_v5`; // Mantenemos v5 o subimos si cambiamos estructura drástica
+    }_v5`;
 
     try {
       const cachedData = localStorage.getItem(CACHE_KEY);
@@ -489,8 +481,6 @@ export default function UnifiedAgenda({
         ensembleEvents.data?.map((e) => e.id_evento)
       );
 
-      // --- AQUÍ EL CAMBIO DE QUERY ---
-      // Se agregó 'color' a la tabla transportes
       let query = supabase
         .from("eventos")
         .select(
@@ -539,7 +529,6 @@ export default function UnifiedAgenda({
       const foundRuleTours = new Set();
 
       if (activeTourIds.size > 0 && userProfile) {
-        
         const [admRes, routesRes, transRes] = await Promise.all([
           supabase
             .from("giras_logistica_admision")
@@ -581,6 +570,13 @@ export default function UnifiedAgenda({
             transportsByGira[t.id_gira].push(t);
           });
 
+          // PREPARAR DATOS DEL USUARIO UNA VEZ
+          const userEnsemblesIds = (userProfile.integrantes_ensambles || []).map(ie => String(ie.id_ensamble));
+          const userFamily = userProfile.instrumentos?.familia;
+          const cleanLocId = userProfile.id_localidad ? Number(userProfile.id_localidad) : null;
+          const residenciaObj = userProfile.datos_residencia;
+          const cleanRegionId = residenciaObj?.id_region ? Number(residenciaObj.id_region) : null;
+
           activeTourIds.forEach((gId) => {
             const sampleEvt = eventsData.find(
               (e) => String(e.id_gira) === String(gId) && e.programas
@@ -590,37 +586,44 @@ export default function UnifiedAgenda({
             if (currentTransports.length === 0) return;
 
             let esAdicional = false;
-            let myRecord = null;
+            let tourRole = "musico";
+            let estadoGira = null;
             
             if (sampleEvt && sampleEvt.programas) {
-                const sources = sampleEvt.programas.giras_fuentes || [];
-                let isBase = false;
-                const userEnsembles = (userProfile.integrantes_ensambles || []).map(
-                  (ie) => String(ie.id_ensamble)
-                );
-                const userFamily = userProfile.instrumentos?.familia;
-    
-                sources.forEach((src) => {
-                  if (
-                    src.tipo === "ENSAMBLE" &&
-                    userEnsembles.includes(String(src.valor_id))
-                  )
-                    isBase = true;
-                  if (src.tipo === "FAMILIA" && src.valor_texto === userFamily)
-                    isBase = true;
-                });
-    
-                myRecord = sampleEvt.programas.giras_integrantes?.find(
+                // 1. CHEQUEO: ¿Está en el Roster explícito?
+                const members = sampleEvt.programas.giras_integrantes || [];
+                const myRecord = members.find(
                   (i) => String(i.id_integrante) === String(effectiveUserId)
                 );
                 
-                if (myRecord && myRecord.estado === "ausente") return; 
+                if (myRecord) {
+                    tourRole = myRecord.rol;
+                    estadoGira = myRecord.estado;
+                    // Filtro estricto: Si es baja, no_convocado o ausente, NO va a la gira.
+                    if (['baja', 'no_convocado', 'ausente'].includes(estadoGira)) return; 
+                }
+
+                // 2. CHEQUEO: ¿Coincide con Fuentes Base?
+                const sources = sampleEvt.programas.giras_fuentes || [];
+                let isBase = false;
+                
+                const matchesSource = sources.some((src) => {
+                  if (src.tipo === "ENSAMBLE" && userEnsemblesIds.includes(String(src.valor_id))) {
+                      isBase = true;
+                      return true;
+                  }
+                  if (src.tipo === "FAMILIA" && src.valor_texto === userFamily) {
+                      isBase = true;
+                      return true;
+                  }
+                  return false;
+                });
+
+                // Si NO está en el roster explícito Y NO coincide con ninguna fuente, entonces NO va a la gira.
+                if (!myRecord && !matchesSource) return;
+
                 esAdicional = !!myRecord && !isBase;
             }
-
-            const cleanLocId = userProfile.id_localidad ? Number(userProfile.id_localidad) : null;
-            const residenciaObj = userProfile.datos_residencia;
-            const cleanRegionId = residenciaObj?.id_region ? Number(residenciaObj.id_region) : null;
 
             const mockPerson = {
               ...userProfile,
@@ -631,7 +634,8 @@ export default function UnifiedAgenda({
                 id_region: cleanRegionId,
               },
               instrumentos: userProfile.instrumentos || {}, 
-              rol_gira: myRecord?.rol || "musico",
+              rol_gira: tourRole,
+              estado_gira: estadoGira, 
               es_adicional: esAdicional,
               logistics: {},
             };
@@ -674,14 +678,21 @@ export default function UnifiedAgenda({
 
         if (customMap.has(item.id)) return true;
         if (myEnsembleEventIds.has(item.id)) return true;
+        
+        // --- LOGICA DE FILTRADO DE GIRA MEJORADA ---
         if (item.programas) {
           const overrides = item.programas.giras_integrantes || [];
           const sources = item.programas.giras_fuentes || [];
+          
           const myOverride = overrides.find(
             (o) => o.id_integrante === effectiveUserId
           );
-          if (myOverride && myOverride.estado === "ausente") return false;
-          if (myOverride) return true;
+
+          if (myOverride) {
+             if (myOverride.estado === "baja" || myOverride.estado === "no_convocado" || myOverride.estado === "ausente") return false;
+             return true; 
+          }
+
           return sources.some(
             (s) =>
               (s.tipo === "ENSAMBLE" && myEnsembles.has(s.valor_id)) ||
@@ -1149,14 +1160,14 @@ export default function UnifiedAgenda({
                     <button
                        onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
                        className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-bold shadow-sm hover:shadow-md ${
-                          isFilterMenuOpen || selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals || showAllTransport
+                          isFilterMenuOpen || selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals || showNoGray
                           ? "bg-slate-800 text-white border-slate-800"
                           : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                        }`}
                     >
                        <IconFilter size={16} />
                        <span className="hidden sm:inline">Filtros</span>
-                       {(selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals || showAllTransport) && (
+                       {(selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals || showNoGray) && (
                          <span className="flex h-2 w-2 rounded-full bg-indigo-400"></span>
                        )}
                     </button>
@@ -1170,7 +1181,7 @@ export default function UnifiedAgenda({
                                  setSelectedCategoryIds(availableCategories.map(c => c.id));
                                  setShowOnlyMyTransport(false);
                                  setShowOnlyMyMeals(false);
-                                 setShowAllTransport(false);
+                                 setShowNoGray(false);
                                }}
                                className="text-[10px] text-indigo-600 hover:underline font-bold"
                             >
@@ -1191,27 +1202,29 @@ export default function UnifiedAgenda({
                                  checked={showOnlyMyTransport}
                                  onChange={(e) => {
                                      setShowOnlyMyTransport(e.target.checked);
-                                     if(e.target.checked) setShowAllTransport(false); // Mutually exclusive UI preference
+                                     if(e.target.checked) setShowNoGray(false);
                                  }}
                                />
                             </label>
                             
-                            {/* NUEVA OPCIÓN: VER TODO TRANSPORTE */}
-                            <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
-                               <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                                  <IconEye size={16} className="text-slate-500" />
-                                  <span>Transporte (sin grises)</span>
-                               </div>
-                               <input 
-                                 type="checkbox" 
-                                 className="accent-slate-600 w-4 h-4"
-                                 checked={showAllTransport}
-                                 onChange={(e) => {
-                                     setShowAllTransport(e.target.checked);
-                                     if(e.target.checked) setShowOnlyMyTransport(false);
-                                 }}
-                               />
-                            </label>
+                            {/* NUEVA OPCIÓN: SIN GRISES (Solo Management) */}
+                            {canEdit && (
+                              <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
+                                 <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                                    <IconEye size={16} className="text-slate-500" />
+                                    <span>Sin grises</span>
+                                 </div>
+                                 <input 
+                                   type="checkbox" 
+                                   className="accent-slate-600 w-4 h-4"
+                                   checked={showNoGray}
+                                   onChange={(e) => {
+                                       setShowNoGray(e.target.checked);
+                                       if(e.target.checked) setShowOnlyMyTransport(false);
+                                   }}
+                                 />
+                              </label>
+                            )}
 
                             <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
                                <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
@@ -1368,7 +1381,6 @@ export default function UnifiedAgenda({
                 const transportName =
                   evt.giras_transportes?.transportes?.nombre;
                 const transportDetail = evt.giras_transportes?.detalle;
-                // NUEVO: Obtener color
                 const transportColor = evt.giras_transportes?.transportes?.color || "#6366f1";
 
                 if (isTransportEvent && evt.id_gira_transporte) {
@@ -1387,15 +1399,13 @@ export default function UnifiedAgenda({
                   }
                 }
 
-                // NUEVA LÓGICA DE DIMMING
-                // Si showAllTransport es true, NO dimmeamos los eventos de transporte, aunque no sean míos
+                // DIMMING LOGIC
                 let isTransportDimmed = isTransportEvent && !isMyTransport;
-                if (showAllTransport && isTransportEvent) isTransportDimmed = false;
+                if (showNoGray && isTransportEvent) isTransportDimmed = false;
 
-                const shouldDim =
-                  isNonConvokedMeal ||
-                  evt.is_absent ||
-                  isTransportDimmed;
+                // Si "Sin grises" está activado, tampoco se opacan las comidas no convocadas
+                let shouldDim = isTransportDimmed || evt.is_absent;
+                if (!showNoGray && isNonConvokedMeal) shouldDim = true;
 
                 const deadlineStatus =
                   isMeal && evt.is_convoked
@@ -1410,9 +1420,8 @@ export default function UnifiedAgenda({
                 const locName = evt.locaciones?.nombre || "";
                 const locCity = evt.locaciones?.localidades?.localidad;
 
-                // TINTADO SUAVE DEL FONDO
                 const cardStyle = {
-                    backgroundColor: `${eventColor}10`, // Hex alpha ~6%
+                    backgroundColor: `${eventColor}10`, 
                 };
 
                 return (
@@ -1483,20 +1492,16 @@ export default function UnifiedAgenda({
                           </h4>
 
                           <div className="flex flex-wrap gap-1">
-                            {/* CHIP DE TRANSPORTE CON COLOR PERSONALIZADO */}
                             {isTransportEvent && transportName && (
                               <span
                                 className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border`}
                                 style={{
-                                    // Si es mi transporte, uso estilo destacado (indigo por defecto o el color del bus si lo prefieres)
-                                    // Aquí priorizamos la visibilidad del "Mi transporte" con la estructura existente,
-                                    // pero si NO es mío o es "ver todo", usamos el color custom.
-                                    backgroundColor: isMyTransport ? '#e0e7ff' : `${transportColor}15`, // lighten
-                                    color: isMyTransport ? '#4338ca' : transportColor,
-                                    borderColor: isMyTransport ? '#c7d2fe' : `${transportColor}40`,
+                                    backgroundColor: isMyTransport ? `${transportColor}30` : `${transportColor}15`,
+                                    color: isMyTransport ? '#1e293b' : '#64748b', 
+                                    borderColor: `${transportColor}60`,
                                 }}
                               >
-                                <IconBus size={10} />
+                                <IconBus size={10} style={{ color: transportColor }} />
                                 {transportName}{" "}
                                 {transportDetail && (
                                   <span className="font-normal opacity-80">
@@ -1517,7 +1522,7 @@ export default function UnifiedAgenda({
                               </span>
                             )}
 
-                            {isTransportEvent && !isMyTransport && !showAllTransport && (
+                            {isTransportEvent && !isMyTransport && !showNoGray && (
                               <span
                                 className="text-[8px] text-red-300 font-mono select-none"
                                 title="El sistema no te asignó este transporte."
