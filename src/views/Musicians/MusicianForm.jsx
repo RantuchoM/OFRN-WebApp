@@ -1,4 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import ReactCrop from "react-image-crop";
+import "react-image-crop/dist/ReactCrop.css";
+import * as pdfjsLib from "pdfjs-dist";
+
+// Forzamos una versión específica del worker para evitar errores de carga
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+
 import {
   IconSave,
   IconX,
@@ -17,11 +24,80 @@ import {
   IconFilePlus,
   IconExternalLink,
   IconEye,
+  IconInfo,
+  IconScissor,
 } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import DateInput from "../../components/ui/DateInput";
 
-// --- UTILIDAD DE COMPRESIÓN ---
+// =================================================================================
+// UTILIDADES DE PROCESAMIENTO (RECORTE, PDF Y COMPRESIÓN)
+// =================================================================================
+
+// 1. Convertir la primera página de un PDF a imagen
+const convertPdfToImage = async (pdfUrl) => {
+  try {
+    const loadingTask = pdfjsLib.getDocument(pdfUrl);
+    const pdf = await loadingTask.promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+
+    await page.render({ canvasContext: context, viewport: viewport }).promise;
+    return canvas.toDataURL("image/jpeg", 0.95);
+  } catch (error) {
+    console.error("Error en convertPdfToImage:", error);
+    throw error;
+  }
+};
+
+// 2. Generar el archivo recortado (PNG transparente o JPG fondo blanco)
+const getCroppedImg = async (image, crop, isPng = false) => {
+  const canvas = document.createElement("canvas");
+  const scaleX = image.naturalWidth / image.width;
+  const scaleY = image.naturalHeight / image.height;
+  canvas.width = crop.width;
+  canvas.height = crop.height;
+  const ctx = canvas.getContext("2d");
+
+  // Si es JPG, ponemos fondo blanco en lugar de negro
+  if (!isPng) {
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  ctx.drawImage(
+    image,
+    crop.x * scaleX,
+    crop.y * scaleY,
+    crop.width * scaleX,
+    crop.height * scaleY,
+    0,
+    0,
+    crop.width,
+    crop.height,
+  );
+
+  return new Promise((resolve) => {
+    const mimeType = isPng ? "image/png" : "image/jpeg";
+    canvas.toBlob(
+      (blob) => {
+        resolve(
+          new File([blob], `cropped_${Date.now()}.${isPng ? "png" : "jpg"}`, {
+            type: mimeType,
+          }),
+        );
+      },
+      mimeType,
+      0.95,
+    );
+  });
+};
+
+// 3. Compresión estándar
 const compressImage = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -41,27 +117,24 @@ const compressImage = (file) => {
         ctx.drawImage(img, 0, 0, width, height);
         canvas.toBlob(
           (blob) => {
-            const newFile = new File(
-              [blob],
-              file.name.replace(/\.[^/.]+$/, ".jpg"),
-              {
+            resolve(
+              new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), {
                 type: "image/jpeg",
                 lastModified: Date.now(),
-              },
+              }),
             );
-            resolve(newFile);
           },
           "image/jpeg",
           0.7,
         );
       };
-      img.onerror = (err) => reject(err);
+      img.onerror = reject;
     };
-    reader.onerror = (err) => reject(err);
+    reader.onerror = reject;
   });
 };
 
-// --- HOOK DE DEBOUNCE ---
+// 4. Hook de Debounce
 function useDebouncedCallback(callback, delay) {
   const handler = useRef(null);
   return useCallback(
@@ -73,18 +146,32 @@ function useDebouncedCallback(callback, delay) {
   );
 }
 
+// =================================================================================
+// COMPONENTE PRINCIPAL
+// =================================================================================
+
 export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const [loading, setLoading] = useState(false);
-  const [assemblingType, setAssemblingType] = useState(null); // 'full' | 'mosaic' | 'dj' | null
+  const [assemblingType, setAssemblingType] = useState(null);
   const [uploadingField, setUploadingField] = useState(null);
   const [activeTab, setActiveTab] = useState("personal");
   const [showPassword, setShowPassword] = useState(false);
   const [fieldStatuses, setFieldStatuses] = useState({});
 
+  // Estados del Recorte
+  const [cropModal, setCropModal] = useState({
+    isOpen: false,
+    field: null,
+    image: null,
+    isPng: false,
+  });
+  const [crop, setCrop] = useState();
+  const [completedCrop, setCompletedCrop] = useState(null);
+  const imgRef = useRef(null);
+
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
   const [locationsOptions, setLocationsOptions] = useState([]);
 
-  // Estilos base
   const inputClass =
     "w-full border border-slate-300 p-2.5 rounded-xl text-sm outline-none transition-all focus:ring-4 focus:ring-indigo-50 focus:border-indigo-400";
   const labelClass =
@@ -145,7 +232,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     fetchCatalogs();
   }, [supabase]);
 
-  // Solo resetear cuando el ID del músico cambia para evitar rebotes de input
   useEffect(() => {
     if (musician && musician.id !== formData.id) {
       setFormData((prev) => ({
@@ -157,6 +243,22 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       }));
     }
   }, [musician?.id, formData.id]);
+
+  // --- FUNCIONES DE ESTADO Y GUARDADO ---
+
+  const getInputStatusClass = (fieldName) => {
+    const status = fieldStatuses[fieldName];
+    if (status === "saving")
+      return (
+        inputClass + " border-orange-500 ring-4 ring-orange-50 bg-orange-50/10"
+      );
+    if (status === "saved")
+      return (
+        inputClass +
+        " border-emerald-500 ring-4 ring-emerald-50 bg-emerald-50/10"
+      );
+    return inputClass;
+  };
 
   const extractPathFromUrl = (url) => {
     if (!url) return null;
@@ -174,25 +276,16 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     if (!formData.id) return;
     setFieldStatuses((prev) => ({ ...prev, [field]: "saving" }));
     try {
-      const sanitizeId = (val) => (!val ? null : parseInt(val, 10));
-      let valToSave = value === "" ? null : value;
-      if (field === "id_localidad" || field === "id_loc_viaticos")
-        valToSave = sanitizeId(value);
-      if (field === "es_simulacion") valToSave = !!value;
-
       const { error } = await supabase
         .from("integrantes")
-        .update({ [field]: valToSave })
+        .update({ [field]: value === "" ? null : value })
         .eq("id", formData.id);
       if (error) throw error;
-
       setFieldStatuses((prev) => ({ ...prev, [field]: "saved" }));
       setTimeout(
         () => setFieldStatuses((prev) => ({ ...prev, [field]: "idle" })),
         2000,
       );
-      if (onSave)
-        onSave({ ...formData, [field]: valToSave, id: formData.id }, false);
     } catch (e) {
       setFieldStatuses((prev) => ({ ...prev, [field]: "error" }));
     }
@@ -213,10 +306,17 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     try {
       if (oldUrl) await deleteOldFile(oldUrl, bucket);
       let fileToUpload = file;
-      if (file.type.startsWith("image/") && field !== "firma")
-        fileToUpload = await compressImage(file);
 
-      const fileExt = fileToUpload.name.split(".").pop();
+      // Comprimimos si es imagen pero NO si es firma o resultado de crop
+      if (
+        file.type.startsWith("image/") &&
+        field !== "firma" &&
+        !file.name.includes("cropped")
+      ) {
+        fileToUpload = await compressImage(file);
+      }
+
+      const fileExt = file.type === "image/png" ? "png" : "jpg";
       const fileName =
         `${formData.apellido || "musician"}_${field}_${Date.now()}.${fileExt}`.toLowerCase();
       const filePath = field === "firma" ? fileName : `docs/${fileName}`;
@@ -229,12 +329,71 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       const {
         data: { publicUrl },
       } = supabase.storage.from(bucket).getPublicUrl(filePath);
-      setFormData((prev) => ({ ...prev, [field]: publicUrl }));
-      await saveFieldToDb(field, publicUrl);
+
+      // Actualizar DB y forzar disparo del Combo
+      await supabase
+        .from("integrantes")
+        .update({
+          [field]: publicUrl,
+          last_modified_at: new Date().toISOString(),
+        })
+        .eq("id", formData.id);
+
+      const updatedState = { ...formData, [field]: publicUrl };
+      setFormData(updatedState);
+      if (onSave) onSave(updatedState, false);
+
+      setFieldStatuses((prev) => ({ ...prev, [field]: "saved" }));
+      setTimeout(
+        () => setFieldStatuses((prev) => ({ ...prev, [field]: "idle" })),
+        2000,
+      );
     } catch (error) {
       setFieldStatuses((prev) => ({ ...prev, [field]: "error" }));
     } finally {
       setUploadingField(null);
+    }
+  };
+
+  const handleStartCrop = async (field, url) => {
+    setLoading(true);
+    try {
+      let imageUrl = url;
+      const isPdf = url.toLowerCase().includes(".pdf");
+      const isPng = url.toLowerCase().includes(".png") || field === "firma";
+
+      if (isPdf) {
+        imageUrl = await convertPdfToImage(url);
+      }
+
+      setCropModal({ isOpen: true, field, image: imageUrl, isPng });
+    } catch (e) {
+      alert("Error al abrir el editor de imagen");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmCrop = async () => {
+    if (!completedCrop || !imgRef.current) return;
+    try {
+      setLoading(true);
+      const croppedFile = await getCroppedImg(
+        imgRef.current,
+        completedCrop,
+        cropModal.isPng,
+      );
+      await uploadToSupabase(
+        croppedFile,
+        cropModal.field,
+        formData[cropModal.field],
+      );
+      setCropModal({ isOpen: false, field: null, image: null, isPng: false });
+      setCompletedCrop(null);
+    } catch (e) {
+      alert("Error al guardar el recorte");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -258,6 +417,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     }
   };
 
+  // --- ACCIONES DE GENERACIÓN ---
   const handleAssemble = async (layout) => {
     if (!formData.id) return alert("Guarda la ficha primero.");
     const sources = [
@@ -265,57 +425,105 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       formData.link_cuil,
       formData.link_cbu_img,
       formData.link_declaracion,
-    ].filter((l) => !!l);
-    if (sources.length === 0) return alert("Carga archivos primero.");
+    ].filter(Boolean);
+    if (sources.length === 0) return alert("No hay archivos para unir.");
 
     setAssemblingType(layout);
     const targetField = layout === "full" ? "documentacion" : "docred";
-    setFieldStatuses((prev) => ({ ...prev, [targetField]: "saving" }));
+    setFieldStatuses((p) => ({ ...p, [targetField]: "saving" }));
 
     try {
-      if (formData[targetField]) await deleteOldFile(formData[targetField]);
       const fileName = `${formData.apellido}_${formData.nombre}_${layout === "full" ? "DOC" : "MOS"}`;
       const { data, error } = await supabase.functions.invoke("manage-drive", {
         body: { action: "assemble_docs_bucket", layout, sources, fileName },
       });
       if (error) throw error;
-      setFormData((prev) => ({ ...prev, [targetField]: data.url }));
-      await saveFieldToDb(targetField, data.url);
+      const updated = { ...formData, [targetField]: data.url };
+      setFormData(updated);
+      if (onSave) onSave(updated, false);
+      setFieldStatuses((p) => ({ ...p, [targetField]: "saved" }));
+      setTimeout(
+        () => setFieldStatuses((p) => ({ ...p, [targetField]: "idle" })),
+        2000,
+      );
       window.open(data.url, "_blank");
-    } catch (error) {
-      setFieldStatuses((prev) => ({ ...prev, [targetField]: "error" }));
+    } catch (e) {
+      setFieldStatuses((p) => ({ ...p, [targetField]: "error" }));
     } finally {
       setAssemblingType(null);
     }
   };
 
   const handleGenerateDJ = async () => {
-    if (!formData.id) return alert("Guarda la ficha primero.");
-    if (!formData.firma)
-      return alert(
-        "El músico debe tener una firma cargada para generar la DJ.",
-      );
-
+    if (!formData.id || !formData.firma) return alert("Faltan datos o firma.");
     setAssemblingType("dj");
-    setFieldStatuses((prev) => ({ ...prev, link_declaracion: "saving" }));
-
+    setFieldStatuses((p) => ({ ...p, link_declaracion: "saving" }));
     try {
       const { data, error } = await supabase.functions.invoke("manage-drive", {
         body: { action: "generate_dj_bucket", musicianId: formData.id },
       });
       if (error) throw error;
-
-      setFormData((prev) => ({ ...prev, link_declaracion: data.url }));
-      setFieldStatuses((prev) => ({ ...prev, link_declaracion: "saved" }));
+      const updated = { ...formData, link_declaracion: data.url };
+      setFormData(updated);
+      if (onSave) onSave(updated, false);
+      setFieldStatuses((p) => ({ ...p, link_declaracion: "saved" }));
       setTimeout(
-        () =>
-          setFieldStatuses((prev) => ({ ...prev, link_declaracion: "idle" })),
+        () => setFieldStatuses((p) => ({ ...p, link_declaracion: "idle" })),
         2000,
       );
       window.open(data.url, "_blank");
     } catch (e) {
-      alert("Error: " + e.message);
-      setFieldStatuses((prev) => ({ ...prev, link_declaracion: "error" }));
+      setFieldStatuses((p) => ({ ...p, link_declaracion: "error" }));
+    } finally {
+      setAssemblingType(null);
+    }
+  };
+
+  const handleFullPack = async () => {
+    if (!formData.id || !formData.firma) return alert("Faltan datos o firma.");
+    setAssemblingType("all");
+    setFieldStatuses((p) => ({
+      ...p,
+      link_declaracion: "saving",
+      documentacion: "saving",
+      docred: "saving",
+    }));
+    try {
+      const { data, error } = await supabase.functions.invoke("manage-drive", {
+        body: { action: "assemble_full_pack", musicianId: formData.id },
+      });
+      if (error) throw error;
+      const updated = {
+        ...formData,
+        link_declaracion: data.urls.dj,
+        documentacion: data.urls.full,
+        docred: data.urls.mosaic,
+      };
+      setFormData(updated);
+      if (onSave) onSave(updated, false);
+      setFieldStatuses((p) => ({
+        ...p,
+        link_declaracion: "saved",
+        documentacion: "saved",
+        docred: "saved",
+      }));
+      setTimeout(
+        () =>
+          setFieldStatuses((p) => ({
+            ...p,
+            link_declaracion: "idle",
+            documentacion: "idle",
+            docred: "idle",
+          })),
+        2000,
+      );
+    } catch (e) {
+      setFieldStatuses((p) => ({
+        ...p,
+        link_declaracion: "error",
+        documentacion: "error",
+        docred: "error",
+      }));
     } finally {
       setAssemblingType(null);
     }
@@ -324,7 +532,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const handleCreateInitial = async (e) => {
     e.preventDefault();
     if (!formData.apellido || !formData.nombre)
-      return alert("Faltan datos obligatorios.");
+      return alert("Apellido y Nombre son obligatorios.");
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -348,32 +556,18 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     }
   };
 
-  const getInputStatusClass = (fieldName) => {
-    const status = fieldStatuses[fieldName];
-    if (status === "saving")
-      return (
-        inputClass + " border-orange-500 ring-4 ring-orange-50 bg-orange-50/10"
-      );
-    if (status === "saved")
-      return (
-        inputClass +
-        " border-emerald-500 ring-4 ring-emerald-50 bg-emerald-50/10"
-      );
-    return inputClass;
-  };
-
   const FileUploader = ({ label, field, value }) => {
     const status = fieldStatuses[field];
-    const isPdf = value && value.toLowerCase().endsWith(".pdf");
+    const isPdf = value && value.toLowerCase().includes(".pdf");
     const bucket = field === "firma" ? "firmas" : "musician-docs";
 
     return (
       <div className="flex flex-col gap-2">
-        <label className="text-[10px] font-bold uppercase text-slate-400 ml-1">
+        <label className="text-[9px] font-black uppercase text-slate-400 ml-1 tracking-tighter">
           {label}
         </label>
         <div
-          className={`relative h-48 rounded-3xl border-2 transition-all overflow-hidden group ${
+          className={`relative h-40 rounded-3xl border-2 transition-all overflow-hidden group ${
             status === "saving"
               ? "border-orange-400 ring-4 ring-orange-50"
               : status === "saved"
@@ -386,8 +580,15 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
           {value ? (
             <>
               {isPdf ? (
-                <div className="w-full h-full flex flex-col items-center justify-center bg-emerald-50/20">
-                  <IconFileText size={48} className="text-emerald-400" />
+                <div className="w-full h-full bg-slate-100 overflow-hidden relative">
+                  <iframe
+                    src={`${value}#toolbar=0&navpanes=0&scrollbar=0`}
+                    className="w-full h-full pointer-events-none"
+                    frameBorder="0"
+                  />
+                  <div className="absolute top-2 left-2 bg-emerald-500 text-white text-[8px] px-1.5 py-0.5 rounded font-bold shadow-sm z-10">
+                    PDF
+                  </div>
                 </div>
               ) : (
                 <img
@@ -396,45 +597,55 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                   alt={label}
                 />
               )}
-              <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3">
+              <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3 z-20">
+                <button
+                  type="button"
+                  onClick={() => handleStartCrop(field, value)}
+                  className="p-3 bg-white rounded-xl text-orange-500 shadow-xl hover:scale-110"
+                  title="Recortar"
+                >
+                  <IconScissor size={20} />
+                </button>
                 <a
                   href={value}
                   target="_blank"
                   rel="noreferrer"
-                  className="p-3 bg-white rounded-xl text-indigo-600 shadow-xl hover:scale-110 transition-transform"
+                  className="p-3 bg-white rounded-xl text-indigo-600 shadow-xl hover:scale-110"
                 >
                   <IconEye size={20} />
                 </a>
                 <button
                   type="button"
                   onClick={async () => {
-                    await deleteOldFile(value, bucket);
-                    updateField(field, "");
+                    if (confirm("¿Eliminar?")) {
+                      await deleteOldFile(value, bucket);
+                      updateField(field, "");
+                    }
                   }}
-                  className="p-3 bg-white rounded-xl text-red-500 shadow-xl hover:scale-110 transition-transform"
+                  className="p-3 bg-white rounded-xl text-red-500 shadow-xl hover:scale-110"
                 >
                   <IconTrash size={20} />
                 </button>
               </div>
             </>
           ) : (
-            <div className="w-full h-full flex flex-col p-4">
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
-                {uploadingField === field ? (
-                  <IconLoader className="animate-spin" size={32} />
+            <div className="w-full h-full flex flex-col p-4 justify-center">
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-300 mb-2">
+                {uploadingField === field || loading ? (
+                  <IconLoader className="animate-spin" size={24} />
                 ) : (
-                  <IconUpload size={32} />
+                  <IconUpload size={24} />
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
                   onClick={() => handleClipboardClick(field, value)}
-                  className="bg-indigo-600 text-white py-2.5 rounded-xl text-[10px] font-black tracking-widest hover:bg-indigo-700 active:scale-95"
+                  className="bg-indigo-600 text-white py-2 rounded-xl text-[8px] font-black tracking-widest hover:bg-indigo-700 active:scale-95"
                 >
-                  <IconClipboard size={14} className="inline mr-1" /> PEGAR
+                  <IconClipboard size={12} className="inline mr-1" /> PEGAR
                 </button>
-                <label className="bg-white border border-slate-200 text-slate-500 py-2.5 rounded-xl text-[10px] font-black text-center cursor-pointer uppercase tracking-tighter hover:bg-slate-50 active:scale-95">
+                <label className="bg-white border border-slate-200 text-slate-500 py-2 rounded-xl text-[8px] font-black text-center cursor-pointer uppercase hover:bg-slate-50 active:scale-95">
                   Subir{" "}
                   <input
                     type="file"
@@ -454,7 +665,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[60] p-4 backdrop-blur-md">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col animate-in zoom-in-95 duration-300 overflow-hidden border border-white/20">
+      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-6xl max-h-[95vh] flex flex-col animate-in zoom-in-95 duration-300 overflow-hidden border border-white/20">
+        {/* Header */}
         <div className="p-6 border-b flex justify-between items-center bg-slate-50/50">
           <h3 className="font-black text-slate-800 flex items-center gap-3 text-xl uppercase tracking-tighter">
             {formData.id ? (
@@ -474,19 +686,16 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
           </button>
         </div>
 
-        <div className="flex border-b text-[10px] font-black uppercase tracking-[0.2em] bg-white overflow-x-auto">
+        {/* Tabs */}
+        <div className="flex border-b text-[10px] font-black uppercase tracking-[0.2em] bg-white overflow-x-auto shrink-0">
           {[
             { id: "personal", label: "Personal", icon: <IconId size={16} /> },
             {
               id: "docs_upload",
-              label: "Archivos",
+              label: "Documentación",
               icon: <IconUpload size={16} />,
             },
-            {
-              id: "docs",
-              label: "Links Sistema",
-              icon: <IconLink size={16} />,
-            },
+            { id: "docs", label: "Sistema", icon: <IconLink size={16} /> },
             {
               id: "acceso",
               label: "Seguridad",
@@ -503,7 +712,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-8 bg-white">
+        {/* Form Body */}
+        <div className="flex-1 overflow-y-auto p-8 bg-white custom-scrollbar">
           <form onSubmit={(e) => e.preventDefault()} className="space-y-8">
             {activeTab === "personal" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -585,98 +795,136 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
             )}
 
             {activeTab === "docs_upload" && (
-              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  <FileUploader
-                    label="DNI"
-                    field="link_dni_img"
-                    value={formData.link_dni_img}
-                  />
-                  <FileUploader
-                    label="CUIL"
-                    field="link_cuil"
-                    value={formData.link_cuil}
-                  />
-                  <FileUploader
-                    label="CBU"
-                    field="link_cbu_img"
-                    value={formData.link_cbu_img}
-                  />
-                  <FileUploader
-                    label="Declaración"
-                    field="link_declaracion"
-                    value={formData.link_declaracion}
-                  />
-                  <FileUploader
-                    label="Firma Digital (PNG)"
-                    field="firma"
-                    value={formData.firma}
-                  />
+              <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4">
+                <div>
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>{" "}
+                    Documentación Base
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <FileUploader
+                      label="DNI Frontal/Dorso"
+                      field="link_dni_img"
+                      value={formData.link_dni_img}
+                    />
+                    <FileUploader
+                      label="Constancia CUIL"
+                      field="link_cuil"
+                      value={formData.link_cuil}
+                    />
+                    <FileUploader
+                      label="Constancia CBU"
+                      field="link_cbu_img"
+                      value={formData.link_cbu_img}
+                    />
+                    <FileUploader
+                      label="Firma Digital (PNG)"
+                      field="firma"
+                      value={formData.firma}
+                    />
+                  </div>
                 </div>
-                <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white flex flex-col md:flex-row items-center gap-8 shadow-2xl border border-slate-800">
-                  <div className="flex-1">
-                    <h4 className="text-sm font-black text-indigo-400 uppercase tracking-widest">
-                      Documentación Inteligente
-                    </h4>
-                    <div className="flex flex-wrap gap-4 mt-3">
-                      {["documentacion", "docred", "link_declaracion"].map(
-                        (field) =>
-                          formData[field] && (
-                            <div
-                              key={field}
-                              className={`text-[9px] font-bold px-2 py-1 rounded flex items-center gap-2 transition-all ${fieldStatuses[field] === "saving" ? "bg-orange-500 text-white animate-pulse" : fieldStatuses[field] === "saved" ? "bg-emerald-500 text-white" : "bg-slate-800 text-indigo-300"}`}
-                            >
-                              <IconCheck size={10} />{" "}
-                              {field === "link_declaracion"
-                                ? "DJ LISTA"
-                                : field === "documentacion"
-                                  ? "FULL LISTO"
-                                  : "MOSAICO LISTO"}
-                            </div>
-                          ),
-                      )}
+                <div className="border-t border-slate-100 relative">
+                  <div className="absolute inset-0 flex items-center justify-center -top-3">
+                    <div className="bg-white px-4 py-1 border border-slate-100 rounded-full shadow-sm">
+                      <IconLoader
+                        className={
+                          assemblingType
+                            ? "animate-spin text-orange-500"
+                            : "text-slate-200"
+                        }
+                        size={14}
+                      />
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-4 justify-center">
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>{" "}
+                    Expediente Resultante
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <FileUploader
+                      label="Declaración Jurada"
+                      field="link_declaracion"
+                      value={formData.link_declaracion}
+                    />
+                    <FileUploader
+                      label="PDF Unificado (Full)"
+                      field="documentacion"
+                      value={formData.documentacion}
+                    />
+                    <FileUploader
+                      label="PDF Mosaico (Red)"
+                      field="docred"
+                      value={formData.docred}
+                    />
+                  </div>
+                </div>
+                <div className="bg-slate-900 p-6 rounded-[2.5rem] text-white flex flex-col lg:flex-row items-center gap-6 shadow-2xl border border-slate-800">
+                  <div className="flex-1">
+                    <h4 className="text-sm font-black text-indigo-400 uppercase tracking-widest">
+                      Motor de Expedientes
+                    </h4>
+                    <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-tighter">
+                      Generación automática mediante last_modified_at.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 w-full lg:w-auto">
                     <button
                       type="button"
                       disabled={assemblingType !== null}
-                      onClick={handleGenerateDJ}
-                      className={`py-4 px-6 rounded-2xl text-[11px] font-black transition-all flex items-center justify-center gap-3 border-2 ${assemblingType === "dj" ? "bg-orange-500 border-orange-500 text-white animate-pulse" : "border-indigo-500 text-indigo-400 hover:bg-indigo-500 hover:text-white active:scale-95"}`}
+                      onClick={handleFullPack}
+                      className={`py-3.5 px-10 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-3 shadow-2xl ${assemblingType === "all" ? "bg-orange-500 text-white animate-pulse" : "bg-indigo-600 text-white hover:bg-white hover:text-indigo-600 active:scale-95"}`}
                     >
-                      {assemblingType === "dj" ? (
-                        <IconLoader className="animate-spin" size={16} />
+                      {assemblingType === "all" ? (
+                        <IconLoader className="animate-spin" size={18} />
                       ) : (
-                        <IconFileText size={18} />
+                        <IconCheck size={20} />
                       )}{" "}
-                      DJ FIRMADA
+                      GENERAR EXPEDIENTE COMPLETO
                     </button>
-                    <button
-                      type="button"
-                      disabled={assemblingType !== null}
-                      onClick={() => handleAssemble("full")}
-                      className={`py-4 px-6 rounded-2xl text-[11px] font-black transition-all flex items-center justify-center gap-3 shadow-xl ${assemblingType === "full" ? "bg-orange-500 text-white animate-pulse" : "bg-white text-slate-900 hover:bg-indigo-500 hover:text-white active:scale-95"}`}
-                    >
-                      {assemblingType === "full" ? (
-                        <IconLoader className="animate-spin" size={16} />
-                      ) : (
-                        <IconFilePlus size={18} />
-                      )}{" "}
-                      FULL
-                    </button>
-                    <button
-                      type="button"
-                      disabled={assemblingType !== null}
-                      onClick={() => handleAssemble("mosaic")}
-                      className={`py-4 px-6 rounded-2xl text-[11px] font-black transition-all flex items-center justify-center gap-3 border-2 ${assemblingType === "mosaic" ? "border-orange-500 text-orange-500 animate-pulse" : "border-slate-700 text-white hover:bg-slate-800 active:scale-95"}`}
-                    >
-                      {assemblingType === "mosaic" ? (
-                        <IconLoader className="animate-spin" size={16} />
-                      ) : (
-                        <IconLayoutGrid size={18} />
-                      )}{" "}
-                      MOSAICO
-                    </button>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        disabled={assemblingType !== null}
+                        onClick={handleGenerateDJ}
+                        className={`py-2 px-3 rounded-xl text-[8px] font-black border transition-colors flex items-center justify-center gap-1 uppercase ${assemblingType === "dj" ? "bg-orange-500 border-orange-500 text-white" : "border-slate-700 text-slate-300 hover:bg-slate-800"}`}
+                      >
+                        {assemblingType === "dj" ? (
+                          <IconLoader className="animate-spin" size={10} />
+                        ) : (
+                          <IconFileText size={12} />
+                        )}{" "}
+                        SÓLO DJ
+                      </button>
+                      <button
+                        type="button"
+                        disabled={assemblingType !== null}
+                        onClick={() => handleAssemble("full")}
+                        className={`py-2 px-3 rounded-xl text-[8px] font-black border transition-colors flex items-center justify-center gap-1 uppercase ${assemblingType === "full" ? "bg-orange-500 border-orange-500 text-white" : "border-slate-700 text-slate-300 hover:bg-slate-800"}`}
+                      >
+                        {assemblingType === "full" ? (
+                          <IconLoader className="animate-spin" size={10} />
+                        ) : (
+                          <IconFilePlus size={12} />
+                        )}{" "}
+                        SÓLO FULL
+                      </button>
+                      <button
+                        type="button"
+                        disabled={assemblingType !== null}
+                        onClick={() => handleAssemble("mosaic")}
+                        className={`py-2 px-3 rounded-xl text-[8px] font-black border transition-colors flex items-center justify-center gap-1 uppercase ${assemblingType === "mosaic" ? "bg-orange-500 border-orange-500 text-white" : "border-slate-700 text-slate-300 hover:bg-slate-800"}`}
+                      >
+                        {assemblingType === "mosaic" ? (
+                          <IconLoader className="animate-spin" size={10} />
+                        ) : (
+                          <IconLayoutGrid size={12} />
+                        )}{" "}
+                        SÓLO MOS.
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -684,35 +932,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
 
             {activeTab === "docs" && (
               <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-6 p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100">
-                  {["documentacion", "docred"].map((field) => (
-                    <div key={field}>
-                      <label
-                        className={`${labelClass} ${field === "documentacion" ? "text-indigo-600" : "text-emerald-600"}`}
-                      >
-                        {field === "documentacion" ? "PDF FULL" : "PDF MOSAICO"}
-                      </label>
-                      <div className="flex gap-3">
-                        <input
-                          type="text"
-                          readOnly
-                          className={getInputStatusClass(field)}
-                          value={formData[field] || ""}
-                        />
-                        {formData[field] && (
-                          <a
-                            href={formData[field]}
-                            target="_blank"
-                            rel="noreferrer"
-                            className={`p-3 rounded-xl text-white shadow-lg ${field === "documentacion" ? "bg-indigo-600" : "bg-emerald-600"}`}
-                          >
-                            <IconEye size={20} />
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <label className={labelClass}>Bio (Drive/Web)</label>
@@ -774,7 +993,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
               </div>
             )}
 
-            <div className="pt-8 border-t flex justify-end items-center gap-4 sticky bottom-0 bg-white pb-4">
+            <div className="pt-8 border-t flex justify-end items-center gap-4 sticky bottom-0 bg-white pb-4 z-10 shrink-0">
               <button
                 type="button"
                 onClick={onCancel}
@@ -805,6 +1024,70 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
             </div>
           </form>
         </div>
+
+        {/* --- MODAL DE RECORTE (DIBUJADO LIBRE) --- */}
+        {cropModal.isOpen && (
+          <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col animate-in fade-in duration-300">
+            <div className="p-4 flex justify-between items-center bg-slate-900 text-white shadow-xl">
+              <h4 className="font-black text-xs uppercase tracking-widest flex items-center gap-2 text-orange-400">
+                <IconScissor size={16} /> Recorte Manual: Dibuja el cuadro
+              </h4>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => {
+                    setCropModal({
+                      isOpen: false,
+                      field: null,
+                      image: null,
+                      isPng: false,
+                    });
+                    setCompletedCrop(null);
+                  }}
+                  className="text-xs font-bold uppercase opacity-50 hover:opacity-100 transition-opacity"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmCrop}
+                  disabled={loading || !completedCrop}
+                  className="bg-indigo-600 px-8 py-2.5 rounded-full text-xs font-black uppercase tracking-widest hover:bg-indigo-500 disabled:bg-slate-700 flex items-center gap-2 shadow-lg shadow-indigo-500/20"
+                >
+                  {loading ? (
+                    <IconLoader className="animate-spin" size={14} />
+                  ) : (
+                    <IconCheck size={16} />
+                  )}
+                  Guardar Recorte
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 relative bg-black overflow-auto flex items-center justify-center p-10">
+              <ReactCrop
+                crop={crop}
+                onChange={(c) => setCrop(c)}
+                onComplete={(c) => setCompletedCrop(c)}
+              >
+                <img
+                  ref={imgRef}
+                  src={cropModal.image}
+                  alt="Recortar"
+                  crossOrigin="anonymous"
+                  style={{ maxHeight: "70vh" }}
+                />
+              </ReactCrop>
+            </div>
+
+            <div className="p-8 bg-slate-900 border-t border-slate-800 text-center">
+              <p className="text-[10px] text-slate-400 italic">
+                <IconInfo size={12} className="inline mr-1 text-indigo-400" />
+                Haz clic y arrastra sobre la imagen para{" "}
+                <strong>dibujar</strong> el área de recorte. Puedes ajustar los
+                bordes después.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

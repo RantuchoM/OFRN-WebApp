@@ -9,9 +9,19 @@ import {
   IconLoader,
   IconTrash,
   IconFilter,
+  IconAlertTriangle, // Nuevo ícono para pendientes
 } from "../../components/ui/Icons";
 import InstrumentFilter from "../../components/filters/InstrumentFilter";
 import MusicianForm from "./MusicianForm";
+
+// --- CONFIGURACIÓN DE PENDIENTES ---
+const MISSING_DATA_OPTIONS = [
+  { key: "domicilio", label: "Domicilio" },
+  { key: "link_dni_img", label: "Foto DNI" },
+  { key: "link_cuil", label: "Const. CUIL" },
+  { key: "link_cbu_img", label: "Const. CBU" },
+  { key: "firma", label: "Firma Digital" },
+];
 
 // --- CONFIGURACIÓN ---
 const CONDITION_OPTIONS = [
@@ -22,7 +32,92 @@ const CONDITION_OPTIONS = [
   "Becario",
   "Planta",
 ];
+const MissingDataFilter = ({ selectedFields, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+  const [dropdownStyle, setDropdownStyle] = useState({});
 
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setDropdownStyle({
+        top: rect.bottom + window.scrollY + 5,
+        left: rect.left + window.scrollX,
+        width: "200px",
+        zIndex: 99999,
+      });
+    }
+  }, [isOpen]);
+
+  const toggleField = (key) => {
+    const newSet = new Set(selectedFields);
+    if (newSet.has(key)) newSet.delete(key);
+    else newSet.add(key);
+    onChange(newSet);
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all relative ${
+          selectedFields.size > 0
+            ? "bg-orange-50 border-orange-300 text-orange-700"
+            : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+        }`}
+      >
+        <IconAlertTriangle size={14} /> Pendientes
+        {selectedFields.size > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-orange-500 text-white text-[9px] rounded-full flex items-center justify-center border-2 border-white font-black">
+            {selectedFields.size}
+          </span>
+        )}
+      </button>
+      {isOpen &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[99998]"
+              onClick={() => setIsOpen(false)}
+            />
+            <div
+              className="fixed bg-white border border-slate-300 shadow-2xl rounded-lg z-[99999] p-2 animate-in fade-in slide-in-from-top-1"
+              style={dropdownStyle}
+            >
+              <div className="text-[10px] font-black text-slate-400 uppercase mb-2 px-2 border-b border-slate-100 pb-1">
+                Falta subir...
+              </div>
+              {MISSING_DATA_OPTIONS.map((opt) => (
+                <div
+                  key={opt.key}
+                  onClick={() => toggleField(opt.key)}
+                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs text-slate-700 select-none"
+                >
+                  <div
+                    className={`w-4 h-4 border rounded flex items-center justify-center transition-colors ${selectedFields.has(opt.key) ? "bg-orange-500 border-orange-500" : "border-slate-300"}`}
+                  >
+                    {selectedFields.has(opt.key) && (
+                      <IconCheck size={10} className="text-white" />
+                    )}
+                  </div>
+                  {opt.label}
+                </div>
+              ))}
+              {selectedFields.size > 0 && (
+                <button
+                  onClick={() => onChange(new Set())}
+                  className="w-full mt-2 pt-2 border-t border-slate-100 text-[10px] font-bold text-red-500 hover:text-red-700 text-center uppercase"
+                >
+                  Limpiar Pendientes
+                </button>
+              )}
+            </div>
+          </>,
+          document.body,
+        )}
+    </div>
+  );
+};
 const getConditionStyles = (condition) => {
   switch (condition) {
     case "Estable":
@@ -470,7 +565,15 @@ const ColumnSelector = ({ visibleCols, onChange }) => {
     </div>
   );
 };
-
+const getMissingFieldsList = (item) => {
+  const missing = [];
+  if (!item.domicilio) missing.push("Domicilio");
+  if (!item.link_dni_img) missing.push("DNI");
+  if (!item.link_cuil) missing.push("CUIL");
+  if (!item.link_cbu_img) missing.push("CBU");
+  if (!item.firma) missing.push("Firma");
+  return missing;
+};
 // --- COMPONENTE PRINCIPAL ---
 export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [resultados, setResultados] = useState([]);
@@ -481,6 +584,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [conditionFilters, setConditionFilters] = useState(
     new Set(["Estable"]),
   );
+  const [missingFieldsFilters, setMissingFieldsFilters] = useState(new Set());
   const [sortConfig, setSortConfig] = useState({
     key: "apellido",
     direction: "asc",
@@ -508,10 +612,14 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
   useEffect(() => {
     fetchData();
-  }, [searchText, conditionFilters, selectedInstruments]);
+  }, [searchText, conditionFilters, selectedInstruments, missingFieldsFilters]);
 
   const fetchData = () =>
-    fetchEnsemblesAndData(selectedInstruments, conditionFilters);
+    fetchEnsemblesAndData(
+      selectedInstruments,
+      conditionFilters,
+      missingFieldsFilters,
+    );
 
   const fetchLocations = async () => {
     const { data } = await supabase
@@ -521,7 +629,12 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     if (data) setLocationsList(data);
   };
 
-  const fetchEnsemblesAndData = async (instruments, conditions) => {
+  // --- LÓGICA DE FILTRADO EN EL SERVIDOR ---
+  const fetchEnsemblesAndData = async (
+    instruments,
+    conditions,
+    missingFields,
+  ) => {
     setLoading(true);
     try {
       if (ensemblesList.length === 0) {
@@ -536,7 +649,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             *, 
             instrumentos(instrumento), 
             residencia:localidades!id_localidad(localidad),
-            viaticos:localidades!id_loc_viaticos(localidad)
+            viaticos:localidades!id_localidad(localidad)
         `);
 
       if (searchText.trim())
@@ -555,6 +668,18 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
       if (conditions.size > 0)
         query = query.in("condicion", Array.from(conditions));
+
+      // --- APLICACIÓN DEL FILTRO DE PENDIENTES ---
+      if (missingFields.size > 0) {
+        const missingOrParts = [];
+        missingFields.forEach((field) => {
+          // Buscamos que el campo sea NULL o un string vacío
+          missingOrParts.push(`${field}.is.null`);
+          missingOrParts.push(`${field}.eq.""`);
+        });
+        // Usamos .or() para que si selecciona varios, traiga a los que les falta CUALQUIERA de ellos
+        query = query.or(missingOrParts.join(","));
+      }
 
       const { data: musicians } = await query;
       const { data: relations } = await supabase
@@ -647,6 +772,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           selectedConds={conditionFilters}
           onChange={setConditionFilters}
         />
+        {/* --- NUEVO FILTRO DE PENDIENTES --- */}
+        <MissingDataFilter
+          selectedFields={missingFieldsFilters}
+          onChange={setMissingFieldsFilters}
+        />
         <ColumnSelector
           visibleCols={visibleColumns}
           onChange={setVisibleColumns}
@@ -712,7 +842,26 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                     <td
                       className={`p-1 sticky left-10 z-10 border-r font-bold shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
                     >
-                      {item.apellido}, {item.nombre}
+                      <div className="flex items-center justify-between gap-2 px-1">
+                        <span className="truncate">
+                          {item.apellido}, {item.nombre}
+                        </span>
+
+                        {/* INDICADOR DE PENDIENTES */}
+                        {(() => {
+                          const missing = getMissingFieldsList(item);
+                          if (missing.length === 0) return null;
+
+                          return (
+                            <div
+                              className="text-orange-500 hover:text-orange-600 cursor-help shrink-0 bg-orange-100 p-0.5 rounded-md transition-colors"
+                              title={`⚠️ INFORMACIÓN PENDIENTE:\n• ${missing.join("\n• ")}`}
+                            >
+                              <IconAlertTriangle size={14} />
+                            </div>
+                          );
+                        })()}
+                      </div>
                     </td>
                     {AVAILABLE_COLUMNS.map(
                       (col) =>

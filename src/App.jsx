@@ -64,6 +64,9 @@ import {
   IconDrive, // Asegúrate de tener este importado si lo usas abajo
   IconBookOpen, // <--- AGREGADO: Asegúrate de tener este ícono en Icons.jsx
   IconEdit,
+  IconAlertTriangle,
+  IconArrowRight,
+  IconUser,
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal"; // Ajusta ruta si lo guardaste en otro lado
 
@@ -442,7 +445,6 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
 // --- APP PROTEGIDA ---
 const ProtectedApp = () => {
   const { user, logout } = useAuth();
-  // USAR HOOKS DE ROUTER
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -457,44 +459,10 @@ const ProtectedApp = () => {
 
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [userAvatar, setUserAvatar] = useState(null);
-  const [userColor, setUserColor] = useState("#64748b"); // <--- NUEVO
+  const [userColor, setUserColor] = useState("#64748b");
 
-  // Actualizar el efecto de carga inicial
-  // Efecto inicial para cargar avatar Y COLOR
-  useEffect(() => {
-    if (user?.id) {
-      supabase
-        .from("integrantes")
-        .select("avatar_url, avatar_color") // <--- IMPORTANTE: Pedir avatar_color
-        .eq("id", user.id)
-        .single()
-        .then(({ data }) => {
-          if (data) {
-            if (data.avatar_url) setUserAvatar(data.avatar_url);
-            if (data.avatar_color) setUserColor(data.avatar_color);
-          }
-        });
-    }
-  }, [user]);
-  const [isEnsembleCoordinator, setIsEnsembleCoordinator] = useState(false);
-  const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
-  const { toggleVisibility, showTriggers } = useManual();
-  // --- NUEVO ESTADO DE CONTADORES ---
-  const [commentCounts, setCommentCounts] = useState({
-    total: 0,
-    mentioned: 0,
-  });
-
-  // --- ESCALADO DE UI ---
-  const [uiScale, setUiScale] = useState(() => {
-    const saved = localStorage.getItem("app_ui_scale");
-    return saved ? parseInt(saved, 10) : 100;
-  });
-
-  useEffect(() => {
-    document.documentElement.style.fontSize = `${uiScale}%`;
-    localStorage.setItem("app_ui_scale", uiScale);
-  }, [uiScale]);
+  // --- NUEVOS ESTADOS PARA DOCUMENTACIÓN PENDIENTE ---
+  const [pendingFields, setPendingFields] = useState([]);
 
   const userRole = user?.rol_sistema || "";
   const isManagement = ["admin", "editor", "coord_general"].includes(userRole);
@@ -508,7 +476,53 @@ const ProtectedApp = () => {
   const isGuestRole =
     userRole === "invitado" || userRole === "consulta_personal";
 
-  // Mapeo inverso de Tab a Modo (para inicialización)
+  // --- LÓGICA UNIFICADA: CARGAR AVATAR, COLOR Y PENDIENTES ---
+  const refreshMusicianData = async () => {
+    if (!user?.id) return;
+
+    const { data, error } = await supabase
+      .from("integrantes")
+      .select(
+        "avatar_url, avatar_color, domicilio, link_dni_img, link_cuil, link_cbu_img",
+      )
+      .eq("id", user.id)
+      .single();
+
+    if (data) {
+      if (data.avatar_url) setUserAvatar(data.avatar_url);
+      if (data.avatar_color) setUserColor(data.avatar_color);
+
+      if (userRole !== "invitado") {
+        const missing = [];
+        if (!data.domicilio) missing.push("Domicilio");
+        if (!data.link_dni_img) missing.push("DNI");
+        if (!data.link_cuil) missing.push("CUIL");
+        if (!data.link_cbu_img) missing.push("CBU");
+        setPendingFields(missing);
+      }
+    }
+  };
+
+  useEffect(() => {
+    refreshMusicianData();
+  }, [user, userRole]);
+
+  const [isEnsembleCoordinator, setIsEnsembleCoordinator] = useState(false);
+  const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
+  const { toggleVisibility, showTriggers } = useManual();
+  const [commentCounts, setCommentCounts] = useState({
+    total: 0,
+    mentioned: 0,
+  });
+  const [uiScale, setUiScale] = useState(() =>
+    parseInt(localStorage.getItem("app_ui_scale") || "100", 10),
+  );
+
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${uiScale}%`;
+    localStorage.setItem("app_ui_scale", uiScale);
+  }, [uiScale]);
+
   const tabToMode = {
     dashboard: "DASHBOARD",
     giras: "GIRAS",
@@ -523,36 +537,17 @@ const ProtectedApp = () => {
     news_manager: "NEWS_MANAGER",
     avisos: "COMMENTS",
     comidas: "MY_MEALS",
-    feedback: "FEEDBACK_ADMIN", // <--- NUEVO
-    manual: "MANUAL_INDEX", // <--- NUEVO
-    manual_admin: "MANUAL_ADMIN", // <--- NUEVO
+    feedback: "FEEDBACK_ADMIN",
+    manual: "MANUAL_INDEX",
+    manual_admin: "MANUAL_ADMIN",
   };
+  const modeToTab = Object.fromEntries(
+    Object.entries(tabToMode).map(([k, v]) => [v, k]),
+  );
 
-  // Mapeo de Modo a Tab (para actualización)
-  const modeToTab = {
-    DASHBOARD: "dashboard",
-    GIRAS: "giras",
-    FULL_AGENDA: "agenda",
-    REPERTOIRE: "repertorio",
-    ENSAMBLES: "ensambles",
-    MUSICIANS: "musicos",
-    USERS: "usuarios",
-    DATA: "datos",
-    LOCATIONS: "locaciones",
-    COORDINACION: "coordinacion",
-    COMMENTS: "avisos",
-    MY_MEALS: "comidas",
-    NEWS_MANAGER: "news_manager",
-    FEEDBACK_ADMIN: "feedback", // <--- NUEVO
-    MANUAL_INDEX: "manual", // <--- NUEVO
-    MANUAL_ADMIN: "manual_admin", // <--- NUEVO
-  };
-
-  // ESTADO DERIVADO DE URL (Single Source of Truth)
   const currentTab = searchParams.get("tab");
   const defaultMode = isPersonal ? "FULL_AGENDA" : "GIRAS";
   const [mode, setMode] = useState(tabToMode[currentTab] || defaultMode);
-
   const [activeGiraId, setActiveGiraId] = useState(searchParams.get("giraId"));
   const [initialGiraView, setInitialGiraView] = useState(
     searchParams.get("view"),
@@ -561,28 +556,19 @@ const ProtectedApp = () => {
     searchParams.get("subTab"),
   );
 
-  // --- EFECTO PARA SINCRONIZAR URL -> ESTADO LOCAL ---
   useEffect(() => {
     const tabParam = searchParams.get("tab");
-    const giraIdParam = searchParams.get("giraId");
-    const viewParam = searchParams.get("view");
-    const subTabParam = searchParams.get("subTab");
-
     const newMode = tabToMode[tabParam] || defaultMode;
-
-    // Solo actualizamos si hay cambios reales para evitar re-renders
     if (newMode !== mode) setMode(newMode);
-
     if (newMode === "GIRAS") {
-      setActiveGiraId(giraIdParam);
-      setInitialGiraView(viewParam || null);
-      setInitialGiraSubTab(subTabParam || null);
+      setActiveGiraId(searchParams.get("giraId"));
+      setInitialGiraView(searchParams.get("view") || null);
+      setInitialGiraSubTab(searchParams.get("subTab") || null);
     } else {
       setActiveGiraId(null);
     }
-  }, [searchParams, defaultMode]); // Dependencia clave: searchParams
+  }, [searchParams, defaultMode]);
 
-  // --- LÓGICA DE ACTUALIZACIÓN DE VISTA (Estado -> URL) ---
   const updateView = (
     newMode,
     giraId = null,
@@ -590,31 +576,20 @@ const ProtectedApp = () => {
     subTabParam = null,
   ) => {
     const newParams = new URLSearchParams(searchParams);
-
-    // 1. Establecer el Tab Principal
     const targetTab = modeToTab[newMode];
-    if (targetTab) {
-      newParams.set("tab", targetTab);
-    } else {
-      newParams.delete("tab");
-    }
-
-    // 2. Manejo de Parámetros de Gira
+    if (targetTab) newParams.set("tab", targetTab);
+    else newParams.delete("tab");
     if (newMode === "GIRAS" && giraId) {
       newParams.set("giraId", giraId);
       if (viewParam) newParams.set("view", viewParam);
       else newParams.delete("view");
-
       if (subTabParam) newParams.set("subTab", subTabParam);
       else newParams.delete("subTab");
     } else {
-      // Limpiar parámetros específicos de gira si cambiamos de módulo
       newParams.delete("giraId");
       newParams.delete("view");
       newParams.delete("subTab");
     }
-
-    // 3. Actualizar URL (React Router se encargará del resto)
     setSearchParams(newParams);
     setMobileMenuOpen(false);
   };
@@ -624,60 +599,43 @@ const ProtectedApp = () => {
     setGlobalCommentsOpen(false);
   };
 
-  // --- LÓGICA DE CONTADORES (Mantenida) ---
   useEffect(() => {
     if (!user || isGuestRole) return;
-
     const fetchCommentCounts = async () => {
       try {
-        const { data: comments, error } = await supabase
+        const { data: comments } = await supabase
           .from("sistema_comentarios")
           .select("created_at, id_autor, etiquetados, entidad_tipo, entidad_id")
           .eq("resuelto", false)
           .eq("deleted", false);
-
-        if (error) throw error;
-
         const { data: readings } = await supabase
           .from("comentarios_lecturas")
           .select("entidad_tipo, entidad_id, last_read_at")
           .eq("user_id", user.id);
-
         const readMap = {};
-        readings?.forEach((r) => {
-          readMap[`${r.entidad_tipo}_${r.entidad_id}`] = new Date(
-            r.last_read_at,
-          );
-        });
-
-        const uniqueUnreadThreads = new Set();
-        const uniqueMentionedThreads = new Set();
-
-        comments.forEach((c) => {
+        readings?.forEach(
+          (r) =>
+            (readMap[`${r.entidad_tipo}_${r.entidad_id}`] = new Date(
+              r.last_read_at,
+            )),
+        );
+        const unread = new Set();
+        const mentioned = new Set();
+        comments?.forEach((c) => {
           if (c.id_autor === user.id) return;
           const key = `${c.entidad_tipo}_${c.entidad_id}`;
-          const lastRead = readMap[key] || new Date(0);
-          const commentDate = new Date(c.created_at);
-
-          if (commentDate > lastRead) {
-            uniqueUnreadThreads.add(key);
-            if (c.etiquetados && c.etiquetados.includes(user.id)) {
-              uniqueMentionedThreads.add(key);
-            }
+          if (new Date(c.created_at) > (readMap[key] || new Date(0))) {
+            unread.add(key);
+            if (c.etiquetados?.includes(user.id)) mentioned.add(key);
           }
         });
-
-        setCommentCounts({
-          total: uniqueUnreadThreads.size,
-          mentioned: uniqueMentionedThreads.size,
-        });
+        setCommentCounts({ total: unread.size, mentioned: mentioned.size });
       } catch (err) {
-        console.error("Error fetching comment counts:", err);
+        console.error(err);
       }
     };
-
     fetchCommentCounts();
-    const channel = supabase
+    const ch = supabase
       .channel("global-badge")
       .on(
         "postgres_changes",
@@ -685,51 +643,27 @@ const ProtectedApp = () => {
         fetchCommentCounts,
       )
       .subscribe();
-
-    return () => supabase.removeChannel(channel);
+    return () => supabase.removeChannel(ch);
   }, [user, isGuestRole]);
 
-  // --- PERMISOS ---
   useEffect(() => {
-    const checkPermissions = async () => {
-      if (!user) return;
-      if (userRole !== "invitado") {
-        const { data } = await supabase
-          .from("instrumentos")
-          .select("*")
-          .order("id");
-        if (data) setCatalogoInstrumentos(data);
-      }
-      if (["admin", "editor", "produccion_general"].includes(userRole)) {
-        setIsEnsembleCoordinator(true);
-      } else {
-        const { count, error } = await supabase
-          .from("ensambles_coordinadores")
-          .select("id", { count: "exact", head: true })
-          .eq("id_integrante", user.id);
-        if (!error && count > 0) setIsEnsembleCoordinator(true);
-      }
-    };
-    checkPermissions();
-  }, [user, userRole]);
-
-  // Redirección forzada para roles limitados
-  useEffect(() => {
-    if (isPersonal && !isEnsembleCoordinator) {
-      const allowedModes = [
-        "FULL_AGENDA",
-        "GIRAS",
-        "AGENDA",
-        "MY_MEALS",
-        "COMMENTS",
-        "MY_PARTS",
-      ];
-      if (!allowedModes.includes(mode)) {
-        // Usar updateView en lugar de setMode directo para mantener consistencia URL
-        updateView("FULL_AGENDA");
-      }
+    if (!user) return;
+    if (userRole !== "invitado") {
+      supabase
+        .from("instrumentos")
+        .select("*")
+        .order("id")
+        .then(({ data }) => data && setCatalogoInstrumentos(data));
     }
-  }, [mode, isPersonal, isEnsembleCoordinator]);
+    if (["admin", "editor", "produccion_general"].includes(userRole))
+      setIsEnsembleCoordinator(true);
+    else
+      supabase
+        .from("ensambles_coordinadores")
+        .select("id", { count: "exact", head: true })
+        .eq("id_integrante", user.id)
+        .then(({ count }) => count > 0 && setIsEnsembleCoordinator(true));
+  }, [user, userRole]);
 
   const allMenuItems = [
     {
@@ -786,13 +720,13 @@ const ProtectedApp = () => {
       id: "MANUAL_INDEX",
       label: "Manual de Usuario",
       icon: <IconBookOpen size={20} />,
-      show: userRole !== "invitado", // Visible para todos los usuarios reales
+      show: userRole !== "invitado",
     },
     {
       id: "MANUAL_ADMIN",
       label: "Editor Manual",
       icon: <IconEdit size={20} />,
-      show: isManagement, // Solo admins/editores pueden editar el manual
+      show: isManagement,
     },
     {
       id: "USERS",
@@ -804,23 +738,40 @@ const ProtectedApp = () => {
       id: "FEEDBACK_ADMIN",
       label: "Feedback",
       icon: <IconBulb size={20} />,
-      show: userRole === "admin", // <--- VISIBLE SOLO PARA ADMIN
+      show: userRole === "admin",
     },
   ];
   const visibleMenuItems = allMenuItems.filter((i) => i.show);
 
-  // --- RENDERIZADO CONDICIONAL ---
-  const renderContent = () => {
-    // Clave para forzar re-render limpio cuando cambiamos de módulo
-    const commonProps = { supabase };
+  // --- REGENERACIÓN DE mobileNavItems (LA PARTE QUE FALTABA) ---
+  const mobileNavItems = [
+    ...(userRole !== "invitado"
+      ? [
+          {
+            id: "FULL_AGENDA",
+            icon: <IconCalendar size={24} />,
+            label: "Agenda",
+          },
+        ]
+      : []),
+    { id: "GIRAS", icon: <IconMap size={24} />, label: "Giras" },
+    { id: "COMMENTS", icon: <IconMessageCircle size={24} />, label: "Avisos" },
+    {
+      id: "MENU",
+      icon: <IconMenu size={24} />,
+      label: "Menú",
+      action: () => setMobileMenuOpen(true),
+    },
+  ];
 
+  const renderContent = () => {
+    const commonProps = { supabase };
     switch (mode) {
       case "DASHBOARD":
         return <DashboardGeneral {...commonProps} onViewChange={updateView} />;
       case "GIRAS":
         return (
           <GirasView
-            // Usamos key para forzar remontaje si cambia la gira activa radicalmente
             key={activeGiraId ? `gira-${activeGiraId}` : "giras-list"}
             initialGiraId={activeGiraId}
             initialTab={initialGiraView}
@@ -858,13 +809,17 @@ const ProtectedApp = () => {
       case "USERS":
         return <UsersManager {...commonProps} />;
       case "COMMENTS":
-        return <GlobalCommentsViewer {...commonProps} />;
-      case "MY_PARTS":
-        return <MyPartsViewer {...commonProps} />;
+        return (
+          <GlobalCommentsViewer
+            {...commonProps}
+            onNavigate={handleGlobalNavigation}
+            onCountsChange={setCommentCounts}
+          />
+        );
       case "MY_MEALS":
         return <MealsAttendancePersonal {...commonProps} />;
       case "FEEDBACK_ADMIN":
-        return <FeedbackAdmin {...commonProps} />; // <--- RENDERIZADO DE VISTA ADMIN
+        return <FeedbackAdmin {...commonProps} />;
       case "MANUAL_INDEX":
         return <ManualIndex {...commonProps} />;
       case "MANUAL_ADMIN":
@@ -874,89 +829,47 @@ const ProtectedApp = () => {
     }
   };
 
-  const mobileNavItems = [
-    ...(userRole !== "invitado"
-      ? [
-          {
-            id: "FULL_AGENDA",
-            icon: <IconCalendar size={24} />,
-            label: "Agenda",
-          },
-        ]
-      : []),
-    { id: "GIRAS", icon: <IconMap size={24} />, label: "Giras" },
-    { id: "COMMENTS", icon: <IconMessageCircle size={24} />, label: "Avisos" },
-    {
-      id: "MENU",
-      icon: <IconMenu size={24} />,
-      label: "Menú",
-      action: () => setMobileMenuOpen(true),
-    },
-  ];
-  const getCurrentManualSection = () => {
-    // Caso A: Estamos dentro de una Gira específica
+  const activeManualSection = (() => {
     if (mode === "GIRAS" && activeGiraId) {
-      const view = searchParams.get("view") || "resumen"; // Vista (Logística, Pasajes, etc.)
-      const subTab = searchParams.get("subTab"); // Sub-pestaña si existe
-
-      // Retorna algo como: 'gira_logistica', 'gira_logistica_aereos', 'gira_resumen'
-      if (subTab) return `gira_${view}_${subTab}`;
-      return `gira_${view}`;
+      const view = searchParams.get("view") || "resumen";
+      const subTab = searchParams.get("subTab");
+      return subTab ? `gira_${view}_${subTab}` : `gira_${view}`;
     }
-
-    // Caso B: Estamos en un módulo principal
-    // Retorna: 'dashboard_general', 'giras_listado', 'musicos_general', etc.
     if (mode === "GIRAS" && !activeGiraId) return "giras_listado";
-
-    // Mapeo directo del modo a una clave
     const modeMap = {
       DASHBOARD: "dashboard_general",
       FULL_AGENDA: "agenda_general",
       ENSAMBLES: "ensambles_general",
       MUSICIANS: "musicos_general",
       USERS: "usuarios_admin",
-      // Agrega los que faltan...
     };
-
     return modeMap[mode] || "app_intro_general";
-  };
+  })();
 
-  const activeManualSection = getCurrentManualSection();
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
       {/* SIDEBAR */}
       <aside
-        className={`hidden md:flex bg-slate-900 text-slate-300 flex-col shadow-xl z-20 transition-all duration-300 ease-in-out ${
-          isSidebarExpanded ? "w-64" : "w-20"
-        }`}
+        className={`hidden md:flex bg-slate-900 text-slate-300 flex-col shadow-xl z-20 transition-all duration-300 ease-in-out ${isSidebarExpanded ? "w-64" : "w-20"}`}
         onMouseEnter={() => setIsSidebarHovered(true)}
         onMouseLeave={() => setIsSidebarHovered(false)}
       >
         <div
-          className={`p-4 border-b border-slate-800 flex items-center ${
-            !isSidebarExpanded ? "justify-center" : "justify-between"
-          } gap-3`}
+          className={`p-4 border-b border-slate-800 flex items-center ${!isSidebarExpanded ? "justify-center" : "justify-between"} gap-3`}
         >
-          {isSidebarExpanded && (
-            <div className="flex items-center gap-3 overflow-hidden">
-              <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30 shrink-0">
-                O
-              </div>
-              <div className="whitespace-nowrap">
-                <h1 className="font-bold text-white text-lg tracking-tight">
-                  OF<span className="text-indigo-400">RN</span>
-                </h1>
-              </div>
-            </div>
-          )}
-          {!isSidebarExpanded && (
-            <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30 shrink-0">
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-xl shrink-0">
               O
             </div>
-          )}
+            {isSidebarExpanded && (
+              <h1 className="font-bold text-white text-lg tracking-tight">
+                OF<span className="text-indigo-400">RN</span>
+              </h1>
+            )}
+          </div>
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="text-slate-500 hover:text-white transition-colors p-1 rounded hover:bg-slate-800"
+            className="text-slate-500 hover:text-white p-1 rounded hover:bg-slate-800"
           >
             {sidebarCollapsed ? (
               <IconChevronRight size={20} />
@@ -965,32 +878,17 @@ const ProtectedApp = () => {
             )}
           </button>
         </div>
-        <nav className="flex-1 overflow-y-auto overflow-x-hidden py-6 px-3 space-y-1">
+        <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
           {visibleMenuItems.map((item) => (
             <button
               key={item.id}
               onClick={() => updateView(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group relative ${
-                mode === item.id
-                  ? "bg-indigo-600 text-white shadow-lg shadow-indigo-900/50 font-medium"
-                  : "hover:bg-slate-800 hover:text-white"
-              } ${!isSidebarExpanded ? "justify-center" : ""}`}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${mode === item.id ? "bg-indigo-600 text-white shadow-lg shadow-indigo-900/50" : "hover:bg-slate-800 hover:text-white"} ${!isSidebarExpanded ? "justify-center" : ""}`}
               title={!isSidebarExpanded ? item.label : ""}
             >
-              <span
-                className={`transition-transform duration-200 shrink-0 ${
-                  mode === item.id ? "scale-110" : "group-hover:scale-110"
-                }`}
-              >
-                {item.icon}
-              </span>
+              {item.icon}{" "}
               {isSidebarExpanded && (
-                <span className="whitespace-nowrap overflow-hidden text-ellipsis">
-                  {item.label}
-                </span>
-              )}
-              {mode === item.id && isSidebarExpanded && (
-                <div className="ml-auto w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>
+                <span className="text-sm truncate">{item.label}</span>
               )}
             </button>
           ))}
@@ -998,9 +896,7 @@ const ProtectedApp = () => {
         <div className="p-4 border-t border-slate-800">
           <button
             onClick={logout}
-            className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-slate-400 hover:bg-rose-900/30 hover:text-rose-400 transition-colors ${
-              !isSidebarExpanded ? "justify-center" : ""
-            }`}
+            className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-slate-400 hover:bg-rose-900/30 hover:text-rose-400 transition-colors ${!isSidebarExpanded ? "justify-center" : ""}`}
             title="Cerrar Sesión"
           >
             <IconLogOut size={20} />{" "}
@@ -1009,46 +905,26 @@ const ProtectedApp = () => {
         </div>
       </aside>
 
-      {/* MAIN CONTENT */}
+      {/* MAIN */}
       <div className="flex-1 flex flex-col h-full relative overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shadow-sm z-100 shrink-0">
-          {/* ZONA IZQUIERDA: HAMBURGUESA + TÍTULO */}
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shadow-sm z-40 shrink-0">
           <div className="flex items-center gap-2">
-            {/* --- NUEVO: BOTÓN HAMBURGUESA (Solo Móvil) --- */}
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="md:hidden p-2 -ml-2 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-full transition-colors mr-1"
-              title="Abrir Menú"
+              className="md:hidden p-2 -ml-2 text-slate-500 hover:text-indigo-600 rounded-full transition-colors mr-1"
             >
               <IconMenu size={24} />
             </button>
-            {/* --------------------------------------------- */}
-
-            <div className="md:hidden w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold mr-2">
-              O
-            </div>
-
-            {/* Título de la sección actual (Visible en escritorio, opcional en móvil) */}
             <h2 className="text-xl font-bold text-slate-800 hidden sm:block">
               {allMenuItems.find((m) => m.id === mode)?.label || "Panel"}
             </h2>
           </div>
+
           <div className="flex items-center gap-4">
-            {/* --- ZONA DE CONTROL DE MANUAL (CÁPSULA UNIFICADA) --- */}
-            <div className="flex items-center ml-4 bg-white border border-slate-200 rounded-full shadow-sm p-1 transition-all duration-200 hover:shadow-md hover:border-slate-300">
-              {/* 1. Toggle de Visibilidad (Interruptor) */}
+            <div className="flex items-center bg-white border border-slate-200 rounded-full shadow-sm p-1">
               <button
                 onClick={toggleVisibility}
-                className={`p-1.5 rounded-full transition-all duration-200 flex items-center justify-center ${
-                  !showTriggers
-                    ? "text-slate-400 hover:text-slate-600 hover:bg-slate-100" // Estado Apagado
-                    : "text-sky-600 bg-sky-50 hover:bg-sky-100 ring-1 ring-sky-100" // Estado Prendido (Activo)
-                }`}
-                title={
-                  showTriggers
-                    ? "Ocultar ayudas visuales"
-                    : "Mostrar ayudas visuales"
-                }
+                className={`p-1.5 rounded-full transition-colors ${!showTriggers ? "text-slate-400 hover:bg-slate-100" : "text-sky-600 bg-sky-50"}`}
               >
                 {showTriggers ? (
                   <IconEye size={18} />
@@ -1056,95 +932,83 @@ const ProtectedApp = () => {
                   <IconEyeOff size={18} />
                 )}
               </button>
-
-              {/* 2. El Trigger Contextual (Solo si está activo) */}
               {showTriggers && (
                 <>
-                  {/* Separador Vertical (El "Pegamento" visual) */}
                   <div className="w-px h-5 bg-slate-200 mx-1"></div>
-
-                  {/* El Librito */}
                   <ManualTrigger
                     section={activeManualSection}
                     size="md"
-                    className="border-0 bg-sky hover:bg-sky-100 text-sky-500 hover:text-sky-600 shadow-none !p-1.5"
+                    className="border-0 bg-transparent text-sky-500 !p-1.5 shadow-none"
                   />
                 </>
               )}
             </div>
+
             <button
               onClick={() => setCalendarModalOpen(true)}
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-full transition-colors border border-indigo-200 shadow-sm group"
-              title="Sincronizar con Google Calendar"
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-200 shadow-sm transition-colors hover:bg-indigo-100 font-bold text-xs"
             >
-              <IconCalendar
-                size={16}
-                className="group-hover:scale-110 transition-transform"
-              />{" "}
-              <span className="text-xs font-bold">Sincronizar</span>
+              <IconCalendar size={16} /> Sincronizar
             </button>
             <div className="hidden sm:block">
               <NewsModal supabase={supabase} />
             </div>
 
-            {/* --- BOTÓN DE ALERTAS MEJORADO --- */}
             {isManagement && (
               <button
                 onClick={() => setGlobalCommentsOpen(true)}
-                className="hidden sm:flex p-2 rounded-full text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors relative group"
-                title="Gestor de Pendientes"
+                className="hidden sm:flex p-2 rounded-full text-slate-400 hover:text-amber-600 relative group"
               >
-                <IconMessageSquare
-                  size={22}
-                  className="group-hover:scale-110 transition-transform"
-                />
-
-                {/* Badge ROJO: Total Pendientes */}
+                <IconMessageSquare size={22} />
                 {commentCounts.total > 0 && (
-                  <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500 text-[9px] font-bold text-white ring-2 ring-white">
-                    {commentCounts.total > 9 ? "9+" : commentCounts.total}
-                  </span>
-                )}
-
-                {/* Badge VIOLETA: Menciones (abajo) */}
-                {commentCounts.mentioned > 0 && (
-                  <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[9px] font-bold text-white ring-2 ring-white animate-pulse">
-                    {`@${
-                      commentCounts.mentioned > 9
-                        ? "9+"
-                        : commentCounts.mentioned
-                    }`}
+                  <span className="absolute top-0 right-0 h-4 w-4 rounded-full bg-indigo-500 text-[9px] font-bold text-white flex items-center justify-center ring-2 ring-white">
+                    {commentCounts.total}
                   </span>
                 )}
               </button>
             )}
 
             <div className="h-8 w-px bg-slate-200 hidden sm:block"></div>
-            {/* --- ZONA USUARIO CLICKEABLE --- */}
+
             <button
               onClick={() => setProfileModalOpen(true)}
-              className="flex items-center gap-3 hover:bg-slate-50 p-1.5 rounded-lg transition-colors group text-right"
+              // Añadimos 'pl-2' para dar espacio si aparece el icono
+              className="flex items-center gap-3 hover:bg-slate-50 p-1.5 pl-2 rounded-lg transition-colors group text-right"
               title="Editar Perfil"
             >
-              <div className="flex flex-col items-end">
-                <span className="text-sm font-bold text-slate-700 leading-tight group-hover:text-indigo-700 transition-colors">
+              {/* --- NUEVO: ALERTA PENDIENTES --- */}
+              {pendingFields.length > 0 && (
+                // Usamos animate-pulse para el parpadeo.
+                // El title muestra qué falta al pasar el mouse.
+                <div
+                  className="text-orange-500 animate-pulse hidden sm:block bg-orange-100 rounded-full p-1"
+                  title={`⚠️ Documentación pendiente: ${pendingFields.join(", ")}.\nHaz clic para completar.`}
+                >
+                  <IconAlertTriangle size={18} />
+                </div>
+              )}
+              {/* -------------------------------- */}
+
+              <div className="flex flex-col items-end hidden sm:flex">
+                <span className="text-sm font-bold text-slate-700 leading-tight group-hover:text-indigo-700">
                   {user.nombre} {user.apellido}
                 </span>
-                <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider bg-indigo-50 px-1.5 rounded">
+                <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">
                   {userRole.replace("_", " ")}
                 </span>
               </div>
-
-              {/* Botón en el Header */}
               <div
-                className={`w-10 h-10 rounded-full border-2 border-white shadow-sm group-hover:shadow-md transition-all flex items-center justify-center overflow-hidden relative ${
-                  !userAvatar ? "text-white" : "" /* Icono blanco si es color */
-                }`}
+                className="w-10 h-10 rounded-full border-2 border-white shadow-sm flex items-center justify-center overflow-hidden relative"
                 style={{
                   backgroundColor: userAvatar ? "transparent" : userColor,
-                  // Si no hay avatar, usamos el color elegido. Si hay, transparente (la img tapa).
                 }}
               >
+                {/* --- OPCIONAL: Poner un puntito naranja también sobre el avatar en móvil --- */}
+                {pendingFields.length > 0 && (
+                  <span className="sm:hidden absolute top-0 right-0 block h-2.5 w-2.5 rounded-full ring-2 ring-white bg-orange-500 animate-pulse" />
+                )}
+                {/* -------------------------------------------------------------------------- */}
+
                 {userAvatar ? (
                   <img
                     src={userAvatar}
@@ -1152,18 +1016,7 @@ const ProtectedApp = () => {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  /* Quitamos text-slate-400 para que herede text-white */
-                  <svg
-                    className="w-6 h-6"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <IconUser size={24} className="text-white" />
                 )}
               </div>
             </button>
@@ -1174,163 +1027,35 @@ const ProtectedApp = () => {
           {renderContent()}
         </main>
 
-        <div className="md:hidden h-16 bg-white border-t border-slate-200 flex items-center justify-around px-2 z-30 shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        {/* MOBILE FOOTER - USANDO mobileNavItems DEFINIDO ARRIBA */}
+        <div className="md:hidden h-16 bg-white border-t border-slate-200 flex items-center justify-around z-30 shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           {mobileNavItems.map((item) => (
             <button
               key={item.id}
               onClick={item.action || (() => updateView(item.id))}
-              className={`flex flex-col items-center justify-center w-full h-full gap-1 ${
-                mode === item.id ? "text-indigo-600" : "text-slate-400"
-              }`}
+              className={`flex flex-col items-center justify-center w-full h-full gap-1 ${mode === item.id ? "text-indigo-600" : "text-slate-400"}`}
             >
-              {item.icon}
+              {item.icon}{" "}
               <span className="text-[9px] font-bold">{item.label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {globalCommentsOpen && (
-        <GlobalCommentsViewer
-          supabase={supabase}
-          giraId={null}
-          onClose={() => {
-            setGlobalCommentsOpen(false);
-            // Forzamos refresh al cerrar para actualizar badges si resolvimos algo
-            supabase
-              .from("sistema_comentarios")
-              .select("id")
-              .limit(1)
-              .then(() => {});
-          }}
-          onNavigate={handleGlobalNavigation}
-          onCountsChange={setCommentCounts} // Actualización en tiempo real desde el modal
-        />
-      )}
-
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 flex">
-          {/* Fondo oscuro con blur */}
-          <div
-            className="absolute inset-0 bg-slate-900/95 backdrop-blur-sm animate-in fade-in"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-
-          {/* Panel Lateral */}
-          <div className="relative w-72 bg-slate-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-left duration-300">
-            <div className="p-6 flex justify-between items-center border-b border-slate-800">
-              <h2 className="text-white text-2xl font-bold">Menú</h2>
-              <button
-                onClick={() => setMobileMenuOpen(false)}
-                className="p-2 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors"
-              >
-                <IconX size={24} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {visibleMenuItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => updateView(item.id)}
-                  className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-lg font-medium transition-all ${
-                    mode === item.id
-                      ? "bg-indigo-600 text-white shadow-lg"
-                      : "text-slate-300 hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  {item.icon}
-                  {item.label}
-                </button>
-              ))}
-
-              <div className="h-px bg-slate-800 my-4"></div>
-
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  setCalendarModalOpen(true);
-                }}
-                className="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-lg font-medium text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-              >
-                <IconCalendar size={24} /> Sincronizar Calendario
-              </button>
-              {isManagement && (
-                <button
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    setGlobalCommentsOpen(true);
-                  }}
-                  className="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-lg font-medium text-amber-400 hover:bg-amber-500/10 transition-colors"
-                >
-                  <IconMessageSquare size={24} /> Pendientes Globales
-                </button>
-              )}
-            </div>
-
-            {/* --- CONTROL DE ESCALA DE UI (SLIDER) --- */}
-            <div className="p-4 border-t border-slate-800 bg-slate-900/50">
-              <div className="flex justify-between text-xs font-bold text-slate-400 uppercase mb-3">
-                <span>Tamaño de Texto / Interfaz</span>
-                <span className="text-indigo-400">{uiScale}%</span>
-              </div>
-              <input
-                type="range"
-                min="80"
-                max="115"
-                step="5"
-                value={uiScale}
-                onChange={(e) => setUiScale(Number(e.target.value))}
-                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-              />
-              <div className="flex justify-between text-[10px] text-slate-500 mt-2 font-medium">
-                <span>Compacto</span>
-                <span>Normal</span>
-                <span>Grande</span>
-              </div>
-            </div>
-
-            <div className="p-4 border-t border-slate-800">
-              <button
-                onClick={logout}
-                className="w-full py-3 bg-rose-600/90 hover:bg-rose-600 rounded-xl text-white font-bold flex items-center justify-center gap-2 transition-colors"
-              >
-                <IconLogOut size={20} /> Cerrar Sesión
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* MODAL DE PERFIL */}
       <ProfileEditModal
         isOpen={profileModalOpen}
         onClose={() => setProfileModalOpen(false)}
         user={user}
         supabase={supabase}
-        onUpdate={() => {
-          // Refrescar avatar Y COLOR al guardar
-          supabase
-            .from("integrantes")
-            .select("avatar_url, avatar_color")
-            .eq("id", user.id)
-            .single()
-            .then(({ data }) => {
-              if (data) {
-                // Actualizamos ambos estados para reflejar cambios inmediatos
-                setUserAvatar(data.avatar_url);
-                setUserColor(data.avatar_color || "#64748b");
-              }
-            });
-        }}
+        onUpdate={refreshMusicianData}
       />
+
       <CalendarSelectionModal
         isOpen={calendarModalOpen}
         onClose={() => setCalendarModalOpen(false)}
         userId={user?.id}
         isAdmin={isManagement}
       />
-
-      {/* WIDGET DE FEEDBACK */}
       <FeedbackWidget supabase={supabase} userEmail={user?.email} />
     </div>
   );

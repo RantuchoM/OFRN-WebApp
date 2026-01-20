@@ -794,9 +794,17 @@ export default function ViaticosManager({ supabase, giraId }) {
 
   const fetchPdfFromDrive = async (driveUrl) => {
     try {
+      // NUEVA LÓGICA: Si es Supabase, descargamos directo. Si no, usamos la Edge Function.
+      if (driveUrl.includes("supabase.co")) {
+        const res = await fetch(driveUrl);
+        const arrayBuffer = await res.arrayBuffer();
+        return new Uint8Array(arrayBuffer);
+      }
+
       const { data, error } = await supabase.functions.invoke("manage-drive", {
         body: { action: "get_file_content", sourceUrl: driveUrl },
       });
+
       if (error) throw error;
       if (!data || !data.success)
         throw new Error(data?.error || "Error descargando archivo de Drive");
@@ -907,10 +915,16 @@ export default function ViaticosManager({ supabase, giraId }) {
           );
         }
         if (options.docComun && personData.link_documentacion) {
-          setExportStatus(`${prefix} Copiando Doc: ${nameSafe}...`);
+          setExportStatus(`${prefix} Transfiriendo Doc: ${nameSafe}...`);
+
+          const isBucket =
+            personData.link_documentacion.includes("supabase.co");
+
           await supabase.functions.invoke("manage-drive", {
             body: {
-              action: "copy_file",
+              // Si es Bucket, usamos una nueva lógica que implementaremos en la Edge Function
+              // Si no, seguimos usando copy_file
+              action: isBucket ? "upload_from_url" : "copy_file",
               sourceUrl: personData.link_documentacion,
               targetParentId: folderId,
               newName: `${nameSafe} - Documentación`,
