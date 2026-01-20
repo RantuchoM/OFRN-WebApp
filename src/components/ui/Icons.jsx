@@ -251,16 +251,16 @@ export const IconChevronUp = ({ size = 24, className = "" }) => (
   </svg>
 );
 export const IconExchange = ({ size = 20, className = "" }) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    width={size} 
-    height={size} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
     className={className}
   >
     <path d="M16 3h5v5"></path>
@@ -270,17 +270,21 @@ export const IconExchange = ({ size = 20, className = "" }) => (
     <path d="M4 4l5 5"></path>
   </svg>
 );
-export const IconLayoutDashboard = ({ size = 24, className = "", ...props }) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    width={size} 
-    height={size} 
+export const IconLayoutDashboard = ({
+  size = 24,
+  className = "",
+  ...props
+}) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
     viewBox="0 0 24 24" // Asegúrate que coincida con tu SVG original
-    fill="none" 
+    fill="none"
     stroke="currentColor" // IMPORTANTE: Para que tome el color del texto (text-indigo-600, etc.)
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
     className={className}
     {...props}
   >
@@ -709,7 +713,7 @@ export const IconGripVertical = ({ size = 24, className = "" }) => (
     strokeLinecap="round"
     strokeLinejoin="round"
     className={className}
-    style={{ cursor: 'grab' }} // Cursor de manita
+    style={{ cursor: "grab" }} // Cursor de manita
   >
     <circle cx="9" cy="12" r="1" />
     <circle cx="9" cy="5" r="1" />
@@ -770,7 +774,39 @@ export const IconArrowUpLeft = ({ size = 24, className = "" }) => (
     <path d="M7 17V7h10" />
   </svg>
 );
-
+export const IconFolder = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  </svg>
+);
+export const IconClipboard = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+  </svg>
+);
 export const IconFolderMusic = ({ size = 24, className = "" }) => (
   <svg
     className={className}
@@ -1656,16 +1692,16 @@ export const IconHistory = ({ size = 24, className = "" }) => (
   </svg>
 );
 export const IconPencil = ({ size = 20, className = "" }) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    width={size} 
-    height={size} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
     className={className}
   >
     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -1673,16 +1709,16 @@ export const IconPencil = ({ size = 20, className = "" }) => (
   </svg>
 );
 export const IconCircle = ({ size = 20, className = "" }) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    width={size} 
-    height={size} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
     className={className}
   >
     <circle cx="12" cy="12" r="10"></circle>
@@ -1703,7 +1739,7 @@ export const IconSpiralNotebook = ({ size = 24, className = "" }) => (
   >
     {/* Contorno del Cuaderno */}
     <rect width="14" height="20" x="5" y="2" rx="2" />
-    
+
     {/* Espirales (Izquierda) */}
     <path d="M5 6h-2" />
     <path d="M5 10h-2" />
@@ -1711,10 +1747,10 @@ export const IconSpiralNotebook = ({ size = 24, className = "" }) => (
     <path d="M5 18h-2" />
 
     {/* Ítems de la lista (Desplazados +1 en el eje X para centrar en el cuaderno) */}
-    
+
     {/* 1. Tilde (Check) - Antes M9... ahora M10 */}
     <path d="M10 7l1 1 3-3" />
-    
+
     {/* 2. Cruz (X) - Antes M9/M13... ahora M10/M14 */}
     <path d="M10 11l4 4" />
     <path d="M14 11l-4 4" />
@@ -1988,5 +2024,41 @@ export const IconId = (props) => (
     <circle cx="9" cy="12" r="2" />
     <path d="M13 10h4" />
     <path d="M13 14h4" />
+  </svg>
+);
+export const IconLayoutGrid = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <rect width="7" height="7" x="3" y="3" rx="1" />
+    <rect width="7" height="7" x="14" y="3" rx="1" />
+    <rect width="7" height="7" x="14" y="14" rx="1" />
+    <rect width="7" height="7" x="3" y="14" rx="1" />
+  </svg>
+);
+export const IconCreditCard = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <rect width="20" height="14" x="2" y="5" rx="2" />
+    <line x1="2" x2="22" y1="10" y2="10" />
   </svg>
 );

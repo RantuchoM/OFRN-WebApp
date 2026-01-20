@@ -12,6 +12,7 @@ import {
   IconFileText,
   IconLayout,
   IconTag, 
+  IconBuilding, // <--- Importamos este para Provincias
 } from "../../components/ui/Icons";
 import SheetEditor from './SheetEditor';
 
@@ -27,6 +28,7 @@ export default function DataView({ supabase }) {
     categorias: [],
     ensambles: [],
     integrantes: [], 
+    provincias: [], // <--- 1. Agregado al estado inicial
   });
 
   const fetchCatalogos = async () => {
@@ -36,6 +38,9 @@ export default function DataView({ supabase }) {
         const { data: pais } = await supabase.from("paises").select("id, nombre").order("nombre");
         const { data: categoria } = await supabase.from("categorias_tipos_eventos").select("id, nombre").order("nombre");
         const { data: ens } = await supabase.from("ensambles").select("id, ensamble").order("ensamble");
+        
+        // <--- 2. AQUÍ ESTABA EL "SELECT" FALTANTE:
+        const { data: prov } = await supabase.from("provincias").select("id, nombre").order("nombre");
         
         const { data: inte, error: inteError } = await supabase
             .from("integrantes")
@@ -50,6 +55,7 @@ export default function DataView({ supabase }) {
           paises: pais?.map((p) => ({ value: p.id, label: p.nombre })) || [],
           categorias: categoria?.map((p) => ({ value: p.id, label: p.nombre })) || [],
           ensambles: ens?.map((e) => ({ value: e.id, label: e.ensamble })) || [],
+          provincias: prov?.map((p) => ({ value: p.id, label: p.nombre })) || [], // <--- 3. Mapeo de provincias
           integrantes: inte?.map((i) => ({ 
             value: i.id, 
             label: `${i.apellido}, ${i.nombre}` 
@@ -64,10 +70,8 @@ export default function DataView({ supabase }) {
     fetchCatalogos();
   }, []);
 
-  // --- FUNCIÓN SEGURA DE CAMBIO DE PESTAÑA ---
   const handleTabChange = (newTabKey) => {
     if (activeTab === newTabKey) return;
-
     if (isDirty) {
       if (!window.confirm("Tienes elementos nuevos sin guardar. ¿Seguro que quieres cambiar de tabla y perderlos?")) {
         return;
@@ -79,7 +83,13 @@ export default function DataView({ supabase }) {
 
   // --- CONFIGURACIÓN DE TABLAS ---
   const tableConfigs = {
-    
+    // <--- 4. NUEVA PESTAÑA PARA EDITAR PROVINCIAS DIRECTAMENTE
+    provincias: {
+      label: "Provincias",
+      icon: IconBuilding,
+      table: "provincias",
+      columns: [{ key: "nombre", label: "Nombre Provincia", type: "text" }],
+    },
     regiones: {
       label: "Regiones",
       icon: IconMap,
@@ -93,7 +103,9 @@ export default function DataView({ supabase }) {
       columns: [
         { key: "localidad", label: "Nombre Localidad", type: "text" },
         { key: "cp", label: "Código Postal", type: "text" },
-        { key: "id_region", label: "Región", type: "select", options: catalogos.regiones },
+        // <--- 5. COLUMNA VINCULADA EN LA TABLA LOCALIDADES
+        { key: "id_provincia", label: "Provincia", type: "select", options: catalogos.provincias },
+        { key: "id_region", label: "Región (Logística)", type: "select", options: catalogos.regiones },
       ],
     },
     locaciones: {
@@ -127,7 +139,7 @@ export default function DataView({ supabase }) {
         { key: "id_categoria", label: "Categoría", type: "select", options: catalogos.categorias },
       ],
     },
-      categorias: {
+    categorias: {
       label: "Categorías de Eventos",
       icon: IconTag, 
       table: "categorias_tipos_eventos",
@@ -154,7 +166,7 @@ export default function DataView({ supabase }) {
           ],
         },
         { key: "abreviatura", label: "Abrev.", type: "text" },
-        {key: "plaza_extra", label: "Plaza Extra", type: "checkbox" }
+        { key: "plaza_extra", label: "Plaza Extra", type: "checkbox" }
       ],
     },
     paises: {
@@ -166,15 +178,13 @@ export default function DataView({ supabase }) {
         { key: "iso", label: "ISO Code", type: "text" },
       ],
     },
-    // --- AQUÍ ESTÁ EL CAMBIO ---
     transportes: {
       label: "Transporte",
       icon: IconTruck,
       table: "transportes",
       columns: [
-        { key: "id", label: "ID", type: "number" }, // Generalmente readonly, UniversalTable lo maneja
+        { key: "id", label: "ID", type: "number" },
         { key: "nombre", label: "Nombre", type: "text" },
-        // Nueva columna de color:
         { key: "color", label: "Color Chip", type: "color", defaultValue: "#6366f1" } 
       ],
     },

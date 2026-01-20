@@ -8,6 +8,7 @@ import {
   IconCheck,
   IconLoader,
   IconTrash,
+  IconFilter,
 } from "../../components/ui/Icons";
 import InstrumentFilter from "../../components/filters/InstrumentFilter";
 import MusicianForm from "./MusicianForm";
@@ -19,10 +20,25 @@ const CONDITION_OPTIONS = [
   "Refuerzo",
   "Invitado",
   "Becario",
-  "Planta", // Agregado según tu form
+  "Planta",
 ];
 
-// --- COLUMNAS CONFIGURABLES ---
+const getConditionStyles = (condition) => {
+  switch (condition) {
+    case "Estable":
+      return "bg-emerald-50/60 hover:bg-emerald-100/60 transition-colors";
+    case "Invitado":
+      return "bg-amber-50/60 hover:bg-amber-100/60 transition-colors";
+    case "Contratado":
+    case "Planta":
+      return "bg-indigo-50/40 hover:bg-indigo-100/40 transition-colors";
+    case "Refuerzo":
+      return "bg-slate-50/50 hover:bg-slate-100/50 transition-colors";
+    default:
+      return "bg-white hover:bg-slate-50";
+  }
+};
+
 const AVAILABLE_COLUMNS = [
   {
     key: "id_instr",
@@ -54,7 +70,6 @@ const AVAILABLE_COLUMNS = [
       />
     ),
   },
-  // --- CAMBIO: Localidad ahora usa displayKey con el alias 'residencia' ---
   {
     key: "id_localidad",
     label: "Residencia",
@@ -63,7 +78,6 @@ const AVAILABLE_COLUMNS = [
     sortKey: "residencia.localidad",
     displayKey: "residencia.localidad",
   },
-  // --- NUEVA COLUMNA: Localidad de Viáticos ---
   {
     key: "id_loc_viaticos",
     label: "Viáticos (Loc)",
@@ -138,6 +152,94 @@ const getNestedValue = (obj, path) => {
   return path.split(".").reduce((o, i) => (o ? o[i] : null), obj);
 };
 
+// --- COMPONENTE FILTRO MULTIPLE DE CONDICIÓN ---
+const ConditionFilter = ({ selectedConds, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+  const [dropdownStyle, setDropdownStyle] = useState({});
+
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setDropdownStyle({
+        top: rect.bottom + window.scrollY + 5,
+        left: rect.left + window.scrollX,
+        width: "180px",
+        zIndex: 99999,
+      });
+    }
+  }, [isOpen]);
+
+  const toggleCond = (cond) => {
+    const newSet = new Set(selectedConds);
+    if (newSet.has(cond)) newSet.delete(cond);
+    else newSet.add(cond);
+    onChange(newSet);
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all relative ${
+          selectedConds.size > 0
+            ? "bg-amber-50 border-amber-300 text-amber-700"
+            : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+        }`}
+      >
+        <IconFilter size={14} /> Condición
+        {selectedConds.size > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-amber-500 text-white text-[9px] rounded-full flex items-center justify-center border-2 border-white">
+            {selectedConds.size}
+          </span>
+        )}
+      </button>
+      {isOpen &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[99998]"
+              onClick={() => setIsOpen(false)}
+            />
+            <div
+              className="fixed bg-white border border-slate-300 shadow-2xl rounded-lg z-[99999] p-2 animate-in fade-in slide-in-from-top-1"
+              style={dropdownStyle}
+            >
+              <div className="text-[10px] font-black text-slate-400 uppercase mb-2 px-2 border-b border-slate-100 pb-1">
+                Filtrar por
+              </div>
+              {CONDITION_OPTIONS.map((cond) => (
+                <div
+                  key={cond}
+                  onClick={() => toggleCond(cond)}
+                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs text-slate-700 select-none"
+                >
+                  <div
+                    className={`w-4 h-4 border rounded flex items-center justify-center transition-colors ${selectedConds.has(cond) ? "bg-amber-500 border-amber-500" : "border-slate-300"}`}
+                  >
+                    {selectedConds.has(cond) && (
+                      <IconCheck size={10} className="text-white" />
+                    )}
+                  </div>
+                  {cond}
+                </div>
+              ))}
+              {selectedConds.size > 0 && (
+                <button
+                  onClick={() => onChange(new Set())}
+                  className="w-full mt-2 pt-2 border-t border-slate-100 text-[10px] font-bold text-red-500 hover:text-red-700 text-center uppercase"
+                >
+                  Limpiar Filtros
+                </button>
+              )}
+            </div>
+          </>,
+          document.body,
+        )}
+    </div>
+  );
+};
+
 // --- CELDA EDITABLE ---
 const EditableCell = ({
   value,
@@ -150,7 +252,6 @@ const EditableCell = ({
 }) => {
   const [localValue, setLocalValue] = useState(value || "");
   const [isSaving, setIsSaving] = useState(false);
-
   useEffect(() => {
     setLocalValue(value || "");
   }, [value]);
@@ -211,7 +312,7 @@ const EditableCell = ({
   );
 };
 
-// --- CELDA MULTI-SELECT PARA ENSAMBLES (Sin cambios) ---
+// --- CELDA ENSAMBLES ---
 const EnsembleManagerCell = ({
   musicianId,
   assignedEnsembles,
@@ -281,24 +382,16 @@ const EnsembleManagerCell = ({
             <div className="max-h-48 overflow-y-auto">
               {allEnsembles.map((ens) => {
                 const isAssigned = assignedEnsembles.some(
-                  (e) => e.id === ens.id
+                  (e) => e.id === ens.id,
                 );
                 return (
                   <div
                     key={ens.id}
                     onClick={() => toggleEnsemble(ens.id)}
-                    className={`flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs ${
-                      isAssigned
-                        ? "text-indigo-700 bg-indigo-50/50"
-                        : "text-slate-700"
-                    }`}
+                    className={`flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs ${isAssigned ? "text-indigo-700 bg-indigo-50/50" : "text-slate-700"}`}
                   >
                     <div
-                      className={`w-3 h-3 border rounded flex items-center justify-center ${
-                        isAssigned
-                          ? "bg-indigo-600 border-indigo-600"
-                          : "border-slate-300"
-                      }`}
+                      className={`w-3 h-3 border rounded flex items-center justify-center ${isAssigned ? "bg-indigo-600 border-indigo-600" : "border-slate-300"}`}
                     >
                       {isAssigned && (
                         <IconCheck size={8} className="text-white" />
@@ -310,18 +403,17 @@ const EnsembleManagerCell = ({
               })}
             </div>
           </div>,
-          document.body
+          document.body,
         )}
     </div>
   );
 };
 
-// --- SELECTOR DE COLUMNAS (Sin cambios) ---
+// --- SELECTOR DE COLUMNAS ---
 const ColumnSelector = ({ visibleCols, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
   const [dropdownStyle, setDropdownStyle] = useState({});
-
   useEffect(() => {
     if (isOpen && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
@@ -338,11 +430,7 @@ const ColumnSelector = ({ visibleCols, onChange }) => {
     <div className="relative" ref={containerRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-colors ${
-          isOpen
-            ? "bg-indigo-50 border-indigo-300 text-indigo-700"
-            : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
-        }`}
+        className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-colors ${isOpen ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}`}
       >
         <IconColumns size={16} /> Columnas
       </button>
@@ -367,11 +455,7 @@ const ColumnSelector = ({ visibleCols, onChange }) => {
                 className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs text-slate-700 select-none"
               >
                 <div
-                  className={`w-4 h-4 border rounded flex items-center justify-center ${
-                    visibleCols.has(col.key)
-                      ? "bg-indigo-600 border-indigo-600"
-                      : "border-slate-300"
-                  }`}
+                  className={`w-4 h-4 border rounded flex items-center justify-center ${visibleCols.has(col.key) ? "bg-indigo-600 border-indigo-600" : "border-slate-300"}`}
                 >
                   {visibleCols.has(col.key) && (
                     <IconCheck size={10} className="text-white" />
@@ -381,52 +465,53 @@ const ColumnSelector = ({ visibleCols, onChange }) => {
               </div>
             ))}
           </div>,
-          document.body
+          document.body,
         )}
     </div>
   );
 };
 
+// --- COMPONENTE PRINCIPAL ---
 export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [resultados, setResultados] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [localSearchText, setLocalSearchText] = useState("");
   const [searchText, setSearchText] = useState("");
   const [selectedInstruments, setSelectedInstruments] = useState(new Set());
-  const [conditionFilter, setConditionFilter] = useState("");
+  const [conditionFilters, setConditionFilters] = useState(
+    new Set(["Estable"]),
+  );
   const [sortConfig, setSortConfig] = useState({
     key: "apellido",
     direction: "asc",
   });
-
-  // Columnas visibles por defecto
   const [visibleColumns, setVisibleColumns] = useState(
-    new Set(["id_instr", "condicion", "id_localidad", "mail", "telefono"])
+    new Set(["id_instr", "condicion", "id_localidad", "mail", "telefono"]),
   );
-
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [locationsList, setLocationsList] = useState([]);
-
-  const [editFormData, setEditFormData] = useState({}); // Form state placeholder
+  const [editFormData, setEditFormData] = useState({});
 
   useEffect(() => {
     const allIds = new Set(catalogoInstrumentos.map((i) => i.id));
     allIds.add("null");
     setSelectedInstruments(allIds);
     fetchLocations();
-    fetchEnsemblesAndData(allIds, "");
   }, [catalogoInstrumentos]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchData();
-    }, 300);
+    const timer = setTimeout(() => setSearchText(localSearchText), 400);
     return () => clearTimeout(timer);
-  }, [searchText]);
+  }, [localSearchText]);
+
+  useEffect(() => {
+    fetchData();
+  }, [searchText, conditionFilters, selectedInstruments]);
 
   const fetchData = () =>
-    fetchEnsemblesAndData(selectedInstruments, conditionFilter);
+    fetchEnsemblesAndData(selectedInstruments, conditionFilters);
 
   const fetchLocations = async () => {
     const { data } = await supabase
@@ -436,7 +521,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     if (data) setLocationsList(data);
   };
 
-  const fetchEnsemblesAndData = async (instruments, cond) => {
+  const fetchEnsemblesAndData = async (instruments, conditions) => {
     setLoading(true);
     try {
       if (ensemblesList.length === 0) {
@@ -447,8 +532,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         if (ens) setEnsemblesList(ens);
       }
 
-      // --- CONSULTA CON ALIAS ---
-      // Usamos 'residencia' y 'viaticos' para diferenciar las dos relaciones con 'localidades'
       let query = supabase.from("integrantes").select(`
             *, 
             instrumentos(instrumento), 
@@ -458,7 +541,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
       if (searchText.trim())
         query = query.or(
-          `nombre.ilike.%${searchText.trim()}%,apellido.ilike.%${searchText.trim()}%`
+          `nombre.ilike.%${searchText.trim()}%,apellido.ilike.%${searchText.trim()}%`,
         );
 
       const realIds = Array.from(instruments).filter((id) => id !== "null");
@@ -469,7 +552,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         if (instruments.has("null")) orParts.push(`id_instr.is.null`);
         query = query.or(orParts.join(","));
       }
-      if (cond) query = query.eq("condicion", cond);
+
+      if (conditions.size > 0)
+        query = query.in("condicion", Array.from(conditions));
 
       const { data: musicians } = await query;
       const { data: relations } = await supabase
@@ -492,9 +577,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const handleInlineUpdate = async (id, field, value) => {
     try {
       let updatePayload = { [field]: value === "" ? null : value };
-
-      // Mapeo de campos especiales para inline editing
-      if (field === "id_instr") updatePayload = { id_instr: value || null }; // Corregido key
+      if (field === "id_instr") updatePayload = { id_instr: value || null };
       if (field === "id_localidad")
         updatePayload = { id_localidad: value ? parseInt(value) : null };
       if (field === "id_loc_viaticos")
@@ -513,7 +596,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
   const startEditModal = async (item) => {
     setEditingId(item.id);
-    setEditFormData({ ...item }); // Ahora incluye id_loc_viaticos gracias al fetch completo
+    setEditFormData({ ...item });
   };
 
   const sortedResultados = useMemo(() => {
@@ -542,7 +625,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   return (
     <div className="space-y-4 h-full flex flex-col overflow-hidden animate-in fade-in">
       <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 shrink-0 flex flex-col md:flex-row gap-3 items-center">
-        {/* ... Filtros (Sin cambios) ... */}
         <div className="flex-1 w-full relative">
           <IconSearch
             size={16}
@@ -551,34 +633,20 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           <input
             type="text"
             className="w-full pl-9 pr-4 py-1.5 text-sm border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-            placeholder="Buscar..."
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
+            placeholder="Buscar por nombre o apellido..."
+            value={localSearchText}
+            onChange={(e) => setLocalSearchText(e.target.value)}
           />
         </div>
         <InstrumentFilter
           catalogo={catalogoInstrumentos}
           selectedIds={selectedInstruments}
-          onChange={(s) => {
-            setSelectedInstruments(s);
-            fetchData();
-          }}
+          onChange={(s) => setSelectedInstruments(s)}
         />
-        <select
-          className="bg-white border p-1.5 rounded text-xs font-bold text-slate-600 outline-none"
-          value={conditionFilter}
-          onChange={(e) => {
-            setConditionFilter(e.target.value);
-            fetchData();
-          }}
-        >
-          <option value="">Todas las condiciones</option>
-          {CONDITION_OPTIONS.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+        <ConditionFilter
+          selectedConds={conditionFilters}
+          onChange={setConditionFilters}
+        />
         <ColumnSelector
           visibleCols={visibleColumns}
           onChange={setVisibleColumns}
@@ -588,7 +656,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             setEditingId(null);
             setIsAdding(true);
           }}
-          className="bg-indigo-600 text-white p-2 rounded-lg"
+          className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 shadow-md transition-all"
         >
           <IconPlus size={20} />
         </button>
@@ -597,13 +665,13 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       <div className="flex-1 bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-auto flex-1">
           <table className="w-full text-left border-collapse min-w-[1200px]">
-            <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] sticky top-0 z-10 border-b border-slate-200">
+            <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] sticky top-0 z-30 border-b border-slate-200">
               <tr>
-                <th className="p-2 w-10 text-center sticky left-0 bg-slate-50 z-20">
+                <th className="p-2 w-10 text-center sticky left-0 bg-slate-50 z-40 shadow-[1px_0_0_0_rgba(0,0,0,0.05)]">
                   #
                 </th>
                 <th
-                  className="p-2 w-40 sticky left-10 bg-slate-50 border-r z-20 cursor-pointer"
+                  className="p-2 w-40 sticky left-10 bg-slate-50 border-r z-40 shadow-[1px_0_0_0_rgba(0,0,0,0.05)] cursor-pointer"
                   onClick={() =>
                     setSortConfig({
                       key: "apellido",
@@ -624,84 +692,91 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                       >
                         {col.label}
                       </th>
-                    )
+                    ),
                 )}
-                <th className="p-2 text-right w-20 sticky right-0 bg-slate-50 z-20">
+                <th className="p-2 text-right w-20 sticky right-0 bg-slate-50 z-30 shadow-[-1px_0_0_0_rgba(0,0,0,0.05)]">
                   Acciones
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
-              {sortedResultados.map((item, idx) => (
-                <tr key={item.id} className="hover:bg-indigo-50/30 group">
-                  <td className="p-1 text-center sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r">
-                    {idx + 1}
-                  </td>
-                  <td className="p-1 sticky left-10 bg-white group-hover:bg-slate-50 z-10 border-r font-bold">
-                    {item.apellido}, {item.nombre}
-                  </td>
-
-                  {AVAILABLE_COLUMNS.map(
-                    (col) =>
-                      visibleColumns.has(col.key) && (
-                        <td key={col.key} className="p-0 border-r">
-                          {col.render ? (
-                            col.render(item, {
-                              ensemblesList,
-                              supabase,
-                              refreshData: fetchData,
-                            })
-                          ) : (
-                            <EditableCell
-                              // --- CORRECCIÓN: Si es select, forzamos el uso del ID (col.key) ---
-                              value={
-                                col.type === "select"
-                                  ? item[col.key]
-                                  : col.displayKey
-                                  ? getNestedValue(item, col.displayKey)
-                                  : item[col.key]
-                              }
-                              rowId={item.id}
-                              field={col.key}
-                              type={col.type}
-                              options={
-                                col.key === "id_instr"
-                                  ? instrumentOptions
-                                  : col.key === "id_localidad" ||
-                                    col.key === "id_loc_viaticos"
-                                  ? locationOptions
-                                  : conditionOptions
-                              }
-                              onSave={handleInlineUpdate}
-                            />
-                          )}
-                        </td>
-                      )
-                  )}
-                  <td className="p-1 text-center sticky right-0 bg-white group-hover:bg-slate-50 z-10 border-l flex justify-end gap-1">
-                    <button
-                      onClick={() => startEditModal(item)}
-                      className="text-slate-400 hover:text-indigo-600 p-1"
+              {sortedResultados.map((item, idx) => {
+                const conditionClass = getConditionStyles(item.condicion);
+                return (
+                  <tr key={item.id} className={`${conditionClass} group`}>
+                    <td
+                      className={`p-1 text-center sticky left-0 z-10 border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
                     >
-                      <IconEdit size={16} />
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (confirm("¿Eliminar?")) {
-                          await supabase
-                            .from("integrantes")
-                            .delete()
-                            .eq("id", item.id);
-                          fetchData();
-                        }
-                      }}
-                      className="text-slate-400 hover:text-red-600 p-1"
+                      {idx + 1}
+                    </td>
+                    <td
+                      className={`p-1 sticky left-10 z-10 border-r font-bold shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
                     >
-                      <IconTrash size={16} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      {item.apellido}, {item.nombre}
+                    </td>
+                    {AVAILABLE_COLUMNS.map(
+                      (col) =>
+                        visibleColumns.has(col.key) && (
+                          <td key={col.key} className="p-0 border-r">
+                            {col.render ? (
+                              col.render(item, {
+                                ensemblesList,
+                                supabase,
+                                refreshData: fetchData,
+                              })
+                            ) : (
+                              <EditableCell
+                                value={
+                                  col.type === "select"
+                                    ? item[col.key]
+                                    : col.displayKey
+                                      ? getNestedValue(item, col.displayKey)
+                                      : item[col.key]
+                                }
+                                rowId={item.id}
+                                field={col.key}
+                                type={col.type}
+                                options={
+                                  col.key === "id_instr"
+                                    ? instrumentOptions
+                                    : col.key === "id_localidad" ||
+                                        col.key === "id_loc_viaticos"
+                                      ? locationOptions
+                                      : conditionOptions
+                                }
+                                onSave={handleInlineUpdate}
+                              />
+                            )}
+                          </td>
+                        ),
+                    )}
+                    <td
+                      className={`p-1 text-center sticky right-0 z-10 border-l flex justify-end gap-1 shadow-[-1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
+                    >
+                      <button
+                        onClick={() => startEditModal(item)}
+                        className="text-slate-400 hover:text-indigo-600 p-1"
+                      >
+                        <IconEdit size={16} />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (confirm("¿Eliminar?")) {
+                            await supabase
+                              .from("integrantes")
+                              .delete()
+                              .eq("id", item.id);
+                            fetchData();
+                          }
+                        }}
+                        className="text-slate-400 hover:text-red-600 p-1"
+                      >
+                        <IconTrash size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -715,9 +790,13 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               musician={
                 isAdding ? { id: null, condicion: "Invitado" } : editFormData
               }
-              onSave={() => {
-                setIsAdding(false);
-                setEditingId(null);
+              onSave={(data, shouldClose = true) => {
+                if (shouldClose) {
+                  setIsAdding(false);
+                  setEditingId(null);
+                } else {
+                  setEditFormData((prev) => ({ ...prev, ...data }));
+                }
                 fetchData();
               }}
               onCancel={() => {
@@ -726,7 +805,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               }}
             />
           </div>,
-          document.body
+          document.body,
         )}
     </div>
   );
