@@ -3,7 +3,7 @@ import ReactCrop from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
 import * as pdfjsLib from "pdfjs-dist";
 
-// Forzamos una versión específica del worker para evitar errores de carga
+// Configuración del worker de PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
 import {
@@ -30,11 +30,19 @@ import {
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import DateInput from "../../components/ui/DateInput";
 
-// =================================================================================
-// UTILIDADES DE PROCESAMIENTO (RECORTE, PDF Y COMPRESIÓN)
-// =================================================================================
+// --- UTILIDAD: SANEAR NOMBRES (Álvarez -> alvarez) ---
+const sanitizeFilename = (str) => {
+  if (!str) return "archivo";
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ñ/g, "n")
+    .replace(/Ñ/g, "N")
+    .replace(/[^a-zA-Z0-9.-]/g, "_")
+    .toLowerCase();
+};
 
-// 1. Convertir la primera página de un PDF a imagen
+// --- UTILIDAD: PDF A IMAGEN ---
 const convertPdfToImage = async (pdfUrl) => {
   try {
     const loadingTask = pdfjsLib.getDocument(pdfUrl);
@@ -45,16 +53,14 @@ const convertPdfToImage = async (pdfUrl) => {
     const context = canvas.getContext("2d");
     canvas.height = viewport.height;
     canvas.width = viewport.width;
-
     await page.render({ canvasContext: context, viewport: viewport }).promise;
     return canvas.toDataURL("image/jpeg", 0.95);
   } catch (error) {
-    console.error("Error en convertPdfToImage:", error);
     throw error;
   }
 };
 
-// 2. Generar el archivo recortado (PNG transparente o JPG fondo blanco)
+// --- UTILIDAD: RECORTE ---
 const getCroppedImg = async (image, crop, isPng = false) => {
   const canvas = document.createElement("canvas");
   const scaleX = image.naturalWidth / image.width;
@@ -62,13 +68,10 @@ const getCroppedImg = async (image, crop, isPng = false) => {
   canvas.width = crop.width;
   canvas.height = crop.height;
   const ctx = canvas.getContext("2d");
-
-  // Si es JPG, ponemos fondo blanco en lugar de negro
   if (!isPng) {
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
-
   ctx.drawImage(
     image,
     crop.x * scaleX,
@@ -80,24 +83,23 @@ const getCroppedImg = async (image, crop, isPng = false) => {
     crop.width,
     crop.height,
   );
-
   return new Promise((resolve) => {
-    const mimeType = isPng ? "image/png" : "image/jpeg";
+    const type = isPng ? "image/png" : "image/jpeg";
     canvas.toBlob(
       (blob) => {
         resolve(
           new File([blob], `cropped_${Date.now()}.${isPng ? "png" : "jpg"}`, {
-            type: mimeType,
+            type,
           }),
         );
       },
-      mimeType,
+      type,
       0.95,
     );
   });
 };
 
-// 3. Compresión estándar
+// --- UTILIDAD: COMPRESIÓN ---
 const compressImage = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -134,7 +136,6 @@ const compressImage = (file) => {
   });
 };
 
-// 4. Hook de Debounce
 function useDebouncedCallback(callback, delay) {
   const handler = useRef(null);
   return useCallback(
@@ -146,10 +147,6 @@ function useDebouncedCallback(callback, delay) {
   );
 }
 
-// =================================================================================
-// COMPONENTE PRINCIPAL
-// =================================================================================
-
 export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const [loading, setLoading] = useState(false);
   const [assemblingType, setAssemblingType] = useState(null);
@@ -158,7 +155,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const [showPassword, setShowPassword] = useState(false);
   const [fieldStatuses, setFieldStatuses] = useState({});
 
-  // Estados del Recorte
   const [cropModal, setCropModal] = useState({
     isOpen: false,
     field: null,
@@ -237,14 +233,14 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       setFormData((prev) => ({
         ...prev,
         ...musician,
+        fecha_alta: musician.fecha_alta || "", // <-- Agregar esto
+        fecha_baja: musician.fecha_baja || "", // <-- Agregar esto
         id_localidad: musician.id_localidad || null,
         id_loc_viaticos: musician.id_loc_viaticos || null,
         id_instr: musician.id_instr ? String(musician.id_instr) : "",
       }));
     }
   }, [musician?.id, formData.id]);
-
-  // --- FUNCIONES DE ESTADO Y GUARDADO ---
 
   const getInputStatusClass = (fieldName) => {
     const status = fieldStatuses[fieldName];
@@ -299,6 +295,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   };
 
   const uploadToSupabase = async (file, field, oldUrl) => {
+    if (!file) return;
     setUploadingField(field);
     setFieldStatuses((prev) => ({ ...prev, [field]: "saving" }));
     const bucket = field === "firma" ? "firmas" : "musician-docs";
@@ -307,7 +304,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       if (oldUrl) await deleteOldFile(oldUrl, bucket);
       let fileToUpload = file;
 
-      // Comprimimos si es imagen pero NO si es firma o resultado de crop
       if (
         file.type.startsWith("image/") &&
         field !== "firma" &&
@@ -316,21 +312,21 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         fileToUpload = await compressImage(file);
       }
 
+      // --- CAMBIO CLAVE: SANEAMIENTO DE NOMBRE ---
       const fileExt = file.type === "image/png" ? "png" : "jpg";
-      const fileName =
-        `${formData.apellido || "musician"}_${field}_${Date.now()}.${fileExt}`.toLowerCase();
+      const cleanSurname = sanitizeFilename(formData.apellido || "musician");
+      const fileName = `${cleanSurname}_${field}_${Date.now()}.${fileExt}`;
       const filePath = field === "firma" ? fileName : `docs/${fileName}`;
 
-      const { error } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from(bucket)
         .upload(filePath, fileToUpload);
-      if (error) throw error;
+      if (uploadError) throw uploadError;
 
       const {
         data: { publicUrl },
       } = supabase.storage.from(bucket).getPublicUrl(filePath);
 
-      // Actualizar DB y forzar disparo del Combo
       await supabase
         .from("integrantes")
         .update({
@@ -349,6 +345,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         2000,
       );
     } catch (error) {
+      console.error("DEBUG - Upload Error:", error);
       setFieldStatuses((prev) => ({ ...prev, [field]: "error" }));
     } finally {
       setUploadingField(null);
@@ -361,14 +358,10 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       let imageUrl = url;
       const isPdf = url.toLowerCase().includes(".pdf");
       const isPng = url.toLowerCase().includes(".png") || field === "firma";
-
-      if (isPdf) {
-        imageUrl = await convertPdfToImage(url);
-      }
-
+      if (isPdf) imageUrl = await convertPdfToImage(url);
       setCropModal({ isOpen: true, field, image: imageUrl, isPng });
     } catch (e) {
-      alert("Error al abrir el editor de imagen");
+      alert("Error al cargar imagen");
     } finally {
       setLoading(false);
     }
@@ -391,7 +384,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       setCropModal({ isOpen: false, field: null, image: null, isPng: false });
       setCompletedCrop(null);
     } catch (e) {
-      alert("Error al guardar el recorte");
+      alert("Error al guardar recorte");
     } finally {
       setLoading(false);
     }
@@ -404,7 +397,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         for (const type of item.types) {
           if (type.startsWith("image/")) {
             const blob = await item.getType(type);
-            const file = new File([blob], `captured_${field}.png`, {
+            const file = new File([blob], `pasted_${field}.png`, {
               type: "image/png",
             });
             uploadToSupabase(file, field, currentUrl);
@@ -417,7 +410,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     }
   };
 
-  // --- ACCIONES DE GENERACIÓN ---
   const handleAssemble = async (layout) => {
     if (!formData.id) return alert("Guarda la ficha primero.");
     const sources = [
@@ -556,13 +548,13 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     }
   };
 
+  // --- COMPONENTE FILE UPLOADER (CON DRAG & DROP) ---
   const FileUploader = ({ label, field, value }) => {
     const [isDragging, setIsDragging] = useState(false);
     const status = fieldStatuses[field];
     const isPdf = value && value.toLowerCase().includes(".pdf");
     const bucket = field === "firma" ? "firmas" : "musician-docs";
 
-    // Handlers para Drag & Drop
     const handleDrag = (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -589,19 +581,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
           onDragOver={handleDrag}
           onDragLeave={handleDrag}
           onDrop={handleDrop}
-          className={`relative h-40 rounded-3xl border-2 transition-all overflow-hidden group ${
-            isDragging
-              ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-lg"
-              : ""
-          } ${
-            status === "saving"
-              ? "border-orange-400 ring-4 ring-orange-50"
-              : status === "saved"
-                ? "border-emerald-400 ring-4 ring-emerald-50"
-                : value
-                  ? "border-emerald-100 bg-white"
-                  : "border-dashed border-slate-200 bg-slate-50 hover:border-indigo-300"
-          }`}
+          className={`relative h-40 rounded-3xl border-2 transition-all overflow-hidden group ${isDragging ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-lg" : ""} ${status === "saving" ? "border-orange-400 ring-4 ring-orange-50" : status === "saved" ? "border-emerald-400 ring-4 ring-emerald-50" : value ? "border-emerald-100 bg-white" : "border-dashed border-slate-200 bg-slate-50 hover:border-indigo-300"}`}
         >
           {value ? (
             <>
@@ -668,8 +648,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                   />
                 )}
                 {isDragging && (
-                  <span className="text-[8px] font-black mt-2 text-indigo-500">
-                    ¡SUELTA AQUÍ!
+                  <span className="text-[8px] font-black mt-2 text-indigo-500 uppercase">
+                    Soltar Aquí
                   </span>
                 )}
               </div>
@@ -748,7 +728,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
           ))}
         </div>
 
-        {/* Form Body */}
         <div className="flex-1 overflow-y-auto p-8 bg-white custom-scrollbar">
           <form onSubmit={(e) => e.preventDefault()} className="space-y-8">
             {activeTab === "personal" && (
@@ -806,6 +785,22 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       label="Nacimiento"
                       value={formData.fecha_nac || ""}
                       onChange={(val) => updateField("fecha_nac", val)}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <DateInput
+                      label="Fecha Alta"
+                      value={formData.fecha_alta || ""}
+                      onChange={(val) => updateField("fecha_alta", val)}
+                    />
+                  </div>
+                  <div>
+                    <DateInput
+                      label="Fecha Baja"
+                      value={formData.fecha_baja || ""}
+                      onChange={(val) => updateField("fecha_baja", val)}
                     />
                   </div>
                 </div>
@@ -925,7 +920,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                         type="button"
                         disabled={assemblingType !== null}
                         onClick={handleGenerateDJ}
-                        className={`py-2 px-3 rounded-xl text-[8px] font-black border transition-colors flex items-center justify-center gap-1 uppercase ${assemblingType === "dj" ? "bg-orange-500 border-orange-500 text-white" : "border-slate-700 text-slate-300 hover:bg-slate-800"}`}
+                        className={`py-2 px-3 rounded-xl text-[8px] font-black border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center justify-center gap-1 uppercase`}
                       >
                         {assemblingType === "dj" ? (
                           <IconLoader className="animate-spin" size={10} />
@@ -938,7 +933,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                         type="button"
                         disabled={assemblingType !== null}
                         onClick={() => handleAssemble("full")}
-                        className={`py-2 px-3 rounded-xl text-[8px] font-black border transition-colors flex items-center justify-center gap-1 uppercase ${assemblingType === "full" ? "bg-orange-500 border-orange-500 text-white" : "border-slate-700 text-slate-300 hover:bg-slate-800"}`}
+                        className={`py-2 px-3 rounded-xl text-[8px] font-black border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center justify-center gap-1 uppercase`}
                       >
                         {assemblingType === "full" ? (
                           <IconLoader className="animate-spin" size={10} />
@@ -951,7 +946,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                         type="button"
                         disabled={assemblingType !== null}
                         onClick={() => handleAssemble("mosaic")}
-                        className={`py-2 px-3 rounded-xl text-[8px] font-black border transition-colors flex items-center justify-center gap-1 uppercase ${assemblingType === "mosaic" ? "bg-orange-500 border-orange-500 text-white" : "border-slate-700 text-slate-300 hover:bg-slate-800"}`}
+                        className={`py-2 px-3 rounded-xl text-[8px] font-black border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center justify-center gap-1 uppercase`}
                       >
                         {assemblingType === "mosaic" ? (
                           <IconLoader className="animate-spin" size={10} />
@@ -1041,7 +1036,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 <button
                   onClick={handleCreateInitial}
                   disabled={loading}
-                  className="bg-indigo-600 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-indigo-100 flex items-center gap-3"
+                  className="bg-indigo-600 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center gap-3"
                 >
                   {loading ? (
                     <IconLoader className="animate-spin" size={18} />
@@ -1086,18 +1081,17 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 <button
                   onClick={handleConfirmCrop}
                   disabled={loading || !completedCrop}
-                  className="bg-indigo-600 px-8 py-2.5 rounded-full text-xs font-black uppercase tracking-widest hover:bg-indigo-500 disabled:bg-slate-700 flex items-center gap-2 shadow-lg shadow-indigo-500/20"
+                  className="bg-indigo-600 px-8 py-2.5 rounded-full text-xs font-black uppercase tracking-widest hover:bg-indigo-500 disabled:bg-slate-700 flex items-center gap-2"
                 >
                   {loading ? (
                     <IconLoader className="animate-spin" size={14} />
                   ) : (
                     <IconCheck size={16} />
-                  )}
+                  )}{" "}
                   Guardar Recorte
                 </button>
               </div>
             </div>
-
             <div className="flex-1 relative bg-black overflow-auto flex items-center justify-center p-10">
               <ReactCrop
                 crop={crop}
@@ -1113,10 +1107,9 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 />
               </ReactCrop>
             </div>
-
             <div className="p-8 bg-slate-900 border-t border-slate-800 text-center">
               <p className="text-[10px] text-slate-400 italic">
-                <IconInfo size={12} className="inline mr-1 text-indigo-400" />
+                <IconInfo size={12} className="inline mr-1 text-indigo-400" />{" "}
                 Haz clic y arrastra sobre la imagen para{" "}
                 <strong>dibujar</strong> el área de recorte. Puedes ajustar los
                 bordes después.

@@ -584,6 +584,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [conditionFilters, setConditionFilters] = useState(
     new Set(["Estable"]),
   );
+  // Dentro de export default function MusiciansView...
+  const [onlyVigente, setOnlyVigente] = useState(true); // Filtro vigente activo por defecto
   const [missingFieldsFilters, setMissingFieldsFilters] = useState(new Set());
   const [sortConfig, setSortConfig] = useState({
     key: "apellido",
@@ -612,7 +614,13 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
   useEffect(() => {
     fetchData();
-  }, [searchText, conditionFilters, selectedInstruments, missingFieldsFilters]);
+  }, [
+    searchText,
+    conditionFilters,
+    selectedInstruments,
+    missingFieldsFilters,
+    onlyVigente,
+  ]);
 
   const fetchData = () =>
     fetchEnsemblesAndData(
@@ -680,7 +688,17 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         // Usamos .or() para que si selecciona varios, traiga a los que les falta CUALQUIERA de ellos
         query = query.or(missingOrParts.join(","));
       }
+      // Dentro de fetchEnsemblesAndData, antes de const { data: musicians } = await query;
 
+      if (onlyVigente) {
+        const hoy = new Date().toISOString().split("T")[0]; // Formato YYYY-MM-DD
+
+        // Regla Alta: Alta <= Hoy O Alta es NULL
+        query = query.or(`fecha_alta.lte.${hoy},fecha_alta.is.null`);
+
+        // Regla Baja: Baja >= Hoy O Baja es NULL
+        query = query.or(`fecha_baja.gte.${hoy},fecha_baja.is.null`);
+      }
       const { data: musicians } = await query;
       const { data: relations } = await supabase
         .from("integrantes_ensambles")
@@ -772,6 +790,20 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           selectedConds={conditionFilters}
           onChange={setConditionFilters}
         />
+        {/* --- FILTRO VIGENTE --- */}
+        <button
+          onClick={() => setOnlyVigente(!onlyVigente)}
+          className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all ${
+            onlyVigente
+              ? "bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm"
+              : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+          }`}
+        >
+          <div
+            className={`w-2 h-2 rounded-full ${onlyVigente ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`}
+          />
+          Vigentes
+        </button>
         {/* --- NUEVO FILTRO DE PENDIENTES --- */}
         <MissingDataFilter
           selectedFields={missingFieldsFilters}
