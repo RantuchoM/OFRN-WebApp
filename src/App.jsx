@@ -458,6 +458,7 @@ const ProtectedApp = () => {
   const isSidebarExpanded = !sidebarCollapsed || isSidebarHovered;
 
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [userData, setUserData] = useState(null); // <--- AÑADIR ESTA LÍNEA
   const [userAvatar, setUserAvatar] = useState(null);
   const [userColor, setUserColor] = useState("#64748b");
 
@@ -483,12 +484,13 @@ const ProtectedApp = () => {
     const { data, error } = await supabase
       .from("integrantes")
       .select(
-        "avatar_url, avatar_color, domicilio, link_dni_img, link_cuil, link_cbu_img",
-      )
+        "avatar_url, avatar_color, domicilio, link_dni_img, link_cuil, link_cbu_img, last_verified_at",
+      ) // <--- Agregué last_verified_at
       .eq("id", user.id)
       .single();
 
     if (data) {
+      setUserData(data); // <--- AÑADIR ESTA LÍNEA
       if (data.avatar_url) setUserAvatar(data.avatar_url);
       if (data.avatar_color) setUserColor(data.avatar_color);
 
@@ -845,7 +847,12 @@ const ProtectedApp = () => {
     };
     return modeMap[mode] || "app_intro_general";
   })();
-
+  // 1. Lógica de cálculo (dentro del componente)
+  const currentYear = new Date().getFullYear();
+  const lastVerifiedYear = userData?.last_verified_at
+    ? new Date(userData.last_verified_at).getFullYear()
+    : null;
+  const needsVerification = userData && lastVerifiedYear !== currentYear;
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
       {/* SIDEBAR */}
@@ -969,7 +976,21 @@ const ProtectedApp = () => {
             )}
 
             <div className="h-8 w-px bg-slate-200 hidden sm:block"></div>
-
+            {needsVerification && (
+              <div className="bg-orange-600 text-white px-4 py-2 flex items-center justify-center gap-3 shadow-lg animate-in slide-in-from-top duration-500 sticky top-0 z-[100]">
+                <IconAlertTriangle size={18} className="animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-widest">
+                  Atención: Debes verificar y confirmar tus datos para el ciclo{" "}
+                  {currentYear}
+                </span>
+                <button
+                  onClick={() => setProfileModalOpen(true)}
+                  className="bg-white text-orange-600 px-3 py-1 rounded-full text-[9px] font-black uppercase hover:bg-orange-50 transition-colors shadow-sm"
+                >
+                  Verificar Ahora
+                </button>
+              </div>
+            )}
             <button
               onClick={() => setProfileModalOpen(true)}
               // Añadimos 'pl-2' para dar espacio si aparece el icono
