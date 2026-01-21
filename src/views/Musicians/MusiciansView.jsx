@@ -30,7 +30,6 @@ const CONDITION_OPTIONS = [
   "Refuerzo",
   "Invitado",
   "Becario",
-  "Planta",
 ];
 const MissingDataFilter = ({ selectedFields, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -125,7 +124,7 @@ const getConditionStyles = (condition) => {
     case "Invitado":
       return "bg-amber-50/60 hover:bg-amber-100/60 transition-colors";
     case "Contratado":
-    case "Planta":
+    case "Becario":
       return "bg-indigo-50/40 hover:bg-indigo-100/40 transition-colors";
     case "Refuerzo":
       return "bg-slate-50/50 hover:bg-slate-100/50 transition-colors";
