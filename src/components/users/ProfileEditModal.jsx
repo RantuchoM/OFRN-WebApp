@@ -177,6 +177,7 @@ export default function ProfileEditModal({
   const [uploadingField, setUploadingField] = useState(null);
   const [isDirty, setIsDirty] = useState(false);
   const fileInputRef = useRef(null);
+  const dniInputRef = useRef(null);
   // Dentro de ProfileEditModal
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   // --- VARIABLES DE ESTILO ---
@@ -253,23 +254,25 @@ export default function ProfileEditModal({
   // --- DENTRO DEL COMPONENTE ProfileEditModal ---
   const [dniStep, setDniStep] = useState(0); // 0: reposo, 1: frente, 2: dorso
   const [tempFront, setTempFront] = useState(null);
+  const [inputKey, setInputKey] = useState(Date.now()); // Para forzar reset del input
   const handleNativeScan = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const file = e.target.files?.[0];
+
+    // Si el usuario canceló o cambió de cámara y el archivo vino vacío, no hacemos nada
+    if (!file) {
+      setInputKey(Date.now()); // Reset para permitir reintento
+      return;
+    }
 
     if (dniStep === 1) {
-      // PASO 1: Guardamos el frente
       setTempFront(file);
       setDniStep(2);
-      e.target.value = null; // <-- CRÍTICO: Limpia para que el siguiente cambio se detecte
+      setInputKey(Date.now()); // Destruimos el input viejo para el paso 2
 
       setTimeout(() => {
-        alert(
-          "✅ FRENTE CAPTURADO.\n\nAhora saca una foto del DORSO (la parte de atrás).",
-        );
-      }, 100);
+        alert("✅ FRENTE CAPTURADO.\n\nAhora captura el DORSO (atrás).");
+      }, 200);
     } else if (dniStep === 2) {
-      // PASO 2: Tenemos ambos, unimos
       setSaving(true);
       setUploadingField("link_dni_img");
       try {
@@ -278,12 +281,12 @@ export default function ProfileEditModal({
         setDniStep(0);
         setTempFront(null);
       } catch (err) {
-        alert("Error al unir las imágenes. Intenta de nuevo.");
+        alert("Error al unir imágenes. Intenta de nuevo.");
         setDniStep(0);
       } finally {
         setUploadingField(null);
         setSaving(false);
-        e.target.value = null;
+        setInputKey(Date.now());
       }
     }
   };
@@ -453,23 +456,31 @@ export default function ProfileEditModal({
             <div className="grid grid-cols-2 gap-1 w-full px-1">
               {field === "link_dni_img" ? (
                 <div className="contents">
-                  <label
-                    className={`${dniStep === 2 ? "bg-amber-500" : "bg-orange-500"} text-white py-1 rounded-lg text-[7px] font-black uppercase text-center cursor-pointer hover:opacity-90 flex items-center justify-center gap-1 transition-colors`}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (dniStep === 0) setDniStep(1);
+                      dniInputRef.current?.click();
+                    }}
+                    className={`py-1 rounded-lg text-[7px] font-black uppercase flex items-center justify-center gap-1 transition-all ${
+                      dniStep === 2
+                        ? "bg-amber-500 text-white animate-pulse"
+                        : "bg-orange-500 text-white"
+                    }`}
                   >
                     <IconCamera size={10} />
-                    {dniStep === 2 ? "Falta Dorso" : "Escanear"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment" // <-- ESTO PIDE LA CÁMARA TRASERA
-                      className="hidden"
-                      onClick={(e) => {
-                        // Si el valor es null, forzamos al paso 1 si no estábamos en el 2
-                        if (dniStep === 0) setDniStep(1);
-                      }}
-                      onChange={handleNativeScan}
-                    />
-                  </label>
+                    {dniStep === 2 ? "Falta Dorso" : "Escanear DNI"}
+                  </button>
+
+                  <input
+                    key={inputKey} // <--- ESTO fuerzo el reset físico del componente
+                    ref={dniInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment" // Pide cámara trasera
+                    className="hidden"
+                    onChange={handleNativeScan}
+                  />
                 </div>
               ) : (
                 <button
