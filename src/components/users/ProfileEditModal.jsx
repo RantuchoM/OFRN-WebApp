@@ -253,28 +253,24 @@ export default function ProfileEditModal({
   // --- DENTRO DEL COMPONENTE ProfileEditModal ---
   const [dniStep, setDniStep] = useState(0); // 0: reposo, 1: frente, 2: dorso
   const [tempFront, setTempFront] = useState(null);
-
   const handleNativeScan = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Paso 1: Frente
     if (dniStep === 1) {
+      // PASO 1: Guardamos el frente
       setTempFront(file);
       setDniStep(2);
-      // Limpiamos el valor del input para que el siguiente cambio se detecte sí o sí
-      e.target.value = null;
+      e.target.value = null; // <-- CRÍTICO: Limpia para que el siguiente cambio se detecte
 
-      // Un pequeño delay para que el usuario vea el cambio de estado antes del siguiente alert
       setTimeout(() => {
         alert(
           "✅ FRENTE CAPTURADO.\n\nAhora saca una foto del DORSO (la parte de atrás).",
         );
       }, 100);
-    }
-    // Paso 2: Dorso
-    else if (dniStep === 2) {
-      setSaving(true); // Bloqueamos UI mientras procesa
+    } else if (dniStep === 2) {
+      // PASO 2: Tenemos ambos, unimos
+      setSaving(true);
       setUploadingField("link_dni_img");
       try {
         const merged = await mergeDniImages(tempFront, file);
@@ -283,7 +279,7 @@ export default function ProfileEditModal({
         setTempFront(null);
       } catch (err) {
         alert("Error al unir las imágenes. Intenta de nuevo.");
-        setDniStep(1); // Reiniciamos si falla
+        setDniStep(0);
       } finally {
         setUploadingField(null);
         setSaving(false);
@@ -458,17 +454,17 @@ export default function ProfileEditModal({
               {field === "link_dni_img" ? (
                 <div className="contents">
                   <label
-                    className={`${dniStep === 2 ? "bg-red-500" : "bg-red-500"} text-white py-1 rounded-lg text-[7px] font-black uppercase text-center cursor-pointer hover:opacity-90 flex items-center justify-center gap-1 transition-colors`}
+                    className={`${dniStep === 2 ? "bg-amber-500" : "bg-orange-500"} text-white py-1 rounded-lg text-[7px] font-black uppercase text-center cursor-pointer hover:opacity-90 flex items-center justify-center gap-1 transition-colors`}
                   >
                     <IconCamera size={10} />
-                    {dniStep === 2 ? "Capturar Dorso" : "Escanear DNI"}
+                    {dniStep === 2 ? "Falta Dorso" : "Escanear"}
                     <input
                       type="file"
                       accept="image/*"
-                      capture="environment" // <--- Fuerza cámara trasera
+                      capture="environment" // <-- ESTO PIDE LA CÁMARA TRASERA
                       className="hidden"
                       onClick={(e) => {
-                        // Si estamos en reposo, pasamos al paso 1
+                        // Si el valor es null, forzamos al paso 1 si no estábamos en el 2
                         if (dniStep === 0) setDniStep(1);
                       }}
                       onChange={handleNativeScan}
