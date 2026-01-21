@@ -31,6 +31,15 @@ const CONDITION_OPTIONS = [
   "Invitado",
   "Becario",
 ];
+const DIET_OPTIONS = [
+  "General",
+  "Celíaca",
+  "Diabética",
+  "Vegetariana",
+  "Vegana",
+  "Sin Sal",
+  "Sin Lactosa",
+];
 const MissingDataFilter = ({ selectedFields, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
@@ -206,8 +215,8 @@ const AVAILABLE_COLUMNS = [
   {
     key: "alimentacion",
     label: "Dieta",
-    width: "100px",
-    type: "text",
+    width: "120px", // Aumenté un poco el ancho para que quepa "Vegetariana"
+    type: "select",
     sortKey: "alimentacion",
   },
   {
@@ -368,14 +377,27 @@ const EditableCell = ({
     );
 
   if (type === "select") {
+    // Verificamos si el valor actual está en la lista de opciones permitidas
+    const valueExistsInOptions = options.some(
+      (opt) => String(opt.value) === String(localValue),
+    );
+
     return (
       <select
         value={localValue}
         onChange={(e) => setLocalValue(e.target.value)}
         onBlur={handleBlur}
-        className={`${baseClass} cursor-pointer appearance-none`}
+        className={`${baseClass} cursor-pointer appearance-none ${!valueExistsInOptions && localValue ? "text-orange-600 font-bold" : ""}`}
       >
         <option value="">-</option>
+
+        {/* SI EL VALOR NO ES ESTÁNDAR, LO MOSTRAMOS PARA NO PERDERLO */}
+        {!valueExistsInOptions && localValue && (
+          <option value={localValue} className="bg-orange-100">
+            ⚠️ {localValue} (No estándar)
+          </option>
+        )}
+
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
@@ -644,6 +666,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   ) => {
     setLoading(true);
     try {
+      // 1. Cargamos la lista maestra de ensambles para los dropdowns si no existe
       if (ensemblesList.length === 0) {
         const { data: ens } = await supabase
           .from("ensambles")
@@ -652,13 +675,18 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         if (ens) setEnsemblesList(ens);
       }
 
+      // 2. Consulta principal con JOINS relacionales
       let query = supabase.from("integrantes").select(`
-            *, 
-            instrumentos(instrumento), 
-            residencia:localidades!id_localidad(localidad),
-            viaticos:localidades!id_localidad(localidad)
-        `);
+        *, 
+        instrumentos(instrumento), 
+        residencia:localidades!id_localidad(localidad),
+        viaticos:localidades!id_loc_viaticos(localidad),
+        integrantes_ensambles(
+          ensambles(id, ensamble)
+        )
+    `);
 
+      // --- FILTROS ---
       if (searchText.trim())
         query = query.or(
           `nombre.ilike.%${searchText.trim()}%,apellido.ilike.%${searchText.trim()}%`,
@@ -676,41 +704,37 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       if (conditions.size > 0)
         query = query.in("condicion", Array.from(conditions));
 
-      // --- APLICACIÓN DEL FILTRO DE PENDIENTES ---
       if (missingFields.size > 0) {
         const missingOrParts = [];
         missingFields.forEach((field) => {
-          // Buscamos que el campo sea NULL o un string vacío
           missingOrParts.push(`${field}.is.null`);
           missingOrParts.push(`${field}.eq.""`);
         });
-        // Usamos .or() para que si selecciona varios, traiga a los que les falta CUALQUIERA de ellos
         query = query.or(missingOrParts.join(","));
       }
-      // Dentro de fetchEnsemblesAndData, antes de const { data: musicians } = await query;
 
       if (onlyVigente) {
-        const hoy = new Date().toISOString().split("T")[0]; // Formato YYYY-MM-DD
-
-        // Regla Alta: Alta <= Hoy O Alta es NULL
+        const hoy = new Date().toISOString().split("T")[0];
         query = query.or(`fecha_alta.lte.${hoy},fecha_alta.is.null`);
-
-        // Regla Baja: Baja >= Hoy O Baja es NULL
         query = query.or(`fecha_baja.gte.${hoy},fecha_baja.is.null`);
       }
-      const { data: musicians } = await query;
-      const { data: relations } = await supabase
-        .from("integrantes_ensambles")
-        .select("id_integrante, id_ensamble");
 
-      const merged = (musicians || []).map((m) => ({
+      const { data: musicians, error } = await query;
+      if (error) throw error;
+
+      // 3. Formateo de la data para aplanarla
+      // Supabase devuelve los ensambles como: integrantes_ensambles: [{ ensambles: { id, ensamble } }]
+      // Lo convertimos a lo que el componente espera: [ { id, ensamble } ]
+      const formatted = (musicians || []).map((m) => ({
         ...m,
-        integrantes_ensambles: (relations || [])
-          .filter((r) => r.id_integrante === m.id)
-          .map((r) => ensemblesList.find((e) => e.id === r.id_ensamble))
-          .filter(Boolean),
+        integrantes_ensambles:
+          m.integrantes_ensambles?.map((ie) => ie.ensambles).filter(Boolean) ||
+          [],
       }));
-      setResultados(merged);
+
+      setResultados(formatted);
+    } catch (err) {
+      console.error("Error en fetchData:", err);
     } finally {
       setLoading(false);
     }
@@ -922,7 +946,12 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                                     : col.key === "id_localidad" ||
                                         col.key === "id_loc_viaticos"
                                       ? locationOptions
-                                      : conditionOptions
+                                      : col.key === "alimentacion" // <--- AGREGA ESTA CONDICIÓN
+                                        ? DIET_OPTIONS.map((d) => ({
+                                            value: d,
+                                            label: d,
+                                          }))
+                                        : conditionOptions
                                 }
                                 onSave={handleInlineUpdate}
                               />

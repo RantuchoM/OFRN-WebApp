@@ -678,7 +678,15 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       </div>
     );
   };
-
+  const DIET_OPTIONS = [
+    "General",
+    "Celíaca",
+    "Diabética",
+    "Vegetariana",
+    "Vegana",
+    "Sin Sal",
+    "Sin Lactosa",
+  ];
   return (
     <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[60] p-4 backdrop-blur-md">
       <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-6xl max-h-[95vh] flex flex-col animate-in zoom-in-95 duration-300 overflow-hidden border border-white/20">
@@ -752,14 +760,35 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className={labelClass}>Domicilio</label>
-                  <input
-                    type="text"
-                    className={getInputStatusClass("domicilio")}
-                    value={formData.domicilio || ""}
-                    onChange={(e) => updateField("domicilio", e.target.value)}
-                  />
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className={labelClass}>Domicilio</label>
+                    <input
+                      type="text"
+                      className={getInputStatusClass("domicilio")}
+                      value={formData.domicilio || ""}
+                      onChange={(e) => updateField("domicilio", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClass}>Tipo de Alimentación</label>
+                    <select
+                      value={formData.alimentacion || "Omnívora"}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          alimentacion: e.target.value,
+                        })
+                      }
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                    >
+                      {DIET_OPTIONS.map((opcion) => (
+                        <option key={opcion} value={opcion}>
+                          {opcion}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div>
