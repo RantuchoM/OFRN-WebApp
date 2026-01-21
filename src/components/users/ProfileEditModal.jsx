@@ -263,55 +263,56 @@ export default function ProfileEditModal({
   const [inputKey, setInputKey] = useState(Date.now()); // Para forzar reset del input
   const handleNativeScan = async (e) => {
     const file = e.target.files?.[0];
-    if (!file) {
-      setInputKey(Date.now());
-      return;
-    }
+    if (!file) return;
 
-    // PASO 1: Captura del Frente
-    if (dniStep === 1) {
-      // Convertimos el archivo a Base64 para guardarlo en el disco (localStorage)
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64Front = event.target.result;
-        localStorage.setItem("dni_front_buffer", base64Front); // Guardado seguro
-        setTempFront(base64Front);
-        setDniStep(2);
-        setInputKey(Date.now());
-        alert("✅ FRENTE GUARDADO.\n\nAhora captura el dorso (atrás).");
-      };
-      reader.readAsDataURL(file);
-    }
+    // Forzamos la detección del paso: si no hay nada guardado, es el frente
+    const isFront = dniStep === 1 || !localStorage.getItem("dni_front_buffer");
 
-    // PASO 2: Captura del Dorso y Unión
-    else if (dniStep === 2) {
+    if (isFront) {
+      setUploadingField("link_dni_img"); // Feedback visual de que está procesando
+      try {
+        // COMPRIMIMOS ANTES DE GUARDAR para no romper el localStorage (límite 5MB)
+        const compressedFront = await imageCompression(file, {
+          maxSizeMB: 0.4,
+          maxWidthOrHeight: 1200,
+        });
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const base64Front = event.target.result;
+          localStorage.setItem("dni_front_buffer", base64Front);
+          setTempFront(base64Front);
+          setDniStep(2);
+          setInputKey(Date.now()); // Reset input para el dorso
+          alert("✅ FRENTE CAPTURADO.\n\nAhora captura el dorso (atrás).");
+        };
+        reader.readAsDataURL(compressedFront);
+      } catch (err) {
+        alert("Error al procesar la foto del frente.");
+      } finally {
+        setUploadingField(null);
+      }
+    } else {
+      // PASO 2: Dorso
       setSaving(true);
       setUploadingField("link_dni_img");
-
-      // Recuperamos el frente del disco por si se borró de la memoria RAM
       const storedFront = tempFront || localStorage.getItem("dni_front_buffer");
 
-      if (!storedFront) {
-        alert("Se perdió la imagen del frente. Por favor inicia de nuevo.");
-        setDniStep(0);
-        setSaving(false);
-        return;
-      }
-
       try {
-        // Convertimos el base64 guardado de nuevo a un Blob/File para unirlo
-        const response = await fetch(storedFront);
-        const frontBlob = await response.blob();
+        // Convertir el frente guardado de base64 a Blob
+        const res = await fetch(storedFront);
+        const frontBlob = await res.blob();
 
+        // Unir ambas
         const merged = await mergeDniImages(frontBlob, file);
+        // Subir (processAndUpload ya comprime el resultado final)
         await processAndUpload(merged, "link_dni_img");
 
-        // Limpiamos todo al terminar con éxito
         localStorage.removeItem("dni_front_buffer");
         setDniStep(0);
         setTempFront(null);
       } catch (err) {
-        alert("Error al procesar las imágenes.");
+        alert("Error al unir las fotos. Intenta de nuevo.");
       } finally {
         setUploadingField(null);
         setSaving(false);
@@ -487,31 +488,43 @@ export default function ProfileEditModal({
                 <div className="flex flex-col gap-1 w-full">
                   <button
                     type="button"
+                    disabled={uploadingField === "link_dni_img"}
                     onClick={() => {
-                      if (dniStep === 0) setDniStep(1);
+                      // Si no hay nada en el disco, aseguramos que empiece por el frente
+                      if (!localStorage.getItem("dni_front_buffer")) {
+                        setDniStep(1);
+                      } else {
+                        setDniStep(2);
+                      }
                       dniInputRef.current?.click();
                     }}
                     className={`py-1 rounded-lg text-[7px] font-black uppercase flex items-center justify-center gap-1 transition-all ${
                       dniStep === 2
-                        ? "bg-amber-500 text-white animate-pulse"
+                        ? "bg-amber-500 text-white shadow-lg"
                         : "bg-orange-500 text-white"
                     }`}
                   >
-                    <IconCamera size={10} />
-                    {dniStep === 2 ? "Capturar Dorso" : "Escanear"}
+                    {uploadingField === "link_dni_img" ? (
+                      <IconLoader className="animate-spin" size={10} />
+                    ) : (
+                      <IconCamera size={10} />
+                    )}
+                    {dniStep === 2 ? "Capturar Dorso" : "Escanear*"}
                   </button>
- 
-                  {dniStep === 2 && (
+
+                  {dniStep === 2 && !uploadingField && (
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         localStorage.removeItem("dni_front_buffer");
                         setDniStep(0);
                         setTempFront(null);
+                        setInputKey(Date.now());
                       }}
-                      className="text-[6px] text-red-500 font-bold uppercase underline"
+                      className="text-[6px] text-red-500 font-bold uppercase underline text-center"
                     >
-                      Reiniciar Escaneo
+                      Reiniciar (Borrar Frente)
                     </button>
                   )}
 
