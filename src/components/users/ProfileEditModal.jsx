@@ -500,7 +500,7 @@ export default function ProfileEditModal({
                     <IconCamera size={10} />
                     {dniStep === 2 ? "Capturar Dorso" : "Escanear"}
                   </button>
-
+ 
                   {dniStep === 2 && (
                     <button
                       type="button"
