@@ -203,7 +203,13 @@ export default function ProfileEditModal({
   useEffect(() => {
     if (isOpen && user?.id) fetchInitialData();
   }, [isOpen, user]);
-
+  useEffect(() => {
+    const savedFront = localStorage.getItem("dni_front_buffer");
+    if (savedFront) {
+      setTempFront(savedFront);
+      setDniStep(2); // Salta directamente al paso del dorso
+    }
+  }, []);
   // Dirty Check: Compara datos actuales contra los iniciales
   useEffect(() => {
     if (!initialData) return;
@@ -257,32 +263,55 @@ export default function ProfileEditModal({
   const [inputKey, setInputKey] = useState(Date.now()); // Para forzar reset del input
   const handleNativeScan = async (e) => {
     const file = e.target.files?.[0];
-
-    // Si el usuario canceló o cambió de cámara y el archivo vino vacío, no hacemos nada
     if (!file) {
-      setInputKey(Date.now()); // Reset para permitir reintento
+      setInputKey(Date.now());
       return;
     }
 
+    // PASO 1: Captura del Frente
     if (dniStep === 1) {
-      setTempFront(file);
-      setDniStep(2);
-      setInputKey(Date.now()); // Destruimos el input viejo para el paso 2
+      // Convertimos el archivo a Base64 para guardarlo en el disco (localStorage)
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64Front = event.target.result;
+        localStorage.setItem("dni_front_buffer", base64Front); // Guardado seguro
+        setTempFront(base64Front);
+        setDniStep(2);
+        setInputKey(Date.now());
+        alert("✅ FRENTE GUARDADO.\n\nAhora captura el dorso (atrás).");
+      };
+      reader.readAsDataURL(file);
+    }
 
-      setTimeout(() => {
-        alert("✅ FRENTE CAPTURADO.\n\nAhora captura el DORSO (atrás).");
-      }, 200);
-    } else if (dniStep === 2) {
+    // PASO 2: Captura del Dorso y Unión
+    else if (dniStep === 2) {
       setSaving(true);
       setUploadingField("link_dni_img");
+
+      // Recuperamos el frente del disco por si se borró de la memoria RAM
+      const storedFront = tempFront || localStorage.getItem("dni_front_buffer");
+
+      if (!storedFront) {
+        alert("Se perdió la imagen del frente. Por favor inicia de nuevo.");
+        setDniStep(0);
+        setSaving(false);
+        return;
+      }
+
       try {
-        const merged = await mergeDniImages(tempFront, file);
+        // Convertimos el base64 guardado de nuevo a un Blob/File para unirlo
+        const response = await fetch(storedFront);
+        const frontBlob = await response.blob();
+
+        const merged = await mergeDniImages(frontBlob, file);
         await processAndUpload(merged, "link_dni_img");
+
+        // Limpiamos todo al terminar con éxito
+        localStorage.removeItem("dni_front_buffer");
         setDniStep(0);
         setTempFront(null);
       } catch (err) {
-        alert("Error al unir imágenes. Intenta de nuevo.");
-        setDniStep(0);
+        alert("Error al procesar las imágenes.");
       } finally {
         setUploadingField(null);
         setSaving(false);
@@ -455,7 +484,7 @@ export default function ProfileEditModal({
           ) : (
             <div className="grid grid-cols-2 gap-1 w-full px-1">
               {field === "link_dni_img" ? (
-                <div className="contents">
+                <div className="flex flex-col gap-1 w-full">
                   <button
                     type="button"
                     onClick={() => {
@@ -469,15 +498,29 @@ export default function ProfileEditModal({
                     }`}
                   >
                     <IconCamera size={10} />
-                    {dniStep === 2 ? "Falta Dorso" : "Escanear DNI"}
+                    {dniStep === 2 ? "Capturar Dorso" : "Escanear"}
                   </button>
 
+                  {dniStep === 2 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        localStorage.removeItem("dni_front_buffer");
+                        setDniStep(0);
+                        setTempFront(null);
+                      }}
+                      className="text-[6px] text-red-500 font-bold uppercase underline"
+                    >
+                      Reiniciar Escaneo
+                    </button>
+                  )}
+
                   <input
-                    key={inputKey} // <--- ESTO fuerzo el reset físico del componente
+                    key={inputKey}
                     ref={dniInputRef}
                     type="file"
                     accept="image/*"
-                    capture="environment" // Pide cámara trasera
+                    capture="environment"
                     className="hidden"
                     onChange={handleNativeScan}
                   />
