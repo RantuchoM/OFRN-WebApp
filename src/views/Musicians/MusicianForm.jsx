@@ -557,9 +557,27 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   };
 
   const FileUploader = ({ label, field, value }) => {
+    const [isDragging, setIsDragging] = useState(false);
     const status = fieldStatuses[field];
     const isPdf = value && value.toLowerCase().includes(".pdf");
     const bucket = field === "firma" ? "firmas" : "musician-docs";
+
+    // Handlers para Drag & Drop
+    const handleDrag = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.type === "dragenter" || e.type === "dragover") setIsDragging(true);
+      else if (e.type === "dragleave") setIsDragging(false);
+    };
+
+    const handleDrop = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        uploadToSupabase(e.dataTransfer.files[0], field, value);
+      }
+    };
 
     return (
       <div className="flex flex-col gap-2">
@@ -567,7 +585,15 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
           {label}
         </label>
         <div
+          onDragEnter={handleDrag}
+          onDragOver={handleDrag}
+          onDragLeave={handleDrag}
+          onDrop={handleDrop}
           className={`relative h-40 rounded-3xl border-2 transition-all overflow-hidden group ${
+            isDragging
+              ? "border-indigo-500 bg-indigo-50/50 scale-[1.02] shadow-lg"
+              : ""
+          } ${
             status === "saving"
               ? "border-orange-400 ring-4 ring-orange-50"
               : status === "saved"
@@ -630,11 +656,21 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
             </>
           ) : (
             <div className="w-full h-full flex flex-col p-4 justify-center">
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-300 mb-2">
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-300 mb-2 pointer-events-none">
                 {uploadingField === field || loading ? (
                   <IconLoader className="animate-spin" size={24} />
                 ) : (
-                  <IconUpload size={24} />
+                  <IconUpload
+                    size={24}
+                    className={
+                      isDragging ? "text-indigo-500 animate-bounce" : ""
+                    }
+                  />
+                )}
+                {isDragging && (
+                  <span className="text-[8px] font-black mt-2 text-indigo-500">
+                    ¡SUELTA AQUÍ!
+                  </span>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-1.5">
