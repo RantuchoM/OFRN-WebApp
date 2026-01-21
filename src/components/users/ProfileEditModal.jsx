@@ -444,7 +444,7 @@ export default function ProfileEditModal({
             <div className="grid grid-cols-2 gap-1 w-full px-1">
               {field === "link_dni_img" ? (
                 <div className="contents">
-                  <label className="bg-orange-500 text-white py-1 rounded-lg text-[7px] font-black uppercase text-center cursor-pointer hover:bg-orange-600 flex items-center justify-center gap-1">
+                  <label className="bg-black-500 text-white py-1 rounded-lg text-[7px] font-black uppercase text-center cursor-pointer hover:bg-orange-600 flex items-center justify-center gap-1">
                     <IconCamera size={10} />{" "}
                     {dniStep === 2 ? "Falta Dorso" : "Escanear"}
                     <input
