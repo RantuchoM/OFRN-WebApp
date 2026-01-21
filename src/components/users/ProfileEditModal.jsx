@@ -43,31 +43,29 @@ const AVATAR_COLORS = [
 const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
 // Unir imágenes capturadas
-const mergeDniImages = async (frontSrc, backSrc) => {
-  const loadImg = (src) =>
+const mergeDniImages = async (frontFile, backFile) => {
+  const loadImg = (file) =>
     new Promise((res) => {
       const img = new Image();
       img.onload = () => res(img);
-      img.src = src;
+      img.src = URL.createObjectURL(file);
     });
 
-  const front = await loadImg(frontSrc);
-  const back = await loadImg(backSrc);
+  const front = await loadImg(frontFile);
+  const back = await loadImg(backFile);
 
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
 
-  // El DNI suele ser 1.6:1. Forzamos un ancho estándar de 1200px
   const targetWidth = 1200;
   const targetHeight = targetWidth / 1.58;
 
   canvas.width = targetWidth;
-  canvas.height = targetHeight * 2 + 40; // 40px de margen entre fotos
+  canvas.height = targetHeight * 2 + 40;
 
   ctx.fillStyle = "#FFFFFF";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Dibujamos ambas caras reescaladas al mismo ancho
   ctx.drawImage(front, 0, 0, targetWidth, targetHeight);
   ctx.drawImage(back, 0, targetHeight + 40, targetWidth, targetHeight);
 
@@ -75,7 +73,7 @@ const mergeDniImages = async (frontSrc, backSrc) => {
     canvas.toBlob(
       (blob) => {
         resolve(
-          new File([blob], `dni_escaneado_${Date.now()}.jpg`, {
+          new File([blob], `dni_scan_${Date.now()}.jpg`, {
             type: "image/jpeg",
           }),
         );
@@ -252,7 +250,34 @@ export default function ProfileEditModal({
       setLoading(false);
     }
   };
+  // --- DENTRO DEL COMPONENTE ProfileEditModal ---
+  const [dniStep, setDniStep] = useState(0); // 0: reposo, 1: frente, 2: dorso
+  const [tempFront, setTempFront] = useState(null);
 
+  const handleNativeScan = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (dniStep === 1) {
+      // Guardamos el frente y pasamos al dorso
+      setTempFront(file);
+      setDniStep(2);
+      alert("¡Frente capturado! Ahora saca una foto del DORSO.");
+    } else if (dniStep === 2) {
+      // Tenemos ambos, procesamos
+      setUploadingField("link_dni_img");
+      try {
+        const merged = await mergeDniImages(tempFront, file);
+        await processAndUpload(merged, "link_dni_img");
+        setDniStep(0);
+        setTempFront(null);
+      } catch (err) {
+        alert("Error al unir las imágenes");
+      } finally {
+        setUploadingField(null);
+      }
+    }
+  };
   // --- LÓGICA DE PROCESAMIENTO DE ARCHIVOS ---
   const processAndUpload = async (file, field) => {
     if (!file) return;
@@ -417,14 +442,26 @@ export default function ProfileEditModal({
             </>
           ) : (
             <div className="grid grid-cols-2 gap-1 w-full px-1">
-              {field === "link_dni_img" && isMobile() ? (
-                <button
-                  type="button"
-                  onClick={() => setIsScannerOpen(true)}
-                  className="bg-orange-500 text-white py-1 rounded-lg text-[7px] font-black uppercase hover:bg-orange-600 flex items-center justify-center gap-1"
-                >
-                  <IconCamera size={10} /> Escanear
-                </button>
+              {field === "link_dni_img" ? (
+                <div className="contents">
+                  <label className="bg-orange-500 text-white py-1 rounded-lg text-[7px] font-black uppercase text-center cursor-pointer hover:bg-orange-600 flex items-center justify-center gap-1">
+                    <IconCamera size={10} />{" "}
+                    {dniStep === 2 ? "Falta Dorso" : "Escanear"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (dniStep === 0) setDniStep(1); // Iniciamos el flujo
+                        handleNativeScan(e);
+                      }}
+                      onClick={(e) => {
+                        if (dniStep === 0) setDniStep(1);
+                      }}
+                    />
+                  </label>
+                </div>
               ) : (
                 <button
                   type="button"
@@ -434,6 +471,7 @@ export default function ProfileEditModal({
                   <IconClipboard size={10} /> Pegar
                 </button>
               )}
+
               <label className="bg-indigo-600 text-white py-1 rounded-lg text-[7px] font-black uppercase text-center cursor-pointer hover:bg-indigo-700">
                 Subir
                 <input
