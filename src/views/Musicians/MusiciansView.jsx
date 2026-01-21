@@ -40,6 +40,27 @@ const DIET_OPTIONS = [
   "Sin Sal",
   "Sin Lactosa",
 ];
+const HighlightText = ({ text, highlight }) => {
+  if (!highlight.trim()) return <span>{text}</span>;
+  const regex = new RegExp(`(${highlight})`, "gi");
+  const parts = String(text).split(regex);
+  return (
+    <span>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark
+            key={i}
+            className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5"
+          >
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </span>
+  );
+};
 const MissingDataFilter = ({ selectedFields, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
@@ -352,14 +373,18 @@ const EditableCell = ({
   options,
   onSave,
   className = "",
+  highlight = "", // <--- Nueva prop
 }) => {
   const [localValue, setLocalValue] = useState(value || "");
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false); // <--- Estado para alternar
+
   useEffect(() => {
     setLocalValue(value || "");
   }, [value]);
 
   const handleBlur = async () => {
+    setIsEditing(false);
     if (String(localValue) !== String(value || "")) {
       setIsSaving(true);
       await onSave(rowId, field, localValue);
@@ -376,28 +401,45 @@ const EditableCell = ({
       </div>
     );
 
+  // --- MODO LECTURA: Aquí aplicamos el Highlight ---
+  if (!isEditing) {
+    let displayValue = localValue;
+
+    // Si es select, buscamos el texto (ej: "Violín") en lugar del ID
+    if (type === "select" && options) {
+      const selectedOpt = options.find(
+        (opt) => String(opt.value) === String(localValue),
+      );
+      displayValue = selectedOpt ? selectedOpt.label : localValue;
+    }
+
+    return (
+      <div
+        onClick={() => setIsEditing(true)}
+        className="w-full h-full px-2 py-1.5 cursor-text min-h-[32px] flex items-center hover:bg-slate-50 transition-colors"
+      >
+        <HighlightText text={displayValue || "-"} highlight={highlight} />
+      </div>
+    );
+  }
+
+  // --- MODO EDICIÓN: Inputs normales ---
   if (type === "select") {
-    // Verificamos si el valor actual está en la lista de opciones permitidas
     const valueExistsInOptions = options.some(
       (opt) => String(opt.value) === String(localValue),
     );
-
     return (
       <select
+        autoFocus // <--- Para que puedas escribir apenas haces clic
         value={localValue}
         onChange={(e) => setLocalValue(e.target.value)}
         onBlur={handleBlur}
         className={`${baseClass} cursor-pointer appearance-none ${!valueExistsInOptions && localValue ? "text-orange-600 font-bold" : ""}`}
       >
         <option value="">-</option>
-
-        {/* SI EL VALOR NO ES ESTÁNDAR, LO MOSTRAMOS PARA NO PERDERLO */}
         {!valueExistsInOptions && localValue && (
-          <option value={localValue} className="bg-orange-100">
-            ⚠️ {localValue} (No estándar)
-          </option>
+          <option value={localValue}>⚠️ {localValue} (No estándar)</option>
         )}
-
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
@@ -406,21 +448,14 @@ const EditableCell = ({
       </select>
     );
   }
-  if (type === "date") {
-    return (
-      <input
-        type="date"
-        value={localValue ? localValue.split("T")[0] : ""}
-        onChange={(e) => setLocalValue(e.target.value)}
-        onBlur={handleBlur}
-        className={baseClass}
-      />
-    );
-  }
+
   return (
     <input
-      type="text"
-      value={localValue}
+      autoFocus
+      type={type === "date" ? "date" : "text"}
+      value={
+        type === "date" && localValue ? localValue.split("T")[0] : localValue
+      }
       onChange={(e) => setLocalValue(e.target.value)}
       onBlur={handleBlur}
       className={baseClass}
@@ -765,15 +800,69 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     setEditFormData({ ...item });
   };
 
-  const sortedResultados = useMemo(() => {
-    return [...resultados].sort((a, b) => {
-      const valA = getNestedValue(a, sortConfig.key) || "";
-      const valB = getNestedValue(b, sortConfig.key) || "";
+  const [columnFilters, setColumnFilters] = useState({}); // { id_instr: 'vlo', mail: '@gmail' }
+  // Filtro y Ordenamiento Combinado
+  const processedResultados = useMemo(() => {
+    let filtered = [...resultados];
+
+    // 1. FILTRO GLOBAL (Lupita principal)
+    if (searchText.trim()) {
+      const term = searchText.toLowerCase().trim();
+      filtered = filtered.filter((item) => {
+        const searchFields = [
+          item.nombre,
+          item.apellido,
+          item.dni,
+          item.mail,
+          item.telefono,
+        ];
+        // También buscamos en los valores de las columnas visibles
+        AVAILABLE_COLUMNS.forEach((col) => {
+          if (visibleColumns.has(col.key)) {
+            const val = col.displayKey
+              ? getNestedValue(item, col.displayKey)
+              : item[col.key];
+            searchFields.push(String(val || ""));
+          }
+        });
+        return searchFields.some((f) =>
+          String(f || "")
+            .toLowerCase()
+            .includes(term),
+        );
+      });
+    }
+
+    // 2. FILTROS POR COLUMNA (Inputs en headers)
+    Object.keys(columnFilters).forEach((key) => {
+      const term = columnFilters[key].toLowerCase().trim();
+      if (term) {
+        filtered = filtered.filter((item) => {
+          // Buscamos la columna en AVAILABLE_COLUMNS para ver si tiene displayKey
+          const colCfg = AVAILABLE_COLUMNS.find((c) => c.key === key);
+          const val =
+            colCfg && colCfg.displayKey
+              ? getNestedValue(item, colCfg.displayKey)
+              : key === "apellido_nombre"
+                ? `${item.apellido} ${item.nombre}`
+                : item[key];
+
+          return String(val || "")
+            .toLowerCase()
+            .includes(term);
+        });
+      }
+    });
+
+    // 3. ORDENAMIENTO
+    return filtered.sort((a, b) => {
+      let valA = getNestedValue(a, sortConfig.key) || a[sortConfig.key] || "";
+      let valB = getNestedValue(b, sortConfig.key) || b[sortConfig.key] || "";
       return sortConfig.direction === "asc"
         ? valA.toString().localeCompare(valB.toString())
         : valB.toString().localeCompare(valA.toString());
     });
-  }, [resultados, sortConfig]);
+  }, [resultados, sortConfig, searchText, visibleColumns, columnFilters]);
 
   const instrumentOptions = catalogoInstrumentos.map((i) => ({
     value: i.id,
@@ -850,42 +939,121 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       <div className="flex-1 bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-auto flex-1">
           <table className="w-full text-left border-collapse min-w-[1200px]">
-            <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] sticky top-0 z-30 border-b border-slate-200">
-              <tr>
-                <th className="p-2 w-10 text-center sticky left-0 bg-slate-50 z-40 shadow-[1px_0_0_0_rgba(0,0,0,0.05)]">
+            <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] z-30 border-b border-slate-200">
+              {/* FILA 1: TÍTULOS Y ORDENAMIENTO */}
+              <tr className="sticky top-0 z-40 bg-slate-50 shadow-sm">
+                <th className="p-2 w-10 text-center sticky left-0 bg-slate-50 z-50">
                   #
                 </th>
                 <th
-                  className="p-2 w-40 sticky left-10 bg-slate-50 border-r z-40 shadow-[1px_0_0_0_rgba(0,0,0,0.05)] cursor-pointer"
+                  className="p-2 w-40 sticky left-10 bg-slate-50 border-r z-50 cursor-pointer hover:bg-slate-100"
                   onClick={() =>
                     setSortConfig({
                       key: "apellido",
                       direction:
-                        sortConfig.direction === "asc" ? "desc" : "asc",
+                        sortConfig.key === "apellido" &&
+                        sortConfig.direction === "asc"
+                          ? "desc"
+                          : "asc",
                     })
                   }
                 >
-                  Apellido y Nombre
+                  Apellido y Nombre{" "}
+                  {sortConfig.key === "apellido" &&
+                    (sortConfig.direction === "asc" ? "↑" : "↓")}
                 </th>
                 {AVAILABLE_COLUMNS.map(
                   (col) =>
                     visibleColumns.has(col.key) && (
                       <th
                         key={col.key}
-                        className="p-2 border-r"
+                        className="p-2 border-r cursor-pointer hover:bg-slate-100"
                         style={{ width: col.width }}
+                        onClick={() =>
+                          setSortConfig({
+                            key: col.sortKey || col.key,
+                            direction:
+                              sortConfig.key === (col.sortKey || col.key) &&
+                              sortConfig.direction === "asc"
+                                ? "desc"
+                                : "asc",
+                          })
+                        }
                       >
-                        {col.label}
+                        {col.label}{" "}
+                        {sortConfig.key === (col.sortKey || col.key) &&
+                          (sortConfig.direction === "asc" ? "↑" : "↓")}
                       </th>
                     ),
                 )}
-                <th className="p-2 text-right w-20 sticky right-0 bg-slate-50 z-30 shadow-[-1px_0_0_0_rgba(0,0,0,0.05)]">
+                <th className="p-2 text-right w-20 sticky right-0 bg-slate-50 z-40">
                   Acciones
+                </th>
+              </tr>
+
+              {/* FILA 2: INPUTS DE BÚSQUEDA (FILTROS) */}
+              <tr className="sticky top-[33px] z-30 bg-white border-b border-slate-200">
+                <th className="p-1 sticky left-0 bg-white z-40 border-r"></th>
+                <th className="p-1 sticky left-10 bg-white border-r z-40">
+                  <div className="relative">
+                    <IconSearch
+                      size={10}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-300"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Filtrar nombre..."
+                      className="w-full text-[9px] pl-5 pr-1 py-1 border rounded bg-slate-50 focus:bg-white outline-none font-normal"
+                      value={columnFilters.apellido_nombre || ""}
+                      onChange={(e) =>
+                        setColumnFilters({
+                          ...columnFilters,
+                          apellido_nombre: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                </th>
+                {AVAILABLE_COLUMNS.map(
+                  (col) =>
+                    visibleColumns.has(col.key) && (
+                      <th
+                        key={`filter-${col.key}`}
+                        className="p-1 border-r bg-white"
+                      >
+                        <input
+                          type="text"
+                          placeholder={`Buscar...`}
+                          className="w-full text-[9px] p-1 border rounded bg-slate-50 focus:bg-white outline-none font-normal"
+                          value={columnFilters[col.key] || ""}
+                          onChange={(e) =>
+                            setColumnFilters({
+                              ...columnFilters,
+                              [col.key]: e.target.value,
+                            })
+                          }
+                        />
+                      </th>
+                    ),
+                )}
+                <th className="p-1 sticky right-0 bg-white z-40 text-center border-l">
+                  {(Object.values(columnFilters).some((v) => v) ||
+                    searchText) && (
+                    <button
+                      onClick={() => {
+                        setColumnFilters({});
+                        setLocalSearchText("");
+                      }}
+                      className="text-[8px] bg-red-50 text-red-500 px-2 py-1 rounded-md hover:bg-red-100 font-black uppercase"
+                    >
+                      Limpiar
+                    </button>
+                  )}
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
-              {sortedResultados.map((item, idx) => {
+              {processedResultados.map((item, idx) => {
                 const conditionClass = getConditionStyles(item.condicion);
                 return (
                   <tr key={item.id} className={`${conditionClass} group`}>
@@ -899,7 +1067,12 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                     >
                       <div className="flex items-center justify-between gap-2 px-1">
                         <span className="truncate">
-                          {item.apellido}, {item.nombre}
+                          <HighlightText
+                            text={`${item.apellido}, ${item.nombre}`}
+                            highlight={
+                              columnFilters.apellido_nombre || searchText
+                            }
+                          />
                         </span>
 
                         {/* INDICADOR DE PENDIENTES */}
@@ -954,6 +1127,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                                         : conditionOptions
                                 }
                                 onSave={handleInlineUpdate}
+                                highlight={columnFilters[col.key] || searchText}
                               />
                             )}
                           </td>
