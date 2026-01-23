@@ -1355,6 +1355,45 @@ export const IconExternalLink = ({ size = 24, className = "" }) => (
     <line x1="10" y1="14" x2="21" y2="3" />
   </svg>
 );
+export const IconCalendarPlus = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M8 2v4" />
+    <path d="M16 2v4" />
+    <rect width="18" height="18" x="3" y="4" rx="2" />
+    <path d="M3 10h18" />
+    <path d="M10 16h4" />
+    <path d="M12 14v4" />
+  </svg>
+);
+export const IconLinkOff = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M18.84 12.25l1.66 1.67a5 5 0 0 1-7.07 7.07l-1.72-1.71" />
+    <path d="M5.17 11.75l-1.67-1.67a5 5 0 0 1 7.07-7.07l1.71 1.71" />
+    <line x1="2" y1="2" x2="22" y2="22" />
+  </svg>
+);
 export const IconInfo = ({ size = 24, className = "" }) => (
   <svg
     className={className}
@@ -2080,5 +2119,22 @@ export const IconScissor = ({ size = 24, className = "" }) => (
     <line x1="20" y1="4" x2="8.12" y2="15.88" />
     <line x1="14.47" y1="14.48" x2="20" y2="20" />
     <line x1="8.12" y1="8.12" x2="12" y2="12" />
+  </svg>
+);
+export const IconLayoutList = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <rect x="3" y="14" width="18" height="6" rx="2" />
+    <rect x="3" y="4" width="18" height="6" rx="2" />
   </svg>
 );

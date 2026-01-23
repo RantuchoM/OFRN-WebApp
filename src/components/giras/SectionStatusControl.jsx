@@ -21,7 +21,7 @@ export default function SectionStatusControl({
   roster = null, 
   onRefreshRequest = null 
 }) {
-  console.log(sectionKey);
+  //console.log(sectionKey);
   const [progresoId, setProgresoId] = useState(null);
   const [estado, setEstado] = useState("PENDING");
   const [observaciones, setObservaciones] = useState("");

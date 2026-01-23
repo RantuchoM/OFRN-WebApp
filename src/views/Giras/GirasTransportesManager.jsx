@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
-import { format, differenceInYears, addMinutes } from "date-fns";
+import {
+  format,
+  differenceInYears,
+  addDays,
+  addHours,
+  addMinutes,
+} from "date-fns";
 import { es } from "date-fns/locale";
 
 import {
@@ -44,7 +50,7 @@ const formatDateSafe = (dateString) => {
 
 const downloadStyledExcel = async (
   passengers,
-  fileName = "Lista_Pasajeros.xlsx"
+  fileName = "Lista_Pasajeros.xlsx",
 ) => {
   if (!passengers || passengers.length === 0)
     return alert("No hay pasajeros para exportar.");
@@ -123,11 +129,11 @@ const generateRoadmapExcel = async (
   passengers,
   startId,
   endId,
-  paxLocalities = {}
+  paxLocalities = {},
 ) => {
   if (!events || events.length === 0) return alert("No hay paradas definidas.");
   const sortedEvts = [...events].sort((a, b) =>
-    (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio)
+    (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
   );
   const startIndex = startId
     ? sortedEvts.findIndex((e) => String(e.id) === String(startId))
@@ -195,13 +201,13 @@ const generateRoadmapExcel = async (
     // Filtros de Pasajeros usando la nueva estructura 'subidaId' / 'bajadaId' del hook
     const ups = passengers.filter((p) =>
       p.logistics?.transports?.some(
-        (t) => String(t.subidaId) === String(evt.id)
-      )
+        (t) => String(t.subidaId) === String(evt.id),
+      ),
     );
     const downs = passengers.filter((p) =>
       p.logistics?.transports?.some(
-        (t) => String(t.bajadaId) === String(evt.id)
-      )
+        (t) => String(t.bajadaId) === String(evt.id),
+      ),
     );
     ups.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
     downs.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
@@ -211,13 +217,13 @@ const generateRoadmapExcel = async (
       return p.logistics?.transports?.some((t) => {
         if (!t || !t.subidaId || !t.bajadaId) return false;
         const upIdx = sortedEvts.findIndex(
-          (e) => String(e.id) === String(t.subidaId)
+          (e) => String(e.id) === String(t.subidaId),
         );
         const downIdx = sortedEvts.findIndex(
-          (e) => String(e.id) === String(t.bajadaId)
+          (e) => String(e.id) === String(t.bajadaId),
         );
         const currentIdx = sortedEvts.findIndex(
-          (e) => String(e.id) === String(evt.id)
+          (e) => String(e.id) === String(evt.id),
         );
         // Está a bordo si subió en esta o antes, Y baja DESPUÉS de esta
         return upIdx <= currentIdx && downIdx > currentIdx;
@@ -366,7 +372,159 @@ const DataIntegrityIndicator = ({ passengers }) => {
     </div>
   );
 };
+const ShiftScheduleModal = ({
+  isOpen,
+  onClose,
+  onApply,
+  transportName,
+  events = [],
+}) => {
+  const [shift, setShift] = useState({ days: 0, hours: 0, minutes: 0 });
 
+  // 1. Ordenamos para estar seguros de quién es el primero y el último
+  const sorted = useMemo(() => {
+    return [...events].sort((a, b) =>
+      (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
+    );
+  }, [events]);
+
+  if (!isOpen) return null;
+
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+
+  // Helper para calcular el nuevo tiempo
+  const getPreview = (evt) => {
+    if (!evt) return null;
+    const current = new Date(`${evt.fecha}T${evt.hora_inicio || "00:00:00"}`);
+    let next = addDays(current, shift.days);
+    next = addHours(next, shift.hours);
+    next = addMinutes(next, shift.minutes);
+    return {
+      old: `${format(current, "dd/MM")} ${format(current, "HH:mm")}`,
+      new: `${format(next, "dd/MM")} ${format(next, "HH:mm")}`,
+      label: evt.descripcion || "Sin descripción",
+    };
+  };
+
+  const previewFirst = getPreview(first);
+  const previewLast = getPreview(last);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+        <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+          <h3 className="font-bold text-slate-700">
+            Mover Horarios: {transportName}
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600"
+          >
+            <IconX size={20} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            {/* Inputs de Días, Horas, Minutos (igual que antes) */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase text-center">
+                Días
+              </label>
+              <input
+                type="number"
+                className="border rounded p-2 text-center font-bold text-sm"
+                value={shift.days}
+                onChange={(e) =>
+                  setShift({ ...shift, days: parseInt(e.target.value) || 0 })
+                }
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase text-center">
+                Horas
+              </label>
+              <input
+                type="number"
+                className="border rounded p-2 text-center font-bold text-sm"
+                value={shift.hours}
+                onChange={(e) =>
+                  setShift({ ...shift, hours: parseInt(e.target.value) || 0 })
+                }
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase text-center">
+                Minutos
+              </label>
+              <input
+                type="number"
+                className="border rounded p-2 text-center font-bold text-sm"
+                value={shift.minutes}
+                onChange={(e) =>
+                  setShift({ ...shift, minutes: parseInt(e.target.value) || 0 })
+                }
+              />
+            </div>
+          </div>
+
+          {/* --- SECCIÓN DE PREVISUALIZACIÓN --- */}
+          {(shift.days !== 0 || shift.hours !== 0 || shift.minutes !== 0) && (
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-1">
+                Previsualización de impacto
+              </p>
+
+              <div className="flex flex-col gap-2">
+                {[
+                  { title: "PRIMERA PARADA", data: previewFirst },
+                  { title: "ÚLTIMA PARADA", data: previewLast },
+                ].map(
+                  (item, idx) =>
+                    item.data && (
+                      <div key={idx} className="flex flex-col">
+                        <span className="text-[9px] font-bold text-indigo-500">
+                          {item.title}
+                        </span>
+                        <p className="text-[10px] font-medium text-slate-600 truncate">
+                          {item.data.label}
+                        </p>
+                        <div className="flex items-center gap-2 text-[11px]">
+                          <span className="text-slate-400 line-through">
+                            {item.data.old}
+                          </span>
+                          <span className="text-slate-400">→</span>
+                          <span className="font-bold text-indigo-600 bg-indigo-50 px-1 rounded">
+                            {item.data.new}
+                          </span>
+                        </div>
+                      </div>
+                    ),
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 bg-slate-50 border-t flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={() => onApply(shift)}
+            className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-md"
+          >
+            Aplicar a todos
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 // =================================================================================================
 // COMPONENTE PRINCIPAL
 // =================================================================================================
@@ -381,7 +539,63 @@ export default function GirasTransportesManager({ supabase, gira }) {
     refresh,
     roster,
   } = useLogistics(supabase, gira);
+  // A. Nuevo estado para el modal (dentro del componente)
+  const [shiftModal, setShiftModal] = useState({
+    isOpen: false,
+    transportId: null,
+    transportName: "",
+  });
+  const [selectedEventIds, setSelectedEventIds] = useState(new Set());
 
+  // Función para limpiar selección al cambiar de transporte o cerrar modal
+  const clearSelection = () => setSelectedEventIds(new Set());
+  // B. Función para aplicar el desplazamiento masivo
+  const handleApplyShiftSchedule = async (offset) => {
+    const tId = shiftModal.transportId;
+    const allTransportEvents = transportEvents[tId] || [];
+
+    // Filtramos los eventos a los que realmente aplicaremos el update
+    const eventsToMove = allTransportEvents.filter((e) =>
+      selectedEventIds.size > 0 ? selectedEventIds.has(e.id) : true,
+    );
+
+    if (eventsToMove.length === 0) return alert("No hay eventos seleccionados");
+
+    setLoading(true);
+    try {
+      const updatePromises = eventsToMove.map((evt) => {
+        // Creamos un objeto Date desde la fecha y hora actual del evento
+        const currentFullDate = new Date(
+          `${evt.fecha}T${evt.hora_inicio || "00:00:00"}`,
+        );
+
+        // Aplicamos el desplazamiento usando date-fns
+        let newDate = addDays(currentFullDate, offset.days);
+        newDate = addHours(newDate, offset.hours);
+        newDate = addMinutes(newDate, offset.minutes);
+
+        // Formateamos para SQL
+        return supabase
+          .from("eventos")
+          .update({
+            fecha: format(newDate, "yyyy-MM-dd"),
+            hora_inicio: format(newDate, "HH:mm:ss"),
+          })
+          .eq("id", evt.id);
+      });
+
+      await Promise.all(updatePromises);
+
+      setShiftModal({ isOpen: false, transportId: null, transportName: "" });
+      await fetchData(); // Recargar datos
+      refresh(); // Refrescar lógica global
+    } catch (error) {
+      console.error(error);
+      alert("Error al mover los horarios");
+    } finally {
+      setLoading(false);
+    }
+  };
   const passengerList = rawSummary || [];
   const giraId = gira?.id;
 
@@ -440,7 +654,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                     {grouped[locName].map((p) => {
                       const trData = p.logistics?.transports?.find(
                         (t) =>
-                          String(t.id) === String(infoListModal.transportId)
+                          String(t.id) === String(infoListModal.transportId),
                       );
                       const missingUp = !trData?.subidaId;
                       const missingDown = !trData?.bajadaId;
@@ -603,7 +817,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           subLabel: l.direccion || l.ciudad,
         };
       }),
-    [locationsList]
+    [locationsList],
   );
 
   const coverageStats = useMemo(() => {
@@ -643,7 +857,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           supabase
             .from("integrantes")
             .select(
-              "id, nombre, apellido, dni, genero, fecha_nac, nacionalidad, id_localidad, localidades(localidad)"
+              "id, nombre, apellido, dni, genero, fecha_nac, nacionalidad, id_localidad, localidades(localidad)",
             ),
         ]);
 
@@ -654,8 +868,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
       setPaxLocalities(
         (musDataInfo.data || []).reduce(
           (acc, m) => ({ ...acc, [m.id]: m.localidades?.localidad || "" }),
-          {}
-        )
+          {},
+        ),
       );
       setLocationsList(
         (locData.data || []).map((l) => ({
@@ -663,13 +877,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
           nombre: l.nombre,
           direccion: l.direccion,
           ciudad: l.localidades?.localidad || "Sin ciudad",
-        }))
+        })),
       );
 
       const { data: list } = await supabase
         .from("giras_transportes")
         .select(
-          `id, detalle, costo, capacidad_maxima, id_transporte, transportes ( nombre )`
+          `id, detalle, costo, capacidad_maxima, id_transporte, transportes ( nombre )`,
         )
         .eq("id_gira", giraId)
         .order("id");
@@ -681,7 +895,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         const { data: evts } = await supabase
           .from("eventos")
           .select(
-            `id, fecha, hora_inicio, descripcion, id_tipo_evento, id_gira_transporte, id_locacion, locaciones(nombre, direccion, localidades(localidad))`
+            `id, fecha, hora_inicio, descripcion, id_tipo_evento, id_gira_transporte, id_locacion, locaciones(nombre, direccion, localidades(localidad))`,
           )
           .in("id_gira_transporte", tIds)
           .order("fecha", { ascending: true })
@@ -765,13 +979,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
       }
       if (scope === "Region" && r.id_region) {
         const reg = regionsList.find(
-          (x) => String(x.id) === String(r.id_region)
+          (x) => String(x.id) === String(r.id_region),
         );
         return reg ? reg.region : "Región";
       }
       if (scope === "Localidad" && r.id_localidad) {
         const loc = localitiesList.find(
-          (x) => String(x.id) === String(r.id_localidad)
+          (x) => String(x.id) === String(r.id_localidad),
         );
         return loc ? loc.localidad : "Loc";
       }
@@ -788,7 +1002,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     setLoading(true);
     try {
       const tramos = (template.plantillas_recorridos_tramos || []).sort(
-        (a, b) => a.orden - b.orden
+        (a, b) => a.orden - b.orden,
       );
       let currentDateTime = new Date(`${startDate}T${startTime}`);
       const eventsToCreate = [];
@@ -816,7 +1030,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       tramos.forEach((tramo, index) => {
         currentDateTime = addMinutes(
           currentDateTime,
-          tramo.duracion_minutos || 60
+          tramo.duracion_minutos || 60,
         );
         const siguienteTramo = tramos[index + 1];
 
@@ -994,10 +1208,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   const handleDeleteEvent = async (eventId) => {
     const rulesAffectingUp = (routeRules || []).filter(
-      (r) => String(r.id_evento_subida) === String(eventId)
+      (r) => String(r.id_evento_subida) === String(eventId),
     );
     const rulesAffectingDown = (routeRules || []).filter(
-      (r) => String(r.id_evento_bajada) === String(eventId)
+      (r) => String(r.id_evento_bajada) === String(eventId),
     );
     const totalAffected = rulesAffectingUp.length + rulesAffectingDown.length;
 
@@ -1075,7 +1289,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     if (!personId || !boardingModal.transportId) return;
     if (
       !confirm(
-        "¿Eliminar la excepción personalizada y volver a la regla general?"
+        "¿Eliminar la excepción personalizada y volver a la regla general?",
       )
     )
       return;
@@ -1097,7 +1311,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   const handleExportGlobal = () => {
     const travelingPax = passengerList.filter(
-      (p) => p.logistics?.transports?.length > 0
+      (p) => p.logistics?.transports?.length > 0,
     );
     downloadStyledExcel(travelingPax, `Transporte_General_Gira${giraId}.xlsx`);
   };
@@ -1108,13 +1322,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
     if (!tInfo) return;
     const events = transportEvents[tId] || [];
     const sortedEvts = [...events].sort((a, b) =>
-      (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio)
+      (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
     );
     const startIndex = sortedEvts.findIndex(
-      (e) => String(e.id) === String(startId)
+      (e) => String(e.id) === String(startId),
     );
     const endIndex = sortedEvts.findIndex(
-      (e) => String(e.id) === String(endId)
+      (e) => String(e.id) === String(endId),
     );
 
     if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex)
@@ -1123,14 +1337,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
     const tPax = passengerList.filter((p) => {
       // CORRECCIÓN: Usar String comparison para IDs
       const transportData = p.logistics?.transports?.find(
-        (t) => String(t.id) === String(tId)
+        (t) => String(t.id) === String(tId),
       );
       if (!transportData) return false;
       const pInIdx = sortedEvts.findIndex(
-        (e) => String(e.id) === String(transportData.subidaId)
+        (e) => String(e.id) === String(transportData.subidaId),
       );
       const pOutIdx = sortedEvts.findIndex(
-        (e) => String(e.id) === String(transportData.bajadaId)
+        (e) => String(e.id) === String(transportData.bajadaId),
       );
       return pInIdx < endIndex && pOutIdx > startIndex;
     });
@@ -1144,7 +1358,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     const tInfo = transports.find((t) => t.id === tId);
     // CORRECCIÓN: Usar String comparison
     const tPax = passengerList.filter((p) =>
-      p.logistics?.transports?.some((t) => String(t.id) === String(tId))
+      p.logistics?.transports?.some((t) => String(t.id) === String(tId)),
     );
     generateRoadmapExcel(
       tInfo?.detalle || "Transporte",
@@ -1152,7 +1366,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       tPax,
       startId,
       endId,
-      paxLocalities
+      paxLocalities,
     );
     setRoadmapModal({ isOpen: false, transportId: null });
   };
@@ -1354,15 +1568,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
           // 1. Filtrar pasajeros - CORRECCIÓN: String comparison
           const tPassengers = passengerList.filter((p) =>
             p.logistics?.transports?.some(
-              (tr) => String(tr.id) === String(t.id)
-            )
+              (tr) => String(tr.id) === String(t.id),
+            ),
           );
 
           const tPassengerCount = tPassengers.length;
 
           // 2. Calcular Plazas de Instrumentos
           const tInstrumentSeats = tPassengers.filter(
-            (p) => p.instrumentos?.plaza_extra
+            (p) => p.instrumentos?.plaza_extra,
           ).length;
 
           const totalOccupied = tPassengerCount + tInstrumentSeats;
@@ -1373,12 +1587,12 @@ export default function GirasTransportesManager({ supabase, gira }) {
           const occupancyColor = isOverbooked
             ? "text-red-600 bg-red-50 border-red-200"
             : maxCap > 0 && totalOccupied === maxCap
-            ? "text-amber-600 bg-amber-50 border-amber-200"
-            : "text-indigo-600";
+              ? "text-amber-600 bg-amber-50 border-amber-200"
+              : "text-indigo-600";
 
           const incompletePax = tPassengers.filter((p) => {
             const tr = p.logistics?.transports?.find(
-              (x) => String(x.id) === String(t.id)
+              (x) => String(x.id) === String(t.id),
             );
             return tr && (!tr.subidaId || !tr.bajadaId);
           });
@@ -1523,6 +1737,28 @@ export default function GirasTransportesManager({ supabase, gira }) {
                     >
                       <IconUsers size={14} /> Pasajeros (Reglas)
                     </button>
+                    {/* Añadir este botón antes del botón de borrar o después de + Itinerario */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Si no hay nada tildado, usamos todos los eventos del transporte (comportamiento anterior)
+                        // Pero si hay tildados, filtramos la lista.
+                        setShiftModal({
+                          isOpen: true,
+                          transportId: t.id,
+                          transportName: t.detalle || t.transportes?.nombre,
+                        });
+                      }}
+                      className={`px-2 py-1 border rounded text-[10px] font-bold transition-colors ${
+                        selectedEventIds.size > 0
+                          ? "bg-indigo-600 text-white border-indigo-700"
+                          : "bg-slate-800 text-white border-slate-700 hover:bg-black"
+                      }`}
+                    >
+                      {selectedEventIds.size > 0
+                        ? `Mover (${selectedEventIds.size}) seleccionados`
+                        : "Mover todo el horario"}
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1589,6 +1825,24 @@ export default function GirasTransportesManager({ supabase, gira }) {
                   <table className="w-full min-w-[1000px] text-xs text-left border-t border-slate-200">
                     <thead className="bg-slate-50 text-slate-500 font-semibold border-b">
                       <tr>
+                        <th className="p-2 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            checked={
+                              myEvents.length > 0 &&
+                              myEvents.every((e) => selectedEventIds.has(e.id))
+                            }
+                            onChange={(e) => {
+                              const next = new Set(selectedEventIds);
+                              myEvents.forEach((evt) => {
+                                if (e.target.checked) next.add(evt.id);
+                                else next.delete(evt.id);
+                              });
+                              setSelectedEventIds(next);
+                            }}
+                          />
+                        </th>
                         <th className="p-2 w-32">Fecha</th>
                         <th className="p-2 w-24">Hora</th>
                         <th className="p-2 min-w-[200px]">
@@ -1609,27 +1863,40 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       {myEvents.map((evt) => {
                         const upsCount = (passengerList || []).filter((p) =>
                           p.logistics?.transports?.some(
-                            (tr) => String(tr.subidaId) === String(evt.id)
-                          )
+                            (tr) => String(tr.subidaId) === String(evt.id),
+                          ),
                         ).length;
                         const downsCount = (passengerList || []).filter((p) =>
                           p.logistics?.transports?.some(
-                            (tr) => String(tr.bajadaId) === String(evt.id)
-                          )
+                            (tr) => String(tr.bajadaId) === String(evt.id),
+                          ),
                         ).length;
                         const upsSummary = getEventRulesSummary(
                           evt.id,
                           "up",
-                          t.id
+                          t.id,
                         );
                         const downsSummary = getEventRulesSummary(
                           evt.id,
                           "down",
-                          t.id
+                          t.id,
                         );
 
                         return (
                           <tr key={evt.id} className="hover:bg-slate-50 group">
+                            <td className="p-1 text-center">
+                              <input
+                                type="checkbox"
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                checked={selectedEventIds.has(evt.id)}
+                                onChange={() => {
+                                  const next = new Set(selectedEventIds);
+                                  if (next.has(evt.id)) next.delete(evt.id);
+                                  else next.add(evt.id);
+                                  setSelectedEventIds(next);
+                                }}
+                              />
+                            </td>
                             <td className="p-1">
                               <DateInput
                                 value={evt.fecha}
@@ -1668,7 +1935,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                   handleUpdateEvent(
                                     evt.id,
                                     "descripcion",
-                                    e.target.value
+                                    e.target.value,
                                   )
                                 }
                                 placeholder="-"
@@ -1682,7 +1949,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                   handleUpdateEvent(
                                     evt.id,
                                     "id_tipo_evento",
-                                    e.target.value
+                                    e.target.value,
                                   )
                                 }
                               >
@@ -1875,7 +2142,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             setAdmissionModal({ isOpen: false, transportId: null })
           }
           transporte={transports.find(
-            (t) => t.id === admissionModal.transportId
+            (t) => t.id === admissionModal.transportId,
           )}
           roster={roster}
           regions={regionsList}
@@ -1958,6 +2225,21 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onRefresh={refresh}
         />
       )}
+      <ShiftScheduleModal
+        isOpen={shiftModal.isOpen}
+        transportName={shiftModal.transportName}
+        // FILTRO: Si hay seleccionados, solo mandamos esos al modal
+        events={(transportEvents[shiftModal.transportId] || []).filter((e) =>
+          selectedEventIds.size > 0 ? selectedEventIds.has(e.id) : true,
+        )}
+        onClose={() =>
+          setShiftModal({ isOpen: false, transportId: null, transportName: "" })
+        }
+        onApply={(offset) => {
+          handleApplyShiftSchedule(offset);
+          clearSelection(); // Limpiamos al terminar
+        }}
+      />
     </div>
   );
 }

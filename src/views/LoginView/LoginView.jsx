@@ -12,7 +12,7 @@ import {
 // --- CAMBIO AQUÍ: Usamos la imagen de la carpeta public ---
 const LogoOrquesta = () => (
     <img 
-        src="/pwa-512x512.png" 
+        src="/pwa-192x192.png" 
         alt="Logo Orquesta Manager" 
         className="w-24 h-24 mb-6 block mx-auto object-contain drop-shadow-sm hover:scale-105 transition-transform duration-300"
     />
