@@ -20,11 +20,12 @@ export const calculateInstrumentation = (parts) => {
   };
 
   // Mapa para contar instrumentos no estándar (ej: Saxo, Guitarra)
-  const others = {}; 
+  const others = {};
 
   parts.forEach((p) => {
     const name = (p.nombre_archivo || "").toLowerCase();
-    const rawBaseName = p.instrumento_nombre || p.instrumentos?.instrumento || "Desconocido";
+    const rawBaseName =
+      p.instrumento_nombre || p.instrumentos?.instrumento || "Desconocido";
     const baseName = rawBaseName.toLowerCase();
     const note = p.nota_organico ? p.nota_organico.trim() : null;
 
@@ -34,24 +35,53 @@ export const calculateInstrumentation = (parts) => {
     };
 
     // Lógica de detección orquestal estándar
-    if (name.includes("perc timb") || name.includes("perc timp") || name.includes("perc. timb") || baseName.includes("timbal")) {
+    if (
+      name.includes("perc timb") ||
+      name.includes("perc timp") ||
+      name.includes("perc. timb") ||
+      baseName.includes("timbal")
+    ) {
       families.timp = true;
-    } else if (name.startsWith("perc") || baseName.includes("perc") || baseName.includes("bombo") || baseName.includes("platillo") || baseName.includes("caja")) {
+    } else if (
+      name.startsWith("perc") ||
+      baseName.includes("perc") ||
+      baseName.includes("bombo") ||
+      baseName.includes("platillo") ||
+      baseName.includes("caja")
+    ) {
       add("perc");
-    } else if (baseName.includes("flaut") || baseName.includes("picc")) add("fl");
-    else if (baseName.includes("oboe") || baseName.includes("corno ing")) add("ob");
-    else if (baseName.includes("clarin") || baseName.includes("requinto") || baseName.includes("basset")) add("cl");
-    else if (baseName.includes("fagot") || baseName.includes("contraf")) add("bn");
-    else if (baseName.includes("corno") || baseName.includes("trompa")) add("hn");
-    else if (baseName.includes("trompet") || baseName.includes("fliscorno")) add("tpt");
-    else if (baseName.includes("trombon")) add("tbn");
-    else if (baseName.includes("tuba") || baseName.includes("bombard")) add("tba");
+    } else if (baseName.includes("flaut") || baseName.includes("picc"))
+      add("fl");
+    else if (baseName.includes("oboe") || baseName.includes("corno ing"))
+      add("ob");
+    else if (
+      baseName.includes("clarin") ||
+      baseName.includes("requinto") ||
+      baseName.includes("basset")
+    )
+      add("cl");
+    else if (baseName.includes("fagot") || baseName.includes("contraf"))
+      add("bn");
+    else if (baseName.includes("corno") || baseName.includes("trompa"))
+      add("hn");
+    else if (baseName.includes("trompet") || baseName.includes("fliscorno"))
+      add("tpt");
+    else if (baseName.includes("trombon") || baseName.includes("trombón"))
+      add("tbn"); //    else if (baseName.includes("tuba") || baseName.includes("bombard")) add("tba");
     else if (baseName.includes("arpa")) add("harp");
-    else if (baseName.includes("piano") || baseName.includes("celesta") || baseName.includes("clavec") || baseName.includes("órgano")) add("key");
-    else if (baseName.includes("viol") || baseName.includes("contrab")) families.str = true;
+    else if (
+      baseName.includes("piano") ||
+      baseName.includes("celesta") ||
+      baseName.includes("clavec") ||
+      baseName.includes("órgano")
+    )
+      add("key");
+    else if (baseName.includes("viol") || baseName.includes("contrab"))
+      families.str = true;
     else {
       // Si no es estándar, lo sumamos a "others" usando el nombre original capitalizado
-      const cleanName = rawBaseName.charAt(0).toUpperCase() + rawBaseName.slice(1);
+      const cleanName =
+        rawBaseName.charAt(0).toUpperCase() + rawBaseName.slice(1);
       if (!others[cleanName]) others[cleanName] = 0;
       others[cleanName]++;
     }
@@ -83,41 +113,50 @@ export const calculateInstrumentation = (parts) => {
   // Otros estándar (Arpa, Teclados, Cuerdas)
   if (families.harp.count > 0)
     standardStr += ` - ${families.harp.count > 1 ? families.harp.count : ""}Hp`;
-  if (families.key.count > 0)
-    standardStr += ` - Key`;
+  if (families.key.count > 0) standardStr += ` - Key`;
   if (families.str) standardStr += " - Str";
 
   // Verificar si la parte estándar está vacía (todo ceros)
-  const isStandardEmpty = standardStr.startsWith("0.0.0.0 - 0.0.0.0") && !families.timp && families.perc.count === 0 && !families.str && families.harp.count === 0 && families.key.count === 0;
+  const isStandardEmpty =
+    standardStr.startsWith("0.0.0.0 - 0.0.0.0") &&
+    !families.timp &&
+    families.perc.count === 0 &&
+    !families.str &&
+    families.harp.count === 0 &&
+    families.key.count === 0;
 
   // Formatear "Otros"
   const otherKeys = Object.keys(others);
   let othersStr = "";
   if (otherKeys.length > 0) {
-    othersStr = otherKeys.map(k => others[k] > 1 ? `${k} x${others[k]}` : k).join(", ");
+    othersStr = otherKeys
+      .map((k) => (others[k] > 1 ? `${k} x${others[k]}` : k))
+      .join(", ");
   }
 
   // Lógica final de retorno
   if (isStandardEmpty) {
     // Si no hay orquesta estándar, devolvemos solo los otros (ej: "Saxo x4")
     // Esto evita que empiece con "0.0.0.0" y se oculte en la vista
-    return othersStr; 
+    return othersStr;
   }
 
   // Si hay mezcla, devolvemos estándar + otros
-  let finalStr = standardStr.replace('0.0.0.0 - 0.0.0.0 - ', '').replace('0.0.0.0 - 0.0.0.0', '');
+  let finalStr = standardStr
+    .replace("0.0.0.0 - 0.0.0.0 - ", "")
+    .replace("0.0.0.0 - 0.0.0.0", "");
   if (othersStr) {
     finalStr += ` + ${othersStr}`;
   }
 
-  return finalStr.replace(" + DIRECTOR").replace('undefined','') || ""; // Si todo está vacío, devuelve string vacío
+  return finalStr.replace(" + DIRECTOR").replace("undefined", "") || ""; // Si todo está vacío, devuelve string vacío
 };
 
 export const calculateTotalDuration = (works) => {
   if (!works) return "00:00";
   const totalSeconds = works.reduce(
     (acc, item) => acc + (item.obras?.duracion_segundos || 0),
-    0
+    0,
   );
   return formatSecondsToTime(totalSeconds);
 };

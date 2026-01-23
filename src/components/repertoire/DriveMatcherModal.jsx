@@ -23,7 +23,7 @@ const ModalPortal = ({ children }) => {
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       {children}
     </div>,
-    document.body
+    document.body,
   );
 };
 
@@ -78,25 +78,31 @@ export default function DriveMatcherModal({
   }, [editingPartId]);
 
   const fetchFiles = async () => {
+    if (!folderUrl) return;
     setLoading(true);
+    console.log("DEBUG [Modal]: Llamando a Edge Function con URL:", folderUrl);
+
     try {
       const { data, error } = await supabase.functions.invoke("manage-drive", {
         body: { action: "list_folder_files", folderUrl },
       });
-      if (error) throw error;
-      if (data && data.files) {
-        // Orden alfabético para que la cascada tenga sentido
-        setDriveFiles(
-          data.files.sort((a, b) =>
-            a.name.localeCompare(b.name, undefined, {
-              numeric: true,
-              sensitivity: "base",
-            })
-          )
+
+      if (error) {
+        console.error("DEBUG [Modal]: Error de Supabase Invoke:", error);
+        throw error;
+      }
+
+      console.log("DEBUG [Modal]: Datos recibidos de la Edge Function:", data);
+
+      if (data?.files) {
+        setDriveFiles(data.files);
+      } else {
+        console.warn(
+          "DEBUG [Modal]: La respuesta no contiene el array 'files'",
         );
       }
     } catch (err) {
-      console.error("Error fetching Drive files:", err);
+      console.error("DEBUG [Modal]: Error capturado en fetchFiles:", err);
     } finally {
       setLoading(false);
     }
@@ -137,7 +143,7 @@ export default function DriveMatcherModal({
       a.nombre_archivo.localeCompare(b.nombre_archivo, undefined, {
         numeric: true,
         sensitivity: "base",
-      })
+      }),
     );
 
     // CASO A: UN SOLO ARCHIVO (Toggle)
@@ -157,7 +163,7 @@ export default function DriveMatcherModal({
         ];
 
       const updatedParts = parts.map((p) =>
-        p.tempId === partId ? { ...p, links: newLinks } : p
+        p.tempId === partId ? { ...p, links: newLinks } : p,
       );
       onPartsChange(updatedParts);
       return;
@@ -165,7 +171,7 @@ export default function DriveMatcherModal({
 
     // CASO B: MÚLTIPLES ARCHIVOS (Cascada)
     const startIndex = sortedParts.findIndex(
-      (p) => p.tempId === clickedPart.tempId
+      (p) => p.tempId === clickedPart.tempId,
     );
     if (startIndex === -1) return;
 
@@ -192,12 +198,21 @@ export default function DriveMatcherModal({
 
     // Si hubo cambios, actualizamos el padre
     if (Object.keys(updatesMap).length > 0) {
-      const updatedParts = parts.map((p) =>
-        updatesMap[p.tempId] ? { ...p, links: updatesMap[p.tempId] } : p
-      );
+      const updatedParts = parts.map((p) => {
+        if (updatesMap[p.tempId]) {
+          return {
+            ...p,
+            links: updatesMap[p.tempId],
+            // MANTENEMOS el ID que ya tenga (si el padre ya lo guardó)
+            id: p.id,
+          };
+        }
+        return p;
+      });
+
+      // Notificamos al padre
       onPartsChange(updatedParts);
-      // Opcional: Limpiar selección tras asignar masivamente
-      // setSelectedFiles([]);
+      setSelectedFiles([]);
     }
   };
 
@@ -205,7 +220,7 @@ export default function DriveMatcherModal({
     const updatedParts = parts.map((p) =>
       p.tempId === partId
         ? { ...p, links: (p.links || []).filter((l) => l.url !== linkUrl) }
-        : p
+        : p,
     );
     onPartsChange(updatedParts);
   };
@@ -214,7 +229,7 @@ export default function DriveMatcherModal({
   const allOptions = [...INSTRUMENT_GROUPS, ...(catalogoInstrumentos || [])];
 
   const filteredInstruments = allOptions.filter((i) =>
-    i.instrumento.toLowerCase().includes(instrumentQuery.toLowerCase())
+    i.instrumento.toLowerCase().includes(instrumentQuery.toLowerCase()),
   );
 
   const handleAddPart = () => {
@@ -227,7 +242,7 @@ export default function DriveMatcherModal({
     ) {
       const match =
         filteredInstruments.find(
-          (i) => i.instrumento.toLowerCase() === instrumentQuery.toLowerCase()
+          (i) => i.instrumento.toLowerCase() === instrumentQuery.toLowerCase(),
         ) || filteredInstruments[0];
       if (match) finalInstrId = match.id;
     }
@@ -242,7 +257,7 @@ export default function DriveMatcherModal({
       selectedGroup.definitions.forEach((def) => {
         newParts.push({
           tempId: Date.now() + Math.random(),
-          id: null,
+          id: undefined,
           id_instrumento: def.id_instrumento,
           nombre_archivo: def.nombre_archivo,
           links: [],
@@ -253,7 +268,7 @@ export default function DriveMatcherModal({
     } else {
       // B. INDIVIDUAL
       const instrObj = (catalogoInstrumentos || []).find(
-        (i) => i.id === finalInstrId
+        (i) => i.id === finalInstrId,
       );
       // Fallback por si acaso
       const baseName = instrObj
@@ -265,7 +280,7 @@ export default function DriveMatcherModal({
         const name = genQuantity > 1 ? `${baseName} ${i}` : baseName;
         newParts.push({
           tempId: Date.now() + i + Math.random(),
-          id: null,
+          id: undefined,
           id_instrumento: realId,
           nombre_archivo: name,
           links: [],
@@ -278,7 +293,7 @@ export default function DriveMatcherModal({
     if (onPartsChange) {
       // Combinar y ordenar
       const updatedParts = [...parts, ...newParts].sort((a, b) =>
-        a.id_instrumento.localeCompare(b.id_instrumento)
+        a.id_instrumento.localeCompare(b.id_instrumento),
       );
       onPartsChange(updatedParts);
     }
@@ -306,8 +321,10 @@ export default function DriveMatcherModal({
     if (onPartsChange && editingPartId)
       onPartsChange(
         parts.map((p) =>
-          p.tempId === editingPartId ? { ...p, nombre_archivo: editingName } : p
-        )
+          p.tempId === editingPartId
+            ? { ...p, nombre_archivo: editingName }
+            : p,
+        ),
       );
     setEditingPartId(null);
   };
@@ -315,8 +332,8 @@ export default function DriveMatcherModal({
     if (onPartsChange)
       onPartsChange(
         parts.map((p) =>
-          p.tempId === tempId ? { ...p, nota_organico: val } : p
-        )
+          p.tempId === tempId ? { ...p, nota_organico: val } : p,
+        ),
       );
   };
   const getFileAssignmentCount = (fileUrl) => {
@@ -333,7 +350,7 @@ export default function DriveMatcherModal({
     a.nombre_archivo.localeCompare(b.nombre_archivo, undefined, {
       numeric: true,
       sensitivity: "base",
-    })
+    }),
   );
 
   return (
@@ -563,7 +580,7 @@ export default function DriveMatcherModal({
                             ? `Asignar ${selectedFiles.length} (Cascada)`
                             : `Asignar: ${selectedFiles[0]?.name.substring(
                                 0,
-                                15
+                                15,
                               )}...`}
                         </span>
                       </div>
@@ -604,8 +621,8 @@ export default function DriveMatcherModal({
                       isSelected
                         ? "bg-blue-600 text-white border-blue-600 shadow-md"
                         : isUsed
-                        ? "bg-emerald-50 text-slate-600 border-emerald-200"
-                        : "bg-white hover:bg-white text-slate-700 border-slate-200 hover:border-blue-300"
+                          ? "bg-emerald-50 text-slate-600 border-emerald-200"
+                          : "bg-white hover:bg-white text-slate-700 border-slate-200 hover:border-blue-300"
                     }`}
                   >
                     <div className="flex items-center gap-2 overflow-hidden w-full">
@@ -615,8 +632,8 @@ export default function DriveMatcherModal({
                           isSelected
                             ? "text-white"
                             : isUsed
-                            ? "text-emerald-500"
-                            : "text-slate-400"
+                              ? "text-emerald-500"
+                              : "text-slate-400"
                         }`}
                       />
                       <span className="truncate font-medium">{file.name}</span>
