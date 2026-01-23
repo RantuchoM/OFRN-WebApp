@@ -190,8 +190,8 @@ export default function WorkForm({
     duracion: "",
     link_drive: "",
     link_youtube: "",
-    link_partitura: "",
-    link_audio: "",
+    //link_drive: "",
+    //link_audio: "",
     instrumentacion: "",
     anio: "",
     estado: "Oficial",
@@ -234,8 +234,8 @@ export default function WorkForm({
         duracion: initialData.duracion_segundos
           ? formatSecondsToTime(initialData.duracion_segundos)
           : "",
-        link_audio: initialData.link_audio || "",
-        link_partitura: initialData.link_partitura || "",
+        //link_audio: initialData.link_audio || "",
+        //link_drive: initialData.link_drive || "",
       }));
     }
 
@@ -263,8 +263,8 @@ export default function WorkForm({
           : prev.duracion,
         link_drive: data.link_drive || "",
         link_youtube: data.link_youtube || "",
-        link_audio: data.link_audio || "",
-        link_partitura: data.link_partitura || "",
+        //link_audio: data.link_audio || "",
+        //link_drive: data.link_drive || "",
         instrumentacion: data.instrumentacion || "",
         anio: data.anio_composicion || "",
         estado: data.estado || "Oficial",
@@ -480,8 +480,8 @@ export default function WorkForm({
         estado: formData.estado,
         comentarios: formData.comentarios,
         observaciones: formData.observaciones,
-        link_audio: formData.link_audio,
-        link_partitura: formData.link_partitura,
+        //link_audio: formData.link_audio,
+        link_drive: formData.link_drive,
       };
 
       const { data, error } = await supabase
@@ -808,8 +808,8 @@ export default function WorkForm({
             <input
               type="text"
               className="input text-blue-600 text-xs"
-              value={formData.link_partitura}
-              onChange={(e) => updateField("link_partitura", e.target.value)}
+              value={formData.link_drive}
+              onChange={(e) => updateField("link_drive", e.target.value)}
               placeholder="Drive PDF..."
             />
           </div>
