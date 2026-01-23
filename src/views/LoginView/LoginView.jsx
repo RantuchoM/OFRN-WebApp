@@ -13,7 +13,7 @@ import {
 const LogoOrquesta = () => (
     <img 
         src="/pwa-192x192.png" 
-        alt="Logo Orquesta Manager" 
+        alt="Logo OFRN" 
         className="w-24 h-24 mb-6 block mx-auto object-contain drop-shadow-sm hover:scale-105 transition-transform duration-300"
     />
 );
@@ -116,9 +116,9 @@ export default function LoginView() {
                         <div className="mb-2 inline-block">
                             <LogoOrquesta />
                         </div>
-                        <h1 className="text-2xl font-black text-slate-800 tracking-tight">Orquesta Manager</h1>
+                        <h1 className="text-2xl font-black text-slate-800 tracking-tight">OFRN</h1>
                         <p className="text-slate-500 text-sm mt-2">
-                            {viewMode === 'LOGIN' && 'Acceso Administrativo'}
+                            {viewMode === 'LOGIN' && 'Acceso'}
                             {viewMode === 'FORGOT' && 'Recuperar Acceso'}
                             {viewMode === 'CHANGE' && 'Cambiar Contraseña'}
                         </p>

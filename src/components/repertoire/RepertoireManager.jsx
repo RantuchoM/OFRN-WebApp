@@ -543,25 +543,46 @@ export default function RepertoireManager({
       ? `${arr.compositores.apellido}, ${arr.compositores.nombre}`
       : "-";
   };
+  // --- LÓGICA PARA IDENTIFICAR INSTRUMENTOS DE CUERDA ---
+  const isStringInstrument = useMemo(() => {
+    if (!user || musicians.length === 0) return false;
+    const me = musicians.find((m) => m.id === user.id);
+    const instr = me?.instrumentos?.instrumento?.toLowerCase() || "";
+    // Detectamos si el nombre del instrumento contiene palabras clave de cuerdas
+    return [
+      "violín",
+      "violin",
+      "viola",
+      "violoncello",
+      "cello",
+      "contrabajo",
+    ].some((s) => instr.includes(s));
+  }, [musicians, user]);
 
+  // --- LÓGICA PARA SABER SI LA GIRA EMPEZÓ (Simplificada) ---
+  // Si hay un giraId presente, asumimos que estamos en contexto de gira.
+  // Para una lógica más precisa, podrías comparar la fecha actual con la de la gira.
+  const isTourStarted = !!giraId;
   // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL ---
   // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL (MODIFICADO) ---
   const renderMyPartBadge = (obra) => {
     if (!userInstrumentId) return null;
 
-    // 1. Link Logic
+    // 1. Buscar la particella asignada a mi instrumento en esta obra
     const myPart = obra.obras_particellas?.find(
       (p) => p.id_instrumento === userInstrumentId,
     );
 
+    if (!myPart) return null;
+
+    // 2. Extraer el Link (Drive)
     let cleanUrl = null;
     if (myPart?.url_archivo) {
       try {
         if (myPart.url_archivo.trim().startsWith("[")) {
           const parsed = JSON.parse(myPart.url_archivo);
-          if (Array.isArray(parsed) && parsed.length > 0) {
+          if (Array.isArray(parsed) && parsed.length > 0)
             cleanUrl = parsed[0].url;
-          }
         } else {
           cleanUrl = myPart.url_archivo;
         }
@@ -570,20 +591,51 @@ export default function RepertoireManager({
       }
     }
 
-    if (!cleanUrl) return null;
+    // 3. Determinar el TEXTO del Badge (Label)
+    let label = "";
+    if (isStringInstrument) {
+      // Lógica cuerdas: "Mi Parte" o "Carpeta - Atril"
+      label = isTourStarted
+        ? `${myPart.contenedor || "S/C"} - Atril ${myPart.atril || "?"}`
+        : "Mi Parte";
+    } else {
+      // Lógica vientos/perc: USAR nombre_archivo (limpiando el .pdf)
+      label = (myPart.nombre_archivo || "Mi Parte").replace(/\.[^/.]+$/, "");
+    }
 
-    // 2. Simplificado: Solo Icono
+    // 4. Renderizado: VERDE si tiene link, GRIS si está pendiente
+    if (cleanUrl) {
+      return (
+        <a
+          href={cleanUrl}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm group"
+          title={`Abrir archivo: ${myPart.nombre_archivo}`}
+        >
+          <IconDrive
+            size={10}
+            className="text-emerald-400 group-hover:text-white"
+          />
+          <span className="text-[9px] font-black uppercase tracking-tight">
+            {label}
+          </span>
+        </a>
+      );
+    }
+
+    // Caso: Asignado en el seating pero SIN ARCHIVO (Gris)
     return (
-      <a
-        href={cleanUrl}
-        target="_blank"
-        rel="noreferrer"
-        onClick={(e) => e.stopPropagation()}
-        className="mt-1 inline-flex items-center justify-center w-6 h-6 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
-        title={`Abrir particella: ${myPart.nombre_archivo || "Mi Parte"}`}
+      <div
+        className="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 text-slate-400 rounded border border-slate-200 cursor-help"
+        title="Posición asignada pero archivo pendiente de carga"
       >
-        <IconMusic size={14} />
-      </a>
+        <IconMusic size={10} className="opacity-50" />
+        <span className="text-[9px] font-black uppercase tracking-tight">
+          {label}
+        </span>
+      </div>
     );
   };
 
@@ -1340,8 +1392,8 @@ export default function RepertoireManager({
             />
           </div>
         </div>
-      )}{/* BOTÓN TEMPORAL DE ADMIN PARA ARREGLAR PERMISOS */}
-      
+      )}
+      {/* BOTÓN TEMPORAL DE ADMIN PARA ARREGLAR PERMISOS */}
     </div>
   );
 }
