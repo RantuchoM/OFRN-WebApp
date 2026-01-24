@@ -316,13 +316,15 @@ export default function ProgramSeating({
 
   // --- COMPONENTE DEL EXPORTADOR ACTUALIZADO ---
   // --- COMPONENTE DEL EXPORTADOR ACTUALIZADO (A4 landscape) ---
+  // --- COMPONENTE DEL EXPORTADOR ACTUALIZADO (A4 Portrait - Vertical) ---
   const handleExportReport = () => {
     setIsExporting(true);
     try {
-      const doc = new jsPDF({ orientation: "l", unit: "mm", format: "a4" });
+      // Cambio a orientación "p" (portrait / vertical)
+      const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
       const pageWidth = doc.internal.pageSize.getWidth();
 
-      // Obtención de campos corregidos según tu indicación
+      // Obtención de campos corregidos
       const nombre_gira = program?.nombre_gira || "Sin Título";
       const mes_letra = program?.mes_letra || "";
       const nomenclador = program?.nomenclador || "";
@@ -333,7 +335,7 @@ export default function ProgramSeating({
         str && str.length > n ? str.substr(0, n - 1) + "..." : str;
 
       // 1. Título y Encabezado - Formato: Seating | mes_letra - nomenclador. nombre_gira
-      doc.setFontSize(14);
+      doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
       doc.text(
         `Seating | ${mes_letra} - ${nomenclador}. ${nombre_gira}`,
@@ -341,10 +343,10 @@ export default function ProgramSeating({
         12,
       );
 
-      doc.setFontSize(9);
+      doc.setFontSize(8);
       doc.setFont("helvetica", "normal");
-      doc.text(`Generado: ${new Date().toLocaleDateString()}`, 14, 17);
-      doc.line(14, 19, pageWidth - 14, 19);
+      doc.text(`Generado: ${new Date().toLocaleDateString()}`, 14, 16);
+      doc.line(14, 18, pageWidth - 14, 18);
 
       // 2. Tabla Superior: Contenedores en Columnas (Cuerdas)
       const maxMembers = Math.max(
@@ -358,7 +360,6 @@ export default function ProgramSeating({
         const row = containers.map((c) => {
           const item = c.items[i];
           if (!item || !item.integrantes) return "";
-          // Se lista Apellido e Inicial del Nombre sin número de atril
           const apellido = item.integrantes.apellido || "";
           const inicialNombre = item.integrantes.nombre
             ? item.integrantes.nombre.charAt(0) + "."
@@ -373,32 +374,32 @@ export default function ProgramSeating({
         head: [containerHeaders],
         body: containerBody,
         theme: "grid",
-        styles: { fontSize: 7, cellPadding: 0.8, halign: "center" },
+        styles: { fontSize: 6.5, cellPadding: 0.6, halign: "center" },
         headStyles: {
           fillColor: [63, 81, 181],
           textColor: [255, 255, 255],
-          fontSize: 7.5,
+          fontSize: 7,
         },
         margin: { left: 14, right: 14 },
       });
 
       // 3. Tabla Inferior: Grilla de Asignación (Vientos y Percusión)
       const finalY = doc.lastAutoTable.finalY;
-      doc.setFontSize(11);
+      doc.setFontSize(10);
       doc.setFont("helvetica", "bold");
       doc.text(
         "Asignación de Particellas (Vientos y Percusión)",
         14,
-        finalY + 10,
+        finalY + 8,
       );
 
-      // Header con "Compositor \n Obra" truncados para no ensanchar la columna
+      // Header con "Compositor \n Obra" truncados
       const tableHeaders = [
         [
           "Músico",
           ...obras.map((o) => {
-            const comp = truncate(cleanHTML(o.composer), 12);
-            const tit = truncate(cleanHTML(o.title), 18);
+            const comp = truncate(cleanHTML(o.composer), 10);
+            const tit = truncate(cleanHTML(o.title), 12);
             return `${comp}\n${tit}`;
           }),
         ],
@@ -417,13 +418,13 @@ export default function ProgramSeating({
       });
 
       autoTable(doc, {
-        startY: finalY + 14,
+        startY: finalY + 12,
         head: tableHeaders,
         body: tableBody,
         theme: "grid",
         styles: {
-          fontSize: 6.5,
-          cellPadding: 1,
+          fontSize: 6,
+          cellPadding: 0.8,
           halign: "center",
           valign: "middle",
           overflow: "linebreak",
@@ -431,8 +432,8 @@ export default function ProgramSeating({
         headStyles: {
           fillColor: [30, 41, 59],
           halign: "center",
-          fontSize: 6,
-          cellPadding: 1.2,
+          fontSize: 5.5,
+          cellPadding: 1,
         },
         columnStyles: {
           0: {
@@ -442,8 +443,9 @@ export default function ProgramSeating({
             cellWidth: "auto",
           },
         },
-        tableWidth: "wrap", // Evita que la tabla ocupe todo el ancho si hay pocas obras
+        tableWidth: "wrap",
         margin: { left: 14, right: 14 },
+        pageBreak: "avoid",
       });
 
       doc.save(`Seating_${nombre_gira.replace(/\s+/g, "_")}.pdf`);
