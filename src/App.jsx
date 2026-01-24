@@ -70,7 +70,7 @@ import {
   IconEyeOff,
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal";
-
+import SearchableSelect from "./components/ui/SearchableSelect"; // <--- AÑADIR ESTA LÍNEA
 // --- MODAL CALENDARIO ---
 const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
   if (!isOpen || !userId) return null;
@@ -264,11 +264,33 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
 
 // --- APP PROTEGIDA ---
 const ProtectedApp = () => {
-  const { user, logout } = useAuth();
+  const {
+    user,
+    logout,
+    impersonate,
+    stopImpersonating,
+    isImpersonating,
+    isActuallyAdmin,
+    isManagement, // Extraído del contexto
+    isAdmin,      // Extraído del contexto
+    isEditor,     // Extraído del contexto
+    isPersonal,   // Extraído del contexto
+    isGuest,      // Extraído del contexto
+    realUser,
+} = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
-
+  const [orchestraList, setOrchestraList] = useState([]);
+  useEffect(() => {
+    if (isActuallyAdmin) {
+      supabase
+        .from("integrantes")
+        .select("id, nombre, apellido, rol_sistema")
+        .order("apellido")
+        .then(({ data }) => setOrchestraList(data || []));
+    }
+  }, [isActuallyAdmin]);
   // Estados unificados de UI
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
@@ -298,15 +320,10 @@ const ProtectedApp = () => {
     localStorage.setItem("app_ui_scale", uiScale);
   }, [uiScale]);
 
+  //const { isManagement, isAdmin, isEditor } = useAuth();
   const userRole = user?.rol_sistema || "";
-  const isManagement = ["admin", "editor", "coord_general"].includes(userRole);
   const isDirector = userRole === "director";
-  const isPersonal = [
-    "musico",
-    "archivista",
-    "personal",
-    "consulta_personal",
-  ].includes(userRole);
+  
   const isGuestRole =
     userRole === "invitado" || userRole === "consulta_personal";
 
@@ -679,6 +696,49 @@ const ProtectedApp = () => {
             >
               <IconMenu size={24} />
             </button>
+            {isActuallyAdmin && (
+              <div className="hidden md:flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                {/* BANNER DE SUPLANTACIÓN */}
+                {isImpersonating && (
+                  <div className="bg-amber-500 text-white px-4 py-2 flex items-center justify-between text-xs font-bold animate-in slide-in-from-top duration-300 z-[100]">
+                    <div className="flex items-center gap-2">
+                      <IconEye size={16} />
+                      ESTÁS VIENDO LA APP COMO:{" "}
+                      <span className="uppercase">
+                        {user.nombre} {user.apellido}
+                      </span>
+                    </div>
+                    <button
+                      onClick={stopImpersonating}
+                      className="bg-white text-amber-600 px-3 py-1 rounded-full hover:bg-amber-50 transition-colors"
+                    >
+                      VOLVER A MI PERFIL
+                    </button>
+                  </div>
+                )}
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter shrink-0">
+                  Ver como:
+                </span>
+                <SearchableSelect
+                  className="min-w-[200px] !border-0 !bg-transparent"
+                  placeholder="Buscar integrante..."
+                  options={orchestraList.map((u) => ({
+                    id: u.id,
+                    label: `${u.apellido}, ${u.nombre}`,
+                    subLabel: u.rol_sistema,
+                  }))}
+                  value={isImpersonating ? user.id : ""}
+                  onChange={(id) => {
+                    if (!id) {
+                      stopImpersonating();
+                    } else {
+                      const target = orchestraList.find((u) => u.id === id);
+                      if (target) impersonate(target);
+                    }
+                  }}
+                />
+              </div>
+            )}
             <h2 className="text-xl font-bold text-slate-800 hidden sm:block">
               {allMenuItems.find((m) => m.id === mode)?.label || "Panel"}
             </h2>
@@ -709,7 +769,8 @@ const ProtectedApp = () => {
               onClick={() => setCalendarModalOpen(true)}
               className="sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 font-bold text-xs hover:bg-indigo-100"
             >
-              <IconCalendar size={10} />Sincronizar
+              <IconCalendar size={10} />
+              Sincronizar
             </button>
 
             <button
@@ -777,7 +838,6 @@ const ProtectedApp = () => {
         onClose={() => setProfileModalOpen(false)}
         user={user}
         supabase={supabase}
-        onUpdate={refreshMusicianData}
       />
       <CalendarSelectionModal
         isOpen={calendarModalOpen}

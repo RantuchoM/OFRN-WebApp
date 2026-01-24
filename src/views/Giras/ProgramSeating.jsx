@@ -63,7 +63,7 @@ const ContainerInfoCell = ({ container, readOnly, myStandInfo }) => {
             {container.items.length === 0 && <span className="text-[9px] text-slate-400 italic block pl-1">Vacío</span>}
             {container.items.map((item, idx) => {
                // Calculamos el atril para cada músico en la lista desplegable también
-               const standNum = Math.floor(idx / 2) + 1;
+               const standNum = idx + 1;
                const isMe = myStandInfo && item.id_musico; // Simple check visual
                return (
                   <div key={item.id} className="text-[9px] text-slate-700 truncate leading-tight py-0.5 flex justify-between">
@@ -311,7 +311,7 @@ export default function ProgramSeating({ supabase, program, onBack, repertoireBl
                     // LÓGICA DE RESALTADO PARA USUARIO ACTUAL (CUERDAS)
                     const userItemIndex = c.items.findIndex(i => i.id_musico === user.id);
                     const isMyContainer = userItemIndex !== -1;
-                    const myStandText = isMyContainer ? `Atril ${Math.floor(userItemIndex / 2) + 1}` : null;
+                    const myStandText = isMyContainer ? `Atril ${userItemIndex + 1}` : null;
                     
                     return (
                       <tr key={c.id} className={`transition-colors group ${isMyContainer ? "bg-amber-50" : "hover:bg-indigo-50/30"}`}>

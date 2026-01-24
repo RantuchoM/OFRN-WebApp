@@ -147,7 +147,7 @@ export default function RepertoireManager({
 
   // --- CORRECCIÓN AQUÍ: Definimos seatingMap correctamente ---
   const [seatingMap, setSeatingMap] = useState({});
-
+  const [assignments, setAssignments] = useState([]); // <--- AGREGAR ESTO
   const [loading, setLoading] = useState(false);
   const [syncingDrive, setSyncingDrive] = useState(false);
   const [editingBlock, setEditingBlock] = useState({ id: null, nombre: "" });
@@ -199,8 +199,7 @@ export default function RepertoireManager({
 
     // CALL THE NEW FETCH
     fetchSeating();
-  }, [programId]);
-
+  }, [programId, user?.id]); // <--- AÑADIR user?.id AQUÍ
   useEffect(() => {
     if (isAddModalOpen || isEditWorkModalOpen) {
       if (worksLibrary.length === 0) fetchLibrary();
@@ -217,61 +216,40 @@ export default function RepertoireManager({
   };
 
   // --- FETCH SEATING LOGIC ---
+  // --- FETCH SEATING LOGIC ACTUALIZADA ---
   const fetchSeating = async () => {
-    // 1. Fetch Containers (Rows) for this program
-    const { data: containers, error: errCont } = await supabase
+    if (!programId) return;
+
+    const { data: containers } = await supabase
       .from("seating_contenedores")
-      .select("id, nombre, id_instrumento, orden")
-      .eq("id_programa", programId)
-      .order("orden");
+      .select("id, nombre")
+      .eq("id_programa", programId);
 
-    if (errCont || !containers) return;
-
-    // 2. Fetch Items (Musicians) in those containers
-    const containerIds = containers.map((c) => c.id);
-    if (containerIds.length === 0) return;
-
-    const { data: items, error: errItems } = await supabase
+    const { data: items } = await supabase
       .from("seating_contenedores_items")
       .select("id_contenedor, id_musico, orden")
-      .in("id_contenedor", containerIds)
-      .order("orden");
+      .in("id_contenedor", containers?.map((c) => c.id) || []);
 
-    if (errItems || !items) return;
+    const { data: asigns } = await supabase
+      .from("seating_asignaciones")
+      .select("id_obra, id_particella, id_contenedor, id_musicos_asignados")
+      .eq("id_programa", programId);
 
-    // 3. Build the Map: User ID -> { desk: X }
+    setAssignments(asigns || []);
+
     const newMap = {};
-
-    // Group items by container
-    const itemsByContainer = {};
-    items.forEach((item) => {
-      if (!itemsByContainer[item.id_contenedor])
-        itemsByContainer[item.id_contenedor] = [];
-      itemsByContainer[item.id_contenedor].push(item);
+    items?.forEach((item) => {
+      if (item.id_musico) {
+        const container = containers.find((c) => c.id === item.id_contenedor);
+        newMap[String(item.id_musico)] = {
+          containerId: item.id_contenedor, // <--- IMPORTANTE
+          containerName: container?.nombre,
+          desk: Math.floor(item.orden || 0) + 1,
+        };
+      }
     });
-
-    // Process each container to find desks
-    containers.forEach((container) => {
-      const containerItems = itemsByContainer[container.id] || [];
-      // Sort by order just in case
-      containerItems.sort((a, b) => a.orden - b.orden);
-
-      containerItems.forEach((item, index) => {
-        if (item.id_musico) {
-          // Logic: Index 0,1 -> Desk 1. Index 2,3 -> Desk 2.
-          const deskNumber = Math.floor(index / 2) + 1;
-
-          newMap[item.id_musico] = {
-            desk: deskNumber,
-            containerName: container.nombre,
-          };
-        }
-      });
-    });
-
     setSeatingMap(newMap);
   };
-
   const fetchInstruments = async () => {
     const { data } = await supabase
       .from("instrumentos")
@@ -292,7 +270,7 @@ export default function RepertoireManager({
                 obras_arcos (id, nombre, link, descripcion),
                 compositores (id, apellido, nombre), 
                 obras_compositores (rol, compositores(id, apellido, nombre)),
-                obras_particellas (nombre_archivo, nota_organico, id_instrumento, url_archivo, instrumentos (instrumento))
+                obras_particellas (id, nombre_archivo, nota_organico, id_instrumento, url_archivo, instrumentos (instrumento))
             ), 
             integrantes (id, apellido, nombre)
         )`,
@@ -566,79 +544,102 @@ export default function RepertoireManager({
   // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL ---
   // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL (MODIFICADO) ---
   const renderMyPartBadge = (obra) => {
-    if (!userInstrumentId) return null;
+    // Solo logueamos una obra específica para no inundar la consola, por ejemplo la primera
+    const isDebugWork = true;
 
-    // 1. Buscar la particella asignada a mi instrumento en esta obra
+    if (!user || !assignments.length) {
+      if (isDebugWork && !user)
+        console.log(`DEBUG BADGE [${obra.titulo}]: No hay user`);
+      if (isDebugWork && !assignments.length)
+        console.log(`DEBUG BADGE [${obra.titulo}]: No hay assignments`);
+      return null;
+    }
+
+    const userId = String(user.id);
+    const mySeating = seatingMap[userId];
+
+    // Buscamos la asignación
+    const assignment = assignments.find((a) => {
+      const matchObra = String(a.id_obra) === String(obra.id);
+      if (!matchObra) return false;
+
+      // Verificación por Músico (convertimos todo a String para comparar)
+      const matchUser = a.id_musicos_asignados?.some(
+        (id) => String(id) === userId,
+      );
+
+      // Verificación por Contenedor
+      const matchContainer =
+        mySeating?.containerId &&
+        String(a.id_contenedor) === String(mySeating.containerId);
+
+      return matchUser || matchContainer;
+    });
+
+    if (isDebugWork) {
+      console.log(`DEBUG BADGE [${obra.titulo}]:`, {
+        userId,
+        myContainerId: mySeating?.containerId,
+        foundAssignment: !!assignment,
+        particellaId: assignment?.id_particella,
+      });
+    }
+
+    if (!assignment) return null;
+
     const myPart = obra.obras_particellas?.find(
-      (p) => p.id_instrumento === userInstrumentId,
+      (p) => String(p.id) === String(assignment.id_particella),
     );
 
-    if (!myPart) return null;
-
-    // 2. Extraer el Link (Drive)
-    let cleanUrl = null;
-    if (myPart?.url_archivo) {
-      try {
-        if (myPart.url_archivo.trim().startsWith("[")) {
-          const parsed = JSON.parse(myPart.url_archivo);
-          if (Array.isArray(parsed) && parsed.length > 0)
-            cleanUrl = parsed[0].url;
-        } else {
-          cleanUrl = myPart.url_archivo;
-        }
-      } catch (e) {
-        cleanUrl = myPart.url_archivo;
-      }
+    if (!myPart) {
+      if (isDebugWork)
+        console.log(
+          `DEBUG BADGE [${obra.titulo}]: Asignación hallada pero particella no encontrada en array de obra`,
+        );
+      return null;
     }
 
-    // 3. Determinar el TEXTO del Badge (Label)
-    let label = "";
-    if (isStringInstrument) {
-      // Lógica cuerdas: "Mi Parte" o "Carpeta - Atril"
-      label = isTourStarted
-        ? `${myPart.contenedor || "S/C"} - Atril ${myPart.atril || "?"}`
-        : "Mi Parte";
-    } else {
-      // Lógica vientos/perc: USAR nombre_archivo (limpiando el .pdf)
-      label = (myPart.nombre_archivo || "Mi Parte").replace(/\.[^/.]+$/, "");
-    }
+    const label = isStringInstrument
+      ? "𝄞"
+      : (myPart.nombre_archivo || "Parte").replace(/\.[^/.]+$/, "");
+    let url = myPart.url_archivo;
+    try {
+      if (url?.startsWith("[")) url = JSON.parse(url)[0]?.url;
+    } catch (e) {}
 
-    // 4. Renderizado: VERDE si tiene link, GRIS si está pendiente
-    if (cleanUrl) {
-      return (
-        <a
-          href={cleanUrl}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm group"
-          title={`Abrir archivo: ${myPart.nombre_archivo}`}
-        >
+    const isGlyph = label === "𝄞";
+
+    return (
+      <a
+        href={url || "#"}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => !url && e.preventDefault()}
+        className={`mt-1 inline-flex items-center gap-1 rounded border transition-all shadow-sm group w-fit ${
+          isGlyph ? "px-1.5 py-0 min-w-[22px] justify-center" : "px-2 py-0.5"
+        } ${
+          url
+            ? "bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-600 hover:text-white"
+            : "bg-slate-100 text-slate-400 border-slate-200 cursor-help"
+        }`}
+        title={url ? `Abrir: ${myPart.nombre_archivo}` : "Archivo pendiente"}
+      >
+        {!isGlyph && (
           <IconDrive
             size={10}
-            className="text-emerald-400 group-hover:text-white"
+            className={
+              url ? "text-emerald-400 group-hover:text-white" : "opacity-50"
+            }
           />
-          <span className="text-[9px] font-black uppercase tracking-tight">
-            {label}
-          </span>
-        </a>
-      );
-    }
-
-    // Caso: Asignado en el seating pero SIN ARCHIVO (Gris)
-    return (
-      <div
-        className="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 text-slate-400 rounded border border-slate-200 cursor-help"
-        title="Posición asignada pero archivo pendiente de carga"
-      >
-        <IconMusic size={10} className="opacity-50" />
-        <span className="text-[9px] font-black uppercase tracking-tight">
+        )}
+        <span
+          className={`font-black uppercase tracking-tight ${isGlyph ? "text-[12px]" : "text-[9px]"}`}
+        >
           {label}
         </span>
-      </div>
+      </a>
     );
   };
-
   const filteredLibrary = worksLibrary.filter(
     (w) =>
       (!filters.titulo ||

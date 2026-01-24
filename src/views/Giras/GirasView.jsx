@@ -50,16 +50,13 @@ import {
 import { moveGira, duplicateGira } from "../../services/giraActions";
 
 export default function GirasView({ supabase, trigger = 0 }) {
-  const { user, isEditor } = useAuth();
+  const { user, isEditor, isManagement, isPersonal, isGuest } = useAuth();
   const userRole = user?.rol_sistema || "";
   const [statsRefreshTrigger, setStatsRefreshTrigger] = useState(0);
 
   const handleChildDataChange = () => {
     setStatsRefreshTrigger((prev) => prev + 1);
   };
-  const isGuest = userRole === "invitado" || user?.id === "guest-general";
-  const isPersonal =
-    userRole === "consulta_personal" || userRole === "personal" || isGuest;
 
   const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
   const [searchParams, setSearchParams] = useSearchParams();
@@ -120,7 +117,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
     if (mode === "LIST" && newMode !== "LIST" && scrollContainerRef.current) {
       sessionStorage.setItem(
         "giras_list_scroll",
-        scrollContainerRef.current.scrollTop
+        scrollContainerRef.current.scrollTop,
       );
     }
 
@@ -141,7 +138,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [filterType, setFilterType] = useState(
-    new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band"])
+    new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band"]),
   );
   const PROGRAM_TYPES = [
     "Sinfónico",
@@ -228,7 +225,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
         // Fallback: Si no hay posición guardada, buscamos la tarjeta
         setTimeout(() => {
           const element = document.getElementById(
-            `gira-card-${highlightedGiraId}`
+            `gira-card-${highlightedGiraId}`,
           );
           if (element) {
             element.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -269,7 +266,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
         if (tokenToUse) {
           const { data, error } = await supabase.rpc(
             "get_gira_by_public_token",
-            { token_input: tokenToUse }
+            { token_input: tokenToUse },
           );
           if (error) throw error;
           setGiras(data ? [data] : []);
@@ -284,21 +281,21 @@ export default function GirasView({ supabase, trigger = 0 }) {
           const { data: me } = await supabase
             .from("integrantes")
             .select(
-              "*, instrumentos(familia), integrantes_ensambles(id_ensamble)"
+              "*, instrumentos(familia), integrantes_ensambles(id_ensamble)",
             )
             .eq("id", user.id)
             .single();
           if (me) {
             myFamily = me.instrumentos?.familia;
             me.integrantes_ensambles?.forEach((ie) =>
-              myEnsembles.add(ie.id_ensamble)
+              myEnsembles.add(ie.id_ensamble),
             );
           }
         }
         const { data, error } = await supabase
           .from("programas")
           .select(
-            `*, giras_localidades(id_localidad, localidades(localidad)), giras_fuentes(*), eventos (id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)), giras_integrantes (id_integrante, estado, rol, integrantes (nombre, apellido))`
+            `*, giras_localidades(id_localidad, localidades(localidad)), giras_fuentes(*), eventos (id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)), giras_integrantes (id_integrante, estado, rol, integrantes (nombre, apellido))`,
           )
           .order("fecha_desde", { ascending: true });
         if (error) throw error;
@@ -308,7 +305,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
             const overrides = gira.giras_integrantes || [];
             const sources = gira.giras_fuentes || [];
             const myOverride = overrides.find(
-              (o) => o.id_integrante === user.id
+              (o) => o.id_integrante === user.id,
             );
             if (myOverride && myOverride.estado === "ausente") return false;
             if (myOverride) return true;
@@ -317,7 +314,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 (s.tipo === "ENSAMBLE" &&
                   (myEnsembles.has(s.valor_id) ||
                     coordinatedEnsembles.has(s.valor_id))) ||
-                (s.tipo === "FAMILIA" && s.valor_texto === myFamily)
+                (s.tipo === "FAMILIA" && s.valor_texto === myFamily),
             );
             if (isIncluded) {
               const excludedEnsembles = sources
@@ -353,7 +350,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       if (!isViewAllowed || !isGiraCorrect) {
         setSearchParams(
           { tab: "giras", view: "AGENDA", giraId: user.active_gira_id },
-          { replace: true }
+          { replace: true },
         );
       }
     }
@@ -378,7 +375,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       .order("apellido");
     if (data)
       setAllIntegrantes(
-        data.map((i) => ({ value: i.id, label: `${i.apellido}, ${i.nombre}` }))
+        data.map((i) => ({ value: i.id, label: `${i.apellido}, ${i.nombre}` })),
       );
   };
 
@@ -400,7 +397,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       .select("id_localidad")
       .eq("id_gira", gira.id);
     setSelectedLocations(
-      data ? new Set(data.map((d) => d.id_localidad)) : new Set()
+      data ? new Set(data.map((d) => d.id_localidad)) : new Set(),
     );
     const fuentes = (gira.giras_fuentes || []).map((f) => {
       let label = f.valor_texto;
@@ -464,7 +461,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       fetchGiras();
     } else if (res.error === "DUPLICATE_NAME") {
       alert(
-        `⚠️ Error: El nombre "${newName}" ya existe.\n\nPor favor, modifica el nombre en el formulario (ej: agrega un número o año).`
+        `⚠️ Error: El nombre "${newName}" ya existe.\n\nPor favor, modifica el nombre en el formulario (ej: agrega un número o año).`,
       );
     } else {
       alert("Ocurrió un error inesperado al duplicar la gira.");
@@ -480,7 +477,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       .single();
     if (data) {
       setGiras((prev) =>
-        prev.map((g) => (g.id === data.id ? { ...g, ...data } : g))
+        prev.map((g) => (g.id === data.id ? { ...g, ...data } : g)),
       );
     }
   };
@@ -488,7 +485,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const handleGlobalSync = async () => {
     if (
       !confirm(
-        "¿Recalcular nomencladores y carpetas de Drive para TODAS las giras vigentes?"
+        "¿Recalcular nomencladores y carpetas de Drive para TODAS las giras vigentes?",
       )
     )
       return;
@@ -594,7 +591,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const handleDeleteGira = async (gira) => {
     if (
       !window.confirm(
-        `¿Estás SEGURO de que quieres eliminar la gira "${gira.nombre_gira}"?`
+        `¿Estás SEGURO de que quieres eliminar la gira "${gira.nombre_gira}"?`,
       )
     )
       return;
@@ -645,7 +642,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const handleRosterResolved = (rosterData) => setResolvedRoster(rosterData);
   const enrichedRoster = useMemo(
     () => (!enrichedRosterData ? [] : enrichedRosterData),
-    [enrichedRosterData]
+    [enrichedRosterData],
   );
   const toggleFilterStatus = (status) =>
     setFilterStatus((prev) => {
@@ -721,8 +718,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
     if (isEditor) return true;
     if (gira.tipo !== "Ensamble") return false;
     const fuentes = gira.giras_fuentes || [];
-    return sources.some(
-      (f) => f.tipo === "ENSAMBLE" && coordinatedEnsembles.has(f.valor_id)
+    return fuentes.some(
+      (f) => f.tipo === "ENSAMBLE" && coordinatedEnsembles.has(f.valor_id),
     );
   };
 
@@ -828,7 +825,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
                           size={16}
                           strokeWidth={isActive ? 2.5 : 2}
                         />{" "}
-                        <span className="hidden md:inline">{item.label}</span>{" "}
+                        <span className="hidden md:inline">
+                          {item.label}
+                        </span>{" "}
                       </button>
                     );
                   })}
