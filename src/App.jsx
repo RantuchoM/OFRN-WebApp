@@ -707,9 +707,9 @@ const ProtectedApp = () => {
 
             <button
               onClick={() => setCalendarModalOpen(true)}
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 font-bold text-xs hover:bg-indigo-100"
+              className="sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 font-bold text-xs hover:bg-indigo-100"
             >
-              <IconCalendar size={16} /> Sincronizar
+              <IconCalendar size={10} />Sincronizar
             </button>
 
             <button

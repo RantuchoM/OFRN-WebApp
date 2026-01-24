@@ -24,6 +24,8 @@ import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import { useLogistics } from "../../hooks/useLogistics";
 import EventForm from "../../components/forms/EventForm";
+import ManualTrigger from "../../components/manual/ManualTrigger"; // Ajusta la ruta según donde estés
+
 
 // --- CONSTANTES ---
 const CATEGORIA_OPTIONS = [
@@ -744,10 +746,14 @@ export default function LogisticsManager({ supabase, gira }) {
               <h3 className="text-sm font-black text-slate-800 uppercase flex items-center gap-2">
                 <IconSettings className="text-indigo-500" size={18} /> Logística
               </h3>
+                                          <ManualTrigger section="logistica_chips" />
+
               <button
                 onClick={() => setCriteriaCollapsed(!criteriaCollapsed)}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all border-2 ${criteriaCollapsed ? "bg-indigo-600 text-white border-indigo-800 shadow-sm" : "bg-white text-slate-500 border-slate-300"}`}
+              
               >
+                
                 {criteriaCollapsed ? "Chips" : "Editor"}
               </button>
             </div>
