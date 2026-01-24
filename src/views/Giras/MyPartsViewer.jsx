@@ -5,7 +5,7 @@ import {
   IconDownload,
   IconDrive,
   IconLayers,
-  IconAlertCircle // Agregamos ícono para pendiente
+  IconAlertCircle
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 
@@ -22,7 +22,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Obtener el instrumento del usuario
+      // 1. Obtener datos básicos e instrumento del usuario
       const { data: userData } = await supabase
         .from("integrantes")
         .select("id, nombre, apellido, id_instr") 
@@ -32,7 +32,28 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
       const myInstrumentId = userData?.id_instr; 
       setUserInstrument(myInstrumentId ? `Instrumento: ${myInstrumentId}` : "Sin instrumento asignado");
 
-      // 2. Obtener Repertorio
+      // 2. Obtener el Contenedor (Atril) del usuario para esta gira específica
+      const { data: seatingJoin } = await supabase
+        .from("seating_contenedores_items")
+        .select(`
+            id_contenedor,
+            seating_contenedores!inner (id_programa)
+        `)
+        .eq("id_musico", user.id)
+        .eq("seating_contenedores.id_programa", gira.id)
+        .maybeSingle();
+      
+      const myContainerId = seatingJoin?.id_contenedor;
+
+      // 3. Obtener todas las asignaciones de particellas de la gira (Crucial para la precisión)
+      const { data: asignsData } = await supabase
+        .from("seating_asignaciones")
+        .select("id_obra, id_particella, id_contenedor, id_musicos_asignados")
+        .eq("id_programa", gira.id);
+
+      const assignments = asignsData || [];
+
+      // 4. Obtener Repertorio completo (Incluyendo el ID de las particellas para comparar)
       const { data: progRepData, error } = await supabase
         .from("programas_repertorios")
         .select(`
@@ -57,7 +78,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
 
       if (error) throw error;
 
-      // 3. Procesar datos
+      // 5. Procesar datos triangulando asignaciones
       let processed = [];
 
       (progRepData || []).forEach(cat => {
@@ -67,6 +88,29 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
           sortedWorks.forEach(item => {
               if (item.excluir || !item.obras) return;
               const obra = item.obras;
+
+              // --- LÓGICA DE TRIANGULACIÓN DE PARTE ---
+              const workAsigns = assignments.filter(a => String(a.id_obra) === String(obra.id));
+              
+              // Prioridad 1: Asignación específica por ID de músico
+              const specificAsign = workAsigns.find(a => 
+                  a.id_musicos_asignados?.some(mid => String(mid) === String(user.id))
+              );
+
+              // Prioridad 2: Asignación por Contenedor/Atril
+              const groupAsign = workAsigns.find(a => 
+                  myContainerId && String(a.id_contenedor) === String(myContainerId)
+              );
+
+              const finalAsign = specificAsign || groupAsign;
+
+              // Buscar la particella física real dentro de la obra
+              // Añadimos el filtro de instrumento como "doble check" de seguridad
+              const myPart = obra.obras_particellas?.find(p => 
+                  finalAsign && 
+                  String(p.id) === String(finalAsign.id_particella) &&
+                  String(p.id_instrumento) === String(myInstrumentId)
+              );
 
               // Compositor
               let composerName = "Autor Desconocido";
@@ -79,35 +123,20 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                 composerName = `${obra.compositores.nombre} ${obra.compositores.apellido}`;
               }
 
-              // Buscar particella
-              const myPart = obra.obras_particellas?.find(
-                  p => p.id_instrumento === myInstrumentId
-              );
-
-              // --- LOGICA DE LIMPIEZA DE URL ---
+              // Limpieza de URL
               let cleanUrl = null;
               if (myPart?.url_archivo) {
                   try {
-                      // Intentamos parsear si viene como string JSON
                       if (myPart.url_archivo.trim().startsWith("[")) {
                           const parsed = JSON.parse(myPart.url_archivo);
-                          if (Array.isArray(parsed) && parsed.length > 0) {
-                              cleanUrl = parsed[0].url;
-                          }
+                          if (Array.isArray(parsed) && parsed.length > 0) cleanUrl = parsed[0].url;
                       } else {
-                          // Si es texto plano, lo usamos directo
                           cleanUrl = myPart.url_archivo;
                       }
-                  } catch (e) {
-                      console.warn("Error parseando URL:", e);
-                      cleanUrl = myPart.url_archivo; // Fallback
-                  }
+                  } catch (e) { cleanUrl = myPart.url_archivo; }
               }
 
-              // --- DETERMINAR ESTADO ---
-              // Estado 1: "No asignado" -> No existe registro en obras_particellas para mi instrumento
-              // Estado 2: "Pendiente" -> Existe registro, pero no tiene URL
-              // Estado 3: "Disponible" -> Existe registro y tiene URL
+              // Estado
               let status = "NO_ASSIGNED";
               if (myPart) {
                   status = cleanUrl ? "AVAILABLE" : "PENDING";
@@ -121,9 +150,9 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                 titulo: obra.titulo,
                 link_drive_obra: obra.link_drive,
                 
-                particella_status: status, // Nuevo campo de estado
+                particella_status: status,
                 particella_link: cleanUrl,
-                particella_nombre: myPart?.nombre_archivo || myInstrumentId,
+                particella_nombre: myPart?.nombre_archivo || (myPart ? "Parte sin nombre" : myInstrumentId),
                 nota_extra: myPart?.nota_organico || null
               });
           });
@@ -156,7 +185,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
       <div className="flex-1 overflow-y-auto px-4 pb-4">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             {repertoire.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 italic">No hay obras cargadas.</div>
+                <div className="p-8 text-center text-slate-400 italic">No hay obras cargadas con partes asignadas para ti.</div>
             ) : (
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
@@ -164,7 +193,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                             <tr>
                                 <th className="px-4 py-3">Obra</th>
                                 <th className="px-4 py-3 text-center">Carpeta</th>
-                                <th className="px-4 py-3">Parte</th>
+                                <th className="px-4 py-3">Parte Asignada</th>
                                 <th className="px-4 py-3 text-center">Estado</th>
                             </tr>
                         </thead>
@@ -172,13 +201,13 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                             {repertoire.map((row) => (
                                 <tr key={row.uniqueId} className="hover:bg-slate-50 transition-colors">
                                     <td className="px-4 py-3">
-                                        <div className="font-medium text-slate-900 whitespace-pre-wrap">{row.titulo}</div>
-                                        <div className="text-xs text-slate-500">{row.compositor}</div>
+                                        <div className="font-bold text-slate-900 whitespace-pre-wrap leading-tight" dangerouslySetInnerHTML={{ __html: row.titulo }} />
+                                        <div className="text-[11px] text-slate-500 mt-1">{row.compositor}</div>
                                     </td>
                                     
                                     <td className="px-4 py-3 text-center">
                                         {row.link_drive_obra ? (
-                                            <a href={row.link_drive_obra} target="_blank" rel="noopener noreferrer" className="inline-flex p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded" title="Carpeta General">
+                                            <a href={row.link_drive_obra} target="_blank" rel="noopener noreferrer" className="inline-flex p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors" title="Carpeta General de la Obra">
                                                 <IconDrive size={18} />
                                             </a>
                                         ) : <span className="text-slate-300">-</span>}
@@ -187,22 +216,21 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
                                     <td className="px-4 py-3 text-slate-600">
                                         {row.particella_status !== "NO_ASSIGNED" ? (
                                             <div className="flex flex-col">
-                                                <span className="font-medium text-indigo-600">{row.particella_nombre}</span>
-                                                {row.nota_extra && <span className="text-[10px] text-slate-400">{row.nota_extra}</span>}
+                                                <span className="font-bold text-indigo-600 text-xs truncate max-w-[200px]">{row.particella_nombre}</span>
+                                                {row.nota_extra && <span className="text-[10px] text-slate-400 italic">{row.nota_extra}</span>}
                                             </div>
-                                        ) : <span className="text-slate-400 italic text-xs">No asignado</span>}
+                                        ) : <span className="text-slate-400 italic text-xs">No asignado en seating</span>}
                                     </td>
 
                                     <td className="px-4 py-3 text-center">
-                                        {/* LÓGICA DE BOTONES SEGÚN ESTADO */}
                                         {row.particella_status === "AVAILABLE" && (
-                                            <a href={row.particella_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 font-bold text-xs shadow-sm">
-                                                <IconDownload size={14} /> Ver PDF
+                                            <a href={row.particella_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 font-bold text-xs shadow-sm transition-all active:scale-95">
+                                                <IconDownload size={14} /> VER PDF
                                             </a>
                                         )}
                                         {row.particella_status === "PENDING" && (
                                             <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 rounded border border-amber-100 text-[10px] font-bold">
-                                                <IconAlertCircle size={12}/> Pendiente
+                                                <IconAlertCircle size={12}/> Pendiente de carga
                                             </span>
                                         )}
                                         {row.particella_status === "NO_ASSIGNED" && (
