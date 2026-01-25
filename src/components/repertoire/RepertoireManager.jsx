@@ -250,6 +250,101 @@ export default function RepertoireManager({
     });
     setSeatingMap(newMap);
   };
+  const MultiSoloistSelect = ({
+    selectedIds = [],
+    musicians,
+    onAdd,
+    onRemove,
+    isEditor,
+  }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState("");
+    const wrapperRef = useRef(null);
+
+    // Filtrar músicos seleccionados para mostrar los chips
+    const selectedMusicians = musicians.filter((m) =>
+      selectedIds?.includes(m.id),
+    );
+
+    // Filtrar opciones para el desplegable (excluyendo los ya seleccionados)
+    const availableOptions = musicians.filter(
+      (m) =>
+        !selectedIds?.includes(m.id) &&
+        `${m.apellido}, ${m.nombre}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
+    );
+
+    return (
+      <div className="flex flex-wrap gap-1 items-center p-1" ref={wrapperRef}>
+        {/* Renderizado de Chips */}
+        {selectedMusicians.map((m) => (
+          <div
+            key={m.id}
+            className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full text-[9px] font-bold border border-indigo-200"
+          >
+            {/* Cambiamos m.apellido por m.apellido, m.nombre y aumentamos el max-w */}
+            <span className="truncate max-w-[120px]">
+              {m.apellido}, {m.nombre}
+            </span>
+            {isEditor && (
+              <button
+                onClick={() => onRemove(m.id)}
+                className="hover:text-red-600 transition-colors"
+              >
+                <IconX size={10} strokeWidth={3} />
+              </button>
+            )}
+          </div>
+        ))}
+        {/* Botón de Añadir / Buscador */}
+        {isEditor && (
+          <div className="relative">
+            {!isOpen ? (
+              <button
+                onClick={() => setIsOpen(true)}
+                className="text-[10px] text-slate-400 hover:text-indigo-600 p-1 italic"
+              >
+                + Añadir
+              </button>
+            ) : (
+              <div className="absolute top-0 left-0 w-64 bg-white border border-indigo-200 shadow-xl rounded z-50">
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Buscar..."
+                  className="w-full p-2 text-xs border-b outline-none"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onBlur={() => setTimeout(() => setIsOpen(false), 200)}
+                />
+                <div className="max-h-40 overflow-y-auto">
+                  {availableOptions.map((m) => (
+                    <div
+                      key={m.id}
+                      onClick={() => {
+                        onAdd(m.id);
+                        setSearch("");
+                        setIsOpen(false);
+                      }}
+                      className="p-2 text-xs cursor-pointer hover:bg-indigo-50 flex justify-between"
+                    >
+                      <span>
+                        {m.apellido}, {m.nombre}
+                      </span>
+                      <span className="text-[9px] text-slate-400">
+                        {m.instrumentos?.instrumento}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
   const fetchInstruments = async () => {
     const { data } = await supabase
       .from("instrumentos")
@@ -258,34 +353,46 @@ export default function RepertoireManager({
     if (data) setInstrumentList(data);
   };
 
+  // src/components/repertoire/RepertoireManager.jsx
+
   const fetchFullRepertoire = async () => {
     if (repertorios.length === 0) setLoading(true);
     const { data: reps, error } = await supabase
       .from("programas_repertorios")
       .select(
         `*, repertorio_obras (
-            id, orden, notas_especificas, id_solista, google_drive_shortcut_id, excluir, id_arco_seleccionado, 
-            obras (
-                id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, 
-                obras_arcos (id, nombre, link, descripcion),
-                compositores (id, apellido, nombre), 
-                obras_compositores (rol, compositores(id, apellido, nombre)),
-                obras_particellas (id, nombre_archivo, nota_organico, id_instrumento, url_archivo, instrumentos (instrumento))
-            ), 
-            integrantes (id, apellido, nombre)
-        )`,
+          id, 
+          orden, 
+          notas_especificas, 
+          ids_solistas,
+          google_drive_shortcut_id, 
+          excluir, 
+          id_arco_seleccionado, 
+          obras (
+              id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, 
+              obras_arcos (id, nombre, link, descripcion),
+              compositores (id, apellido, nombre), 
+              obras_compositores (rol, compositores(id, apellido, nombre)),
+              obras_particellas (id, nombre_archivo, nota_organico, id_instrumento, url_archivo, instrumentos (instrumento))
+          )
+      )`,
       )
       .eq("id_programa", programId)
       .order("orden", { ascending: true });
 
-    if (!error)
-      setRepertorios(
-        reps.map((r) => ({
-          ...r,
-          repertorio_obras:
-            r.repertorio_obras?.sort((a, b) => a.orden - b.orden) || [],
-        })),
-      );
+    if (error) {
+      console.error("Error al cargar repertorio:", error);
+      setLoading(false);
+      return;
+    }
+
+    setRepertorios(
+      reps.map((r) => ({
+        ...r,
+        repertorio_obras:
+          r.repertorio_obras?.sort((a, b) => a.orden - b.orden) || [],
+      })),
+    );
     setLoading(false);
   };
 
@@ -487,19 +594,21 @@ export default function RepertoireManager({
       .from("repertorio_obras")
       .update({ [field]: value })
       .eq("id", itemId);
-    if (field === "id_solista" && value && giraId) {
+    if (field === "ids_solistas" && Array.isArray(value) && giraId) {
       try {
-        await supabase.from("giras_integrantes").upsert(
-          {
-            id_gira: giraId,
-            id_integrante: value,
-            rol: "solista",
-            estado: "confirmado",
-          },
-          { onConflict: "id_gira, id_integrante" },
-        );
+        for (const solistId of value) {
+          await supabase.from("giras_integrantes").upsert(
+            {
+              id_gira: giraId,
+              id_integrante: solistId,
+              rol: "solista",
+              estado: "confirmado",
+            },
+            { onConflict: "id_gira, id_integrante" },
+          );
+        }
       } catch (e) {
-        console.error(e);
+        console.error("Error al sincronizar plantel:", e);
       }
     }
   };
@@ -992,21 +1101,65 @@ export default function RepertoireManager({
                       </td>
                       <td className="p-0 border-l border-slate-100 align-middle">
                         {isEditor ? (
+                          /* VISTA EDICIÓN: Permite añadir y quitar solistas */
                           <div className="px-1">
-                            <SoloistSelect
-                              currentId={item.id_solista}
-                              musicians={musicians}
-                              onChange={(newId) =>
-                                updateWorkDetail(item.id, "id_solista", newId)
+                            <MultiSoloistSelect
+                              selectedIds={
+                                item.ids_solistas ||
+                                (item.id_solista ? [item.id_solista] : [])
                               }
+                              musicians={musicians}
+                              isEditor={true}
+                              onAdd={(newId) => {
+                                const current =
+                                  item.ids_solistas ||
+                                  (item.id_solista ? [item.id_solista] : []);
+                                updateWorkDetail(item.id, "ids_solistas", [
+                                  ...current,
+                                  newId,
+                                ]);
+                              }}
+                              onRemove={(removeId) => {
+                                const current =
+                                  item.ids_solistas ||
+                                  (item.id_solista ? [item.id_solista] : []);
+                                updateWorkDetail(
+                                  item.id,
+                                  "ids_solistas",
+                                  current.filter((id) => id !== removeId),
+                                );
+                              }}
                             />
                           </div>
                         ) : (
-                          <span className="block p-1 truncate text-[10px]">
-                            {item.integrantes
-                              ? `${item.integrantes.apellido}, ${item.integrantes.nombre}`
-                              : "-"}
-                          </span>
+                          /* VISTA LECTURA: Solo muestra los nombres de los solistas seleccionados */
+                          <div className="flex flex-wrap gap-1 p-1">
+                            {(
+                              item.ids_solistas ||
+                              (item.id_solista ? [item.id_solista] : [])
+                            ).length > 0 ? (
+                              (
+                                item.ids_solistas ||
+                                (item.id_solista ? [item.id_solista] : [])
+                              ).map((id) => {
+                                const m = musicians.find(
+                                  (mus) => mus.id === id,
+                                );
+                                return m ? (
+                                  <span
+                                    key={id}
+                                    className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 truncate max-w-[100px]"
+                                  >
+                                    {m.apellido}, {m.nombre[0]}.
+                                  </span>
+                                ) : null;
+                              })
+                            ) : (
+                              <span className="text-[10px] text-slate-300 italic p-1">
+                                -
+                              </span>
+                            )}
+                          </div>
                         )}
                       </td>
                       <td className="p-1 truncate text-slate-500">
