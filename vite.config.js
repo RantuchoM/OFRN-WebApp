@@ -10,10 +10,14 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: "autoUpdate",
+      registerType: "prompt",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
       workbox: {
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // Subimos a 5MB por seguridad
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Opcional: Esto ayuda a que el nuevo service worker tome el control rápido
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: false, // Importante: lo manejaremos nosotros con el botón
       },
       manifest: {
         name: "OFRN - App",
@@ -26,7 +30,12 @@ export default defineConfig({
         icons: [
           { src: "pwa-192x192.png", sizes: "192x192", type: "image/png" },
           { src: "pwa-512x512.png", sizes: "512x512", type: "image/png" },
-          { src: "pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+          {
+            src: "pwa-512x512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any maskable",
+          },
         ],
       },
     }),
@@ -44,7 +53,7 @@ export default defineConfig({
       "@scaleflex/ui/core",
       "react-konva",
       "konva",
-      "styled-components"
+      "styled-components",
     ],
     esbuildOptions: {
       // Inyectamos el shim en TODAS ellas

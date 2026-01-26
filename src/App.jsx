@@ -8,7 +8,7 @@ import {
 } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { supabase } from "./services/supabase";
-
+import ReloadPrompt from "./components/ui/ReloadPrompt";
 // Vistas
 import LoginView from "./views/LoginView/LoginView";
 import GirasView from "./views/Giras/GirasView";
@@ -869,6 +869,7 @@ export default function App() {
           <Route path="/share/:token" element={<PublicLinkHandler />} />
           <Route path="/*" element={<AppContent />} />
         </Routes>
+        <ReloadPrompt />
       </ManualProvider>
     </AuthProvider>
   );

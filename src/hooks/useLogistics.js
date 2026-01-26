@@ -13,7 +13,64 @@ export const getPriorityValue = (scope) => {
   if (s === "region" || s === "r") return 2;
   return 1;
 };
+/**
+ * Calcula la "fuerza" del match para una persona específica.
+ * Una misma regla puede ser muy fuerte para uno (ID) y débil para otro (Localidad).
+ */
+export const getMatchStrength = (rule, person, allLocalities = []) => {
+  if (!rule || !person) return 0;
 
+  const pId = String(person.id || person.id_integrante);
+  const pLoc = person.id_localidad ? String(person.id_localidad) : "";
+  const pCat = getCategoriaLogistica(person);
+
+  const locInfo = allLocalities.find((l) => String(l.id) === pLoc);
+  const pReg = String(
+    person.id_region ||
+      person.localidades?.id_region ||
+      locInfo?.id_region ||
+      "",
+  );
+
+  // 1. Prioridad Máxima: Match por ID de Persona
+  if ((rule.target_ids || []).map(String).includes(pId)) return 5;
+  if (
+    normalize(rule.alcance) === "persona" &&
+    String(rule.id_integrante) === pId
+  )
+    return 5;
+
+  // 2. Prioridad 4: Match por Categoría
+  if ((rule.target_categories || []).includes(pCat)) return 4;
+  if (
+    normalize(rule.alcance) === "categoria" ||
+    normalize(rule.alcance) === "instrumento"
+  ) {
+    if (
+      normalize(rule.instrumento_familia) ===
+      normalize(person.instrumentos?.familia)
+    )
+      return 4;
+  }
+
+  // 3. Prioridad 3: Match por Localidad
+  if ((rule.target_localities || []).map(String).includes(pLoc)) return 3;
+  if (
+    normalize(rule.alcance) === "localidad" &&
+    String(rule.id_localidad) === pLoc
+  )
+    return 3;
+
+  // 4. Prioridad 2: Match por Región
+  if ((rule.target_regions || []).map(String).includes(pReg)) return 2;
+  if (normalize(rule.alcance) === "region" && String(rule.id_region) === pReg)
+    return 2;
+
+  // 5. Prioridad 1: General
+  if (normalize(rule.alcance) === "general") return 1;
+
+  return 0; // No hay match
+};
 export const getCategoriaLogistica = (person) => {
   const rol = normalize(person?.rol_gira || person?.rol || "musico");
   if (rol === "solista") return "SOLISTAS";
@@ -74,35 +131,27 @@ export const calculateLogisticsSummary = (
   transportesFisicos = [],
   allRooms = [],
   allLocalities = [],
-  allEvents = [], // Nuevo argumento necesario
+  allEvents = [],
 ) => {
   if (!roster || roster.length === 0) return [];
   const transportMap = Object.fromEntries(
     (transportesFisicos || []).map((t) => [t.id, t]),
   );
 
+  // --- HELPERS INTERNOS ---
   const getSourceCode = (r) => {
-    // 1. Prioridad máxima: Si hay IDs de personas específicas
     if ((r.target_ids || []).length > 0) return "P";
-
-    // 2. Si hay categorías seleccionadas
     if ((r.target_categories || []).length > 0) return "C";
-
-    // 3. Si hay localidades seleccionadas
     if ((r.target_localities || []).length > 0) return "L";
-
-    // 4. Si hay regiones seleccionadas
     if ((r.target_regions || []).length > 0) return "R";
-
-    // 5. Fallback a la lógica de alcance (Legacy)
     const s = normalize(r.alcance);
     if (s === "persona") return "P";
     if (s === "categoria" || s === "instrumento") return "C";
     if (s === "localidad") return "L";
     if (s === "region") return "R";
-
-    return "G"; // General por defecto
+    return "G";
   };
+
   const enrichEvent = (evt) => {
     if (!evt) return null;
     return {
@@ -122,11 +171,12 @@ export const calculateLogisticsSummary = (
           (id) => String(id) === String(pId),
         ),
       ) || null;
+
     let log = {
       checkin: {},
       checkout: {},
       comida_inicio: {},
-      comida_fin: {}, // Inicializados como objetos
+      comida_fin: {},
       prov_des: "-",
       prov_alm: "-",
       prov_mer: "-",
@@ -135,74 +185,80 @@ export const calculateLogisticsSummary = (
       transports_src: "-",
     };
 
-    // A. Resolución de Hitos (Modificado para exportar OBJETOS completos)
-    const sortedLogRules = [...logisticsRules].sort(
-      (a, b) => getPriorityValue(a.alcance) - getPriorityValue(b.alcance),
-    );
+    // --- BLOQUE A: RESOLUCIÓN DE HITOS (NUEVA LÓGICA DE FUERZA DINÁMICA) ---
 
-    sortedLogRules.forEach((r) => {
-      if (matchesRule(r, person, allLocalities)) {
-        const src = getSourceCode(r);
+    // 1. Calculamos la fuerza de cada regla PARA ESTA PERSONA
+    const rulesWithStrength = logisticsRules
+      .map((r) => {
+        // Usamos la función getMatchStrength que definimos antes
+        // Si no la tienes exportada, puedes pegarla aquí arriba o usar su lógica
+        const strength = getMatchStrength(r, person, allLocalities);
+        return { rule: r, strength };
+      })
+      .filter((item) => item.strength > 0) // Solo las que aplican a este músico
+      .sort((a, b) => a.strength - b.strength); // Ordenamos de menor a mayor fuerza
 
-        const resolve = (key, legacyDate, legacyTime, svcField) => {
-          const eventId = r[`id_evento_${key}`];
-          const linkedEvent = eventId
-            ? allEvents.find((e) => String(e.id) === String(eventId))
-            : null;
+    // 2. Procesamos las reglas en orden: la más fuerte (Persona) se procesa al final y sobreescribe
+    rulesWithStrength.forEach(({ rule: r, strength }) => {
+      const src = getSourceCode(r);
 
-          if (linkedEvent) {
-            log[key] = {
-              ...enrichEvent(linkedEvent),
-              id_evento: linkedEvent.id, // Aseguramos que tenga esta propiedad
-              isLinked: true,
-              src,
-              ruleId: r.id, // <--- CRÍTICO PARA DESVINCULAR
-              field: `id_evento_${key}`, // <--- CRÍTICO PARA DESVINCULAR
-              svc: svcField ? r[svcField] : null,
-            };
-          } else if (r[legacyDate]) {
-            log[key] = {
-              date: r[legacyDate],
-              time: r[legacyTime],
-              isLinked: false,
-              src,
-              ruleId: r.id,
-              svc: svcField ? r[svcField] : null,
-              descripcion: r[svcField] || "Manual",
-            };
-          }
-        };
+      const resolve = (key, legacyDate, legacyTime, svcField) => {
+        const eventId = r[`id_evento_${key}`];
+        const linkedEvent = eventId
+          ? allEvents.find((e) => String(e.id) === String(eventId))
+          : null;
 
-        resolve("checkin", "fecha_checkin", "hora_checkin", "Check-In");
-        resolve("checkout", "fecha_checkout", "hora_checkout", "Check-Out");
-        resolve(
-          "comida_inicio",
-          "comida_inicio_fecha",
-          "comida_inicio_servicio",
-          r.comida_inicio_servicio || "Inicio",
-        );
-        resolve(
-          "comida_fin",
-          "comida_fin_fecha",
-          "comida_fin_servicio",
-          r.comida_fin_servicio || "Fin",
-        );
+        if (linkedEvent) {
+          log[key] = {
+            ...enrichEvent(linkedEvent),
+            id_evento: linkedEvent.id,
+            isLinked: true,
+            src,
+            ruleId: r.id,
+            field: `id_evento_${key}`,
+            svc: svcField ? r[svcField] : null,
+            strength, // Guardamos la fuerza del match
+          };
+        } else if (r[legacyDate]) {
+          log[key] = {
+            date: r[legacyDate],
+            time: r[legacyTime],
+            isLinked: false,
+            src,
+            ruleId: r.id,
+            svc: svcField ? r[svcField] : null,
+            descripcion: r[svcField] || "Manual",
+            strength,
+          };
+        }
+      };
 
-        if (r.comida_inicio_servicio)
-          log.comida_inicio.svc = r.comida_inicio_servicio;
-        if (r.comida_fin_servicio) log.comida_fin.svc = r.comida_fin_servicio;
+      resolve("checkin", "fecha_checkin", "hora_checkin", "Check-In");
+      resolve("checkout", "fecha_checkout", "hora_checkout", "Check-Out");
+      resolve(
+        "comida_inicio",
+        "comida_inicio_fecha",
+        "comida_inicio_servicio",
+        "comida_inicio_servicio",
+      );
+      resolve(
+        "comida_fin",
+        "comida_fin_fecha",
+        "comida_fin_servicio",
+        "comida_fin_servicio",
+      );
 
-        if (r.prov_desayuno && r.prov_desayuno !== "-")
-          log.prov_des = r.prov_desayuno;
-        if (r.prov_almuerzo && r.prov_almuerzo !== "-")
-          log.prov_alm = r.prov_almuerzo;
-        if (r.prov_merienda && r.prov_merienda !== "-")
-          log.prov_mer = r.prov_merienda;
-        if (r.prov_cena && r.prov_cena !== "-") log.prov_cen = r.prov_cena;
-      }
+      // Provisiones (comidas)
+      if (r.prov_desayuno && r.prov_desayuno !== "-")
+        log.prov_des = r.prov_desayuno;
+      if (r.prov_almuerzo && r.prov_almuerzo !== "-")
+        log.prov_alm = r.prov_almuerzo;
+      if (r.prov_merienda && r.prov_merienda !== "-")
+        log.prov_mer = r.prov_merienda;
+      if (r.prov_cena && r.prov_cena !== "-") log.prov_cen = r.prov_cena;
     });
 
-    // B. Transporte (MANTENIENDO TU LÓGICA BASE INTACTA)
+    // --- BLOQUE B: TRANSPORTE (IGUAL QUE ANTES) ---
     const allowedTids = new Set();
     (admissionRules || []).forEach((r) => {
       if (matchesRule(r, person, allLocalities)) {
@@ -223,7 +279,8 @@ export const calculateLogisticsSummary = (
       let maxPrio = 0;
 
       myRoutes.forEach((r) => {
-        const p = getPriorityValue(r.alcance);
+        // Aquí también podrías usar getMatchStrength si quieres consistencia total
+        const p = getMatchStrength(r, person, allLocalities);
         if (p > maxPrio) maxPrio = p;
         if (r.id_evento_subida && p >= sub.prio)
           sub = { prio: p, data: r.evento_subida };
@@ -246,7 +303,6 @@ export const calculateLogisticsSummary = (
     return { ...person, habitacion, ...log, logistics: log };
   });
 };
-
 // --- 3. HOOK useLogistics PRINCIPAL ---
 
 export function useLogistics(supabase, gira, trigger = 0) {
