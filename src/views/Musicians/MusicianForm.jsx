@@ -174,7 +174,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     "text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block ml-1";
 
   const [formData, setFormData] = useState({
-    id: null,
+    id: undefined,
     nombre: "",
     apellido: "",
     domicilio: "",
@@ -184,7 +184,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     mail: "",
     telefono: "",
     condicion: "Estable",
-    genero: "Masculino",
+    genero: "-",
     alimentacion: "",
     nacionalidad: "Argentina",
     fecha_nac: "",
@@ -521,28 +521,39 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     }
   };
 
+  // MusicianForm.jsx - Línea 478 aprox.
   const handleCreateInitial = async (e) => {
     e.preventDefault();
     if (!formData.apellido || !formData.nombre)
       return alert("Apellido y Nombre son obligatorios.");
+
     setLoading(true);
     try {
+      // Creamos un objeto LIMPIO sin la propiedad 'id'
+      const payload = {
+        nombre: formData.nombre,
+        apellido: formData.apellido,
+        domicilio: formData.domicilio || null,
+        condicion: formData.condicion || "Invitado",
+        genero: formData.genero || "-", // Usamos el guion si no hay valor
+        rol_sistema: "user",
+        nacionalidad: "Argentina",
+      };
+
       const { data, error } = await supabase
         .from("integrantes")
-        .insert([
-          {
-            nombre: formData.nombre,
-            apellido: formData.apellido,
-            domicilio: formData.domicilio,
-          },
-        ])
+        .insert([payload]) // Enviamos el payload limpio
         .select()
         .single();
+
       if (error) throw error;
+
+      // Actualizamos el estado con el ID que generó la base de datos
       setFormData((prev) => ({ ...prev, id: data.id }));
       if (onSave) onSave(data, false);
     } catch (error) {
-      alert(error.message);
+      console.error("Error al crear:", error.message);
+      alert("Error de base de datos: " + error.message);
     } finally {
       setLoading(false);
     }
@@ -760,7 +771,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Columna 1: Domicilio */}
                   <div>
                     <label className={labelClass}>Domicilio</label>
                     <input
@@ -770,15 +782,14 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       onChange={(e) => updateField("domicilio", e.target.value)}
                     />
                   </div>
+
+                  {/* Columna 2: Alimentación */}
                   <div className="space-y-1">
                     <label className={labelClass}>Tipo de Alimentación</label>
                     <select
-                      value={formData.alimentacion || "Omnívora"}
+                      value={formData.alimentacion || "General"}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          alimentacion: e.target.value,
-                        })
+                        updateField("alimentacion", e.target.value)
                       }
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
                     >
@@ -787,6 +798,20 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                           {opcion}
                         </option>
                       ))}
+                    </select>
+                  </div>
+
+                  {/* Columna 3: Género (NUEVO) */}
+                  <div className="space-y-1">
+                    <label className={labelClass}>Género</label>
+                    <select
+                      value={formData.genero || "-"}
+                      onChange={(e) => updateField("genero", e.target.value)}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                    >
+                      <option value="-">-</option>
+                      <option value="M">M</option>
+                      <option value="F">F</option>
                     </select>
                   </div>
                 </div>

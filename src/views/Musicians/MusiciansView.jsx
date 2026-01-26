@@ -1236,9 +1236,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
             <MusicianForm
               supabase={supabase}
-              musician={
-                isAdding ? { id: null, condicion: "Invitado" } : editFormData
-              }
+              musician={isAdding ? { condicion: "Invitado" } : editFormData}
               onSave={(data, shouldClose = true) => {
                 if (shouldClose) {
                   setIsAdding(false);
