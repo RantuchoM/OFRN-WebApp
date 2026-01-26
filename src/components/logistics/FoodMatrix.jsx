@@ -2,10 +2,13 @@ import React, { useMemo } from 'react';
 
 export default function FoodMatrix({ roster }) {
   const { matrix, columns } = useMemo(() => {
-    // 1. Detectar todos los tipos de alimentación únicos en el roster
-    const dietTypes = [...new Set(roster.map(p => (p.alimentacion || 'Estándar').trim()))];
+    // 1. Filtrar ausentes para que solo cuenten los incluidos actualmente
+    const activeRoster = (roster || []).filter(p => p.estado_gira !== 'ausente');
+
+    // 2. Detectar todos los tipos de alimentación únicos en el personal activo
+    const dietTypes = [...new Set(activeRoster.map(p => (p.alimentacion || 'Estándar').trim()))];
     
-    // 2. Inicializar la estructura de datos
+    // 3. Inicializar la estructura de datos
     const initialMatrix = {
       loc: { tot: 0 },
       viaj: { tot: 0 },
@@ -18,8 +21,8 @@ export default function FoodMatrix({ roster }) {
       initialMatrix.total[type] = 0;
     });
 
-    // 3. Llenar la matriz
-    roster.forEach(p => {
+    // 4. Llenar la matriz con los datos del personal activo
+    activeRoster.forEach(p => {
       const row = p.is_local ? 'loc' : 'viaj';
       const type = (p.alimentacion || 'Estándar').trim();
       
@@ -31,6 +34,9 @@ export default function FoodMatrix({ roster }) {
 
     return { matrix: initialMatrix, columns: dietTypes };
   }, [roster]);
+
+  // Si no hay nadie activo, no renderizamos el cuadro
+  if (matrix.total.tot === 0) return null;
 
   const cellClass = "px-1.5 py-0.5 text-right text-[10px]";
   const labelClass = "px-1.5 py-0.5 text-left text-[10px] font-bold text-slate-500";
