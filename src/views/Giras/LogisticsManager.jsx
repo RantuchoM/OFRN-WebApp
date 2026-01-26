@@ -18,6 +18,7 @@ import {
   IconLink,
   IconEdit,
   IconCalendarPlus,
+  IconSearch,
   IconLinkOff,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
@@ -469,6 +470,7 @@ export default function LogisticsManager({ supabase, gira }) {
   });
   const [collapsedLocalities, setCollapsedLocalities] = useState(new Set());
   const [showOnlyMissing, setShowOnlyMissing] = useState(false);
+  const [searchTerm, setSearchTerm] = useState(""); // <--- NUEVO ESTADO
   const [criteriaCollapsed, setCriteriaCollapsed] = useState(true);
   const [catalogs, setCatalogs] = useState({ locations: [], regions: [] });
   const [managingHito, setManagingHito] = useState(null);
@@ -521,7 +523,15 @@ export default function LogisticsManager({ supabase, gira }) {
   // Busca esta parte en tu componente y reemplázala:
   const groupedSummary = useMemo(() => {
     let list = summary || [];
-
+    // --- NUEVO FILTRO DE BÚSQUEDA ---
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      list = list.filter(
+        (m) =>
+          m.nombre?.toLowerCase().includes(term) ||
+          m.apellido?.toLowerCase().includes(term),
+      );
+    }
     if (showOnlyMissing) {
       list = list.filter((m) => {
         const l = m.logistics;
@@ -546,7 +556,7 @@ export default function LogisticsManager({ supabase, gira }) {
       acc[city].push(p);
       return acc;
     }, {});
-  }, [summary, showOnlyMissing]);
+  }, [summary, showOnlyMissing, searchTerm]); // <--- AÑADIR searchTerm AQUÍ
 
   const handleRowChange = (idx, field, val) => {
     setLocalRules((prev) => {
@@ -1055,12 +1065,40 @@ export default function LogisticsManager({ supabase, gira }) {
               Tiempo
               <ManualTrigger section="logistica_linea_de_tiempo" />
             </h3>
-            <button
-              onClick={() => setShowOnlyMissing(!showOnlyMissing)}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${showOnlyMissing ? "bg-red-600 text-white border-red-700 shadow-md" : "bg-white text-slate-400 border-slate-200"}`}
-            >
-              {showOnlyMissing ? "Viendo Faltantes" : "Filtrar Faltantes"}
-            </button>
+
+            {/* CONTENEDOR DE FILTROS */}
+            <div className="flex gap-2 items-center">
+              {/* BUSCADOR DE NOMBRE */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="BUSCAR POR NOMBRE..."
+                  className="pl-3 pr-8 py-2 bg-white border-2 border-slate-200 rounded-xl text-[10px] font-black uppercase outline-none focus:border-indigo-400 w-48 transition-all placeholder:text-slate-300"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500"
+                  >
+                    <IconX size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* BOTÓN FALTANTES */}
+              <button
+                onClick={() => setShowOnlyMissing(!showOnlyMissing)}
+                className={`px-4 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${
+                  showOnlyMissing
+                    ? "bg-red-600 text-white border-red-700 shadow-md"
+                    : "bg-white text-slate-400 border-slate-200"
+                }`}
+              >
+                {showOnlyMissing ? "Viendo Faltantes" : "Filtrar Faltantes"}
+              </button>
+            </div>
           </div>
 
           {Object.entries(groupedSummary).map(([city, members]) => (
