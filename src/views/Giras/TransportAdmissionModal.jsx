@@ -456,11 +456,11 @@ export default function TransportAdmissionModal({
               sistema ahora detecta si un músico está incluido por localidad
               pero <strong className="text-white">vetado</strong>{" "}
               individualmente. El check verde ✅ indica que ya está en este bus
-              (directa o geográficamente).
-            </p>
+              (directa o geográficamente). 
+            </p> 
           </div>
         </div>
       </div>
     </div>
   );
-}
+} 
