@@ -80,9 +80,11 @@ export default function TransportAdmissionModal({
     return localities.filter((l) => rosterLocIds.has(String(l.id)));
   }, [localities, roster]);
 
-  // --- 2. LÓGICA DE DETECCIÓN JERÁRQUICA ---
-  const getAssignedBusName = (entity, entityType) => {
-    const otherTransports = [
+  // --- 2. MOTOR DE DETECCIÓN DE ASIGNACIÓN (ACTUAL VS OTROS) ---
+  const getAssignmentInfo = (entity, entityType) => {
+    // Definimos los buses a evaluar: primero el actual, luego el resto
+    const transportIds = [
+      String(transporte.id),
       ...new Set(
         allTourRules
           .filter(
@@ -92,18 +94,33 @@ export default function TransportAdmissionModal({
       ),
     ];
 
-    for (const tId of otherTransports) {
+    for (const tId of transportIds) {
+      const isCurrentBus = tId === String(transporte.id);
       const rulesInBus = allTourRules.filter(
         (r) => String(r.id_transporte_fisico) === tId,
       );
 
       let applicable = [];
       if (entityType === "persona") {
-        applicable = rulesInBus.filter((r) =>
-          matchesRule(r, entity, localities),
-        );
+        applicable = rulesInBus.filter((r) => {
+          const isMatch = matchesRule(r, entity, localities);
+          if (!isMatch) return false;
+
+          // LÓGICA DE PRODUCCIÓN/STAFF:
+          // Las reglas geo (General, Región, Localidad) NO aplican a staff puro.
+          const isGeoRule = ["General", "Region", "Localidad"].includes(
+            r.alcance,
+          );
+          const isProduction =
+            entity.rol_sistema?.toUpperCase() === "PRODUCCION" ||
+            entity.rol_sistema?.toUpperCase() === "STAFF";
+          const isMusicianStable =
+            entity.condicion === "Estable" && !isProduction;
+
+          if (isGeoRule && isProduction && !isMusicianStable) return false;
+          return true;
+        });
       } else if (entityType === "localidad") {
-        // Para una localidad, evaluamos si la regla la afecta directamente, por región o general
         applicable = rulesInBus.filter(
           (r) =>
             r.alcance === "General" ||
@@ -115,16 +132,19 @@ export default function TransportAdmissionModal({
       }
 
       if (applicable.length > 0) {
-        // LA CLAVE: Ordenamos por prioridad descendente (5 a 1)
         const topRule = applicable.sort((a, b) => b.prioridad - a.prioridad)[0];
-
-        // Si la regla de mayor prioridad es de INCLUSIÓN, entonces ese bus "es dueño" de la entidad
         if (topRule.tipo === "INCLUSION" || !topRule.tipo) {
-          return (
-            topRule.giras_transportes?.detalle ||
-            topRule.giras_transportes?.transportes?.nombre ||
-            "Otro bus"
-          );
+          return {
+            name: isCurrentBus
+              ? "este transporte"
+              : topRule.giras_transportes?.detalle || "otro bus",
+            isCurrent: isCurrentBus,
+            via:
+              topRule.alcance !==
+              (entityType === "persona" ? "Persona" : "Localidad")
+                ? ` (vía ${topRule.alcance})`
+                : "",
+          };
         }
       }
     }
@@ -134,55 +154,72 @@ export default function TransportAdmissionModal({
   const dynamicOptions = useMemo(() => {
     if (newScope === "Persona") {
       return roster.map((p) => {
-        const otherBus = getAssignedBusName(p, "persona");
+        const assign = getAssignmentInfo(p, "persona");
+        const isProd =
+          p.rol_sistema?.toUpperCase() === "PRODUCCION" ||
+          p.rol_sistema?.toUpperCase() === "STAFF";
+
         return {
           id: p.id,
           label: `${p.apellido}, ${p.nombre}`,
-          subLabel: otherBus
-            ? `⚠️ Ya en ${otherBus}`
-            : p.instrumento || "Staff",
-          variant: otherBus ? "warning" : "default",
+          subLabel: assign
+            ? `${assign.isCurrent ? "✅" : "⚠️"} Ya en ${assign.name}${assign.via}`
+            : `${isProd ? "🛠️ Producción" : p.instrumento || "Músico"}`,
+          variant: assign
+            ? assign.isCurrent
+              ? "success"
+              : "warning"
+            : "default",
         };
       });
     }
 
     if (newScope === "Localidad") {
       return relevantLocalities.map((l) => {
-        const otherBus = getAssignedBusName(l, "localidad");
+        const assign = getAssignmentInfo(l, "localidad");
         return {
           id: l.id,
           label: l.localidad,
-          subLabel: otherBus ? `⚠️ Cubierta en ${otherBus}` : "Localidad",
-          variant: otherBus ? "warning" : "default",
+          subLabel: assign
+            ? `${assign.isCurrent ? "✅" : "⚠️"} Ya en ${assign.name}${assign.via}`
+            : "Localidad sin asignar",
+          variant: assign
+            ? assign.isCurrent
+              ? "success"
+              : "warning"
+            : "default",
         };
       });
     }
 
-    // Regiones y Categorías (Cruce simple de reglas directas)
     if (newScope === "Region" || newScope === "Categoria") {
-      return (newScope === "Region" ? regions : CATEGORIA_OPTIONS).map(
-        (item) => {
-          const val = newScope === "Region" ? item.id : item.val;
-          const label = newScope === "Region" ? item.region : item.label;
-          const otherRule = allTourRules.find(
-            (r) =>
-              String(r.id_transporte_fisico) !== String(transporte.id) &&
-              r.alcance === newScope &&
-              (newScope === "Region"
-                ? String(r.id_region) === String(val)
-                : r.target_ids?.includes(val)),
-          );
-          const otherBus = otherRule
-            ? otherRule.giras_transportes?.detalle || "Otro bus"
-            : null;
-          return {
-            id: val,
-            label: label,
-            subLabel: otherBus ? `⚠️ Regla en ${otherBus}` : newScope,
-            variant: otherBus ? "warning" : "default",
-          };
-        },
-      );
+      const items = newScope === "Region" ? regions : CATEGORIA_OPTIONS;
+      return items.map((item) => {
+        const val = newScope === "Region" ? item.id : item.val;
+        const label = newScope === "Region" ? item.region : item.label;
+
+        const otherRule = allTourRules.find(
+          (r) =>
+            r.alcance === newScope &&
+            (newScope === "Region"
+              ? String(r.id_region) === String(val)
+              : r.target_ids?.includes(val)) &&
+            r.tipo === "INCLUSION",
+        );
+
+        const isCurrent =
+          otherRule &&
+          String(otherRule.id_transporte_fisico) === String(transporte.id);
+
+        return {
+          id: val,
+          label: label,
+          subLabel: otherRule
+            ? `${isCurrent ? "✅" : "⚠️"} Regla en ${isCurrent ? "este bus" : otherRule.giras_transportes?.detalle || "otro bus"}`
+            : newScope,
+          variant: otherRule ? (isCurrent ? "success" : "warning") : "default",
+        };
+      });
     }
     return [];
   }, [
@@ -195,7 +232,6 @@ export default function TransportAdmissionModal({
     localities,
   ]);
 
-  // --- HANDLERS ---
   const handleAddRule = async () => {
     if (newScope !== "General" && !targetId)
       return alert("Selecciona un valor.");
@@ -263,11 +299,10 @@ export default function TransportAdmissionModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[95vh] animate-in zoom-in-95 duration-300 border border-white/20">
-        {/* Header */}
-        <div className="p-6 border-b flex justify-between items-center bg-slate-50/80 rounded-t-3xl">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[95vh] animate-in zoom-in-95 duration-300 border border-white/20 overflow-hidden">
+        <div className="p-6 border-b flex justify-between items-center bg-slate-50/80">
           <div className="flex items-center gap-4">
-            <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-200">
+            <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg">
               <IconTruck size={24} />
             </div>
             <div>
@@ -289,7 +324,6 @@ export default function TransportAdmissionModal({
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 bg-white custom-scrollbar">
-          {/* Formulario */}
           <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-8 space-y-5">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -297,7 +331,7 @@ export default function TransportAdmissionModal({
                   Alcance
                 </label>
                 <select
-                  className="w-full text-sm font-bold border rounded-xl p-3 outline-none focus:ring-4 focus:ring-indigo-100 bg-white"
+                  className="w-full text-sm font-bold border rounded-xl p-3 outline-none focus:ring-4 focus:ring-indigo-100 bg-white shadow-sm"
                   value={newScope}
                   onChange={(e) => {
                     setNewScope(e.target.value);
@@ -316,7 +350,7 @@ export default function TransportAdmissionModal({
                   Acción
                 </label>
                 <select
-                  className={`w-full text-sm border rounded-xl p-3 font-black bg-white ${newType === "INCLUSION" ? "text-emerald-600" : "text-rose-600"}`}
+                  className={`w-full text-sm border rounded-xl p-3 font-black bg-white shadow-sm transition-all ${newType === "INCLUSION" ? "text-emerald-600" : "text-rose-600"}`}
                   value={newType}
                   onChange={(e) => setNewType(e.target.value)}
                 >
@@ -356,7 +390,6 @@ export default function TransportAdmissionModal({
             </div>
           </div>
 
-          {/* Listado de Reglas */}
           <div className="space-y-3">
             <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1 mb-4">
               Reglas Activas en este Bus
@@ -419,10 +452,11 @@ export default function TransportAdmissionModal({
           <div className="flex items-start gap-3">
             <IconAlertTriangle className="text-amber-400 mt-0.5" size={16} />
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              <strong className="text-white">Detección Inteligente:</strong> El
-              sistema analiza si una localidad está "tomada" por una región en
-              otro bus, pero respeta si esa localidad específica fue vetada
-              (excluida) en dicho bus, dejándola disponible aquí.
+              <strong className="text-white">Doble Validación:</strong> El
+              sistema ahora detecta si un músico está incluido por localidad
+              pero <strong className="text-white">vetado</strong>{" "}
+              individualmente. El check verde ✅ indica que ya está en este bus
+              (directa o geográficamente).
             </p>
           </div>
         </div>
