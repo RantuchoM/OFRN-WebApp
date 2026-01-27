@@ -35,8 +35,8 @@ import BoardingManagerModal from "./BoardingManagerModal";
 import StopRulesManager from "./StopRulesManager";
 // CAMBIO IMPORTANTE: Importamos el nuevo modal de reglas de admisión
 import TransportAdmissionModal from "./TransportAdmissionModal";
-import { useLogistics } from "../../hooks/useLogistics";
-
+// BUSCA ESTA LÍNEA (Línea 41 aprox.)
+import { useLogistics, matchesRule } from "../../hooks/useLogistics"; // <--- AGREGAR matchesRule AQUÍ
 // --- UTILIDADES ---
 const formatDateSafe = (dateString) => {
   if (!dateString) return "-";
@@ -852,7 +852,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           supabase.from("regiones").select("id, region"),
           supabase
             .from("localidades")
-            .select("id, localidad")
+            .select("id, localidad, id_region")
             .order("localidad"),
           supabase
             .from("integrantes")
@@ -940,7 +940,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
     if (!routeRules) return [];
 
     const relevantRules = routeRules.filter((r) => {
-      // Comparación estricta de strings por seguridad
       if (String(r.id_transporte_fisico) !== String(transportId)) return false;
       if (type === "up") return String(r.id_evento_subida) === String(eventId);
       if (type === "down")
@@ -948,52 +947,44 @@ export default function GirasTransportesManager({ supabase, gira }) {
       return false;
     });
 
-    if (relevantRules.length === 0) return [];
+    return relevantRules.map((r) => {
+      // VALIDACIÓN CRÍTICA:
+      // Contamos solo si:
+      // 1. Cumple la regla (matchesRule)
+      // 2. ESTÁ ADMITIDO en este bus (p.logistics.transports)
+      const count = passengerList.filter((p) => {
+        const matchesStop = matchesRule(r, p, localitiesList);
+        const isAdmittedInBus = p.logistics?.transports?.some(
+          (t) => String(t.id) === String(transportId),
+        );
+        return matchesStop && isAdmittedInBus;
+      }).length;
 
-    const mapIds = (ids, list, keyField = "id", labelField = "nombre") => {
-      return ids
-        .map((id) => {
-          const item = list.find((x) => String(x[keyField]) === String(id));
-          return item ? item[labelField] || item.localidad || item.region : "?";
-        })
-        .join(", ");
-    };
-
-    const summaryParts = relevantRules.map((r) => {
+      let label = "";
       const scope = r.alcance;
-      if (scope === "General") return "Todos";
-      if (scope === "Persona") {
+      if (scope === "General") label = "Todos";
+      else if (scope === "Persona") {
         const p = roster?.find((mus) => mus.id === r.id_integrante);
-        return p ? `${p.nombre} ${p.apellido}` : "Individual";
-      }
-      if (
-        r.target_ids &&
-        Array.isArray(r.target_ids) &&
-        r.target_ids.length > 0
-      ) {
-        if (scope === "Region")
-          return mapIds(r.target_ids, regionsList, "id", "region");
-        if (scope === "Localidad")
-          return mapIds(r.target_ids, localitiesList, "id", "localidad");
-        return r.target_ids.join(", ");
-      }
-      if (scope === "Region" && r.id_region) {
+        label = p ? `${p.apellido}` : "Individual";
+      } else if (scope === "Region") {
         const reg = regionsList.find(
           (x) => String(x.id) === String(r.id_region),
         );
-        return reg ? reg.region : "Región";
-      }
-      if (scope === "Localidad" && r.id_localidad) {
+        label = reg ? reg.region : "Región";
+      } else if (scope === "Localidad") {
         const loc = localitiesList.find(
           (x) => String(x.id) === String(r.id_localidad),
         );
-        return loc ? loc.localidad : "Loc";
+        label = loc ? loc.localidad : "Loc";
+      } else if (scope === "Categoria") {
+        label = r.target_ids?.[0] || "Categoría";
+      } else {
+        label = scope;
       }
-      return scope;
-    });
-    return [...new Set(summaryParts)].filter(Boolean);
-  };
 
+      return { label, count };
+    });
+  };
   // --- FUNCIÓN CLAVE: INSERTAR ITINERARIO CON PERSONAS ---
   const handleInsertItinerary = async (template, startDate, startTime) => {
     const tId = itineraryModal.transportId;
@@ -1564,7 +1555,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         {transports.map((t) => {
           const isExpanded = activeTransportId === t.id;
           const myEvents = transportEvents[t.id] || [];
-
+          const isMediosPropios = String(t.id_transporte) === "9"; // Identificamos si es Medios propios
           // 1. Filtrar pasajeros - CORRECCIÓN: String comparison
           const tPassengers = passengerList.filter((p) =>
             p.logistics?.transports?.some(
@@ -1580,7 +1571,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
           ).length;
 
           const totalOccupied = tPassengerCount + tInstrumentSeats;
-
           const maxCap = t.capacidad_maxima || 0;
 
           const isOverbooked = maxCap > 0 && totalOccupied > maxCap;
@@ -1707,27 +1697,23 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
                 {!isEditing && (
                   <div className="flex gap-2 items-center">
-                    {incompletePax.length > 0 && (
+                    {incompletePax.length > 0 && !isMediosPropios && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setInfoListModal({
                             isOpen: true,
-                            title: `Pasajeros sin parada en ${
-                              t.detalle || "Transporte"
-                            }`,
+                            title: `Pasajeros sin parada en ${t.detalle}`,
                             list: incompletePax,
                             transportId: t.id,
                           });
                         }}
-                        className="flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 border border-amber-300 rounded text-[10px] font-bold hover:bg-amber-200 animate-pulse"
-                        title="Ver lista de pasajeros sin parada definida"
+                        className="flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 border border-amber-300 rounded text-[10px] font-bold animate-pulse"
                       >
                         <IconAlertTriangle size={12} /> {incompletePax.length}{" "}
                         Sin asignar
                       </button>
                     )}
-                    {/* BOTÓN NUEVO DE ADMISIÓN */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1737,12 +1723,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
                     >
                       <IconUsers size={14} /> Pasajeros (Reglas)
                     </button>
-                    {/* Añadir este botón antes del botón de borrar o después de + Itinerario */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        // Si no hay nada tildado, usamos todos los eventos del transporte (comportamiento anterior)
-                        // Pero si hay tildados, filtramos la lista.
                         setShiftModal({
                           isOpen: true,
                           transportId: t.id,
@@ -1871,6 +1854,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             (tr) => String(tr.bajadaId) === String(evt.id),
                           ),
                         ).length;
+
                         const upsSummary = getEventRulesSummary(
                           evt.id,
                           "up",
@@ -1881,6 +1865,24 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           "down",
                           t.id,
                         );
+
+                        // --- NUEVA LÓGICA DE ALERTA NARANJA ---
+                        const hasUpRules = upsSummary && upsSummary.length > 0;
+                        const upStyles =
+                          upsCount > 0
+                            ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                            : hasUpRules
+                              ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse"
+                              : "bg-slate-50 text-slate-400 border-transparent";
+
+                        const hasDownRules =
+                          downsSummary && downsSummary.length > 0;
+                        const downStyles =
+                          downsCount > 0
+                            ? "bg-rose-100 text-rose-700 border-rose-200"
+                            : hasDownRules
+                              ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse"
+                              : "bg-slate-50 text-slate-400 border-transparent";
 
                         return (
                           <tr key={evt.id} className="hover:bg-slate-50 group">
@@ -1957,6 +1959,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 <option value="12">Interno</option>
                               </select>
                             </td>
+
+                            {/* CELDA SUBEN (CON ALERTA) */}
                             <td className="p-1 text-center border-l border-emerald-50 align-top">
                               <button
                                 onClick={() =>
@@ -1967,32 +1971,47 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     transportId: t.id,
                                   })
                                 }
-                                className={`w-full py-1 px-1 h-auto rounded text-[10px] font-bold flex flex-col items-center justify-center gap-1 min-h-[32px] ${
-                                  upsCount > 0
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : "bg-slate-100 text-slate-400"
-                                }`}
+                                className={`w-full py-1 px-1 h-auto rounded text-[10px] font-bold flex flex-col items-center justify-center gap-1 min-h-[32px] border transition-all ${upStyles}`}
                               >
                                 <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
                                   <IconUpload size={10} />{" "}
                                   <span>
-                                    {upsCount > 0 ? `${upsCount} Pax` : "+"}
+                                    {upsCount > 0
+                                      ? `${upsCount} Pax`
+                                      : hasUpRules
+                                        ? "0 Pax ⚠️"
+                                        : "+"}
                                   </span>
                                 </div>
-                                {upsSummary && upsSummary.length > 0 && (
-                                  <div className="flex flex-col gap-0.5 w-full text-center">
-                                    {upsSummary.map((line, idx) => (
+                                {/* Reemplaza el bloque de {hasUpRules && ...} */}
+                                {hasUpRules && (
+                                  <div className="flex flex-col gap-0.5 w-full text-center mt-1">
+                                    {upsSummary.map((ruleObj, idx) => (
                                       <span
                                         key={idx}
-                                        className="text-[9px] font-normal leading-tight break-words opacity-90"
+                                        className={`text-[9px] px-1 rounded-sm truncate transition-all ${
+                                          ruleObj.count === 0
+                                            ? "bg-orange-500 text-white font-black animate-pulse" // ADVERTENCIA NARANJA
+                                            : "opacity-70 font-normal"
+                                        }`}
+                                        title={
+                                          ruleObj.count === 0
+                                            ? "Ningún pasajero admitido cumple esta regla"
+                                            : ""
+                                        }
                                       >
-                                        {line}
+                                        {ruleObj.label}{" "}
+                                        {ruleObj.count === 0
+                                          ? "⚠️ 0"
+                                          : `(${ruleObj.count})`}
                                       </span>
                                     ))}
                                   </div>
                                 )}
                               </button>
                             </td>
+
+                            {/* CELDA BAJAN (CON ALERTA) */}
                             <td className="p-1 text-center border-l border-rose-50 align-top">
                               <button
                                 onClick={() =>
@@ -2003,32 +2022,46 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     transportId: t.id,
                                   })
                                 }
-                                className={`w-full py-1 px-1 h-auto rounded text-[10px] font-bold flex flex-col items-center justify-center gap-1 min-h-[32px] ${
-                                  downsCount > 0
-                                    ? "bg-rose-100 text-rose-700"
-                                    : "bg-slate-100 text-slate-400"
-                                }`}
+                                className={`w-full py-1 px-1 h-auto rounded text-[10px] font-bold flex flex-col items-center justify-center gap-1 min-h-[32px] border transition-all ${downStyles}`}
                               >
                                 <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
                                   <IconDownload size={10} />{" "}
                                   <span>
-                                    {downsCount > 0 ? `${downsCount} Pax` : "+"}
+                                    {downsCount > 0
+                                      ? `${downsCount} Pax`
+                                      : hasDownRules
+                                        ? "0 Pax ⚠️"
+                                        : "+"}
                                   </span>
                                 </div>
-                                {downsSummary && downsSummary.length > 0 && (
-                                  <div className="flex flex-col gap-0.5 w-full text-center">
-                                    {downsSummary.map((line, idx) => (
+                                {/* Reemplaza el bloque de {hasDownRules && ...} */}
+                                {hasDownRules && (
+                                  <div className="flex flex-col gap-0.5 w-full text-center mt-1">
+                                    {downsSummary.map((ruleObj, idx) => (
                                       <span
                                         key={idx}
-                                        className="text-[9px] font-normal leading-tight break-words opacity-90"
+                                        className={`text-[9px] px-1 rounded-sm truncate transition-all ${
+                                          ruleObj.count === 0
+                                            ? "bg-orange-500 text-white font-black animate-pulse" // ADVERTENCIA NARANJA
+                                            : "opacity-70 font-normal"
+                                        }`}
+                                        title={
+                                          ruleObj.count === 0
+                                            ? "Ningún pasajero admitido cumple esta regla"
+                                            : ""
+                                        }
                                       >
-                                        {line}
+                                        {ruleObj.label}{" "}
+                                        {ruleObj.count === 0
+                                          ? "⚠️ 0"
+                                          : `(${ruleObj.count})`}
                                       </span>
                                     ))}
                                   </div>
                                 )}
                               </button>
                             </td>
+
                             <td className="p-1 text-center align-middle">
                               <button
                                 onClick={() => handleDeleteEvent(evt.id)}
@@ -2040,91 +2073,28 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           </tr>
                         );
                       })}
-                      {editingEventId ? (
-                        <tr className="bg-amber-50">
-                          <td className="p-1">
-                            <DateInput
-                              value={newEvent.fecha}
-                              onChange={(v) =>
-                                setNewEvent({ ...newEvent, fecha: v })
-                              }
-                              className="h-8 border-amber-300 bg-white"
-                            />
-                          </td>
-                          <td className="p-1">
-                            <TimeInput
-                              value={newEvent.hora}
-                              onChange={(v) =>
-                                setNewEvent({ ...newEvent, hora: v })
-                              }
-                              className="h-8 border-amber-300 bg-white"
-                            />
-                          </td>
-                          <td className="p-1">
-                            <SearchableSelect
-                              options={locationOptions}
-                              value={newEvent.id_locacion}
-                              onChange={(v) =>
-                                setNewEvent({ ...newEvent, id_locacion: v })
-                              }
-                              className="h-8 border-amber-300 bg-white"
-                              placeholder="Nuevo lugar..."
-                            />
-                          </td>
-                          <td className="p-1">
-                            <input
-                              type="text"
-                              className="w-full h-8 px-2 border border-amber-300 rounded bg-white"
-                              value={newEvent.descripcion}
-                              onChange={(e) =>
-                                setNewEvent({
-                                  ...newEvent,
-                                  descripcion: e.target.value,
-                                })
-                              }
-                            />
-                          </td>
-                          <td colSpan="4" className="p-1 text-right">
-                            <div className="flex gap-1 justify-end">
-                              <button
-                                onClick={cancelEdit}
-                                className="text-[10px] px-2 py-1 bg-slate-200 rounded"
-                              >
-                                Cancelar
-                              </button>
-                              <button
-                                onClick={() => handleSaveEvent(t.id)}
-                                className="text-[10px] px-3 py-1 bg-amber-500 text-white rounded font-bold"
-                              >
-                                Guardar
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ) : (
-                        <tr>
-                          <td
-                            colSpan="9"
-                            className="p-2 text-center border-t border-slate-100"
+                      <tr>
+                        <td
+                          colSpan="9"
+                          className="p-2 text-center border-t border-slate-100"
+                        >
+                          <button
+                            onClick={() =>
+                              startEditEvent({
+                                id: null,
+                                fecha: "",
+                                hora_inicio: "",
+                                id_tipo_evento: 11,
+                                descripcion: "",
+                                id_locacion: null,
+                              })
+                            }
+                            className="text-xs text-indigo-500 font-bold hover:text-indigo-700 flex items-center justify-center gap-1 w-full"
                           >
-                            <button
-                              onClick={() =>
-                                startEditEvent({
-                                  id: null,
-                                  fecha: "",
-                                  hora_inicio: "",
-                                  id_tipo_evento: 11,
-                                  descripcion: "",
-                                  id_locacion: null,
-                                })
-                              }
-                              className="text-xs text-indigo-500 font-bold hover:text-indigo-700 flex items-center justify-center gap-1 w-full"
-                            >
-                              <IconPlus size={12} /> Agregar Parada Manualmente
-                            </button>
-                          </td>
-                        </tr>
-                      )}
+                            <IconPlus size={12} /> Agregar Parada Manualmente
+                          </button>
+                        </td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>

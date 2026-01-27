@@ -1,5 +1,14 @@
-import React, { useState, useEffect } from "react";
-import { IconX, IconTrash, IconPlus, IconAlertTriangle, IconCheck } from "../../components/ui/Icons";
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  IconX,
+  IconTrash,
+  IconPlus,
+  IconAlertTriangle,
+  IconCheck,
+  IconTruck,
+} from "../../components/ui/Icons";
+import SearchableSelect from "../../components/ui/SearchableSelect";
+import { matchesRule } from "../../hooks/useLogistics";
 
 const SCOPES = [
   { val: "General", label: "General (Todos)", prio: 1 },
@@ -30,42 +39,166 @@ export default function TransportAdmissionModal({
   onUpdate,
 }) {
   const [rules, setRules] = useState([]);
+  const [allTourRules, setAllTourRules] = useState([]);
   const [loading, setLoading] = useState(false);
-  
-  // Formulario nueva regla
+
   const [newScope, setNewScope] = useState("General");
   const [newType, setNewType] = useState("INCLUSION");
   const [targetId, setTargetId] = useState("");
 
   useEffect(() => {
-    if (isOpen && transporte) {
-      fetchRules();
-    }
+    if (isOpen && transporte) fetchInitialData();
   }, [isOpen, transporte]);
 
-  const fetchRules = async () => {
+  const fetchInitialData = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("giras_logistica_admision")
-        .select("*")
-        .eq("id_gira", giraId)
-        .eq("id_transporte_fisico", transporte.id)
-        .order("prioridad", { ascending: false }); // Las más importantes primero
-
-      if (error) throw error;
-      setRules(data || []);
+      const [currentRules, tourRules] = await Promise.all([
+        supabase
+          .from("giras_logistica_admision")
+          .select("*")
+          .eq("id_transporte_fisico", transporte.id),
+        supabase
+          .from("giras_logistica_admision")
+          .select("*, giras_transportes(detalle, transportes(nombre))")
+          .eq("id_gira", giraId),
+      ]);
+      setRules(currentRules.data || []);
+      setAllTourRules(tourRules.data || []);
     } catch (error) {
-      console.error("Error fetching rules:", error);
+      console.error("Error:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddRule = async () => {
-    // Validaciones
-    if (newScope !== "General" && !targetId) return alert("Debes seleccionar un valor.");
+  // --- 1. FILTRAR LOCALIDADES SOLO A LAS PRESENTES EN EL ROSTER ---
+  const relevantLocalities = useMemo(() => {
+    const rosterLocIds = new Set(
+      roster.map((p) => String(p.id_localidad)).filter((id) => id !== "null"),
+    );
+    return localities.filter((l) => rosterLocIds.has(String(l.id)));
+  }, [localities, roster]);
 
+  // --- 2. LÓGICA DE DETECCIÓN JERÁRQUICA ---
+  const getAssignedBusName = (entity, entityType) => {
+    const otherTransports = [
+      ...new Set(
+        allTourRules
+          .filter(
+            (r) => String(r.id_transporte_fisico) !== String(transporte.id),
+          )
+          .map((r) => String(r.id_transporte_fisico)),
+      ),
+    ];
+
+    for (const tId of otherTransports) {
+      const rulesInBus = allTourRules.filter(
+        (r) => String(r.id_transporte_fisico) === tId,
+      );
+
+      let applicable = [];
+      if (entityType === "persona") {
+        applicable = rulesInBus.filter((r) =>
+          matchesRule(r, entity, localities),
+        );
+      } else if (entityType === "localidad") {
+        // Para una localidad, evaluamos si la regla la afecta directamente, por región o general
+        applicable = rulesInBus.filter(
+          (r) =>
+            r.alcance === "General" ||
+            (r.alcance === "Localidad" &&
+              String(r.id_localidad) === String(entity.id)) ||
+            (r.alcance === "Region" &&
+              String(r.id_region) === String(entity.id_region)),
+        );
+      }
+
+      if (applicable.length > 0) {
+        // LA CLAVE: Ordenamos por prioridad descendente (5 a 1)
+        const topRule = applicable.sort((a, b) => b.prioridad - a.prioridad)[0];
+
+        // Si la regla de mayor prioridad es de INCLUSIÓN, entonces ese bus "es dueño" de la entidad
+        if (topRule.tipo === "INCLUSION" || !topRule.tipo) {
+          return (
+            topRule.giras_transportes?.detalle ||
+            topRule.giras_transportes?.transportes?.nombre ||
+            "Otro bus"
+          );
+        }
+      }
+    }
+    return null;
+  };
+
+  const dynamicOptions = useMemo(() => {
+    if (newScope === "Persona") {
+      return roster.map((p) => {
+        const otherBus = getAssignedBusName(p, "persona");
+        return {
+          id: p.id,
+          label: `${p.apellido}, ${p.nombre}`,
+          subLabel: otherBus
+            ? `⚠️ Ya en ${otherBus}`
+            : p.instrumento || "Staff",
+          variant: otherBus ? "warning" : "default",
+        };
+      });
+    }
+
+    if (newScope === "Localidad") {
+      return relevantLocalities.map((l) => {
+        const otherBus = getAssignedBusName(l, "localidad");
+        return {
+          id: l.id,
+          label: l.localidad,
+          subLabel: otherBus ? `⚠️ Cubierta en ${otherBus}` : "Localidad",
+          variant: otherBus ? "warning" : "default",
+        };
+      });
+    }
+
+    // Regiones y Categorías (Cruce simple de reglas directas)
+    if (newScope === "Region" || newScope === "Categoria") {
+      return (newScope === "Region" ? regions : CATEGORIA_OPTIONS).map(
+        (item) => {
+          const val = newScope === "Region" ? item.id : item.val;
+          const label = newScope === "Region" ? item.region : item.label;
+          const otherRule = allTourRules.find(
+            (r) =>
+              String(r.id_transporte_fisico) !== String(transporte.id) &&
+              r.alcance === newScope &&
+              (newScope === "Region"
+                ? String(r.id_region) === String(val)
+                : r.target_ids?.includes(val)),
+          );
+          const otherBus = otherRule
+            ? otherRule.giras_transportes?.detalle || "Otro bus"
+            : null;
+          return {
+            id: val,
+            label: label,
+            subLabel: otherBus ? `⚠️ Regla en ${otherBus}` : newScope,
+            variant: otherBus ? "warning" : "default",
+          };
+        },
+      );
+    }
+    return [];
+  }, [
+    newScope,
+    roster,
+    relevantLocalities,
+    regions,
+    allTourRules,
+    transporte.id,
+    localities,
+  ]);
+
+  // --- HANDLERS ---
+  const handleAddRule = async () => {
+    if (newScope !== "General" && !targetId)
+      return alert("Selecciona un valor.");
     setLoading(true);
     try {
       const payload = {
@@ -73,25 +206,20 @@ export default function TransportAdmissionModal({
         id_transporte_fisico: transporte.id,
         alcance: newScope,
         tipo: newType,
-        prioridad: SCOPES.find(s => s.val === newScope)?.prio || 1,
-        // Limpiamos campos según el alcance
+        prioridad: SCOPES.find((s) => s.val === newScope)?.prio || 1,
         id_integrante: newScope === "Persona" ? targetId : null,
         id_region: newScope === "Region" ? targetId : null,
         id_localidad: newScope === "Localidad" ? targetId : null,
-        instrumento_familia: null, // Legacy field not used heavily anymore
-        target_ids: newScope === "Categoria" ? [targetId] : [], 
+        target_ids: newScope === "Categoria" ? [targetId] : [],
       };
-
-      const { error } = await supabase.from("giras_logistica_admision").insert([payload]);
+      const { error } = await supabase
+        .from("giras_logistica_admision")
+        .insert([payload]);
       if (error) throw error;
-
-      // Reset y recarga
-      setNewScope("General");
       setTargetId("");
-      fetchRules();
+      fetchInitialData();
       onUpdate && onUpdate();
     } catch (err) {
-      console.error(err);
       alert("Error al crear regla");
     } finally {
       setLoading(false);
@@ -99,28 +227,34 @@ export default function TransportAdmissionModal({
   };
 
   const handleDeleteRule = async (id) => {
-    if (!confirm("¿Borrar esta regla de admisión?")) return;
-    try {
-      await supabase.from("giras_logistica_admision").delete().eq("id", id);
-      fetchRules();
-      onUpdate && onUpdate();
-    } catch (err) {
-      console.error(err);
-    }
+    if (!confirm("¿Borrar esta regla?")) return;
+    await supabase.from("giras_logistica_admision").delete().eq("id", id);
+    fetchInitialData();
+    onUpdate && onUpdate();
   };
 
-  // Renderizadores de nombre
   const resolveName = (rule) => {
     if (rule.alcance === "General") return "Todos los integrantes";
-    if (rule.alcance === "Region") return regions.find(r => String(r.id) === String(rule.id_region))?.region || "Región ??";
-    if (rule.alcance === "Localidad") return localities.find(l => String(l.id) === String(rule.id_localidad))?.localidad || "Localidad ??";
-    if (rule.alcance === "Categoria") {
-        const cat = CATEGORIA_OPTIONS.find(c => rule.target_ids?.includes(c.val));
-        return cat ? cat.label : (rule.target_ids?.[0] || "Categoría");
-    }
+    if (rule.alcance === "Region")
+      return (
+        regions.find((r) => String(r.id) === String(rule.id_region))?.region ||
+        "Región"
+      );
+    if (rule.alcance === "Localidad")
+      return (
+        localities.find((l) => String(l.id) === String(rule.id_localidad))
+          ?.localidad || "Localidad"
+      );
+    if (rule.alcance === "Categoria")
+      return (
+        CATEGORIA_OPTIONS.find((c) => rule.target_ids?.includes(c.val))
+          ?.label || "Categoría"
+      );
     if (rule.alcance === "Persona") {
-        const p = roster.find(m => String(m.id) === String(rule.id_integrante));
-        return p ? `${p.apellido}, ${p.nombre}` : `ID: ${rule.id_integrante}`;
+      const p = roster.find((m) => String(m.id) === String(rule.id_integrante));
+      return p
+        ? `${p.apellido}, ${p.nombre}`
+        : `Músico ID: ${rule.id_integrante}`;
     }
     return "-";
   };
@@ -129,115 +263,168 @@ export default function TransportAdmissionModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95">
-        
-        {/* HEADER */}
-        <div className="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-xl">
-          <div>
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <IconAlertTriangle className="text-amber-500" />
-                Reglas de Admisión
-            </h3>
-            <p className="text-xs text-slate-500">
-              Define quién tiene derecho a viajar en: <span className="font-bold text-indigo-600">{transporte?.nombre}</span>
-            </p>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[95vh] animate-in zoom-in-95 duration-300 border border-white/20">
+        {/* Header */}
+        <div className="p-6 border-b flex justify-between items-center bg-slate-50/80 rounded-t-3xl">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-200">
+              <IconTruck size={24} />
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">
+                Admisión de Pasajeros
+              </h3>
+              <p className="text-xs text-slate-500 font-bold">
+                Bus:{" "}
+                <span className="text-indigo-600">{transporte?.detalle}</span>
+              </p>
+            </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
-            <IconX size={20} className="text-slate-500" />
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400"
+          >
+            <IconX size={24} />
           </button>
         </div>
 
-        {/* BODY */}
-        <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
-            
-            {/* FORMULARIO */}
-            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm mb-4 flex gap-2 items-end">
-                <div className="w-32">
-                    <label className="text-[10px] font-bold text-slate-400 block mb-1">ALCANCE</label>
-                    <select className="w-full text-xs border rounded p-1.5 outline-none focus:ring-2 focus:ring-indigo-500"
-                        value={newScope} onChange={e => { setNewScope(e.target.value); setTargetId(""); }}
-                    >
-                        {SCOPES.map(s => <option key={s.val} value={s.val}>{s.label}</option>)}
-                    </select>
-                </div>
+        <div className="flex-1 overflow-y-auto p-6 bg-white custom-scrollbar">
+          {/* Formulario */}
+          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-8 space-y-5">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                  Alcance
+                </label>
+                <select
+                  className="w-full text-sm font-bold border rounded-xl p-3 outline-none focus:ring-4 focus:ring-indigo-100 bg-white"
+                  value={newScope}
+                  onChange={(e) => {
+                    setNewScope(e.target.value);
+                    setTargetId("");
+                  }}
+                >
+                  {SCOPES.map((s) => (
+                    <option key={s.val} value={s.val}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                  Acción
+                </label>
+                <select
+                  className={`w-full text-sm border rounded-xl p-3 font-black bg-white ${newType === "INCLUSION" ? "text-emerald-600" : "text-rose-600"}`}
+                  value={newType}
+                  onChange={(e) => setNewType(e.target.value)}
+                >
+                  <option value="INCLUSION">INCLUIR (Viaja)</option>
+                  <option value="EXCLUSION">VETAR (No viaja)</option>
+                </select>
+              </div>
+            </div>
 
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                Objetivo
+              </label>
+              <div className="flex gap-2">
                 <div className="flex-1">
-                    <label className="text-[10px] font-bold text-slate-400 block mb-1">OBJETIVO</label>
-                    {newScope === "General" ? (
-                        <div className="text-xs text-slate-400 italic p-1.5 bg-slate-50 border rounded">Aplica a todo el padrón</div>
-                    ) : newScope === "Region" ? (
-                        <select className="w-full text-xs border rounded p-1.5" value={targetId} onChange={e => setTargetId(e.target.value)}>
-                            <option value="">Seleccionar Región...</option>
-                            {regions.map(r => <option key={r.id} value={r.id}>{r.region}</option>)}
-                        </select>
-                    ) : newScope === "Localidad" ? (
-                        <select className="w-full text-xs border rounded p-1.5" value={targetId} onChange={e => setTargetId(e.target.value)}>
-                            <option value="">Seleccionar Localidad...</option>
-                            {localities.map(l => <option key={l.id} value={l.id}>{l.localidad}</option>)}
-                        </select>
-                    ) : newScope === "Categoria" ? (
-                        <select className="w-full text-xs border rounded p-1.5" value={targetId} onChange={e => setTargetId(e.target.value)}>
-                            <option value="">Seleccionar Categoría...</option>
-                            {CATEGORIA_OPTIONS.map(c => <option key={c.val} value={c.val}>{c.label}</option>)}
-                        </select>
-                    ) : (
-                        <select className="w-full text-xs border rounded p-1.5" value={targetId} onChange={e => setTargetId(e.target.value)}>
-                            <option value="">Seleccionar Persona...</option>
-                            {roster.sort((a,b) => a.apellido.localeCompare(b.apellido)).map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-                        </select>
-                    )}
+                  {newScope === "General" ? (
+                    <div className="text-sm text-slate-400 font-medium p-3 bg-white border border-slate-200 rounded-xl italic">
+                      Todo el padrón de la gira.
+                    </div>
+                  ) : (
+                    <SearchableSelect
+                      options={dynamicOptions}
+                      value={targetId}
+                      onChange={setTargetId}
+                      placeholder={`Buscar...`}
+                    />
+                  )}
                 </div>
-
-                <div className="w-32">
-                    <label className="text-[10px] font-bold text-slate-400 block mb-1">ACCIÓN</label>
-                    <select className={`w-full text-xs border rounded p-1.5 font-bold ${newType === 'INCLUSION' ? 'text-emerald-600 bg-emerald-50 border-emerald-200' : 'text-rose-600 bg-rose-50 border-rose-200'}`}
-                        value={newType} onChange={e => setNewType(e.target.value)}
-                    >
-                        <option value="INCLUSION">INCLUIR (Viaja)</option>
-                        <option value="EXCLUSION">EXCLUIR (No viaja)</option>
-                    </select>
-                </div>
-
-                <button onClick={handleAddRule} disabled={loading} className="bg-indigo-600 text-white p-1.5 rounded hover:bg-indigo-700 disabled:opacity-50">
-                    <IconPlus size={20} />
+                <button
+                  onClick={handleAddRule}
+                  disabled={loading || (newScope !== "General" && !targetId)}
+                  className="bg-slate-900 text-white px-6 rounded-xl hover:bg-black disabled:opacity-20 transition-all font-black text-xs uppercase tracking-widest flex items-center gap-2 shrink-0"
+                >
+                  <IconPlus size={18} /> AGREGAR
                 </button>
+              </div>
             </div>
+          </div>
 
-            {/* LISTA DE REGLAS */}
-            <div className="space-y-2">
-                {rules.length === 0 && (
-                    <div className="text-center p-8 border-2 border-dashed border-slate-200 rounded-lg">
-                        <p className="text-slate-400 text-sm">No hay reglas definidas.</p>
-                        <p className="text-slate-300 text-xs mt-1">Nadie viajará en este transporte hasta que agregues una regla de Inclusión (ej: General).</p>
-                    </div>
-                )}
-
-                {rules.map(rule => (
-                    <div key={rule.id} className="bg-white p-3 rounded-lg border border-slate-200 flex justify-between items-center shadow-sm">
-                        <div className="flex items-center gap-3">
-                            <div className={`w-8 h-8 rounded flex items-center justify-center font-bold text-xs ${rule.tipo === 'INCLUSION' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                                {rule.tipo === 'INCLUSION' ? <IconCheck size={16} /> : <IconX size={16} />}
-                            </div>
-                            <div>
-                                <div className="text-sm font-bold text-slate-700">{resolveName(rule)}</div>
-                                <div className="flex gap-2 text-[10px] uppercase font-bold text-slate-400">
-                                    <span>{rule.alcance}</span>
-                                    <span>•</span>
-                                    <span>Prioridad: {rule.prioridad}</span>
-                                </div>
-                            </div>
+          {/* Listado de Reglas */}
+          <div className="space-y-3">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1 mb-4">
+              Reglas Activas en este Bus
+            </h4>
+            {rules.length === 0 ? (
+              <div className="text-center py-12 border-2 border-dashed border-slate-100 rounded-3xl bg-slate-50/50">
+                <IconAlertTriangle
+                  size={32}
+                  className="mx-auto text-slate-200 mb-2"
+                />
+                <p className="text-slate-400 text-xs font-bold uppercase">
+                  Sin pasajeros definidos
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {rules.map((rule) => (
+                  <div
+                    key={rule.id}
+                    className="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center shadow-sm group hover:border-indigo-300 transition-all"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center ${rule.tipo === "INCLUSION" ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}
+                      >
+                        {rule.tipo === "INCLUSION" ? (
+                          <IconCheck size={20} />
+                        ) : (
+                          <IconX size={20} />
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-sm font-black text-slate-700 uppercase tracking-tight">
+                          {resolveName(rule)}
                         </div>
-                        <button onClick={() => handleDeleteRule(rule.id)} className="text-slate-300 hover:text-red-500 transition-colors p-2">
-                            <IconTrash size={16} />
-                        </button>
+                        <div className="flex gap-2 items-center mt-1">
+                          <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded uppercase">
+                            {rule.alcance}
+                          </span>
+                          <span className="text-[9px] font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                            Prio: {rule.prioridad}
+                          </span>
+                        </div>
+                      </div>
                     </div>
+                    <button
+                      onClick={() => handleDeleteRule(rule.id)}
+                      className="text-slate-300 hover:text-red-500 p-2 opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      <IconTrash size={18} />
+                    </button>
+                  </div>
                 ))}
-            </div>
-
+              </div>
+            )}
+          </div>
         </div>
-        
-        <div className="p-3 bg-slate-50 border-t text-[10px] text-slate-400 text-center rounded-b-xl">
-            Las reglas de Persona (Prioridad 5) prevalecen sobre las Generales (Prioridad 1).
+
+        <div className="p-5 bg-slate-900 border-t rounded-b-3xl text-white">
+          <div className="flex items-start gap-3">
+            <IconAlertTriangle className="text-amber-400 mt-0.5" size={16} />
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              <strong className="text-white">Detección Inteligente:</strong> El
+              sistema analiza si una localidad está "tomada" por una región en
+              otro bus, pero respeta si esa localidad específica fue vetada
+              (excluida) en dicho bus, dejándola disponible aquí.
+            </p>
+          </div>
         </div>
       </div>
     </div>
