@@ -17,6 +17,8 @@ import {
   IconMapPin,
   IconSearch,
   IconX,
+  IconClock,
+  IconChevronDown,
   IconEdit,
   IconSave,
   IconUpload,
@@ -168,11 +170,10 @@ const generateRoadmapExcel = async (
     if (address) details.push(address);
     if (city) details.push(city);
     if (details.length > 0) fullPlace += ` (${details.join(" - ")})`;
-    if (extraDesc) fullPlace += `\nNota: ${extraDesc}`;
+    if (extraDesc) fullPlace += `\nNota: ${extraDesc}`; // 1. HEADER DE LA PARADA
 
-    // 1. HEADER DE LA PARADA
     const headerRow = worksheet.addRow([
-      `PARADA #${stopNum}    |    ${timeStr} hs    |    ${dateStr}`,
+      `PARADA #${stopNum}    |    ${timeStr} hs    |    ${dateStr}`,
       "",
       "",
     ]);
@@ -183,9 +184,8 @@ const generateRoadmapExcel = async (
       fgColor: { argb: "FF1565C0" },
     };
     headerRow.getCell(1).alignment = { vertical: "middle" };
-    worksheet.mergeCells(`A${headerRow.number}:C${headerRow.number}`);
+    worksheet.mergeCells(`A${headerRow.number}:C${headerRow.number}`); // 2. DETALLE DEL LUGAR
 
-    // 2. DETALLE DEL LUGAR
     const placeRow = worksheet.addRow(["LUGAR:", fullPlace, ""]);
     placeRow.font = { bold: true };
     placeRow.height = 30;
@@ -196,9 +196,8 @@ const generateRoadmapExcel = async (
     };
     placeRow.getCell(1).alignment = { vertical: "top" };
     placeRow.getCell(2).alignment = { vertical: "top", wrapText: true };
-    worksheet.mergeCells(`B${placeRow.number}:C${placeRow.number}`);
+    worksheet.mergeCells(`B${placeRow.number}:C${placeRow.number}`); // Filtros de Pasajeros usando la nueva estructura 'subidaId' / 'bajadaId' del hook
 
-    // Filtros de Pasajeros usando la nueva estructura 'subidaId' / 'bajadaId' del hook
     const ups = passengers.filter((p) =>
       p.logistics?.transports?.some(
         (t) => String(t.subidaId) === String(evt.id),
@@ -210,9 +209,8 @@ const generateRoadmapExcel = async (
       ),
     );
     ups.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
-    downs.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
+    downs.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || "")); // Cálculo de total a bordo
 
-    // Cálculo de total a bordo
     const paxOnBoard = passengers.filter((p) => {
       return p.logistics?.transports?.some((t) => {
         if (!t || !t.subidaId || !t.bajadaId) return false;
@@ -224,13 +222,11 @@ const generateRoadmapExcel = async (
         );
         const currentIdx = sortedEvts.findIndex(
           (e) => String(e.id) === String(evt.id),
-        );
-        // Está a bordo si subió en esta o antes, Y baja DESPUÉS de esta
+        ); // Está a bordo si subió en esta o antes, Y baja DESPUÉS de esta
         return upIdx <= currentIdx && downIdx > currentIdx;
       });
-    }).length;
+    }).length; // 3. SECCIÓN SUBEN
 
-    // 3. SECCIÓN SUBEN
     if (ups.length > 0) {
       const subenHeader = worksheet.addRow([
         `SUBEN (${ups.length})`,
@@ -249,9 +245,8 @@ const generateRoadmapExcel = async (
         const nombreCompleto = `${p.nombre} ${loc ? `(${loc})` : ""}`;
         worksheet.addRow([p.apellido?.toUpperCase(), nombreCompleto, loc]);
       });
-    }
+    } // 4. SECCIÓN BAJAN
 
-    // 4. SECCIÓN BAJAN
     if (downs.length > 0) {
       const bajanHeader = worksheet.addRow([
         `BAJAN (${downs.length})`,
@@ -265,9 +260,8 @@ const generateRoadmapExcel = async (
         const nombreCompleto = `${p.nombre} ${loc ? `(${loc})` : ""}`;
         worksheet.addRow([p.apellido?.toUpperCase(), nombreCompleto, loc]);
       });
-    }
+    } // 5. TOTAL A BORDO
 
-    // 5. TOTAL A BORDO
     const totalRow = worksheet.addRow([
       `TOTAL A BORDO AL SALIR: ${paxOnBoard}`,
       "",
@@ -283,9 +277,8 @@ const generateRoadmapExcel = async (
     worksheet.mergeCells(`A${totalRow.number}:C${totalRow.number}`);
 
     worksheet.addRow(["", "", ""]);
-  });
+  }); // Bordes
 
-  // Bordes
   worksheet.eachRow((row) => {
     row.eachCell((cell) => {
       if (!cell.border) {
@@ -328,47 +321,65 @@ const DataIntegrityIndicator = ({ passengers }) => {
   if (issues.length === 0) {
     return (
       <div className="flex items-center gap-1.5 text-emerald-600 px-3 py-1.5 bg-emerald-50 rounded border border-emerald-100 transition-all select-none">
-        <IconCheckCircle size={14} />
-        <span className="text-xs font-bold">Datos completos</span>
+                <IconCheckCircle size={14} />       {" "}
+        <span className="text-xs font-bold">Datos completos</span>     {" "}
       </div>
     );
   }
 
   return (
     <div className="group relative flex items-center gap-2 cursor-help select-none mr-2">
+           {" "}
       <span className="flex h-3 w-3 relative">
+               {" "}
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+               {" "}
         <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+             {" "}
       </span>
-
+           {" "}
       <span className="text-xs font-bold text-red-600 animate-pulse">
-        Faltan datos ({issues.length})
+                Faltan datos ({issues.length})      {" "}
       </span>
-
+           {" "}
       <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-red-200 shadow-xl rounded-lg p-0 z-50 hidden group-hover:flex flex-col max-h-60">
+               {" "}
         <div className="bg-red-50 p-2 border-b border-red-100 rounded-t-lg">
+                   {" "}
           <p className="text-[10px] font-bold text-red-800 uppercase tracking-wider">
-            Datos Personales Faltantes
+                        Datos Personales Faltantes          {" "}
           </p>
+                 {" "}
         </div>
+               {" "}
         <div className="overflow-y-auto p-2">
+                   {" "}
           <ul className="space-y-2">
+                       {" "}
             {issues.map((issue) => (
               <li
                 key={issue.id}
                 className="flex flex-col border-b border-slate-50 last:border-0 pb-1"
               >
+                               {" "}
                 <span className="text-xs font-semibold text-slate-700">
-                  {issue.name}
+                                    {issue.name}               {" "}
                 </span>
+                               {" "}
                 <span className="text-[10px] text-red-500 flex gap-1 items-center">
-                  <IconAlertTriangle size={8} /> {issue.missing.join(", ")}
+                                    <IconAlertTriangle size={8} />{" "}
+                  {issue.missing.join(", ")}               {" "}
                 </span>
+                             {" "}
               </li>
             ))}
+                     {" "}
           </ul>
+                 {" "}
         </div>
+             {" "}
       </div>
+         {" "}
     </div>
   );
 };
@@ -379,9 +390,8 @@ const ShiftScheduleModal = ({
   transportName,
   events = [],
 }) => {
-  const [shift, setShift] = useState({ days: 0, hours: 0, minutes: 0 });
+  const [shift, setShift] = useState({ days: 0, hours: 0, minutes: 0 }); // 1. Ordenamos para estar seguros de quién es el primero y el último
 
-  // 1. Ordenamos para estar seguros de quién es el primero y el último
   const sorted = useMemo(() => {
     return [...events].sort((a, b) =>
       (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
@@ -391,9 +401,8 @@ const ShiftScheduleModal = ({
   if (!isOpen) return null;
 
   const first = sorted[0];
-  const last = sorted[sorted.length - 1];
+  const last = sorted[sorted.length - 1]; // Helper para calcular el nuevo tiempo
 
-  // Helper para calcular el nuevo tiempo
   const getPreview = (evt) => {
     if (!evt) return null;
     const current = new Date(`${evt.fecha}T${evt.hora_inicio || "00:00:00"}`);
@@ -412,26 +421,35 @@ const ShiftScheduleModal = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+           {" "}
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+               {" "}
         <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+                   {" "}
           <h3 className="font-bold text-slate-700">
-            Mover Horarios: {transportName}
+                        Mover Horarios: {transportName}         {" "}
           </h3>
+                   {" "}
           <button
             onClick={onClose}
             className="text-slate-400 hover:text-slate-600"
           >
-            <IconX size={20} />
+                        <IconX size={20} />         {" "}
           </button>
+                 {" "}
         </div>
-
+               {" "}
         <div className="p-5 space-y-4">
+                   {" "}
           <div className="grid grid-cols-3 gap-3">
-            {/* Inputs de Días, Horas, Minutos (igual que antes) */}
+                        {/* Inputs de Días, Horas, Minutos (igual que antes) */}
+                       {" "}
             <div className="flex flex-col gap-1">
+                           {" "}
               <label className="text-[10px] font-black text-slate-400 uppercase text-center">
-                Días
+                                Días              {" "}
               </label>
+                           {" "}
               <input
                 type="number"
                 className="border rounded p-2 text-center font-bold text-sm"
@@ -440,11 +458,15 @@ const ShiftScheduleModal = ({
                   setShift({ ...shift, days: parseInt(e.target.value) || 0 })
                 }
               />
+                         {" "}
             </div>
+                       {" "}
             <div className="flex flex-col gap-1">
+                           {" "}
               <label className="text-[10px] font-black text-slate-400 uppercase text-center">
-                Horas
+                                Horas              {" "}
               </label>
+                           {" "}
               <input
                 type="number"
                 className="border rounded p-2 text-center font-bold text-sm"
@@ -453,11 +475,15 @@ const ShiftScheduleModal = ({
                   setShift({ ...shift, hours: parseInt(e.target.value) || 0 })
                 }
               />
+                         {" "}
             </div>
+                       {" "}
             <div className="flex flex-col gap-1">
+                           {" "}
               <label className="text-[10px] font-black text-slate-400 uppercase text-center">
-                Minutos
+                                Minutos              {" "}
               </label>
+                           {" "}
               <input
                 type="number"
                 className="border rounded p-2 text-center font-bold text-sm"
@@ -466,17 +492,20 @@ const ShiftScheduleModal = ({
                   setShift({ ...shift, minutes: parseInt(e.target.value) || 0 })
                 }
               />
+                         {" "}
             </div>
+                     {" "}
           </div>
-
-          {/* --- SECCIÓN DE PREVISUALIZACIÓN --- */}
+                    {/* --- SECCIÓN DE PREVISUALIZACIÓN --- */}         {" "}
           {(shift.days !== 0 || shift.hours !== 0 || shift.minutes !== 0) && (
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3">
+                           {" "}
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-1">
-                Previsualización de impacto
+                                Previsualización de impacto              {" "}
               </p>
-
+                           {" "}
               <div className="flex flex-col gap-2">
+                               {" "}
                 {[
                   { title: "PRIMERA PARADA", data: previewFirst },
                   { title: "ÚLTIMA PARADA", data: previewLast },
@@ -484,50 +513,70 @@ const ShiftScheduleModal = ({
                   (item, idx) =>
                     item.data && (
                       <div key={idx} className="flex flex-col">
+                                               {" "}
                         <span className="text-[9px] font-bold text-indigo-500">
-                          {item.title}
+                                                    {item.title}               
+                                 {" "}
                         </span>
+                                               {" "}
                         <p className="text-[10px] font-medium text-slate-600 truncate">
-                          {item.data.label}
+                                                    {item.data.label}           
+                                     {" "}
                         </p>
+                                               {" "}
                         <div className="flex items-center gap-2 text-[11px]">
+                                                   {" "}
                           <span className="text-slate-400 line-through">
-                            {item.data.old}
+                                                        {item.data.old}         
+                                           {" "}
                           </span>
-                          <span className="text-slate-400">→</span>
+                                                   {" "}
+                          <span className="text-slate-400">→</span>             
+                                     {" "}
                           <span className="font-bold text-indigo-600 bg-indigo-50 px-1 rounded">
-                            {item.data.new}
+                                                        {item.data.new}         
+                                           {" "}
                           </span>
+                                                 {" "}
                         </div>
+                                             {" "}
                       </div>
                     ),
                 )}
+                             {" "}
               </div>
+                         {" "}
             </div>
           )}
+                 {" "}
         </div>
-
+               {" "}
         <div className="p-4 bg-slate-50 border-t flex gap-2">
+                   {" "}
           <button
             onClick={onClose}
             className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300"
           >
-            Cancelar
+                        Cancelar          {" "}
           </button>
+                   {" "}
           <button
             onClick={() => onApply(shift)}
             className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-md"
           >
-            Aplicar a todos
+                        Aplicar a todos          {" "}
           </button>
+                 {" "}
         </div>
+             {" "}
       </div>
+         {" "}
     </div>
   );
 };
 // =================================================================================================
 // COMPONENTE PRINCIPAL
-// =================================================================================================
+// ================================================================================================
 
 export default function GirasTransportesManager({ supabase, gira }) {
   const {
@@ -538,23 +587,19 @@ export default function GirasTransportesManager({ supabase, gira }) {
     loading: rosterLoading,
     refresh,
     roster,
-  } = useLogistics(supabase, gira);
-  // A. Nuevo estado para el modal (dentro del componente)
+  } = useLogistics(supabase, gira); // A. Nuevo estado para el modal (dentro del componente)
   const [shiftModal, setShiftModal] = useState({
     isOpen: false,
     transportId: null,
     transportName: "",
   });
-  const [selectedEventIds, setSelectedEventIds] = useState(new Set());
+  const [selectedEventIds, setSelectedEventIds] = useState(new Set()); // Función para limpiar selección al cambiar de transporte o cerrar modal
 
-  // Función para limpiar selección al cambiar de transporte o cerrar modal
-  const clearSelection = () => setSelectedEventIds(new Set());
-  // B. Función para aplicar el desplazamiento masivo
+  const clearSelection = () => setSelectedEventIds(new Set()); // B. Función para aplicar el desplazamiento masivo
   const handleApplyShiftSchedule = async (offset) => {
     const tId = shiftModal.transportId;
-    const allTransportEvents = transportEvents[tId] || [];
+    const allTransportEvents = transportEvents[tId] || []; // Filtramos los eventos a los que realmente aplicaremos el update
 
-    // Filtramos los eventos a los que realmente aplicaremos el update
     const eventsToMove = allTransportEvents.filter((e) =>
       selectedEventIds.size > 0 ? selectedEventIds.has(e.id) : true,
     );
@@ -567,14 +612,12 @@ export default function GirasTransportesManager({ supabase, gira }) {
         // Creamos un objeto Date desde la fecha y hora actual del evento
         const currentFullDate = new Date(
           `${evt.fecha}T${evt.hora_inicio || "00:00:00"}`,
-        );
+        ); // Aplicamos el desplazamiento usando date-fns
 
-        // Aplicamos el desplazamiento usando date-fns
         let newDate = addDays(currentFullDate, offset.days);
         newDate = addHours(newDate, offset.hours);
-        newDate = addMinutes(newDate, offset.minutes);
+        newDate = addMinutes(newDate, offset.minutes); // Formateamos para SQL
 
-        // Formateamos para SQL
         return supabase
           .from("eventos")
           .update({
@@ -614,9 +657,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
     title: "",
     list: [],
     transportId: null,
-  });
+  }); // Modal de Admisión (NUEVO)
 
-  // Modal de Admisión (NUEVO)
   const [admissionModal, setAdmissionModal] = useState({
     isOpen: false,
     transportId: null,
@@ -640,17 +682,24 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
         return (
           <div className="space-y-4">
+                       {" "}
             {Object.keys(grouped)
               .sort()
               .map((locName) => (
                 <div key={locName}>
+                                   {" "}
                   <h4 className="bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 uppercase tracking-wider mb-1 rounded flex justify-between items-center">
-                    <span>{locName}</span>
+                                        <span>{locName}</span>                 
+                     {" "}
                     <span className="bg-white px-2 py-0.5 rounded text-slate-400 border text-[10px]">
-                      {grouped[locName].length}
+                                            {grouped[locName].length}           
+                             {" "}
                     </span>
+                                     {" "}
                   </h4>
+                                   {" "}
                   <ul className="divide-y divide-slate-50">
+                                       {" "}
                     {grouped[locName].map((p) => {
                       const trData = p.logistics?.transports?.find(
                         (t) =>
@@ -664,33 +713,48 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           key={p.id}
                           className="py-2 text-sm flex justify-between items-center pl-2 hover:bg-white"
                         >
+                                                   {" "}
                           <span className="font-medium text-slate-700">
-                            {p.apellido}, {p.nombre}
+                                                        {p.apellido}, {p.nombre}
+                                                     {" "}
                           </span>
+                                                   {" "}
                           <div className="flex gap-1 text-[10px] font-bold">
+                                                       {" "}
                             {missingUp && (
                               <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
-                                <IconAlertTriangle size={10} /> Falta Subida
+                                                               {" "}
+                                <IconAlertTriangle size={10} /> Falta Subida    
+                                                         {" "}
                               </span>
                             )}
+                                                       {" "}
                             {missingDown && (
                               <span className="bg-orange-50 text-orange-600 px-2 py-0.5 rounded border border-orange-100 flex items-center gap-1">
-                                <IconAlertTriangle size={10} /> Falta Bajada
+                                                               {" "}
+                                <IconAlertTriangle size={10} /> Falta Bajada    
+                                                         {" "}
                               </span>
                             )}
+                                                     {" "}
                           </div>
+                                                 {" "}
                         </li>
                       );
                     })}
+                                     {" "}
                   </ul>
+                                 {" "}
                 </div>
               ))}
+                     {" "}
           </div>
         );
       }
 
       return (
         <ul className="divide-y divide-slate-100">
+                   {" "}
           {infoListModal.list.map((p) => {
             const locNombre =
               paxLocalities[p.id] || p.localidades?.localidad || "Sin datos";
@@ -699,58 +763,80 @@ export default function GirasTransportesManager({ supabase, gira }) {
                 key={p.id}
                 className="py-2 text-sm flex justify-between items-center"
               >
+                               {" "}
                 <div className="flex flex-col">
+                                   {" "}
                   <span className="font-medium text-slate-700">
-                    {p.apellido}, {p.nombre}
+                                        {p.apellido}, {p.nombre}               
+                     {" "}
                   </span>
-                  <span className="text-xs text-slate-400">{locNombre}</span>
+                                   {" "}
+                  <span className="text-xs text-slate-400">{locNombre}</span>   
+                             {" "}
                 </div>
+                               {" "}
                 {p.logistics?.transports?.length > 0 && (
                   <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full ml-2">
-                    x{p.logistics.transports.length} Bus
+                                        x{p.logistics.transports.length} Bus    
+                                 {" "}
                   </span>
                 )}
+                             {" "}
               </li>
             );
           })}
+                 {" "}
         </ul>
       );
     };
 
     return (
       <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+               {" "}
         <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col animate-in zoom-in-95">
+                   {" "}
           <div className="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-lg">
-            <h3 className="font-bold text-slate-700">{infoListModal.title}</h3>
+                       {" "}
+            <h3 className="font-bold text-slate-700">{infoListModal.title}</h3> 
+                     {" "}
             <button
               onClick={() =>
                 setInfoListModal({ ...infoListModal, isOpen: false })
               }
               className="text-slate-400 hover:text-slate-600"
             >
-              <IconX size={20} />
+                            <IconX size={20} />           {" "}
             </button>
+                     {" "}
           </div>
+                   {" "}
           <div className="p-4 overflow-y-auto flex-1 bg-white/50">
+                       {" "}
             {infoListModal.list.length === 0 ? (
               <p className="text-center text-slate-500 italic">
-                La lista está vacía.
+                                La lista está vacía.              {" "}
               </p>
             ) : (
               renderContent()
             )}
+                     {" "}
           </div>
+                   {" "}
           <div className="p-3 border-t bg-slate-50 rounded-b-lg text-right">
+                       {" "}
             <button
               onClick={() =>
                 setInfoListModal({ ...infoListModal, isOpen: false })
               }
               className="px-4 py-2 bg-slate-200 text-slate-700 rounded text-xs font-bold hover:bg-slate-300"
             >
-              Cerrar
+                            Cerrar            {" "}
             </button>
+                     {" "}
           </div>
+                 {" "}
         </div>
+             {" "}
       </div>
     );
   };
@@ -883,7 +969,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       const { data: list } = await supabase
         .from("giras_transportes")
         .select(
-          `id, detalle, costo, capacidad_maxima, id_transporte, transportes ( nombre )`,
+          `id, detalle, costo, capacidad_maxima, id_transporte, transportes ( nombre, patente)`,
         )
         .eq("id_gira", giraId)
         .order("id");
@@ -984,8 +1070,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
       return { label, count };
     });
-  };
-  // --- FUNCIÓN CLAVE: INSERTAR ITINERARIO CON PERSONAS ---
+  }; // --- FUNCIÓN CLAVE: INSERTAR ITINERARIO CON PERSONAS ---
   const handleInsertItinerary = async (template, startDate, startTime) => {
     const tId = itineraryModal.transportId;
     if (!tId || !template || !startDate || !startTime) return;
@@ -996,9 +1081,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
         (a, b) => a.orden - b.orden,
       );
       let currentDateTime = new Date(`${startDate}T${startTime}`);
-      const eventsToCreate = [];
+      const eventsToCreate = []; // 1. Crear Evento Inicial (Salida)
 
-      // 1. Crear Evento Inicial (Salida)
       if (tramos.length > 0) {
         const primerTramo = tramos[0];
         eventsToCreate.push({
@@ -1006,18 +1090,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
           hora: format(currentDateTime, "HH:mm:ss"),
           id_locacion: primerTramo.id_locacion_origen,
           descripcion: primerTramo.nota || "Inicio Recorrido",
-          id_tipo_evento: primerTramo.id_tipo_evento || 11,
-          // LOCALIDADES
-          suben: primerTramo.ids_localidades_suben || [],
-          // PERSONAS (Nuevo)
+          id_tipo_evento: primerTramo.id_tipo_evento || 11, // LOCALIDADES
+          suben: primerTramo.ids_localidades_suben || [], // PERSONAS (Nuevo)
           subenInd: primerTramo.ids_integrantes_suben || [],
 
           bajan: [],
           bajanInd: [],
         });
-      }
+      } // 2. Crear Eventos Intermedios/Finales
 
-      // 2. Crear Eventos Intermedios/Finales
       tramos.forEach((tramo, index) => {
         currentDateTime = addMinutes(
           currentDateTime,
@@ -1034,13 +1115,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
             : "Fin de Recorrido",
           id_tipo_evento: siguienteTramo
             ? siguienteTramo.id_tipo_evento || 11
-            : 11,
+            : 11, // Bajada de este tramo
 
-          // Bajada de este tramo
           bajan: tramo.ids_localidades_bajan || [],
-          bajanInd: tramo.ids_integrantes_bajan || [],
+          bajanInd: tramo.ids_integrantes_bajan || [], // Subida del siguiente
 
-          // Subida del siguiente
           suben: siguienteTramo
             ? siguienteTramo.ids_localidades_suben || []
             : [],
@@ -1048,9 +1127,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
             ? siguienteTramo.ids_integrantes_suben || []
             : [],
         });
-      });
+      }); // 3. Insertar en DB
 
-      // 3. Insertar en DB
       for (const evtData of eventsToCreate) {
         const { data: eventDB, error } = await supabase
           .from("eventos")
@@ -1072,9 +1150,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
         if (error) throw error;
         const eventId = eventDB.id;
 
-        const routeRulesToInsert = [];
+        const routeRulesToInsert = []; // Helper para insertar reglas
 
-        // Helper para insertar reglas
         const addRules = (ids, type, scope) => {
           if (!ids || ids.length === 0) return;
           ids.forEach((id) => {
@@ -1089,13 +1166,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
             else rule.id_evento_bajada = eventId;
             routeRulesToInsert.push(rule);
           });
-        };
+        }; // Procesar Localidades
 
-        // Procesar Localidades
         addRules(evtData.suben, "subida", "Localidad");
-        addRules(evtData.bajan, "bajada", "Localidad");
+        addRules(evtData.bajan, "bajada", "Localidad"); // Procesar Personas (AQUÍ ESTABA EL FALTANTE)
 
-        // Procesar Personas (AQUÍ ESTABA EL FALTANTE)
         addRules(evtData.subenInd, "subida", "Persona");
         addRules(evtData.bajanInd, "bajada", "Persona");
 
@@ -1155,9 +1230,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
         descripcion: newEvent.descripcion || "",
         id_tipo_evento: parseInt(newEvent.id_tipo_evento),
         convocados: [],
-      };
+      }; // Si el ID empieza con "new-", es una inserción
 
-      // Si el ID empieza con "new-", es una inserción
       if (String(editingEventId).startsWith("new-")) {
         await supabase.from("eventos").insert([payload]);
       } else {
@@ -1352,8 +1426,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   const handleExportRoadmap = (startId, endId) => {
     const tId = roadmapModal.transportId;
-    const tInfo = transports.find((t) => t.id === tId);
-    // CORRECCIÓN: Usar String comparison
+    const tInfo = transports.find((t) => t.id === tId); // CORRECCIÓN: Usar String comparison
     const tPax = passengerList.filter((p) =>
       p.logistics?.transports?.some((t) => String(t.id) === String(tId)),
     );
@@ -1410,24 +1483,25 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   return (
     <div className="h-full overflow-y-auto p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
-      {/* 1. DASHBOARD DE COBERTURA */}
-      <div className="mb-6 grid grid-cols-3 gap-4">
-        {/* ASIGNADOS OK */}
-        <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-lg flex items-center gap-3">
-          <div className="p-2 bg-emerald-100 rounded-full text-emerald-600">
-            <IconCheckCircle size={20} />
+            {/* 1. DASHBOARD DE COBERTURA */}     {" "}
+      {/* Dashboard de Cobertura */}
+      <div className="mb-6 grid grid-cols-3 gap-4 w-full">
+        {/* 1. ASIGNADOS OK */}
+        <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
+          <div className="p-2.5 bg-emerald-100 rounded-xl text-emerald-600 shrink-0">
+            <IconCheckCircle size={22} />
           </div>
-          <div>
-            <div className="text-xl font-bold text-emerald-700">
+          <div className="min-w-0">
+            <div className="text-xl font-black text-emerald-700 leading-none">
               {coverageStats.single.length}
             </div>
-            <div className="text-xs text-emerald-600 font-medium">
-              Asignados (1 transporte)
+            <div className="text-[10px] text-emerald-600 font-bold uppercase tracking-tight mt-1">
+              Asignados
             </div>
           </div>
         </div>
 
-        {/* MULTI-TRANSPORTE */}
+        {/* 2. MULTI-TRANSPORTE */}
         <div
           onClick={() =>
             setInfoListModal({
@@ -1436,22 +1510,22 @@ export default function GirasTransportesManager({ supabase, gira }) {
               list: coverageStats.multiple,
             })
           }
-          className="bg-amber-50 border border-amber-100 p-3 rounded-lg flex items-center gap-3 cursor-pointer hover:bg-amber-100 transition-colors"
+          className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm cursor-pointer hover:bg-amber-100 hover:border-amber-200 transition-all group"
         >
-          <div className="p-2 bg-amber-100 rounded-full text-amber-600">
-            <IconTruck size={20} />
+          <div className="p-2.5 bg-amber-100 rounded-xl text-amber-600 shrink-0 group-hover:scale-110 transition-transform">
+            <IconTruck size={22} />
           </div>
-          <div>
-            <div className="text-xl font-bold text-amber-700">
+          <div className="min-w-0">
+            <div className="text-xl font-black text-amber-700 leading-none">
               {coverageStats.multiple.length}
             </div>
-            <div className="text-xs text-amber-600 font-medium underline decoration-dashed underline-offset-2">
-              Multi-transporte (Ver)
+            <div className="text-[10px] text-amber-600 font-bold uppercase tracking-tight mt-1 underline decoration-dashed underline-offset-4">
+              Más de un Transporte
             </div>
           </div>
         </div>
 
-        {/* SIN TRANSPORTE */}
+        {/* 3. SIN TRANSPORTE */}
         <div
           onClick={() =>
             setInfoListModal({
@@ -1460,50 +1534,59 @@ export default function GirasTransportesManager({ supabase, gira }) {
               list: coverageStats.none,
             })
           }
-          className="bg-rose-50 border border-rose-100 p-3 rounded-lg flex items-center gap-3 cursor-pointer hover:bg-rose-100 transition-colors"
+          className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm cursor-pointer hover:bg-rose-100 hover:border-rose-200 transition-all group"
         >
-          <div className="p-2 bg-rose-100 rounded-full text-rose-600">
-            <IconAlertTriangle size={20} />
+          <div className="p-2.5 bg-rose-100 rounded-xl text-rose-600 shrink-0 group-hover:animate-bounce">
+            <IconAlertTriangle size={22} />
           </div>
-          <div>
-            <div className="text-xl font-bold text-rose-700">
+          <div className="min-w-0">
+            <div className="text-xl font-black text-rose-700 leading-none">
               {coverageStats.none.length}
             </div>
-            <div className="text-xs text-rose-600 font-medium underline decoration-dashed underline-offset-2">
-              Sin transporte (Ver)
+            <div className="text-[10px] text-rose-600 font-bold uppercase tracking-tight mt-1 underline decoration-dashed underline-offset-4">
+              Sin Transporte
             </div>
           </div>
         </div>
       </div>
-
+           {" "}
       <div className="flex justify-between items-center mb-4 border-b pb-2">
+               {" "}
         <h3 className="font-bold text-slate-700 flex items-center gap-2">
-          <IconTruck className="text-indigo-600" /> Gestión de Transportes
+                    <IconTruck className="text-indigo-600" /> Gestión de
+          Transportes        {" "}
         </h3>
+               {" "}
         <div className="flex gap-2 items-center">
-          <DataIntegrityIndicator passengers={passengerList} />
-
+                    <DataIntegrityIndicator passengers={passengerList} />       
+           {" "}
           <button
             onClick={handleExportGlobal}
             className="flex items-center gap-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold transition-colors shadow-sm"
           >
-            <IconDownload size={14} /> Excel General
+                        <IconDownload size={14} /> Excel General          {" "}
           </button>
+                   {" "}
           <button
             onClick={() =>
               setItineraryModal({ isOpen: true, transportId: null })
             }
             className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded text-xs font-bold hover:bg-indigo-100"
           >
-            <IconMapPin size={14} /> Gestor de Itinerarios
+                        <IconMapPin size={14} /> Gestor de Itinerarios        
+             {" "}
           </button>
+                 {" "}
         </div>
+             {" "}
       </div>
-
-      {/* FORMULARIO DE AGREGAR TRANSPORTE */}
+            {/* FORMULARIO DE AGREGAR TRANSPORTE */}     {" "}
       <div className="flex gap-2 mb-6 items-end bg-slate-50 p-3 rounded-lg border border-slate-200">
+               {" "}
         <div className="w-1/4">
-          <label className="text-[10px] font-bold text-slate-500">TIPO</label>
+                   {" "}
+          <label className="text-[10px] font-bold text-slate-500">TIPO</label> 
+                 {" "}
           <select
             className="w-full text-xs border p-2 rounded"
             value={newTransp.id_transporte}
@@ -1511,18 +1594,23 @@ export default function GirasTransportesManager({ supabase, gira }) {
               setNewTransp({ ...newTransp, id_transporte: e.target.value })
             }
           >
-            <option value="">Seleccionar...</option>
+                        <option value="">Seleccionar...</option>           {" "}
             {catalog.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.nombre}
+                {c.nombre} {c.patente ? `(${c.patente})` : ""}
               </option>
             ))}
+                     {" "}
           </select>
+                 {" "}
         </div>
+               {" "}
         <div className="flex-1">
+                   {" "}
           <label className="text-[10px] font-bold text-slate-500">
-            DETALLE
+                        DETALLE          {" "}
           </label>
+                   {" "}
           <input
             type="text"
             className="w-full text-xs border p-2 rounded"
@@ -1532,11 +1620,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
               setNewTransp({ ...newTransp, detalle: e.target.value })
             }
           />
+                 {" "}
         </div>
+               {" "}
         <div className="w-24">
+                   {" "}
           <label className="text-[10px] font-bold text-slate-500">
-            CAPACIDAD
+                        CAPACIDAD          {" "}
           </label>
+                   {" "}
           <input
             type="number"
             min="0"
@@ -1547,633 +1639,373 @@ export default function GirasTransportesManager({ supabase, gira }) {
               setNewTransp({ ...newTransp, capacidad: e.target.value })
             }
           />
+                 {" "}
         </div>
+               {" "}
         <button
           onClick={handleAddTransport}
           className="bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700"
         >
-          <IconPlus size={18} />
+                    <IconPlus size={18} />       {" "}
         </button>
+             {" "}
       </div>
-
-      {/* LISTA DE TRANSPORTES */}
+            {/* LISTA DE TRANSPORTES */}     {" "}
       <div className="space-y-4">
+               {" "}
         {transports.map((t) => {
           const isExpanded = activeTransportId === t.id;
           const myEvents = transportEvents[t.id] || [];
-          const isMediosPropios = String(t.id_transporte) === "9"; // Identificamos si es Medios propios
-          // 1. Filtrar pasajeros - CORRECCIÓN: String comparison
-          const tPassengers = passengerList.filter((p) =>
+          const isMediosPropios = String(t.id_transporte) === "9";
+
+          // Lógica de Pasajeros
+          const tPax = passengerList.filter((p) =>
             p.logistics?.transports?.some(
               (tr) => String(tr.id) === String(t.id),
             ),
           );
-
-          const tPassengerCount = tPassengers.length;
-
-          // 2. Calcular Plazas de Instrumentos
-          const tInstrumentSeats = tPassengers.filter(
+          const tPassengerCount = tPax.length;
+          const tInstrumentSeats = tPax.filter(
             (p) => p.instrumentos?.plaza_extra,
           ).length;
-
           const totalOccupied = tPassengerCount + tInstrumentSeats;
           const maxCap = t.capacidad_maxima || 0;
 
           const isOverbooked = maxCap > 0 && totalOccupied > maxCap;
           const occupancyColor = isOverbooked
-            ? "text-red-600 bg-red-50 border-red-200"
-            : maxCap > 0 && totalOccupied === maxCap
-              ? "text-amber-600 bg-amber-50 border-amber-200"
-              : "text-indigo-600";
+            ? "text-rose-600 bg-rose-50 border-rose-200"
+            : "text-indigo-600 bg-indigo-50 border-indigo-100";
 
-          const incompletePax = tPassengers.filter((p) => {
+          const incompletePax = tPax.filter((p) => {
             const tr = p.logistics?.transports?.find(
               (x) => String(x.id) === String(t.id),
             );
             return tr && (!tr.subidaId || !tr.bajadaId);
           });
+
           const isEditing = editingTransportId === t.id;
 
           return (
             <div
               key={t.id}
-              className={`border rounded-lg transition-all ${
-                isExpanded
-                  ? "border-indigo-300 shadow-md bg-white"
-                  : "border-slate-200 bg-white"
-              }`}
+              className={`group border rounded-2xl transition-all duration-300 ${isExpanded ? "border-indigo-300 shadow-xl ring-4 ring-indigo-50/50 bg-white" : "border-slate-200 bg-white hover:border-slate-300 shadow-sm"}`}
             >
               {/* HEADER DE LA TARJETA */}
               <div
-                className="p-3 flex justify-between items-center cursor-pointer hover:bg-slate-50"
+                className="p-4 flex flex-col lg:flex-row justify-between lg:items-center gap-4 cursor-pointer"
                 onClick={() =>
                   !isEditing && setActiveTransportId(isExpanded ? null : t.id)
                 }
               >
-                <div className="flex items-center gap-3 flex-1">
-                  <div className="p-2 rounded-full bg-slate-100 text-slate-500">
-                    <IconTruck size={20} />
+                {/* LADO IZQUIERDO: Info del Vehículo */}
+                <div className="flex items-center gap-4 flex-1">
+                  <div
+                    className={`p-3 rounded-2xl transition-colors ${isExpanded ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-indigo-100 group-hover:text-indigo-600"}`}
+                  >
+                    <IconTruck size={24} />
                   </div>
-                  {isEditing ? (
-                    <div
-                      className="flex gap-2 items-center flex-1"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex flex-col">
-                        <label className="text-[9px] font-bold text-slate-400">
-                          DETALLE
-                        </label>
-                        <input
-                          className="border border-indigo-300 rounded px-2 py-1 text-sm w-48 outline-none"
-                          value={editFormData.detalle}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              detalle: e.target.value,
-                            })
-                          }
-                          autoFocus
-                        />
-                      </div>
-                      <div className="flex flex-col w-24">
-                        <label className="text-[9px] font-bold text-slate-400">
-                          CAPACIDAD
-                        </label>
-                        <input
-                          type="number"
-                          className="border border-indigo-300 rounded px-2 py-1 text-sm w-full outline-none"
-                          value={editFormData.capacidad}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              capacidad: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="flex gap-1 mt-4">
-                        <button
-                          onClick={saveTransportChanges}
-                          className="bg-indigo-600 text-white p-1 rounded hover:bg-indigo-700"
-                        >
-                          <IconSave size={16} />
-                        </button>
-                        <button
-                          onClick={cancelEditingTransport}
-                          className="bg-slate-200 text-slate-600 p-1 rounded hover:bg-slate-300"
-                        >
-                          <IconX size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="font-bold text-slate-800 flex items-center gap-2">
+
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="font-black text-slate-800 uppercase tracking-tighter text-base truncate">
                         {t.detalle || "Sin detalle"}
-                        <button
-                          onClick={(e) => startEditingTransport(e, t)}
-                          className="text-slate-300 hover:text-indigo-600"
-                        >
-                          <IconEdit size={14} />
-                        </button>
-                      </div>
-                      <div className="text-xs text-slate-500 uppercase flex items-center gap-2 mt-1">
-                        <span>{t.transportes?.nombre}</span>
-                        <span className="text-slate-300">|</span>
-                        <span
-                          className={`font-bold px-2 py-0.5 rounded border ${occupancyColor} flex items-center gap-1`}
-                        >
-                          {isOverbooked && <IconAlertTriangle size={12} />}
-                          <span>{tPassengerCount}</span>
-                          {tInstrumentSeats > 0 && (
-                            <span className="opacity-80 text-[10px]">
-                              + {tInstrumentSeats} instr.
-                            </span>
-                          )}
-                          {maxCap > 0 ? (
-                            <span className="opacity-60">/ {maxCap}</span>
-                          ) : (
-                            <span className="opacity-60"></span>
-                          )}
+                      </h4>
+                      {/* PATENTE DESDE TABLA MAESTRA */}
+                      {t.transportes?.patente && (
+                        <span className="bg-slate-800 text-white px-2 py-0.5 rounded-md text-[10px] font-mono tracking-widest shadow-sm">
+                          {t.transportes.patente}
                         </span>
-                      </div>
+                      )}
+                      <button
+                        onClick={(e) => startEditingTransport(e, t)}
+                        className="text-slate-300 hover:text-indigo-600 transition-colors"
+                      >
+                        <IconEdit size={14} />
+                      </button>
                     </div>
-                  )}
+
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        {t.transportes?.nombre || "Transporte"}
+                      </span>
+                      <span className="text-slate-200">•</span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${occupancyColor}`}
+                      >
+                        {totalOccupied} / {maxCap > 0 ? maxCap : "∞"} PLAZAS
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
+                {/* LADO DERECHO: Acciones y Alertas */}
                 {!isEditing && (
-                  <div className="flex gap-2 items-center">
+                  <div
+                    className="flex items-center gap-1.5 flex-wrap lg:flex-nowrap"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Alerta de Incompletos */}
                     {incompletePax.length > 0 && !isMediosPropios && (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={() =>
                           setInfoListModal({
                             isOpen: true,
-                            title: `Pasajeros sin parada en ${t.detalle}`,
+                            title: `Incompletos: ${t.detalle}`,
                             list: incompletePax,
                             transportId: t.id,
-                          });
-                        }}
-                        className="flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 border border-amber-300 rounded text-[10px] font-bold animate-pulse"
+                          })
+                        }
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-[10px] font-black hover:bg-rose-100 transition-all animate-pulse mr-2"
                       >
                         <IconAlertTriangle size={12} /> {incompletePax.length}{" "}
-                        Sin asignar
+                        SIN PARADA
                       </button>
                     )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setAdmissionModal({ isOpen: true, transportId: t.id });
-                      }}
-                      className="flex items-center gap-2 px-3 py-1 bg-indigo-600 text-white rounded text-xs font-bold hover:bg-indigo-700 shadow-sm"
-                    >
-                      <IconUsers size={14} /> Pasajeros (Reglas)
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShiftModal({
-                          isOpen: true,
-                          transportId: t.id,
-                          transportName: t.detalle || t.transportes?.nombre,
-                        });
-                      }}
-                      className={`px-2 py-1 border rounded text-[10px] font-bold transition-colors ${
-                        selectedEventIds.size > 0
-                          ? "bg-indigo-600 text-white border-indigo-700"
-                          : "bg-slate-800 text-white border-slate-700 hover:bg-black"
-                      }`}
-                    >
-                      {selectedEventIds.size > 0
-                        ? `Mover (${selectedEventIds.size}) seleccionados`
-                        : "Mover todo el horario"}
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setItineraryModal({ isOpen: true, transportId: t.id });
-                      }}
-                      className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded font-bold border border-indigo-100 hover:bg-indigo-100"
-                    >
-                      + Itinerario
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setBoardingModal({ isOpen: true, transportId: t.id });
-                      }}
-                      className="px-2 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[10px] font-bold hover:bg-amber-100"
-                      title="Gestor de Abordaje"
-                    >
-                      <IconUsers size={14} />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRoadmapModal({ isOpen: true, transportId: t.id });
-                      }}
-                      className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded text-[10px] font-bold hover:bg-blue-100"
-                      title="Hoja de Ruta"
-                    >
-                      <IconFileText size={14} /> Hoja Ruta
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCnrtModal({ isOpen: true, transportId: t.id });
-                      }}
-                      className="px-2 py-1 bg-slate-50 text-slate-600 border border-slate-200 rounded text-[10px] font-bold hover:bg-slate-100"
-                      title="Lista CNRT"
-                    >
-                      CNRT
-                    </button>
-                    {isExpanded && (
+
+                    {/* Grupo de Gestión */}
+                    <div className="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTransport(t.id);
-                        }}
-                        className="text-red-400 hover:text-red-600 p-2"
+                        onClick={() =>
+                          setAdmissionModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="p-2 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white shadow-sm transition-all"
+                        title="Admisión"
                       >
-                        <IconTrash size={16} />
+                        <IconUsers size={18} />
                       </button>
-                    )}
-                    <div
-                      className={`transform transition-transform ${
-                        isExpanded ? "rotate-180" : ""
-                      } text-slate-400`}
+                      <button
+                        onClick={() =>
+                          setBoardingModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="p-2 bg-white text-amber-600 rounded-lg hover:bg-amber-600 hover:text-white shadow-sm transition-all"
+                        title="Abordaje"
+                      >
+                        <IconCheckCircle size={18} />
+                      </button>
+                      <button
+                        onClick={() =>
+                          setShiftModal({
+                            isOpen: true,
+                            transportId: t.id,
+                            transportName: t.detalle,
+                          })
+                        }
+                        className="p-2 bg-white text-slate-600 rounded-lg hover:bg-slate-800 hover:text-white shadow-sm transition-all"
+                        title="Mover Horarios"
+                      >
+                        <IconClock size={18} />
+                      </button>
+                    </div>
+
+                    {/* Grupo de Exportación */}
+                    <div className="flex items-center bg-indigo-50 p-1 rounded-xl gap-1">
+                      <button
+                        onClick={() =>
+                          setRoadmapModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="p-2 bg-white text-indigo-600 rounded-lg text-[10px] hover:bg-indigo-600 hover:text-white shadow-sm transition-all"
+                        title="Hoja de Ruta"
+                      >
+                        <IconFileText size={18} />
+                                              </button>
+                      <button
+                        onClick={() =>
+                          setCnrtModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="px-3 py-2 bg-white text-indigo-700 text-[10px] font-black rounded-lg hover:bg-indigo-700 hover:text-white shadow-sm transition-all"
+                      >
+                        CNRT
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => handleDeleteTransport(t.id)}
+                      className="p-2 text-slate-300 hover:text-rose-600 transition-colors ml-2"
                     >
-                      ▼
+                      <IconTrash size={18} />
+                    </button>
+
+                    <div
+                      className={`ml-2 text-slate-400 transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`}
+                    >
+                      <IconChevronDown size={20} />
                     </div>
                   </div>
                 )}
               </div>
 
+              {/* CONTENIDO EXPANDIDO (TABLA) */}
               {isExpanded && (
-                <div className="p-0 overflow-x-auto">
-                  <table className="w-full min-w-[1000px] text-xs text-left border-t border-slate-200">
-                    <thead className="bg-slate-50 text-slate-500 font-semibold border-b">
-                      <tr>
-                        <th className="p-2 w-10 text-center">
-                          <input
-                            type="checkbox"
-                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                            checked={
-                              myEvents.length > 0 &&
-                              myEvents.every((e) => selectedEventIds.has(e.id))
-                            }
-                            onChange={(e) => {
-                              const next = new Set(selectedEventIds);
-                              myEvents.forEach((evt) => {
-                                if (e.target.checked) next.add(evt.id);
-                                else next.delete(evt.id);
-                              });
-                              setSelectedEventIds(next);
-                            }}
-                          />
-                        </th>
-                        <th className="p-2 w-32">Fecha</th>
-                        <th className="p-2 w-24">Hora</th>
-                        <th className="p-2 min-w-[200px]">
-                          Locación (Destino)
-                        </th>
-                        <th className="p-2 min-w-[150px]">Nota</th>
-                        <th className="p-2 w-24">Visibilidad</th>
-                        <th className="p-2 w-28 text-center bg-emerald-50 text-emerald-700 border-l border-emerald-100">
-                          Suben
-                        </th>
-                        <th className="p-2 w-28 text-center bg-rose-50 text-rose-700 border-l border-rose-100">
-                          Bajan
-                        </th>
-                        <th className="p-2 w-10"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {myEvents.map((evt) => {
-                        const upsCount = (passengerList || []).filter((p) =>
-                          p.logistics?.transports?.some(
-                            (tr) => String(tr.subidaId) === String(evt.id),
-                          ),
-                        ).length;
-                        const downsCount = (passengerList || []).filter((p) =>
-                          p.logistics?.transports?.some(
-                            (tr) => String(tr.bajadaId) === String(evt.id),
-                          ),
-                        ).length;
+  <div className="border-t border-slate-100 overflow-hidden rounded-b-2xl bg-slate-50/30">
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm text-left border-separate border-spacing-0">
+        <thead className="bg-slate-100/50 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b">
+          <tr>
+            <th className="p-3 w-10 text-center">
+              <input 
+                type="checkbox" 
+                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                checked={myEvents.length > 0 && myEvents.every(e => selectedEventIds.has(e.id))}
+                onChange={(e) => {
+                  const next = new Set(selectedEventIds);
+                  myEvents.forEach(ev => e.target.checked ? next.add(ev.id) : next.delete(ev.id));
+                  setSelectedEventIds(next);
+                }} 
+              />
+            </th>
+            <th className="p-3">Horario / Fecha</th>
+            <th className="p-3">Locación (Destino)</th>
+            <th className="p-3">Nota</th>
+            <th className="p-3 text-center bg-emerald-50/50 text-emerald-600 border-l border-emerald-100">Suben</th>
+            <th className="p-3 text-center bg-rose-50/50 text-rose-600 border-l border-rose-100">Bajan</th>
+            <th className="p-3 w-10"></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100 bg-white">
+          {myEvents.map((evt) => {
+            const upsSummary = getEventRulesSummary(evt.id, "up", t.id);
+            const downsSummary = getEventRulesSummary(evt.id, "down", t.id);
+            const totalUps = upsSummary.reduce((acc, curr) => acc + curr.count, 0);
+            const totalDowns = downsSummary.reduce((acc, curr) => acc + curr.count, 0);
 
-                        const upsSummary = getEventRulesSummary(
-                          evt.id,
-                          "up",
-                          t.id,
-                        );
-                        const downsSummary = getEventRulesSummary(
-                          evt.id,
-                          "down",
-                          t.id,
-                        );
+            // Alerta si hay reglas que devuelven 0 personas (y no es Medios Propios)
+            const upAlert = upsSummary.some(s => s.count === 0) && !isMediosPropios;
+            const downAlert = downsSummary.some(s => s.count === 0) && !isMediosPropios;
 
-                        // --- NUEVA LÓGICA DE ALERTA NARANJA ---
-                        const hasUpRules = upsSummary && upsSummary.length > 0;
-                        const upStyles =
-                          upsCount > 0
-                            ? "bg-emerald-100 text-emerald-700 border-emerald-200"
-                            : hasUpRules
-                              ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse"
-                              : "bg-slate-50 text-slate-400 border-transparent";
+            return (
+              <tr key={evt.id} className="hover:bg-slate-50 group transition-colors">
+                <td className="p-3 text-center">
+                  <input 
+                    type="checkbox" 
+                    className="rounded border-slate-300 text-indigo-600"
+                    checked={selectedEventIds.has(evt.id)} 
+                    onChange={() => {
+                      const next = new Set(selectedEventIds);
+                      next.has(evt.id) ? next.delete(evt.id) : next.add(evt.id);
+                      setSelectedEventIds(next);
+                    }} 
+                  />
+                </td>
+                <td className="p-3">
+                  <div className="font-bold text-slate-700">{evt.hora_inicio?.slice(0,5) || "--:--"}</div>
+                  <div className="text-[10px] text-slate-400">{formatDateSafe(evt.fecha)}</div>
+                </td>
+                <td className="p-3 min-w-[200px]">
+                  <SearchableSelect 
+                    options={locationOptions} 
+                    value={evt.id_locacion} 
+                    onChange={v => handleUpdateEvent(evt.id, "id_locacion", v)} 
+                    className="h-8 border-transparent hover:border-slate-200 bg-transparent" 
+                  />
+                </td>
+                <td className="p-3">
+                  <input 
+                    value={evt.descripcion || ""} 
+                    onChange={e => handleUpdateEvent(evt.id, "descripcion", e.target.value)} 
+                    placeholder="Añadir nota..."
+                    className="w-full bg-transparent border-b border-transparent hover:border-slate-200 outline-none text-xs text-slate-600 focus:border-indigo-500" 
+                  />
+                </td>
+                
+                {/* CELDA SUBEN */}
+                <td className={`p-2 border-l border-emerald-50/50 ${totalUps > 0 ? 'bg-emerald-50/20' : ''}`}>
+                  <button 
+                    onClick={() => setRulesModal({ isOpen: true, event: evt, type: "up", transportId: t.id })}
+                    className={`w-full py-1.5 rounded-xl border text-[10px] font-black flex flex-col items-center gap-1 transition-all 
+                      ${totalUps > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200 shadow-sm' : 
+                        upAlert ? 'bg-orange-100 text-orange-700 border-orange-300 animate-pulse' : 
+                        'bg-white text-slate-300 border-slate-100 hover:border-slate-300'}`}
+                  >
+                    <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
+                       <IconUpload size={10} /> {totalUps > 0 ? `${totalUps} PAX` : upAlert ? "0 PAX ⚠️" : "+"}
+                    </div>
+                    {upsSummary.map((s, idx) => (
+                      <span key={idx} className={`px-1.5 py-0.5 rounded truncate w-full ${s.count === 0 && !isMediosPropios ? 'bg-orange-500 text-white font-black' : 'opacity-60'}`}>
+                        {s.label} {s.count === 0 && !isMediosPropios ? '⚠️' : `(${s.count})`}
+                      </span>
+                    ))}
+                  </button>
+                </td>
 
-                        const hasDownRules =
-                          downsSummary && downsSummary.length > 0;
-                        const downStyles =
-                          downsCount > 0
-                            ? "bg-rose-100 text-rose-700 border-rose-200"
-                            : hasDownRules
-                              ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse"
-                              : "bg-slate-50 text-slate-400 border-transparent";
+                {/* CELDA BAJAN */}
+                <td className={`p-2 border-l border-rose-50/50 ${totalDowns > 0 ? 'bg-rose-50/30' : ''}`}>
+                  <button 
+                    onClick={() => setRulesModal({ isOpen: true, event: evt, type: "down", transportId: t.id })}
+                    className={`w-full py-1.5 rounded-xl border text-[10px] font-black flex flex-col items-center gap-1 transition-all 
+                      ${totalDowns > 0 ? 'bg-rose-100 text-rose-700 border-rose-200 shadow-sm' : 
+                        downAlert ? 'bg-orange-100 text-orange-700 border-orange-300 animate-pulse' : 
+                        'bg-white text-slate-300 border-slate-100 hover:border-slate-300'}`}
+                  >
+                    <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
+                       <IconDownload size={10} /> {totalDowns > 0 ? `${totalDowns} PAX` : downAlert ? "0 PAX ⚠️" : "+"}
+                    </div>
+                    {downsSummary.map((s, idx) => (
+                      <span key={idx} className={`px-1.5 py-0.5 rounded truncate w-full ${s.count === 0 && !isMediosPropios ? 'bg-orange-500 text-white font-black' : 'opacity-60'}`}>
+                        {s.label} {s.count === 0 && !isMediosPropios ? '⚠️' : `(${s.count})`}
+                      </span>
+                    ))}
+                  </button>
+                </td>
 
-                        return (
-                          <tr key={evt.id} className="hover:bg-slate-50 group">
-                            <td className="p-1 text-center">
-                              <input
-                                type="checkbox"
-                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                                checked={selectedEventIds.has(evt.id)}
-                                onChange={() => {
-                                  const next = new Set(selectedEventIds);
-                                  if (next.has(evt.id)) next.delete(evt.id);
-                                  else next.add(evt.id);
-                                  setSelectedEventIds(next);
-                                }}
-                              />
-                            </td>
-                            <td className="p-1">
-                              <DateInput
-                                value={evt.fecha}
-                                onChange={(v) =>
-                                  handleUpdateEvent(evt.id, "fecha", v)
-                                }
-                                className="h-8 border-transparent hover:border-slate-300 bg-transparent"
-                              />
-                            </td>
-                            <td className="p-1">
-                              <TimeInput
-                                value={evt.hora_inicio}
-                                onChange={(v) =>
-                                  handleUpdateEvent(evt.id, "hora_inicio", v)
-                                }
-                                className="h-8 border-transparent hover:border-slate-300 bg-transparent"
-                              />
-                            </td>
-                            <td className="p-1 relative">
-                              <SearchableSelect
-                                options={locationOptions}
-                                value={evt.id_locacion}
-                                onChange={(v) =>
-                                  handleUpdateEvent(evt.id, "id_locacion", v)
-                                }
-                                className="h-8"
-                                placeholder="Sin locación..."
-                              />
-                            </td>
-                            <td className="p-1">
-                              <input
-                                type="text"
-                                className="w-full h-8 px-2 border border-transparent hover:border-slate-300 rounded bg-transparent"
-                                value={evt.descripcion || ""}
-                                onChange={(e) =>
-                                  handleUpdateEvent(
-                                    evt.id,
-                                    "descripcion",
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder="-"
-                              />
-                            </td>
-                            <td className="p-1">
-                              <select
-                                className="w-full h-8 border-transparent hover:border-slate-300 rounded bg-transparent text-xs outline-none"
-                                value={evt.id_tipo_evento}
-                                onChange={(e) =>
-                                  handleUpdateEvent(
-                                    evt.id,
-                                    "id_tipo_evento",
-                                    e.target.value,
-                                  )
-                                }
-                              >
-                                <option value="11">Público</option>
-                                <option value="12">Interno</option>
-                              </select>
-                            </td>
+                <td className="p-3 text-right">
+                  <button onClick={() => handleDeleteEvent(evt.id)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all">
+                    <IconTrash size={14} />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
 
-                            {/* CELDA SUBEN (CON ALERTA) */}
-                            <td className="p-1 text-center border-l border-emerald-50 align-top">
-                              <button
-                                onClick={() =>
-                                  setRulesModal({
-                                    isOpen: true,
-                                    event: evt,
-                                    type: "up",
-                                    transportId: t.id,
-                                  })
-                                }
-                                className={`w-full py-1 px-1 h-auto rounded text-[10px] font-bold flex flex-col items-center justify-center gap-1 min-h-[32px] border transition-all ${upStyles}`}
-                              >
-                                <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
-                                  <IconUpload size={10} />{" "}
-                                  <span>
-                                    {upsCount > 0
-                                      ? `${upsCount} Pax`
-                                      : hasUpRules
-                                        ? "0 Pax ⚠️"
-                                        : "+"}
-                                  </span>
-                                </div>
-                                {/* Reemplaza el bloque de {hasUpRules && ...} */}
-                                {hasUpRules && (
-                                  <div className="flex flex-col gap-0.5 w-full text-center mt-1">
-                                    {upsSummary.map((ruleObj, idx) => (
-                                      <span
-                                        key={idx}
-                                        className={`text-[9px] px-1 rounded-sm truncate transition-all ${
-                                          ruleObj.count === 0
-                                            ? "bg-orange-500 text-white font-black animate-pulse" // ADVERTENCIA NARANJA
-                                            : "opacity-70 font-normal"
-                                        }`}
-                                        title={
-                                          ruleObj.count === 0
-                                            ? "Ningún pasajero admitido cumple esta regla"
-                                            : ""
-                                        }
-                                      >
-                                        {ruleObj.label}{" "}
-                                        {ruleObj.count === 0
-                                          ? "⚠️ 0"
-                                          : `(${ruleObj.count})`}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </button>
-                            </td>
-
-                            {/* CELDA BAJAN (CON ALERTA) */}
-                            <td className="p-1 text-center border-l border-rose-50 align-top">
-                              <button
-                                onClick={() =>
-                                  setRulesModal({
-                                    isOpen: true,
-                                    event: evt,
-                                    type: "down",
-                                    transportId: t.id,
-                                  })
-                                }
-                                className={`w-full py-1 px-1 h-auto rounded text-[10px] font-bold flex flex-col items-center justify-center gap-1 min-h-[32px] border transition-all ${downStyles}`}
-                              >
-                                <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
-                                  <IconDownload size={10} />{" "}
-                                  <span>
-                                    {downsCount > 0
-                                      ? `${downsCount} Pax`
-                                      : hasDownRules
-                                        ? "0 Pax ⚠️"
-                                        : "+"}
-                                  </span>
-                                </div>
-                                {/* Reemplaza el bloque de {hasDownRules && ...} */}
-                                {hasDownRules && (
-                                  <div className="flex flex-col gap-0.5 w-full text-center mt-1">
-                                    {downsSummary.map((ruleObj, idx) => (
-                                      <span
-                                        key={idx}
-                                        className={`text-[9px] px-1 rounded-sm truncate transition-all ${
-                                          ruleObj.count === 0
-                                            ? "bg-orange-500 text-white font-black animate-pulse" // ADVERTENCIA NARANJA
-                                            : "opacity-70 font-normal"
-                                        }`}
-                                        title={
-                                          ruleObj.count === 0
-                                            ? "Ningún pasajero admitido cumple esta regla"
-                                            : ""
-                                        }
-                                      >
-                                        {ruleObj.label}{" "}
-                                        {ruleObj.count === 0
-                                          ? "⚠️ 0"
-                                          : `(${ruleObj.count})`}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </button>
-                            </td>
-
-                            <td className="p-1 text-center align-middle">
-                              <button
-                                onClick={() => handleDeleteEvent(evt.id)}
-                                className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"
-                              >
-                                <IconTrash size={14} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {editingEventId === `new-${t.id}` && (
-                        <tr className="bg-amber-50/50 transition-all">
-                          <td className="p-2 text-center">✨</td>
-                          <td className="p-2">
-                            <DateInput
-                              value={newEvent.fecha}
-                              onChange={(v) =>
-                                setNewEvent({ ...newEvent, fecha: v })
-                              }
-                              className="h-8 border-amber-200"
-                            />
-                          </td>
-                          <td className="p-2">
-                            <TimeInput
-                              value={newEvent.hora}
-                              onChange={(v) =>
-                                setNewEvent({ ...newEvent, hora: v })
-                              }
-                              className="h-8 border-amber-200"
-                            />
-                          </td>
-                          <td className="p-2">
-                            <SearchableSelect
-                              options={locationOptions}
-                              value={newEvent.id_locacion}
-                              onChange={(v) =>
-                                setNewEvent({ ...newEvent, id_locacion: v })
-                              }
-                              className="h-8 border-amber-200"
-                            />
-                          </td>
-                          <td className="p-2">
-                            <input
-                              placeholder="Nota..."
-                              className="w-full h-8 px-2 border border-amber-200 rounded text-xs outline-none focus:ring-2 focus:ring-amber-200"
-                              value={newEvent.descripcion}
-                              onChange={(e) =>
-                                setNewEvent({
-                                  ...newEvent,
-                                  descripcion: e.target.value,
-                                })
-                              }
-                            />
-                          </td>
-                          <td className="p-2 text-right" colSpan="2">
-                            <div className="flex gap-1 justify-end">
-                              <button
-                                onClick={() => setEditingEventId(null)}
-                                className="p-1.5 text-slate-400 hover:text-slate-600"
-                              >
-                                <IconX size={16} />
-                              </button>
-                              <button
-                                onClick={() => handleSaveEvent(t.id)}
-                                className="p-1.5 bg-amber-500 text-white rounded-lg shadow-sm hover:bg-amber-600"
-                              >
-                                <IconSave size={16} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                      {/* BOTÓN PARA ACTIVAR LA FILA INLINE */}
-                      {editingEventId !== `new-${t.id}` && (
-                        <tr>
-                          <td colSpan="7" className="p-2">
-                            <button
-                              onClick={() => {
-                                setEditingEventId(`new-${t.id}`);
-                                setNewEvent({
-                                  fecha: gira.fecha_inicio,
-                                  hora: "08:00:00",
-                                  id_locacion: null,
-                                  descripcion: "",
-                                  id_tipo_evento: "11",
-                                });
-                              }}
-                              className="w-full py-2 border-2 border-dashed border-indigo-100 rounded-xl text-[10px] font-black text-indigo-300 hover:border-indigo-200 hover:text-indigo-500 transition-all uppercase tracking-widest"
-                            >
-                              + Agregar parada manual
-                            </button>
-                          </td>
-                        </tr>
-                      )}
-                      
-                    </tbody>
-                  </table>
+          {/* FILA DE EDICIÓN / ALTA INLINE */}
+          {editingEventId === `new-${t.id}` && (
+            <tr className="bg-indigo-50/50 animate-in fade-in slide-in-from-left-2">
+              <td className="p-3 text-center text-indigo-500"><IconPlus size={16}/></td>
+              <td className="p-2 flex flex-col gap-1">
+                <DateInput value={newEvent.fecha} onChange={(v) => setNewEvent({ ...newEvent, fecha: v })} className="h-8 border-indigo-200" />
+                <TimeInput value={newEvent.hora} onChange={(v) => setNewEvent({ ...newEvent, hora: v })} className="h-8 border-indigo-200" />
+              </td>
+              <td className="p-2">
+                <SearchableSelect options={locationOptions} value={newEvent.id_locacion} onChange={(v) => setNewEvent({ ...newEvent, id_locacion: v })} className="h-8 border-indigo-200" />
+              </td>
+              <td className="p-2">
+                <input placeholder="Nota de la parada..." className="w-full h-8 px-2 border border-indigo-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-200" value={newEvent.descripcion} onChange={(e) => setNewEvent({ ...newEvent, descripcion: e.target.value })} />
+              </td>
+              <td className="p-2 text-right" colSpan="3">
+                <div className="flex gap-2 justify-end px-2">
+                  <button onClick={() => setEditingEventId(null)} className="px-3 py-1.5 bg-white text-slate-500 rounded-lg text-[10px] font-bold border border-slate-200 hover:bg-slate-50">CANCELAR</button>
+                  <button onClick={() => handleSaveEvent(t.id)} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-bold shadow-md hover:bg-indigo-700 flex items-center gap-1"><IconSave size={12}/> GUARDAR</button>
                 </div>
-              )}
+              </td>
+            </tr>
+          )}
+
+          {/* BOTÓN AGREGAR PARADA */}
+          {editingEventId !== `new-${t.id}` && (
+            <tr>
+              <td colSpan="7" className="p-4 bg-slate-50/50">
+                <button
+                  onClick={() => {
+                    setEditingEventId(`new-${t.id}`);
+                    setNewEvent({ fecha: gira.fecha_inicio, hora: "08:00:00", id_locacion: null, descripcion: "", id_tipo_evento: "11" });
+                  }}
+                  className="w-full py-3 border-2 border-dashed border-slate-200 rounded-2xl text-[10px] font-black text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all uppercase tracking-[0.2em] bg-white"
+                >
+                  + Agregar parada manual
+                </button>
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+)}
             </div>
           );
         })}
+             {" "}
       </div>
-
-      <InfoListModal />
+            <InfoListModal />     {" "}
       {admissionModal.isOpen && (
         <TransportAdmissionModal
           isOpen={admissionModal.isOpen}
@@ -2191,6 +2023,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onUpdate={refresh}
         />
       )}
+           {" "}
       {cnrtModal.isOpen && (
         <CnrtExportModal
           transport={transports.find((t) => t.id === cnrtModal.transportId)}
@@ -2199,6 +2032,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onExport={handleExportCNRT}
         />
       )}
+           {" "}
       {roadmapModal.isOpen && (
         <CnrtExportModal
           title="Exportar Hoja de Ruta"
@@ -2208,6 +2042,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onExport={handleExportRoadmap}
         />
       )}
+           {" "}
       {itineraryModal.isOpen && (
         <ItineraryManagerModal
           supabase={supabase}
@@ -2215,8 +2050,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onClose={() =>
             setItineraryModal({ isOpen: false, transportId: null })
           }
-          giraId={giraId}
-          // Obtenemos el transporte actual de la lista
+          giraId={giraId} // Obtenemos el transporte actual de la lista
           transportId={itineraryModal.transportId}
           transportName={
             transports.find((t) => t.id === itineraryModal.transportId)
@@ -2231,6 +2065,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onApplyItinerary={handleInsertItinerary}
         />
       )}
+           {" "}
       {boardingModal.isOpen && (
         <BoardingManagerModal
           isOpen={boardingModal.isOpen}
@@ -2242,6 +2077,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onDeleteBoarding={handleDeleteBoardingRule}
         />
       )}
+           {" "}
       {rulesModal.isOpen && (
         <StopRulesManager
           isOpen={rulesModal.isOpen}
@@ -2264,10 +2100,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onRefresh={refresh}
         />
       )}
+           {" "}
       <ShiftScheduleModal
         isOpen={shiftModal.isOpen}
-        transportName={shiftModal.transportName}
-        // FILTRO: Si hay seleccionados, solo mandamos esos al modal
+        transportName={shiftModal.transportName} // FILTRO: Si hay seleccionados, solo mandamos esos al modal
         events={(transportEvents[shiftModal.transportId] || []).filter((e) =>
           selectedEventIds.size > 0 ? selectedEventIds.has(e.id) : true,
         )}
@@ -2279,6 +2115,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           clearSelection(); // Limpiamos al terminar
         }}
       />
+         {" "}
     </div>
   );
 }

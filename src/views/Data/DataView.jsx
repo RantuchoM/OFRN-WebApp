@@ -185,6 +185,7 @@ export default function DataView({ supabase }) {
       columns: [
         { key: "id", label: "ID", type: "number" },
         { key: "nombre", label: "Nombre", type: "text" },
+        { key: "patente", label: "Patente", type: "text" },
         { key: "color", label: "Color Chip", type: "color", defaultValue: "#6366f1" } 
       ],
     },
