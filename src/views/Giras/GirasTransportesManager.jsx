@@ -1143,36 +1143,42 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const handleSaveEvent = async (transportId) => {
     if (!newEvent.fecha || !newEvent.hora || !newEvent.id_locacion)
       return alert("Fecha, hora y lugar obligatorios");
-    let desc = newEvent.descripcion;
-    if (!desc) {
-      const loc = locationsList.find((l) => l.id === newEvent.id_locacion);
-      desc = loc ? `${loc.nombre} (${loc.ciudad})` : "Parada de transporte";
-    }
-    const payload = {
-      id_gira: giraId,
-      id_gira_transporte: transportId,
-      fecha: newEvent.fecha,
-      hora_inicio: newEvent.hora,
-      id_locacion: newEvent.id_locacion,
-      descripcion: desc,
-      id_tipo_evento: parseInt(newEvent.id_tipo_evento),
-      convocados: [],
-    };
 
-    if (editingEventId && editingEventId !== "new") {
-      await supabase.from("eventos").update(payload).eq("id", editingEventId);
-    } else {
-      await supabase.from("eventos").insert([payload]);
+    setLoading(true);
+    try {
+      const payload = {
+        id_gira: giraId,
+        id_gira_transporte: transportId,
+        fecha: newEvent.fecha,
+        hora_inicio: newEvent.hora,
+        id_locacion: newEvent.id_locacion,
+        descripcion: newEvent.descripcion || "",
+        id_tipo_evento: parseInt(newEvent.id_tipo_evento),
+        convocados: [],
+      };
+
+      // Si el ID empieza con "new-", es una inserción
+      if (String(editingEventId).startsWith("new-")) {
+        await supabase.from("eventos").insert([payload]);
+      } else {
+        await supabase.from("eventos").update(payload).eq("id", editingEventId);
+      }
+
+      setEditingEventId(null); // Cerramos la fila de edición
+      setNewEvent({
+        fecha: "",
+        hora: "",
+        id_locacion: null,
+        descripcion: "",
+        id_tipo_evento: "11",
+      });
+      await fetchData();
+      refresh();
+    } catch (e) {
+      alert("Error al guardar");
+    } finally {
+      setLoading(false);
     }
-    setNewEvent({
-      fecha: "",
-      hora: "",
-      id_locacion: null,
-      descripcion: "",
-      id_tipo_evento: "11",
-    });
-    setEditingEventId(null);
-    fetchData();
   };
 
   const startEditEvent = (evt) => {
@@ -2073,28 +2079,91 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           </tr>
                         );
                       })}
-                      <tr>
-                        <td
-                          colSpan="9"
-                          className="p-2 text-center border-t border-slate-100"
-                        >
-                          <button
-                            onClick={() =>
-                              startEditEvent({
-                                id: null,
-                                fecha: "",
-                                hora_inicio: "",
-                                id_tipo_evento: 11,
-                                descripcion: "",
-                                id_locacion: null,
-                              })
-                            }
-                            className="text-xs text-indigo-500 font-bold hover:text-indigo-700 flex items-center justify-center gap-1 w-full"
-                          >
-                            <IconPlus size={12} /> Agregar Parada Manualmente
-                          </button>
-                        </td>
-                      </tr>
+                      {editingEventId === `new-${t.id}` && (
+                        <tr className="bg-amber-50/50 transition-all">
+                          <td className="p-2 text-center">✨</td>
+                          <td className="p-2">
+                            <DateInput
+                              value={newEvent.fecha}
+                              onChange={(v) =>
+                                setNewEvent({ ...newEvent, fecha: v })
+                              }
+                              className="h-8 border-amber-200"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <TimeInput
+                              value={newEvent.hora}
+                              onChange={(v) =>
+                                setNewEvent({ ...newEvent, hora: v })
+                              }
+                              className="h-8 border-amber-200"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <SearchableSelect
+                              options={locationOptions}
+                              value={newEvent.id_locacion}
+                              onChange={(v) =>
+                                setNewEvent({ ...newEvent, id_locacion: v })
+                              }
+                              className="h-8 border-amber-200"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <input
+                              placeholder="Nota..."
+                              className="w-full h-8 px-2 border border-amber-200 rounded text-xs outline-none focus:ring-2 focus:ring-amber-200"
+                              value={newEvent.descripcion}
+                              onChange={(e) =>
+                                setNewEvent({
+                                  ...newEvent,
+                                  descripcion: e.target.value,
+                                })
+                              }
+                            />
+                          </td>
+                          <td className="p-2 text-right" colSpan="2">
+                            <div className="flex gap-1 justify-end">
+                              <button
+                                onClick={() => setEditingEventId(null)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600"
+                              >
+                                <IconX size={16} />
+                              </button>
+                              <button
+                                onClick={() => handleSaveEvent(t.id)}
+                                className="p-1.5 bg-amber-500 text-white rounded-lg shadow-sm hover:bg-amber-600"
+                              >
+                                <IconSave size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      {/* BOTÓN PARA ACTIVAR LA FILA INLINE */}
+                      {editingEventId !== `new-${t.id}` && (
+                        <tr>
+                          <td colSpan="7" className="p-2">
+                            <button
+                              onClick={() => {
+                                setEditingEventId(`new-${t.id}`);
+                                setNewEvent({
+                                  fecha: gira.fecha_inicio,
+                                  hora: "08:00:00",
+                                  id_locacion: null,
+                                  descripcion: "",
+                                  id_tipo_evento: "11",
+                                });
+                              }}
+                              className="w-full py-2 border-2 border-dashed border-indigo-100 rounded-xl text-[10px] font-black text-indigo-300 hover:border-indigo-200 hover:text-indigo-500 transition-all uppercase tracking-widest"
+                            >
+                              + Agregar parada manual
+                            </button>
+                          </td>
+                        </tr>
+                      )}
+                      
                     </tbody>
                   </table>
                 </div>
