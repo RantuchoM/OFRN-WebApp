@@ -26,6 +26,7 @@ import {
   IconFileText,
   IconUsers,
   IconAlertTriangle,
+  IconBus,
   IconCheckCircle,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
@@ -752,40 +753,51 @@ export default function GirasTransportesManager({ supabase, gira }) {
         );
       }
 
+      // ... dentro de InfoListModal, en la parte final de renderContent:
+
       return (
         <ul className="divide-y divide-slate-100">
-                   {" "}
           {infoListModal.list.map((p) => {
             const locNombre =
               paxLocalities[p.id] || p.localidades?.localidad || "Sin datos";
+
             return (
-              <li
-                key={p.id}
-                className="py-2 text-sm flex justify-between items-center"
-              >
-                               {" "}
-                <div className="flex flex-col">
-                                   {" "}
-                  <span className="font-medium text-slate-700">
-                                        {p.apellido}, {p.nombre}               
-                     {" "}
+              <li key={p.id} className="py-3 text-sm flex flex-col gap-1">
+                <div className="flex justify-between items-start">
+                  <div className="flex flex-col">
+                    <span className="font-bold text-slate-700">
+                      {p.apellido}, {p.nombre}
+                    </span>
+                    <span className="text-[10px] text-slate-400 uppercase font-medium">
+                      {locNombre}
+                    </span>
+                  </div>
+                  {/* Contador total al costado por si son muchos */}
+                  <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-black">
+                    {p.logistics?.transports?.length} BUSES
                   </span>
-                                   {" "}
-                  <span className="text-xs text-slate-400">{locNombre}</span>   
-                             {" "}
                 </div>
-                               {" "}
-                {p.logistics?.transports?.length > 0 && (
-                  <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full ml-2">
-                                        x{p.logistics.transports.length} Bus    
-                                 {" "}
-                  </span>
-                )}
-                             {" "}
+
+                {/* LISTADO DETALLADO DE LOS TRANSPORTES ASIGNADOS */}
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {p.logistics?.transports?.map((tr, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-1 px-2 py-0.5 bg-indigo-50 border border-indigo-100 rounded-md text-[9px] font-bold text-indigo-600 shadow-sm"
+                    >
+                      <IconBus size={10} />
+                      <span>{tr.nombre}</span>
+                      {tr.detalle && (
+                        <span className="opacity-60 font-normal">
+                          ({tr.detalle})
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </li>
             );
           })}
-                 {" "}
         </ul>
       );
     };
@@ -1690,70 +1702,67 @@ export default function GirasTransportesManager({ supabase, gira }) {
               key={t.id}
               className={`group border rounded-2xl transition-all duration-300 ${isExpanded ? "border-indigo-300 shadow-xl ring-4 ring-indigo-50/50 bg-white" : "border-slate-200 bg-white hover:border-slate-300 shadow-sm"}`}
             >
-              {/* HEADER DE LA TARJETA */}
+              {/* HEADER DE LA TARJETA - Ahora aguanta mucho más espacio horizontal antes de romper */}
               <div
-                className="p-4 flex flex-col lg:flex-row justify-between lg:items-center gap-4 cursor-pointer"
+                className="p-2 md:p-3 flex flex-col md:flex-row justify-between md:items-center gap-2 cursor-pointer"
                 onClick={() =>
                   !isEditing && setActiveTransportId(isExpanded ? null : t.id)
                 }
               >
-                {/* LADO IZQUIERDO: Info del Vehículo */}
-                <div className="flex items-center gap-4 flex-1">
+                {/* LADO IZQUIERDO: Info del Vehículo (Compacto) */}
+                <div className="flex items-center gap-2 flex-1 min-w-0">
                   <div
-                    className={`p-3 rounded-2xl transition-colors ${isExpanded ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-indigo-100 group-hover:text-indigo-600"}`}
+                    className={`p-2 rounded-xl shrink-0 transition-colors ${isExpanded ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-indigo-100"}`}
                   >
-                    <IconTruck size={24} />
+                    <IconTruck size={20} />
                   </div>
 
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className="font-black text-slate-800 uppercase tracking-tighter text-base truncate">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden">
+                      <h4 className="font-black text-slate-800 uppercase tracking-tighter text-sm truncate shrink">
                         {t.detalle || "Sin detalle"}
                       </h4>
-                      {/* PATENTE DESDE TABLA MAESTRA */}
                       {t.transportes?.patente && (
-                        <span className="bg-slate-800 text-white px-2 py-0.5 rounded-md text-[10px] font-mono tracking-widest shadow-sm">
+                        <span className="bg-slate-800 text-white px-1.5 py-0.5 rounded text-[9px] font-mono tracking-tighter shrink-0 shadow-sm">
                           {t.transportes.patente}
                         </span>
                       )}
                       <button
-                        onClick={(e) => startEditingTransport(e, t)}
-                        className="text-slate-300 hover:text-indigo-600 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startEditingTransport(e, t);
+                        }}
+                        className="text-slate-300 hover:text-indigo-600 shrink-0"
                       >
-                        <IconEdit size={14} />
+                        <IconEdit size={12} />
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        {t.transportes?.nombre || "Transporte"}
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">
+                        {t.transportes?.nombre || "Bus"}
                       </span>
-                      <span className="text-slate-200">•</span>
+                      <span className="text-slate-200 shrink-0">|</span>
                       <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${occupancyColor} flex items-center gap-1.5`}
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${occupancyColor}`}
                       >
-                        {isOverbooked && <IconAlertTriangle size={12} />}
-
-                        {/* FORMATO: 45 + 2 instr / 52 */}
-                        <span className="tracking-tight">
-                          {tPassengerCount}
-                          {tInstrumentSeats > 0
-                            ? ` + ${tInstrumentSeats} instr`
-                            : ""}
-                          {` / ${maxCap > 0 ? maxCap : "∞"}`}
-                        </span>
+                        {tPassengerCount}
+                        {tInstrumentSeats > 0
+                          ? ` + ${tInstrumentSeats} inst`
+                          : ""}{" "}
+                        / {maxCap > 0 ? maxCap : "∞"}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* LADO DERECHO: Acciones y Alertas */}
+                {/* LADO DERECHO: Acciones (Unificadas para ahorrar espacio) */}
                 {!isEditing && (
                   <div
-                    className="flex items-center gap-1.5 flex-wrap lg:flex-nowrap"
+                    className="flex items-center gap-1 shrink-0 ml-auto md:ml-0"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {/* Alerta de Incompletos */}
+                    {/* Alerta de Incompletos (Versión Mini) */}
                     {incompletePax.length > 0 && !isMediosPropios && (
                       <button
                         onClick={() =>
@@ -1764,32 +1773,35 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             transportId: t.id,
                           })
                         }
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-[10px] font-black hover:bg-rose-100 transition-all animate-pulse mr-2"
+                        className="flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[9px] font-black hover:bg-rose-100 transition-all animate-pulse mr-1"
+                        title={`${incompletePax.length} pasajeros sin parada`}
                       >
-                        <IconAlertTriangle size={12} /> {incompletePax.length}{" "}
-                        SIN PARADA
+                        <IconAlertTriangle size={10} />{" "}
+                        <span className="hidden sm:inline">
+                          {incompletePax.length} PEND.
+                        </span>
                       </button>
                     )}
 
-                    {/* Grupo de Gestión */}
-                    <div className="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
+                    {/* Botonera Única Compacta */}
+                    <div className="flex items-center bg-slate-100/80 p-0.5 rounded-xl border border-slate-200 gap-0.5">
                       <button
                         onClick={() =>
                           setAdmissionModal({ isOpen: true, transportId: t.id })
                         }
-                        className="p-2 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white shadow-sm transition-all"
+                        className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all"
                         title="Admisión"
                       >
-                        <IconUsers size={18} />
+                        <IconUsers size={16} />
                       </button>
                       <button
                         onClick={() =>
                           setBoardingModal({ isOpen: true, transportId: t.id })
                         }
-                        className="p-2 bg-white text-amber-600 rounded-lg hover:bg-amber-600 hover:text-white shadow-sm transition-all"
+                        className="p-1.5 bg-white text-amber-600 rounded-lg hover:bg-amber-600 hover:text-white transition-all"
                         title="Abordaje"
                       >
-                        <IconCheckCircle size={18} />
+                        <IconCheckCircle size={16} />
                       </button>
                       <button
                         onClick={() =>
@@ -1799,29 +1811,26 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             transportName: t.detalle,
                           })
                         }
-                        className="p-2 bg-white text-slate-600 rounded-lg hover:bg-slate-800 hover:text-white shadow-sm transition-all"
+                        className="p-1.5 bg-white text-slate-500 rounded-lg hover:bg-slate-800 hover:text-white transition-all"
                         title="Mover Horarios"
                       >
-                        <IconClock size={18} />
+                        <IconClock size={16} />
                       </button>
-                    </div>
-
-                    {/* Grupo de Exportación */}
-                    <div className="flex items-center bg-indigo-50 p-1 rounded-xl gap-1">
+                      <div className="w-px h-4 bg-slate-200 mx-0.5"></div>
                       <button
                         onClick={() =>
                           setRoadmapModal({ isOpen: true, transportId: t.id })
                         }
-                        className="p-2 bg-white text-indigo-600 rounded-lg text-[10px] hover:bg-indigo-600 hover:text-white shadow-sm transition-all"
+                        className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all"
                         title="Hoja de Ruta"
                       >
-                        <IconFileText size={18} />
+                        <IconFileText size={16} />
                       </button>
                       <button
                         onClick={() =>
                           setCnrtModal({ isOpen: true, transportId: t.id })
                         }
-                        className="px-3 py-2 bg-white text-indigo-700 text-[10px] font-black rounded-lg hover:bg-indigo-700 hover:text-white shadow-sm transition-all"
+                        className="px-2 py-1.5 bg-white text-indigo-700 text-[9px] font-black rounded-lg hover:bg-indigo-700 hover:text-white transition-all"
                       >
                         CNRT
                       </button>
@@ -1829,15 +1838,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
                     <button
                       onClick={() => handleDeleteTransport(t.id)}
-                      className="p-2 text-slate-300 hover:text-rose-600 transition-colors ml-2"
+                      className="p-1.5 text-slate-300 hover:text-rose-600 transition-colors ml-1"
                     >
-                      <IconTrash size={18} />
+                      <IconTrash size={16} />
                     </button>
 
                     <div
-                      className={`ml-2 text-slate-400 transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`}
+                      className={`ml-1 text-slate-300 transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`}
                     >
-                      <IconChevronDown size={20} />
+                      <IconChevronDown size={16} />
                     </div>
                   </div>
                 )}
