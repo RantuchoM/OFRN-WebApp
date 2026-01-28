@@ -535,9 +535,9 @@ export default function ViaticosTable({
                             </label>
                           </div>
                         </td>
-                        <td className={cellClass + " border-r"}>
+                        <td className={cellClass + " border-r bg-slate-50/50"}>
                           <div className="flex flex-col gap-1">
-                            <label className="flex items-center gap-1 text-[9px] text-slate-500">
+                            <label className="flex items-center gap-1 text-[9px] text-slate-500 font-bold">
                               <input
                                 type="checkbox"
                                 checked={row.check_patente_oficial || false}
@@ -550,25 +550,11 @@ export default function ViaticosTable({
                                 }
                                 className="rounded-sm"
                               />{" "}
-                              Usar
+                              OFICIAL
                             </label>
-                            <input
-                              type="text"
-                              placeholder="Patente"
-                              value={row.patente_oficial || ""}
-                              onChange={(e) =>
-                                onUpdateRow(
-                                  row.id,
-                                  "patente_oficial",
-                                  e.target.value,
-                                )
-                              }
-                              className={getInputClass(
-                                row.id,
-                                "patente_oficial",
-                                "w-full text-[9px] bg-white border border-slate-200 rounded px-1",
-                              )}
-                            />
+                            <div className="text-[10px] font-black text-indigo-600 bg-white border border-indigo-100 rounded px-1.5 py-0.5 shadow-sm font-mono tracking-tighter">
+                              {logData?.patente || ""}
+                            </div>
                           </div>
                         </td>
                         <td className={cellClass + " border-r"}>
@@ -586,7 +572,7 @@ export default function ViaticosTable({
                                 }
                                 className="rounded-sm"
                               />{" "}
-                              Usar
+                              Part.
                             </label>
                             <input
                               type="text"

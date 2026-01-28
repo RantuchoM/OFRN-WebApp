@@ -396,12 +396,16 @@ export default function ViaticosManager({ supabase, giraId }) {
     summary.forEach((person) => {
       const transports = person.logistics?.transports || [];
       if (transports.length === 0) return;
+
       let minSalida = null,
         maxLlegada = null;
+
       transports.forEach((t) => {
         let nombreFinal = t.nombre || "Transporte";
         if (t.detalle && t.detalle.trim() !== "")
           nombreFinal = `${nombreFinal} - ${t.detalle}`;
+
+        // --- LOGICA DE SALIDA ---
         if (t.subidaData) {
           const dateTimeStr = `${t.subidaData.fecha}T${t.subidaData.hora || "00:00"}`;
           const dateObj = new Date(dateTimeStr);
@@ -412,9 +416,13 @@ export default function ViaticosManager({ supabase, giraId }) {
               hora: t.subidaData.hora ? t.subidaData.hora.slice(0, 5) : "00:00",
               lugar: t.subidaData.nombre_localidad || "Origen",
               transporte: nombreFinal,
+              // CAPTURAMOS LA PATENTE AQUÍ (Viene del join de logística)
+              patente: t.patente || t.transporteData?.patente || "",
             };
           }
         }
+
+        // --- LOGICA DE LLEGADA ---
         if (t.bajadaData) {
           const dateTimeStr = `${t.bajadaData.fecha}T${t.bajadaData.hora || "00:00"}`;
           const dateObj = new Date(dateTimeStr);
@@ -429,12 +437,14 @@ export default function ViaticosManager({ supabase, giraId }) {
           }
         }
       });
+
       if (minSalida || maxLlegada) {
         map[person.id] = {
           fecha_salida: minSalida?.fecha,
           hora_salida: minSalida?.hora,
           transporte_salida: minSalida?.transporte,
           lugar_salida: minSalida?.lugar,
+          patente: minSalida?.patente, // <--- LA PASAMOS AL MAPA FINAL
           fecha_llegada: maxLlegada?.fecha,
           hora_llegada: maxLlegada?.hora,
           transporte_llegada: maxLlegada?.transporte,
@@ -444,7 +454,6 @@ export default function ViaticosManager({ supabase, giraId }) {
     });
     return map;
   }, [summary]);
-
   function calculateRow(row, currentConfig) {
     const base = parseFloat(currentConfig?.valor_diario_base || 0);
     const dias = parseFloat(row.dias_computables || 0);
@@ -532,33 +541,28 @@ export default function ViaticosManager({ supabase, giraId }) {
   }, [viaticosRows, roster, config, logisticsMap]);
 
   // --- FILTRO: Opciones Buscador (Solo NO Masivos y NO Ausentes) ---
+  // --- FILTRO: Opciones Buscador (Solo PRESENTES y NO cargados aún) ---
   const candidateOptions = useMemo(() => {
     if (!roster || roster.length === 0) return [];
+
+    // IDs de personas que ya tienen una fila en viaticos
     const existingIds = new Set(
       viaticosRows.map((r) => String(r.id_integrante)),
     );
-    const seen = new Set();
-    const opts = [];
-    roster.forEach((p) => {
-      const idStr = String(p.id);
-      // Filtramos: NO Masivo, NO Ausente, NO Existente
-      if (
-        !esPerfilMasivo(p) &&
-        p.estado_gira !== "ausente" &&
-        !existingIds.has(idStr) &&
-        !seen.has(idStr)
-      ) {
-        seen.add(idStr);
-        opts.push({
-          value: p.id,
-          label: `${p.apellido || ""}, ${p.nombre || ""}`,
-          subLabel: p.rol_gira || p.rol || "Sin Rol",
-        });
-      }
-    });
-    return opts.sort((a, b) => a.label.localeCompare(b.label));
-  }, [roster, viaticosRows]);
 
+    return roster
+      .filter((p) => {
+        const estaPresente = p.estado_gira !== "ausente";
+        const noEstaCargado = !existingIds.has(String(p.id));
+        return estaPresente && noEstaCargado;
+      })
+      .map((p) => ({
+        value: p.id,
+        label: `${p.apellido || ""}, ${p.nombre || ""}`,
+        subLabel: p.rol_gira || p.rol || "Sin Rol",
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [roster, viaticosRows]);
   // --- FILTRO: Roster Masivo (Solo Masivos y NO Ausentes) ---
   const massiveRoster = useMemo(() => {
     return (roster || []).filter(
@@ -654,7 +658,7 @@ export default function ViaticosManager({ supabase, giraId }) {
             updates[key] = val;
           }
         }
-      }); 
+      });
       if (Object.keys(updates).length === 0) {
         alert("No has ingresado ningún valor.");
         setLoading(false);
@@ -1408,23 +1412,25 @@ export default function ViaticosManager({ supabase, giraId }) {
                           ? "Cerrar"
                           : "Agregar..."}
                     </button>
+
                     {isAddOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 p-4 z-10 animate-in zoom-in-95 origin-top-right">
-                        <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">
-                          Agregar Individual
+                      /* CAMBIO AQUÍ: z-[100] para que no quede debajo de la tabla */
+                      <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-slate-200 p-4 z-[100] animate-in zoom-in-95 origin-top-right">
+                        <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 tracking-wider">
+                          Agregar Integrante
                         </h4>
                         <MemberSearchSelect
                           options={candidateOptions}
                           value={selectedToAdd}
                           onChange={setSelectedToAdd}
-                          placeholder="Buscar..."
+                          placeholder="Buscar por nombre..."
                         />
                         <button
                           onClick={handleAddPerson}
                           disabled={!selectedToAdd || loading}
-                          className="mt-3 w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-bold flex justify-center items-center gap-2 disabled:bg-slate-300"
+                          className="mt-3 w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-bold flex justify-center items-center gap-2 disabled:bg-slate-300 shadow-md hover:bg-indigo-700 transition-colors"
                         >
-                          <IconPlus size={16} /> Agregar
+                          <IconPlus size={16} /> Confirmar Alta
                         </button>
                       </div>
                     )}

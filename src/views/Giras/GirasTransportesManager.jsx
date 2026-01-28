@@ -1730,9 +1730,18 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       </span>
                       <span className="text-slate-200">•</span>
                       <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${occupancyColor}`}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${occupancyColor} flex items-center gap-1.5`}
                       >
-                        {totalOccupied} / {maxCap > 0 ? maxCap : "∞"} PLAZAS
+                        {isOverbooked && <IconAlertTriangle size={12} />}
+
+                        {/* FORMATO: 45 + 2 instr / 52 */}
+                        <span className="tracking-tight">
+                          {tPassengerCount}
+                          {tInstrumentSeats > 0
+                            ? ` + ${tInstrumentSeats} instr`
+                            : ""}
+                          {` / ${maxCap > 0 ? maxCap : "∞"}`}
+                        </span>
                       </span>
                     </div>
                   </div>
@@ -1807,7 +1816,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         title="Hoja de Ruta"
                       >
                         <IconFileText size={18} />
-                                              </button>
+                      </button>
                       <button
                         onClick={() =>
                           setCnrtModal({ isOpen: true, transportId: t.id })
@@ -1836,170 +1845,316 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
               {/* CONTENIDO EXPANDIDO (TABLA) */}
               {isExpanded && (
-  <div className="border-t border-slate-100 overflow-hidden rounded-b-2xl bg-slate-50/30">
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm text-left border-separate border-spacing-0">
-        <thead className="bg-slate-100/50 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b">
-          <tr>
-            <th className="p-3 w-10 text-center">
-              <input 
-                type="checkbox" 
-                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                checked={myEvents.length > 0 && myEvents.every(e => selectedEventIds.has(e.id))}
-                onChange={(e) => {
-                  const next = new Set(selectedEventIds);
-                  myEvents.forEach(ev => e.target.checked ? next.add(ev.id) : next.delete(ev.id));
-                  setSelectedEventIds(next);
-                }} 
-              />
-            </th>
-            <th className="p-3">Horario / Fecha</th>
-            <th className="p-3">Locación (Destino)</th>
-            <th className="p-3">Nota</th>
-            <th className="p-3 text-center bg-emerald-50/50 text-emerald-600 border-l border-emerald-100">Suben</th>
-            <th className="p-3 text-center bg-rose-50/50 text-rose-600 border-l border-rose-100">Bajan</th>
-            <th className="p-3 w-10"></th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100 bg-white">
-          {myEvents.map((evt) => {
-            const upsSummary = getEventRulesSummary(evt.id, "up", t.id);
-            const downsSummary = getEventRulesSummary(evt.id, "down", t.id);
-            const totalUps = upsSummary.reduce((acc, curr) => acc + curr.count, 0);
-            const totalDowns = downsSummary.reduce((acc, curr) => acc + curr.count, 0);
+                <div className="border-t border-slate-100 overflow-hidden rounded-b-2xl bg-slate-50/30">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left border-separate border-spacing-0">
+                      <thead className="bg-slate-100/50 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b">
+                        <tr>
+                          <th className="p-3 w-10 text-center">
+                            <input
+                              type="checkbox"
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                              checked={
+                                myEvents.length > 0 &&
+                                myEvents.every((e) =>
+                                  selectedEventIds.has(e.id),
+                                )
+                              }
+                              onChange={(e) => {
+                                const next = new Set(selectedEventIds);
+                                myEvents.forEach((ev) =>
+                                  e.target.checked
+                                    ? next.add(ev.id)
+                                    : next.delete(ev.id),
+                                );
+                                setSelectedEventIds(next);
+                              }}
+                            />
+                          </th>
+                          <th className="p-3">Horario / Fecha</th>
+                          <th className="p-3">Locación (Destino)</th>
+                          <th className="p-3">Nota</th>
+                          <th className="p-3 text-center bg-emerald-50/50 text-emerald-600 border-l border-emerald-100">
+                            Suben
+                          </th>
+                          <th className="p-3 text-center bg-rose-50/50 text-rose-600 border-l border-rose-100">
+                            Bajan
+                          </th>
+                          <th className="p-3 w-10"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {myEvents.map((evt) => {
+                          const upsSummary = getEventRulesSummary(
+                            evt.id,
+                            "up",
+                            t.id,
+                          );
+                          const downsSummary = getEventRulesSummary(
+                            evt.id,
+                            "down",
+                            t.id,
+                          );
+                          const totalUps = upsSummary.reduce(
+                            (acc, curr) => acc + curr.count,
+                            0,
+                          );
+                          const totalDowns = downsSummary.reduce(
+                            (acc, curr) => acc + curr.count,
+                            0,
+                          );
 
-            // Alerta si hay reglas que devuelven 0 personas (y no es Medios Propios)
-            const upAlert = upsSummary.some(s => s.count === 0) && !isMediosPropios;
-            const downAlert = downsSummary.some(s => s.count === 0) && !isMediosPropios;
+                          // Alerta si hay reglas que devuelven 0 personas (y no es Medios Propios)
+                          const upAlert =
+                            upsSummary.some((s) => s.count === 0) &&
+                            !isMediosPropios;
+                          const downAlert =
+                            downsSummary.some((s) => s.count === 0) &&
+                            !isMediosPropios;
 
-            return (
-              <tr key={evt.id} className="hover:bg-slate-50 group transition-colors">
-                <td className="p-3 text-center">
-                  <input 
-                    type="checkbox" 
-                    className="rounded border-slate-300 text-indigo-600"
-                    checked={selectedEventIds.has(evt.id)} 
-                    onChange={() => {
-                      const next = new Set(selectedEventIds);
-                      next.has(evt.id) ? next.delete(evt.id) : next.add(evt.id);
-                      setSelectedEventIds(next);
-                    }} 
-                  />
-                </td>
-                <td className="p-3">
-                  <div className="font-bold text-slate-700">{evt.hora_inicio?.slice(0,5) || "--:--"}</div>
-                  <div className="text-[10px] text-slate-400">{formatDateSafe(evt.fecha)}</div>
-                </td>
-                <td className="p-3 min-w-[200px]">
-                  <SearchableSelect 
-                    options={locationOptions} 
-                    value={evt.id_locacion} 
-                    onChange={v => handleUpdateEvent(evt.id, "id_locacion", v)} 
-                    className="h-8 border-transparent hover:border-slate-200 bg-transparent" 
-                  />
-                </td>
-                <td className="p-3">
-                  <input 
-                    value={evt.descripcion || ""} 
-                    onChange={e => handleUpdateEvent(evt.id, "descripcion", e.target.value)} 
-                    placeholder="Añadir nota..."
-                    className="w-full bg-transparent border-b border-transparent hover:border-slate-200 outline-none text-xs text-slate-600 focus:border-indigo-500" 
-                  />
-                </td>
-                
-                {/* CELDA SUBEN */}
-                <td className={`p-2 border-l border-emerald-50/50 ${totalUps > 0 ? 'bg-emerald-50/20' : ''}`}>
-                  <button 
-                    onClick={() => setRulesModal({ isOpen: true, event: evt, type: "up", transportId: t.id })}
-                    className={`w-full py-1.5 rounded-xl border text-[10px] font-black flex flex-col items-center gap-1 transition-all 
-                      ${totalUps > 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-200 shadow-sm' : 
-                        upAlert ? 'bg-orange-100 text-orange-700 border-orange-300 animate-pulse' : 
-                        'bg-white text-slate-300 border-slate-100 hover:border-slate-300'}`}
-                  >
-                    <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
-                       <IconUpload size={10} /> {totalUps > 0 ? `${totalUps} PAX` : upAlert ? "0 PAX ⚠️" : "+"}
-                    </div>
-                    {upsSummary.map((s, idx) => (
-                      <span key={idx} className={`px-1.5 py-0.5 rounded truncate w-full ${s.count === 0 && !isMediosPropios ? 'bg-orange-500 text-white font-black' : 'opacity-60'}`}>
-                        {s.label} {s.count === 0 && !isMediosPropios ? '⚠️' : `(${s.count})`}
-                      </span>
-                    ))}
-                  </button>
-                </td>
+                          return (
+                            <tr
+                              key={evt.id}
+                              className="hover:bg-slate-50 group transition-colors"
+                            >
+                              <td className="p-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="rounded border-slate-300 text-indigo-600"
+                                  checked={selectedEventIds.has(evt.id)}
+                                  onChange={() => {
+                                    const next = new Set(selectedEventIds);
+                                    next.has(evt.id)
+                                      ? next.delete(evt.id)
+                                      : next.add(evt.id);
+                                    setSelectedEventIds(next);
+                                  }}
+                                />
+                              </td>
+                              <td className="p-3">
+                                <div className="font-bold text-slate-700">
+                                  {evt.hora_inicio?.slice(0, 5) || "--:--"}
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  {formatDateSafe(evt.fecha)}
+                                </div>
+                              </td>
+                              <td className="p-3 min-w-[200px]">
+                                <SearchableSelect
+                                  options={locationOptions}
+                                  value={evt.id_locacion}
+                                  onChange={(v) =>
+                                    handleUpdateEvent(evt.id, "id_locacion", v)
+                                  }
+                                  className="h-8 border-transparent hover:border-slate-200 bg-transparent"
+                                />
+                              </td>
+                              <td className="p-3">
+                                <input
+                                  value={evt.descripcion || ""}
+                                  onChange={(e) =>
+                                    handleUpdateEvent(
+                                      evt.id,
+                                      "descripcion",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="Añadir nota..."
+                                  className="w-full bg-transparent border-b border-transparent hover:border-slate-200 outline-none text-xs text-slate-600 focus:border-indigo-500"
+                                />
+                              </td>
 
-                {/* CELDA BAJAN */}
-                <td className={`p-2 border-l border-rose-50/50 ${totalDowns > 0 ? 'bg-rose-50/30' : ''}`}>
-                  <button 
-                    onClick={() => setRulesModal({ isOpen: true, event: evt, type: "down", transportId: t.id })}
-                    className={`w-full py-1.5 rounded-xl border text-[10px] font-black flex flex-col items-center gap-1 transition-all 
-                      ${totalDowns > 0 ? 'bg-rose-100 text-rose-700 border-rose-200 shadow-sm' : 
-                        downAlert ? 'bg-orange-100 text-orange-700 border-orange-300 animate-pulse' : 
-                        'bg-white text-slate-300 border-slate-100 hover:border-slate-300'}`}
-                  >
-                    <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
-                       <IconDownload size={10} /> {totalDowns > 0 ? `${totalDowns} PAX` : downAlert ? "0 PAX ⚠️" : "+"}
-                    </div>
-                    {downsSummary.map((s, idx) => (
-                      <span key={idx} className={`px-1.5 py-0.5 rounded truncate w-full ${s.count === 0 && !isMediosPropios ? 'bg-orange-500 text-white font-black' : 'opacity-60'}`}>
-                        {s.label} {s.count === 0 && !isMediosPropios ? '⚠️' : `(${s.count})`}
-                      </span>
-                    ))}
-                  </button>
-                </td>
+                              {/* CELDA SUBEN */}
+                              <td
+                                className={`p-2 border-l border-emerald-50/50 ${totalUps > 0 ? "bg-emerald-50/20" : ""}`}
+                              >
+                                <button
+                                  onClick={() =>
+                                    setRulesModal({
+                                      isOpen: true,
+                                      event: evt,
+                                      type: "up",
+                                      transportId: t.id,
+                                    })
+                                  }
+                                  className={`w-full py-1.5 rounded-xl border text-[10px] font-black flex flex-col items-center gap-1 transition-all 
+                      ${
+                        totalUps > 0
+                          ? "bg-emerald-100 text-emerald-700 border-emerald-200 shadow-sm"
+                          : upAlert
+                            ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse"
+                            : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"
+                      }`}
+                                >
+                                  <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
+                                    <IconUpload size={10} />{" "}
+                                    {totalUps > 0
+                                      ? `${totalUps} PAX`
+                                      : upAlert
+                                        ? "0 PAX ⚠️"
+                                        : "+"}
+                                  </div>
+                                  {upsSummary.map((s, idx) => (
+                                    <span
+                                      key={idx}
+                                      className={`px-1.5 py-0.5 rounded truncate w-full ${s.count === 0 && !isMediosPropios ? "bg-orange-500 text-white font-black" : "opacity-60"}`}
+                                    >
+                                      {s.label}{" "}
+                                      {s.count === 0 && !isMediosPropios
+                                        ? "⚠️"
+                                        : `(${s.count})`}
+                                    </span>
+                                  ))}
+                                </button>
+                              </td>
 
-                <td className="p-3 text-right">
-                  <button onClick={() => handleDeleteEvent(evt.id)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all">
-                    <IconTrash size={14} />
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
+                              {/* CELDA BAJAN */}
+                              <td
+                                className={`p-2 border-l border-rose-50/50 ${totalDowns > 0 ? "bg-rose-50/30" : ""}`}
+                              >
+                                <button
+                                  onClick={() =>
+                                    setRulesModal({
+                                      isOpen: true,
+                                      event: evt,
+                                      type: "down",
+                                      transportId: t.id,
+                                    })
+                                  }
+                                  className={`w-full py-1.5 rounded-xl border text-[10px] font-black flex flex-col items-center gap-1 transition-all 
+                      ${
+                        totalDowns > 0
+                          ? "bg-rose-100 text-rose-700 border-rose-200 shadow-sm"
+                          : downAlert
+                            ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse"
+                            : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"
+                      }`}
+                                >
+                                  <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
+                                    <IconDownload size={10} />{" "}
+                                    {totalDowns > 0
+                                      ? `${totalDowns} PAX`
+                                      : downAlert
+                                        ? "0 PAX ⚠️"
+                                        : "+"}
+                                  </div>
+                                  {downsSummary.map((s, idx) => (
+                                    <span
+                                      key={idx}
+                                      className={`px-1.5 py-0.5 rounded truncate w-full ${s.count === 0 && !isMediosPropios ? "bg-orange-500 text-white font-black" : "opacity-60"}`}
+                                    >
+                                      {s.label}{" "}
+                                      {s.count === 0 && !isMediosPropios
+                                        ? "⚠️"
+                                        : `(${s.count})`}
+                                    </span>
+                                  ))}
+                                </button>
+                              </td>
 
-          {/* FILA DE EDICIÓN / ALTA INLINE */}
-          {editingEventId === `new-${t.id}` && (
-            <tr className="bg-indigo-50/50 animate-in fade-in slide-in-from-left-2">
-              <td className="p-3 text-center text-indigo-500"><IconPlus size={16}/></td>
-              <td className="p-2 flex flex-col gap-1">
-                <DateInput value={newEvent.fecha} onChange={(v) => setNewEvent({ ...newEvent, fecha: v })} className="h-8 border-indigo-200" />
-                <TimeInput value={newEvent.hora} onChange={(v) => setNewEvent({ ...newEvent, hora: v })} className="h-8 border-indigo-200" />
-              </td>
-              <td className="p-2">
-                <SearchableSelect options={locationOptions} value={newEvent.id_locacion} onChange={(v) => setNewEvent({ ...newEvent, id_locacion: v })} className="h-8 border-indigo-200" />
-              </td>
-              <td className="p-2">
-                <input placeholder="Nota de la parada..." className="w-full h-8 px-2 border border-indigo-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-200" value={newEvent.descripcion} onChange={(e) => setNewEvent({ ...newEvent, descripcion: e.target.value })} />
-              </td>
-              <td className="p-2 text-right" colSpan="3">
-                <div className="flex gap-2 justify-end px-2">
-                  <button onClick={() => setEditingEventId(null)} className="px-3 py-1.5 bg-white text-slate-500 rounded-lg text-[10px] font-bold border border-slate-200 hover:bg-slate-50">CANCELAR</button>
-                  <button onClick={() => handleSaveEvent(t.id)} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-bold shadow-md hover:bg-indigo-700 flex items-center gap-1"><IconSave size={12}/> GUARDAR</button>
+                              <td className="p-3 text-right">
+                                <button
+                                  onClick={() => handleDeleteEvent(evt.id)}
+                                  className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
+                                >
+                                  <IconTrash size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+
+                        {/* FILA DE EDICIÓN / ALTA INLINE */}
+                        {editingEventId === `new-${t.id}` && (
+                          <tr className="bg-indigo-50/50 animate-in fade-in slide-in-from-left-2">
+                            <td className="p-3 text-center text-indigo-500">
+                              <IconPlus size={16} />
+                            </td>
+                            <td className="p-2 flex flex-col gap-1">
+                              <DateInput
+                                value={newEvent.fecha}
+                                onChange={(v) =>
+                                  setNewEvent({ ...newEvent, fecha: v })
+                                }
+                                className="h-8 border-indigo-200"
+                              />
+                              <TimeInput
+                                value={newEvent.hora}
+                                onChange={(v) =>
+                                  setNewEvent({ ...newEvent, hora: v })
+                                }
+                                className="h-8 border-indigo-200"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <SearchableSelect
+                                options={locationOptions}
+                                value={newEvent.id_locacion}
+                                onChange={(v) =>
+                                  setNewEvent({ ...newEvent, id_locacion: v })
+                                }
+                                className="h-8 border-indigo-200"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input
+                                placeholder="Nota de la parada..."
+                                className="w-full h-8 px-2 border border-indigo-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-200"
+                                value={newEvent.descripcion}
+                                onChange={(e) =>
+                                  setNewEvent({
+                                    ...newEvent,
+                                    descripcion: e.target.value,
+                                  })
+                                }
+                              />
+                            </td>
+                            <td className="p-2 text-right" colSpan="3">
+                              <div className="flex gap-2 justify-end px-2">
+                                <button
+                                  onClick={() => setEditingEventId(null)}
+                                  className="px-3 py-1.5 bg-white text-slate-500 rounded-lg text-[10px] font-bold border border-slate-200 hover:bg-slate-50"
+                                >
+                                  CANCELAR
+                                </button>
+                                <button
+                                  onClick={() => handleSaveEvent(t.id)}
+                                  className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-bold shadow-md hover:bg-indigo-700 flex items-center gap-1"
+                                >
+                                  <IconSave size={12} /> GUARDAR
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+
+                        {/* BOTÓN AGREGAR PARADA */}
+                        {editingEventId !== `new-${t.id}` && (
+                          <tr>
+                            <td colSpan="7" className="p-4 bg-slate-50/50">
+                              <button
+                                onClick={() => {
+                                  setEditingEventId(`new-${t.id}`);
+                                  setNewEvent({
+                                    fecha: gira.fecha_inicio,
+                                    hora: "08:00:00",
+                                    id_locacion: null,
+                                    descripcion: "",
+                                    id_tipo_evento: "11",
+                                  });
+                                }}
+                                className="w-full py-3 border-2 border-dashed border-slate-200 rounded-2xl text-[10px] font-black text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all uppercase tracking-[0.2em] bg-white"
+                              >
+                                + Agregar parada manual
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </td>
-            </tr>
-          )}
-
-          {/* BOTÓN AGREGAR PARADA */}
-          {editingEventId !== `new-${t.id}` && (
-            <tr>
-              <td colSpan="7" className="p-4 bg-slate-50/50">
-                <button
-                  onClick={() => {
-                    setEditingEventId(`new-${t.id}`);
-                    setNewEvent({ fecha: gira.fecha_inicio, hora: "08:00:00", id_locacion: null, descripcion: "", id_tipo_evento: "11" });
-                  }}
-                  className="w-full py-3 border-2 border-dashed border-slate-200 rounded-2xl text-[10px] font-black text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all uppercase tracking-[0.2em] bg-white"
-                >
-                  + Agregar parada manual
-                </button>
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  </div>
-)}
+              )}
             </div>
           );
         })}
