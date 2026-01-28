@@ -448,7 +448,9 @@ export default function ViaticosManager({ supabase, giraId }) {
   function calculateRow(row, currentConfig) {
     const base = parseFloat(currentConfig?.valor_diario_base || 0);
     const dias = parseFloat(row.dias_computables || 0);
-    const pct = parseFloat(row.porcentaje || 100) / 100;
+    const rawPct =
+      row.porcentaje === 0 || row.porcentaje ? row.porcentaje : 100;
+    const pct = parseFloat(String(rawPct).replace("%", "")) / 100;
     const basePorcentaje = round2(base * pct);
     const factorTempGlobal = parseFloat(currentConfig?.factor_temporada || 0);
     const valorDiarioCalc = round2(basePorcentaje * (1 + factorTempGlobal));
@@ -567,22 +569,40 @@ export default function ViaticosManager({ supabase, giraId }) {
   const updateRow = async (id, field, value) => {
     const fieldKey = `${id}-${field}`;
     setUpdatingFields((prev) => new Set(prev).add(fieldKey));
+
     if (successFields.has(fieldKey))
       setSuccessFields((prev) => {
         const next = new Set(prev);
         next.delete(fieldKey);
         return next;
       });
+
     const currentRow = viaticosRows.find((r) => r.id === id);
     if (!currentRow) return;
-    const updatedRow = { ...currentRow, [field]: value };
+
+    // --- NUEVA LÓGICA DE SANITIZACIÓN ---
+    let valueToSave = value;
+    if (field === "porcentaje") {
+      // Eliminamos el % si el usuario lo escribió y convertimos a número
+      const cleanValue = String(value).replace("%", "").trim();
+      valueToSave = cleanValue === "" ? 100 : parseFloat(cleanValue);
+
+      if (isNaN(valueToSave)) valueToSave = 100;
+    }
+    // ------------------------------------
+
+    const updatedRow = { ...currentRow, [field]: valueToSave };
     setViaticosRows((prev) => prev.map((r) => (r.id === id ? updatedRow : r)));
+
     try {
-      const payload = { [field]: value };
-      await supabase
+      const payload = { [field]: valueToSave };
+      const { error } = await supabase
         .from("giras_viaticos_detalle")
         .update(payload)
         .eq("id", id);
+
+      if (error) throw error;
+
       setSuccessFields((prev) => new Set(prev).add(fieldKey));
       setTimeout(() => {
         setSuccessFields((prev) => {
@@ -592,9 +612,9 @@ export default function ViaticosManager({ supabase, giraId }) {
         });
       }, 2000);
     } catch (err) {
-      console.error(err);
-      alert("Error al guardar cambio.");
-      fetchViaticosData();
+      console.error("Error al guardar:", err);
+      // Opcional: alert("No se pudo guardar el valor 100. Verifique la conexión.");
+      fetchViaticosData(); // Revertir cambios locales si falla
     } finally {
       setUpdatingFields((prev) => {
         const next = new Set(prev);
@@ -623,14 +643,18 @@ export default function ViaticosManager({ supabase, giraId }) {
     setLoading(true);
     try {
       const updates = {};
+      // Dentro de handleApplyBatch, modifica el forEach:
       Object.keys(batchValues).forEach((key) => {
-        if (
-          batchValues[key] !== "" &&
-          batchValues[key] !== null &&
-          batchValues[key] !== false
-        )
-          updates[key] = batchValues[key];
-      });
+        const val = batchValues[key];
+        if (val !== "" && val !== null && val !== false) {
+          // Si es porcentaje, lo limpiamos también aquí
+          if (key === "porcentaje") {
+            updates[key] = parseFloat(String(val).replace("%", "")) || 100;
+          } else {
+            updates[key] = val;
+          }
+        }
+      }); 
       if (Object.keys(updates).length === 0) {
         alert("No has ingresado ningún valor.");
         setLoading(false);

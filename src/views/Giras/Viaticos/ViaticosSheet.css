@@ -192,3 +192,41 @@
   left: auto !important;
   line-height: 1.2 !important;    /* Asegura altura de línea sana */
 }
+/* 1. Eliminar flechas de incremento/decremento */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
+/* 2. Contenedor para que el $ y el número no se separen */
+.currency-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 80px; /* Asegura el ancho para 8 dígitos */
+}
+
+/* 3. El signo $ queda fijo a la izquierda del campo */
+.currency-prefix {
+  position: absolute;
+  left: 5px;
+  font-weight: bold;
+  color: #64748b; /* slate-500 */
+  font-size: 10px;
+  pointer-events: none; /* Permite hacer clic a través del signo */
+  z-index: 10;
+}
+
+/* 4. El input ocupa todo el ancho y deja espacio para el $ */
+.currency-container input {
+  width: 100%;
+  padding-left: 12px !important; /* Espacio para que el número no pise el $ */
+  text-align: right;
+  font-weight: 700;
+  font-size: 12px;
+}

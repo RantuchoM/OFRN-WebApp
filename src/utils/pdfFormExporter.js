@@ -133,7 +133,7 @@ export const exportViaticosToPDFForm = async (
         f("dias_computados", data.dias_computables);
         f("valor_diario", fmtMoney(data.valorDiarioCalc));
         f("porcentaje_viatico", data.porcentaje);
-        f("porcentaje_temporada", data.es_temporada_alta ? "ALTA" : "BAJA");
+        f("porcentaje_temporada", configData.factor_temporada > 0 ? "ALTA" : "BAJA");
 
         // Tabla Rendición
         f("viaticos_ant", fmtMoney(data.subtotal));
@@ -248,9 +248,9 @@ export const exportViaticosToPDFForm = async (
 
         f("valor_diario", money(data.valorDiarioCalc));
         f("porcentaje_viatico", String(data.porcentaje || 0));
-
-        chk("check_temporada", data.es_temporada_alta);
-        f("gasto_alojamiento", money(data.gasto_alojamiento));
+// ANTES: chk("check_temporada", data.es_temporada_alta);
+chk("check_temporada", configData.factor_temporada > 0);
+            f("gasto_alojamiento", money(data.gasto_alojamiento));
         f("gasto_anticipo", money(data.subtotal));
 
         // Detalle adaptado para destaque
