@@ -34,6 +34,9 @@ import ManualIndex from "./views/Manual/ManualIndex";
 import ManualAdmin from "./views/Manual/ManualAdmin";
 import ManualTrigger from "./components/manual/ManualTrigger";
 import { useManual } from "./context/ManualContext";
+import NotificationsListener from "./components/ui/NotificationsListener";
+import { Toaster } from "sonner";
+
 import {
   IconLayoutDashboard,
   IconDownload,
@@ -70,7 +73,14 @@ import {
   IconEyeOff,
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal";
-import SearchableSelect from "./components/ui/SearchableSelect"; // <--- AÑADIR ESTA LÍNEA
+import SearchableSelect from "./components/ui/SearchableSelect";
+
+// --- HELPER DE NORMALIZACIÓN ---
+const normalizeId = (id) => {
+  if (id === null || id === undefined) return "";
+  return String(id).trim();
+};
+
 // --- MODAL CALENDARIO ---
 const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
   if (!isOpen || !userId) return null;
@@ -271,17 +281,18 @@ const ProtectedApp = () => {
     stopImpersonating,
     isImpersonating,
     isActuallyAdmin,
-    isManagement, // Extraído del contexto
-    isAdmin,      // Extraído del contexto
-    isEditor,     // Extraído del contexto
-    isPersonal,   // Extraído del contexto
-    isGuest,      // Extraído del contexto
+    isManagement,
+    isAdmin,
+    isEditor,
+    isPersonal,
+    isGuest,
     realUser,
-} = useAuth();
+  } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
   const [orchestraList, setOrchestraList] = useState([]);
+
   useEffect(() => {
     if (isActuallyAdmin) {
       supabase
@@ -291,13 +302,13 @@ const ProtectedApp = () => {
         .then(({ data }) => setOrchestraList(data || []));
     }
   }, [isActuallyAdmin]);
+
   // Estados unificados de UI
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+
+  // Estado para el modal global de comentarios
   const [globalCommentsOpen, setGlobalCommentsOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
-  const isSidebarExpanded = !sidebarCollapsed || isSidebarHovered;
 
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [userData, setUserData] = useState(null);
@@ -306,6 +317,8 @@ const ProtectedApp = () => {
   const [pendingFields, setPendingFields] = useState([]);
 
   const { toggleVisibility, showTriggers } = useManual();
+
+  // Estado para badges de comentarios
   const [commentCounts, setCommentCounts] = useState({
     total: 0,
     mentioned: 0,
@@ -320,10 +333,60 @@ const ProtectedApp = () => {
     localStorage.setItem("app_ui_scale", uiScale);
   }, [uiScale]);
 
-  //const { isManagement, isAdmin, isEditor } = useAuth();
+  // Lógica para obtener conteo de comentarios no leídos en segundo plano
+  useEffect(() => {
+    if (!user) return;
+    const fetchCommentCounts = async () => {
+      const { data: comments } = await supabase
+        .from("sistema_comentarios")
+        .select(
+          "id, created_at, entidad_tipo, entidad_id, etiquetados, id_autor",
+        )
+        .eq("resuelto", false)
+        .eq("deleted", false);
+
+      if (!comments) return;
+
+      const { data: reads } = await supabase
+        .from("comentarios_lecturas")
+        .select("*")
+        .eq("user_id", user.id);
+
+      const readMap = {};
+      reads?.forEach((r) => {
+        const key = `${r.entidad_tipo}_${normalizeId(r.entidad_id)}`;
+        readMap[key] = r.last_read_at;
+      });
+
+      let total = 0;
+      let mentioned = 0;
+
+      comments.forEach((c) => {
+        // NOTA: Se eliminó el filtro c.id_autor === user.id para que cuenten los propios si no están leídos
+
+        const key = `${c.entidad_tipo}_${normalizeId(c.entidad_id)}`;
+        const lastRead = readMap[key] ? new Date(readMap[key]) : new Date(0);
+
+        const isUnread = new Date(c.created_at) > lastRead;
+
+        if (isUnread) {
+          total++;
+          if (c.etiquetados && c.etiquetados.includes(user.id)) {
+            mentioned++;
+          }
+        }
+      });
+      setCommentCounts({ total, mentioned });
+    };
+
+    fetchCommentCounts();
+    const interval = setInterval(fetchCommentCounts, 60000);
+    return () => clearInterval(interval);
+  }, [user]);
+
   const userRole = user?.rol_sistema || "";
   const isDirector = userRole === "director";
-  
+
   const isGuestRole =
     userRole === "invitado" || userRole === "consulta_personal";
 
@@ -432,7 +495,7 @@ const ProtectedApp = () => {
       ["giraId", "view", "subTab"].forEach((p) => newParams.delete(p));
     }
     setSearchParams(newParams);
-    setIsMobileMenuOpen(false); // Cierra menú al navegar
+    setIsMobileMenuOpen(false);
   };
 
   const handleMobileNavigate = (id) => {
@@ -529,7 +592,12 @@ const ProtectedApp = () => {
         ]
       : []),
     { id: "GIRAS", icon: <IconMap size={24} />, label: "Giras" },
-    { id: "COMMENTS", icon: <IconMessageCircle size={24} />, label: "Avisos" },
+    {
+      id: "COMMENTS",
+      icon: <IconMessageCircle size={24} />,
+      label: "Avisos",
+      action: () => setGlobalCommentsOpen(true),
+    },
     {
       id: "MENU",
       icon: <IconMenu size={24} />,
@@ -614,6 +682,9 @@ const ProtectedApp = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
+      <NotificationsListener supabase={supabase} />
+      <Toaster position="top-right" richColors />
+
       {/* OVERLAY MÓVIL */}
       {isMobileMenuOpen && (
         <div
@@ -765,9 +836,35 @@ const ProtectedApp = () => {
               )}
             </div>
 
+            {/* BOTÓN DE NOVEDADES */}
+            <NewsModal supabase={supabase} />
+
+            {/* BOTÓN DE COMENTARIOS (AVISOS) */}
+            <button
+              onClick={() => setGlobalCommentsOpen(true)}
+              className={`relative p-2 rounded-full transition-all duration-200 ${globalCommentsOpen ? "bg-indigo-50 text-indigo-600" : "text-slate-500 hover:text-indigo-600 hover:bg-slate-100"}`}
+              title="Avisos y Pendientes"
+            >
+              <IconMessageSquare size={22} />
+
+              {/* BADGE TOTAL (Azul - General) */}
+              {commentCounts.total > 0 && (
+                <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 h-4 min-w-[16px] px-1 bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full shadow-sm border border-white z-10">
+                  {commentCounts.total > 9 ? "9+" : commentCounts.total}
+                </span>
+              )}
+
+              {/* BADGE MENCIONES (Rojo - Importante) */}
+              {commentCounts.mentioned > 0 && (
+                <span className="absolute bottom-0 right-0 transform translate-x-1 translate-y-1 h-4 min-w-[16px] px-1 bg-red-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full shadow-sm border border-white animate-pulse z-20">
+                  @{commentCounts.mentioned}
+                </span>
+              )}
+            </button>
+
             <button
               onClick={() => setCalendarModalOpen(true)}
-              className="sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 font-bold text-xs hover:bg-indigo-100"
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 font-bold text-xs hover:bg-indigo-100"
             >
               <IconCalendar size={10} />
               Sincronizar
@@ -816,6 +913,18 @@ const ProtectedApp = () => {
 
         <main className="flex-1 overflow-hidden relative bg-slate-50">
           {renderContent()}
+          {/* MODAL GLOBAL DE COMENTARIOS */}
+          {globalCommentsOpen && (
+            <GlobalCommentsViewer
+              supabase={supabase}
+              onClose={() => setGlobalCommentsOpen(false)}
+              onNavigate={(gid, v) => {
+                setGlobalCommentsOpen(false);
+                updateView("GIRAS", gid, v);
+              }}
+              onCountsChange={setCommentCounts}
+            />
+          )}
         </main>
 
         {/* BOTTOM NAV MÓVIL */}
