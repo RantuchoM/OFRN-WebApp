@@ -23,6 +23,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { useLogistics } from "../../hooks/useLogistics";
+
 // Sub-vistas
 import GiraForm from "./GiraForm";
 import GiraRoster from "./GiraRoster";
@@ -36,6 +37,7 @@ import MealsAttendancePersonal from "./MealsAttendancePersonal";
 import ProgramSeating from "./ProgramSeating";
 import CommentsManager from "../../components/comments/CommentsManager";
 import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer";
+import CommentButton from "../../components/comments/CommentButton"; // <--- NUEVO IMPORT
 import GiraDifusion from "./GiraDifusion";
 import SectionStatusControl from "../../components/giras/SectionStatusControl";
 import { deleteGira } from "../../services/giraActions";
@@ -170,41 +172,28 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const [allIntegrantes, setAllIntegrantes] = useState([]);
 
   // --- 3. EFECTO DE HIGHLIGHT (RESALTADO ROBUSTO) ---
-  // ---------------------------------------------------------
-  // 2. EFECTO DE HIGHLIGHT (ESTRATEGIA DE INICIALIZACIÓN INMEDIATA)
-  // ---------------------------------------------------------
-
-  // Inicializamos el estado LEYENDO DIRECTAMENTE el storage.
-  // Esto asegura que en el PRIMER render el valor ya no sea null.
   const [highlightedGiraId, setHighlightedGiraId] = useState(() => {
-    // Verificamos "a mano" si estamos en modo lista mirando la URL actual
-    // (No podemos usar la variable 'giraId' aquí porque aún no se ha declarado o procesado)
     const params = new URLSearchParams(window.location.search);
     if (!params.get("giraId")) {
       const stored = sessionStorage.getItem("last_active_gira_id");
       if (stored) {
-        //console.log("📍 Highlight inicializado DESDE EL ARRANQUE:", stored);
         return stored;
       }
     }
     return null;
   });
 
-  // Efecto SOLO para limpiar el timer y el storage después de usarlo
   useEffect(() => {
     if (highlightedGiraId) {
-      // 1. Consumimos el token del storage para que no vuelva a salir al recargar
       sessionStorage.removeItem("last_active_gira_id");
-
-      // 2. Programamos el apagado visual
       const timer = setTimeout(() => {
-        //console.log("📍 Apagando highlight (Timer)");
         setHighlightedGiraId(null);
-      }, 2000); // 3 segundos
+      }, 2000);
 
       return () => clearTimeout(timer);
     }
   }, [highlightedGiraId]);
+
   // --- 4. EFECTO DE SCROLL INTELIGENTE ---
   const scrollContainerRef = useRef(null);
 
@@ -212,17 +201,12 @@ export default function GirasView({ supabase, trigger = 0 }) {
     if (!giraId && !loading && scrollContainerRef.current) {
       const savedPosition = sessionStorage.getItem("giras_list_scroll");
 
-      // ESTRATEGIA:
-      // Si tenemos una posición exacta guardada, la usamos (es lo más suave).
-      // Solo si NO tenemos posición guardada pero SÍ un highlight, usamos scrollIntoView.
-
       if (savedPosition) {
         requestAnimationFrame(() => {
           if (scrollContainerRef.current)
             scrollContainerRef.current.scrollTop = parseInt(savedPosition, 10);
         });
       } else if (highlightedGiraId) {
-        // Fallback: Si no hay posición guardada, buscamos la tarjeta
         setTimeout(() => {
           const element = document.getElementById(
             `gira-card-${highlightedGiraId}`,
@@ -234,7 +218,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       }
     }
   }, [loading, giraId, highlightedGiraId]);
-  // ... (Resto de useEffects de carga de datos: fetchCoordinations, fetchGiras, etc. IGUAL QUE ANTES) ...
+
   useEffect(() => {
     const fetchCoordinations = async () => {
       if (!user) return;
@@ -257,7 +241,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
     fetchIntegrantesList();
   }, [user.id, coordinatedEnsembles.size]);
 
-  // ... (Funciones fetchGiras, validaciones de invitado, etc. SIN CAMBIOS) ...
   const fetchGiras = async () => {
     setLoading(true);
     try {
@@ -780,23 +763,38 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 </div>
               </div>
             </div>
-            {/* INICIO DE LA INSERCIÓN */}
-            <div className="hidden xl:block">
-              <div className="hidden xl:block">
-                <SectionStatusControl
-                  supabase={supabase}
-                  giraId={selectedGira.id}
-                  // Usamos la sección activa o "GENERAL" por defecto (ej. para Difusión/Edición)
-                  sectionKey={activeSection?.key || "GENERAL"}
-                  sectionLabel={activeSection?.label || "Estado General"}
-                  currentUserId={user.id}
-                  onUpdate={fetchGiras}
-                  roster={enrichedRoster} // Datos para el cálculo de estadísticas
-                />
-              </div>
+
+            {/* SECCIÓN CENTRAL: Status + Comentarios de GIRA */}
+            <div className="hidden md:flex items-center gap-2">
+              <SectionStatusControl
+                supabase={supabase}
+                giraId={selectedGira.id}
+                sectionKey={activeSection?.key || "GENERAL"}
+                sectionLabel={activeSection?.label || "Estado General"}
+                currentUserId={user.id}
+                onUpdate={fetchGiras}
+                roster={enrichedRoster}
+              />
+              <CommentButton
+                supabase={supabase}
+                entityType="GIRA"
+                entityId={String(selectedGira.id)} // <--- Forzamos String aquí para el botón (globo rojo)
+                onClick={() => {
+                  console.log(
+                    "Abriendo comentarios para Gira ID:",
+                    selectedGira.id,
+                  ); // Para depurar
+                  setCommentsState({
+                    type: "GIRA",
+                    id: String(selectedGira.id), // <--- Forzamos String aquí para el panel
+                    title: selectedGira.nombre_gira,
+                  });
+                }}
+                className="hover:bg-indigo-50"
+              />
             </div>
-            {/* FIN DE LA INSERCIÓN */}
-            {/* ... Resto del Header de Detalle ... */}
+
+            {/* BARRA DE NAVEGACIÓN (TABS) MODIFICADA */}
             {(isEditor || isPersonal) && (
               <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
                 {tourNavItems
@@ -819,15 +817,15 @@ export default function GirasView({ supabase, trigger = 0 }) {
                             ? "bg-white text-indigo-600 shadow-sm"
                             : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
                         }`}
+                        title={item.label}
                       >
-                        {" "}
-                        <item.icon
-                          size={16}
-                          strokeWidth={isActive ? 2.5 : 2}
-                        />{" "}
-                        <span className="hidden md:inline">
+                        <item.icon size={16} strokeWidth={isActive ? 2.5 : 2} />
+                        {/* VISIBILIDAD DE ETIQUETA DINÁMICA */}
+                        <span
+                          className={`${isActive ? "inline" : "hidden 2xl:inline"}`}
+                        >
                           {item.label}
-                        </span>{" "}
+                        </span>
                       </button>
                     );
                   })}

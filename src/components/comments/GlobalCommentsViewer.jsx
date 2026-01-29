@@ -17,6 +17,7 @@ import {
   IconUser,
   IconEye,
   IconEyeOff,
+  IconMessageCircle,
 } from "../ui/Icons";
 import { format, isBefore, isToday, addDays, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -32,7 +33,135 @@ const getThreadKey = (tipo, id) => {
   return `${tipo}_${normalizeId(id)}`;
 };
 
-// --- COMPONENTE DE HILO (THREAD ITEM) ---
+// --- COMPONENTE DE AVATAR ---
+const UserAvatar = ({ user, size = "sm", onClick }) => {
+  if (!user)
+    return (
+      <div
+        className={`rounded-full bg-slate-200 flex items-center justify-center ${size === "sm" ? "w-6 h-6" : "w-8 h-8"}`}
+      >
+        <IconUser size={size === "sm" ? 14 : 16} className="text-slate-400" />
+      </div>
+    );
+
+  const initials =
+    `${user.nombre?.[0] || ""}${user.apellido?.[0] || ""}`.toUpperCase();
+  const bgColor = user.avatar_color || "#64748b";
+  const hasImage = !!user.avatar_url;
+
+  return (
+    <div
+      onClick={(e) => {
+        if (hasImage && onClick) {
+          e.stopPropagation();
+          onClick(user.avatar_url);
+        }
+      }}
+      className={`rounded-full flex items-center justify-center text-white font-bold shrink-0 overflow-hidden border border-white shadow-sm transition-transform hover:scale-105 
+          ${size === "sm" ? "w-6 h-6 text-[9px]" : "w-8 h-8 text-xs"}
+          ${hasImage ? "cursor-zoom-in" : "cursor-default"}
+      `}
+      style={{ backgroundColor: hasImage ? "transparent" : bgColor }}
+      title={hasImage ? "Clic para ampliar" : ""}
+    >
+      {hasImage ? (
+        <img
+          src={user.avatar_url}
+          alt={initials}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <span>{initials}</span>
+      )}
+    </div>
+  );
+};
+
+// --- NUEVO COMPONENTE RECURSIVO PARA MENSAJES (Tree Node) ---
+const MessageNode = ({
+  msg,
+  user,
+  lastReadAt,
+  onDelete,
+  onPreviewImage,
+  isChild = false,
+}) => {
+  const isMine = msg.id_autor === user.id;
+  const isMsgUnread = new Date(msg.created_at) > lastReadAt;
+
+  return (
+    <div
+      className={`flex flex-col ${isChild ? "ml-6 mt-1 pl-3 border-l-2 border-slate-100" : "mt-2"}`}
+    >
+      <div
+        className={`flex gap-3 group/msg transition-colors rounded p-2 -mx-1 ${isMsgUnread ? "bg-blue-50/50" : ""}`}
+      >
+        {/* AVATAR */}
+        <div className="mt-0.5">
+          <UserAvatar
+            user={msg.integrantes}
+            size={isChild ? "sm" : "sm"} // Siempre sm en lista compacta
+            onClick={onPreviewImage}
+          />
+        </div>
+
+        {/* CONTENIDO */}
+        <div className="flex-1 flex flex-col gap-0.5 min-w-0">
+          <div className="flex justify-between items-baseline">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`text-xs font-bold ${isMine ? "text-indigo-700" : "text-slate-700"}`}
+              >
+                {msg.integrantes?.nombre} {msg.integrantes?.apellido}
+              </span>
+              <span className="text-[10px] text-slate-400">
+                {format(new Date(msg.created_at), "dd/MM HH:mm", {
+                  locale: es,
+                })}
+              </span>
+              {isMsgUnread && (
+                <span className="w-1.5 h-1.5 bg-blue-400 rounded-full shrink-0"></span>
+              )}
+            </div>
+
+            {(isMine || user.rol_sistema === "admin") && (
+              <button
+                onClick={() => onDelete(msg.id)}
+                className="opacity-0 group-hover/msg:opacity-100 text-slate-300 hover:text-red-400 transition-opacity p-1"
+                title="Eliminar mensaje"
+              >
+                <IconArchive size={12} />
+              </button>
+            )}
+          </div>
+
+          <p className="text-sm text-slate-600 whitespace-pre-wrap break-words">
+            {msg.contenido}
+          </p>
+        </div>
+      </div>
+
+      {/* RECURSIVIDAD: Renderizar hijos si existen */}
+      {msg.children && msg.children.length > 0 && (
+        <div className="flex flex-col">
+          {msg.children.map((child) => (
+            <MessageNode
+              key={child.id}
+              msg={child}
+              user={user}
+              lastReadAt={lastReadAt}
+              onDelete={onDelete}
+              onPreviewImage={onPreviewImage}
+              isChild={true}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- COMPONENTE DE HILO (CONTENEDOR DE CONTEXTO) ---
 const GlobalThreadItem = ({
   thread,
   user,
@@ -47,22 +176,23 @@ const GlobalThreadItem = ({
   setEditingDateId,
   isGlobalView,
   lastReadMap,
+  onPreviewImage,
 }) => {
   const contextData = thread.contextData;
-  const messages = thread.messages;
+  const messages = thread.messages; // Lista plana original
+
+  // Encontrar el último mensaje real para la fecha límite
   const lastMessage = messages[messages.length - 1];
 
-  // Usar el helper para garantizar consistencia
   const threadKey = getThreadKey(
     contextData.entidad_tipo,
     contextData.entidad_id,
   );
+
   const lastReadAt = lastReadMap[threadKey]
     ? new Date(lastReadMap[threadKey])
     : new Date(0);
 
-  // CAMBIO: Permitir que mis propios mensajes cuenten si la fecha de lectura es anterior
-  // Esto permite marcar como "No leído" (fecha 0) y que aparezca pendiente.
   const hasUnreadMessages = messages.some(
     (m) => new Date(m.created_at) > lastReadAt,
   );
@@ -70,6 +200,27 @@ const GlobalThreadItem = ({
   const isMentionedInThread = messages.some((m) =>
     m.etiquetados?.includes(user.id),
   );
+
+  // --- LÓGICA DE ÁRBOL ---
+  // Convertimos la lista plana 'messages' en un árbol basado en parent_id
+  const rootMessages = React.useMemo(() => {
+    const map = {};
+    const roots = [];
+    // 1. Inicializar mapa
+    messages.forEach((m) => {
+      map[m.id] = { ...m, children: [] };
+    });
+    // 2. Conectar padres e hijos
+    messages.forEach((m) => {
+      if (m.parent_id && map[m.parent_id]) {
+        map[m.parent_id].children.push(map[m.id]);
+      } else {
+        roots.push(map[m.id]);
+      }
+    });
+    // 3. Retornar raíces (ordenadas por fecha si es necesario, aunque ya vienen ordenadas del query)
+    return roots;
+  }, [messages]);
 
   const [tempDate, setTempDate] = useState(
     lastMessage.fecha_limite ? lastMessage.fecha_limite.split("T")[0] : "",
@@ -100,7 +251,6 @@ const GlobalThreadItem = ({
 
   const handleNavigate = () => {
     if (!onNavigate) return;
-    // Marcar como leído al navegar
     if (hasUnreadMessages) onMarkRead(thread);
 
     let targetView = "AGENDA";
@@ -147,9 +297,11 @@ const GlobalThreadItem = ({
         <span className="absolute -top-1 -left-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-white shadow-sm z-10 animate-pulse"></span>
       )}
 
-      {/* HEADER */}
+      {/* HEADER CONTEXTO */}
       <div
-        className={`p-3 border-b border-slate-100 flex justify-between items-start rounded-t-lg ${hasUnreadMessages ? "bg-blue-50/30" : "bg-slate-50/50"}`}
+        className={`p-3 border-b border-slate-100 flex justify-between items-start rounded-t-lg ${
+          hasUnreadMessages ? "bg-blue-50/30" : "bg-slate-50/50"
+        }`}
       >
         <div className="flex flex-col gap-1 max-w-[70%]">
           <div className="flex items-center gap-2 flex-wrap text-[10px] uppercase font-bold text-slate-400">
@@ -169,7 +321,11 @@ const GlobalThreadItem = ({
             <span>{contextData.entidad_tipo}</span>
           </div>
           <span
-            className={`text-sm truncate ${hasUnreadMessages ? "font-black text-slate-900" : "font-bold text-slate-700"}`}
+            className={`text-sm truncate ${
+              hasUnreadMessages
+                ? "font-black text-slate-900"
+                : "font-bold text-slate-700"
+            }`}
             title={contextData.contexto || "General"}
           >
             {contextData.contexto || "General"}
@@ -229,50 +385,22 @@ const GlobalThreadItem = ({
         </div>
       </div>
 
-      {/* BODY */}
-      <div className="p-3 flex flex-col gap-3">
-        {messages.map((msg) => {
-          const isMine = msg.id_autor === user.id;
-          const isMsgUnread = new Date(msg.created_at) > lastReadAt;
-          return (
-            <div
-              key={msg.id}
-              className={`flex flex-col gap-1 group/msg transition-colors rounded p-1 -mx-1 ${isMsgUnread ? "bg-blue-50/50" : ""}`}
-            >
-              <div className="flex justify-between items-baseline px-1">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`text-xs font-bold ${isMine ? "text-indigo-700" : "text-slate-700"}`}
-                  >
-                    {isMine
-                      ? "Yo"
-                      : `${msg.integrantes?.nombre} ${msg.integrantes?.apellido}`}
-                  </span>
-                  <span className="text-[10px] text-slate-400">
-                    {format(new Date(msg.created_at), "dd/MM HH:mm", {
-                      locale: es,
-                    })}
-                  </span>
-                  {isMsgUnread && (
-                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full"></span>
-                  )}
-                </div>
-                {(isMine || user.rol_sistema === "admin") && (
-                  <button
-                    onClick={() => onDelete(msg.id)}
-                    className="opacity-0 group-hover/msg:opacity-100 text-slate-300 hover:text-red-400 transition-opacity"
-                    title="Eliminar mensaje"
-                  >
-                    <IconArchive size={12} />
-                  </button>
-                )}
-              </div>
-              <p className="text-sm text-slate-600 whitespace-pre-wrap pl-3 border-l-2 border-slate-100">
-                {msg.contenido}
-              </p>
-            </div>
-          );
-        })}
+      {/* BODY: RENDERIZADO DE ÁRBOL DE MENSAJES */}
+      <div className="p-3 flex flex-col pb-1">
+        {rootMessages.length === 0 && (
+          <p className="text-xs text-slate-400 italic">Hilo vacío</p>
+        )}
+        {rootMessages.map((msgNode) => (
+          <MessageNode
+            key={msgNode.id}
+            msg={msgNode}
+            user={user}
+            lastReadAt={lastReadAt}
+            onDelete={onDelete}
+            onPreviewImage={onPreviewImage}
+            isChild={false} // Raíz
+          />
+        ))}
       </div>
 
       {/* FOOTER */}
@@ -311,7 +439,10 @@ const GlobalThreadItem = ({
               >
                 <IconClock size={10} />
                 {lastMessage.fecha_limite
-                  ? `Vence: ${format(parseISO(lastMessage.fecha_limite), "dd/MM")}`
+                  ? `Vence: ${format(
+                      parseISO(lastMessage.fecha_limite),
+                      "dd/MM",
+                    )}`
                   : "Fecha límite"}
                 {(messages.some((m) => m.id_autor === user.id) ||
                   user.rol_sistema === "admin") && (
@@ -358,6 +489,10 @@ export default function GlobalCommentsViewer({
   const [editingDateId, setEditingDateId] = useState(null);
   const [usersList, setUsersList] = useState([]);
 
+  // Visor de imagen
+  const [previewImage, setPreviewImage] = useState(null);
+  const [currentUserData, setCurrentUserData] = useState(null);
+
   const [mentionQuery, setMentionQuery] = useState(null);
   const [showMentions, setShowMentions] = useState(false);
   const replyInputRef = useRef(null);
@@ -382,7 +517,6 @@ export default function GlobalCommentsViewer({
         const lastRead = lastReadMap[key]
           ? new Date(lastReadMap[key])
           : new Date(0);
-        // CAMBIO: Permitir hilos propios si no están leídos
         return t.messages.some((m) => new Date(m.created_at) > lastRead);
       });
     }
@@ -392,9 +526,13 @@ export default function GlobalCommentsViewer({
   const fetchUsers = async () => {
     const { data } = await supabase
       .from("integrantes")
-      .select("id, nombre, apellido, rol_sistema")
+      .select("id, nombre, apellido, rol_sistema, avatar_url, avatar_color")
       .order("nombre");
-    if (data) setUsersList(data);
+    if (data) {
+      setUsersList(data);
+      const me = data.find((u) => u.id === user.id);
+      if (me) setCurrentUserData(me);
+    }
   };
 
   const fetchGlobalComments = async () => {
@@ -402,7 +540,7 @@ export default function GlobalCommentsViewer({
     try {
       let query = supabase
         .from("sistema_comentarios")
-        .select("*, integrantes(nombre, apellido)")
+        .select("*, integrantes(nombre, apellido, avatar_url, avatar_color)")
         .eq("resuelto", false)
         .eq("deleted", false)
         .order("created_at", { ascending: true });
@@ -410,7 +548,6 @@ export default function GlobalCommentsViewer({
       const { data: allComments } = await query;
       let rawComments = allComments || [];
 
-      // Traer lecturas
       const { data: readings } = await supabase
         .from("comentarios_lecturas")
         .select("entidad_tipo, entidad_id, last_read_at")
@@ -418,7 +555,6 @@ export default function GlobalCommentsViewer({
 
       const readingsMap = {};
       readings?.forEach((r) => {
-        // CLAVE CONSISTENTE: Tipo_NormalizadoID
         readingsMap[getThreadKey(r.entidad_tipo, r.entidad_id)] =
           r.last_read_at;
       });
@@ -430,7 +566,14 @@ export default function GlobalCommentsViewer({
         const normalizedGiraId = normalizeId(giraId);
 
         rawComments = rawComments.filter((c) => {
-          // Comparación robusta
+          if (
+            c.entidad_tipo === "PROGRAMA" && // CAMBIO: Usamos PROGRAMA como estándar
+            normalizeId(c.entidad_id) === normalizedGiraId
+          ) {
+            c.contexto = "General de Gira";
+            return true;
+          }
+          // Compatibilidad: algunos registros viejos pueden tener "GIRA"
           if (
             c.entidad_tipo === "GIRA" &&
             normalizeId(c.entidad_id) === normalizedGiraId
@@ -438,6 +581,7 @@ export default function GlobalCommentsViewer({
             c.contexto = "General de Gira";
             return true;
           }
+
           const key = getThreadKey(c.entidad_tipo, c.entidad_id);
           if (contextMap[key]) {
             c.contexto = contextMap[key];
@@ -446,6 +590,7 @@ export default function GlobalCommentsViewer({
           return false;
         });
       } else {
+        // --- VISTA GLOBAL (Sin giraId) ---
         const eventIds = rawComments
           .filter((c) => c.entidad_tipo === "EVENTO")
           .map((c) => c.entidad_id);
@@ -456,6 +601,7 @@ export default function GlobalCommentsViewer({
           .filter((c) => c.entidad_tipo === "HABITACION")
           .map((c) => c.entidad_id);
 
+        // Carga de contextos para vista global
         const { data: progs } = await supabase
           .from("programas")
           .select("id, nombre_gira, nomenclador, mes_letra");
@@ -470,7 +616,10 @@ export default function GlobalCommentsViewer({
             .in("id", eventIds);
           evs?.forEach((e) => {
             contextMap[getThreadKey("EVENTO", e.id)] = {
-              contexto: `${e.descripcion} (${format(new Date(e.fecha), "dd/MM")})`,
+              contexto: `${e.descripcion} (${format(
+                new Date(e.fecha),
+                "dd/MM",
+              )})`,
               gira_id: e.id_gira,
             };
           });
@@ -521,7 +670,7 @@ export default function GlobalCommentsViewer({
             contexto: `${c.entidad_tipo} #${c.entidad_id}`,
             gira_id: null,
           };
-          if (c.entidad_tipo === "GIRA") {
+          if (c.entidad_tipo === "PROGRAMA" || c.entidad_tipo === "GIRA") {
             info.gira_id = parseInt(c.entidad_id);
             info.contexto = "General";
           } else {
@@ -543,6 +692,7 @@ export default function GlobalCommentsViewer({
       }
 
       const threadsMap = rawComments.reduce((acc, comment) => {
+        // Agrupar por Entidad (Contexto)
         const key = getThreadKey(comment.entidad_tipo, comment.entidad_id);
         if (!acc[key]) {
           acc[key] = { key, contextData: { ...comment }, messages: [] };
@@ -568,7 +718,6 @@ export default function GlobalCommentsViewer({
           ? new Date(readingsMap[key])
           : new Date(0);
 
-        // CAMBIO: Contar propios si no están leídos
         const hasUnread = t.messages.some(
           (m) => new Date(m.created_at) > lastRead,
         );
@@ -603,8 +752,10 @@ export default function GlobalCommentsViewer({
       .select("id, descripcion, fecha")
       .eq("id_gira", targetId);
     evs?.forEach((e) => {
-      map[getThreadKey("EVENTO", e.id)] =
-        `${e.descripcion} (${format(new Date(e.fecha), "dd/MM")})`;
+      map[getThreadKey("EVENTO", e.id)] = `${e.descripcion} (${format(
+        new Date(e.fecha),
+        "dd/MM",
+      )})`;
     });
 
     const { data: reps } = await supabase
@@ -642,13 +793,10 @@ export default function GlobalCommentsViewer({
   const handleMarkThreadRead = async (thread) => {
     const context = thread.contextData;
     const now = new Date().toISOString();
-
-    // Generar clave con helper para update optimista
     const key = getThreadKey(context.entidad_tipo, context.entidad_id);
 
     setLastReadMap((prev) => ({ ...prev, [key]: now }));
 
-    // Guardar en DB normalizando ID a String limpio
     const { error } = await supabase.from("comentarios_lecturas").upsert(
       {
         user_id: user.id,
@@ -718,6 +866,9 @@ export default function GlobalCommentsViewer({
         return newResponse.includes(tag);
       })
       .map((u) => u.id);
+
+    // RESPONDER AL ÚLTIMO MENSAJE DEL HILO (Para mantenerlo lineal en el tiempo)
+    // Opcional: Podríamos responder al thread.messages[0] si quisiéramos estructura de árbol estricta
     const lastMsgId =
       replyingThread.messages[replyingThread.messages.length - 1].id;
 
@@ -800,7 +951,11 @@ export default function GlobalCommentsViewer({
               </h3>
               <div className="flex items-center gap-2 mt-1">
                 <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${counts.total > 0 ? "bg-indigo-100 text-indigo-600 border-indigo-200" : "bg-slate-100 text-slate-400 border-slate-200"}`}
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                    counts.total > 0
+                      ? "bg-indigo-100 text-indigo-600 border-indigo-200"
+                      : "bg-slate-100 text-slate-400 border-slate-200"
+                  }`}
                 >
                   {counts.total} hilos no leídos
                 </span>
@@ -815,14 +970,22 @@ export default function GlobalCommentsViewer({
           <div className="flex gap-2">
             <button
               onClick={() => setFilterUnread(!filterUnread)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${filterUnread ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                filterUnread
+                  ? "bg-indigo-600 text-white border-indigo-600"
+                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+              }`}
             >
               <IconEyeOff size={14} />{" "}
               {filterUnread ? "Solo No Leídos" : "Filtrar No Leídos"}
             </button>
             <button
               onClick={() => setFilterMentioned(!filterMentioned)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${filterMentioned ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                filterMentioned
+                  ? "bg-indigo-600 text-white border-indigo-600"
+                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+              }`}
             >
               <IconAtSign size={14} />{" "}
               {filterMentioned ? "Mis menciones" : "Filtrar Menciones"}
@@ -866,6 +1029,7 @@ export default function GlobalCommentsViewer({
               editingDateId={editingDateId}
               setEditingDateId={setEditingDateId}
               isGlobalView={!giraId}
+              onPreviewImage={setPreviewImage} // Propagar función de zoom
             />
           ))}
         </div>
@@ -887,7 +1051,7 @@ export default function GlobalCommentsViewer({
                       }}
                       className="px-3 py-2 text-sm hover:bg-indigo-50 cursor-pointer flex items-center gap-2 text-slate-700"
                     >
-                      <IconUser size={14} className="text-slate-400" />
+                      <UserAvatar user={u} size="sm" />
                       {u.nombre} {u.apellido}
                     </div>
                   ))
@@ -909,30 +1073,62 @@ export default function GlobalCommentsViewer({
                 <IconX size={16} />
               </button>
             </div>
-            <form onSubmit={handleReplySubmit} className="flex gap-2 relative">
-              <input
-                ref={replyInputRef}
-                autoFocus
-                type="text"
-                className="flex-1 border border-slate-300 p-2.5 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                placeholder="Escribe tu respuesta... (Usa @ para mencionar)"
-                value={newResponse}
-                onChange={handleInputChange}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setShowMentions(false);
-                }}
-              />
-              <button
-                disabled={sending}
-                className="bg-indigo-600 text-white px-4 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center min-w-[50px]"
+            <div className="flex gap-2 items-start">
+              {/* Avatar propio en input */}
+              <div className="mt-1">
+                <UserAvatar user={currentUserData || user} size="md" />
+              </div>
+              <form
+                onSubmit={handleReplySubmit}
+                className="flex gap-2 relative flex-1"
               >
-                {sending ? (
-                  <IconLoader className="animate-spin" size={20} />
-                ) : (
-                  <IconSend size={20} />
-                )}
+                <input
+                  ref={replyInputRef}
+                  autoFocus
+                  type="text"
+                  className="flex-1 border border-slate-300 p-2.5 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  placeholder="Escribe tu respuesta... (Usa @ para mencionar)"
+                  value={newResponse}
+                  onChange={handleInputChange}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setShowMentions(false);
+                  }}
+                />
+                <button
+                  disabled={sending}
+                  className="bg-indigo-600 text-white px-4 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center min-w-[50px]"
+                >
+                  {sending ? (
+                    <IconLoader className="animate-spin" size={20} />
+                  ) : (
+                    <IconSend size={20} />
+                  )}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* --- LIGHTBOX (ZOOM IMAGEN) --- */}
+        {previewImage && (
+          <div
+            className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4 animate-in fade-in duration-200 backdrop-blur-sm"
+            onClick={() => setPreviewImage(null)}
+          >
+            <div className="relative max-w-full max-h-full">
+              <button
+                onClick={() => setPreviewImage(null)}
+                className="absolute -top-10 right-0 text-white/80 hover:text-white"
+              >
+                <IconX size={32} />
               </button>
-            </form>
+              <img
+                src={previewImage}
+                alt="Vista previa"
+                className="max-h-[85vh] max-w-[90vw] object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-200"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
           </div>
         )}
       </div>
