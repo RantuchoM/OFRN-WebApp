@@ -840,27 +840,34 @@ const ProtectedApp = () => {
             <NewsModal supabase={supabase} />
 
             {/* BOTÓN DE COMENTARIOS (AVISOS) */}
-            <button
-              onClick={() => setGlobalCommentsOpen(true)}
-              className={`relative p-2 rounded-full transition-all duration-200 ${globalCommentsOpen ? "bg-indigo-50 text-indigo-600" : "text-slate-500 hover:text-indigo-600 hover:bg-slate-100"}`}
-              title="Avisos y Pendientes"
-            >
-              <IconMessageSquare size={22} />
+            {/* Solo se renderiza si isManagement es true */}
+            {isManagement && (
+              <button
+                onClick={() => setGlobalCommentsOpen(true)}
+                className={`relative p-2 rounded-full transition-all duration-200 ${
+                  globalCommentsOpen
+                    ? "bg-indigo-50 text-indigo-600"
+                    : "text-slate-500 hover:text-indigo-600 hover:bg-slate-100"
+                }`}
+                title="Avisos y Pendientes"
+              >
+                <IconMessageSquare size={22} />
 
-              {/* BADGE TOTAL (Azul - General) */}
-              {commentCounts.total > 0 && (
-                <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 h-4 min-w-[16px] px-1 bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full shadow-sm border border-white z-10">
-                  {commentCounts.total > 9 ? "9+" : commentCounts.total}
-                </span>
-              )}
+                {/* BADGE TOTAL (Azul - General) */}
+                {commentCounts.total > 0 && (
+                  <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 h-4 min-w-[16px] px-1 bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full shadow-sm border border-white z-10">
+                    {commentCounts.total > 9 ? "9+" : commentCounts.total}
+                  </span>
+                )}
 
-              {/* BADGE MENCIONES (Rojo - Importante) */}
-              {commentCounts.mentioned > 0 && (
-                <span className="absolute bottom-0 right-0 transform translate-x-1 translate-y-1 h-4 min-w-[16px] px-1 bg-red-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full shadow-sm border border-white animate-pulse z-20">
-                  @{commentCounts.mentioned}
-                </span>
-              )}
-            </button>
+                {/* BADGE MENCIONES (Rojo - Importante) */}
+                {commentCounts.mentioned > 0 && (
+                  <span className="absolute bottom-0 right-0 transform translate-x-1 translate-y-1 h-4 min-w-[16px] px-1 bg-red-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full shadow-sm border border-white animate-pulse z-20">
+                    @{commentCounts.mentioned}
+                  </span>
+                )}
+              </button>
+            )}
 
             <button
               onClick={() => setCalendarModalOpen(true)}

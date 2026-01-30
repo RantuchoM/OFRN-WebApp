@@ -3,7 +3,7 @@ import {
   IconCheck,
   IconX,
   IconLoader,
-  IconMessageSquare,
+  IconBulb,
   IconTrash,
   IconFilter,
   IconSearch,
@@ -165,7 +165,7 @@ export default function FeedbackAdmin({ supabase }) {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 shrink-0">
           <div>
             <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-              <IconMessageSquare className="text-indigo-600" />
+              <IconBulb className="text-indigo-600" />
               Centro de Feedback
             </h1>
             <p className="text-slate-500 text-sm">Gestiona reportes de error y sugerencias del equipo.</p>
@@ -235,7 +235,7 @@ export default function FeedbackAdmin({ supabase }) {
              </div>
           ) : filteredItems.length === 0 ? (
              <div className="text-center py-20 bg-white rounded-xl border border-dashed border-slate-300 text-slate-400">
-                <IconMessageSquare size={48} className="mx-auto mb-4 opacity-20" />
+                <IconBulb size={48} className="mx-auto mb-4 opacity-20" />
                 <p>No se encontraron items con los filtros actuales.</p>
              </div>
           ) : (
