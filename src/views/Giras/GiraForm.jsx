@@ -35,7 +35,7 @@ const SourceMultiSelect = ({
   options,
   selectedSet,
   onToggle,
-  color = "indigo",
+  color = "fixed-indigo",
   icon: Icon,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -244,7 +244,7 @@ export default function GiraForm({
 
   const StatusIndicator = ({ field }) => {
     if (savingField === field)
-      return <IconLoader size={14} className="animate-spin text-indigo-600" />;
+      return <IconLoader size={14} className="animate-spin text-fixed-indigo-600" />;
     return null;
   };
 
@@ -531,8 +531,8 @@ export default function GiraForm({
     <div
       className={`p-4 rounded-xl border shadow-sm animate-in fade-in zoom-in-95 duration-200 relative ${
         isNew
-          ? "bg-indigo-50 border-indigo-200"
-          : "bg-white ring-2 ring-indigo-500 border-indigo-500 z-10"
+          ? "bg-fixed-indigo-50 border-fixed-indigo-200"
+          : "bg-white ring-2 ring-fixed-indigo-500 border-fixed-indigo-500 z-10"
       }`}
     >
       {/* INDICADOR GLOBAL DE GUARDADO */}
@@ -540,7 +540,7 @@ export default function GiraForm({
         <div
           className={`absolute top-2 right-14 flex items-center gap-2 text-[10px] font-bold uppercase transition-opacity duration-300 ${
             globalSaving
-              ? "opacity-100 text-indigo-600"
+              ? "opacity-100 text-fixed-indigo-600"
               : "opacity-0 text-slate-400"
           }`}
         >
@@ -548,8 +548,8 @@ export default function GiraForm({
         </div>
       )}
 
-      <div className="flex justify-between items-center mb-4 border-b border-indigo-100 pb-2">
-        <h3 className="text-indigo-900 font-bold flex items-center gap-2">
+      <div className="flex justify-between items-center mb-4 border-b border-fixed-indigo-100 pb-2">
+        <h3 className="text-fixed-indigo-900 font-bold flex items-center gap-2">
           {isNew ? (
             <>
               {" "}
@@ -565,7 +565,7 @@ export default function GiraForm({
         {!isNew && !isShifting && (
           <button
             onClick={() => setIsShifting(true)}
-            className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full border border-indigo-100 hover:bg-indigo-100 flex items-center gap-1 transition-colors"
+            className="text-xs bg-fixed-indigo-50 text-fixed-indigo-700 px-3 py-1 rounded-full border border-fixed-indigo-100 hover:bg-fixed-indigo-100 flex items-center gap-1 transition-colors"
           >
             <IconCalendar size={14} /> Trasladar Gira
           </button>
@@ -612,7 +612,7 @@ export default function GiraForm({
             </label>
             <input
               type="text"
-              className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white font-medium text-lg"
+              className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-fixed-indigo-500 outline-none bg-white font-medium text-lg"
               value={formData.nombre_gira}
               onChange={(e) =>
                 setFormData({ ...formData, nombre_gira: e.target.value })
@@ -629,7 +629,7 @@ export default function GiraForm({
             </label>
             <input
               type="text"
-              className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-sm"
+              className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-fixed-indigo-500 outline-none bg-white text-sm"
               placeholder="Ej. Ciclo 2025"
               value={formData.subtitulo || ""}
               onChange={(e) =>
@@ -698,7 +698,7 @@ export default function GiraForm({
                 // 2. Guardar en Base de Datos
                 handleAutoSave("estado", newVal);
               }}
-              className={`w-full p-2 pl-9 rounded-lg border appearance-none outline-none font-medium focus:ring-2 focus:ring-indigo-500 ${
+              className={`w-full p-2 pl-9 rounded-lg border appearance-none outline-none font-medium focus:ring-2 focus:ring-fixed-indigo-500 ${
                 formData.estado === "Vigente"
                   ? "bg-green-50 border-green-200 text-green-700"
                   : formData.estado === "Pausada"
@@ -752,7 +752,7 @@ export default function GiraForm({
               return (
                 <span
                   key={locId}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-xs font-bold uppercase animate-in zoom-in-95"
+                  className="inline-flex items-center gap-1.5 px-2 py-1 bg-fixed-indigo-50 text-fixed-indigo-700 border border-fixed-indigo-100 rounded text-xs font-bold uppercase animate-in zoom-in-95"
                 >
                   {locName}
                   <button
@@ -769,9 +769,9 @@ export default function GiraForm({
       </div>
 
       {/* PERSONAL */}
-      <div className="mt-6 pt-4 border-t border-indigo-100 grid grid-cols-1 md:grid-cols-12 gap-6">
+      <div className="mt-6 pt-4 border-t border-fixed-indigo-100 grid grid-cols-1 md:grid-cols-12 gap-6">
         <div className="md:col-span-7 space-y-3">
-          <h4 className="text-sm font-bold text-indigo-900 flex items-center gap-2">
+          <h4 className="text-sm font-bold text-fixed-indigo-900 flex items-center gap-2">
             <IconLayers size={16} /> Configuración de Personal
           </h4>
           <div className="grid grid-cols-3 gap-2">
@@ -791,7 +791,7 @@ export default function GiraForm({
             />
             <SourceMultiSelect
               title="Familias"
-              color="indigo"
+              color="fixed-indigo"
               icon={IconUsers}
               options={FAMILIES.map((f) => ({ value: f, label: f }))}
               selectedSet={
@@ -831,7 +831,7 @@ export default function GiraForm({
                     s.tipo === "EXCL_ENSAMBLE"
                       ? "border-red-200 text-red-700"
                       : s.tipo === "FAMILIA"
-                      ? "border-indigo-200 text-indigo-700"
+                      ? "border-fixed-indigo-200 text-fixed-indigo-700"
                       : "border-emerald-200 text-emerald-700"
                   }`}
                 >
@@ -852,7 +852,7 @@ export default function GiraForm({
         </div>
 
         <div className="md:col-span-5">
-          <h4 className="text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2">
+          <h4 className="text-sm font-bold text-fixed-indigo-900 mb-2 flex items-center gap-2">
             <IconUsers size={16} /> Staff Artístico
           </h4>
           <div className="flex flex-col gap-2 p-3 rounded-lg border bg-fuchsia-50/30 border-fuchsia-100">
@@ -903,7 +903,7 @@ export default function GiraForm({
         <div
           className={`mt-6 p-6 rounded-xl shadow-sm border transition-colors ${
             formData.token_publico
-              ? "bg-indigo-50/50 border-indigo-200"
+              ? "bg-fixed-indigo-50/50 border-fixed-indigo-200"
               : "bg-slate-50 border-slate-200"
           }`}
         >
@@ -913,7 +913,7 @@ export default function GiraForm({
                 <IconLink
                   className={
                     formData.token_publico
-                      ? "text-indigo-600"
+                      ? "text-fixed-indigo-600"
                       : "text-slate-400"
                   }
                 />
@@ -927,7 +927,7 @@ export default function GiraForm({
             <button
               onClick={togglePublicLink}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                formData.token_publico ? "bg-indigo-600" : "bg-slate-300"
+                formData.token_publico ? "bg-fixed-indigo-600" : "bg-slate-300"
               }`}
             >
               <span
@@ -941,12 +941,12 @@ export default function GiraForm({
           {formData.token_publico && (
             <div className="mt-4 animate-in fade-in slide-in-from-top-2">
               <div className="flex gap-2">
-                <div className="flex-1 bg-white border border-indigo-200 rounded-lg px-3 py-2 text-sm text-slate-600 font-mono truncate select-all">
+                <div className="flex-1 bg-white border border-fixed-indigo-200 rounded-lg px-3 py-2 text-sm text-slate-600 font-mono truncate select-all">
                   {`${window.location.origin}/share/${formData.token_publico}`}
                 </div>
                 <button
                   onClick={copyLink}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm"
+                  className="bg-fixed-indigo-600 hover:bg-fixed-indigo-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm"
                 >
                   <IconCopy size={16} /> Copiar
                 </button>
@@ -963,7 +963,7 @@ export default function GiraForm({
       )}
 
       {/* FOOTER */}
-      <div className="flex justify-end gap-2 mt-8 pt-3 border-t border-indigo-100/50">
+      <div className="flex justify-end gap-2 mt-8 pt-3 border-t border-fixed-indigo-100/50">
         <button
           onClick={onCancel}
           disabled={loading}
@@ -977,7 +977,7 @@ export default function GiraForm({
           <button
             onClick={onSave}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-bold shadow-sm disabled:opacity-70 disabled:cursor-not-allowed transition-all"
+            className="flex items-center gap-2 px-4 py-1.5 rounded bg-fixed-indigo-600 text-white hover:bg-fixed-indigo-700 text-sm font-bold shadow-sm disabled:opacity-70 disabled:cursor-not-allowed transition-all"
           >
             {loading ? (
               <IconLoader className="animate-spin" size={16} />

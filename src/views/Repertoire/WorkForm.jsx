@@ -15,6 +15,9 @@ import {
   IconTrash,
   IconUnderline,
   IconYoutube,
+  IconCalendar, // Nuevo icono importado
+  IconFileText, // Nuevo icono importado
+  IconMessageSquare // Nuevo icono importado
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { calculateInstrumentation } from "../../utils/instrumentation";
@@ -152,6 +155,7 @@ export default function WorkForm({
     instrumentacion: "",
     anio: "",
     estado: "Oficial",
+    fecha_esperada: "", // Nuevo campo
     comentarios: "",
     observaciones: "",
   });
@@ -201,6 +205,7 @@ export default function WorkForm({
           ? formatSecondsToTime(data.duracion_segundos)
           : "",
         anio: data.anio_composicion || "",
+        fecha_esperada: data.fecha_esperada || "",
       });
       setSelectedComposers(
         data.obras_compositores
@@ -280,7 +285,10 @@ export default function WorkForm({
         payload["duracion_segundos"] = inputToSeconds(value);
       else if (field === "anio")
         payload["anio_composicion"] = value ? parseInt(value) : null;
+      else if (field === "fecha_esperada")
+        payload["fecha_esperada"] = value || null;
       else payload[field] = value === "" ? null : value;
+      
       await supabase.from("obras").update(payload).eq("id", formData.id);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
@@ -327,7 +335,6 @@ export default function WorkForm({
     if (!targetId) return;
     setIsSaving(true);
     try {
-      // 1. Manejo de eliminaciones
       if (!overrideId) {
         const activeIds = newPartsList.filter((p) => p.id).map((p) => p.id);
         const { data: currentParts } = await supabase
@@ -346,7 +353,6 @@ export default function WorkForm({
         }
       }
 
-      // 2. SEPARACIÓN CLAVE: Diferenciar Insert de Update
       const toUpdate = [];
       const toInsert = [];
 
@@ -358,7 +364,6 @@ export default function WorkForm({
           nota_organico: p.nota_organico,
           url_archivo: JSON.stringify(p.links || []),
         };
-        // Si tiene ID va a update, si no, va a insert (sin la llave id)
         if (p.id) {
           row.id = p.id;
           toUpdate.push(row);
@@ -368,7 +373,6 @@ export default function WorkForm({
       });
 
       let results = [];
-      // 3. Ejecutar por separado para evitar el error de columna Identity
       if (toUpdate.length > 0) {
         const { data: updData } = await supabase
           .from("obras_particellas")
@@ -385,7 +389,6 @@ export default function WorkForm({
         if (insData) results = [...results, ...insData];
       }
 
-      // 4. Sincronizar estado local con IDs reales para no crear duplicados luego
       if (results.length > 0 && !overrideId) {
         const merged = newPartsList.map((p) => {
           const dbMatch = results.find(
@@ -412,6 +415,7 @@ export default function WorkForm({
       setIsSaving(false);
     }
   };
+
   const handleCreateInitial = async () => {
     if (!formData.titulo) return alert("Título requerido");
     setIsSaving(true);
@@ -421,6 +425,7 @@ export default function WorkForm({
       anio_composicion: formData.anio ? parseInt(formData.anio) : null,
       instrumentacion: calculateInstrumentation(particellas),
       estado: formData.estado,
+      fecha_esperada: formData.estado === 'Solicitud' ? formData.fecha_esperada : null,
       comentarios: formData.comentarios,
       observaciones: formData.observaciones,
       link_drive: formData.link_drive,
@@ -566,20 +571,38 @@ export default function WorkForm({
             className="min-h-[58px]"
           />
         </div>
-        <div>
-          <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
-            Estado
-          </label>
-          <select
-            className="w-full border p-2 rounded-lg font-bold text-sm h-[58px] bg-white"
-            value={formData.estado}
-            onChange={(e) => updateField("estado", e.target.value)}
-          >
-            <option value="Oficial">Oficial</option>
-            <option value="Solicitud">Solicitud</option>
-          </select>
+        
+        {/* LOGICA DE ESTADO Y FECHA */}
+        {/* LOGICA DE ESTADO Y FECHA */}
+        <div className={formData.estado === "Solicitud" ? "flex flex-col gap-2" : ""}>
+          <div className="w-full">
+            <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
+              Estado
+            </label>
+            <select
+              className="w-full border p-2 rounded-lg font-bold text-sm h-[58px] bg-white outline-none focus:ring-2 focus:ring-indigo-500"
+              value={formData.estado}
+              onChange={(e) => updateField("estado", e.target.value)}
+            >
+              <option value="Oficial">Oficial</option>
+              <option value="Solicitud">Solicitud</option>
+            </select>
+          </div>
+          
+          {formData.estado === "Solicitud" && (
+            <div className="w-full animate-in slide-in-from-top-2 fade-in">
+              <label className="text-[10px] font-bold uppercase text-amber-600 mb-1 flex items-center gap-1 truncate">
+                <IconCalendar size={10} /> F. Esperada
+              </label>
+              <input 
+                type="date"
+                className="w-full border border-amber-200 bg-amber-50 text-amber-800 p-2 rounded-lg text-xs h-[58px] outline-none focus:ring-2 focus:ring-amber-500"
+                value={formData.fecha_esperada || ""}
+                onChange={(e) => updateField("fecha_esperada", e.target.value)}
+              />
+            </div>
+          )}
         </div>
-
         <div className="md:col-span-2">
           <label className="text-[10px] font-bold uppercase text-indigo-600 mb-1 flex items-center gap-1">
             <IconUser size={12} /> Compositores
@@ -679,6 +702,32 @@ export default function WorkForm({
             value={formData.link_youtube}
             onChange={(e) => updateField("link_youtube", e.target.value)}
             placeholder="Spotify / Youtube..."
+          />
+        </div>
+      </div>
+
+      {/* --- SECCIÓN NUEVA: OBSERVACIONES Y COMENTARIOS --- */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
+        <div>
+          <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-1">
+            <IconFileText size={12}/> Observaciones (Públicas)
+          </label>
+          <WysiwygEditor
+            value={formData.observaciones}
+            onChange={(v) => updateField("observaciones", v)}
+            placeholder="Notas sobre ediciones, versiones, etc..."
+            className="min-h-[100px] border-slate-200"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex items-center gap-1">
+            <IconMessageSquare size={12}/> Comentarios (Internos)
+          </label>
+          <textarea
+            className="w-full border border-slate-200 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 min-h-[100px] resize-none bg-slate-50"
+            value={formData.comentarios || ""}
+            onChange={(e) => updateField("comentarios", e.target.value)}
+            placeholder="Notas privadas para la gestión..."
           />
         </div>
       </div>

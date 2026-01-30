@@ -1,7 +1,10 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
+:root {
+  /* Color Indigo por defecto en formato R G B */
+  --theme-primary: 79, 70, 229; 
+}
 /* Estilos base opcionales */
 body {
   @apply bg-slate-50 text-slate-800;

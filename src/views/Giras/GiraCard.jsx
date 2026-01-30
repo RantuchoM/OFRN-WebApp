@@ -49,9 +49,9 @@ export default function GiraCard({
     switch (tipo) {
       case "Sinfónico":
         return {
-          border: "bg-indigo-500",
-          bg: "bg-indigo-50/50",
-          ring: "ring-indigo-200",
+          border: "bg-fixed-indigo-500",
+          bg: "bg-fixed-indigo-50/50",
+          ring: "ring-fixed-indigo-200",
         };
       case "Ensamble":
         return {
@@ -123,7 +123,7 @@ export default function GiraCard({
     let output = [];
     if (cleanNames(directors).length > 0)
       output.push(
-        <span key="dir" className="font-semibold text-indigo-700">
+        <span key="dir" className="font-semibold text-fixed-indigo-700">
           Dir: {cleanNames(directors).join(" | ")}
         </span>
       );
@@ -293,7 +293,7 @@ export default function GiraCard({
         ${
           isHighlighted
             ? `!border-transparent ring-4 ${colors.ring} shadow-xl z-40` // QUITAMOS 'scale-[1.01]'
-            : "bg-white border-slate-200 shadow-sm hover:border-indigo-300 hover:shadow-md"
+            : "bg-white border-slate-200 shadow-sm hover:border-fixed-indigo-300 hover:shadow-md"
         }
       `}
     >

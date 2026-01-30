@@ -141,7 +141,7 @@ export default function GirasListControls({
               onClick={toggleSinfonicoGroup}
               className={`px-2.5 py-0.5 rounded text-[11px] font-bold transition-all ${
                 isSinfonicoActive
-                  ? "bg-white text-indigo-600 shadow-sm border border-slate-100"
+                  ? "bg-white text-fixed-indigo-600 shadow-sm border border-slate-100"
                   : "text-slate-400 hover:text-slate-600"
               }`}
             >

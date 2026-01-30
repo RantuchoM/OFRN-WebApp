@@ -36,7 +36,7 @@ import ManualTrigger from "./components/manual/ManualTrigger";
 import { useManual } from "./context/ManualContext";
 import NotificationsListener from "./components/ui/NotificationsListener";
 import { Toaster } from "sonner";
-
+import ThemeController from './components/ui/ThemeController';
 import {
   IconLayoutDashboard,
   IconDownload,
@@ -980,6 +980,7 @@ const AppContent = () => {
 export default function App() {
   return (
     <AuthProvider>
+      <ThemeController />
       <ManualProvider>
         <Routes>
           <Route path="/share/:token" element={<PublicLinkHandler />} />

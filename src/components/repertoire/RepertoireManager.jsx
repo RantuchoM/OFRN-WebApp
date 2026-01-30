@@ -72,10 +72,10 @@ const SoloistSelect = ({ currentId, musicians, onChange }) => {
       {!isOpen ? (
         <div
           onClick={() => setIsOpen(true)}
-          className="w-full text-[10px] text-slate-700 truncate cursor-pointer hover:bg-indigo-50 p-1 rounded border border-transparent hover:border-indigo-100 min-h-[24px] flex items-center"
+          className="w-full text-[10px] text-slate-700 truncate cursor-pointer hover:bg-fixed-indigo-50 p-1 rounded border border-transparent hover:border-fixed-indigo-100 min-h-[24px] flex items-center"
         >
           {selectedMusician ? (
-            <span className="font-bold text-indigo-700">
+            <span className="font-bold text-fixed-indigo-700">
               {selectedMusician.apellido}, {selectedMusician.nombre}
             </span>
           ) : (
@@ -83,7 +83,7 @@ const SoloistSelect = ({ currentId, musicians, onChange }) => {
           )}
         </div>
       ) : (
-        <div className="absolute top-0 left-0 w-64 bg-white border border-indigo-200 shadow-xl rounded z-50 animate-in zoom-in-95 duration-100">
+        <div className="absolute top-0 left-0 w-64 bg-white border border-fixed-indigo-200 shadow-xl rounded z-50 animate-in zoom-in-95 duration-100">
           <input
             type="text"
             autoFocus
@@ -109,9 +109,9 @@ const SoloistSelect = ({ currentId, musicians, onChange }) => {
                   onChange(m.id);
                   setIsOpen(false);
                 }}
-                className={`p-2 text-xs cursor-pointer hover:bg-indigo-50 flex justify-between ${
+                className={`p-2 text-xs cursor-pointer hover:bg-fixed-indigo-50 flex justify-between ${
                   currentId === m.id
-                    ? "bg-indigo-50 font-bold text-indigo-700"
+                    ? "bg-fixed-indigo-50 font-bold text-fixed-indigo-700"
                     : "text-slate-600"
                 }`}
               >
@@ -281,7 +281,7 @@ export default function RepertoireManager({
         {selectedMusicians.map((m) => (
           <div
             key={m.id}
-            className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full text-[9px] font-bold border border-indigo-200"
+            className="flex items-center gap-1 bg-fixed-indigo-100 text-fixed-indigo-700 px-1.5 py-0.5 rounded-full text-[9px] font-bold border border-fixed-indigo-200"
           >
             {/* Cambiamos m.apellido por m.apellido, m.nombre y aumentamos el max-w */}
             <span className="truncate max-w-[120px]">
@@ -303,12 +303,12 @@ export default function RepertoireManager({
             {!isOpen ? (
               <button
                 onClick={() => setIsOpen(true)}
-                className="text-[10px] text-slate-400 hover:text-indigo-600 p-1 italic"
+                className="text-[10px] text-slate-400 hover:text-fixed-indigo-600 p-1 italic"
               >
                 + Añadir
               </button>
             ) : (
-              <div className="absolute top-0 left-0 w-64 bg-white border border-indigo-200 shadow-xl rounded z-50">
+              <div className="absolute top-0 left-0 w-64 bg-white border border-fixed-indigo-200 shadow-xl rounded z-50">
                 <input
                   type="text"
                   autoFocus
@@ -327,7 +327,7 @@ export default function RepertoireManager({
                         setSearch("");
                         setIsOpen(false);
                       }}
-                      className="p-2 text-xs cursor-pointer hover:bg-indigo-50 flex justify-between"
+                      className="p-2 text-xs cursor-pointer hover:bg-fixed-indigo-50 flex justify-between"
                     >
                       <span>
                         {m.apellido}, {m.nombre}
@@ -934,14 +934,14 @@ export default function RepertoireManager({
             }`}
           >
             {/* HEADER BLOQUE */}
-            <div className="bg-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center h-10">
+            <div className="bg-fixed-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center h-10">
               <div className="flex items-center gap-2">
-                <IconMusic size={14} className="text-indigo-600" />
+                <IconMusic size={14} className="text-fixed-indigo-600" />
                 {editingBlock.id === rep.id ? (
                   <input
                     autoFocus
                     type="text"
-                    className="w-full text-xs p-1 border border-indigo-300 rounded outline-none"
+                    className="w-full text-xs p-1 border border-fixed-indigo-300 rounded outline-none"
                     value={editingBlock.nombre}
                     onChange={(e) =>
                       setEditingBlock({
@@ -971,11 +971,11 @@ export default function RepertoireManager({
 
                     {/* --- AQUÍ MOSTRAMOS EL ATRIL (si existe) --- */}
                     {userSeating && (
-                      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-white border border-indigo-200 rounded text-[10px] text-indigo-700 shadow-sm animate-in fade-in">
+                      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-white border border-fixed-indigo-200 rounded text-[10px] text-fixed-indigo-700 shadow-sm animate-in fade-in">
                         <span className="font-bold">
                           {userSeating.containerName}
                         </span>
-                        <span className="text-indigo-200">|</span>
+                        <span className="text-fixed-indigo-200">|</span>
                         <span className="font-medium">
                           Atril {userSeating.desk}
                         </span>
@@ -1029,7 +1029,7 @@ export default function RepertoireManager({
                             <button
                               onClick={() => moveWork(rep.id, item.id, -1)}
                               disabled={idx === 0}
-                              className="text-slate-300 hover:text-indigo-600 disabled:opacity-0 p-0.5"
+                              className="text-slate-300 hover:text-fixed-indigo-600 disabled:opacity-0 p-0.5"
                             >
                               <IconChevronDown
                                 size={8}
@@ -1042,7 +1042,7 @@ export default function RepertoireManager({
                             <button
                               onClick={() => moveWork(rep.id, item.id, 1)}
                               disabled={idx === rep.repertorio_obras.length - 1}
-                              className="text-slate-300 hover:text-indigo-600 disabled:opacity-0 p-0.5"
+                              className="text-slate-300 hover:text-fixed-indigo-600 disabled:opacity-0 p-0.5"
                             >
                               <IconChevronDown size={8} />
                             </button>
@@ -1148,7 +1148,7 @@ export default function RepertoireManager({
                                 return m ? (
                                   <span
                                     key={id}
-                                    className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 truncate max-w-[100px]"
+                                    className="text-[10px] font-bold text-fixed-indigo-700 bg-fixed-indigo-50 px-1.5 py-0.5 rounded border border-fixed-indigo-100 truncate max-w-[100px]"
                                   >
                                     {m.apellido}, {m.nombre[0]}.
                                   </span>
@@ -1196,8 +1196,8 @@ export default function RepertoireManager({
                             <div
                               className={`flex items-center justify-between px-2 py-1 rounded-full border text-[10px] font-medium truncate transition-all ${
                                 item.id_arco_seleccionado
-                                  ? "bg-indigo-50 border-indigo-200 text-indigo-700 group-hover:border-indigo-300"
-                                  : "bg-white border-slate-200 text-slate-400 border-dashed group-hover:border-indigo-300 group-hover:text-indigo-400"
+                                  ? "bg-fixed-indigo-50 border-fixed-indigo-200 text-fixed-indigo-700 group-hover:border-fixed-indigo-300"
+                                  : "bg-white border-slate-200 text-slate-400 border-dashed group-hover:border-fixed-indigo-300 group-hover:text-fixed-indigo-400"
                               }`}
                             >
                               <span className="truncate w-full text-center">
@@ -1261,7 +1261,7 @@ export default function RepertoireManager({
                               }
                               target="_blank"
                               rel="noreferrer"
-                              className="shrink-0 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors"
+                              className="shrink-0 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-fixed-indigo-600 hover:bg-fixed-indigo-50 rounded-full transition-colors"
                               title="Ver carpeta en Drive"
                             >
                               <IconLink size={14} />
@@ -1302,7 +1302,7 @@ export default function RepertoireManager({
                             <>
                               <button
                                 onClick={() => openEditModal(item)}
-                                className="text-slate-300 hover:text-indigo-600 p-1"
+                                className="text-slate-300 hover:text-fixed-indigo-600 p-1"
                               >
                                 <IconEdit size={12} />
                               </button>
@@ -1351,7 +1351,7 @@ export default function RepertoireManager({
                     setActiveRepertorioId(rep.id);
                     setIsAddModalOpen(true);
                   }}
-                  className="w-full py-1 text-slate-400 hover:text-indigo-600 text-[10px] font-bold uppercase flex justify-center gap-1 hover:bg-slate-100"
+                  className="w-full py-1 text-slate-400 hover:text-fixed-indigo-600 text-[10px] font-bold uppercase flex justify-center gap-1 hover:bg-slate-100"
                 >
                   <IconPlus size={10} /> Agregar Obra
                 </button>
@@ -1374,7 +1374,7 @@ export default function RepertoireManager({
           {isEditor && (
             <button
               onClick={addRepertoireBlock}
-              className="bg-indigo-600 text-white px-3 py-2 rounded text-sm font-bold flex items-center gap-2"
+              className="bg-fixed-indigo-600 text-white px-3 py-2 rounded text-sm font-bold flex items-center gap-2"
             >
               <IconPlus size={16} /> Bloque
             </button>
@@ -1402,7 +1402,7 @@ export default function RepertoireManager({
                 type="text"
                 placeholder="Compositor..."
                 autoFocus
-                className="w-full p-1.5 border rounded text-xs outline-none focus:border-indigo-500"
+                className="w-full p-1.5 border rounded text-xs outline-none focus:border-fixed-indigo-500"
                 value={filters.compositor}
                 onChange={(e) =>
                   setFilters({ ...filters, compositor: e.target.value })
@@ -1411,7 +1411,7 @@ export default function RepertoireManager({
               <input
                 type="text"
                 placeholder="Arreglador..."
-                className="w-full p-1.5 border rounded text-xs outline-none focus:border-indigo-500"
+                className="w-full p-1.5 border rounded text-xs outline-none focus:border-fixed-indigo-500"
                 value={filters.arreglador}
                 onChange={(e) =>
                   setFilters({ ...filters, arreglador: e.target.value })
@@ -1425,7 +1425,7 @@ export default function RepertoireManager({
                 <input
                   type="text"
                   placeholder="Título..."
-                  className="w-full pl-7 p-1.5 border rounded text-xs outline-none focus:border-indigo-500"
+                  className="w-full pl-7 p-1.5 border rounded text-xs outline-none focus:border-fixed-indigo-500"
                   value={filters.titulo}
                   onChange={(e) =>
                     setFilters({ ...filters, titulo: e.target.value })
@@ -1437,14 +1437,14 @@ export default function RepertoireManager({
                   setIsAddModalOpen(false);
                   openCreateModal();
                 }}
-                className="bg-indigo-600 text-white px-3 rounded text-xs font-bold hover:bg-indigo-700 flex justify-center items-center gap-1"
+                className="bg-fixed-indigo-600 text-white px-3 rounded text-xs font-bold hover:bg-fixed-indigo-700 flex justify-center items-center gap-1"
               >
                 <IconPlus size={12} /> Crear Solicitud
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
               {loadingLibrary ? (
-                <div className="p-8 text-center text-indigo-600">
+                <div className="p-8 text-center text-fixed-indigo-600">
                   <IconLoader className="animate-spin inline" />
                 </div>
               ) : (
@@ -1463,7 +1463,7 @@ export default function RepertoireManager({
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {filteredLibrary.map((w) => (
-                      <tr key={w.id} className="hover:bg-indigo-50 group">
+                      <tr key={w.id} className="hover:bg-fixed-indigo-50 group">
                         <td className="p-2 text-slate-600 font-medium truncate">
                           {w.compositor_full}
                         </td>
@@ -1501,7 +1501,7 @@ export default function RepertoireManager({
                         <td className="p-2 text-right">
                           <button
                             onClick={() => addWorkToBlock(w.id)}
-                            className="bg-white border border-indigo-200 text-indigo-600 px-2 py-0.5 rounded font-bold hover:bg-indigo-600 hover:text-white shadow-sm transition-colors text-[10px]"
+                            className="bg-white border border-fixed-indigo-200 text-fixed-indigo-600 px-2 py-0.5 rounded font-bold hover:bg-fixed-indigo-600 hover:text-white shadow-sm transition-colors text-[10px]"
                           >
                             Seleccionar
                           </button>

@@ -11,7 +11,7 @@ export const calculateInstrumentation = (parts) => {
     hn: { count: 0, notes: [] },
     tpt: { count: 0, notes: [] },
     tbn: { count: 0, notes: [] },
-    tba: { count: 0, notes: [] },
+    tba: { count: 0, notes: [] }, // Tuba
     timp: false,
     perc: { count: 0, notes: [] },
     str: false,
@@ -29,12 +29,24 @@ export const calculateInstrumentation = (parts) => {
     const baseName = rawBaseName.toLowerCase();
     const note = p.nota_organico ? p.nota_organico.trim() : null;
 
+    // --- 1. EXCLUIR DIRECTOR Y PARTITURAS GENERALES ---
+    if (
+      baseName.includes("director") ||
+      baseName.includes("conductor") ||
+      baseName.includes("score") ||
+      baseName.includes("partitura")
+    ) {
+      return; // Saltamos esta iteración, no se cuenta
+    }
+
     const add = (famKey) => {
       families[famKey].count++;
       if (note) families[famKey].notes.push(note);
     };
 
-    // Lógica de detección orquestal estándar
+    // --- LÓGICA DE DETECCIÓN ---
+
+    // Percusión y Timbales
     if (
       name.includes("perc timb") ||
       name.includes("perc timp") ||
@@ -50,6 +62,8 @@ export const calculateInstrumentation = (parts) => {
       baseName.includes("caja")
     ) {
       add("perc");
+
+      // Maderas
     } else if (baseName.includes("flaut") || baseName.includes("picc"))
       add("fl");
     else if (baseName.includes("oboe") || baseName.includes("corno ing"))
@@ -62,12 +76,17 @@ export const calculateInstrumentation = (parts) => {
       add("cl");
     else if (baseName.includes("fagot") || baseName.includes("contraf"))
       add("bn");
+    // Metales
     else if (baseName.includes("corno") || baseName.includes("trompa"))
       add("hn");
     else if (baseName.includes("trompet") || baseName.includes("fliscorno"))
       add("tpt");
     else if (baseName.includes("trombon") || baseName.includes("trombón"))
-      add("tbn"); //    else if (baseName.includes("tuba") || baseName.includes("bombard")) add("tba");
+      add("tbn");
+    // --- 2. TUBA DESCOMENTADA Y CORREGIDA ---
+    else if (baseName.includes("tuba") || baseName.includes("bombard"))
+      add("tba");
+    // Cuerdas, Arpa y Teclados
     else if (baseName.includes("arpa")) add("harp");
     else if (
       baseName.includes("piano") ||
@@ -78,6 +97,7 @@ export const calculateInstrumentation = (parts) => {
       add("key");
     else if (baseName.includes("viol") || baseName.includes("contrab"))
       families.str = true;
+    // Otros (No estándar)
     else {
       // Si no es estándar, lo sumamos a "others" usando el nombre original capitalizado
       const cleanName =
@@ -136,8 +156,6 @@ export const calculateInstrumentation = (parts) => {
 
   // Lógica final de retorno
   if (isStandardEmpty) {
-    // Si no hay orquesta estándar, devolvemos solo los otros (ej: "Saxo x4")
-    // Esto evita que empiece con "0.0.0.0" y se oculte en la vista
     return othersStr;
   }
 
@@ -145,11 +163,12 @@ export const calculateInstrumentation = (parts) => {
   let finalStr = standardStr
     .replace("0.0.0.0 - 0.0.0.0 - ", "")
     .replace("0.0.0.0 - 0.0.0.0", "");
+
   if (othersStr) {
     finalStr += ` + ${othersStr}`;
   }
 
-  return finalStr.replace(" + DIRECTOR").replace("undefined", "") || ""; // Si todo está vacío, devuelve string vacío
+  return finalStr || "";
 };
 
 export const calculateTotalDuration = (works) => {

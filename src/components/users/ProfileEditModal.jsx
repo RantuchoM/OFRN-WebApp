@@ -16,28 +16,32 @@ import {
   IconEye,
   IconClipboard,
   IconAlertTriangle,
+  IconEdit, // Asegúrate de importar este ícono
+  IconPalette // Agregamos ícono de paleta si lo tienes, si no usa IconEdit
 } from "../ui/Icons";
 import SearchableSelect from "../ui/SearchableSelect";
 
-// --- CONSTANTES DE ESTILO (MOVIDAS AFUERA PARA EVITAR REFERENCE ERROR) ---
+// --- CONSTANTES DE ESTILO ---
 const labelClass =
   "text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block ml-1";
 
+// Paleta base (puedes dejarla como referencia rápida)
 const AVATAR_COLORS = [
-  "#64748b",
-  "#ef4444",
-  "#f97316",
-  "#eab308",
-  "#22c55e",
-  "#06b6d4",
-  "#3b82f6",
-  "#8b5cf6",
-  "#ec4899",
+  "#64748b", // Slate
+  "#ef4444", // Red
+  "#f97316", // Orange
+  "#eab308", // Yellow
+  "#22c55e", // Green
+  "#06b6d4", // Cyan
+  "#3b82f6", // Blue
+  "#6366f1", // Indigo (Default)
+  "#8b5cf6", // Violet
+  "#ec4899", // Pink
+  "#f43f5e", // Rose
+  "#14b8a6", // Teal
 ];
 
 // --- UTILIDADES ---
-const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
 const mergeDniImages = async (frontFile, backFile) => {
   const loadImg = (file) =>
     new Promise((res) => {
@@ -180,6 +184,7 @@ export default function ProfileEditModal({
   };
 
   const handleNativeScan = async (e) => {
+    // ... (Tu código existente de escaneo) ...
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -231,6 +236,7 @@ export default function ProfileEditModal({
   };
 
   const processAndUpload = async (file, field) => {
+    // ... (Tu código existente de subida) ...
     if (!file) return;
     const isAvatar = field === "avatar_url";
     const bucket = isAvatar ? "avatars" : "musician-docs";
@@ -262,6 +268,7 @@ export default function ProfileEditModal({
   };
 
   const handlePaste = async (field) => {
+    // ... (Tu código existente de paste) ...
     try {
       const items = await navigator.clipboard.read();
       for (const item of items) {
@@ -291,14 +298,19 @@ export default function ProfileEditModal({
     setSaving(true);
     const now = new Date().toISOString();
     try {
+      // Al guardar, el ThemeController (que escucha la DB) actualizará el color automáticamente
       const { error } = await supabase
         .from("integrantes")
         .update({ ...formData, last_modified_at: now, last_verified_at: now })
         .eq("id", user.id);
       if (error) throw error;
+      if (formData.avatar_color) {
+        window.dispatchEvent(new CustomEvent('theme-changed', { detail: formData.avatar_color }));
+      }
       setIsDirty(false);
       if (onUpdate) onUpdate();
       onClose();
+      // No necesitamos location.reload(), el sistema es reactivo
       alert("✅ Verificado y Guardado");
     } catch (error) {
       alert("Error al guardar");
@@ -313,7 +325,7 @@ export default function ProfileEditModal({
     : null;
   const needsVerification = lastVerifiedYear !== currentYear;
 
-  // --- SUB-COMPONENTE INTERNO: DOC UPLOADER ---
+  // --- DOC UPLOADER (Tu código existente) ---
   const DocUploader = ({ label, field, value }) => {
     const [isOver, setIsOver] = useState(false);
     const isPdf = value?.toLowerCase().includes(".pdf");
@@ -491,11 +503,11 @@ export default function ProfileEditModal({
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Avatar Section */}
-              <div className="flex items-center gap-6 bg-indigo-50/30 p-4 rounded-[1.5rem]">
-                <div className="relative">
+              {/* Avatar Section & Color Picker */}
+              <div className="flex flex-col sm:flex-row items-center gap-6 bg-indigo-50/30 p-4 rounded-[1.5rem] border border-indigo-50">
+                <div className="relative shrink-0">
                   <div
-                    className="w-20 h-20 rounded-full shadow-inner overflow-hidden flex items-center justify-center border-4 border-white"
+                    className="w-24 h-24 rounded-full shadow-lg overflow-hidden flex items-center justify-center border-4 border-white transition-colors duration-300"
                     style={{
                       backgroundColor: previewUrl
                         ? "white"
@@ -508,18 +520,19 @@ export default function ProfileEditModal({
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      <IconUser size={32} className="text-white/90" />
+                      <IconUser size={40} className="text-white/90" />
                     )}
                   </div>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     className="absolute -bottom-1 -right-1 bg-indigo-600 text-white p-2 rounded-full shadow-lg border-2 border-white hover:scale-110 transition-transform"
+                    title="Subir foto"
                   >
                     {uploadingField === "avatar_url" ? (
                       <IconLoader size={12} className="animate-spin" />
                     ) : (
-                      <IconCamera size={12} />
+                      <IconCamera size={14} />
                     )}
                   </button>
                   <input
@@ -532,11 +545,35 @@ export default function ProfileEditModal({
                     }
                   />
                 </div>
-                <div className="flex-1">
+                
+                <div className="flex-1 w-full text-center sm:text-left">
                   <h2 className="font-black text-slate-800 text-lg uppercase tracking-tighter">
                     {user.nombre} {user.apellido}
                   </h2>
-                  <div className="flex gap-1 mt-3">
+                  <p className="text-[10px] text-slate-400 font-bold mb-3 uppercase tracking-wide">
+                    Personaliza tu color de tema
+                  </p>
+                  
+                  {/* SELECTOR DE COLORES MEJORADO */}
+                  <div className="flex flex-wrap gap-2 justify-center sm:justify-start items-center">
+                    {/* Botón Arcoíris (Selector Infinito) */}
+                    <label className="w-8 h-8 rounded-full cursor-pointer relative overflow-hidden ring-2 ring-slate-200 hover:scale-110 transition-transform bg-gradient-to-br from-red-500 via-green-500 to-blue-500 flex items-center justify-center shadow-sm" title="Elegir cualquier color">
+                      <input
+                        type="color"
+                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full p-0 border-0"
+                        value={formData.avatar_color}
+                        onChange={(e) =>
+                          setFormData({ ...formData, avatar_color: e.target.value })
+                        }
+                      />
+                      {/* Icono pequeño encima */}
+                      <IconEdit size={12} className="text-white drop-shadow-md pointer-events-none" />
+                    </label>
+
+                    {/* Separador vertical */}
+                    <div className="w-px h-6 bg-slate-300 mx-1"></div>
+
+                    {/* Colores Predefinidos */}
                     {AVATAR_COLORS.map((c) => (
                       <button
                         key={c}
@@ -544,15 +581,25 @@ export default function ProfileEditModal({
                         onClick={() =>
                           setFormData({ ...formData, avatar_color: c })
                         }
-                        className={`w-4 h-4 rounded-full transition-all ${formData.avatar_color === c ? "ring-2 ring-indigo-500 scale-110" : "hover:scale-110"}`}
+                        className={`w-6 h-6 rounded-full transition-all border border-white shadow-sm ${
+                          formData.avatar_color === c
+                            ? "ring-2 ring-offset-2 ring-indigo-500 scale-110"
+                            : "hover:scale-110 hover:shadow-md"
+                        }`}
                         style={{ backgroundColor: c }}
+                        title={c}
                       />
                     ))}
+                  </div>
+                  
+                  {/* Muestra el código HEX seleccionado */}
+                  <div className="mt-2 text-[9px] font-mono text-slate-400 bg-white/50 inline-block px-2 py-0.5 rounded border border-slate-100">
+                    {formData.avatar_color}
                   </div>
                 </div>
               </div>
 
-              {/* Inputs */}
+              {/* Resto de Inputs (Sin cambios mayores) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className={labelClass}>
@@ -582,7 +629,6 @@ export default function ProfileEditModal({
                 </div>
               </div>
 
-              {/* Domicilio */}
               <div className="space-y-4 p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100">
                 <div className="flex items-center gap-2 text-slate-800">
                   <IconMapPin size={16} className="text-indigo-500" />
@@ -613,7 +659,6 @@ export default function ProfileEditModal({
                 </div>
               </div>
 
-              {/* Documentación */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <IconFileText size={16} className="text-indigo-500" />
@@ -650,6 +695,10 @@ export default function ProfileEditModal({
                       ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                       : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100"
                   }`}
+                  style={
+                    // Aplicar el color elegido al botón de guardar para previsualizar el tema
+                    isDirty && !saving ? { backgroundColor: formData.avatar_color, borderColor: formData.avatar_color } : {}
+                  }
                 >
                   {saving ? (
                     <>
