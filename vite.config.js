@@ -63,4 +63,7 @@ export default defineConfig({
   define: {
     global: "window", // Polyfill adicional
   },
+  workbox: {
+    maximumFileSizeToCacheInBytes: 6000000, // Aumentamos a 6MB (el archivo pesa 5.28MB)
+  },
 });
