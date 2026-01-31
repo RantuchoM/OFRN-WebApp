@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "path";
 
-// Solución para __dirname en módulos ES (por si tu proyecto lo requiere)
+// Solución para __dirname en módulos ES
 const __dirname = path.resolve();
 
 export default defineConfig({
@@ -13,11 +13,13 @@ export default defineConfig({
       registerType: "prompt",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
       workbox: {
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        // Opcional: Esto ayuda a que el nuevo service worker tome el control rápido
+        // CORRECCIÓN: Aquí es donde debe estar el aumento de límite
+        // 6 MiB = 6 * 1024 * 1024 bytes (aprox 6.3 millones de bytes)
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024, 
+        
         cleanupOutdatedCaches: true,
         clientsClaim: true,
-        skipWaiting: false, // Importante: lo manejaremos nosotros con el botón
+        skipWaiting: false,
       },
       manifest: {
         name: "OFRN - App",
@@ -45,9 +47,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  // --- AQUÍ ESTÁ LA SOLUCIÓN REFORZADA ---
   optimizeDeps: {
-    // Forzamos la inclusión de todas las dependencias problemáticas
     include: [
       "react-filerobot-image-editor",
       "@scaleflex/ui/core",
@@ -56,14 +56,10 @@ export default defineConfig({
       "styled-components",
     ],
     esbuildOptions: {
-      // Inyectamos el shim en TODAS ellas
       inject: [path.resolve(__dirname, "./src/react-shim.js")],
     },
   },
   define: {
-    global: "window", // Polyfill adicional
-  },
-  workbox: {
-    maximumFileSizeToCacheInBytes: 6000000, // Aumentamos a 6MB (el archivo pesa 5.28MB)
+    global: "window",
   },
 });
