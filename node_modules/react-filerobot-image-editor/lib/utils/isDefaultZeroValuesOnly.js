@@ -1,1 +1,0 @@
-var isDefaultZeroValuesOnly=function(a,b){return a&&Object.keys(a||{}).every(function(b){return 0===a[b]})&&b&&0===Object.keys(b||{}).length};export default isDefaultZeroValuesOnly;

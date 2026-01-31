@@ -1,1 +1,0 @@
-import BaseFilters from"./BaseFilters";var SATURATION_CONST=.3,BRIGHTNESS_CONST=.15;function Amaro(a){BaseFilters.apply(a,BaseFilters.saturation(SATURATION_CONST),BaseFilters.brightness(BRIGHTNESS_CONST))}Amaro.filterName="Amaro";export default Amaro;

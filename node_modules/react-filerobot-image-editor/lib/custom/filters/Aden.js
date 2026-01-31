@@ -1,1 +1,0 @@
-import BaseFilters from"./BaseFilters";var COLOR_FILTER_CONST=[228,130,225,.13],SATURATION_CONST=-.2;function Aden(a){BaseFilters.apply(a,BaseFilters.colorFilter(COLOR_FILTER_CONST),BaseFilters.saturation(SATURATION_CONST))}Aden.filterName="Aden";export default Aden;
