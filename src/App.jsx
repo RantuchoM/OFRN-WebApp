@@ -9,6 +9,7 @@ import {
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { supabase } from "./services/supabase";
 import ReloadPrompt from "./components/ui/ReloadPrompt";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // Vistas
 import LoginView from "./views/LoginView/LoginView";
 import GirasView from "./views/Giras/GirasView";
@@ -36,7 +37,9 @@ import ManualTrigger from "./components/manual/ManualTrigger";
 import { useManual } from "./context/ManualContext";
 import NotificationsListener from "./components/ui/NotificationsListener";
 import { Toaster } from "sonner";
-import ThemeController from './components/ui/ThemeController';
+import ThemeController from "./components/ui/ThemeController";
+import AIAssistant from "./components/ui/AIAssistant";
+import { CommandPaletteProvider } from "./context/CommandPaletteContext";
 import {
   IconLayoutDashboard,
   IconDownload,
@@ -80,7 +83,14 @@ const normalizeId = (id) => {
   if (id === null || id === undefined) return "";
   return String(id).trim();
 };
-
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // Los datos se consideran "frescos" por 5 minutos
+      refetchOnWindowFocus: false, // Evita recargas molestas al cambiar de ventana
+    },
+  },
+});
 // --- MODAL CALENDARIO ---
 const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
   if (!isOpen || !userId) return null;
@@ -979,15 +989,20 @@ const AppContent = () => {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <ThemeController />
-      <ManualProvider>
-        <Routes>
-          <Route path="/share/:token" element={<PublicLinkHandler />} />
-          <Route path="/*" element={<AppContent />} />
-        </Routes>
-        <ReloadPrompt />
-      </ManualProvider>
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <ThemeController />
+        <ManualProvider>
+          <CommandPaletteProvider>
+            <Routes>
+              <Route path="/share/:token" element={<PublicLinkHandler />} />
+              <Route path="/*" element={<AppContent />} />
+            </Routes>
+          </CommandPaletteProvider>
+          <ReloadPrompt />
+        </ManualProvider>
+        <Toaster position="top-right" richColors expand={true} closeButton />
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }

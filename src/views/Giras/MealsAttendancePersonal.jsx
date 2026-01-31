@@ -1,13 +1,12 @@
-// src/views/Giras/MealsAttendancePersonal.jsx
 import React, { useState, useEffect } from "react";
 import { 
     IconCheck, IconX, IconLoader, IconClock, IconMapPin, IconCalendar, IconUtensils, IconInfo 
 } from "../../components/ui/Icons";
-import { format, parseISO, isAfter, formatDistanceToNow } from "date-fns";
+import { format, parseISO, isAfter, formatDistanceToNow, isValid } from "date-fns";
 import { es } from "date-fns/locale";
-import { useGiraRoster } from "../../hooks/useGiraRoster"; // <--- IMPORTAR HOOK
+import { useGiraRoster } from "../../hooks/useGiraRoster";
 
-// Helper Convocatoria (Idéntico al de MealsAttendance, usa las props del hook)
+// Helper Convocatoria
 const isUserConvoked = (convocadosList, userAttributes) => {
     if (!convocadosList || convocadosList.length === 0) return false;
     return convocadosList.some(tag => {
@@ -17,8 +16,15 @@ const isUserConvoked = (convocadosList, userAttributes) => {
         if (tag === "GRP:PRODUCCION") return userAttributes.rol_gira === 'produccion';
         if (tag === "GRP:SOLISTAS") return userAttributes.rol_gira === 'solista';
         if (tag === "GRP:DIRECTORES") return userAttributes.rol_gira === 'director';
-        if (tag.startsWith("LOC:")) return userAttributes.id_localidad === parseInt(tag.split(":")[1]);
-        if (tag.startsWith("FAM:")) return userAttributes.instrumentos?.familia === tag.split(":")[1]; // Nota: userAttributes viene del hook, estructura completa
+        
+        if (tag.startsWith("LOC:")) {
+            const locId = parseInt(tag.split(":")[1], 10);
+            return userAttributes.id_localidad === locId;
+        }
+        if (tag.startsWith("FAM:")) {
+            const familia = tag.split(":")[1];
+            return userAttributes.instrumentos?.familia === familia;
+        }
         return false;
     });
 };
@@ -33,22 +39,25 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
     const [submitting, setSubmitting] = useState(null);
     const [userData, setUserData] = useState(null);
 
+    // Validación segura de fechas
     const deadline = gira?.fecha_confirmacion_limite ? parseISO(gira.fecha_confirmacion_limite) : null;
-    const isExpired = deadline && isAfter(new Date(), deadline);
+    const isDeadlineValid = deadline && isValid(deadline);
+    const isExpired = isDeadlineValid && isAfter(new Date(), deadline);
 
     useEffect(() => {
-        if (gira?.id && userId && !rosterLoading) fetchMyEvents();
+        if (gira?.id && userId && !rosterLoading) {
+            fetchMyEvents();
+        }
     }, [gira?.id, userId, rosterLoading, roster]);
 
     const fetchMyEvents = async () => {
         setLoading(true);
         try {
-            // 2. Extraer MIS datos del roster procesado
-            // Esto asegura que 'is_local', 'rol_gira' y 'estado_gira' sean idénticos a lo que ve el admin
-            const myUser = roster.find(m => m.id === userId);
+            // 2. CORRECCIÓN PRINCIPAL: Comparación de IDs robusta (String vs Number)
+            const myUser = roster.find(m => String(m.id) === String(userId));
 
             if (!myUser) {
-                // Si no estoy en el roster (por fechas o exclusión), no tengo eventos
+                console.warn("Usuario no encontrado en el roster activo:", userId);
                 setUserData(null);
                 setMyEvents([]);
                 setLoading(false);
@@ -57,31 +66,35 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
 
             setUserData(myUser);
 
-            // 3. Traer Eventos (Solo fetching de eventos, la lógica de usuario ya está lista)
-            const { data: events } = await supabase
+            // 3. Traer Eventos (Solo fetching de eventos)
+            const { data: events, error: eventError } = await supabase
                 .from('eventos')
                 .select('*, locaciones(nombre), tipos_evento(nombre)')
                 .eq('id_gira', gira.id)
-                .in('id_tipo_evento', [7,8,9,10])
+                .in('id_tipo_evento', [7,8,9,10]) // Desayuno, Almuerzo, Merienda, Cena
                 .order('fecha', { ascending: true })
                 .order('hora_inicio', { ascending: true });
 
+            if (eventError) throw eventError;
+
             // 4. Traer mis respuestas
-            const { data: myAnswers } = await supabase
+            const { data: myAnswers, error: ansError } = await supabase
                 .from('eventos_asistencia')
                 .select('id_evento, estado')
                 .eq('id_integrante', userId);
+
+            if (ansError) throw ansError;
 
             const answersMap = {};
             myAnswers?.forEach(a => answersMap[a.id_evento] = a.estado);
             setAnswers(answersMap);
 
             // 5. Filtrar convocatoria usando el helper y los datos del hook
-            const relevantEvents = events.filter(evt => isUserConvoked(evt.convocados, myUser));
+            const relevantEvents = (events || []).filter(evt => isUserConvoked(evt.convocados, myUser));
             setMyEvents(relevantEvents);
 
         } catch (error) { 
-            console.error(error); 
+            console.error("Error fetching personal meals:", error); 
         } finally { 
             setLoading(false); 
         }
@@ -100,6 +113,7 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
             if (error) throw error;
             setAnswers(prev => ({ ...prev, [eventId]: status }));
         } catch (error) {
+            console.error(error);
             alert("Error al guardar asistencia");
         } finally {
             setSubmitting(null);
@@ -113,6 +127,7 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
             <div className="p-8 text-center text-slate-400 bg-white rounded-lg border border-slate-200 shadow-sm">
                 <IconX size={40} className="mx-auto mb-3 opacity-20"/>
                 <p>No formas parte de la nómina activa para esta gira.</p>
+                <p className="text-xs mt-2 opacity-60">(ID: {userId})</p>
             </div>
         );
     }
@@ -149,7 +164,7 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                     <div className="flex flex-col">
                         <span className="text-slate-400 text-xs mb-1">Cierre de Confirmación</span>
-                        {deadline ? (
+                        {isDeadlineValid ? (
                             <div className={`font-medium flex items-center gap-2 ${isExpired ? 'text-red-600' : 'text-slate-700'}`}>
                                 <IconClock size={16} className={isExpired ? 'text-red-500' : 'text-slate-400'}/>
                                 <div>

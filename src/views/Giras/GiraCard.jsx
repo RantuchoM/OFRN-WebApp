@@ -1,5 +1,5 @@
 import React from "react";
-import { IconCalendar, IconMapPin, IconDrive } from "../../components/ui/Icons";
+import { IconCalendar, IconMapPin, IconDrive, IconUtensils } from "../../components/ui/Icons";
 import InstrumentationManager from "../../components/roster/InstrumentationManager";
 import CommentButton from "../../components/comments/CommentButton";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
@@ -386,6 +386,19 @@ export default function GiraCard({
                 <IconDrive size={20} />
               </button>
             )}
+
+            {/* BOTÓN MIS COMIDAS (Redirige a MEALS_PERSONAL) */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                updateView("MEALS_PERSONAL", gira.id);
+              }}
+              className="p-2 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors hidden sm:block"
+              title="Mis Comidas / Dietas"
+            >
+              <IconUtensils size={20} />
+            </button>
+
             <CommentButton
               supabase={supabase}
               entityType="GIRA"
