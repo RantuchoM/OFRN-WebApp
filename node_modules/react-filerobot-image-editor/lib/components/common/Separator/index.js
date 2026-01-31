@@ -1,0 +1,1 @@
+import React from"react";import{StyledSeparator}from"./Separator.styled";var Separator=function(a){var b=a.height,c=void 0===b?"24px":b,d=a.width,e=void 0===d?"1px":d;return React.createElement(StyledSeparator,{height:c,width:e})};export default Separator;
