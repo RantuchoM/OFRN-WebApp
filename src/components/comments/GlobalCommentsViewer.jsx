@@ -46,7 +46,7 @@ const UserAvatar = ({ user, size = "sm", onClick }) => {
 
   const initials =
     `${user.nombre?.[0] || ""}${user.apellido?.[0] || ""}`.toUpperCase();
-  const bgColor = user.avatar_color || "#64748b";
+  const bgColor = user.avatar_color || "#6366f1";
   const hasImage = !!user.avatar_url;
 
   return (

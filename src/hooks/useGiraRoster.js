@@ -104,14 +104,13 @@ export function useGiraRoster(supabase, gira) {
 
       // 4. OBTENER DATOS COMPLETOS (Chunking optimizado)
       const allIds = Array.from(allPotentialIds);
-      // Reducimos el chunk a 20 porque la consulta ahora es más pesada (doble join de localidades)
       const chunkSize = 20; 
       const chunks = [];
       for (let i = 0; i < allIds.length; i += chunkSize) {
         chunks.push(allIds.slice(i, i + chunkSize));
       }
 
-      // Consultamos usando alias para desambiguar las dos relaciones con 'localidades'
+      // CAMBIO CLAVE: AGREGAR integrantes_ensambles EN EL SELECT
       const musiciansResults = await Promise.all(
         chunks.map((chunk) => 
            supabase
@@ -121,11 +120,15 @@ export function useGiraRoster(supabase, gira) {
                 id, nombre, apellido, fecha_alta, fecha_baja, condicion, 
                 telefono, mail, alimentacion, es_simulacion, id_instr,
                 id_localidad, id_loc_viaticos,
-                documentacion, docred, firma,
+                documentacion, docred, firma, nota_interna,
                 dni, fecha_nac, genero, cuil,
                 instrumentos(instrumento, familia, plaza_extra), 
                 residencia:localidades!id_localidad(id, localidad, id_region, regiones(region)), 
-                viaticos:localidades!id_loc_viaticos(id, localidad, id_region, regiones(region))
+                viaticos:localidades!id_loc_viaticos(id, localidad, id_region, regiones(region)),
+                integrantes_ensambles(
+                    id_ensamble,
+                    ensambles(id, ensamble)
+                )
             `
             )
             .in("id", chunk)
@@ -161,8 +164,6 @@ export function useGiraRoster(supabase, gira) {
         const isBaseIncluded = baseIncludedIds.has(id);
 
         // --- LÓGICA DE UBICACIÓN (Prioridad: Viáticos > Residencia) ---
-        // Asignamos la localidad efectiva a la propiedad estándar 'localidades'
-        // para mantener compatibilidad con el resto del sistema
         const localidadEfectiva = m.viaticos || m.residencia;
         
         // Creamos el objeto procesado
@@ -172,7 +173,9 @@ export function useGiraRoster(supabase, gira) {
             nombre_completo: `${m.apellido}, ${m.nombre}`,
             // Preservamos los originales por si se necesitan
             _loc_residencia: m.residencia,
-            _loc_viaticos: m.viaticos
+            _loc_viaticos: m.viaticos,
+            // Aplanamos la estructura de ensambles para facilitar el uso en la vista
+            ensambles: m.integrantes_ensambles?.map(ie => ie.ensambles) || []
         };
 
         let keep = false;

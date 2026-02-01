@@ -12,7 +12,8 @@ import {
   IconFileText,
   IconLayout,
   IconTag, 
-  IconBuilding, // <--- Importamos este para Provincias
+  IconBuilding,
+  IconPalette // Importamos un icono para Roles/Colores (si no existe, usa IconTag)
 } from "../../components/ui/Icons";
 import SheetEditor from './SheetEditor';
 
@@ -28,7 +29,7 @@ export default function DataView({ supabase }) {
     categorias: [],
     ensambles: [],
     integrantes: [], 
-    provincias: [], // <--- 1. Agregado al estado inicial
+    provincias: [],
   });
 
   const fetchCatalogos = async () => {
@@ -38,8 +39,6 @@ export default function DataView({ supabase }) {
         const { data: pais } = await supabase.from("paises").select("id, nombre").order("nombre");
         const { data: categoria } = await supabase.from("categorias_tipos_eventos").select("id, nombre").order("nombre");
         const { data: ens } = await supabase.from("ensambles").select("id, ensamble").order("ensamble");
-        
-        // <--- 2. AQUÍ ESTABA EL "SELECT" FALTANTE:
         const { data: prov } = await supabase.from("provincias").select("id, nombre").order("nombre");
         
         const { data: inte, error: inteError } = await supabase
@@ -55,7 +54,7 @@ export default function DataView({ supabase }) {
           paises: pais?.map((p) => ({ value: p.id, label: p.nombre })) || [],
           categorias: categoria?.map((p) => ({ value: p.id, label: p.nombre })) || [],
           ensambles: ens?.map((e) => ({ value: e.id, label: e.ensamble })) || [],
-          provincias: prov?.map((p) => ({ value: p.id, label: p.nombre })) || [], // <--- 3. Mapeo de provincias
+          provincias: prov?.map((p) => ({ value: p.id, label: p.nombre })) || [],
           integrantes: inte?.map((i) => ({ 
             value: i.id, 
             label: `${i.apellido}, ${i.nombre}` 
@@ -83,7 +82,20 @@ export default function DataView({ supabase }) {
 
   // --- CONFIGURACIÓN DE TABLAS ---
   const tableConfigs = {
-    // <--- 4. NUEVA PESTAÑA PARA EDITAR PROVINCIAS DIRECTAMENTE
+    // --- 1. NUEVA PESTAÑA: ROLES ---
+    roles: {
+        label: "Roles y Colores",
+        icon: IconTag, // Usamos IconTag para representar etiquetas/roles
+        table: "roles",
+        // NO ponemos 'manualId: true'. 
+        // Al incluir 'id' en columns, UniversalTable lo mostrará.
+        // Como no es un borrador, UniversalTable renderizará un <span> (no editable).
+        columns: [
+            { key: "id", label: "Rol (ID)", type: "text" }, 
+            { key: "color", label: "Color Distintivo", type: "color", defaultValue: "#64748b" },
+            { key: "orden", label: "Orden", type: "int" }
+        ]
+    },
     provincias: {
       label: "Provincias",
       icon: IconBuilding,
@@ -103,7 +115,6 @@ export default function DataView({ supabase }) {
       columns: [
         { key: "localidad", label: "Nombre Localidad", type: "text" },
         { key: "cp", label: "Código Postal", type: "text" },
-        // <--- 5. COLUMNA VINCULADA EN LA TABLA LOCALIDADES
         { key: "id_provincia", label: "Provincia", type: "select", options: catalogos.provincias },
         { key: "id_region", label: "Región (Logística)", type: "select", options: catalogos.regiones },
       ],
@@ -151,7 +162,9 @@ export default function DataView({ supabase }) {
       label: "Instrumentos",
       icon: IconMusic,
       table: "instrumentos",
+      manualId: true, // <--- Este SÍ permite editar el ID al crear, porque lo configuramos así
       columns: [
+        { key: "id", label: "ID (Código)", type: "text", placeholder: "Ej: Vln", required: true },
         { key: "instrumento", label: "Instrumento", type: "text" },
         {
           key: "familia",

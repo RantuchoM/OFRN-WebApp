@@ -324,7 +324,7 @@ const ProtectedApp = () => {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [userData, setUserData] = useState(null);
   const [userAvatar, setUserAvatar] = useState(null);
-  const [userColor, setUserColor] = useState("#64748b");
+  const [userColor, setUserColor] = useState("#6366f1");
   const [pendingFields, setPendingFields] = useState([]);
 
   const { toggleVisibility, showTriggers } = useManual();

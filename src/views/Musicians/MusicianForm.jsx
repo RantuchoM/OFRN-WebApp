@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import ReactCrop from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
 import * as pdfjsLib from "pdfjs-dist";
+import { createPortal } from "react-dom";
 
 // Configuración del worker de PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
@@ -26,9 +27,11 @@ import {
   IconEye,
   IconInfo,
   IconScissor,
-  IconWhatsAppFilled, // Asegúrate de que este export exista en Icons.jsx (lo agregamos en el paso anterior)
+  IconWhatsAppFilled,
   IconMail,
   IconCamera,
+  IconMusic,
+  IconChevronDown,
 } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import DateInput from "../../components/ui/DateInput";
@@ -43,6 +46,67 @@ const sanitizeFilename = (str) => {
     .replace(/Ñ/g, "N")
     .replace(/[^a-zA-Z0-9.-]/g, "_")
     .toLowerCase();
+};
+
+// --- COMPONENTE SELECTOR MÚLTIPLE DE ENSAMBLES ---
+const EnsembleMultiSelect = ({ options, selected, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target))
+        setIsOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const toggleOption = (id) => {
+    const newSet = new Set(selected);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    onChange(newSet);
+  };
+
+  return (
+    <div className="relative w-full" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-2.5 bg-white border border-slate-300 rounded-xl text-sm text-left focus:ring-4 focus:ring-indigo-50 transition-all"
+      >
+        <span
+          className={selected.size > 0 ? "text-slate-800" : "text-slate-400"}
+        >
+          {selected.size > 0
+            ? `${selected.size} ensambles seleccionados`
+            : "Seleccionar ensambles..."}
+        </span>
+        <IconChevronDown size={16} className="text-slate-400" />
+      </button>
+      {isOpen && (
+        <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto p-1">
+          {options.map((opt) => (
+            <div
+              key={opt.value}
+              onClick={() => toggleOption(opt.value)}
+              className="flex items-center gap-2 p-2 hover:bg-slate-50 cursor-pointer rounded-lg text-sm"
+            >
+              <div
+                className={`w-4 h-4 border rounded flex items-center justify-center transition-colors ${selected.has(opt.value) ? "bg-indigo-600 border-indigo-600" : "border-slate-300"}`}
+              >
+                {selected.has(opt.value) && (
+                  <IconCheck size={10} className="text-white" />
+                )}
+              </div>
+              <span>{opt.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };
 
 // --- UTILIDAD: PDF A IMAGEN ---
@@ -193,6 +257,10 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
   const [locationsOptions, setLocationsOptions] = useState([]);
 
+  // Nuevo: Lista y selección de ensambles
+  const [ensemblesOptions, setEnsemblesOptions] = useState([]);
+  const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
+
   const inputClass =
     "w-full border border-slate-300 p-2.5 rounded-xl text-sm outline-none transition-all focus:ring-4 focus:ring-indigo-50 focus:border-indigo-400";
   const labelClass =
@@ -231,18 +299,22 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     link_cbu_img: "",
     link_declaracion: "",
     link_cuil: "",
-    avatar_url: "", // <-- Nuevo campo
-    avatar_color: "#64748b", // <-- Nuevo campo
+    nota_interna: "", // Nueva nota interna
+    avatar_url: "",
+    avatar_color: "#4f46e5", // Color Índigo por defecto
     ...musician,
   });
 
   useEffect(() => {
     const fetchCatalogs = async () => {
+      // Instrumentos
       const { data: instrData } = await supabase
         .from("instrumentos")
         .select("id, instrumento")
         .order("instrumento");
       if (instrData) setCatalogoInstrumentos(instrData);
+
+      // Localidades
       const { data: locData } = await supabase
         .from("localidades")
         .select("id, localidad")
@@ -251,9 +323,35 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         setLocationsOptions(
           locData.map((l) => ({ id: l.id, label: l.localidad, value: l.id })),
         );
+
+      // Ensambles
+      const { data: ensData } = await supabase
+        .from("ensambles")
+        .select("id, ensamble")
+        .order("ensamble");
+      if (ensData)
+        setEnsemblesOptions(
+          ensData.map((e) => ({ value: e.id, label: e.ensamble })),
+        );
     };
     fetchCatalogs();
   }, [supabase]);
+
+  // Cargar ensambles asignados al editar
+  useEffect(() => {
+    const fetchAssignedEnsembles = async () => {
+      if (musician?.id) {
+        const { data } = await supabase
+          .from("integrantes_ensambles")
+          .select("id_ensamble")
+          .eq("id_integrante", musician.id);
+        if (data) {
+          setSelectedEnsembles(new Set(data.map((d) => d.id_ensamble)));
+        }
+      }
+    };
+    fetchAssignedEnsembles();
+  }, [musician?.id, supabase]);
 
   useEffect(() => {
     if (musician && musician.id !== formData.id) {
@@ -273,7 +371,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     const status = fieldStatuses[fieldName];
     if (status === "saving")
       return (
-        inputClass + " border-orange-500 ring-4 ring-orange-50 bg-orange-50/10"
+        inputClass +
+        " border-orange-500 ring-4 ring-orange-50 bg-orange-50/10"
       );
     if (status === "saved")
       return (
@@ -286,7 +385,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const extractPathFromUrl = (url) => {
     if (!url) return null;
     if (url.includes("firmas/")) return url.split("firmas/")[1];
-    if (url.includes("musician-docs/")) return url.split("musician-docs/")[1];
+    if (url.includes("musician-docs/"))
+      return url.split("musician-docs/")[1];
     return null;
   };
 
@@ -319,6 +419,35 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const updateField = (field, val) => {
     setFormData((prev) => ({ ...prev, [field]: val }));
     if (formData.id) debouncedSave(field, val);
+  };
+
+  // Handler para actualizar ensambles
+  const handleEnsemblesChange = async (newSet) => {
+    setSelectedEnsembles(newSet);
+    if (!formData.id) return;
+
+    // Actualizar en BD
+    const currentIds = Array.from(selectedEnsembles);
+    const newIds = Array.from(newSet);
+
+    const toAdd = newIds.filter((id) => !currentIds.includes(id));
+    const toRemove = currentIds.filter((id) => !newIds.includes(id));
+
+    if (toAdd.length > 0) {
+      await supabase.from("integrantes_ensambles").insert(
+        toAdd.map((idEns) => ({
+          id_integrante: formData.id,
+          id_ensamble: idEns,
+        })),
+      );
+    }
+    if (toRemove.length > 0) {
+      await supabase
+        .from("integrantes_ensambles")
+        .delete()
+        .eq("id_integrante", formData.id)
+        .in("id_ensamble", toRemove);
+    }
   };
 
   const uploadToSupabase = async (file, field, oldUrl) => {
@@ -473,7 +602,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   };
 
   const handleGenerateDJ = async () => {
-    if (!formData.id || !formData.firma) return alert("Faltan datos o firma.");
+    if (!formData.id || !formData.firma)
+      return alert("Faltan datos o firma.");
     setAssemblingType("dj");
     setFieldStatuses((p) => ({ ...p, link_declaracion: "saving" }));
     try {
@@ -498,7 +628,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   };
 
   const handleFullPack = async () => {
-    if (!formData.id || !formData.firma) return alert("Faltan datos o firma.");
+    if (!formData.id || !formData.firma)
+      return alert("Faltan datos o firma.");
     setAssemblingType("all");
     setFieldStatuses((p) => ({
       ...p,
@@ -562,6 +693,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         genero: formData.genero || "-",
         rol_sistema: "user",
         nacionalidad: "Argentina",
+        id_instr: formData.id_instr || null, // Guardar instrumento
       };
 
       const { data, error } = await supabase
@@ -571,6 +703,16 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         .single();
 
       if (error) throw error;
+
+      // Guardar Ensambles si se seleccionaron antes de crear
+      if (selectedEnsembles.size > 0) {
+        await supabase.from("integrantes_ensambles").insert(
+          Array.from(selectedEnsembles).map((idEns) => ({
+            id_integrante: data.id,
+            id_ensamble: idEns,
+          })),
+        );
+      }
 
       setFormData((prev) => ({ ...prev, id: data.id }));
       if (onSave) onSave(data, false);
@@ -737,7 +879,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
               : "Nuevo Integrante"}
           </h3>
           <button
-            onClick={onCancel}
+            onClick={() => onCancel(formData)} // CAMBIO 1: Pasar formData
             className="bg-white p-2 rounded-full text-slate-400 hover:text-red-500 shadow-sm transition-all focus:outline-none"
           >
             <IconX size={20} />
@@ -774,10 +916,10 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
           <form onSubmit={(e) => e.preventDefault()} className="space-y-8">
             {activeTab === "personal" && (
               <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-                {/* --- NUEVO LAYOUT HEADER PERSONAL: AVATAR Y NOMBRES --- */}
+                {/* --- HEADER PERSONAL: AVATAR Y NOMBRES --- */}
                 <div className="flex flex-col md:flex-row gap-8 items-start mb-8">
-                  {/* AVATAR MANAGER */}
-                  <div className="shrink-0 flex flex-col items-center gap-2">
+                  {/* AVATAR */}
+                  <div className="shrink-0 flex flex-col items-center gap-4 w-40">
                     <div className="relative group w-32 h-32 rounded-full shadow-lg ring-4 ring-white overflow-hidden bg-slate-200">
                       {formData.avatar_url ? (
                         <img
@@ -795,7 +937,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                         </div>
                       )}
 
-                      {/* Overlay de acciones */}
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
                         <label
                           className="cursor-pointer text-white hover:text-indigo-300 transition-colors"
@@ -830,18 +971,35 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                         </button>
                       </div>
                     </div>
-
                     <div className="flex items-center gap-2">
                       <span className="text-[9px] font-bold text-slate-400 uppercase">
                         Color
                       </span>
                       <input
                         type="color"
-                        value={formData.avatar_color || "#64748b"}
+                        value={formData.avatar_color || "#4f46e5"}
                         onChange={(e) =>
                           updateField("avatar_color", e.target.value)
                         }
                         className="w-6 h-6 rounded-full border-none cursor-pointer overflow-hidden p-0"
+                      />
+                    </div>
+
+                    {/* CAMBIO 3: Nota Interna al lado del avatar (debajo visualmente en columna izq) */}
+                    <div className="w-full mt-2">
+                      <label className={labelClass + " text-center"}>
+                        Nota Interna
+                      </label>
+                      <textarea
+                        className={
+                          getInputStatusClass("nota_interna") +
+                          " h-24 text-xs resize-none bg-yellow-50 border-yellow-200 text-slate-600 focus:ring-yellow-100"
+                        }
+                        placeholder="Notas..."
+                        value={formData.nota_interna || ""}
+                        onChange={(e) =>
+                          updateField("nota_interna", e.target.value)
+                        }
                       />
                     </div>
                   </div>
@@ -873,7 +1031,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       </div>
                     </div>
 
-                    {/* EMAIL Y TELEFONO (FALTANTES AGREGADOS) */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
                         <label className={labelClass}>Email Personal</label>
@@ -897,14 +1054,13 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                         <div className="relative">
                           <input
                             type="tel"
-                            className={`${getInputStatusClass("telefono")} pr-10`} // Padding right para el icono
+                            className={`${getInputStatusClass("telefono")} pr-10`}
                             value={formData.telefono || ""}
                             onChange={(e) =>
                               updateField("telefono", e.target.value)
                             }
                             placeholder="Ej: 2914556677"
                           />
-                          {/* Botón WhatsApp Integrado */}
                           <WhatsAppLinkButton phone={formData.telefono} />
                         </div>
                       </div>
@@ -912,20 +1068,46 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                   </div>
                 </div>
 
-                {/* --- RESTO DEL FORMULARIO --- */}
+                {/* --- CAMPOS ADICIONALES --- */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  {/* INSTRUMENTO */}
+                  <div>
+                    <label className={labelClass}>Instrumento</label>
+                    <SearchableSelect
+                      options={catalogoInstrumentos.map((i) => ({
+                        id: i.id,
+                        label: i.instrumento,
+                        value: i.id,
+                      }))}
+                      value={formData.id_instr}
+                      onChange={(val) => updateField("id_instr", val)}
+                      placeholder="Seleccionar instrumento..."
+                    />
+                  </div>
+                  {/* ENSAMBLES */}
+                  <div>
+                    <label className={labelClass}>Ensambles</label>
+                    <EnsembleMultiSelect
+                      options={ensemblesOptions}
+                      selected={selectedEnsembles}
+                      onChange={handleEnsemblesChange}
+                    />
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Columna 1: Domicilio */}
                   <div>
                     <label className={labelClass}>Domicilio</label>
                     <input
                       type="text"
                       className={getInputStatusClass("domicilio")}
                       value={formData.domicilio || ""}
-                      onChange={(e) => updateField("domicilio", e.target.value)}
+                      onChange={(e) =>
+                        updateField("domicilio", e.target.value)
+                      }
                     />
                   </div>
 
-                  {/* Columna 2: Alimentación */}
                   <div className="space-y-1">
                     <label className={labelClass}>Tipo de Alimentación</label>
                     <select
@@ -943,7 +1125,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                     </select>
                   </div>
 
-                  {/* Columna 3: Género */}
                   <div className="space-y-1">
                     <label className={labelClass}>Género</label>
                     <select
@@ -1238,7 +1419,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
             <div className="pt-8 border-t flex justify-end items-center gap-4 sticky bottom-0 bg-white pb-4 z-10 shrink-0">
               <button
                 type="button"
-                onClick={onCancel}
+                onClick={() => onCancel(formData)} // CAMBIO 1 (Footer): Pasar formData
                 className="text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-slate-600 transition-all"
               >
                 Cerrar

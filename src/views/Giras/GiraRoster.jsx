@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom"; // <--- 1. IMPORTAR PORTAL
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   IconUsers,
   IconPlus,
@@ -8,6 +8,7 @@ import {
   IconLoader,
   IconSearch,
   IconAlertCircle,
+  IconAlertTriangle,
   IconCheck,
   IconChevronDown,
   IconMusic,
@@ -19,6 +20,11 @@ import {
   IconExchange,
   IconUserMinus,
   IconPencil,
+  IconWhatsAppFilled,
+  IconCopy,
+  IconFilter,
+  IconArrowRight,
+  IconPhone,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import MusicianForm from "../Musicians/MusicianForm";
@@ -26,58 +32,54 @@ import {
   AddVacancyModal,
   SwapVacancyModal,
 } from "../../components/giras/VacancyTools";
+import { toast } from "sonner";
 
-// ... (MANTENER TODOS LOS HELPERS: sortRosterList, MetricBadge, MultiSelectDropdown IGUAL QUE ANTES) ...
-// ... (Para ahorrar espacio, asumo que copias los helpers del archivo anterior aquí) ...
+// --- CONSTANTES ---
+// ROLES_GIRA eliminado en favor de DB
+const CONDICIONES = [
+  "Estable",
+  "Contratado",
+  "Refuerzo",
+  "Invitado",
+  "Becario",
+];
 
-const sortRosterList = (list, criterion) => {
-  return [...list].sort((a, b) => {
-    if (a.estado_gira === "ausente" && b.estado_gira !== "ausente") return 1;
-    if (a.estado_gira !== "ausente" && b.estado_gira === "ausente") return -1;
-    switch (criterion) {
-      case "localidad": {
-        const locA = a.localidades?.localidad || "zzz";
-        const locB = b.localidades?.localidad || "zzz";
-        return (
-          locA.localeCompare(locB) ||
-          (a.apellido || "").localeCompare(b.apellido || "")
-        );
-      }
-      case "region": {
-        const regA = a.localidades?.regiones?.region || "zzz";
-        const regB = b.localidades?.regiones?.region || "zzz";
-        if (regA !== regB) return regA.localeCompare(regB);
-        const locA = a.localidades?.localidad || "zzz";
-        const locB = b.localidades?.localidad || "zzz";
-        return (
-          locA.localeCompare(locB) ||
-          (a.apellido || "").localeCompare(b.apellido || "")
-        );
-      }
-      case "instrumento": {
-        const instA = String(a.id_instr || "999");
-        const instB = String(b.id_instr || "999");
-        if (instA !== instB) return instA.localeCompare(instB);
-        return (a.apellido || "").localeCompare(b.apellido || "");
-      }
-      case "rol":
-      default: {
-        const rolesPrio = {
-          director: 1,
-          solista: 2,
-          musico: 3,
-          mus_prod: 4,
-          produccion: 5,
-          staff: 6,
-          chofer: 7,
-        };
-        const pA = rolesPrio[a.rol_gira || "musico"] || 99;
-        const pB = rolesPrio[b.rol_gira || "musico"] || 99;
-        if (pA !== pB) return pA - pB;
-        return (a.apellido || "").localeCompare(b.apellido || "");
-      }
+// Helper para convertir Hex a RGBA (para fondos suaves)
+const hexToRgba = (hex, alpha = 0.1) => {
+  if (!hex) return "transparent";
+  let c;
+  if (/^#([A-Fa-f0-9]{3}){1,2}$/.test(hex)) {
+    c = hex.substring(1).split("");
+    if (c.length === 3) {
+      c = [c[0], c[0], c[1], c[1], c[2], c[2]];
     }
-  });
+    c = "0x" + c.join("");
+    return `rgba(${[(c >> 16) & 255, (c >> 8) & 255, c & 255].join(",")},${alpha})`;
+  }
+  return hex; // Fallback
+};
+
+// --- HELPER WHATSAPP ---
+const WhatsAppLink = ({ phone }) => {
+  if (!phone) return null;
+  let cleanPhone = phone.replace(/\D/g, "");
+  if (cleanPhone.length === 10) cleanPhone = `549${cleanPhone}`;
+  else if (cleanPhone.startsWith("0"))
+    cleanPhone = `549${cleanPhone.substring(1)}`;
+  const url = `https://wa.me/${cleanPhone}`;
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-emerald-600 hover:text-emerald-800 p-1 hover:bg-emerald-100 rounded-full transition-colors ml-1 shrink-0"
+      title="Enviar WhatsApp"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <IconWhatsAppFilled size={14} />
+    </a>
+  );
 };
 
 const MetricBadge = ({ label, items, colorBase, icon }) => {
@@ -123,6 +125,7 @@ const MultiSelectDropdown = ({
   onChange,
   label,
   placeholder,
+  compact = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -141,25 +144,35 @@ const MultiSelectDropdown = ({
     onChange(newSet);
   };
   return (
-    <div className="relative w-full" ref={dropdownRef}>
-      <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
-        {label}
-      </label>
+    <div className={`relative ${compact ? "" : "w-full"}`} ref={dropdownRef}>
+      {!compact && (
+        <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
+          {label}
+        </label>
+      )}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-2 bg-white border border-slate-300 rounded text-sm text-left"
+        className={`flex items-center justify-between bg-white border border-slate-300 rounded text-sm text-left ${compact ? "px-3 py-1.5 text-xs font-bold" : "w-full p-2"}`}
       >
         <span
           className={
-            selected.size ? "text-indigo-700 font-medium" : "text-slate-400"
+            selected.size
+              ? "text-fixed-indigo-700 font-medium"
+              : "text-slate-500"
           }
         >
-          {selected.size > 0 ? `${selected.size} seleccionados` : placeholder}
+          {selected.size > 0
+            ? compact
+              ? `${label}: ${selected.size}`
+              : `${selected.size} seleccionados`
+            : compact
+              ? label
+              : placeholder}
         </span>
-        <IconChevronDown size={14} className="text-slate-400" />
+        <IconChevronDown size={14} className="text-slate-400 ml-2" />
       </button>
       {isOpen && (
-        <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded shadow-xl z-50 max-h-48 overflow-y-auto p-1">
+        <div className="absolute top-full left-0 min-w-[200px] w-full mt-1 bg-white border border-slate-200 rounded shadow-xl z-50 max-h-48 overflow-y-auto p-1">
           {options.map((opt) => (
             <div
               key={opt.value}
@@ -169,7 +182,7 @@ const MultiSelectDropdown = ({
               <div
                 className={`w-4 h-4 border rounded flex items-center justify-center ${
                   selected.has(opt.value)
-                    ? "bg-indigo-600 border-indigo-600"
+                    ? "bg-fixed-indigo-600 border-fixed-indigo-600"
                     : "border-slate-300"
                 }`}
               >
@@ -186,7 +199,13 @@ const MultiSelectDropdown = ({
   );
 };
 
-export default function GiraRoster({ supabase, gira, onBack }) {
+// --- COMPONENTE PRINCIPAL ---
+export default function GiraRoster({
+  supabase,
+  gira,
+  onBack,
+  isEditor = true,
+}) {
   const {
     roster: rawRoster,
     loading: hookLoading,
@@ -201,11 +220,25 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [sortBy, setSortBy] = useState("rol");
+
+  // Filtros Múltiples
+  const [selectedFilterRoles, setSelectedFilterRoles] = useState(new Set());
+  const [selectedFilterConditions, setSelectedFilterConditions] = useState(
+    new Set(),
+  );
+  const [selectedFilterEnsemblesList, setSelectedFilterEnsemblesList] =
+    useState(new Set());
+
+  // Selección Múltiple (Filas)
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
   const [visibleColumns, setVisibleColumns] = useState({
-    telefono: false,
-    mail: false,
+    telefono: true,
+    mail: true,
     alimentacion: false,
     localidad: false,
+    ensambles: true,
+    genero: false,
   });
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const columnMenuRef = useRef(null);
@@ -222,6 +255,8 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   const [instrumentsList, setInstrumentsList] = useState([]);
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [familiesList, setFamiliesList] = useState([]);
+  const [rolesList, setRolesList] = useState([]); // Nuevo State para Roles DB
+
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
   const [selectedFamilies, setSelectedFamilies] = useState(new Set());
   const [selectedExclEnsembles, setSelectedExclEnsembles] = useState(new Set());
@@ -230,9 +265,116 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   useEffect(() => {
     fetchDropdownData();
   }, []);
+
+  // --- FILTRADO Y ORDENAMIENTO COMPLETO ---
   useEffect(() => {
-    if (rawRoster) setLocalRoster(sortRosterList(rawRoster, sortBy));
-  }, [rawRoster, sortBy]);
+    if (rawRoster) {
+      let filtered = rawRoster.filter((m) => {
+        // Search
+        const matchesSearch =
+          m.nombre_completo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          m.instrumentos?.instrumento
+            ?.toLowerCase()
+            .includes(searchTerm.toLowerCase());
+
+        // Filtros Múltiples
+        const matchesRole =
+          selectedFilterRoles.size === 0 || selectedFilterRoles.has(m.rol_gira);
+        const matchesCondition =
+          selectedFilterConditions.size === 0 ||
+          selectedFilterConditions.has(m.condicion);
+
+        // Filtro Ensamble
+        let matchesEnsemble = true;
+        if (selectedFilterEnsemblesList.size > 0) {
+          const musicianEnsembleIds =
+            m.integrantes_ensambles?.map((ie) => ie.ensambles?.id) || [];
+          matchesEnsemble = musicianEnsembleIds.some((id) =>
+            selectedFilterEnsemblesList.has(id),
+          );
+          if (
+            musicianEnsembleIds.length === 0 &&
+            selectedFilterEnsemblesList.size > 0
+          )
+            matchesEnsemble = false;
+        }
+
+        return (
+          matchesSearch && matchesRole && matchesCondition && matchesEnsemble
+        );
+      });
+
+      // --- ORDENAMIENTO ---
+      const sorted = [...filtered].sort((a, b) => {
+        // 1. Ausentes siempre al final
+        if (a.estado_gira === "ausente" && b.estado_gira !== "ausente")
+          return 1;
+        if (a.estado_gira !== "ausente" && b.estado_gira === "ausente")
+          return -1;
+
+        switch (sortBy) {
+          case "localidad": {
+            const locA = a.localidades?.localidad || "zzz";
+            const locB = b.localidades?.localidad || "zzz";
+            return (
+              locA.localeCompare(locB) ||
+              (a.apellido || "").localeCompare(b.apellido || "")
+            );
+          }
+          case "region": {
+            const regA = a.localidades?.regiones?.region || "zzz";
+            const regB = b.localidades?.regiones?.region || "zzz";
+            if (regA !== regB) return regA.localeCompare(regB);
+            return (a.apellido || "").localeCompare(b.apellido || "");
+          }
+          case "instrumento": {
+            const instA = String(a.id_instr || "999");
+            const instB = String(b.id_instr || "999");
+            if (instA !== instB) return instA.localeCompare(instB);
+            return (a.apellido || "").localeCompare(b.apellido || "");
+          }
+          case "genero": {
+            const gA = a.genero || "Z";
+            const gB = b.genero || "Z";
+            if (gA !== gB) return gA.localeCompare(gB);
+            return (a.apellido || "").localeCompare(b.apellido || "");
+          }
+          case "rol":
+          default: {
+            // Mapa de prioridades dinámico basado en rolesList
+            const roleOrderMap = {};
+            rolesList.forEach((r) => {
+              roleOrderMap[r.id] = r.orden;
+            });
+
+            // Fallback para roles no encontrados o nulos
+            const pA =
+              roleOrderMap[a.rol_gira] !== undefined
+                ? roleOrderMap[a.rol_gira]
+                : 999;
+            const pB =
+              roleOrderMap[b.rol_gira] !== undefined
+                ? roleOrderMap[b.rol_gira]
+                : 999;
+
+            if (pA !== pB) return pA - pB;
+            return (a.apellido || "").localeCompare(b.apellido || "");
+          }
+        }
+      });
+
+      setLocalRoster(sorted);
+    }
+  }, [
+    rawRoster,
+    sortBy,
+    searchTerm,
+    selectedFilterRoles,
+    selectedFilterConditions,
+    selectedFilterEnsemblesList,
+    rolesList, // Dependencia agregada
+  ]);
+
   useEffect(() => {
     const inclEnsembles = new Set();
     const inclFamilies = new Set();
@@ -268,7 +410,8 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   const fetchDropdownData = async () => {
     const { data: ens } = await supabase
       .from("ensambles")
-      .select("id, ensamble");
+      .select("id, ensamble")
+      .order("ensamble");
     if (ens)
       setEnsemblesList(ens.map((e) => ({ value: e.id, label: e.ensamble })));
 
@@ -287,6 +430,13 @@ export default function GiraRoster({ supabase, gira, onBack }) {
       .select("id, localidad")
       .order("localidad");
     if (locs) setLocalitiesList(locs);
+
+    // Fetch ROLES from DB
+    const { data: rolesData } = await supabase
+      .from("roles")
+      .select("id, color, orden")
+      .order("orden", { ascending: true });
+    if (rolesData) setRolesList(rolesData);
   };
 
   const generateNumericId = () =>
@@ -300,14 +450,45 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     });
     setIsCreatingDetailed(true);
   };
-  // --- NUEVA FUNCIÓN: ELIMINAR VACANTE ---
+
+  // --- SELECCIÓN MÚLTIPLE (EXCLUYENDO AUSENTES) ---
+  const toggleSelection = (id) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedIds(newSet);
+  };
+
+  const toggleAll = () => {
+    if (selectedIds.size > 0) {
+      setSelectedIds(new Set()); // Deseleccionar todo
+    } else {
+      // Seleccionar solo los NO AUSENTES
+      const validIds = localRoster
+        .filter((m) => m.estado_gira !== "ausente")
+        .map((m) => m.id);
+      setSelectedIds(new Set(validIds));
+    }
+  };
+
+  const handleCopyEmails = () => {
+    const emails = localRoster
+      .filter((m) => selectedIds.has(m.id) && m.mail)
+      .map((m) => m.mail)
+      .join(", ");
+    if (!emails) return toast.error("No hay correos en la selección.");
+    navigator.clipboard
+      .writeText(emails)
+      .then(() => toast.success("Correos copiados."));
+  };
+
+  // --- CRUD GIRA ---
   const handleDeleteVacancy = async (vacancy) => {
     if (!confirm(`¿Eliminar definitivamente la vacante "${vacancy.apellido}"?`))
       return;
 
     setLoadingAction(true);
     try {
-      // 1. Eliminar relación con la Gira
       const { error: linkError } = await supabase
         .from("giras_integrantes")
         .delete()
@@ -316,28 +497,21 @@ export default function GiraRoster({ supabase, gira, onBack }) {
 
       if (linkError) throw linkError;
 
-      // 2. Eliminar el usuario "falso" de la tabla integrantes (limpieza de BD)
       const { error: userError } = await supabase
         .from("integrantes")
         .delete()
         .eq("id", vacancy.id);
 
-      if (userError) {
-        // No lanzamos error crítico si falla esto, pero avisamos por consola
-        console.warn(
-          "Nota: El integrante simulado no se borró de la tabla global (posible FK): ",
-          userError.message
-        );
-      }
+      if (userError) console.warn("Nota: FK User error", userError.message);
 
       refreshRoster();
     } catch (err) {
-      console.error(err);
       alert("Error al eliminar vacante: " + err.message);
     } finally {
       setLoadingAction(false);
     }
   };
+
   const handleDetailedSave = async (newMusician) => {
     try {
       const { error } = await supabase.from("giras_integrantes").insert([
@@ -358,20 +532,37 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     }
   };
 
+  // Actualizar roster tras editar
   const handleEditSave = async () => {
     setEditingMusician(null);
-    refreshRoster();
+    await refreshRoster(); // Esperar refresco
+    toast.success("Músico actualizado");
   };
+  const handleCloseModal = (dataFinalDelFormulario) => {
+    // 1. Cerramos el modal visualmente
+    setEditingMusician(null);
 
-  const changeRole = async (musician, newRole) => {
-    setLocalRoster((prev) =>
-      sortRosterList(
+    // 2. Si el formulario nos devolvió datos (porque se cerró con la X o botón Cerrar modificado)
+    // actualizamos la tabla localmente sin recargar la BD.
+    if (dataFinalDelFormulario && dataFinalDelFormulario.id) {
+      setLocalRoster((prev) =>
         prev.map((m) =>
-          m.id === musician.id ? { ...m, rol_gira: newRole } : m
+          m.id === dataFinalDelFormulario.id
+            ? { ...m, ...dataFinalDelFormulario } // Mezclamos los datos nuevos
+            : m,
         ),
-        sortBy
-      )
-    );
+      );
+    }
+  };
+  const changeRole = async (musician, newRole) => {
+    // Optimistic: Aunque la lista es dinámica, el rol es una string (FK o texto)
+    setLocalRoster((prev) => {
+      // Re-ordenar implicaría lógica compleja optimistic, mejor solo actualizar valor
+      return prev.map((m) =>
+        m.id === musician.id ? { ...m, rol_gira: newRole } : m,
+      );
+    });
+
     await supabase.from("giras_integrantes").upsert(
       {
         id_gira: gira.id,
@@ -379,7 +570,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
         rol: newRole,
         estado: musician.estado_gira,
       },
-      { onConflict: "id_gira, id_integrante" }
+      { onConflict: "id_gira, id_integrante" },
     );
     refreshRoster();
   };
@@ -387,13 +578,11 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   const toggleStatus = async (musician) => {
     const newStatus =
       musician.estado_gira === "confirmado" ? "ausente" : "confirmado";
+    // Optimistic
     setLocalRoster((prev) =>
-      sortRosterList(
-        prev.map((m) =>
-          m.id === musician.id ? { ...m, estado_gira: newStatus } : m
-        ),
-        sortBy
-      )
+      prev.map((m) =>
+        m.id === musician.id ? { ...m, estado_gira: newStatus } : m,
+      ),
     );
     if (newStatus === "ausente") {
       await supabase.from("giras_integrantes").upsert(
@@ -403,7 +592,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
           estado: newStatus,
           rol: musician.rol_gira,
         },
-        { onConflict: "id_gira, id_integrante" }
+        { onConflict: "id_gira, id_integrante" },
       );
     } else {
       if (musician.es_adicional) {
@@ -428,13 +617,13 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     await supabase.from("giras_fuentes").delete().eq("id_gira", gira.id);
     const inserts = [];
     selectedEnsembles.forEach((id) =>
-      inserts.push({ id_gira: gira.id, tipo: "ENSAMBLE", valor_id: id })
+      inserts.push({ id_gira: gira.id, tipo: "ENSAMBLE", valor_id: id }),
     );
     selectedFamilies.forEach((fam) =>
-      inserts.push({ id_gira: gira.id, tipo: "FAMILIA", valor_texto: fam })
+      inserts.push({ id_gira: gira.id, tipo: "FAMILIA", valor_texto: fam }),
     );
     selectedExclEnsembles.forEach((id) =>
-      inserts.push({ id_gira: gira.id, tipo: "EXCL_ENSAMBLE", valor_id: id })
+      inserts.push({ id_gira: gira.id, tipo: "EXCL_ENSAMBLE", valor_id: id }),
     );
     if (inserts.length > 0)
       await supabase.from("giras_fuentes").insert(inserts);
@@ -446,7 +635,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
   const removeSource = async (id, tipo) => {
     if (
       !confirm(
-        tipo === "EXCL_ENSAMBLE" ? "¿Quitar exclusión?" : "¿Quitar fuente?"
+        tipo === "EXCL_ENSAMBLE" ? "¿Quitar exclusión?" : "¿Quitar fuente?",
       )
     )
       return;
@@ -481,9 +670,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
 
   const handleLiberarPlaza = async (integrante) => {
     if (
-      !confirm(
-        `⚠️ ¿Estás seguro de dar de baja a ${integrante.nombre} ${integrante.apellido}?\n\nSe creará automáticamente una VACANTE que heredará su habitación, transporte y dietas.`
-      )
+      !confirm(`¿Liberar plaza de ${integrante.nombre}? Se creará una vacante.`)
     )
       return;
     setLoadingAction(true);
@@ -493,10 +680,10 @@ export default function GiraRoster({ supabase, gira, onBack }) {
         p_id_integrante_real: integrante.id,
       });
       if (error) throw error;
-      alert("✅ Plaza liberada. Se ha generado la vacante correspondiente.");
+      alert("Plaza liberada.");
       refreshRoster();
     } catch (err) {
-      alert("Error al liberar plaza: " + err.message);
+      alert("Error: " + err.message);
     } finally {
       setLoadingAction(false);
     }
@@ -514,21 +701,12 @@ export default function GiraRoster({ supabase, gira, onBack }) {
         .ilike("apellido", `%${parts.slice(1).join(" ")}%`);
     } else {
       query = query.or(
-        `nombre.ilike.%${cleanTerm}%,apellido.ilike.%${cleanTerm}%`
+        `nombre.ilike.%${cleanTerm}%,apellido.ilike.%${cleanTerm}%`,
       );
     }
     const { data } = await query.limit(5);
     const currentIds = new Set(localRoster.map((r) => r.id));
     setSearchResults(data ? data.filter((m) => !currentIds.has(m.id)) : []);
-  };
-
-  const copyMails = () => {
-    const mails = localRoster
-      .filter((m) => m.estado_gira !== "ausente" && m.mail)
-      .map((m) => m.mail)
-      .join(", ");
-    if (!mails) return alert("No hay correos.");
-    navigator.clipboard.writeText(mails).then(() => alert("Correos copiados."));
   };
 
   const copyGuestLink = async (integrante) => {
@@ -551,33 +729,80 @@ export default function GiraRoster({ supabase, gira, onBack }) {
     const url = `${window.location.origin}/share/${token}`;
     navigator.clipboard
       .writeText(url)
-      .then(() => alert(`Enlace copiado: ${url}`))
+      .then(() => alert(`Enlace copiado`))
       .catch(() => prompt("Copiar:", url));
   };
 
   const toggleColumn = (col) =>
     setVisibleColumns((prev) => ({ ...prev, [col]: !prev[col] }));
 
-  const getRowClass = (m) => {
-    if (m.es_simulacion)
-      return "bg-amber-50 border-l-4 border-l-amber-400 text-slate-800";
-    if (m.estado_gira === "ausente")
-      return "bg-red-50 text-red-800 opacity-60 grayscale-[50%]";
-    const rol = m.rol_gira || "musico";
-    if (rol === "director")
-      return "bg-indigo-50 border-l-4 border-l-indigo-500";
-    if (rol === "solista")
-      return "bg-fuchsia-50 border-l-4 border-l-fuchsia-500";
-    if (["produccion", "staff", "chofer", "mus_prod"].includes(rol))
-      return "bg-slate-100 border-l-4 border-l-slate-400 text-slate-600";
-    if (m.es_adicional) return "bg-amber-50/60 border-l-4 border-l-amber-200";
-    return "bg-white border-l-4 border-l-transparent hover:bg-slate-50";
+  // --- OBTENER ESTILOS DE FILA (MODIFICADO PARA DB ROLES) ---
+  const getRowStyles = (m, isSelected) => {
+    const baseStyle = {
+      className: "border-l-4 transition-colors",
+      style: {},
+    };
+
+    // 1. Estados prioritarios
+    if (isSelected) {
+      baseStyle.className += " bg-fixed-indigo-50/50 border-l-fixed-indigo-300";
+      return baseStyle;
+    }
+
+    if (m.estado_gira === "ausente") {
+      baseStyle.className +=
+        " bg-red-50 text-red-800 opacity-60 grayscale-[50%] border-l-transparent";
+      return baseStyle;
+    }
+
+    // 2. Sobrescritura de rol "musico" por condición especial (Vacante / Adicional)
+    // Asumimos que si no es director, solista etc. (roles especiales), y es vacante, se pinta como vacante.
+    // Si el rol es puramente 'musico', las condiciones pesan más.
+    if (m.es_simulacion) {
+      // Vacante
+      baseStyle.className += " bg-amber-50 border-l-amber-400 text-slate-800";
+      return baseStyle;
+    }
+
+    if (m.es_adicional && m.rol_gira === "musico") {
+      // Adicional (manual) sin rol jerárquico
+      baseStyle.className +=
+        " bg-orange-50/50 hover:bg-orange-100/50 border-l-orange-300";
+      return baseStyle;
+    }
+
+    // 3. Estilo dinámico basado en DB Roles
+    const roleConfig = rolesList.find((r) => r.id === m.rol_gira);
+    if (roleConfig && roleConfig.color) {
+      baseStyle.style = {
+        backgroundColor: hexToRgba(roleConfig.color, 0.15), // Fondo transparente del color
+        borderLeftColor: roleConfig.color,
+      };
+      baseStyle.className += " hover:brightness-95"; // Efecto hover genérico
+      return baseStyle;
+    }
+
+    // 4. Fallback por condición si no hay color de rol
+    switch (m.condicion) {
+      case "Estable":
+        baseStyle.className += " bg-white hover:bg-slate-50 border-l-slate-200";
+        break;
+      case "Invitado":
+        baseStyle.className +=
+          " bg-amber-50/60 hover:bg-amber-100/60 border-l-amber-300";
+        break;
+      default:
+        baseStyle.className +=
+          " bg-white hover:bg-slate-50 border-l-transparent";
+    }
+
+    return baseStyle;
   };
 
   const listaAusentes = localRoster.filter((r) => r.estado_gira === "ausente");
   const listaAdicionales = localRoster.filter((r) => r.es_adicional);
   const listaConfirmados = localRoster.filter(
-    (r) => r.estado_gira === "confirmado"
+    (r) => r.estado_gira === "confirmado",
   );
   const listaVacantes = localRoster.filter((r) => r.es_simulacion);
 
@@ -588,7 +813,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
         <div className="flex items-center gap-4">
           <button
             onClick={onBack}
-            className="text-slate-400 hover:text-indigo-600 font-medium text-sm flex items-center gap-1"
+            className="text-slate-400 hover:text-fixed-indigo-600 font-medium text-sm flex items-center gap-1"
           >
             ← Volver
           </button>
@@ -603,7 +828,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                   className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${
                     s.tipo === "EXCL_ENSAMBLE"
                       ? "bg-red-50 text-red-700"
-                      : "bg-indigo-50 text-indigo-700"
+                      : "bg-fixed-indigo-50 text-fixed-indigo-700"
                   }`}
                 >
                   {s.tipo === "ENSAMBLE" || s.tipo === "EXCL_ENSAMBLE"
@@ -649,40 +874,80 @@ export default function GiraRoster({ supabase, gira, onBack }) {
       </div>
 
       {/* TOOLBAR */}
-      <div className="px-4 py-2 bg-white border-b border-slate-100 flex items-center justify-between gap-4 z-40 relative">
+      <div className="px-4 py-2 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-4 z-40 relative">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] uppercase font-bold text-slate-400">
-            Ordenar:
-          </span>
-          <div className="flex bg-slate-100 p-0.5 rounded text-xs font-medium">
-            {["rol", "localidad", "region", "instrumento"].map((crit) => (
-              <button
-                key={crit}
-                onClick={() => setSortBy(crit)}
-                className={`px-2 py-1 rounded capitalize ${
-                  sortBy === crit
-                    ? "bg-white shadow text-indigo-700"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                {crit}
-              </button>
-            ))}
+          <div className="flex bg-slate-100 p-0.5 rounded text-xs font-medium mr-2">
+            {["rol", "localidad", "region", "instrumento", "genero"].map(
+              (crit) => (
+                <button
+                  key={crit}
+                  onClick={() => setSortBy(crit)}
+                  className={`px-2 py-1 rounded capitalize flex items-center gap-1 ${
+                    sortBy === crit
+                      ? "bg-white shadow text-fixed-indigo-700 font-bold"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  {crit}
+                  {sortBy === crit && (
+                    <IconArrowRight size={10} className="rotate-90" />
+                  )}
+                </button>
+              ),
+            )}
           </div>
+
+          <span className="text-[10px] uppercase font-bold text-slate-400">
+            Filtros:
+          </span>
+
+          {/* MULTI FILTROS */}
+          <MultiSelectDropdown
+            compact
+            label="Rol"
+            placeholder="Todos"
+            options={rolesList.map((r) => ({
+              value: r.id,
+              label: r.id.charAt(0).toUpperCase() + r.id.slice(1),
+            }))}
+            selected={selectedFilterRoles}
+            onChange={setSelectedFilterRoles}
+          />
+          <MultiSelectDropdown
+            compact
+            label="Condición"
+            placeholder="Todas"
+            options={CONDICIONES.map((c) => ({ value: c, label: c }))}
+            selected={selectedFilterConditions}
+            onChange={setSelectedFilterConditions}
+          />
+          <MultiSelectDropdown
+            compact
+            label="Ensamble"
+            placeholder="Todos"
+            options={ensemblesList}
+            selected={selectedFilterEnsemblesList}
+            onChange={setSelectedFilterEnsemblesList}
+          />
+
+          {/* BOTÓN COPIAR MAILS */}
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handleCopyEmails}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-fixed-indigo-50 border border-fixed-indigo-200 text-fixed-indigo-700 rounded-lg text-xs font-bold hover:bg-fixed-indigo-100 transition-all animate-in zoom-in ml-2"
+            >
+              <IconCopy size={14} /> Copiar ({selectedIds.size})
+            </button>
+          )}
         </div>
+
         <div className="flex items-center gap-2">
-          <button
-            onClick={copyMails}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs font-bold transition-colors"
-          >
-            <IconMail size={14} /> Copiar Mails
-          </button>
           <div className="relative" ref={columnMenuRef}>
             <button
               onClick={() => setShowColumnMenu(!showColumnMenu)}
               className={`flex items-center gap-1 px-3 py-1.5 border rounded text-xs font-bold transition-all ${
                 showColumnMenu
-                  ? "bg-indigo-50 border-indigo-200 text-indigo-700"
+                  ? "bg-fixed-indigo-50 border-fixed-indigo-200 text-fixed-indigo-700"
                   : "bg-white border-slate-200 text-slate-600"
               }`}
             >
@@ -699,7 +964,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                       type="checkbox"
                       checked={visibleColumns[col]}
                       onChange={() => toggleColumn(col)}
-                      className="rounded text-indigo-600"
+                      className="rounded text-fixed-indigo-600"
                     />
                     <span className="text-xs text-slate-700 capitalize">
                       {col}
@@ -719,7 +984,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
             onClick={() => setAddMode(addMode === "groups" ? null : "groups")}
             className={`px-3 py-1 rounded text-xs font-bold ${
               addMode === "groups"
-                ? "bg-indigo-50 text-indigo-700"
+                ? "bg-fixed-indigo-50 text-fixed-indigo-700"
                 : "text-slate-500"
             }`}
           >
@@ -731,7 +996,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
             }
             className={`px-3 py-1 rounded text-xs font-bold ${
               addMode === "individual"
-                ? "bg-indigo-50 text-indigo-700"
+                ? "bg-fixed-indigo-50 text-fixed-indigo-700"
                 : "text-slate-500"
             }`}
           >
@@ -776,7 +1041,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
             <button
               onClick={handleUpdateGroups}
               disabled={loadingAction}
-              className="mt-5 bg-indigo-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-indigo-700 shadow-sm disabled:opacity-50 h-[38px]"
+              className="mt-5 bg-fixed-indigo-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-fixed-indigo-700 shadow-sm disabled:opacity-50 h-[38px]"
             >
               Actualizar
             </button>
@@ -826,205 +1091,360 @@ export default function GiraRoster({ supabase, gira, onBack }) {
           <table className="w-full text-left text-sm border-collapse">
             <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold sticky top-0 z-10">
               <tr>
-                <th className="p-3 pl-4 w-28">Rol</th>
-                <th className="p-3">Músico</th>
-                <th className="p-3">Instrumento</th>
-                {visibleColumns.localidad && <th className="p-3">Ubicación</th>}
-                {visibleColumns.telefono && <th className="p-3">Teléfono</th>}
-                {visibleColumns.mail && <th className="p-3">Mail</th>}
-                {visibleColumns.alimentacion && <th className="p-3">Alim.</th>}
-                <th className="p-3 text-center w-16">Asist.</th>
+                {/* CHECKBOX HEADER */}
+                <th className="p-3 w-10 text-center bg-slate-50 border-r border-slate-100">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-fixed-indigo-600 focus:ring-fixed-indigo-500 cursor-pointer"
+                    checked={
+                      selectedIds.size > 0 &&
+                      selectedIds.size ===
+                        localRoster.filter((m) => m.estado_gira !== "ausente")
+                          .length
+                    }
+                    ref={(input) => {
+                      if (input) {
+                        const available = localRoster.filter(
+                          (m) => m.estado_gira !== "ausente",
+                        ).length;
+                        input.indeterminate =
+                          selectedIds.size > 0 && selectedIds.size < available;
+                      }
+                    }}
+                    onChange={toggleAll}
+                  />
+                </th>
+
+                <th className="p-3 w-48 border-r border-slate-100">
+                  Rol / Instr.
+                </th>
+                <th className="p-3 bg-slate-50 border-r border-slate-100 w-1/4">
+                  Apellido, Nombre
+                </th>
+                {visibleColumns.genero && (
+                  <th className="p-3 border-r border-slate-100 w-10 text-center">
+                    Gén.
+                  </th>
+                )}
+                {visibleColumns.ensambles && (
+                  <th className="p-3 border-r border-slate-100">Ensambles</th>
+                )}
+                {visibleColumns.localidad && (
+                  <th className="p-3 border-r border-slate-100">Ubicación</th>
+                )}
+                <th className="p-3 border-r border-slate-100">Contacto</th>
+                {visibleColumns.alimentacion && (
+                  <th className="p-3 border-r border-slate-100">Alim.</th>
+                )}
+                <th className="p-3 text-center w-16 border-r border-slate-100">
+                  Estado
+                </th>
                 <th className="p-3 text-right w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {localRoster.map((m) => (
-                <tr
-                  key={m.id}
-                  className={`transition-colors ${getRowClass(m)}`}
-                >
-                  <td className="p-3 pl-4">
-                    <select
-                      className={`text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full ${
-                        ["director", "solista"].includes(m.rol_gira)
-                          ? "text-indigo-900"
-                          : "text-slate-500"
-                      }`}
-                      value={m.rol_gira || "musico"}
-                      onChange={(e) => changeRole(m, e.target.value)}
-                    >
-                      <option value="director">Director</option>
-                      <option value="solista">Solista</option>
-                      <option value="musico">Músico</option>
-                      <option value="produccion">Producción</option>
-                      <option value="mus_prod">Mús./Prod.</option>
-                      <option value="staff">Staff</option>
-                      <option value="chofer">Chofer</option>
-                    </select>
-                  </td>
-                  <td className="p-3 font-medium text-slate-800">
-                    <div className="flex flex-col leading-tight">
-                      <span>
-                        {m.apellido}, {m.nombre}
-                      </span>
-                      {m.es_simulacion && (
-                        <span className="text-[9px] text-amber-600 uppercase font-bold tracking-wider">
-                          VACANTE
+              {localRoster.map((m, idx) => {
+                const isSelected = selectedIds.has(m.id);
+                const { className: rowClassName, style: rowStyle } =
+                  getRowStyles(m, isSelected);
+
+                return (
+                  <tr
+                    key={m.id}
+                    className={rowClassName}
+                    style={rowStyle} // Estilo dinámico DB
+                  >
+                    {/* CHECKBOX */}
+                    <td className="p-3 text-center border-r border-slate-100/50">
+                      <div>
+                        {" "}
+                        <span className="text-[10px] text-slate-400 font-mono w-5 text-right inline-block">
+                          {idx + 1}
+                        </span>{" "}
+                        <input
+                          type="checkbox"
+                          className="rounded border-slate-300 text-fixed-indigo-600 focus:ring-fixed-indigo-500 cursor-pointer"
+                          checked={isSelected}
+                          onChange={() => toggleSelection(m.id)}
+                        />
+                      </div>
+                    </td>
+
+                    {/* ROL / INSTR (Vertical) */}
+                    <td className="p-3 pl-4 border-r border-slate-100/50">
+                      {isEditor && !m.es_simulacion ? (
+                        <select
+                          className={`text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full -ml-1 text-slate-700`}
+                          value={m.rol_gira || "musico"}
+                          onChange={(e) => changeRole(m, e.target.value)}
+                        >
+                          {rolesList.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.id}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-[11px] font-bold uppercase text-slate-600 block">
+                          {m.rol_gira || "musico"}
                         </span>
                       )}
-                    </div>
-                  </td>
-                  <td className="p-3 text-slate-500 text-xs">
-                    {m.instrumentos?.instrumento || "-"}
-                  </td>
-                  {visibleColumns.localidad && (
-                    <td className="p-3 text-xs text-slate-600">
-                      {m.localidades ? (
-                        <div>
-                          <span className="font-semibold">
-                            {m.localidades.localidad}
-                          </span>
-                          <span className="text-[10px] text-slate-400 block">
-                            {m.localidades.regiones?.region}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-slate-300">-</span>
-                      )}
+                      <span className="text-[10px] text-slate-400 block font-medium mt-0.5">
+                        {m.instrumentos?.instrumento || "-"}
+                      </span>
                     </td>
-                  )}
-                  {visibleColumns.telefono && (
-                    <td className="p-3 text-xs text-slate-600 truncate max-w-[120px]">
-                      {m.telefono || "-"}
-                    </td>
-                  )}
-                  {visibleColumns.mail && (
-                    <td
-                      className="p-3 text-xs text-slate-600 truncate max-w-[150px]"
-                      title={m.mail}
-                    >
-                      {m.mail || "-"}
-                    </td>
-                  )}
-                  {visibleColumns.alimentacion && (
-                    <td className="p-3 text-xs text-slate-600 truncate max-w-[100px]">
-                      {m.alimentacion || "-"}
-                    </td>
-                  )}
-                  <td className="p-3 text-center">
-                    <button
-                      onClick={() => toggleStatus(m)}
-                      className={`w-8 h-8 rounded flex items-center justify-center text-xs font-bold transition-all shadow-sm mx-auto ${
-                        m.estado_gira === "ausente"
-                          ? "bg-white text-red-600 border border-red-200 hover:bg-red-50"
-                          : "bg-emerald-500 text-white border border-emerald-600 hover:bg-emerald-600"
-                      }`}
-                    >
-                      {m.estado_gira === "ausente" ? "A" : "P"}
-                    </button>
-                  </td>
-                  <td className="p-3 text-right pr-4">
-                    <div className="flex justify-end items-center gap-1">
-                      <button
-                        onClick={() => setEditingMusician(m)}
-                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-                        title="Editar"
-                      >
-                        <IconPencil size={16} />
-                      </button>
-                      <div className="w-px h-4 bg-slate-200 mx-1"></div>
-                      {m.es_simulacion ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => setSwapTarget(m)}
-                            className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-2 py-1.5 rounded shadow-sm flex items-center gap-1"
-                            title="Asignar titular"
-                          >
-                            <IconExchange size={12} /> ASIGNAR
-                          </button>
-                          {/* BOTÓN ELIMINAR AGREGADO */}
-                          <button
-                            onClick={() => handleDeleteVacancy(m)}
-                            className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                            title="Eliminar Vacante"
-                          >
-                            <IconTrash size={16} />
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          {m.estado_gira === "confirmado" && (
-                            <button
-                              onClick={() => handleLiberarPlaza(m)}
-                              className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
-                              title="Liberar Plaza"
-                            >
-                              <IconUserMinus size={16} />
-                            </button>
+                    {/* APELLIDO, NOMBRE (Expandido) */}
+                    {/* APELLIDO, NOMBRE (Expandido con Nota Interna) */}
+                    <td className="p-3 border-r border-slate-100/50 font-bold text-slate-700">
+                      <div className="flex flex-col gap-1.5">
+                        {/* Fila Nombre + Etiqueta Vacante */}
+                        <div className="flex items-center gap-2">
+                          {m.apellido}, {m.nombre}
+                          {m.es_simulacion && (
+                            <span className="bg-amber-100 text-amber-700 text-[9px] px-1 rounded border border-amber-200 font-black tracking-wider">
+                              VACANTE
+                            </span>
                           )}
-                          {m.es_adicional && (
-                            <button
-                              onClick={() => removeMemberManual(m.id)}
-                              className="text-slate-300 hover:text-red-500 p-1"
-                              title="Eliminar Manual"
-                            >
-                              <IconTrash size={16} />
-                            </button>
+                        </div>
+
+                        {/* Nota Interna estilo Post-it */}
+                        {m.nota_interna && (
+                          <div className="group relative w-fit">
+                            <div className="bg-yellow-100 border border-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded-sm shadow-sm flex items-center gap-1 cursor-help transform -rotate-1 hover:rotate-0 transition-transform origin-left max-w-[160px]">
+                              <span className="text-[9px]">📝</span>
+                              <span className="truncate font-normal">
+                                {m.nota_interna}
+                              </span>
+                            </div>
+
+                            {/* Tooltip Flotante con el texto completo */}
+                            <div className="absolute left-0 top-full mt-1 hidden group-hover:block w-56 bg-yellow-50 border border-yellow-200 shadow-xl p-2 rounded text-xs font-normal text-slate-700 z-[60] whitespace-normal animate-in fade-in zoom-in-95">
+                              {m.nota_interna}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* GÉNERO */}
+                    {visibleColumns.genero && (
+                      <td className="p-3 text-xs text-slate-600 text-center border-r border-slate-100/50">
+                        {m.genero || "-"}
+                      </td>
+                    )}
+
+                    {/* ENSAMBLES (NUEVO) */}
+                    {visibleColumns.ensambles && (
+                      <td className="p-3 border-r border-slate-100/50 max-w-[180px]">
+                        <div className="flex flex-wrap gap-1">
+                          {m.integrantes_ensambles &&
+                          m.integrantes_ensambles.length > 0 ? (
+                            m.integrantes_ensambles.map((ie) => (
+                              <span
+                                key={ie.ensambles?.id || Math.random()}
+                                className="text-[9px] bg-white/50 border border-slate-300 px-1 rounded text-slate-500 truncate max-w-[80px]"
+                              >
+                                {ie.ensambles?.ensamble}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-slate-300 text-[10px]">
+                              -
+                            </span>
                           )}
-                          <button
-                            onClick={() => copyGuestLink(m)}
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-                            title="Copiar Link"
+                        </div>
+                      </td>
+                    )}
+
+                    {/* UBICACIÓN */}
+                    {visibleColumns.localidad && (
+                      <td className="p-3 text-xs text-slate-600 border-r border-slate-100/50">
+                        {m.localidades ? (
+                          <div>
+                            <span className="font-semibold block">
+                              {m.localidades.localidad}
+                            </span>
+                            <span className="text-[9px] text-slate-400 block">
+                              {m.localidades.regiones?.region}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+                    )}
+
+                    {/* CONTACTO */}
+                    <td className="p-3 border-r border-slate-100/50 text-xs">
+                      <div className="flex flex-col gap-1">
+                        {m.telefono && (
+                          <div className="flex items-center gap-1 text-slate-600">
+                            <IconPhone size={10} className="text-slate-400" />
+                            <span>{m.telefono}</span>
+                            <WhatsAppLink phone={m.telefono} />
+                          </div>
+                        )}
+                        {m.mail && (
+                          <div
+                            className="flex items-center gap-1 max-w-[180px] truncate"
+                            title={m.mail}
                           >
-                            <IconLink size={16} />
-                          </button>
-                        </>
-                      )}
-                    </div>
+                            <IconMail
+                              size={10}
+                              className="text-slate-400 shrink-0"
+                            />
+                            <span className="text-slate-500 truncate">
+                              {m.mail}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* ALIMENTACIÓN */}
+                    {visibleColumns.alimentacion && (
+                      <td className="p-3 text-xs text-slate-600 truncate max-w-[100px] border-r border-slate-100/50">
+                        {m.alimentacion || "-"}
+                      </td>
+                    )}
+
+                    {/* ESTADO */}
+                    <td className="p-3 text-center border-r border-slate-100/50">
+                      <div className="flex items-center justify-center">
+                        <button
+                          onClick={() => isEditor && toggleStatus(m)}
+                          disabled={!isEditor}
+                          className={`w-7 h-7 rounded flex items-center justify-center text-[10px] font-bold transition-all shadow-sm mx-auto ${
+                            m.estado_gira === "ausente"
+                              ? "bg-white text-red-600 border border-red-200 hover:bg-red-50"
+                              : "bg-emerald-500 text-white border border-emerald-600 hover:bg-emerald-600"
+                          }`}
+                        >
+                          {m.estado_gira === "ausente" ? "A" : "P"}
+                        </button>
+                      </div>
+                    </td>
+
+                    {/* ACCIONES (Botones Visibles pero tenues) */}
+                    <td className="p-3 text-right pr-4">
+                      <div className="flex justify-end items-center gap-1">
+                        <button
+                          onClick={() => setEditingMusician(m)}
+                          className="p-1.5 text-slate-400 hover:text-fixed-indigo-600 hover:bg-white rounded transition-colors"
+                          title="Editar"
+                        >
+                          <IconPencil size={14} />
+                        </button>
+
+                        {m.es_simulacion ? (
+                          <>
+                            <div className="w-px h-3 bg-slate-200 mx-1"></div>
+                            <button
+                              onClick={() => setSwapTarget(m)}
+                              className="bg-amber-500 hover:bg-amber-600 text-white text-[9px] font-bold px-2 py-1 rounded shadow-sm flex items-center gap-1"
+                              title="Asignar titular"
+                            >
+                              <IconExchange size={10} /> ASIGNAR
+                            </button>
+                            <button
+                              onClick={() => handleDeleteVacancy(m)}
+                              className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                              title="Eliminar Vacante"
+                            >
+                              <IconTrash size={14} />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {m.estado_gira === "confirmado" && (
+                              <button
+                                onClick={() => handleLiberarPlaza(m)}
+                                className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                                title="Liberar Plaza"
+                              >
+                                <IconUserMinus size={14} />
+                              </button>
+                            )}
+                            {m.es_adicional && (
+                              <button
+                                onClick={() => removeMemberManual(m.id)}
+                                className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                title="Eliminar Manual"
+                              >
+                                <IconTrash size={14} />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => copyGuestLink(m)}
+                              className="p-1.5 text-slate-400 hover:text-fixed-indigo-600 hover:bg-white rounded transition-colors"
+                              title="Copiar Link"
+                            >
+                              <IconLink size={14} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {localRoster.length === 0 && (
+                <tr>
+                  <td
+                    colSpan="10"
+                    className="p-8 text-center text-slate-400 italic"
+                  >
+                    No se encontraron músicos con los filtros actuales.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
+        <div className="p-2 border-t bg-slate-50 text-[10px] text-slate-400 font-medium text-center">
+          Mostrando {localRoster.length} de {rawRoster.length} integrantes
+        </div>
       </div>
 
-      {/* --- MODAL DETALLADO --- */}
+      {/* --- MODALES --- */}
       {isCreatingDetailed &&
         createPortal(
           <div
-            className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 shadow-2xl"
+            className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4"
             style={{ zIndex: 99999 }}
           >
             <div className="w-full max-w-2xl animate-in zoom-in-95 duration-200">
               <MusicianForm
                 supabase={supabase}
-                musician={{
-                  id: generateNumericId(),
-                  nombre: tempName.nombre,
-                  apellido: tempName.apellido,
-                  condicion: "Invitado",
+                musician={editingMusician}
+                // onSave se usa para eventos internos (como uploads),
+                // pero para el texto usamos el cierre del modal:
+                onSave={(data) => {
+                  // Opcional: Si quieres reflejar uploads en tiempo real también
+                  handleCloseModal(data);
+                  // PERO NO cierres el modal aquí si es solo un upload,
+                  // o tendrás que manejar lógica extra.
+                  // Lo más simple es dejar que onSave solo actualice BD
+                  // y usar onCancel para refrescar la tabla padre.
                 }}
-                onSave={handleDetailedSave}
-                onCancel={() => setIsCreatingDetailed(false)}
+                // AQUÍ ES DONDE OCURRE LA MAGIA:
+                onCancel={handleCloseModal}
               />
             </div>
           </div>,
-          document.body
+          document.body,
         )}
 
-      {/* --- MODAL DE EDICIÓN (LÁPIZ) --- */}
-      {/* CAMBIO CLAVE: createPortal + Z-Index 50 (menor que el 99999 del dropdown) + Sin overflow hidden */}
       {editingMusician &&
         createPortal(
           <div
             className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4"
-            style={{ zIndex: 50 }}
+            style={{ zIndex: 9999 }}
           >
             <div className="w-full max-w-2xl animate-in zoom-in-95 duration-200 bg-white rounded-xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
               <div className="bg-slate-50 border-b border-slate-100 p-3 flex justify-between items-center shrink-0">
                 <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                  <IconPencil size={16} className="text-indigo-600" />
+                  <IconPencil size={16} className="text-fixed-indigo-600" />
                   Editar {editingMusician.es_simulacion ? "Vacante" : "Músico"}
                 </h3>
                 <button
@@ -1034,7 +1454,6 @@ export default function GiraRoster({ supabase, gira, onBack }) {
                   <IconX size={20} />
                 </button>
               </div>
-              {/* Contenedor flexible SIN overflow-hidden en el padre que corte los absolutos */}
               <div className="flex-1 flex flex-col min-h-0">
                 <MusicianForm
                   supabase={supabase}
@@ -1045,7 +1464,7 @@ export default function GiraRoster({ supabase, gira, onBack }) {
               </div>
             </div>
           </div>,
-          document.body
+          document.body,
         )}
 
       <AddVacancyModal
