@@ -20,7 +20,7 @@ export default function ThemeController() {
   useEffect(() => {
     const fetchUserColor = async () => {
       if (!user?.id) {
-        applyColor("79, 70, 229");
+        applyColor("99, 102, 241");
         return;
       }
       try {
