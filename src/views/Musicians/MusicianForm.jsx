@@ -26,6 +26,9 @@ import {
   IconEye,
   IconInfo,
   IconScissor,
+  IconWhatsAppFilled, // Asegúrate de que este export exista en Icons.jsx (lo agregamos en el paso anterior)
+  IconMail,
+  IconCamera,
 } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import DateInput from "../../components/ui/DateInput";
@@ -136,6 +139,28 @@ const compressImage = (file) => {
   });
 };
 
+// --- HELPER WHATSAPP ---
+const WhatsAppLinkButton = ({ phone }) => {
+  if (!phone) return null;
+  let cleanPhone = phone.replace(/\D/g, "");
+  if (cleanPhone.length === 10) cleanPhone = `549${cleanPhone}`;
+  else if (cleanPhone.startsWith("0"))
+    cleanPhone = `549${cleanPhone.substring(1)}`;
+  const url = `https://wa.me/${cleanPhone}`;
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 p-1.5 rounded-full transition-colors"
+      title="Abrir chat de WhatsApp"
+    >
+      <IconWhatsAppFilled size={18} />
+    </a>
+  );
+};
+
 function useDebouncedCallback(callback, delay) {
   const handler = useRef(null);
   return useCallback(
@@ -206,6 +231,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     link_cbu_img: "",
     link_declaracion: "",
     link_cuil: "",
+    avatar_url: "", // <-- Nuevo campo
+    avatar_color: "#64748b", // <-- Nuevo campo
     ...musician,
   });
 
@@ -233,8 +260,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       setFormData((prev) => ({
         ...prev,
         ...musician,
-        fecha_alta: musician.fecha_alta || "", // <-- Agregar esto
-        fecha_baja: musician.fecha_baja || "", // <-- Agregar esto
+        fecha_alta: musician.fecha_alta || "",
+        fecha_baja: musician.fecha_baja || "",
         id_localidad: musician.id_localidad || null,
         id_loc_viaticos: musician.id_loc_viaticos || null,
         id_instr: musician.id_instr ? String(musician.id_instr) : "",
@@ -312,7 +339,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         fileToUpload = await compressImage(file);
       }
 
-      // --- CAMBIO CLAVE: SANEAMIENTO DE NOMBRE ---
       const fileExt = file.type === "image/png" ? "png" : "jpg";
       const cleanSurname = sanitizeFilename(formData.apellido || "musician");
       const fileName = `${cleanSurname}_${field}_${Date.now()}.${fileExt}`;
@@ -521,7 +547,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     }
   };
 
-  // MusicianForm.jsx - Línea 478 aprox.
   const handleCreateInitial = async (e) => {
     e.preventDefault();
     if (!formData.apellido || !formData.nombre)
@@ -529,26 +554,24 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
 
     setLoading(true);
     try {
-      // Creamos un objeto LIMPIO sin la propiedad 'id'
       const payload = {
         nombre: formData.nombre,
         apellido: formData.apellido,
         domicilio: formData.domicilio || null,
         condicion: formData.condicion || "Invitado",
-        genero: formData.genero || "-", // Usamos el guion si no hay valor
+        genero: formData.genero || "-",
         rol_sistema: "user",
         nacionalidad: "Argentina",
       };
 
       const { data, error } = await supabase
         .from("integrantes")
-        .insert([payload]) // Enviamos el payload limpio
+        .insert([payload])
         .select()
         .single();
 
       if (error) throw error;
 
-      // Actualizamos el estado con el ID que generó la base de datos
       setFormData((prev) => ({ ...prev, id: data.id }));
       if (onSave) onSave(data, false);
     } catch (error) {
@@ -750,27 +773,146 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         <div className="flex-1 overflow-y-auto p-8 bg-white custom-scrollbar">
           <form onSubmit={(e) => e.preventDefault()} className="space-y-8">
             {activeTab === "personal" && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <label className={labelClass}>Apellido</label>
-                    <input
-                      type="text"
-                      className={getInputStatusClass("apellido")}
-                      value={formData.apellido || ""}
-                      onChange={(e) => updateField("apellido", e.target.value)}
-                    />
+              <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+                {/* --- NUEVO LAYOUT HEADER PERSONAL: AVATAR Y NOMBRES --- */}
+                <div className="flex flex-col md:flex-row gap-8 items-start mb-8">
+                  {/* AVATAR MANAGER */}
+                  <div className="shrink-0 flex flex-col items-center gap-2">
+                    <div className="relative group w-32 h-32 rounded-full shadow-lg ring-4 ring-white overflow-hidden bg-slate-200">
+                      {formData.avatar_url ? (
+                        <img
+                          src={formData.avatar_url}
+                          alt="avatar"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div
+                          className="w-full h-full flex items-center justify-center text-4xl font-black text-white"
+                          style={{ backgroundColor: formData.avatar_color }}
+                        >
+                          {formData.nombre?.[0]}
+                          {formData.apellido?.[0]}
+                        </div>
+                      )}
+
+                      {/* Overlay de acciones */}
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                        <label
+                          className="cursor-pointer text-white hover:text-indigo-300 transition-colors"
+                          title="Subir Foto"
+                        >
+                          <IconCamera size={24} />
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept="image/*"
+                            onChange={(e) =>
+                              uploadToSupabase(
+                                e.target.files[0],
+                                "avatar_url",
+                                formData.avatar_url,
+                              )
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleClipboardClick(
+                              "avatar_url",
+                              formData.avatar_url,
+                            )
+                          }
+                          className="text-white hover:text-indigo-300"
+                          title="Pegar del portapapeles"
+                        >
+                          <IconClipboard size={20} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase">
+                        Color
+                      </span>
+                      <input
+                        type="color"
+                        value={formData.avatar_color || "#64748b"}
+                        onChange={(e) =>
+                          updateField("avatar_color", e.target.value)
+                        }
+                        className="w-6 h-6 rounded-full border-none cursor-pointer overflow-hidden p-0"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className={labelClass}>Nombre</label>
-                    <input
-                      type="text"
-                      className={getInputStatusClass("nombre")}
-                      value={formData.nombre || ""}
-                      onChange={(e) => updateField("nombre", e.target.value)}
-                    />
+
+                  {/* DATOS PRINCIPALES */}
+                  <div className="flex-1 w-full space-y-6">
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <label className={labelClass}>Apellido</label>
+                        <input
+                          type="text"
+                          className={getInputStatusClass("apellido")}
+                          value={formData.apellido || ""}
+                          onChange={(e) =>
+                            updateField("apellido", e.target.value)
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass}>Nombre</label>
+                        <input
+                          type="text"
+                          className={getInputStatusClass("nombre")}
+                          value={formData.nombre || ""}
+                          onChange={(e) =>
+                            updateField("nombre", e.target.value)
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    {/* EMAIL Y TELEFONO (FALTANTES AGREGADOS) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className={labelClass}>Email Personal</label>
+                        <div className="relative">
+                          <IconMail
+                            size={16}
+                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                          />
+                          <input
+                            type="email"
+                            className={`${getInputStatusClass("mail")} pl-9`}
+                            value={formData.mail || ""}
+                            onChange={(e) =>
+                              updateField("mail", e.target.value)
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className={labelClass}>Teléfono Móvil</label>
+                        <div className="relative">
+                          <input
+                            type="tel"
+                            className={`${getInputStatusClass("telefono")} pr-10`} // Padding right para el icono
+                            value={formData.telefono || ""}
+                            onChange={(e) =>
+                              updateField("telefono", e.target.value)
+                            }
+                            placeholder="Ej: 2914556677"
+                          />
+                          {/* Botón WhatsApp Integrado */}
+                          <WhatsAppLinkButton phone={formData.telefono} />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                {/* --- RESTO DEL FORMULARIO --- */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {/* Columna 1: Domicilio */}
                   <div>
@@ -801,7 +943,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                     </select>
                   </div>
 
-                  {/* Columna 3: Género (NUEVO) */}
+                  {/* Columna 3: Género */}
                   <div className="space-y-1">
                     <label className={labelClass}>Género</label>
                     <select
@@ -810,12 +952,14 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
                     >
                       <option value="-">-</option>
-                      <option value="M">M</option>
-                      <option value="F">F</option>
+                      <option value="M">Masculino</option>
+                      <option value="F">Femenino</option>
+                      <option value="X">No Binario / Otro</option>
                     </select>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
                   <div>
                     <label className={labelClass}>DNI</label>
                     <input
@@ -835,14 +979,26 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                     />
                   </div>
                   <div>
+                    <label className={labelClass}>Nacionalidad</label>
+                    <input
+                      type="text"
+                      className={getInputStatusClass("nacionalidad")}
+                      value={formData.nacionalidad || ""}
+                      onChange={(e) =>
+                        updateField("nacionalidad", e.target.value)
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+                  <div>
                     <DateInput
                       label="Nacimiento"
                       value={formData.fecha_nac || ""}
                       onChange={(val) => updateField("fecha_nac", val)}
                     />
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-6">
                   <div>
                     <DateInput
                       label="Fecha Alta"
@@ -858,7 +1014,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-6 pt-6 border-t">
+
+                <div className="grid grid-cols-2 gap-6 pt-6 border-t mt-6">
                   <div className="relative z-50">
                     <label className={labelClass}>Residencia</label>
                     <SearchableSelect

@@ -10,7 +10,10 @@ import {
   IconTrash,
   IconFilter,
   IconMusic,
-  IconAlertTriangle, // Nuevo ícono para pendientes
+  IconAlertTriangle,
+  IconCopy,
+  IconWhatsAppFilled, // Usaremos este para WhatsApp si no tienes uno específico, o importalo si existe
+  IconMail
 } from "../../components/ui/Icons";
 import InstrumentFilter from "../../components/filters/InstrumentFilter";
 import MusicianForm from "./MusicianForm";
@@ -41,6 +44,41 @@ const DIET_OPTIONS = [
   "Sin Sal",
   "Sin Lactosa",
 ];
+
+// --- HELPER WHATSAPP ---
+const WhatsAppLink = ({ phone }) => {
+    if (!phone) return null;
+    
+    // Limpiamos el número: quitamos espacios, guiones, paréntesis, etc.
+    // Si no tiene código de país (+), asumimos Argentina (+54) o el que corresponda según tu lógica.
+    // Aquí hago una limpieza básica.
+    let cleanPhone = phone.replace(/\D/g, ''); 
+    
+    // Lógica simple: Si empieza con 11 o 15 (móvil arg sin prefijo), le agregamos 549
+    // Ajusta esto según tu base de datos.
+    if (cleanPhone.length === 10) { 
+        cleanPhone = `549${cleanPhone}`;
+    } else if (cleanPhone.startsWith('0')) {
+        cleanPhone = `549${cleanPhone.substring(1)}`;
+    }
+
+    const url = `https://wa.me/${cleanPhone}`;
+
+    return (
+        <a 
+            href={url} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-emerald-500 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-full transition-colors ml-1"
+            title="Enviar WhatsApp"
+            onClick={(e) => e.stopPropagation()} // Evita activar edición de celda
+        >
+            <IconWhatsAppFilled size={14} /> 
+        </a>
+    );
+};
+
+
 const HighlightText = ({ text, highlight }) => {
   if (!highlight.trim()) return <span>{text}</span>;
   const regex = new RegExp(`(${highlight})`, "gi");
@@ -214,9 +252,15 @@ const AVAILABLE_COLUMNS = [
   {
     key: "telefono",
     label: "Teléfono",
-    width: "110px",
+    width: "140px", // Aumenté ancho para el icono
     type: "text",
     sortKey: "telefono",
+    render: (item) => (
+        <div className="flex items-center justify-between w-full">
+            <span className="truncate">{item.telefono}</span>
+            <WhatsAppLink phone={item.telefono} />
+        </div>
+    )
   },
   {
     key: "mail",
@@ -237,7 +281,7 @@ const AVAILABLE_COLUMNS = [
   {
     key: "alimentacion",
     label: "Dieta",
-    width: "120px", // Aumenté un poco el ancho para que quepa "Vegetariana"
+    width: "120px", 
     type: "select",
     sortKey: "alimentacion",
   },
@@ -374,11 +418,11 @@ const EditableCell = ({
   options,
   onSave,
   className = "",
-  highlight = "", // <--- Nueva prop
+  highlight = "", 
 }) => {
   const [localValue, setLocalValue] = useState(value || "");
   const [isSaving, setIsSaving] = useState(false);
-  const [isEditing, setIsEditing] = useState(false); // <--- Estado para alternar
+  const [isEditing, setIsEditing] = useState(false); 
 
   useEffect(() => {
     setLocalValue(value || "");
@@ -402,11 +446,10 @@ const EditableCell = ({
       </div>
     );
 
-  // --- MODO LECTURA: Aquí aplicamos el Highlight ---
+  // --- MODO LECTURA ---
   if (!isEditing) {
     let displayValue = localValue;
 
-    // Si es select, buscamos el texto (ej: "Violín") en lugar del ID
     if (type === "select" && options) {
       const selectedOpt = options.find(
         (opt) => String(opt.value) === String(localValue),
@@ -424,14 +467,14 @@ const EditableCell = ({
     );
   }
 
-  // --- MODO EDICIÓN: Inputs normales ---
+  // --- MODO EDICIÓN ---
   if (type === "select") {
     const valueExistsInOptions = options.some(
       (opt) => String(opt.value) === String(localValue),
     );
     return (
       <select
-        autoFocus // <--- Para que puedas escribir apenas haces clic
+        autoFocus 
         value={localValue}
         onChange={(e) => setLocalValue(e.target.value)}
         onBlur={handleBlur}
@@ -745,6 +788,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [locationsList, setLocationsList] = useState([]);
   const [editFormData, setEditFormData] = useState({});
 
+  // ESTADO SELECCIÓN
+  const [selectedMusicians, setSelectedMusicians] = useState(new Set());
+
   useEffect(() => {
     const allIds = new Set(catalogoInstrumentos.map((i) => i.id));
     allIds.add("null");
@@ -919,9 +965,30 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       }
     });
 
-    // 3. ORDENAMIENTO (Igual que antes)
+    // 3. ORDENAMIENTO
     return filtered.sort((a, b) => {
-      /* ... tu lógica de sort ... */
+        let valA, valB;
+        
+        if (sortConfig.key === "apellido") {
+            valA = `${a.apellido} ${a.nombre}`;
+            valB = `${b.apellido} ${b.nombre}`;
+        } else {
+            // Buscamos config de columna para ver si tiene sortKey o displayKey especial
+            const colCfg = AVAILABLE_COLUMNS.find(c => (c.sortKey || c.key) === sortConfig.key);
+            
+            // Si es un campo anidado (ej: instrumentos.instrumento), lo resolvemos
+            if (colCfg && colCfg.sortKey && colCfg.sortKey.includes('.')) {
+                valA = getNestedValue(a, colCfg.sortKey) || "";
+                valB = getNestedValue(b, colCfg.sortKey) || "";
+            } else {
+                valA = a[sortConfig.key] || "";
+                valB = b[sortConfig.key] || "";
+            }
+        }
+
+        if (valA < valB) return sortConfig.direction === "asc" ? -1 : 1;
+        if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
     });
   }, [
     resultados,
@@ -943,10 +1010,41 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     label: c,
   }));
 
+  // HANDLER: Selección
+  const toggleSelection = (id) => {
+      const newSet = new Set(selectedMusicians);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      setSelectedMusicians(newSet);
+  };
+
+  const toggleAllSelection = () => {
+      if (selectedMusicians.size === processedResultados.length) {
+          setSelectedMusicians(new Set());
+      } else {
+          setSelectedMusicians(new Set(processedResultados.map(m => m.id)));
+      }
+  };
+
+  // HANDLER: Copiar Mails
+  const copySelectedMails = () => {
+      const mails = processedResultados
+          .filter(m => selectedMusicians.has(m.id) && m.mail)
+          .map(m => m.mail)
+          .join(", "); // Separador coma + espacio, estándar para clientes de correo
+      
+      if (mails) {
+          navigator.clipboard.writeText(mails);
+          alert(`Copiados ${selectedMusicians.size} correos al portapapeles.`);
+      } else {
+          alert("No hay correos válidos en la selección.");
+      }
+  };
+
   return (
     <div className="space-y-4 h-full flex flex-col overflow-hidden animate-in fade-in">
       <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 shrink-0 flex flex-col md:flex-row gap-3 items-center">
-        {/* 1. FILTRO DE ENSAMBLES (NUEVO) */}
+        {/* 1. FILTRO DE ENSAMBLES */}
         <EnsembleFilter
           ensembles={ensemblesList}
           selectedIds={selectedEnsembles}
@@ -993,7 +1091,20 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           onChange={setVisibleColumns}
         />
 
-        {/* 7. BOTÓN AGREGAR (Mantenemos el estilo original) */}
+        {/* BOTÓN COPIAR MAILS (Visible solo si hay seleccionados) */}
+        {selectedMusicians.size > 0 && (
+            <button
+                onClick={copySelectedMails}
+                className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors animate-in fade-in zoom-in ml-auto md:ml-0"
+                title="Copiar correos seleccionados"
+            >
+                <IconCopy size={16} /> 
+                <span className="hidden sm:inline">Copiar Correos ({selectedMusicians.size})</span>
+                <span className="sm:hidden">({selectedMusicians.size})</span>
+            </button>
+        )}
+
+        {/* 7. BOTÓN AGREGAR */}
         <button
           onClick={() => {
             setEditingId(null);
@@ -1011,11 +1122,24 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] z-30 border-b border-slate-200">
               {/* FILA 1: TÍTULOS Y ORDENAMIENTO */}
               <tr className="sticky top-0 z-40 bg-slate-50 shadow-sm">
-                <th className="p-2 w-10 text-center sticky left-0 bg-slate-50 z-50">
+                <th className="p-2 w-10 text-center sticky left-0 bg-slate-50 z-50 border-r">
+                    <input 
+                        type="checkbox" 
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        checked={selectedMusicians.size > 0 && selectedMusicians.size === processedResultados.length}
+                        ref={input => {
+                            if (input) {
+                                input.indeterminate = selectedMusicians.size > 0 && selectedMusicians.size < processedResultados.length;
+                            }
+                        }}
+                        onChange={toggleAllSelection}
+                    />
+                </th>
+                <th className="p-2 w-10 text-center sticky left-10 bg-slate-50 z-50">
                   #
                 </th>
                 <th
-                  className="p-2 w-40 sticky left-10 bg-slate-50 border-r z-50 cursor-pointer hover:bg-slate-100"
+                  className="p-2 w-40 sticky left-[calc(2.5rem+2.5rem)] bg-slate-50 border-r z-50 cursor-pointer hover:bg-slate-100"
                   onClick={() =>
                     setSortConfig({
                       key: "apellido",
@@ -1063,7 +1187,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               {/* FILA 2: INPUTS DE BÚSQUEDA (FILTROS) */}
               <tr className="sticky top-[33px] z-30 bg-white border-b border-slate-200">
                 <th className="p-1 sticky left-0 bg-white z-40 border-r"></th>
-                <th className="p-1 sticky left-10 bg-white border-r z-40">
+                <th className="p-1 sticky left-10 bg-white z-40 border-r"></th>
+                <th className="p-1 sticky left-[calc(2.5rem+2.5rem)] bg-white border-r z-40">
                   <div className="relative">
                     <IconSearch
                       size={10}
@@ -1125,19 +1250,27 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                 const conditionClass = getConditionStyles(item.condicion);
                 return (
                   <tr key={item.id} className={`${conditionClass} group`}>
+                    <td className={`p-1 text-center sticky left-0 z-10 border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}>
+                        <input 
+                            type="checkbox" 
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            checked={selectedMusicians.has(item.id)}
+                            onChange={() => toggleSelection(item.id)}
+                        />
+                    </td>
                     <td
-                      className={`p-1 text-center sticky left-0 z-10 border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
+                      className={`p-1 text-center sticky left-10 z-10 border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
                     >
                       {idx + 1}
                     </td>
                     <td
-                      className={`p-1 sticky left-10 z-10 border-r font-bold shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
+                      className={`p-1 sticky left-[calc(2.5rem+2.5rem)] z-10 border-r font-bold shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
                     >
                       <div className="flex items-center justify-between gap-2 px-1">
                         <span className="truncate">
                           <HighlightText
                             text={`${item.apellido}, ${item.nombre}`}
-                            highlight={columnFilters.apellido_nombre || ""} // Ya no usamos searchText
+                            highlight={columnFilters.apellido_nombre || ""} 
                           />
                         </span>
 
@@ -1185,7 +1318,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                                     : col.key === "id_localidad" ||
                                         col.key === "id_loc_viaticos"
                                       ? locationOptions
-                                      : col.key === "alimentacion" // <--- AGREGA ESTA CONDICIÓN
+                                      : col.key === "alimentacion" 
                                         ? DIET_OPTIONS.map((d) => ({
                                             value: d,
                                             label: d,

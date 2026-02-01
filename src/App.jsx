@@ -40,6 +40,7 @@ import { Toaster } from "sonner";
 import ThemeController from "./components/ui/ThemeController";
 import AIAssistant from "./components/ui/AIAssistant";
 import { CommandPaletteProvider } from "./context/CommandPaletteContext";
+import CommandBarTrigger from "./components/ui/CommandBarTrigger";
 import {
   IconLayoutDashboard,
   IconDownload,
@@ -316,7 +317,7 @@ const ProtectedApp = () => {
   // Estados unificados de UI
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
-
+  
   // Estado para el modal global de comentarios
   const [globalCommentsOpen, setGlobalCommentsOpen] = useState(false);
 
@@ -478,13 +479,24 @@ const ProtectedApp = () => {
   const [mode, setMode] = useState(tabToMode[currentTab] || defaultMode);
   const [activeGiraId, setActiveGiraId] = useState(searchParams.get("giraId"));
 
+  // =========================================================================
+  // FIX CRÍTICO DE NAVEGACIÓN (ESTO FALTABA)
+  // Extraemos los valores como strings para usarlos en el useEffect.
+  // =========================================================================
+  const currentTabParam = searchParams.get("tab");
+  const currentGiraIdParam = searchParams.get("giraId");
+
   useEffect(() => {
-    const tabParam = searchParams.get("tab");
-    const newMode = tabToMode[tabParam] || defaultMode;
+    const newMode = tabToMode[currentTabParam] || defaultMode;
     setMode(newMode);
-    if (newMode === "GIRAS") setActiveGiraId(searchParams.get("giraId"));
-    else setActiveGiraId(null);
-  }, [searchParams, defaultMode]);
+    
+    if (newMode === "GIRAS") {
+      setActiveGiraId(currentGiraIdParam);
+    } else {
+      setActiveGiraId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTabParam, currentGiraIdParam, defaultMode]); // <--- Dependencias primitivas (strings)
 
   const updateView = (
     newMode,
@@ -769,8 +781,10 @@ const ProtectedApp = () => {
 
       {/* MAIN */}
       <div className="flex-1 flex flex-col h-full relative overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-30">
-          <div className="flex items-center gap-2">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-30 gap-4">
+          
+          {/* 1. SECCIÓN IZQUIERDA (Logo/Título/Suplantación) */}
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setIsMobileMenuOpen(true)}
               className="p-2 -ml-2 text-slate-600 lg:hidden"
@@ -778,22 +792,21 @@ const ProtectedApp = () => {
               <IconMenu size={24} />
             </button>
             {isActuallyAdmin && (
-              <div className="hidden md:flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
-                {/* BANNER DE SUPLANTACIÓN */}
+              <div className="hidden lg:flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
                 {isImpersonating && (
-                  <div className="bg-amber-500 text-white px-4 py-2 flex items-center justify-between text-xs font-bold animate-in slide-in-from-top duration-300 z-[100]">
+                  <div className="bg-amber-500 text-white px-4 py-2 flex items-center justify-between text-xs font-bold animate-in slide-in-from-top duration-300 z-[100] fixed top-16 left-0 right-0 justify-center">
                     <div className="flex items-center gap-2">
                       <IconEye size={16} />
-                      ESTÁS VIENDO LA APP COMO:{" "}
+                      VIENDO COMO:{" "}
                       <span className="uppercase">
                         {user.nombre} {user.apellido}
                       </span>
                     </div>
                     <button
                       onClick={stopImpersonating}
-                      className="bg-white text-amber-600 px-3 py-1 rounded-full hover:bg-amber-50 transition-colors"
+                      className="ml-4 bg-white text-amber-600 px-2 py-0.5 rounded-full text-[10px] hover:bg-amber-50"
                     >
-                      VOLVER A MI PERFIL
+                      SALIR
                     </button>
                   </div>
                 )}
@@ -801,7 +814,7 @@ const ProtectedApp = () => {
                   Ver como:
                 </span>
                 <SearchableSelect
-                  className="min-w-[200px] !border-0 !bg-transparent"
+                  className="min-w-[200px] !border-0 !bg-transparent !py-0"
                   placeholder="Buscar integrante..."
                   options={orchestraList.map((u) => ({
                     id: u.id,
@@ -810,9 +823,8 @@ const ProtectedApp = () => {
                   }))}
                   value={isImpersonating ? user.id : ""}
                   onChange={(id) => {
-                    if (!id) {
-                      stopImpersonating();
-                    } else {
+                    if (!id) stopImpersonating();
+                    else {
                       const target = orchestraList.find((u) => u.id === id);
                       if (target) impersonate(target);
                     }
@@ -820,12 +832,19 @@ const ProtectedApp = () => {
                 />
               </div>
             )}
-            <h2 className="text-xl font-bold text-slate-800 hidden sm:block">
+            <h2 className="text-xl font-bold text-slate-800 hidden md:block whitespace-nowrap">
               {allMenuItems.find((m) => m.id === mode)?.label || "Panel"}
             </h2>
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* 2. SECCIÓN CENTRAL (BARRA DE COMANDOS) */}
+         {/* 2. SECCIÓN CENTRAL (BARRA DE COMANDOS) */}
+          <div className="flex-1 hidden md:flex justify-center max-w-xl mx-auto px-4">
+             {/* Ya no necesita props, funciona solo */}
+             <CommandBarTrigger className="w-full shadow-none bg-slate-50 border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:border-indigo-400" />
+          </div>
+          {/* 3. SECCIÓN DERECHA (Acciones/Perfil) */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <div className="flex items-center bg-slate-50 border border-slate-200 rounded-full p-1">
               <button
                 onClick={toggleVisibility}
@@ -846,11 +865,8 @@ const ProtectedApp = () => {
               )}
             </div>
 
-            {/* BOTÓN DE NOVEDADES */}
             <NewsModal supabase={supabase} />
 
-            {/* BOTÓN DE COMENTARIOS (AVISOS) */}
-            {/* Solo se renderiza si isManagement es true */}
             {isManagement && (
               <button
                 onClick={() => setGlobalCommentsOpen(true)}
@@ -862,15 +878,11 @@ const ProtectedApp = () => {
                 title="Avisos y Pendientes"
               >
                 <IconMessageSquare size={22} />
-
-                {/* BADGE TOTAL (Azul - General) */}
                 {commentCounts.total > 0 && (
                   <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 h-4 min-w-[16px] px-1 bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full shadow-sm border border-white z-10">
                     {commentCounts.total > 9 ? "9+" : commentCounts.total}
                   </span>
                 )}
-
-                {/* BADGE MENCIONES (Rojo - Importante) */}
                 {commentCounts.mentioned > 0 && (
                   <span className="absolute bottom-0 right-0 transform translate-x-1 translate-y-1 h-4 min-w-[16px] px-1 bg-red-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full shadow-sm border border-white animate-pulse z-20">
                     @{commentCounts.mentioned}
@@ -881,15 +893,15 @@ const ProtectedApp = () => {
 
             <button
               onClick={() => setCalendarModalOpen(true)}
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 font-bold text-xs hover:bg-indigo-100"
+              className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 font-bold text-xs hover:bg-indigo-100"
             >
-              <IconCalendar size={10} />
-              Sincronizar
+              <IconCalendar size={14} />
+              <span className="hidden 2xl:inline">Sincronizar</span>
             </button>
 
             <button
               onClick={() => setProfileModalOpen(true)}
-              className="flex items-center gap-2 group"
+              className="flex items-center gap-2 group ml-1"
             >
               {pendingFields.length > 0 && (
                 <IconAlertTriangle
@@ -898,7 +910,7 @@ const ProtectedApp = () => {
                 />
               )}
               <div
-                className="w-9 h-9 rounded-full border-2 border-white shadow-sm flex items-center justify-center overflow-hidden"
+                className="w-9 h-9 rounded-full border-2 border-white shadow-sm flex items-center justify-center overflow-hidden ring-2 ring-transparent group-hover:ring-indigo-100 transition-all"
                 style={{
                   backgroundColor: userAvatar ? "transparent" : userColor,
                 }}
@@ -907,6 +919,7 @@ const ProtectedApp = () => {
                   <img
                     src={userAvatar}
                     className="w-full h-full object-cover"
+                    alt="Perfil"
                   />
                 ) : (
                   <IconUser size={20} className="text-white" />
@@ -915,7 +928,6 @@ const ProtectedApp = () => {
             </button>
           </div>
         </header>
-
         {needsVerification && (
           <div className="bg-orange-500 text-white px-4 py-2 flex items-center justify-center gap-3 text-[10px] font-black uppercase tracking-widest shrink-0">
             <IconAlertTriangle size={16} /> Verificar datos anuales

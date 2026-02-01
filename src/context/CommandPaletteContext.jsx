@@ -116,10 +116,10 @@ export const CommandPaletteProvider = ({ children }) => {
                   },
                   { 
                       id: 'gira-seating-mgr', 
-                      label: 'Gira: Seating (Escenario)', 
+                      label: 'Gira: Seating', 
                       icon: <IconLayout size={14} className="text-red-500"/>, 
                       section: 'Gira (Gestión)', 
-                      run: () => navigate(`/?tab=giras&view=SEATING&giraId=${gid}`) 
+                      run: () => navigate(`/?tab=giras&view=REPERTOIRE&giraId=${gid}&subTab=seating`) 
                   },
                   { 
                       id: 'gira-difusion-mgr', 
@@ -133,14 +133,14 @@ export const CommandPaletteProvider = ({ children }) => {
                       label: 'Gira: Panel Logístico', 
                       icon: <IconTruck size={14} className="text-red-500"/>, 
                       section: 'Gira (Gestión)', 
-                      run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=summary`) 
+                      run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}`) 
                   },
                   { 
                       id: 'gira-viaticos-mgr', 
                       label: 'Gira: Gestión de Viáticos', 
                       icon: <IconDollarSign size={14} className="text-red-500"/>, 
                       section: 'Gira (Gestión)', 
-                      run: () => navigate(`/?tab=giras&view=VIATICOS&giraId=${gid}`) 
+                      run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=viaticos`) 
                   }
               );
 
@@ -381,14 +381,26 @@ export const CommandPaletteProvider = ({ children }) => {
 
   // Teclado (Ctrl+K / Cmd+K)
   useEffect(() => {
+    // 1. Manejo de Teclado (Ctrl+K)
     const handleKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         setIsOpen(prev => !prev);
       }
     };
+
+    // 2. Manejo de Evento Personalizado (Desde el Trigger)
+    const handleCustomOpen = () => {
+      setIsOpen(true);
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('open-command-palette', handleCustomOpen); // <--- NUEVO LISTENER
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('open-command-palette', handleCustomOpen); // <--- LIMPIEZA
+    };
   }, []);
 
   const registerCommands = (id, commands) => {

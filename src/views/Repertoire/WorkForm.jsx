@@ -15,9 +15,9 @@ import {
   IconTrash,
   IconUnderline,
   IconYoutube,
-  IconCalendar, // Nuevo icono importado
-  IconFileText, // Nuevo icono importado
-  IconMessageSquare // Nuevo icono importado
+  IconCalendar, 
+  IconFileText, 
+  IconMessageSquare 
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { calculateInstrumentation } from "../../utils/instrumentation";
@@ -155,7 +155,7 @@ export default function WorkForm({
     instrumentacion: "",
     anio: "",
     estado: "Oficial",
-    fecha_esperada: "", // Nuevo campo
+    fecha_esperada: "", 
     comentarios: "",
     observaciones: "",
   });
@@ -573,7 +573,6 @@ export default function WorkForm({
         </div>
         
         {/* LOGICA DE ESTADO Y FECHA */}
-        {/* LOGICA DE ESTADO Y FECHA */}
         <div className={formData.estado === "Solicitud" ? "flex flex-col gap-2" : ""}>
           <div className="w-full">
             <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
@@ -810,11 +809,13 @@ export default function WorkForm({
         </div>
       </div>
 
-      {/* PARTICELLAS */}
+      {/* PARTICELLAS - LISTA TABULADA */}
       <div className="border-t pt-6">
         <h3 className="text-sm font-bold uppercase text-slate-500 mb-3">
           Gestión de Particellas
         </h3>
+        
+        {/* BARRA DE CREACIÓN */}
         <div className="flex gap-2 items-end bg-slate-50 p-3 rounded-xl mb-4 border border-slate-200 shadow-sm">
           <div className="flex-1 relative">
             <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
@@ -873,72 +874,102 @@ export default function WorkForm({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-          {particellas.map((p) => (
-            <div
-              key={p.tempId}
-              className="flex items-center gap-2 p-2 border rounded-lg bg-white hover:shadow-md transition-all group"
-            >
-              <span className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 shrink-0">
-                {p.id_instrumento}
-              </span>
-              <div className="flex-1 min-w-0">
-                <input
-                  className="w-full text-sm font-bold border-none p-0 focus:ring-0 text-slate-700 bg-transparent truncate"
-                  value={p.nombre_archivo}
-                  onChange={(e) =>
-                    setParticellas((prev) =>
-                      prev.map((x) =>
-                        x.tempId === p.tempId
-                          ? { ...x, nombre_archivo: e.target.value }
-                          : x,
-                      ),
-                    )
-                  }
-                  onBlur={() => handlePartsChange(particellas)}
-                />
-                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">
-                  {p.links?.length || 0} enlaces
-                </span>
-              </div>
-              <input
-                className="w-8 text-[10px] text-center border-b border-transparent hover:border-slate-300 outline-none"
-                placeholder="Org."
-                value={p.nota_organico || ""}
-                onChange={(e) =>
-                  setParticellas((prev) =>
-                    prev.map((x) =>
-                      x.tempId === p.tempId
-                        ? { ...x, nota_organico: e.target.value }
-                        : x,
-                    ),
-                  )
-                }
-                onBlur={() => handlePartsChange(particellas)}
-              />
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                <button
-                  onClick={() => {
-                    setEditingLinksId(p.tempId);
-                    setIsLinkModalOpen(true);
-                  }}
-                  className="p-1 text-blue-500 hover:bg-blue-50 rounded"
-                >
-                  <IconLink size={14} />
-                </button>
-                <button
-                  onClick={() =>
-                    handlePartsChange(
-                      particellas.filter((x) => x.tempId !== p.tempId),
-                    )
-                  }
-                  className="p-1 text-red-500 hover:bg-red-50 rounded"
-                >
-                  <IconTrash size={14} />
-                </button>
-              </div>
+        {/* TABLA DE PARTICELLAS */}
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+            {/* ENCABEZADO */}
+            <div className="grid grid-cols-12 gap-2 bg-slate-50 border-b border-slate-200 px-4 py-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+                <div className="col-span-1 text-center">ID</div>
+                <div className="col-span-5">Nombre de Particella</div>
+                <div className="col-span-2 text-center">Nota Org.</div>
+                <div className="col-span-2 text-center">Enlaces</div>
+                <div className="col-span-2 text-right">Acciones</div>
             </div>
-          ))}
+
+            {/* FILAS */}
+            <div className="divide-y divide-slate-100">
+                {particellas.map((p) => (
+                    <div key={p.tempId} className="grid grid-cols-12 gap-2 px-4 py-2 items-center hover:bg-slate-50 transition-colors group text-sm">
+                        {/* 1. ID INSTRUMENTO */}
+                        <div className="col-span-1 flex justify-center">
+                            <span className="w-8 h-6 rounded bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 uppercase">
+                                {p.id_instrumento}
+                            </span>
+                        </div>
+
+                        {/* 2. NOMBRE */}
+                        <div className="col-span-5">
+                            <input
+                                className="w-full bg-transparent border-none p-0 text-slate-700 font-bold focus:ring-0 placeholder:text-slate-300 focus:bg-white focus:shadow-sm rounded px-1 transition-all"
+                                value={p.nombre_archivo}
+                                onChange={(e) =>
+                                    setParticellas((prev) =>
+                                        prev.map((x) =>
+                                            x.tempId === p.tempId
+                                                ? { ...x, nombre_archivo: e.target.value }
+                                                : x,
+                                        ),
+                                    )
+                                }
+                                onBlur={() => handlePartsChange(particellas)}
+                            />
+                        </div>
+
+                        {/* 3. NOTA ORGANICO */}
+                        <div className="col-span-2 flex justify-center">
+                            <input
+                                className="w-12 text-center bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:bg-white text-xs text-slate-500 outline-none transition-all"
+                                placeholder="-"
+                                value={p.nota_organico || ""}
+                                onChange={(e) =>
+                                    setParticellas((prev) =>
+                                        prev.map((x) =>
+                                            x.tempId === p.tempId
+                                                ? { ...x, nota_organico: e.target.value }
+                                                : x,
+                                        ),
+                                    )
+                                }
+                                onBlur={() => handlePartsChange(particellas)}
+                            />
+                        </div>
+
+                        {/* 4. ENLACES */}
+                        <div className="col-span-2 flex justify-center">
+                            <button
+                                onClick={() => {
+                                    setEditingLinksId(p.tempId);
+                                    setIsLinkModalOpen(true);
+                                }}
+                                className={`text-[10px] px-2 py-1 rounded-full font-bold transition-all flex items-center gap-1 ${p.links?.length > 0 ? "bg-indigo-50 text-indigo-600 hover:bg-indigo-100" : "bg-slate-100 text-slate-400 hover:bg-slate-200"}`}
+                            >
+                                <IconLink size={12}/>
+                                {p.links?.length > 0 ? `${p.links.length} Link(s)` : "Sin Links"}
+                            </button>
+                        </div>
+
+                        {/* 5. ACCIONES */}
+                        <div className="col-span-2 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                                onClick={() =>
+                                    handlePartsChange(
+                                        particellas.filter((x) => x.tempId !== p.tempId),
+                                    )
+                                }
+                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                title="Eliminar"
+                            >
+                                <IconTrash size={16} />
+                            </button>
+                        </div>
+                    </div>
+                ))}
+                
+                {particellas.length === 0 && (
+                    <div className="p-8 text-center text-slate-400 text-xs italic bg-slate-50">
+                        No hay particellas cargadas. Usa el buscador arriba para agregar instrumentos.
+                    </div>
+                )}
+            </div>
         </div>
       </div>
 
@@ -970,7 +1001,7 @@ export default function WorkForm({
       <DriveMatcherModal
         isOpen={showDriveMatcher}
         onClose={() => setShowDriveMatcher(false)}
-        folderUrl={formData.link_drive} // <--- Ahora siempre recibe el link de la carpeta
+        folderUrl={formData.link_drive} 
         parts={particellas}
         onPartsChange={handlePartsChange}
         supabase={supabase}

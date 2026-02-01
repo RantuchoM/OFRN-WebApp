@@ -25,7 +25,7 @@ export default function EnsembleCalendar({
   
   const calendarEvents = useMemo(() => {
     return events.map(evt => {
-        // 1. Sanitización de Fechas (00 segundos, 000 ms)
+        // 1. Limpieza estricta de segundos/ms
         const dateBase = parseISO(evt.fecha);
         const [hStart, mStart] = (evt.hora_inicio || "00:00").split(':').map(Number);
         
@@ -43,9 +43,10 @@ export default function EnsembleCalendar({
 
         if (end <= start) end = new Date(start.getTime() + 60 * 60 * 1000);
 
-        // 2. EL TRUCO DEL MILISEGUNDO (Solo para el layout gráfico)
-        // Al restar 1ms, matemáticamente el evento termina 09:59:59.999.
-        // Si el siguiente empieza 10:00:00.000, NO se tocan -> Se apilan verticalmente.
+        // 2. EL TRUCO DEL MILISEGUNDO (Solo para el layout)
+        // Al restar 1ms, si Evento A termina 10:00 y B empieza 10:00:
+        // A termina 09:59:59.999 -> No toca a B -> Se apilan verticalmente.
+        // Si A termina 10:30 y B empieza 10:00 -> Se superponen -> Se ponen lado a lado.
         const visualEnd = new Date(end.getTime() - 1); 
 
         const eventTitle = evt.descripcion || (evt.tipos_evento?.nombre || "Evento");
@@ -55,8 +56,8 @@ export default function EnsembleCalendar({
             id: evt.id,
             title: eventTitle,
             start, 
-            end: visualEnd, // Usamos fecha recortada para el motor del calendario
-            resource: { ...evt, realEnd: end }, // Guardamos fecha REAL para los textos
+            end: visualEnd,
+            resource: { ...evt, realEnd: end }, // Guardamos el final real para texto
             color: evt.tipos_evento?.color || '#6366f1', 
             isDraggable: !!evt.isMyRehearsal,
             tooltip: tooltipText
@@ -66,33 +67,24 @@ export default function EnsembleCalendar({
 
   const { formats } = useMemo(() => ({
     formats: {
-      // 3. Formato Personalizado de Hora
-      // Como 'end' viene con -1ms, le sumamos 1ms para mostrar la hora correcta en el label (si se mostrara)
-      eventTimeRangeFormat: ({ start, end }, culture, localizer) => {
-         const originalEnd = new Date(end.getTime() + 1);
-         const duration = differenceInMinutes(originalEnd, start);
-         
-         // Ocultar texto si es muy corto (< 40 min)
-         if (duration < 40) return ""; 
-         
-         return `${localizer.format(start, 'HH:mm', culture)} - ${localizer.format(originalEnd, 'HH:mm', culture)}`;
-      }
+      // Ocultamos la hora automática del calendario para controlarla nosotros
+      eventTimeRangeFormat: () => "" 
     }
   }), []);
 
   const EventComponent = ({ event }) => {
-      // 4. Usamos la duración REAL (sin el -1ms) para la lógica visual
+      // Usamos la duración real para decidir qué mostrar
       const duration = differenceInMinutes(event.resource.realEnd, event.start);
       
-      // Si es muy corto (< 30 min), caja vacía (solo color)
+      // Evento < 30 min: Caja vacía (solo color)
       if (duration < 30) return null; 
 
       return (
-          <div className="flex flex-col h-full overflow-hidden px-1 py-0.5 leading-tight select-none" title={event.tooltip}>
+          <div className="flex flex-col h-full overflow-hidden px-1 py-0.5 leading-tight select-none">
               <div className="text-[10px] font-bold truncate">
                   {event.title}
               </div>
-              {/* Mostrar hora solo si sobra espacio (>50 min) */}
+              {/* Solo mostrar hora si hay espacio suficiente (>50 min) */}
               {duration >= 50 && (
                   <div className="text-[9px] opacity-90 truncate font-normal">
                       {format(event.start, 'HH:mm')} - {format(event.resource.realEnd, 'HH:mm')}
@@ -104,27 +96,33 @@ export default function EnsembleCalendar({
 
   const eventPropGetter = (event) => {
     const isMyEvent = event.resource.isMyRehearsal;
+    // Detectamos si es corto para aplicar clase CSS específica
+    const duration = differenceInMinutes(event.resource.realEnd, event.start);
+    const isShort = duration < 30;
+
     return {
+      className: isShort ? 'rbc-event-short' : '',
       style: {
         backgroundColor: event.color,
         borderRadius: '2px',
         opacity: isMyEvent ? 1 : 0.65,
         color: 'white',
-        border: isMyEvent ? '1px solid rgba(0,0,0,0.1)' : '2px dashed rgba(100,116,139,0.6)',
+        border: isMyEvent ? '1px solid rgba(0,0,0,0.1)' : '2px dashed rgba(100,116,139,0.5)',
         fontSize: '0.75rem', 
         padding: 0,
         margin: 0,
         cursor: isMyEvent ? 'pointer' : 'default',
         boxShadow: 'none',
-        minHeight: '0px' // Permite contraerse
+        // Esto permite que el CSS controle la altura mínima real
+        minHeight: '0px' 
       },
       title: event.tooltip 
     };
   };
 
-  // Handlers: Redondeamos para eliminar el efecto del -1ms al guardar
   const handleEventDrop = ({ event, start, end }) => {
     if (!event.resource.isMyRehearsal) return;
+    // Redondeo para limpiar el milisegundo al guardar
     const cleanEnd = roundToNearestMinutes(end, { nearestTo: 15 });
     const cleanStart = roundToNearestMinutes(start, { nearestTo: 15 });
     onEventUpdate(event.id, {
@@ -147,24 +145,34 @@ export default function EnsembleCalendar({
   return (
     <div className="h-[750px] bg-white p-2 rounded-xl shadow-sm border border-slate-200 relative">
       
-      {/* CSS para limpiar la visualización */}
+      {/* CSS EQUILIBRADO:
+          1. Eliminamos min-height y padding para permitir eventos finos.
+          2. NO tocamos 'width' ni 'left' para permitir que el calendario calcule superposiciones reales.
+          3. Ocultamos labels por defecto.
+      */}
       <style>{`
         .rbc-event {
-            min-height: 0px !important; /* Altura real */
             padding: 0 !important;
+            min-height: 0px !important; /* Permite eventos de 15 min reales */
         }
+        
         .rbc-event-label {
-            display: none !important; /* Ocultamos label nativo para controlar nosotros */
+            display: none !important; /* Ocultar texto automático siempre */
         }
+
         .rbc-event-content {
             font-size: inherit;
+            /* width: 100%; <- ELIMINADO para permitir side-by-side */
         }
+
+        /* Ajuste de la grilla */
         .rbc-time-slot {
-            min-height: 15px; /* Altura física del slot de 15 min */
+            min-height: 12px; /* Altura física del slot de 15 min */
         }
-        /* Eliminar margen lateral para que se vea continuo si es ancho completo */
+        
+        /* Opcional: un poco de espacio visual entre eventos */
         .rbc-day-slot .rbc-events-container {
-            margin-right: 0px;
+            margin-right: 2px;
         }
       `}</style>
 
