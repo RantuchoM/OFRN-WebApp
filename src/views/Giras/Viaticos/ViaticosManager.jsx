@@ -1065,25 +1065,79 @@ export default function ViaticosManager({ supabase, giraId }) {
       }
     }
   };
+// --- FUNCIÓN PARA INICIALIZAR CARPETA ---
+  // --- FUNCIÓN PARA INICIALIZAR CARPETA (MODIFICADA PARA RETORNAR ID) ---
+  const handleCreateDriveFolder = async (silent = false) => {
+    if (!giraId) return null;
+    if (!silent) setLoading(true); // Solo muestra loading si es llamada manual
+    
+    try {
+      const { data, error } = await supabase.functions.invoke("manage-drive", {
+        body: {
+          action: "create_viaticos_folder",
+          giraId: parseInt(giraId),
+          nombreSet: giraData?.nombre || "Gira",
+        },
+      });
 
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || "Error al crear carpeta");
+
+      // Actualizamos estado local
+      setConfig((prev) => ({ ...prev, link_drive: data.folderId }));
+      
+      if (!silent) alert("Carpeta de Drive creada exitosamente.");
+      
+      // IMPORTANTE: Retornamos el ID para que otras funciones lo usen
+      return data.folderId; 
+      
+    } catch (err) {
+      console.error(err);
+      alert("Error creando carpeta: " + err.message);
+      return null;
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
   const handleExportToDrive = async (options) => {
     if (selection.size === 0)
       return alert("Selecciona al menos un integrante.");
+    
     const hasSelection =
       options.viatico ||
       options.rendicion ||
       options.destaque ||
       options.docComun ||
       options.docReducida;
+      
     if (!hasSelection)
       return alert("Selecciona al menos un tipo de documento.");
 
-    const driveFolderId = config?.link_drive;
+    // --- LÓGICA DE DETECCIÓN Y CREACIÓN AUTOMÁTICA ---
+    let driveFolderId = config?.link_drive;
+
     if (!driveFolderId) {
-      return alert(
-        "Error: No hay carpeta de Drive configurada. Asigna una en la cabecera.",
+      const confirmCreate = window.confirm(
+        "No hay una carpeta de Drive asignada.\n¿Deseas crearla automáticamente ahora y continuar con la exportación?"
       );
+
+      if (!confirmCreate) return;
+
+      // Llamamos a la función de crear y esperamos el ID
+      setExportStatus("Creando carpeta en Drive...");
+      setIsExporting(true); // Activamos loader visual
+      
+      const newId = await handleCreateDriveFolder(true); // true = modo silencioso (sin alerts de éxito extra)
+      
+      if (!newId) {
+        setIsExporting(false);
+        setExportStatus("");
+        return; // Si falló la creación, cortamos aquí
+      }
+      
+      driveFolderId = newId; // Usamos el nuevo ID
     }
+    // ----------------------------------------------------
 
     setExportStatus("Preparando datos...");
     setIsExporting(true);
@@ -1092,9 +1146,14 @@ export default function ViaticosManager({ supabase, giraId }) {
       const selectedData = activeRows.filter((r) =>
         selection.has(r.id_integrante),
       );
+      
+      // Usamos driveFolderId (que puede ser el que acabamos de crear)
       await processExportList(selectedData, driveFolderId, options, []);
+      
       setNotification("¡Proceso finalizado!");
       setSelection(new Set());
+      
+      // Abrir la carpeta al terminar es un buen detalle
       window.open(
         `https://drive.google.com/drive/folders/${driveFolderId}`,
         "_blank",
@@ -1370,7 +1429,8 @@ export default function ViaticosManager({ supabase, giraId }) {
                       <IconEyeOff size={14} />
                     )}
                   </button>
-                  {config.link_drive && (
+                  {/* --- AQUÍ ESTÁ LA LÓGICA DRIVE --- */}
+                  {config.link_drive ? (
                     <button
                       onClick={() =>
                         window.open(
@@ -1378,12 +1438,36 @@ export default function ViaticosManager({ supabase, giraId }) {
                           "_blank",
                         )
                       }
-                      className="p-2 rounded-lg border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 transition-colors flex items-center justify-center"
+                      className="p-2 rounded-lg border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 transition-colors flex items-center justify-center gap-2 text-xs font-bold"
                       title="Abrir carpeta de Drive"
                     >
-                      <IconDrive size={18} />
+                      <IconDrive size={18} /> Carpeta
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleCreateDriveFolder(false)} // false = no silencioso (activa loading)
+                      disabled={loading}
+                      className={`p-2 rounded-lg border border-indigo-200 flex items-center justify-center gap-2 text-xs font-bold transition-all ${
+                        loading
+                          ? "bg-indigo-100 text-indigo-400 cursor-wait"
+                          : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                      }`}
+                      title="Crear carpeta en Drive para esta gira"
+                    >
+                      {loading ? (
+                        <>
+                          <IconLoader className="animate-spin" size={14} />
+                          <span>Creando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <IconCloudUpload size={18} />
+                          <span>Crear Drive</span>
+                        </>
+                      )}
                     </button>
                   )}
+                  {/* --------------------------------- */}
                   <div className="w-px h-8 bg-slate-200 mx-2"></div>
                   {/* BOTÓN INDIVIDUALES CON BADGE */}
                   <button
