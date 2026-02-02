@@ -26,6 +26,8 @@ import RendicionForm from "./RendicionForm";
 import DestaquesLocationPanel from "./DestaquesLocationPanel";
 import ViaticosTable from "./ViaticosTable";
 import { PDFDocument } from "pdf-lib";
+import { Toaster, toast } from "sonner"; // <--- IMPORTANTE
+import ConfirmModal from "../../../components/ui/ConfirmModal"; // <--- IMPORTANTE
 import ManualTrigger from "../../../components/manual/ManualTrigger"; // Ajusta la ruta según donde estés
 // --- UTILIDADES ---
 const calculateDaysDiff = (dSal, hSal, dLleg, hLleg) => {
@@ -252,7 +254,8 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [successFields, setSuccessFields] = useState(new Set());
   const [deletingRows, setDeletingRows] = useState(new Set());
   const [notification, setNotification] = useState(null);
-
+  // En ViaticosManager.jsx, junto a tus otros useState
+  const [confirmPromise, setConfirmPromise] = useState(null);
   const [previewRow, setPreviewRow] = useState(null);
   const [previewMode, setPreviewMode] = useState("viatico");
   const [isExporting, setIsExporting] = useState(false);
@@ -569,24 +572,31 @@ export default function ViaticosManager({ supabase, giraId }) {
       (p) => esPerfilMasivo(p) && p.estado_gira !== "ausente",
     );
   }, [roster]);
-  // --- FUNCIÓN PARA ENVIAR MAILS MASIVOS ---
-// --- FUNCIÓN PARA ENVIAR MAILS MASIVOS ---
+  // Estado para el modal de confirmación
+  const [showEmailConfirm, setShowEmailConfirm] = useState(false);
+
+  // --- FUNCIÓN REFACTORIZADA CON TOAST ---
   const handleSendMassiveEmails = async (skipConfirm = false) => {
     // 1. Validar selección
-    if (selection.size === 0) return alert("No hay nadie seleccionado.");
-    
-    // 2. Obtener datos reales de las filas seleccionadas
-    const selectedData = activeRows.filter((r) => selection.has(r.id_integrante));
-    
-    // 3. Confirmación (Solo si NO viene del proceso de exportación)
-    if (!skipConfirm) {
-      if (!confirm(`¿Estás seguro de enviar ${selectedData.length} correos electrónicos con el detalle de liquidación?`)) {
-        return;
-      }
+    if (selection.size === 0) {
+      toast.error("No hay nadie seleccionado");
+      return;
     }
 
-    // 4. Configurar estado visual
-    setExportStatus("Iniciando envío de correos...");
+    const selectedData = activeRows.filter((r) =>
+      selection.has(r.id_integrante),
+    );
+
+    // Si NO es automático (skipConfirm false) y NO estamos mostrando el modal,
+    // abrimos el modal y detenemos la ejecución aquí.
+    if (!skipConfirm && !showEmailConfirm) {
+      setShowEmailConfirm(true);
+      return;
+    }
+
+    // --- INICIO DEL PROCESO (Feedback Visual con Toast) ---
+    // Creamos un ID de toast para actualizarlo mientras progresa
+    const toastId = toast.loading("Iniciando proceso de envío...");
     setIsExporting(true);
 
     let enviados = 0;
@@ -594,8 +604,13 @@ export default function ViaticosManager({ supabase, giraId }) {
 
     try {
       for (const [index, persona] of selectedData.entries()) {
-        // Actualizamos barra de estado
-        setExportStatus(`Enviando ${index + 1}/${selectedData.length}: ${persona.apellido}...`);
+        // Actualizamos el toast con el progreso
+        toast.loading(
+          `Enviando ${index + 1} de ${selectedData.length}: ${persona.apellido}...`,
+          {
+            id: toastId, // Usamos el mismo ID para que no se acumulen
+          },
+        );
 
         if (!persona.mail) {
           console.warn(`Omitiendo a ${persona.apellido}: No tiene mail.`);
@@ -603,34 +618,29 @@ export default function ViaticosManager({ supabase, giraId }) {
           continue;
         }
 
-        // 5. Preparar Payload (Mapeo Frontend -> Backend)
         const detallePayload = {
+          // ... (tu mapeo de datos sigue igual) ...
           dias_computables: persona.dias_computables,
           porcentaje: persona.porcentaje,
-          
-          // Mapeo de importes calculados
-          subtotal_viatico: persona.subtotal, // Viático puro (días * valor)
-          total_percibir: persona.totalFinal, // Total final con gastos
-          
-          // Gastos individuales (para desglose en el mail)
+          subtotal_viatico: persona.subtotal,
+          total_percibir: persona.totalFinal,
           gasto_combustible: persona.gasto_combustible,
           gasto_pasajes: persona.gasto_pasajes,
           gasto_alojamiento: persona.gasto_alojamiento,
           gasto_otros: persona.gasto_otros,
           gastos_movilidad: persona.gastos_movilidad,
           gastos_movil_otros: persona.gastos_movil_otros,
-          gastos_capacit: persona.gastos_capacit
+          gastos_capacit: persona.gastos_capacit,
         };
 
-        // 6. Invocar Edge Function
         const { error } = await supabase.functions.invoke("mails_produccion", {
           body: {
             action: "enviar_mail",
-            templateId: "viaticos_simple", // El modelo de Carla Fernández
+            templateId: "viaticos_simple",
             email: persona.mail,
             nombre: persona.nombre,
             gira: giraData?.nombre_gira,
-            detalle: detallePayload
+            detalle: detallePayload,
           },
         });
 
@@ -642,24 +652,30 @@ export default function ViaticosManager({ supabase, giraId }) {
         }
       }
 
-      // 7. Resultado Final (Solo si fue ejecución manual)
-      if (!skipConfirm) {
-        alert(`Proceso finalizado.\nEnviados: ${enviados}\nErrores/Sin mail: ${errores}`);
-        setSelection(new Set()); // Limpiamos selección
+      // --- RESULTADO FINAL ---
+      if (errores === 0) {
+        toast.success(`¡Listo! Se enviaron ${enviados} correos exitosamente.`, {
+          id: toastId,
+          duration: 5000,
+        });
+      } else {
+        toast.warning(`Proceso finalizado con observaciones.`, {
+          id: toastId,
+          description: `Enviados: ${enviados} - Fallidos/Sin Mail: ${errores}`,
+          duration: 8000,
+        });
       }
 
+      if (!skipConfirm) setSelection(new Set());
     } catch (err) {
       console.error(err);
-      if (!skipConfirm) alert("Error crítico en el proceso de envío.");
+      toast.error("Error crítico en el proceso de envío", { id: toastId });
     } finally {
-      // 8. Limpieza de estado (Solo si fue ejecución manual)
-      // Si viene de exportación, el finally de handleExportToDrive se encarga de esto.
-      if (!skipConfirm) {
-        setIsExporting(false);
-        setExportStatus("");
-      }
+      setIsExporting(false);
+      if (!skipConfirm) setShowEmailConfirm(false); // Cierra modal si estaba abierto
     }
   };
+
   const updateRow = async (id, field, value) => {
     const fieldKey = `${id}-${field}`;
     setUpdatingFields((prev) => new Set(prev).add(fieldKey));
@@ -1188,33 +1204,65 @@ export default function ViaticosManager({ supabase, giraId }) {
     } finally {
       if (!silent) setLoading(false);
     }
-  };
-  const handleExportToDrive = async (options) => {
-    if (selection.size === 0)
-      return alert("Selecciona al menos un integrante.");
+  };const handleExportToDrive = async (options) => {
+    // 1. Validaciones con Toast
+    if (selection.size === 0) {
+      toast.error("Selecciona al menos un integrante.");
+      return;
+    }
 
-    // ... (Tu validación de opciones existente) ...
     const hasSelection =
       options.viatico ||
       options.rendicion ||
       options.destaque ||
       options.docComun ||
       options.docReducida;
-    if (!hasSelection)
-      return alert("Selecciona al menos un tipo de documento.");
 
-    // 1. PREGUNTA ADICIONAL ANTES DE EMPEZAR
-    const shouldSendEmails = window.confirm(
-      "¿Deseas enviar también los correos electrónicos de notificación a los seleccionados al finalizar la exportación?",
-    );
-
-    // ... (Tu lógica de crear carpeta Drive existente) ...
-    let driveFolderId = config?.link_drive;
-    if (!driveFolderId) {
-      // ... (Lógica de crear carpeta si no existe) ...
+    if (!hasSelection) {
+      toast.error("Selecciona al menos un tipo de documento para generar.");
+      return;
     }
 
-    setExportStatus("Preparando datos...");
+    // 2. PREGUNTA ESTÉTICA (Promesa que espera al Modal)
+    // El código se "pausa" aquí hasta que el usuario responda en el Modal
+    const shouldSendEmails = await new Promise((resolve) => {
+      setConfirmPromise({
+        isOpen: true,
+        title: "Opciones de Salida",
+        message: "¿Deseas enviar también los correos electrónicos de notificación a los seleccionados automáticamente al finalizar la exportación?",
+        confirmText: "Sí, enviar correos",
+        cancelText: "No, solo Drive",
+        resolve, // Guardamos la función resolve para llamarla desde el modal
+      });
+    });
+
+    // 3. Lógica de Carpeta Drive (Creación automática si no existe)
+    let driveFolderId = config?.link_drive;
+
+    if (!driveFolderId) {
+      // Reutilizamos el modal para preguntar si crear carpeta (opcional, o usar confirm nativo aquí si prefieres simplificar)
+      // Por simplicidad en este paso, asumimos que si no hay carpeta, preguntamos con native confirm o lo creamos directo.
+      // Si quieres usar el modal estético aquí también, necesitarías anidar promesas, pero usemos window.confirm solo para este caso borde técnico:
+      const confirmCreate = window.confirm(
+        "No hay carpeta de Drive asignada.\n¿Crearla ahora automáticamente?"
+      );
+      
+      if (!confirmCreate) return;
+
+      const toastId = toast.loading("Creando carpeta en Drive...");
+      const newId = await handleCreateDriveFolder(true); // true = silent mode
+      
+      if (!newId) {
+        toast.error("No se pudo crear la carpeta.", { id: toastId });
+        return;
+      }
+      driveFolderId = newId;
+      toast.dismiss(toastId);
+    }
+
+    // 4. Inicio del Proceso
+    const toastId = toast.loading("Iniciando exportación...");
+    setExportStatus("Generando documentos PDF...");
     setIsExporting(true);
 
     try {
@@ -1222,35 +1270,45 @@ export default function ViaticosManager({ supabase, giraId }) {
         selection.has(r.id_integrante),
       );
 
-      // 2. EJECUTAR EXPORTACIÓN A DRIVE
+      // --- PASO A: EXPORTAR A DRIVE ---
+      // Actualizamos el mensaje del toast existente
+      toast.loading(`Generando ${selectedData.length} expedientes y subiendo a Drive...`, { id: toastId });
+      
       await processExportList(selectedData, driveFolderId, options, []);
 
-      // 3. SI EL USUARIO DIJO QUE SÍ, EJECUTAR ENVÍO DE MAILS
+      // --- PASO B: ENVIAR MAILS (Si el usuario dijo que SÍ) ---
       if (shouldSendEmails) {
-        setExportStatus("Iniciando envío de correos...");
-        // Llamamos a la función con true para que NO vuelva a preguntar "¿Seguro?"
-        await handleSendMassiveEmails(true);
+        setExportStatus("Enviando correos de notificación...");
+        toast.loading("Exportación lista. Iniciando envío de correos...", { id: toastId });
+        
+        // Llamamos a la función de mails en modo "skipConfirm" (true)
+        await handleSendMassiveEmails(true); 
       }
 
-      setNotification(
-        shouldSendEmails
-          ? "¡Exportación y envíos finalizados!"
-          : "¡Exportación finalizada!",
-      );
+      // 5. Finalización Exitosa
+      const successMessage = shouldSendEmails
+        ? "¡Proceso completo! Archivos subidos y correos enviados."
+        : "¡Exportación a Drive finalizada correctamente!";
 
-      setSelection(new Set()); // Limpiamos selección al final de todo
+      toast.success(successMessage, { 
+        id: toastId, // Transformamos el toast de carga en éxito
+        duration: 5000 
+      });
 
+      setSelection(new Set()); // Limpiamos selección
+      
+      // Abrir carpeta
       window.open(
         `https://drive.google.com/drive/folders/${driveFolderId}`,
         "_blank",
       );
+
     } catch (err) {
       console.error(err);
-      alert("Error en el proceso: " + err.message);
+      toast.error("Ocurrió un error: " + err.message, { id: toastId });
     } finally {
       setIsExporting(false);
       setExportStatus("");
-      setTimeout(() => setNotification(null), 3000);
     }
   };
 
@@ -1438,6 +1496,34 @@ export default function ViaticosManager({ supabase, giraId }) {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative overflow-y-auto">
+      <Toaster position="top-center" richColors closeButton />
+      <ConfirmModal
+        isOpen={confirmPromise?.isOpen}
+        onClose={() => {
+          // Si cierra sin elegir (clic afuera o X), asumimos que NO quiere mails, pero SÍ exportar
+          // O puedes cancelar todo llamando a resolve(null) y manejándolo arriba.
+          // Aquí asumimos "No enviar mails, solo exportar":
+          confirmPromise?.resolve(false);
+          setConfirmPromise(null);
+        }}
+        title="Opciones de Salida"
+        message="¿Deseas enviar también los correos electrónicos de notificación a los seleccionados automáticamente al finalizar la exportación?"
+        confirmText="Sí, enviar correos"
+        cancelText="No, solo Drive"
+        onConfirm={() => {
+          confirmPromise?.resolve(true); // Resuelve la promesa con TRUE
+          setConfirmPromise(null);
+        }}
+      />
+      {/* 2. EL MODAL (Para confirmar el envío de mails) */}
+      <ConfirmModal
+        isOpen={showEmailConfirm}
+        onClose={() => setShowEmailConfirm(false)}
+        onConfirm={() => handleSendMassiveEmails(true)}
+        title="Enviar Notificaciones"
+        message={`Estás a punto de enviar ${selection.size} correos electrónicos...`}
+        confirmText="Enviar Correos"
+      />
       <div className="bg-white border-b border-slate-200 shadow-sm mb-4">
         <div
           className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"
