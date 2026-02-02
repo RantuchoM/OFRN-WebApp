@@ -21,6 +21,7 @@ import {
   IconChevronDown,
   IconEdit,
   IconSave,
+  IconCheck,
   IconUpload,
   IconDownload,
   IconFileText,
@@ -28,7 +29,6 @@ import {
   IconAlertTriangle,
   IconBus,
   IconCheckCircle,
-  IconCheck,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
@@ -1704,87 +1704,249 @@ export default function GirasTransportesManager({ supabase, gira }) {
               className={`group border rounded-2xl transition-all duration-300 ${isExpanded ? "border-indigo-300 shadow-xl ring-4 ring-indigo-50/50 bg-white" : "border-slate-200 bg-white hover:border-slate-300 shadow-sm"}`}
             >
               {/* HEADER DE LA TARJETA */}
-              <div className="min-w-0 flex-1">
-                {isEditing ? (
-                  // --- MODO EDICIÓN ---
+              <div
+                className="p-2 md:p-3 flex flex-col md:flex-row justify-between md:items-center gap-2 cursor-pointer"
+                onClick={() =>
+                  !isEditing && setActiveTransportId(isExpanded ? null : t.id)
+                }
+              >
+                {/* LADO IZQUIERDO: Info del Vehículo */}
+                <div className="flex items-center gap-2 flex-1 min-w-0">
                   <div
-                    className="flex items-center gap-2"
+                    className={`p-2 rounded-xl shrink-0 transition-colors ${
+                      isExpanded
+                        ? "bg-indigo-600 text-white"
+                        : "bg-slate-100 text-slate-500 group-hover:bg-indigo-100"
+                    }`}
+                  >
+                    <IconTruck size={20} />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    {isEditing ? (
+                      // --- MODO EDICIÓN ---
+                      <div
+                        className="flex flex-wrap items-center gap-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {/* Selector de Tipo de Transporte */}
+                        <select
+                          className="border border-indigo-300 rounded px-2 py-1 text-xs bg-white focus:ring-2 focus:ring-indigo-200 outline-none w-24"
+                          value={editFormData.id_transporte || t.id_transporte} // Fallback al original si no se cambió
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              id_transporte: e.target.value,
+                            })
+                          }
+                        >
+                          {catalog.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.nombre}
+                            </option>
+                          ))}
+                        </select>
+
+                        {/* Input Detalle */}
+                        <input
+                          type="text"
+                          value={editFormData.detalle}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              detalle: e.target.value,
+                            })
+                          }
+                          className="border border-indigo-300 rounded px-2 py-1 text-xs font-bold w-32 focus:ring-2 focus:ring-indigo-200 outline-none"
+                          placeholder="Detalle"
+                          autoFocus
+                        />
+
+                        {/* Input Capacidad */}
+                        <input
+                          type="number"
+                          value={editFormData.capacidad}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              capacidad: e.target.value,
+                            })
+                          }
+                          className="border border-indigo-300 rounded px-2 py-1 text-xs w-16 text-center focus:ring-2 focus:ring-indigo-200 outline-none"
+                          placeholder="Cap."
+                        />
+
+                        {/* Botones Guardar/Cancelar */}
+                        <div className="flex gap-1">
+                          <button
+                            onClick={saveTransportChanges}
+                            className="bg-emerald-500 text-white p-1 rounded hover:bg-emerald-600 transition-colors"
+                          >
+                            <IconCheck size={14} />
+                          </button>
+                          <button
+                            onClick={cancelEditingTransport}
+                            className="bg-slate-200 text-slate-600 p-1 rounded hover:bg-slate-300 transition-colors"
+                          >
+                            <IconX size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      // --- MODO VISUALIZACIÓN (Original) ---
+                      <>
+                        <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden">
+                          <h4 className="font-black text-slate-800 uppercase tracking-tighter text-sm truncate shrink">
+                            {t.detalle || "Sin detalle"}
+                          </h4>
+                          {t.transportes?.patente && (
+                            <span className="bg-slate-800 text-white px-1.5 py-0.5 rounded text-[9px] font-mono tracking-tighter shrink-0 shadow-sm">
+                              {t.transportes.patente}
+                            </span>
+                          )}
+                          <button
+                            onClick={(e) => startEditingTransport(e, t)}
+                            className="text-slate-300 hover:text-indigo-600 shrink-0 p-1 rounded-full hover:bg-indigo-50 transition-all"
+                          >
+                            <IconEdit size={12} />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">
+                            {t.transportes?.nombre || "Bus"}
+                          </span>
+                          <span className="text-slate-200 shrink-0">|</span>
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${occupancyColor}`}
+                          >
+                            {tPassengerCount}
+                            {tInstrumentSeats > 0
+                              ? ` + ${tInstrumentSeats} inst`
+                              : ""}{" "}
+                            / {maxCap > 0 ? maxCap : "∞"}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* LADO DERECHO: Acciones (Solo visible si NO se edita) */}
+                {/* LADO DERECHO: Acciones (Solo visible si NO se edita) */}
+                {!isEditing && (
+                  <div
+                    className="flex items-center gap-1 shrink-0 ml-auto md:ml-0"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <input
-                      type="text"
-                      value={editFormData.detalle}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          detalle: e.target.value,
-                        })
-                      }
-                      className="border border-indigo-300 rounded px-2 py-1 text-xs font-bold w-32 focus:ring-2 focus:ring-indigo-200 outline-none"
-                      placeholder="Detalle"
-                      autoFocus
-                    />
-                    <input
-                      type="number"
-                      value={editFormData.capacidad}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          capacidad: e.target.value,
-                        })
-                      }
-                      className="border border-indigo-300 rounded px-2 py-1 text-xs w-16 text-center focus:ring-2 focus:ring-indigo-200 outline-none"
-                      placeholder="Cap."
-                    />
-                    <button
-                      onClick={saveTransportChanges}
-                      className="bg-emerald-500 text-white p-1 rounded hover:bg-emerald-600 transition-colors"
-                    >
-                      <IconCheck size={14} />
-                    </button>
-                    <button
-                      onClick={cancelEditingTransport}
-                      className="bg-slate-200 text-slate-600 p-1 rounded hover:bg-slate-300 transition-colors"
-                    >
-                      <IconX size={14} />
-                    </button>
-                  </div>
-                ) : (
-                  // --- MODO VISUALIZACIÓN (Original) ---
-                  <>
-                    <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden">
-                      <h4 className="font-black text-slate-800 uppercase tracking-tighter text-sm truncate shrink">
-                        {t.detalle || "Sin detalle"}
-                      </h4>
-                      {t.transportes?.patente && (
-                        <span className="bg-slate-800 text-white px-1.5 py-0.5 rounded text-[9px] font-mono tracking-tighter shrink-0 shadow-sm">
-                          {t.transportes.patente}
-                        </span>
-                      )}
+                    {/* Alerta de Incompletos */}
+                    {incompletePax.length > 0 && !isMediosPropios && (
                       <button
-                        onClick={(e) => startEditingTransport(e, t)}
-                        className="text-slate-300 hover:text-indigo-600 shrink-0 p-1 rounded-full hover:bg-indigo-50 transition-all"
+                        onClick={() =>
+                          setInfoListModal({
+                            isOpen: true,
+                            title: `Incompletos: ${t.detalle}`,
+                            list: incompletePax,
+                            transportId: t.id,
+                          })
+                        }
+                        className="flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[9px] font-black hover:bg-rose-100 transition-all animate-pulse mr-1"
+                        title={`${incompletePax.length} pasajeros sin parada`}
                       >
-                        <IconEdit size={12} />
+                        <IconAlertTriangle size={10} />{" "}
+                        <span className="hidden sm:inline">
+                          {incompletePax.length} PEND.
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Botonera de Acciones */}
+                    <div className="flex items-center bg-slate-100/80 p-0.5 rounded-xl border border-slate-200 gap-0.5">
+                      <button
+                        onClick={() =>
+                          setAdmissionModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all"
+                        title="Admisión (Quiénes viajan)"
+                      >
+                        <IconUsers size={16} />
+                      </button>
+                      
+                      <button
+                        onClick={() =>
+                          setBoardingModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="p-1.5 bg-white text-amber-600 rounded-lg hover:bg-amber-600 hover:text-white transition-all"
+                        title="Abordaje (Dónde suben/bajan)"
+                      >
+                        <IconCheckCircle size={16} />
+                      </button>
+
+                      {/* --- BOTÓN RESTAURADO: INSERTAR ITINERARIO --- */}
+                      <button
+                        onClick={() =>
+                          setItineraryModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="p-1.5 bg-white text-fuchsia-600 rounded-lg hover:bg-fuchsia-600 hover:text-white transition-all"
+                        title="Gestionar Itinerario / Paradas"
+                      >
+                        <IconMapPin size={16} />
+                      </button>
+                      {/* --------------------------------------------- */}
+
+                      <button
+                        onClick={() =>
+                          setShiftModal({
+                            isOpen: true,
+                            transportId: t.id,
+                            transportName: t.detalle,
+                          })
+                        }
+                        className="p-1.5 bg-white text-slate-500 rounded-lg hover:bg-slate-800 hover:text-white transition-all"
+                        title="Mover Horarios (Shift)"
+                      >
+                        <IconClock size={16} />
+                      </button>
+
+                      <div className="w-px h-4 bg-slate-200 mx-0.5"></div>
+
+                      <button
+                        onClick={() =>
+                          setRoadmapModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all"
+                        title="Exportar Hoja de Ruta"
+                      >
+                        <IconFileText size={16} />
+                      </button>
+                      
+                      <button
+                        onClick={() =>
+                          setCnrtModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="px-2 py-1.5 bg-white text-indigo-700 text-[9px] font-black rounded-lg hover:bg-indigo-700 hover:text-white transition-all"
+                        title="Exportar CNRT"
+                      >
+                        CNRT
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">
-                        {t.transportes?.nombre || "Bus"}
-                      </span>
-                      <span className="text-slate-200 shrink-0">|</span>
-                      <span
-                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${occupancyColor}`}
-                      >
-                        {tPassengerCount}
-                        {tInstrumentSeats > 0
-                          ? ` + ${tInstrumentSeats} inst`
-                          : ""}{" "}
-                        / {maxCap > 0 ? maxCap : "∞"}
-                      </span>
+                    <button
+                      onClick={() => handleDeleteTransport(t.id)}
+                      className="p-1.5 text-slate-300 hover:text-rose-600 transition-colors ml-1"
+                      title="Eliminar Transporte"
+                    >
+                      <IconTrash size={16} />
+                    </button>
+
+                    <div
+                      className={`ml-1 text-slate-300 transition-transform duration-300 ${
+                        isExpanded ? "rotate-180" : ""
+                      }`}
+                    >
+                      <IconChevronDown size={16} />
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
 
