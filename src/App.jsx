@@ -75,6 +75,8 @@ import {
   IconUser,
   IconEye,
   IconEyeOff,
+  IconSun,  // Asegúrate de tener este ícono en Icons.jsx
+  IconMoon, // Asegúrate de tener este ícono en Icons.jsx
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal";
 import SearchableSelect from "./components/ui/SearchableSelect";
@@ -324,7 +326,7 @@ const ProtectedApp = () => {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [userData, setUserData] = useState(null);
   const [userAvatar, setUserAvatar] = useState(null);
-  const [userColor, setUserColor] = useState("#6366f1");
+  const [userColor, setUserColor] = useState("#64748b");
   const [pendingFields, setPendingFields] = useState([]);
 
   const { toggleVisibility, showTriggers } = useManual();
@@ -335,14 +337,34 @@ const ProtectedApp = () => {
     mentioned: 0,
   });
 
+  // --- UI SCALE & DARK MODE STATE ---
   const [uiScale, setUiScale] = useState(() =>
     parseInt(localStorage.getItem("app_ui_scale") || "100", 10),
+  );
+  
+  // Inicializar estado del modo oscuro leyendo localStorage
+  const [isDarkMode, setIsDarkMode] = useState(() => 
+    localStorage.getItem('theme_mode') === 'dark'
   );
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${uiScale}%`;
     localStorage.setItem("app_ui_scale", uiScale);
   }, [uiScale]);
+
+  // Handler para alternar modo oscuro desde el sidebar
+  const toggleDarkMode = () => {
+    const newMode = !isDarkMode;
+    setIsDarkMode(newMode);
+    
+    // Disparar evento para que ThemeController actúe
+    window.dispatchEvent(new CustomEvent('theme-changed', {
+        detail: { darkMode: newMode }
+    }));
+    
+    // Guardar preferencia localmente para persistencia rápida
+    localStorage.setItem('theme_mode', newMode ? 'dark' : 'light');
+  };
 
   // Lógica para obtener conteo de comentarios no leídos en segundo plano
   useEffect(() => {
@@ -373,8 +395,6 @@ const ProtectedApp = () => {
       let mentioned = 0;
 
       comments.forEach((c) => {
-        // NOTA: Se eliminó el filtro c.id_autor === user.id para que cuenten los propios si no están leídos
-
         const key = `${c.entidad_tipo}_${normalizeId(c.entidad_id)}`;
         const lastRead = readMap[key] ? new Date(readMap[key]) : new Date(0);
 
@@ -479,10 +499,6 @@ const ProtectedApp = () => {
   const [mode, setMode] = useState(tabToMode[currentTab] || defaultMode);
   const [activeGiraId, setActiveGiraId] = useState(searchParams.get("giraId"));
 
-  // =========================================================================
-  // FIX CRÍTICO DE NAVEGACIÓN (ESTO FALTABA)
-  // Extraemos los valores como strings para usarlos en el useEffect.
-  // =========================================================================
   const currentTabParam = searchParams.get("tab");
   const currentGiraIdParam = searchParams.get("giraId");
 
@@ -495,8 +511,7 @@ const ProtectedApp = () => {
     } else {
       setActiveGiraId(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTabParam, currentGiraIdParam, defaultMode]); // <--- Dependencias primitivas (strings)
+  }, [currentTabParam, currentGiraIdParam, defaultMode]);
 
   const updateView = (
     newMode,
@@ -717,24 +732,61 @@ const ProtectedApp = () => {
 
       {/* SIDEBAR */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"} flex flex-col`}
       >
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">
-              O
+        <div className="p-4 border-b border-slate-100 shrink-0 flex flex-col gap-3">
+          {/* Top Row: Logo & Mobile Close */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">
+                O
+              </div>
+              <h1 className="font-bold text-slate-800 text-lg">OFRN</h1>
             </div>
-            <h1 className="font-bold text-slate-800 text-lg">OFRN</h1>
+            <button
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="lg:hidden p-1 text-slate-400"
+            >
+              <IconX size={20} />
+            </button>
           </div>
-          <button
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="lg:hidden p-1 text-slate-400"
-          >
-            <IconX size={20} />
-          </button>
+
+          {/* Controls Row (MODO NOCTURNO Y ZOOM) */}
+          <div className="flex items-center justify-between bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+            {/* Theme Toggle */}
+            <button
+              onClick={toggleDarkMode}
+              className={`p-1.5 rounded-lg transition-all flex-1 flex justify-center items-center ${isDarkMode ? 'bg-slate-800 text-indigo-400' : 'bg-white text-orange-500 shadow-sm'}`}
+              title="Cambiar Modo"
+            >
+              {isDarkMode ? <IconMoon size={16} /> : <IconSun size={16} />}
+            </button>
+
+            {/* Divider */}
+            <div className="w-px h-4 bg-slate-200 mx-2"></div>
+
+            {/* Zoom Controls */}
+            <div className="flex items-center gap-2 px-2 bg-white rounded-lg border border-slate-100 shadow-sm h-8">
+              <button
+                onClick={() => setUiScale(s => Math.max(80, s - 5))}
+                className="text-slate-400 hover:text-indigo-600 font-bold text-lg leading-none active:scale-90 transition-transform w-5 flex justify-center"
+              >
+                -
+              </button>
+              <span className="text-xs font-black text-slate-600 min-w-[3ch] text-center select-none">
+                {uiScale}
+              </span>
+              <button
+                onClick={() => setUiScale(s => Math.min(140, s + 5))}
+                className="text-slate-400 hover:text-indigo-600 font-bold text-lg leading-none active:scale-90 transition-transform w-5 flex justify-center"
+              >
+                +
+              </button>
+            </div>
+          </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1 custom-scrollbar">
           {visibleMenuItems.map((item) => (
             <button
               key={item.id}
@@ -747,28 +799,7 @@ const ProtectedApp = () => {
           ))}
         </nav>
 
-        {/* AJUSTES DE INTERFAZ */}
-        <div className="p-4 bg-slate-50 border-t border-slate-100">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-              Interfaz
-            </span>
-            <span className="text-[10px] font-bold text-indigo-600">
-              {uiScale}%
-            </span>
-          </div>
-          <input
-            type="range"
-            min="80"
-            max="140"
-            step="5"
-            value={uiScale}
-            onChange={(e) => setUiScale(parseInt(e.target.value))}
-            className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-          />
-        </div>
-
-        <div className="p-4 border-t border-slate-100">
+        <div className="p-4 border-t border-slate-100 shrink-0">
           <button
             onClick={logout}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-colors"
@@ -838,9 +869,7 @@ const ProtectedApp = () => {
           </div>
 
           {/* 2. SECCIÓN CENTRAL (BARRA DE COMANDOS) */}
-         {/* 2. SECCIÓN CENTRAL (BARRA DE COMANDOS) */}
           <div className="flex-1 hidden md:flex justify-center max-w-xl mx-auto px-4">
-             {/* Ya no necesita props, funciona solo */}
              <CommandBarTrigger className="w-full shadow-none bg-slate-50 border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:border-indigo-400" />
           </div>
           {/* 3. SECCIÓN DERECHA (Acciones/Perfil) */}

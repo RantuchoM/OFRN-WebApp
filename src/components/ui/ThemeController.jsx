@@ -1,80 +1,71 @@
-import { useEffect, useState } from "react";
-import { useAuth } from "../../context/AuthContext";
-import { supabase } from "../../services/supabase";
+import { useEffect } from 'react';
+// import { useAuth } from '../../context/AuthContext'; // Ya no es estricto si es local
+// import { supabase } from '../../services/supabase'; // No se usa para leer pref
 
 export default function ThemeController() {
-  const { user } = useAuth();
-
+  
   const hexToRgb = (hex) => {
     if (!hex) return null;
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result
-      ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
+    return result ? 
+      `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` 
       : null;
   };
 
   const applyColor = (color) => {
-    document.documentElement.style.setProperty("--theme-primary", color);
+    document.documentElement.style.setProperty('--theme-primary', color);
+  };
+
+  const applyThemeMode = (isDark) => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
   };
 
   useEffect(() => {
-    const fetchUserColor = async () => {
-      if (!user?.id) {
-        applyColor("99, 102, 241");
-        return;
-      }
-      try {
-        const { data } = await supabase
-          .from("integrantes")
-          .select("avatar_color")
-          .eq("id", user.id)
-          .single();
+    // 1. CARGA INICIAL DESDE LOCALSTORAGE
+    const savedColor = localStorage.getItem('theme_color');
+    const savedMode = localStorage.getItem('theme_mode'); // 'dark' o 'light'
 
-        if (data?.avatar_color) {
-          const rgb = hexToRgb(data.avatar_color);
-          if (rgb) applyColor(rgb);
-        }
-      } catch (err) {
-        applyColor("99, 102, 241"); // RGB para #6366f1
-      }
-    };
+    if (savedColor) {
+        const rgb = hexToRgb(savedColor);
+        if (rgb) applyColor(rgb);
+    } else {
+        applyColor('79, 70, 229'); // Default Indigo
+    }
 
-    fetchUserColor();
+    if (savedMode === 'dark') {
+        applyThemeMode(true);
+    } else {
+        applyThemeMode(false);
+    }
 
-    // --- ESCUCHAR CAMBIO EN TIEMPO REAL (Supabase) ---
-    const channel = supabase
-      .channel("theme_changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "integrantes",
-          filter: `id=eq.${user?.id}`,
-        },
-        (payload) => {
-          if (payload.new?.avatar_color) {
-            const rgb = hexToRgb(payload.new.avatar_color);
-            if (rgb) applyColor(rgb);
-          }
-        },
-      )
-      .subscribe();
-
-    // --- ESCUCHAR EVENTO LOCAL (Instantáneo) ---
+    // 2. ESCUCHAR CAMBIOS (Evento local disparado por el Modal)
     const handleLocalThemeChange = (event) => {
-      const newHex = event.detail;
-      const rgb = hexToRgb(newHex);
-      if (rgb) applyColor(rgb);
+      const detail = event.detail;
+      
+      if (typeof detail === 'object') {
+         if (detail.color) {
+            const rgb = hexToRgb(detail.color);
+            if (rgb) applyColor(rgb);
+            localStorage.setItem('theme_color', detail.color); // GUARDAR
+         }
+         if (detail.darkMode !== undefined) {
+            applyThemeMode(detail.darkMode);
+            localStorage.setItem('theme_mode', detail.darkMode ? 'dark' : 'light'); // GUARDAR
+         }
+      }
     };
 
-    window.addEventListener("theme-changed", handleLocalThemeChange);
+    window.addEventListener('theme-changed', handleLocalThemeChange);
 
     return () => {
-      supabase.removeChannel(channel);
-      window.removeEventListener("theme-changed", handleLocalThemeChange);
+      window.removeEventListener('theme-changed', handleLocalThemeChange);
     };
-  }, [user?.id]);
+
+  }, []);
 
   return null;
 }

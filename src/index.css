@@ -1,11 +1,43 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 :root {
   /* Color Indigo por defecto en formato R G B */
   --theme-primary: 79, 70, 229; 
 }
-/* Estilos base opcionales */
+
+/* Estilos base */
 body {
-  @apply bg-slate-50 text-slate-800;
+  @apply bg-slate-50 text-slate-800 transition-colors duration-300;
+}
+
+/* --- MODO NOCTURNO AUTOMÁTICO (Estilo Samsung Internet) --- */
+
+/* 1. Invertir toda la interfaz */
+html.dark {
+  /* invert(0.92): Invierte blanco a gris muy oscuro (no negro puro para evitar ghosting) */
+  /* hue-rotate(180deg): Rota los colores para que el azul siga siendo azul (y no naranja por la inversión) */
+  filter: invert(0.92) hue-rotate(180deg);
+}
+
+/* 2. Proteger elementos sensibles (Re-inversión) */
+/* Aplicamos el mismo filtro a imágenes y videos para "cancelar" el efecto y que se vean naturales */
+html.dark img, 
+html.dark video, 
+html.dark iframe,
+html.dark svg, /* A veces los iconos SVG necesitan esto, a veces no. Pruébalo. */
+html.dark [style*="background-image"] {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* 3. Ajuste fino para imágenes */
+html.dark img {
+  opacity: 0.85; /* Baja un poco el brillo de las fotos para que no encandilen */
+}
+
+/* 4. Excepción manual */
+/* Si tienes algún div con color de fondo específico que se ve mal, agrégale esta clase */
+html.dark .no-dark-invert {
+  filter: invert(1) hue-rotate(180deg);
 }
