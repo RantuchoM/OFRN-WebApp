@@ -60,6 +60,7 @@ export default function ViaticosTable({
   config,
   updatingFields = new Set(),
   deletingRows = new Set(),
+  errorFields = new Set(),
   successFields = new Set(),
   logisticsMap = {},
 }) {
@@ -69,10 +70,20 @@ export default function ViaticosTable({
 
   const getInputClass = (rowId, fieldName, baseClass = "") => {
     const key = `${rowId}-${fieldName}`;
+
+    // Prioridad 1: Guardando (Amarillo)
     if (updatingFields.has(key))
-      return `${baseClass} transition-colors duration-200 bg-amber-100 text-amber-900 border-amber-300`;
+      return `transition-colors duration-200 bg-amber-100 text-amber-900 border-amber-300 ${baseClass.replace("bg-transparent", "")}`;
+
+    // Prioridad 2: Error (Rojo) - NUEVO
+    if (errorFields.has(key))
+      return `transition-colors duration-200 bg-rose-100 text-rose-900 border-rose-300 font-bold ${baseClass.replace("bg-transparent", "")}`;
+
+    // Prioridad 3: Éxito (Verde)
     if (successFields.has(key))
-      return `${baseClass} transition-colors duration-1000 bg-green-100 text-green-900 border-green-300 font-medium`;
+      return `transition-colors duration-1000 bg-green-100 text-green-900 border-green-300 font-medium ${baseClass.replace("bg-transparent", "")}`;
+
+    // Estado Normal
     return `${baseClass} transition-colors duration-500`;
   };
 
@@ -669,13 +680,18 @@ export default function ViaticosTable({
                                     : ""
                                 }
                                 onChange={(e) => {
-                                  // Quitamos los puntos para guardar solo el número puro en la DB
+                                  // 1. Limpiamos puntos de miles
                                   const rawValue = e.target.value.replace(
                                     /\./g,
                                     "",
                                   );
-                                  if (!isNaN(rawValue) || rawValue === "") {
-                                    onUpdateRow(row.id, field, rawValue);
+
+                                  // 2. Lógica corregida: Si está vacío, enviamos "0", si no, el valor.
+                                  const valueToSend =
+                                    rawValue === "" ? "0" : rawValue;
+
+                                  if (!isNaN(valueToSend)) {
+                                    onUpdateRow(row.id, field, valueToSend);
                                   }
                                 }}
                                 className={getInputClass(
@@ -718,12 +734,18 @@ export default function ViaticosTable({
                                     : ""
                                 }
                                 onChange={(e) => {
+                                  // 1. Limpiamos puntos de miles
                                   const rawValue = e.target.value.replace(
                                     /\./g,
                                     "",
                                   );
-                                  if (!isNaN(rawValue) || rawValue === "") {
-                                    onUpdateRow(row.id, field, rawValue);
+
+                                  // 2. Lógica corregida: Si está vacío, enviamos "0", si no, el valor.
+                                  const valueToSend =
+                                    rawValue === "" ? "0" : rawValue;
+
+                                  if (!isNaN(valueToSend)) {
+                                    onUpdateRow(row.id, field, valueToSend);
                                   }
                                 }}
                                 className="bg-transparent outline-none text-green-700"

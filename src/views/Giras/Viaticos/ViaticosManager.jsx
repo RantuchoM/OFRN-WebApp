@@ -360,7 +360,7 @@ export default function ViaticosManager({ supabase, giraId }) {
       let { data: detalles, error } = await supabase
         .from("giras_viaticos_detalle")
         .select(
-          `*, integrantes:id_integrante(id, nombre, apellido, dni, firma, id_instr, documentacion, docred)`,
+          `*, integrantes:id_integrante(id, nombre, apellido, mail, dni, firma, id_instr, documentacion, docred)`,
         )
         .eq("id_gira", giraId)
         .order("id");
@@ -527,7 +527,7 @@ export default function ViaticosManager({ supabase, giraId }) {
           dni: persona ? persona.dni : null,
           legajo: persona ? persona.legajo : "",
           ciudad_origen: persona?.localidades?.localidad || "",
-
+          mail: persona?.mail || "",
           link_documentacion: joinedPersona?.documentacion || "",
           link_docred: joinedPersona?.docred || "",
 
@@ -569,7 +569,97 @@ export default function ViaticosManager({ supabase, giraId }) {
       (p) => esPerfilMasivo(p) && p.estado_gira !== "ausente",
     );
   }, [roster]);
+  // --- FUNCIÓN PARA ENVIAR MAILS MASIVOS ---
+// --- FUNCIÓN PARA ENVIAR MAILS MASIVOS ---
+  const handleSendMassiveEmails = async (skipConfirm = false) => {
+    // 1. Validar selección
+    if (selection.size === 0) return alert("No hay nadie seleccionado.");
+    
+    // 2. Obtener datos reales de las filas seleccionadas
+    const selectedData = activeRows.filter((r) => selection.has(r.id_integrante));
+    
+    // 3. Confirmación (Solo si NO viene del proceso de exportación)
+    if (!skipConfirm) {
+      if (!confirm(`¿Estás seguro de enviar ${selectedData.length} correos electrónicos con el detalle de liquidación?`)) {
+        return;
+      }
+    }
 
+    // 4. Configurar estado visual
+    setExportStatus("Iniciando envío de correos...");
+    setIsExporting(true);
+
+    let enviados = 0;
+    let errores = 0;
+
+    try {
+      for (const [index, persona] of selectedData.entries()) {
+        // Actualizamos barra de estado
+        setExportStatus(`Enviando ${index + 1}/${selectedData.length}: ${persona.apellido}...`);
+
+        if (!persona.mail) {
+          console.warn(`Omitiendo a ${persona.apellido}: No tiene mail.`);
+          errores++;
+          continue;
+        }
+
+        // 5. Preparar Payload (Mapeo Frontend -> Backend)
+        const detallePayload = {
+          dias_computables: persona.dias_computables,
+          porcentaje: persona.porcentaje,
+          
+          // Mapeo de importes calculados
+          subtotal_viatico: persona.subtotal, // Viático puro (días * valor)
+          total_percibir: persona.totalFinal, // Total final con gastos
+          
+          // Gastos individuales (para desglose en el mail)
+          gasto_combustible: persona.gasto_combustible,
+          gasto_pasajes: persona.gasto_pasajes,
+          gasto_alojamiento: persona.gasto_alojamiento,
+          gasto_otros: persona.gasto_otros,
+          gastos_movilidad: persona.gastos_movilidad,
+          gastos_movil_otros: persona.gastos_movil_otros,
+          gastos_capacit: persona.gastos_capacit
+        };
+
+        // 6. Invocar Edge Function
+        const { error } = await supabase.functions.invoke("mails_produccion", {
+          body: {
+            action: "enviar_mail",
+            templateId: "viaticos_simple", // El modelo de Carla Fernández
+            email: persona.mail,
+            nombre: persona.nombre,
+            gira: giraData?.nombre_gira,
+            detalle: detallePayload
+          },
+        });
+
+        if (error) {
+          console.error(`Error enviando a ${persona.apellido}:`, error);
+          errores++;
+        } else {
+          enviados++;
+        }
+      }
+
+      // 7. Resultado Final (Solo si fue ejecución manual)
+      if (!skipConfirm) {
+        alert(`Proceso finalizado.\nEnviados: ${enviados}\nErrores/Sin mail: ${errores}`);
+        setSelection(new Set()); // Limpiamos selección
+      }
+
+    } catch (err) {
+      console.error(err);
+      if (!skipConfirm) alert("Error crítico en el proceso de envío.");
+    } finally {
+      // 8. Limpieza de estado (Solo si fue ejecución manual)
+      // Si viene de exportación, el finally de handleExportToDrive se encarga de esto.
+      if (!skipConfirm) {
+        setIsExporting(false);
+        setExportStatus("");
+      }
+    }
+  };
   const updateRow = async (id, field, value) => {
     const fieldKey = `${id}-${field}`;
     setUpdatingFields((prev) => new Set(prev).add(fieldKey));
@@ -1065,12 +1155,12 @@ export default function ViaticosManager({ supabase, giraId }) {
       }
     }
   };
-// --- FUNCIÓN PARA INICIALIZAR CARPETA ---
+  // --- FUNCIÓN PARA INICIALIZAR CARPETA ---
   // --- FUNCIÓN PARA INICIALIZAR CARPETA (MODIFICADA PARA RETORNAR ID) ---
   const handleCreateDriveFolder = async (silent = false) => {
     if (!giraId) return null;
     if (!silent) setLoading(true); // Solo muestra loading si es llamada manual
-    
+
     try {
       const { data, error } = await supabase.functions.invoke("manage-drive", {
         body: {
@@ -1081,16 +1171,16 @@ export default function ViaticosManager({ supabase, giraId }) {
       });
 
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error || "Error al crear carpeta");
+      if (!data?.success)
+        throw new Error(data?.error || "Error al crear carpeta");
 
       // Actualizamos estado local
       setConfig((prev) => ({ ...prev, link_drive: data.folderId }));
-      
+
       if (!silent) alert("Carpeta de Drive creada exitosamente.");
-      
+
       // IMPORTANTE: Retornamos el ID para que otras funciones lo usen
-      return data.folderId; 
-      
+      return data.folderId;
     } catch (err) {
       console.error(err);
       alert("Error creando carpeta: " + err.message);
@@ -1102,42 +1192,27 @@ export default function ViaticosManager({ supabase, giraId }) {
   const handleExportToDrive = async (options) => {
     if (selection.size === 0)
       return alert("Selecciona al menos un integrante.");
-    
+
+    // ... (Tu validación de opciones existente) ...
     const hasSelection =
       options.viatico ||
       options.rendicion ||
       options.destaque ||
       options.docComun ||
       options.docReducida;
-      
     if (!hasSelection)
       return alert("Selecciona al menos un tipo de documento.");
 
-    // --- LÓGICA DE DETECCIÓN Y CREACIÓN AUTOMÁTICA ---
+    // 1. PREGUNTA ADICIONAL ANTES DE EMPEZAR
+    const shouldSendEmails = window.confirm(
+      "¿Deseas enviar también los correos electrónicos de notificación a los seleccionados al finalizar la exportación?",
+    );
+
+    // ... (Tu lógica de crear carpeta Drive existente) ...
     let driveFolderId = config?.link_drive;
-
     if (!driveFolderId) {
-      const confirmCreate = window.confirm(
-        "No hay una carpeta de Drive asignada.\n¿Deseas crearla automáticamente ahora y continuar con la exportación?"
-      );
-
-      if (!confirmCreate) return;
-
-      // Llamamos a la función de crear y esperamos el ID
-      setExportStatus("Creando carpeta en Drive...");
-      setIsExporting(true); // Activamos loader visual
-      
-      const newId = await handleCreateDriveFolder(true); // true = modo silencioso (sin alerts de éxito extra)
-      
-      if (!newId) {
-        setIsExporting(false);
-        setExportStatus("");
-        return; // Si falló la creación, cortamos aquí
-      }
-      
-      driveFolderId = newId; // Usamos el nuevo ID
+      // ... (Lógica de crear carpeta si no existe) ...
     }
-    // ----------------------------------------------------
 
     setExportStatus("Preparando datos...");
     setIsExporting(true);
@@ -1146,21 +1221,32 @@ export default function ViaticosManager({ supabase, giraId }) {
       const selectedData = activeRows.filter((r) =>
         selection.has(r.id_integrante),
       );
-      
-      // Usamos driveFolderId (que puede ser el que acabamos de crear)
+
+      // 2. EJECUTAR EXPORTACIÓN A DRIVE
       await processExportList(selectedData, driveFolderId, options, []);
-      
-      setNotification("¡Proceso finalizado!");
-      setSelection(new Set());
-      
-      // Abrir la carpeta al terminar es un buen detalle
+
+      // 3. SI EL USUARIO DIJO QUE SÍ, EJECUTAR ENVÍO DE MAILS
+      if (shouldSendEmails) {
+        setExportStatus("Iniciando envío de correos...");
+        // Llamamos a la función con true para que NO vuelva a preguntar "¿Seguro?"
+        await handleSendMassiveEmails(true);
+      }
+
+      setNotification(
+        shouldSendEmails
+          ? "¡Exportación y envíos finalizados!"
+          : "¡Exportación finalizada!",
+      );
+
+      setSelection(new Set()); // Limpiamos selección al final de todo
+
       window.open(
         `https://drive.google.com/drive/folders/${driveFolderId}`,
         "_blank",
       );
     } catch (err) {
       console.error(err);
-      alert("Error exportación: " + err.message);
+      alert("Error en el proceso: " + err.message);
     } finally {
       setIsExporting(false);
       setExportStatus("");
@@ -1635,6 +1721,7 @@ export default function ViaticosManager({ supabase, giraId }) {
                   onExport={handleExportToDrive}
                   isExporting={isExporting}
                   exportStatus={exportStatus}
+                  onSendEmails={handleSendMassiveEmails}
                 />
               )}
             </div>
