@@ -511,32 +511,38 @@ export default function GiraRoster({
       setLoadingAction(false);
     }
   };
-
   const handleDetailedSave = async (newMusician) => {
+    // newMusician trae los datos reales insertados en la tabla integrantes
+    if (!newMusician?.id) return;
+
     try {
+      // Vinculamos el nuevo integrante a la gira actual
       const { error } = await supabase.from("giras_integrantes").insert([
         {
           id_gira: gira.id,
-          id_integrante: newMusician.id,
-          rol: "musico",
+          id_integrante: newMusician.id, // Usamos el ID real de la BD
+          rol: "musico", // Rol por defecto
           estado: "confirmado",
         },
       ]);
+
       if (error) throw error;
+
+      // Cerramos el modal de creación y refrescamos la lista
       setIsCreatingDetailed(false);
       setSearchTerm("");
-      refreshRoster();
-      alert("Invitado creado y añadido al roster.");
+      await refreshRoster(); // Refresco crítico
+      toast.success("Músico creado y añadido a la gira.");
     } catch (error) {
-      alert("Error al vincular: " + error.message);
+      console.error(error);
+      toast.error("Error al vincular: " + error.message);
     }
   };
-
   // Actualizar roster tras editar
   const handleEditSave = async () => {
-    setEditingMusician(null);
-    await refreshRoster(); // Esperar refresco
-    toast.success("Músico actualizado");
+    // NO cerramos el modal (setEditingMusician(null)) aquí.
+    // Solo refrescamos los datos para que la tabla de fondo se actualice en tiempo real.
+    await refreshRoster();
   };
   const handleCloseModal = (dataFinalDelFormulario) => {
     // 1. Cerramos el modal visualmente
@@ -1407,6 +1413,7 @@ export default function GiraRoster({
       </div>
 
       {/* --- MODALES --- */}
+      {/* --- MODAL CREACIÓN (DETALLADO) --- */}
       {isCreatingDetailed &&
         createPortal(
           <div
@@ -1416,25 +1423,21 @@ export default function GiraRoster({
             <div className="w-full max-w-2xl animate-in zoom-in-95 duration-200">
               <MusicianForm
                 supabase={supabase}
-                musician={editingMusician}
-                // onSave se usa para eventos internos (como uploads),
-                // pero para el texto usamos el cierre del modal:
-                onSave={(data) => {
-                  // Opcional: Si quieres reflejar uploads en tiempo real también
-                  handleCloseModal(data);
-                  // PERO NO cierres el modal aquí si es solo un upload,
-                  // o tendrás que manejar lógica extra.
-                  // Lo más simple es dejar que onSave solo actualice BD
-                  // y usar onCancel para refrescar la tabla padre.
+                // Pasamos ID null o undefined para que MusicianForm sepa que es nuevo
+                musician={{
+                  nombre: tempName.nombre,
+                  apellido: tempName.apellido,
+                  condicion: "Invitado",
                 }}
-                // AQUÍ ES DONDE OCURRE LA MAGIA:
-                onCancel={handleCloseModal}
+                onSave={handleDetailedSave} // Al guardar/crear, vinculamos a la gira
+                onCancel={handleCloseModal} // Al cancelar, cerramos
               />
             </div>
           </div>,
           document.body,
         )}
 
+      {/* --- MODAL EDICIÓN --- */}
       {editingMusician &&
         createPortal(
           <div
@@ -1448,7 +1451,7 @@ export default function GiraRoster({
                   Editar {editingMusician.es_simulacion ? "Vacante" : "Músico"}
                 </h3>
                 <button
-                  onClick={() => setEditingMusician(null)}
+                  onClick={handleCloseModal} // Usamos el nuevo handler
                   className="text-slate-400 hover:text-red-500"
                 >
                   <IconX size={20} />
@@ -1458,15 +1461,14 @@ export default function GiraRoster({
                 <MusicianForm
                   supabase={supabase}
                   musician={editingMusician}
-                  onSave={handleEditSave}
-                  onCancel={() => setEditingMusician(null)}
+                  onSave={handleEditSave} // Solo refresca, no cierra
+                  onCancel={handleCloseModal} // Cierra el modal
                 />
               </div>
             </div>
           </div>,
           document.body,
         )}
-
       <AddVacancyModal
         isOpen={isVacancyModalOpen}
         onClose={() => setIsVacancyModalOpen(false)}

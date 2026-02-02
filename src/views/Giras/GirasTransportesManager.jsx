@@ -28,6 +28,7 @@ import {
   IconAlertTriangle,
   IconBus,
   IconCheckCircle,
+  IconCheck,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
@@ -1702,22 +1703,55 @@ export default function GirasTransportesManager({ supabase, gira }) {
               key={t.id}
               className={`group border rounded-2xl transition-all duration-300 ${isExpanded ? "border-indigo-300 shadow-xl ring-4 ring-indigo-50/50 bg-white" : "border-slate-200 bg-white hover:border-slate-300 shadow-sm"}`}
             >
-              {/* HEADER DE LA TARJETA - Ahora aguanta mucho más espacio horizontal antes de romper */}
-              <div
-                className="p-2 md:p-3 flex flex-col md:flex-row justify-between md:items-center gap-2 cursor-pointer"
-                onClick={() =>
-                  !isEditing && setActiveTransportId(isExpanded ? null : t.id)
-                }
-              >
-                {/* LADO IZQUIERDO: Info del Vehículo (Compacto) */}
-                <div className="flex items-center gap-2 flex-1 min-w-0">
+              {/* HEADER DE LA TARJETA */}
+              <div className="min-w-0 flex-1">
+                {isEditing ? (
+                  // --- MODO EDICIÓN ---
                   <div
-                    className={`p-2 rounded-xl shrink-0 transition-colors ${isExpanded ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-indigo-100"}`}
+                    className="flex items-center gap-2"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <IconTruck size={20} />
+                    <input
+                      type="text"
+                      value={editFormData.detalle}
+                      onChange={(e) =>
+                        setEditFormData({
+                          ...editFormData,
+                          detalle: e.target.value,
+                        })
+                      }
+                      className="border border-indigo-300 rounded px-2 py-1 text-xs font-bold w-32 focus:ring-2 focus:ring-indigo-200 outline-none"
+                      placeholder="Detalle"
+                      autoFocus
+                    />
+                    <input
+                      type="number"
+                      value={editFormData.capacidad}
+                      onChange={(e) =>
+                        setEditFormData({
+                          ...editFormData,
+                          capacidad: e.target.value,
+                        })
+                      }
+                      className="border border-indigo-300 rounded px-2 py-1 text-xs w-16 text-center focus:ring-2 focus:ring-indigo-200 outline-none"
+                      placeholder="Cap."
+                    />
+                    <button
+                      onClick={saveTransportChanges}
+                      className="bg-emerald-500 text-white p-1 rounded hover:bg-emerald-600 transition-colors"
+                    >
+                      <IconCheck size={14} />
+                    </button>
+                    <button
+                      onClick={cancelEditingTransport}
+                      className="bg-slate-200 text-slate-600 p-1 rounded hover:bg-slate-300 transition-colors"
+                    >
+                      <IconX size={14} />
+                    </button>
                   </div>
-
-                  <div className="min-w-0 flex-1">
+                ) : (
+                  // --- MODO VISUALIZACIÓN (Original) ---
+                  <>
                     <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden">
                       <h4 className="font-black text-slate-800 uppercase tracking-tighter text-sm truncate shrink">
                         {t.detalle || "Sin detalle"}
@@ -1728,11 +1762,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         </span>
                       )}
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startEditingTransport(e, t);
-                        }}
-                        className="text-slate-300 hover:text-indigo-600 shrink-0"
+                        onClick={(e) => startEditingTransport(e, t)}
+                        className="text-slate-300 hover:text-indigo-600 shrink-0 p-1 rounded-full hover:bg-indigo-50 transition-all"
                       >
                         <IconEdit size={12} />
                       </button>
@@ -1753,102 +1784,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         / {maxCap > 0 ? maxCap : "∞"}
                       </span>
                     </div>
-                  </div>
-                </div>
-
-                {/* LADO DERECHO: Acciones (Unificadas para ahorrar espacio) */}
-                {!isEditing && (
-                  <div
-                    className="flex items-center gap-1 shrink-0 ml-auto md:ml-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {/* Alerta de Incompletos (Versión Mini) */}
-                    {incompletePax.length > 0 && !isMediosPropios && (
-                      <button
-                        onClick={() =>
-                          setInfoListModal({
-                            isOpen: true,
-                            title: `Incompletos: ${t.detalle}`,
-                            list: incompletePax,
-                            transportId: t.id,
-                          })
-                        }
-                        className="flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[9px] font-black hover:bg-rose-100 transition-all animate-pulse mr-1"
-                        title={`${incompletePax.length} pasajeros sin parada`}
-                      >
-                        <IconAlertTriangle size={10} />{" "}
-                        <span className="hidden sm:inline">
-                          {incompletePax.length} PEND.
-                        </span>
-                      </button>
-                    )}
-
-                    {/* Botonera Única Compacta */}
-                    <div className="flex items-center bg-slate-100/80 p-0.5 rounded-xl border border-slate-200 gap-0.5">
-                      <button
-                        onClick={() =>
-                          setAdmissionModal({ isOpen: true, transportId: t.id })
-                        }
-                        className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all"
-                        title="Admisión"
-                      >
-                        <IconUsers size={16} />
-                      </button>
-                      <button
-                        onClick={() =>
-                          setBoardingModal({ isOpen: true, transportId: t.id })
-                        }
-                        className="p-1.5 bg-white text-amber-600 rounded-lg hover:bg-amber-600 hover:text-white transition-all"
-                        title="Abordaje"
-                      >
-                        <IconCheckCircle size={16} />
-                      </button>
-                      <button
-                        onClick={() =>
-                          setShiftModal({
-                            isOpen: true,
-                            transportId: t.id,
-                            transportName: t.detalle,
-                          })
-                        }
-                        className="p-1.5 bg-white text-slate-500 rounded-lg hover:bg-slate-800 hover:text-white transition-all"
-                        title="Mover Horarios"
-                      >
-                        <IconClock size={16} />
-                      </button>
-                      <div className="w-px h-4 bg-slate-200 mx-0.5"></div>
-                      <button
-                        onClick={() =>
-                          setRoadmapModal({ isOpen: true, transportId: t.id })
-                        }
-                        className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all"
-                        title="Hoja de Ruta"
-                      >
-                        <IconFileText size={16} />
-                      </button>
-                      <button
-                        onClick={() =>
-                          setCnrtModal({ isOpen: true, transportId: t.id })
-                        }
-                        className="px-2 py-1.5 bg-white text-indigo-700 text-[9px] font-black rounded-lg hover:bg-indigo-700 hover:text-white transition-all"
-                      >
-                        CNRT
-                      </button>
-                    </div>
-
-                    <button
-                      onClick={() => handleDeleteTransport(t.id)}
-                      className="p-1.5 text-slate-300 hover:text-rose-600 transition-colors ml-1"
-                    >
-                      <IconTrash size={16} />
-                    </button>
-
-                    <div
-                      className={`ml-1 text-slate-300 transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`}
-                    >
-                      <IconChevronDown size={16} />
-                    </div>
-                  </div>
+                  </>
                 )}
               </div>
 
