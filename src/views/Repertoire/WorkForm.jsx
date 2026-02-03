@@ -653,17 +653,17 @@ export default function WorkForm({
               className="input text-center"
               value={formData.anio}
               onChange={(e) => updateField("anio", e.target.value)}
-              placeholder="1804"
+              placeholder=""
             />
           </div>
         </div>
         <div className="md:col-span-2">
-          <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
+          <label className="text-[11px] font-bold uppercase text-slate-400 mb-1 block">
             Instrumentación
           </label>
           <input
             type="text"
-            className="input font-mono bg-slate-50"
+            className="input text-[13px] font-mono bg-slate-50 w-full"
             value={formData.instrumentacion}
             onChange={(e) => updateField("instrumentacion", e.target.value)}
           />
