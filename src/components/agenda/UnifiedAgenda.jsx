@@ -1228,163 +1228,182 @@ export default function UnifiedAgenda({
                   </button>
 
                   {isFilterMenuOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden animate-in zoom-in-95 origin-top-right flex flex-col max-h-[80vh]">
-                      {/* HEADER FIJO */}
-                      <div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
-                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                          Opciones de Vista
-                        </span>
-                        <button
-                          onClick={() => {
-                            setSelectedCategoryIds(
-                              availableCategories.map((c) => c.id),
-                            );
-                            setShowOnlyMyTransport(false);
-                            setShowOnlyMyMeals(false);
-                            setShowNoGray(false);
-                          }}
-                          className="text-[10px] text-indigo-600 hover:underline font-bold"
-                        >
-                          Restablecer
-                        </button>
-                      </div>
+                    <>
+                      {/* BACKDROP PARA MÓVIL (Fondo oscuro al abrir menú) */}
+                      <div 
+                        className="fixed inset-0 bg-black/40 z-40 sm:hidden backdrop-blur-[2px] animate-in fade-in"
+                        onClick={() => setIsFilterMenuOpen(false)}
+                      />
 
-                      {/* CONTENIDO SCROLLEABLE */}
-                      <div className="overflow-y-auto flex-1">
-                        {/* TOGGLES ESPECIALES */}
-                        <div className="p-2 border-b border-slate-100 space-y-1">
-                          <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
-                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                              <IconBus size={16} className="text-indigo-500" />
-                              <span>Solo mi transporte</span>
-                            </div>
-                            <input
-                              type="checkbox"
-                              className="accent-indigo-600 w-4 h-4"
-                              checked={showOnlyMyTransport}
-                              onChange={(e) => {
-                                setShowOnlyMyTransport(e.target.checked);
-                                if (e.target.checked) setShowNoGray(false);
-                              }}
-                            />
-                          </label>
+                      {/* CONTENEDOR DEL MENÚ (Bottom Sheet en Móvil / Dropdown en Desktop) */}
+                      <div className={`
+                        bg-white border-slate-200 shadow-2xl overflow-hidden flex flex-col z-50
+                        
+                        /* ESTILOS MÓVIL (Hoja inferior fija) */
+                        fixed bottom-0 left-0 right-0 rounded-t-2xl max-h-[85vh] border-t
+                        animate-in slide-in-from-bottom-10 duration-200
+                        
+                        /* ESTILOS DESKTOP (Dropdown flotante) */
+                        sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72 sm:rounded-xl sm:border sm:max-h-[80vh] 
+                        sm:animate-in sm:zoom-in-95 sm:origin-top-right
+                      `}>
+                        {/* HEADER FIJO */}
+                        <div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            Opciones de Vista
+                          </span>
+                          <button
+                            onClick={() => {
+                              setSelectedCategoryIds(
+                                availableCategories.map((c) => c.id),
+                              );
+                              setShowOnlyMyTransport(false);
+                              setShowOnlyMyMeals(false);
+                              setShowNoGray(false);
+                            }}
+                            className="text-[10px] text-indigo-600 hover:underline font-bold"
+                          >
+                            Restablecer
+                          </button>
+                        </div>
 
-                          {/* NUEVA OPCIÓN: SIN GRISES (Solo Management) */}
-                          {canEdit && (
-                            <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
-                              <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                                <IconEye size={16} className="text-slate-500" />
-                                <span>Sin grises</span>
+                        {/* CONTENIDO SCROLLEABLE */}
+                        <div className="overflow-y-auto flex-1 p-0 sm:p-0">
+                          {/* TOGGLES ESPECIALES */}
+                          <div className="p-2 border-b border-slate-100 space-y-1">
+                            <label className="flex items-center justify-between p-3 sm:p-2 hover:bg-slate-50 rounded cursor-pointer group active:bg-slate-100">
+                              <div className="flex items-center gap-3 sm:gap-2 text-sm font-medium text-slate-700">
+                                <IconBus size={18} className="text-indigo-500 sm:w-4 sm:h-4" />
+                                <span>Solo mi transporte</span>
                               </div>
                               <input
                                 type="checkbox"
-                                className="accent-slate-600 w-4 h-4"
-                                checked={showNoGray}
+                                className="accent-indigo-600 w-5 h-5 sm:w-4 sm:h-4"
+                                checked={showOnlyMyTransport}
                                 onChange={(e) => {
-                                  setShowNoGray(e.target.checked);
-                                  if (e.target.checked)
-                                    setShowOnlyMyTransport(false);
+                                  setShowOnlyMyTransport(e.target.checked);
+                                  if (e.target.checked) setShowNoGray(false);
                                 }}
                               />
                             </label>
-                          )}
 
-                          <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
-                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                              <span className="text-amber-500 text-lg leading-none">
-                                🍴
-                              </span>
-                              <span>Solo mis comidas</span>
-                            </div>
-                            <input
-                              type="checkbox"
-                              className="accent-indigo-600 w-4 h-4"
-                              checked={showOnlyMyMeals}
-                              onChange={(e) =>
-                                setShowOnlyMyMeals(e.target.checked)
-                              }
-                            />
-                          </label>
-                        </div>
+                            {/* NUEVA OPCIÓN: SIN GRISES (Solo Management) */}
+                            {canEdit && (
+                              <label className="flex items-center justify-between p-3 sm:p-2 hover:bg-slate-50 rounded cursor-pointer group active:bg-slate-100">
+                                <div className="flex items-center gap-3 sm:gap-2 text-sm font-medium text-slate-700">
+                                  <IconEye size={18} className="text-slate-500 sm:w-4 sm:h-4" />
+                                  <span>Sin grises</span>
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  className="accent-slate-600 w-5 h-5 sm:w-4 sm:h-4"
+                                  checked={showNoGray}
+                                  onChange={(e) => {
+                                    setShowNoGray(e.target.checked);
+                                    if (e.target.checked)
+                                      setShowOnlyMyTransport(false);
+                                  }}
+                                />
+                              </label>
+                            )}
 
-                        <div className="p-3 border-b border-slate-100 bg-slate-50">
-                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                            Categorías
-                          </span>
-                        </div>
-
-                        {/* LISTA DE CATEGORÍAS (Sin max-h interno, usa el del padre) */}
-                        <div className="p-2">
-                          <div className="grid grid-cols-1 gap-1">
-                            <button
-                              onClick={() => {
-                                if (
-                                  selectedCategoryIds.length ===
-                                  availableCategories.length
-                                )
-                                  setSelectedCategoryIds([]);
-                                else
-                                  setSelectedCategoryIds(
-                                    availableCategories.map((c) => c.id),
-                                  );
-                              }}
-                              className={`px-3 py-2 rounded text-xs font-bold border transition-colors flex justify-between items-center ${
-                                selectedCategoryIds.length ===
-                                availableCategories.length
-                                  ? "bg-slate-800 text-white border-slate-800"
-                                  : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-                              }`}
-                            >
-                              <span>
-                                {selectedCategoryIds.length ===
-                                availableCategories.length
-                                  ? "Deseleccionar todo"
-                                  : "Seleccionar todo"}
-                              </span>
-                              <IconList size={14} />
-                            </button>
-
-                            {availableCategories.map((cat) => {
-                              const isActive = selectedCategoryIds.includes(
-                                cat.id,
-                              );
-                              return (
-                                <button
-                                  key={cat.id}
-                                  onClick={() => handleCategoryToggle(cat.id)}
-                                  className={`px-3 py-2 rounded text-xs font-bold border transition-all flex justify-between items-center ${
-                                    isActive
-                                      ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                      : "bg-white text-slate-400 border-transparent hover:bg-slate-50"
-                                  }`}
-                                >
-                                  <span>{cat.nombre}</span>
-                                  {isActive && <IconCheck size={14} />}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {canEdit && (
-                          <div className="p-2 border-t border-slate-100 bg-amber-50/50">
-                            <label className="flex items-center gap-2 cursor-pointer p-2">
+                            <label className="flex items-center justify-between p-3 sm:p-2 hover:bg-slate-50 rounded cursor-pointer group active:bg-slate-100">
+                              <div className="flex items-center gap-3 sm:gap-2 text-sm font-medium text-slate-700">
+                                <span className="text-amber-500 text-lg leading-none">
+                                  🍴
+                                </span>
+                                <span>Solo mis comidas</span>
+                              </div>
                               <input
                                 type="checkbox"
-                                className="accent-amber-600"
-                                checked={showNonActive}
+                                className="accent-indigo-600 w-5 h-5 sm:w-4 sm:h-4"
+                                checked={showOnlyMyMeals}
                                 onChange={(e) =>
-                                  setShowNonActive(e.target.checked)
+                                  setShowOnlyMyMeals(e.target.checked)
                                 }
                               />
-                              <span className="text-xs font-bold text-amber-800">
-                                Mostrar borradores
-                              </span>
                             </label>
                           </div>
-                        )}
+
+                          <div className="p-3 border-b border-slate-100 bg-slate-50">
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                              Categorías
+                            </span>
+                          </div>
+
+                          {/* LISTA DE CATEGORÍAS */}
+                          <div className="p-2 pb-8 sm:pb-2">
+                            <div className="grid grid-cols-1 gap-1">
+                              <button
+                                onClick={() => {
+                                  if (
+                                    selectedCategoryIds.length ===
+                                    availableCategories.length
+                                  )
+                                    setSelectedCategoryIds([]);
+                                  else
+                                    setSelectedCategoryIds(
+                                      availableCategories.map((c) => c.id),
+                                    );
+                                }}
+                                className={`px-3 py-3 sm:py-2 rounded text-xs font-bold border transition-colors flex justify-between items-center ${
+                                  selectedCategoryIds.length ===
+                                  availableCategories.length
+                                    ? "bg-slate-800 text-white border-slate-800"
+                                    : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                                }`}
+                              >
+                                <span>
+                                  {selectedCategoryIds.length ===
+                                  availableCategories.length
+                                    ? "Deseleccionar todo"
+                                    : "Seleccionar todo"}
+                                </span>
+                                <IconList size={14} />
+                              </button>
+
+                              {availableCategories.map((cat) => {
+                                const isActive = selectedCategoryIds.includes(
+                                  cat.id,
+                                );
+                                return (
+                                  <button
+                                    key={cat.id}
+                                    onClick={() => handleCategoryToggle(cat.id)}
+                                    className={`px-3 py-3 sm:py-2 rounded text-xs font-bold border transition-all flex justify-between items-center ${
+                                      isActive
+                                        ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                        : "bg-white text-slate-400 border-transparent hover:bg-slate-50"
+                                    }`}
+                                  >
+                                    <span>{cat.nombre}</span>
+                                    {isActive && <IconCheck size={14} />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {canEdit && (
+                            <div className="p-2 border-t border-slate-100 bg-amber-50/50 pb-6 sm:pb-2">
+                              <label className="flex items-center gap-2 cursor-pointer p-2">
+                                <input
+                                  type="checkbox"
+                                  className="accent-amber-600 w-5 h-5 sm:w-4 sm:h-4"
+                                  checked={showNonActive}
+                                  onChange={(e) =>
+                                    setShowNonActive(e.target.checked)
+                                  }
+                                />
+                                <span className="text-xs font-bold text-amber-800">
+                                  Mostrar borradores
+                                </span>
+                              </label>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    </>
                   )}
                 </div>
 
