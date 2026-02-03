@@ -13,7 +13,7 @@ export default function LocationBulkPanel({
     // Se mantiene la lógica de scope y unificationMode
     
     const [scope, setScope] = useState('pending'); // 'pending' | 'all'
-    const [unificationMode, setUnificationMode] = useState('individual'); // 'individual' | 'location' | 'master'
+    const [unificationMode, setUnificationMode] = useState('location'); // 'individual' | 'location' | 'master'
     
     const [options, setOptions] = useState({
         viatico: false,

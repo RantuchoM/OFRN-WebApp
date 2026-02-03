@@ -153,14 +153,16 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [showIndividualPanel, setShowIndividualPanel] = useState(true);
   const [showMassivePanel, setShowMassivePanel] = useState(true);
 
+  // ESTADOS DE EXPORTACIÓN
   const [confirmPromise, setConfirmPromise] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState("");
+  const [exportDetail, setExportDetail] = useState(""); // Segunda línea de detalle
   const [showEmailConfirm, setShowEmailConfirm] = useState(false);
   const [notification, setNotification] = useState(null);
 
   const [batchValues, setBatchValues] = useState({
-    cargo: "", jornada_laboral: "", gastos_movilidad: "", gasto_combustible: "", gasto_alojamiento: "",gasto_otros: "", gastos_capacit: "", gastos_movil_otros: "", check_aereo: "", check_terrestre: "", check_patente_oficial: "", patente_oficial: "", check_patente_particular: "", patente_particular: "", check_otros: "", transporte_otros: "", rendicion_viaticos: "", rendicion_gasto_alojamiento: "", rendicion_gasto_combustible: "", rendicion_gastos_movil_otros: "", rendicion_gastos_capacit: "", rendicion_transporte_otros: "",
+    cargo: "", jornada_laboral: "", gastos_movilidad: "", gasto_combustible: "", gasto_alojamiento: "", gasto_pasajes: "", gasto_otros: "", gastos_capacit: "", gastos_movil_otros: "", check_aereo: "", check_terrestre: "", check_patente_oficial: "", patente_oficial: "", check_patente_particular: "", patente_particular: "", check_otros: "", transporte_otros: "", rendicion_viaticos: "", rendicion_gasto_alojamiento: "", rendicion_gasto_pasajes: "", rendicion_gasto_combustible: "", rendicion_gastos_movil_otros: "", rendicion_gastos_capacit: "", rendicion_transporte_otros: "",
   });
 
   useEffect(() => {
@@ -277,16 +279,13 @@ export default function ViaticosManager({ supabase, giraId }) {
     return data;
   };
 
-  // --- FUNCIÓN PARA DESCARGAR DOCUMENTACIÓN (Para Unificar) ---
   const fetchPdfFromDrive = async (driveUrl) => {
     try {
-      // 1. Si es Bucket de Supabase
       if (driveUrl.includes("supabase.co")) {
         const res = await fetch(driveUrl);
         const arrayBuffer = await res.arrayBuffer();
         return new Uint8Array(arrayBuffer);
       }
-      // 2. Si es Google Drive
       const { data, error } = await supabase.functions.invoke("manage-drive", {
         body: { action: "get_file_content", sourceUrl: driveUrl },
       });
@@ -301,7 +300,6 @@ export default function ViaticosManager({ supabase, giraId }) {
     } catch (err) { console.error("Error fetchPdfFromDrive:", err); return null; }
   };
 
-  // --- FUNCIÓN PARA DUPLICAR DOCUMENTACIÓN (Para Individuales) ---
   const copyDriveFile = async (url, targetFolder, newName) => {
       const isBucket = url.includes("supabase.co");
       await supabase.functions.invoke("manage-drive", {
@@ -309,13 +307,56 @@ export default function ViaticosManager({ supabase, giraId }) {
       });
   };
 
-  // --- FUNCIÓN PRINCIPAL DE EXPORTACIÓN ---
+  const appendPersonToDoc = async (targetDoc, personData, options, giraData, config, setDetail) => {
+      const name = personData.apellido;
+      
+      const mergeBytes = async (bytes, label) => {
+          if(!bytes) return;
+          try {
+            const srcDoc = await PDFDocument.load(bytes);
+            const copiedPages = await targetDoc.copyPages(srcDoc, srcDoc.getPageIndices());
+            copiedPages.forEach(p => targetDoc.addPage(p));
+          } catch(e) { 
+            console.error(`Error fusionando ${label}:`, e); 
+            toast.error(`Error al unir ${label} de ${name}`);
+          }
+      };
+
+      const single = [personData];
+      
+      if (options.destaque) {
+          if (setDetail) setDetail(`Generando Destaque (${name})...`);
+          await mergeBytes(await exportViaticosToPDFForm(giraData, single, config, "destaque"), "Destaque");
+      }
+      if (options.viatico) {
+          if (setDetail) setDetail(`Generando Viático (${name})...`);
+          await mergeBytes(await exportViaticosToPDFForm(giraData, single, config, "viatico"), "Viático");
+      }
+      if (options.rendicion) {
+          if (setDetail) setDetail(`Generando Rendición (${name})...`);
+          await mergeBytes(await exportViaticosToPDFForm(giraData, single, config, "rendicion"), "Rendición");
+      }
+      
+      if (options.docComun && personData.documentacion) {
+          if (setDetail) setDetail(`Descargando Documentación (${name})...`);
+          const bytes = await fetchPdfFromDrive(personData.documentacion);
+          if (bytes) await mergeBytes(bytes, "Documentación");
+      }
+      if (options.docReducida && personData.docred) {
+          if (setDetail) setDetail(`Descargando Doc. Reducida (${name})...`);
+          const bytes = await fetchPdfFromDrive(personData.docred);
+          if (bytes) await mergeBytes(bytes, "Doc. Reducida");
+      }
+  };
+
   const processExportList = async (dataList, folderId, options, involvedLocationIds = []) => {
     const now = new Date().toISOString();
     const dateStr = new Date().toLocaleDateString("es-AR").replace(/\//g, "-");
     const giraName = giraData?.nombre || "Gira";
 
-    // 1. Actualizar estado en BD
+    setExportStatus("Iniciando...");
+    setExportDetail("Actualizando registros en BD...");
+
     const individualUpdates = dataList.filter(r => r.id).map(row => 
         supabase.from("giras_viaticos_detalle").update({
             fecha_ultima_exportacion: now,
@@ -346,32 +387,37 @@ export default function ViaticosManager({ supabase, giraId }) {
     }
     await Promise.all([...individualUpdates, ...massUpdates]);
 
-    // 2. Generación de Archivos
     const total = dataList.length;
     const mode = options.unificationMode || 'individual'; 
 
-    // MODO MASTER (1 Archivo Total)
+    // MODO MASTER
     if (mode === 'master') {
-        setExportStatus("Generando archivo maestro unificado...");
+        setExportStatus("Generando archivo maestro...");
+        setExportDetail("Inicializando PDF unificado...");
         const masterDoc = await PDFDocument.create();
         let pagesAdded = 0;
         let count = 0;
 
         for (const personData of dataList) {
             count++;
-            setExportStatus(`[${count}/${total}] Unificando: ${personData.apellido}...`);
-            await appendPersonToDoc(masterDoc, personData, options, giraData, config);
+            const name = `${personData.apellido}, ${personData.nombre}`;
+            setExportStatus(`[${count}/${total}] Unificando: ${name}`);
+            
+            await appendPersonToDoc(masterDoc, personData, options, giraData, config, setExportDetail);
             pagesAdded++;
         }
 
         if (pagesAdded > 0) {
-            setExportStatus("Subiendo Master a Drive...");
+            setExportStatus("Subiendo a Drive...");
+            setExportDetail("Guardando archivo maestro...");
             const masterBytes = await masterDoc.save();
             await uploadPdfToDrive(masterBytes, `Exportación Master - ${giraName} - ${dateStr}.pdf`, folderId);
+            
             setNotification("Archivo Master creado correctamente");
+            toast.success("Archivo Master creado correctamente");
         }
 
-    // MODO LOCATION (1 Archivo por Localidad)
+    // MODO LOCATION (Por Localidad)
     } else if (mode === 'location') {
         const groups = {};
         dataList.forEach(p => {
@@ -388,92 +434,76 @@ export default function ViaticosManager({ supabase, giraId }) {
             const groupData = groups[key];
             const groupName = groupData[0]._groupName || "Varios";
             
-            setExportStatus(`[${groupIdx}/${groupKeys.length}] Procesando Grupo: ${groupName}...`);
+            setExportStatus(`Grupo [${groupIdx}/${groupKeys.length}]: ${groupName}`);
             
             const locDoc = await PDFDocument.create();
             let pagesInLoc = 0;
+            let pCount = 0;
 
             for (const personData of groupData) {
-                await appendPersonToDoc(locDoc, personData, options, giraData, config);
+                pCount++;
+                const name = `${personData.apellido}, ${personData.nombre}`;
+                setExportStatus(`[${groupIdx}/${groupKeys.length}] ${groupName}: ${pCount}/${groupData.length}`);
+                
+                await appendPersonToDoc(locDoc, personData, options, giraData, config, setExportDetail);
                 pagesInLoc++;
             }
 
             if (pagesInLoc > 0) {
                 setExportStatus(`Subiendo PDF: ${groupName}...`);
+                setExportDetail(`Guardando en carpeta de la gira...`);
                 const locBytes = await locDoc.save();
                 await uploadPdfToDrive(locBytes, `${groupName} - ${dateStr}.pdf`, folderId);
             }
         }
         setNotification(`Se crearon ${groupKeys.length} archivos de localidad.`);
+        toast.success(`Se crearon ${groupKeys.length} archivos de localidad.`);
 
-    // MODO INDIVIDUAL (Archivos Separados)
+    // MODO INDIVIDUAL
     } else {
         let count = 0;
         for (const personData of dataList) {
             count++;
             const nameSafe = `${personData.apellido}, ${personData.nombre}`;
             const prefix = `[${count}/${total}]`;
+            setExportStatus(`${prefix} ${nameSafe}`);
             
             if (options.viatico) {
-                setExportStatus(`${prefix} Subiendo Viático: ${nameSafe}...`);
+                setExportDetail("Generando PDF Viático...");
                 const pdfBytes = await exportViaticosToPDFForm(giraData, [personData], config, "viatico");
+                setExportDetail("Subiendo PDF Viático...");
                 await uploadPdfToDrive(pdfBytes, `${nameSafe} - Viático.pdf`, folderId);
             }
             if (options.destaque) {
-                setExportStatus(`${prefix} Subiendo Destaque: ${nameSafe}...`);
+                setExportDetail("Generando PDF Destaque...");
                 const pdfBytes = await exportViaticosToPDFForm(giraData, [personData], config, "destaque");
+                setExportDetail("Subiendo PDF Destaque...");
                 await uploadPdfToDrive(pdfBytes, `${nameSafe} - Destaque.pdf`, folderId);
             }
             if (options.rendicion) {
-                setExportStatus(`${prefix} Subiendo Rendición: ${nameSafe}...`);
+                setExportDetail("Generando PDF Rendición...");
                 const pdfBytes = await exportViaticosToPDFForm(giraData, [personData], config, "rendicion");
+                setExportDetail("Subiendo PDF Rendición...");
                 await uploadPdfToDrive(pdfBytes, `${nameSafe} - Rendición.pdf`, folderId);
             }
             
-            // --- AQUÍ LA CORRECCIÓN: USAR COPYFILE PARA DUPLICAR ---
             if (options.docComun && personData.documentacion) {
-                setExportStatus(`${prefix} Copiando Doc: ${nameSafe}...`);
+                setExportDetail("Duplicando Documentación en Drive...");
                 await copyDriveFile(personData.documentacion, folderId, `${nameSafe} - Documentación`);
             }
             if (options.docReducida && personData.docred) {
-                setExportStatus(`${prefix} Copiando Doc Reducida: ${nameSafe}...`);
+                setExportDetail("Duplicando Doc. Reducida en Drive...");
                 await copyDriveFile(personData.docred, folderId, `${nameSafe} - Doc. Reducida`);
             }
-            // --------------------------------------------------------
         }
+        
         setNotification(`Se procesaron ${count} integrantes correctamente.`);
+        toast.success(`Se procesaron ${count} integrantes correctamente.`);
     }
+    setExportDetail(""); 
+    setExportStatus("");
   };
 
-  // --- HELPER PARA UNIFICACIÓN (Descarga y Fusiona) ---
-  const appendPersonToDoc = async (targetDoc, personData, options, giraData, config) => {
-      const mergeBytes = async (bytes) => {
-          if(!bytes) return;
-          try {
-            const srcDoc = await PDFDocument.load(bytes);
-            const copiedPages = await targetDoc.copyPages(srcDoc, srcDoc.getPageIndices());
-            copiedPages.forEach(p => targetDoc.addPage(p));
-          } catch(e) { console.error("Error merge", e); }
-      };
-
-      const single = [personData];
-      if (options.destaque) await mergeBytes(await exportViaticosToPDFForm(giraData, single, config, "destaque"));
-      if (options.viatico) await mergeBytes(await exportViaticosToPDFForm(giraData, single, config, "viatico"));
-      if (options.rendicion) await mergeBytes(await exportViaticosToPDFForm(giraData, single, config, "rendicion"));
-      
-      // --- AQUÍ LA CORRECCIÓN: DESCARGAR Y FUSIONAR DOCS ADJUNTOS ---
-      if (options.docComun && personData.documentacion) {
-          const bytes = await fetchPdfFromDrive(personData.documentacion);
-          await mergeBytes(bytes);
-      }
-      if (options.docReducida && personData.docred) {
-          const bytes = await fetchPdfFromDrive(personData.docred);
-          await mergeBytes(bytes);
-      }
-      // ----------------------------------------------------------------
-  };
-
-  // ... (Resto del código: handleExportLocationBatch, handleExportToDrive, render, etc.)
   const handleExportLocationBatch = async (peopleArray, folderId, options, locationIdOrIds) => {
       if (!peopleArray || peopleArray.length === 0) return toast.error("No hay personas.");
       const targetFolderId = folderId || config.link_drive;
@@ -504,10 +534,10 @@ export default function ViaticosManager({ supabase, giraId }) {
             rich.rendicion_transporte_otros = massConfig.rendicion_transporte_otros || 0;
             rich.rendicion_viaticos = massConfig.rendicion_viatico_monto || 0; 
 
-            // --- MAPEO DE CAMPOS CLAVE ---
+            rich.documentacion = p.documentacion || p.documentacion;
+            rich.docred = p.docred || p.docred;
             rich.cargo = p.cargo || p.rol || ""; 
-            rich.jornada_laboral = p.jornada_laboral || p.jornada || ""; 
-            // -----------------------------
+            rich.jornada = p.jornada_laboral || p.jornada || ""; 
 
             let dias = 0;
             if (p.travelData) {
@@ -562,7 +592,20 @@ export default function ViaticosManager({ supabase, giraId }) {
 
   const handleExportToDrive = async (options) => {
     if (selection.size === 0) { toast.error("Selecciona alguien."); return; }
-    const selectedData = viaticosRows.filter((r) => selection.has(r.id_integrante));
+    
+    // --- NORMALIZACIÓN DE DATOS ---
+    const selectedData = viaticosRows
+        .filter((r) => selection.has(r.id_integrante))
+        .map(row => {
+            const person = row.integrantes || {}; 
+            return {
+                ...row,
+                ...person, 
+                documentacion: person.documentacion || person.documentacion || row.documentacion,
+                docred: person.docred || person.docred || row.docred
+            };
+        });
+
     let driveFolderId = config?.link_drive;
     if (!driveFolderId) { toast.error("Sin carpeta Drive"); return; }
 
@@ -570,14 +613,90 @@ export default function ViaticosManager({ supabase, giraId }) {
     setIsExporting(true);
     try {
         await processExportList(selectedData, driveFolderId, options, []);
-        toast.success("Exportación finalizada");
         setSelection(new Set());
     } catch(e) { console.error(e); toast.error(e.message); }
     finally { setIsExporting(false); setExportStatus(""); }
   };
 
+  // --- FUNCIÓN DE EMAIL MASIVO ---
   const handleSendMassiveEmails = async (skipConfirm = false) => {
-      // (Lógica email)
+    if (selection.size === 0) return toast.error("Selecciona al menos un integrante.");
+    
+    if (!skipConfirm) {
+        setShowEmailConfirm(true);
+        return;
+    }
+    
+    setShowEmailConfirm(false);
+    const toastId = toast.loading("Iniciando proceso de envío...");
+    
+    let successCount = 0;
+    let errorsCount = 0;
+
+    try {
+        const selectedData = viaticosRows.filter((r) => selection.has(r.id_integrante));
+        
+        for (const [index, row] of selectedData.entries()) {
+            const person = row.integrantes || row;
+            const email = person.mail || person.email || row.mail || row.email;
+            const name = person.nombre || person.apellido;
+
+            // Actualizamos el toast con el progreso
+            toast.loading(`Enviando ${index + 1} de ${selectedData.length}: ${person.apellido}...`, { id: toastId });
+
+            if (!email) {
+                console.warn(`SKIPPED: No tiene mail ${name}.`);
+                errorsCount++;
+                continue;
+            }
+
+            // PAYLOAD COMPLETO (Igual que Legacy)
+            const detalleCompleto = {
+                dias_computables: row.dias_computables,
+                porcentaje: row.porcentaje,
+                monto_viatico: parseFloat(row.monto_viatico || row.subtotal_viatico || row.subtotal || 0),
+                subtotal_viatico: parseFloat(row.subtotal || row.monto_viatico || 0), // Redundancia por si acaso
+                gasto_combustible: parseFloat(row.gasto_combustible || 0),
+                gasto_alojamiento: parseFloat(row.gasto_alojamiento || 0),
+                gasto_pasajes: parseFloat(row.gasto_pasajes || 0),
+                gasto_otros: parseFloat(row.gasto_otros || 0),
+                gastos_movilidad: parseFloat(row.gastos_movilidad || 0),
+                gastos_movil_otros: parseFloat(row.gastos_movil_otros || 0),
+                gastos_capacit: parseFloat(row.gastos_capacit || 0),
+                total_percibir: parseFloat(row.total_percibir || row.totalFinal || 0)
+            };
+
+            const { error } = await supabase.functions.invoke('mails_produccion', {
+                body: {
+                    action: "enviar_mail",
+                    templateId: "viaticos_simple",
+                    email: email,
+                    nombre: person.nombre || "Integrante",
+                    gira: giraData?.nombre || "Gira OFRN",
+                    detalle: detalleCompleto 
+                }
+            });
+            
+            if (error) {
+                console.error(`ERROR enviando a ${email}:`, error);
+                errorsCount++;
+            } else {
+                successCount++;
+            }
+        }
+
+        if (errorsCount === 0) {
+            toast.success(`¡Listo! Se enviaron ${successCount} correos exitosamente.`, { id: toastId, duration: 5000 });
+        } else {
+            toast.warning(`Proceso finalizado. Enviados: ${successCount} - Fallidos: ${errorsCount}`, { id: toastId, duration: 8000 });
+        }
+
+        setSelection(new Set()); 
+        
+    } catch (error) {
+        console.error("Error crítico:", error);
+        toast.error("Error en el proceso de envío.", { id: toastId });
+    }
   };
 
   const toggleSelection = (id) => {
@@ -592,7 +711,8 @@ export default function ViaticosManager({ supabase, giraId }) {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative overflow-y-auto">
-      <Toaster position="top-center" richColors closeButton />
+      {/* ELIMINADO EL TOASTER DUPLICADO, USAMOS EL DE APP.JSX */}
+      
       <ConfirmModal isOpen={confirmPromise?.isOpen} onClose={() => { confirmPromise?.resolve(false); setConfirmPromise(null); }} title={confirmPromise?.title} message={confirmPromise?.message} confirmText={confirmPromise?.confirmText} cancelText={confirmPromise?.cancelText} onConfirm={() => { confirmPromise?.resolve(true); setConfirmPromise(null); }} />
       <ConfirmModal isOpen={showEmailConfirm} onClose={() => setShowEmailConfirm(false)} onConfirm={() => handleSendMassiveEmails(true)} title="Enviar Notificaciones" message={`Estás a punto de enviar ${selection.size} correos...`} confirmText="Enviar" />
 
@@ -607,7 +727,6 @@ export default function ViaticosManager({ supabase, giraId }) {
           <div className="animate-in slide-in-from-top-2 duration-200">
             <ManualTrigger section="vi_ticos_intro_mkd1at12" />
             <div className="px-6 pb-4 flex flex-col gap-4">
-              {/* Toolbar */}
               <div className="flex items-center justify-between flex-wrap gap-2">
                  <div className="flex gap-2 flex-wrap">
                     <button onClick={() => setShowDatos(!showDatos)} className={`p-2 rounded-lg border flex items-center gap-2 text-xs font-bold ${showDatos ? "bg-indigo-100 text-indigo-700 border-indigo-200" : "bg-white text-slate-400 border-slate-200"}`}>Datos {showDatos ? <IconEye size={14} /> : <IconEyeOff size={14} />}</button>
@@ -642,7 +761,6 @@ export default function ViaticosManager({ supabase, giraId }) {
                  </div>
               </div>
 
-              {/* Config Inline */}
               <div className="flex items-center gap-4 text-sm bg-slate-50 p-2 rounded-lg border border-slate-100">
                   <div className="flex items-center gap-2 border-r border-slate-200 pr-4">
                       <div className="bg-white px-2 py-1 rounded border border-indigo-100 flex items-center gap-1 shadow-sm">
@@ -661,7 +779,6 @@ export default function ViaticosManager({ supabase, giraId }) {
                   </div>
               </div>
 
-              {/* TABLA PRINCIPAL */}
               <ViaticosTable
                 rows={viaticosRows}
                 selection={selection}
@@ -693,6 +810,7 @@ export default function ViaticosManager({ supabase, giraId }) {
                   onExport={handleExportToDrive} 
                   isExporting={isExporting}
                   exportStatus={exportStatus}
+                  exportDetail={exportDetail}
                   onSendEmails={handleSendMassiveEmails}
                 />
               )}
@@ -723,13 +841,14 @@ export default function ViaticosManager({ supabase, giraId }) {
               onExportBatch={handleExportLocationBatch} 
               isExporting={isExporting}
               exportStatus={exportStatus}
+              exportDetail={exportDetail} // PASAMOS EL DETALLE AL COMPONENTE HIJO
             />
           </div>
         )}
       </div>
       
       {notification && (
-        <div className="fixed bottom-6 right-6 z-[100] animate-in slide-in-from-bottom-4 fade-in duration-300">
+        <div className="fixed bottom-6 right-6 z-[9999] animate-in slide-in-from-bottom-4 fade-in duration-300">
           <div className="bg-slate-800 text-white px-4 py-3 rounded-lg shadow-xl flex items-center gap-3">
             <div className="bg-green-500 rounded-full p-1 text-slate-900">
               <IconCheck size={14} strokeWidth={3} />
