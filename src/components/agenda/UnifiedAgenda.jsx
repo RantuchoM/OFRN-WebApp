@@ -197,12 +197,22 @@ export default function UnifiedAgenda({
     return defaultVal;
   };
 
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState(() => getInitialFilterState('categories', []));
-  const [showNonActive, setShowNonActive] = useState(() => getInitialFilterState('showNonActive', false));
-  const [showOnlyMyTransport, setShowOnlyMyTransport] = useState(() => getInitialFilterState('showOnlyMyTransport', false));
-  const [showOnlyMyMeals, setShowOnlyMyMeals] = useState(() => getInitialFilterState('showOnlyMyMeals', false));
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState(() =>
+    getInitialFilterState("categories", []),
+  );
+  const [showNonActive, setShowNonActive] = useState(() =>
+    getInitialFilterState("showNonActive", false),
+  );
+  const [showOnlyMyTransport, setShowOnlyMyTransport] = useState(() =>
+    getInitialFilterState("showOnlyMyTransport", false),
+  );
+  const [showOnlyMyMeals, setShowOnlyMyMeals] = useState(() =>
+    getInitialFilterState("showOnlyMyMeals", false),
+  );
   // "Sin Grises" (antes showAllTransport)
-  const [showNoGray, setShowNoGray] = useState(() => getInitialFilterState('showAllTransport', false));
+  const [showNoGray, setShowNoGray] = useState(() =>
+    getInitialFilterState("showAllTransport", false),
+  );
 
   useEffect(() => {
     const data = {
@@ -210,42 +220,50 @@ export default function UnifiedAgenda({
       showNonActive,
       showOnlyMyTransport,
       showOnlyMyMeals,
-      showAllTransport: showNoGray // Guardamos con el mismo nombre en storage por compatibilidad o migramos
+      showAllTransport: showNoGray, // Guardamos con el mismo nombre en storage por compatibilidad o migramos
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [selectedCategoryIds, showNonActive, showOnlyMyTransport, showOnlyMyMeals, showNoGray, STORAGE_KEY]);
+  }, [
+    selectedCategoryIds,
+    showNonActive,
+    showOnlyMyTransport,
+    showOnlyMyMeals,
+    showNoGray,
+    STORAGE_KEY,
+  ]);
 
   const prevUserIdRef = useRef(effectiveUserId);
   useEffect(() => {
     if (prevUserIdRef.current !== effectiveUserId) {
-        try {
-            const saved = localStorage.getItem(STORAGE_KEY);
-            if (saved) {
-                const p = JSON.parse(saved);
-                setSelectedCategoryIds(p.categories || []);
-                setShowNonActive(p.showNonActive || false);
-                setShowOnlyMyTransport(p.showOnlyMyTransport || false);
-                setShowOnlyMyMeals(p.showOnlyMyMeals || false);
-                setShowNoGray(p.showAllTransport || false);
-            } else {
-                setSelectedCategoryIds([]);
-                setShowNonActive(false);
-                setShowOnlyMyTransport(false);
-                setShowOnlyMyMeals(false);
-                setShowNoGray(false);
-            }
-        } catch(e) { console.error(e); }
-        prevUserIdRef.current = effectiveUserId;
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const p = JSON.parse(saved);
+          setSelectedCategoryIds(p.categories || []);
+          setShowNonActive(p.showNonActive || false);
+          setShowOnlyMyTransport(p.showOnlyMyTransport || false);
+          setShowOnlyMyMeals(p.showOnlyMyMeals || false);
+          setShowNoGray(p.showAllTransport || false);
+        } else {
+          setSelectedCategoryIds([]);
+          setShowNonActive(false);
+          setShowOnlyMyTransport(false);
+          setShowOnlyMyMeals(false);
+          setShowNoGray(false);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      prevUserIdRef.current = effectiveUserId;
     }
   }, [effectiveUserId, STORAGE_KEY]);
-
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
-  
+
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const filterMenuRef = useRef(null);
   useOutsideAlerter(filterMenuRef, () => setIsFilterMenuOpen(false));
@@ -263,7 +281,7 @@ export default function UnifiedAgenda({
   const [userProfile, setUserProfile] = useState(null);
 
   const canEdit = ["admin", "editor", "coord_general", "director"].includes(
-    user?.rol_sistema
+    user?.rol_sistema,
   );
 
   useEffect(() => {
@@ -321,7 +339,7 @@ export default function UnifiedAgenda({
         const { data } = await supabase
           .from("integrantes")
           .select(
-            "*, instrumentos(familia, instrumento), integrantes_ensambles(id_ensamble), datos_residencia:localidades!id_localidad (id, id_region)"
+            "*, instrumentos(familia, instrumento), integrantes_ensambles(id_ensamble), datos_residencia:localidades!id_localidad (id, id_region)",
           )
           .eq("id", effectiveUserId)
           .single();
@@ -376,7 +394,7 @@ export default function UnifiedAgenda({
     setSelectedCategoryIds((prev) =>
       prev.includes(catId)
         ? prev.filter((id) => id !== catId)
-        : [...prev, catId]
+        : [...prev, catId],
     );
   };
 
@@ -397,18 +415,27 @@ export default function UnifiedAgenda({
       if (catId && !selectedCategoryIds.includes(catId)) return false;
 
       if (showOnlyMyTransport && item.id_gira_transporte) {
-         const tId = String(item.id_gira_transporte);
-         if (!myTransportLogistics[tId]?.assigned) return false;
+        const tId = String(item.id_gira_transporte);
+        if (!myTransportLogistics[tId]?.assigned) return false;
       }
 
       if (showOnlyMyMeals) {
-         const isMeal = [7, 8, 9, 10].includes(item.id_tipo_evento) || item.tipos_evento?.nombre?.toLowerCase().includes("comida");
-         if (isMeal && !item.is_convoked) return false;
+        const isMeal =
+          [7, 8, 9, 10].includes(item.id_tipo_evento) ||
+          item.tipos_evento?.nombre?.toLowerCase().includes("comida");
+        if (isMeal && !item.is_convoked) return false;
       }
 
       return true;
     });
-  }, [items, selectedCategoryIds, showNonActive, showOnlyMyTransport, showOnlyMyMeals, myTransportLogistics]);
+  }, [
+    items,
+    selectedCategoryIds,
+    showNonActive,
+    showOnlyMyTransport,
+    showOnlyMyMeals,
+    myTransportLogistics,
+  ]);
 
   const checkIsConvoked = (convocadosList, tourRole) => {
     if (!convocadosList || convocadosList.length === 0) return false;
@@ -457,7 +484,7 @@ export default function UnifiedAgenda({
 
       if (userProfile) {
         userProfile.integrantes_ensambles?.forEach((ie) =>
-          myEnsembles.add(ie.id_ensamble)
+          myEnsembles.add(ie.id_ensamble),
         );
         myFamily = userProfile.instrumentos?.familia;
       }
@@ -478,7 +505,7 @@ export default function UnifiedAgenda({
       const customMap = new Map();
       customAttendance.data?.forEach((c) => customMap.set(c.id_evento, c));
       const myEnsembleEventIds = new Set(
-        ensembleEvents.data?.map((e) => e.id_evento)
+        ensembleEvents.data?.map((e) => e.id_evento),
       );
 
       let query = supabase
@@ -508,7 +535,7 @@ export default function UnifiedAgenda({
             eventos_programas_asociados (
                 programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador, estado )
             )
-        `
+        `,
         )
         .order("fecha", { ascending: true })
         .order("hora_inicio", { ascending: true });
@@ -536,12 +563,14 @@ export default function UnifiedAgenda({
             .in("id_gira", Array.from(activeTourIds)),
           supabase
             .from("giras_logistica_rutas")
-            .select("*, evento_subida:id_evento_subida(id, fecha, hora_inicio), evento_bajada:id_evento_bajada(id, fecha, hora_inicio)")
+            .select(
+              "*, evento_subida:id_evento_subida(id, fecha, hora_inicio), evento_bajada:id_evento_bajada(id, fecha, hora_inicio)",
+            )
             .in("id_gira", Array.from(activeTourIds)),
           supabase
             .from("giras_transportes")
             .select("id, id_gira, detalle, transportes(nombre)")
-            .in("id_gira", Array.from(activeTourIds))
+            .in("id_gira", Array.from(activeTourIds)),
         ]);
 
         const admissionData = admRes.data || [];
@@ -554,15 +583,15 @@ export default function UnifiedAgenda({
           const transportsByGira = {};
 
           admissionData.forEach((r) => {
-             if (!admissionByGira[r.id_gira]) admissionByGira[r.id_gira] = [];
-             admissionByGira[r.id_gira].push(r);
-             foundRuleTours.add(r.id_gira);
+            if (!admissionByGira[r.id_gira]) admissionByGira[r.id_gira] = [];
+            admissionByGira[r.id_gira].push(r);
+            foundRuleTours.add(r.id_gira);
           });
 
           routesData.forEach((r) => {
-             if (!routesByGira[r.id_gira]) routesByGira[r.id_gira] = [];
-             routesByGira[r.id_gira].push(r);
-             foundRuleTours.add(r.id_gira);
+            if (!routesByGira[r.id_gira]) routesByGira[r.id_gira] = [];
+            routesByGira[r.id_gira].push(r);
+            foundRuleTours.add(r.id_gira);
           });
 
           transportsData.forEach((t) => {
@@ -571,82 +600,92 @@ export default function UnifiedAgenda({
           });
 
           // PREPARAR DATOS DEL USUARIO UNA VEZ
-          const userEnsemblesIds = (userProfile.integrantes_ensambles || []).map(ie => String(ie.id_ensamble));
+          const userEnsemblesIds = (
+            userProfile.integrantes_ensambles || []
+          ).map((ie) => String(ie.id_ensamble));
           const userFamily = userProfile.instrumentos?.familia;
-          const cleanLocId = userProfile.id_localidad ? Number(userProfile.id_localidad) : null;
+          const cleanLocId = userProfile.id_localidad
+            ? Number(userProfile.id_localidad)
+            : null;
           const residenciaObj = userProfile.datos_residencia;
-          const cleanRegionId = residenciaObj?.id_region ? Number(residenciaObj.id_region) : null;
+          const cleanRegionId = residenciaObj?.id_region
+            ? Number(residenciaObj.id_region)
+            : null;
 
           activeTourIds.forEach((gId) => {
             const sampleEvt = eventsData.find(
-              (e) => String(e.id_gira) === String(gId) && e.programas
+              (e) => String(e.id_gira) === String(gId) && e.programas,
             );
-            
+
             const currentTransports = transportsByGira[gId] || [];
             if (currentTransports.length === 0) return;
 
             let esAdicional = false;
             let tourRole = "musico";
             let estadoGira = null;
-            
+
             if (sampleEvt && sampleEvt.programas) {
-                // 1. CHEQUEO: ¿Está en el Roster explícito?
-                const members = sampleEvt.programas.giras_integrantes || [];
-                const myRecord = members.find(
-                  (i) => String(i.id_integrante) === String(effectiveUserId)
-                );
-                
-                if (myRecord) {
-                    tourRole = myRecord.rol;
-                    estadoGira = myRecord.estado;
-                    // Filtro estricto: Si es baja, no_convocado o ausente, NO va a la gira.
-                    if (['baja', 'no_convocado', 'ausente'].includes(estadoGira)) return; 
+              // 1. CHEQUEO: ¿Está en el Roster explícito?
+              const members = sampleEvt.programas.giras_integrantes || [];
+              const myRecord = members.find(
+                (i) => String(i.id_integrante) === String(effectiveUserId),
+              );
+
+              if (myRecord) {
+                tourRole = myRecord.rol;
+                estadoGira = myRecord.estado;
+                // Filtro estricto: Si es baja, no_convocado o ausente, NO va a la gira.
+                if (["baja", "no_convocado", "ausente"].includes(estadoGira))
+                  return;
+              }
+
+              // 2. CHEQUEO: ¿Coincide con Fuentes Base?
+              const sources = sampleEvt.programas.giras_fuentes || [];
+              let isBase = false;
+
+              const matchesSource = sources.some((src) => {
+                if (
+                  src.tipo === "ENSAMBLE" &&
+                  userEnsemblesIds.includes(String(src.valor_id))
+                ) {
+                  isBase = true;
+                  return true;
                 }
+                if (src.tipo === "FAMILIA" && src.valor_texto === userFamily) {
+                  isBase = true;
+                  return true;
+                }
+                return false;
+              });
 
-                // 2. CHEQUEO: ¿Coincide con Fuentes Base?
-                const sources = sampleEvt.programas.giras_fuentes || [];
-                let isBase = false;
-                
-                const matchesSource = sources.some((src) => {
-                  if (src.tipo === "ENSAMBLE" && userEnsemblesIds.includes(String(src.valor_id))) {
-                      isBase = true;
-                      return true;
-                  }
-                  if (src.tipo === "FAMILIA" && src.valor_texto === userFamily) {
-                      isBase = true;
-                      return true;
-                  }
-                  return false;
-                });
+              // Si NO está en el roster explícito Y NO coincide con ninguna fuente, entonces NO va a la gira.
+              if (!myRecord && !matchesSource) return;
 
-                // Si NO está en el roster explícito Y NO coincide con ninguna fuente, entonces NO va a la gira.
-                if (!myRecord && !matchesSource) return;
-
-                esAdicional = !!myRecord && !isBase;
+              esAdicional = !!myRecord && !isBase;
             }
 
             const mockPerson = {
               ...userProfile,
-              id: userProfile.id, 
+              id: userProfile.id,
               id_localidad: cleanLocId,
               localidades: {
                 id: cleanLocId,
                 id_region: cleanRegionId,
               },
-              instrumentos: userProfile.instrumentos || {}, 
+              instrumentos: userProfile.instrumentos || {},
               rol_gira: tourRole,
-              estado_gira: estadoGira, 
+              estado_gira: estadoGira,
               es_adicional: esAdicional,
               logistics: {},
             };
 
             const result = calculateLogisticsSummary(
-              [mockPerson],           
-              [],                      
+              [mockPerson],
+              [],
               admissionByGira[gId] || [],
-              routesByGira[gId] || [],   
-              currentTransports,       
-              []                      
+              routesByGira[gId] || [],
+              currentTransports,
+              [],
             );
 
             const myTransports = result[0]?.logistics?.transports || [];
@@ -655,13 +694,13 @@ export default function UnifiedAgenda({
                 assigned: true,
                 subidaId: t.subidaId,
                 bajadaId: t.bajadaId,
-                priority: t.priority
+                priority: t.priority,
               };
             });
           });
         }
       }
-      
+
       setMyTransportLogistics(logisticsMap);
       setToursWithRules(foundRuleTours);
 
@@ -678,25 +717,30 @@ export default function UnifiedAgenda({
 
         if (customMap.has(item.id)) return true;
         if (myEnsembleEventIds.has(item.id)) return true;
-        
+
         // --- LOGICA DE FILTRADO DE GIRA MEJORADA ---
         if (item.programas) {
           const overrides = item.programas.giras_integrantes || [];
           const sources = item.programas.giras_fuentes || [];
-          
+
           const myOverride = overrides.find(
-            (o) => o.id_integrante === effectiveUserId
+            (o) => o.id_integrante === effectiveUserId,
           );
 
           if (myOverride) {
-             if (myOverride.estado === "baja" || myOverride.estado === "no_convocado" || myOverride.estado === "ausente") return false;
-             return true; 
+            if (
+              myOverride.estado === "baja" ||
+              myOverride.estado === "no_convocado" ||
+              myOverride.estado === "ausente"
+            )
+              return false;
+            return true;
           }
 
           return sources.some(
             (s) =>
               (s.tipo === "ENSAMBLE" && myEnsembles.has(s.valor_id)) ||
-              (s.tipo === "FAMILIA" && s.valor_texto === myFamily)
+              (s.tipo === "FAMILIA" && s.valor_texto === myFamily),
           );
         }
         return false;
@@ -730,7 +774,7 @@ export default function UnifiedAgenda({
           if (a.isProgramMarker && !b.isProgramMarker) return -1;
           if (!a.isProgramMarker && b.isProgramMarker) return 1;
           return 0;
-        }
+        },
       );
 
       processCategories(visibleEvents);
@@ -761,7 +805,7 @@ export default function UnifiedAgenda({
         visibleEvents.forEach((evt) => {
           evt.mi_asistencia = attendanceMap[evt.id];
           const myTourRecord = evt.programas?.giras_integrantes?.find(
-            (i) => i.id_integrante === effectiveUserId
+            (i) => i.id_integrante === effectiveUserId,
           );
           const myTourRole = myTourRecord?.rol || "musico";
           evt.is_convoked = checkIsConvoked(evt.convocados, myTourRole);
@@ -789,13 +833,17 @@ export default function UnifiedAgenda({
     });
 
     const uniqueCats = Object.values(categoriesMap).sort((a, b) =>
-      a.nombre.localeCompare(b.nombre)
+      a.nombre.localeCompare(b.nombre),
     );
 
     setAvailableCategories(uniqueCats);
-    
+
     const hasStored = localStorage.getItem(STORAGE_KEY);
-    if (!hasStored && selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
+    if (
+      !hasStored &&
+      selectedCategoryIds.length === 0 &&
+      uniqueCats.length > 0
+    ) {
       setSelectedCategoryIds(uniqueCats.map((c) => c.id));
     }
   };
@@ -810,11 +858,11 @@ export default function UnifiedAgenda({
           id_integrante: effectiveUserId,
           estado: newStatus,
         },
-        { onConflict: "id_evento, id_integrante" }
+        { onConflict: "id_evento, id_integrante" },
       );
       if (error) throw error;
       const newItems = items.map((item) =>
-        item.id === eventId ? { ...item, mi_asistencia: newStatus } : item
+        item.id === eventId ? { ...item, mi_asistencia: newStatus } : item,
       );
       setItems(newItems);
       const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
@@ -862,7 +910,7 @@ export default function UnifiedAgenda({
   const handleDeleteEvent = async () => {
     if (!editFormData.id) return;
     const confirm = window.confirm(
-      "¿Seguro que deseas eliminar este evento? Esta acción no se puede deshacer."
+      "¿Seguro que deseas eliminar este evento? Esta acción no se puede deshacer.",
     );
     if (!confirm) return;
 
@@ -895,7 +943,7 @@ export default function UnifiedAgenda({
     if (!editFormData.id) return;
 
     const confirm = window.confirm(
-      "¿Deseas duplicar este evento? Se abrirá la copia para editar."
+      "¿Deseas duplicar este evento? Se abrirá la copia para editar.",
     );
     if (!confirm) return;
 
@@ -946,7 +994,7 @@ export default function UnifiedAgenda({
           id_programa: p.id_programa,
         }));
         promises.push(
-          supabase.from("eventos_programas_asociados").insert(progPayload)
+          supabase.from("eventos_programas_asociados").insert(progPayload),
         );
       }
 
@@ -1098,7 +1146,7 @@ export default function UnifiedAgenda({
               onClick={() =>
                 window.open(
                   `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
-                  "_blank"
+                  "_blank",
                 )
               }
               className="p-1.5 bg-white/60 hover:bg-white text-current rounded transition-colors shadow-sm"
@@ -1155,159 +1203,202 @@ export default function UnifiedAgenda({
           <div className="flex gap-2 relative">
             {!loading && availableCategories.length > 0 && (
               <>
-                 {/* BOTÓN FILTROS */}
-                 <div className="relative" ref={filterMenuRef}>
-                    <button
-                       onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
-                       className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-bold shadow-sm hover:shadow-md ${
-                          isFilterMenuOpen || selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals || showNoGray
-                          ? "bg-slate-800 text-white border-slate-800"
-                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                       }`}
-                    >
-                       <IconFilter size={16} />
-                       <span className="hidden sm:inline">Filtros</span>
-                       {(selectedCategoryIds.length < availableCategories.length || showOnlyMyTransport || showOnlyMyMeals || showNoGray) && (
-                         <span className="flex h-2 w-2 rounded-full bg-indigo-400"></span>
-                       )}
-                    </button>
-
-                    {isFilterMenuOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden animate-in zoom-in-95 origin-top-right">
-                          <div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Opciones de Vista</span>
-                            <button 
-                               onClick={() => {
-                                 setSelectedCategoryIds(availableCategories.map(c => c.id));
-                                 setShowOnlyMyTransport(false);
-                                 setShowOnlyMyMeals(false);
-                                 setShowNoGray(false);
-                               }}
-                               className="text-[10px] text-indigo-600 hover:underline font-bold"
-                            >
-                               Restablecer
-                            </button>
-                          </div>
-                          
-                          {/* TOGGLES ESPECIALES */}
-                          <div className="p-2 border-b border-slate-100 space-y-1">
-                            <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
-                               <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                                  <IconBus size={16} className="text-indigo-500" />
-                                  <span>Solo mi transporte</span>
-                               </div>
-                               <input 
-                                 type="checkbox" 
-                                 className="accent-indigo-600 w-4 h-4"
-                                 checked={showOnlyMyTransport}
-                                 onChange={(e) => {
-                                     setShowOnlyMyTransport(e.target.checked);
-                                     if(e.target.checked) setShowNoGray(false);
-                                 }}
-                               />
-                            </label>
-                            
-                            {/* NUEVA OPCIÓN: SIN GRISES (Solo Management) */}
-                            {canEdit && (
-                              <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
-                                 <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                                    <IconEye size={16} className="text-slate-500" />
-                                    <span>Sin grises</span>
-                                 </div>
-                                 <input 
-                                   type="checkbox" 
-                                   className="accent-slate-600 w-4 h-4"
-                                   checked={showNoGray}
-                                   onChange={(e) => {
-                                       setShowNoGray(e.target.checked);
-                                       if(e.target.checked) setShowOnlyMyTransport(false);
-                                   }}
-                                 />
-                              </label>
-                            )}
-
-                            <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
-                               <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                                  <span className="text-amber-500 text-lg leading-none">🍴</span>
-                                  <span>Solo mis comidas</span>
-                               </div>
-                               <input 
-                                 type="checkbox" 
-                                 className="accent-indigo-600 w-4 h-4"
-                                 checked={showOnlyMyMeals}
-                                 onChange={(e) => setShowOnlyMyMeals(e.target.checked)}
-                               />
-                            </label>
-                          </div>
-
-                          <div className="p-3 border-b border-slate-100 bg-slate-50">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Categorías</span>
-                          </div>
-                          <div className="max-h-60 overflow-y-auto p-2">
-                            <div className="grid grid-cols-1 gap-1">
-                              <button
-                                onClick={() => {
-                                  if (selectedCategoryIds.length === availableCategories.length) setSelectedCategoryIds([]);
-                                  else setSelectedCategoryIds(availableCategories.map(c => c.id));
-                                }}
-                                className={`px-3 py-2 rounded text-xs font-bold border transition-colors flex justify-between items-center ${
-                                  selectedCategoryIds.length === availableCategories.length 
-                                  ? "bg-slate-800 text-white border-slate-800" 
-                                  : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-                                }`}
-                              >
-                                <span>{selectedCategoryIds.length === availableCategories.length ? "Deseleccionar todo" : "Seleccionar todo"}</span>
-                                <IconList size={14} />
-                              </button>
-
-                              {availableCategories.map((cat) => {
-                                const isActive = selectedCategoryIds.includes(cat.id);
-                                return (
-                                  <button
-                                    key={cat.id}
-                                    onClick={() => handleCategoryToggle(cat.id)}
-                                    className={`px-3 py-2 rounded text-xs font-bold border transition-all flex justify-between items-center ${
-                                      isActive
-                                        ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                        : "bg-white text-slate-400 border-transparent hover:bg-slate-50"
-                                    }`}
-                                  >
-                                    <span>{cat.nombre}</span>
-                                    {isActive && <IconCheck size={14} />}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                          
-                          {canEdit && (
-                            <div className="p-2 border-t border-slate-100 bg-amber-50/50">
-                               <label className="flex items-center gap-2 cursor-pointer p-2">
-                                  <input 
-                                    type="checkbox" 
-                                    className="accent-amber-600"
-                                    checked={showNonActive}
-                                    onChange={(e) => setShowNonActive(e.target.checked)}
-                                  />
-                                  <span className="text-xs font-bold text-amber-800">Mostrar borradores</span>
-                               </label>
-                            </div>
-                          )}
-                      </div>
+                {/* BOTÓN FILTROS */}
+                <div className="relative" ref={filterMenuRef}>
+                  <button
+                    onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-bold shadow-sm hover:shadow-md ${
+                      isFilterMenuOpen ||
+                      selectedCategoryIds.length < availableCategories.length ||
+                      showOnlyMyTransport ||
+                      showOnlyMyMeals ||
+                      showNoGray
+                        ? "bg-slate-800 text-white border-slate-800"
+                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <IconFilter size={16} />
+                    <span className="hidden sm:inline">Filtros</span>
+                    {(selectedCategoryIds.length < availableCategories.length ||
+                      showOnlyMyTransport ||
+                      showOnlyMyMeals ||
+                      showNoGray) && (
+                      <span className="flex h-2 w-2 rounded-full bg-indigo-400"></span>
                     )}
-                 </div>
+                  </button>
 
-                 {canEdit && musicianOptions.length > 0 && (
-                    <div className="shrink-0 w-[40px] md:w-[160px]">
-                      <SearchableSelect
-                        options={musicianOptions}
-                        value={viewAsUserId}
-                        onChange={setViewAsUserId}
-                        placeholder={viewAsUserId ? "" : "Ver como..."}
-                        className="w-full text-xs"
-                      />
+                  {isFilterMenuOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden animate-in zoom-in-95 origin-top-right flex flex-col max-h-[80vh]">
+                      {/* HEADER FIJO */}
+                      <div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          Opciones de Vista
+                        </span>
+                        <button
+                          onClick={() => {
+                            setSelectedCategoryIds(
+                              availableCategories.map((c) => c.id),
+                            );
+                            setShowOnlyMyTransport(false);
+                            setShowOnlyMyMeals(false);
+                            setShowNoGray(false);
+                          }}
+                          className="text-[10px] text-indigo-600 hover:underline font-bold"
+                        >
+                          Restablecer
+                        </button>
+                      </div>
+
+                      {/* CONTENIDO SCROLLEABLE */}
+                      <div className="overflow-y-auto flex-1">
+                        {/* TOGGLES ESPECIALES */}
+                        <div className="p-2 border-b border-slate-100 space-y-1">
+                          <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
+                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                              <IconBus size={16} className="text-indigo-500" />
+                              <span>Solo mi transporte</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-600 w-4 h-4"
+                              checked={showOnlyMyTransport}
+                              onChange={(e) => {
+                                setShowOnlyMyTransport(e.target.checked);
+                                if (e.target.checked) setShowNoGray(false);
+                              }}
+                            />
+                          </label>
+
+                          {/* NUEVA OPCIÓN: SIN GRISES (Solo Management) */}
+                          {canEdit && (
+                            <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
+                              <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                                <IconEye size={16} className="text-slate-500" />
+                                <span>Sin grises</span>
+                              </div>
+                              <input
+                                type="checkbox"
+                                className="accent-slate-600 w-4 h-4"
+                                checked={showNoGray}
+                                onChange={(e) => {
+                                  setShowNoGray(e.target.checked);
+                                  if (e.target.checked)
+                                    setShowOnlyMyTransport(false);
+                                }}
+                              />
+                            </label>
+                          )}
+
+                          <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
+                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                              <span className="text-amber-500 text-lg leading-none">
+                                🍴
+                              </span>
+                              <span>Solo mis comidas</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-600 w-4 h-4"
+                              checked={showOnlyMyMeals}
+                              onChange={(e) =>
+                                setShowOnlyMyMeals(e.target.checked)
+                              }
+                            />
+                          </label>
+                        </div>
+
+                        <div className="p-3 border-b border-slate-100 bg-slate-50">
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            Categorías
+                          </span>
+                        </div>
+
+                        {/* LISTA DE CATEGORÍAS (Sin max-h interno, usa el del padre) */}
+                        <div className="p-2">
+                          <div className="grid grid-cols-1 gap-1">
+                            <button
+                              onClick={() => {
+                                if (
+                                  selectedCategoryIds.length ===
+                                  availableCategories.length
+                                )
+                                  setSelectedCategoryIds([]);
+                                else
+                                  setSelectedCategoryIds(
+                                    availableCategories.map((c) => c.id),
+                                  );
+                              }}
+                              className={`px-3 py-2 rounded text-xs font-bold border transition-colors flex justify-between items-center ${
+                                selectedCategoryIds.length ===
+                                availableCategories.length
+                                  ? "bg-slate-800 text-white border-slate-800"
+                                  : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                              }`}
+                            >
+                              <span>
+                                {selectedCategoryIds.length ===
+                                availableCategories.length
+                                  ? "Deseleccionar todo"
+                                  : "Seleccionar todo"}
+                              </span>
+                              <IconList size={14} />
+                            </button>
+
+                            {availableCategories.map((cat) => {
+                              const isActive = selectedCategoryIds.includes(
+                                cat.id,
+                              );
+                              return (
+                                <button
+                                  key={cat.id}
+                                  onClick={() => handleCategoryToggle(cat.id)}
+                                  className={`px-3 py-2 rounded text-xs font-bold border transition-all flex justify-between items-center ${
+                                    isActive
+                                      ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                      : "bg-white text-slate-400 border-transparent hover:bg-slate-50"
+                                  }`}
+                                >
+                                  <span>{cat.nombre}</span>
+                                  {isActive && <IconCheck size={14} />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {canEdit && (
+                          <div className="p-2 border-t border-slate-100 bg-amber-50/50">
+                            <label className="flex items-center gap-2 cursor-pointer p-2">
+                              <input
+                                type="checkbox"
+                                className="accent-amber-600"
+                                checked={showNonActive}
+                                onChange={(e) =>
+                                  setShowNonActive(e.target.checked)
+                                }
+                              />
+                              <span className="text-xs font-bold text-amber-800">
+                                Mostrar borradores
+                              </span>
+                            </label>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                 )}
+                  )}
+                </div>
+
+                {canEdit && musicianOptions.length > 0 && (
+                  <div className="shrink-0 w-[40px] md:w-[160px]">
+                    <SearchableSelect
+                      options={musicianOptions}
+                      value={viewAsUserId}
+                      onChange={setViewAsUserId}
+                      placeholder={viewAsUserId ? "" : "Ver como..."}
+                      className="w-full text-xs"
+                    />
+                  </div>
+                )}
               </>
             )}
 
@@ -1367,9 +1458,7 @@ export default function UnifiedAgenda({
                 const eventColor = evt.tipos_evento?.color || "#6366f1";
                 const isMeal =
                   [7, 8, 9, 10].includes(evt.id_tipo_evento) ||
-                  evt.tipos_evento?.nombre
-                    ?.toLowerCase()
-                    .includes("comida");
+                  evt.tipos_evento?.nombre?.toLowerCase().includes("comida");
                 const isNonConvokedMeal = isMeal && !evt.is_convoked;
 
                 const isTransportEvent = !!evt.id_gira_transporte;
@@ -1381,7 +1470,8 @@ export default function UnifiedAgenda({
                 const transportName =
                   evt.giras_transportes?.transportes?.nombre;
                 const transportDetail = evt.giras_transportes?.detalle;
-                const transportColor = evt.giras_transportes?.transportes?.color || "#6366f1";
+                const transportColor =
+                  evt.giras_transportes?.transportes?.color || "#6366f1";
 
                 if (isTransportEvent && evt.id_gira_transporte) {
                   const transportIdStr = String(evt.id_gira_transporte);
@@ -1410,7 +1500,7 @@ export default function UnifiedAgenda({
                 const deadlineStatus =
                   isMeal && evt.is_convoked
                     ? getDeadlineStatus(
-                        evt.programas?.fecha_confirmacion_limite
+                        evt.programas?.fecha_confirmacion_limite,
                       )
                     : null;
 
@@ -1421,7 +1511,7 @@ export default function UnifiedAgenda({
                 const locCity = evt.locaciones?.localidades?.localidad;
 
                 const cardStyle = {
-                    backgroundColor: `${eventColor}10`, 
+                  backgroundColor: `${eventColor}10`,
                 };
 
                 return (
@@ -1441,7 +1531,11 @@ export default function UnifiedAgenda({
                           ? "bg-indigo-50/30 border-l-4 border-l-indigo-400"
                           : ""
                       }`}
-                      style={!shouldDim && !evt.is_guest && !isMyTransport ? cardStyle : {}}
+                      style={
+                        !shouldDim && !evt.is_guest && !isMyTransport
+                          ? cardStyle
+                          : {}
+                      }
                     >
                       <div
                         className="absolute left-0 top-0 bottom-0 w-[4px]"
@@ -1449,8 +1543,8 @@ export default function UnifiedAgenda({
                           backgroundColor: evt.is_absent
                             ? "#94a3b8"
                             : isMyTransport
-                            ? "transparent"
-                            : eventColor,
+                              ? "transparent"
+                              : eventColor,
                         }}
                       ></div>
 
@@ -1496,12 +1590,17 @@ export default function UnifiedAgenda({
                               <span
                                 className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border`}
                                 style={{
-                                    backgroundColor: isMyTransport ? `${transportColor}30` : `${transportColor}15`,
-                                    color: isMyTransport ? '#1e293b' : '#64748b', 
-                                    borderColor: `${transportColor}60`,
+                                  backgroundColor: isMyTransport
+                                    ? `${transportColor}30`
+                                    : `${transportColor}15`,
+                                  color: isMyTransport ? "#1e293b" : "#64748b",
+                                  borderColor: `${transportColor}60`,
                                 }}
                               >
-                                <IconBus size={10} style={{ color: transportColor }} />
+                                <IconBus
+                                  size={10}
+                                  style={{ color: transportColor }}
+                                />
                                 {transportName}{" "}
                                 {transportDetail && (
                                   <span className="font-normal opacity-80">
@@ -1522,14 +1621,16 @@ export default function UnifiedAgenda({
                               </span>
                             )}
 
-                            {isTransportEvent && !isMyTransport && !showNoGray && (
-                              <span
-                                className="text-[8px] text-red-300 font-mono select-none"
-                                title="El sistema no te asignó este transporte."
-                              >
-                                [{debugReason}]
-                              </span>
-                            )}
+                            {isTransportEvent &&
+                              !isMyTransport &&
+                              !showNoGray && (
+                                <span
+                                  className="text-[8px] text-red-300 font-mono select-none"
+                                  title="El sistema no te asignó este transporte."
+                                >
+                                  [{debugReason}]
+                                </span>
+                              )}
                           </div>
 
                           {locName && (
