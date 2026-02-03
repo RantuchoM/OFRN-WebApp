@@ -595,6 +595,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     transportId: null,
     transportName: "",
   });
+
   const [selectedEventIds, setSelectedEventIds] = useState(new Set()); // Función para limpiar selección al cambiar de transporte o cerrar modal
 
   const clearSelection = () => setSelectedEventIds(new Set()); // B. Función para aplicar el desplazamiento masivo
@@ -643,7 +644,23 @@ export default function GirasTransportesManager({ supabase, gira }) {
   };
   const passengerList = rawSummary || [];
   const giraId = gira?.id;
+  // ... (dentro de GirasTransportesManager)
 
+  // ESTADOS PARA FEEDBACK VISUAL
+  const [updatingFields, setUpdatingFields] = useState(new Set());
+  const [successFields, setSuccessFields] = useState(new Set());
+  const [errorFields, setErrorFields] = useState(new Set());
+
+  // HELPER PARA CLASES CSS SEGÚN ESTADO
+  const getInputClass = (id, field) => {
+    const key = `${id}-${field}`;
+    if (errorFields.has(key)) return "border-rose-500 bg-rose-50 text-rose-900";
+    if (successFields.has(key))
+      return "border-emerald-500 bg-emerald-50 text-emerald-900";
+    if (updatingFields.has(key))
+      return "border-amber-500 bg-amber-50 text-amber-900";
+    return "border-transparent hover:border-slate-300 focus:border-indigo-500 bg-transparent"; // Default limpio
+  };
   const [transports, setTransports] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [locationsList, setLocationsList] = useState([]);
@@ -1016,6 +1033,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
   };
 
   const handleUpdateEvent = async (eventId, field, value) => {
+    const key = `${eventId}-${field}`;
+
+    // 1. Actualización Optimista (Visual inmediata)
     const newEventsMap = { ...transportEvents };
     for (const tId in newEventsMap) {
       const idx = newEventsMap[tId].findIndex((e) => e.id === eventId);
@@ -1025,13 +1045,50 @@ export default function GirasTransportesManager({ supabase, gira }) {
       }
     }
     setTransportEvents(newEventsMap);
+
+    // 2. Estado: Actualizando (Amarillo)
+    setUpdatingFields((prev) => new Set(prev).add(key));
+    setSuccessFields((prev) => {
+      const n = new Set(prev);
+      n.delete(key);
+      return n;
+    });
+    setErrorFields((prev) => {
+      const n = new Set(prev);
+      n.delete(key);
+      return n;
+    });
+
     try {
       await supabase
         .from("eventos")
         .update({ [field]: value })
         .eq("id", eventId);
+
+      // 3. Estado: Éxito (Verde)
+      setSuccessFields((prev) => new Set(prev).add(key));
+
+      // Limpiar el verde después de 2 segundos
+      setTimeout(() => {
+        setSuccessFields((prev) => {
+          const n = new Set(prev);
+          n.delete(key);
+          return n;
+        });
+      }, 2000);
     } catch (e) {
+      console.error(e);
+      // 4. Estado: Error (Rojo)
+      setErrorFields((prev) => new Set(prev).add(key));
+      // Revertir cambios visuales (opcional, aquí forzamos fetch)
       fetchData();
+    } finally {
+      // Quitar estado de carga
+      setUpdatingFields((prev) => {
+        const n = new Set(prev);
+        n.delete(key);
+        return n;
+      });
     }
   };
 
@@ -1871,7 +1928,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       >
                         <IconUsers size={16} />
                       </button>
-                      
+
                       <button
                         onClick={() =>
                           setBoardingModal({ isOpen: true, transportId: t.id })
@@ -1919,7 +1976,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       >
                         <IconFileText size={16} />
                       </button>
-                      
+
                       <button
                         onClick={() =>
                           setCnrtModal({ isOpen: true, transportId: t.id })
@@ -2011,7 +2068,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             0,
                           );
 
-                          // Alerta si hay reglas que devuelven 0 personas (y no es Medios Propios)
                           const upAlert =
                             upsSummary.some((s) => s.count === 0) &&
                             !isMediosPropios;
@@ -2024,7 +2080,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                               key={evt.id}
                               className="hover:bg-slate-50 group transition-colors"
                             >
-                              <td className="p-3 text-center">
+                              <td className="p-2 text-center align-middle">
                                 <input
                                   type="checkbox"
                                   className="rounded border-slate-300 text-indigo-600"
@@ -2038,26 +2094,72 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                   }}
                                 />
                               </td>
-                              <td className="p-3">
-                                <div className="font-bold text-slate-700">
-                                  {evt.hora_inicio?.slice(0, 5) || "--:--"}
-                                </div>
-                                <div className="text-[10px] text-slate-400">
-                                  {formatDateSafe(evt.fecha)}
+
+                              {/* --- COLUMNA FECHA Y HORARIOS (TODO HORIZONTAL) --- */}
+                              <td className="p-2 align-middle">
+                                <div className="flex items-center gap-1">
+                                  {/* Fecha */}
+                                  <div className="w-[115px] relative group/date">
+                                    <DateInput
+                                      value={evt.fecha}
+                                      onChange={(v) =>
+                                        handleUpdateEvent(evt.id, "fecha", v)
+                                      }
+                                      className={`h-7 w-full text-[13px] font-bold text-center border rounded transition-all ${getInputClass(evt.id, "fecha")}`}
+                                    />
+                                  </div>
+
+                                  {/* Hora Inicio */}
+                                  <div className="w-[80px] relative group/time">
+                                    <TimeInput
+                                      value={evt.hora_inicio}
+                                      onChange={(v) =>
+                                        handleUpdateEvent(
+                                          evt.id,
+                                          "hora_inicio",
+                                          v,
+                                        )
+                                      }
+                                      className={`h-7 w-full text-[13px] font-bold text-center border rounded transition-all ${getInputClass(evt.id, "hora_inicio")}`}
+                                    />
+                                  </div>
+
+                                  <span className="text-slate-300 text-[10px] font-bold">
+                                    -
+                                  </span>
+
+                                  {/* Hora Fin */}
+                                  <div className="w-[80px] relative group/time">
+                                    <TimeInput
+                                      value={evt.hora_fin || evt.hora_inicio}
+                                      onChange={(v) =>
+                                        handleUpdateEvent(
+                                          evt.id,
+                                          "hora_fin",
+                                          v,
+                                        )
+                                      }
+                                      className={`h-7 w-full text-[11px] font-bold text-center border rounded text-slate-500 transition-all ${getInputClass(evt.id, "hora_fin")}`}
+                                    />
+                                  </div>
                                 </div>
                               </td>
-                              <td className="p-3 min-w-[200px]">
+
+                              {/* --- COLUMNA LOCACIÓN EDITABLE --- */}
+                              <td className="p-2 min-w-[180px] align-middle">
                                 <SearchableSelect
                                   options={locationOptions}
                                   value={evt.id_locacion}
                                   onChange={(v) =>
                                     handleUpdateEvent(evt.id, "id_locacion", v)
                                   }
-                                  className="h-8 border-transparent hover:border-slate-200 bg-transparent"
+                                  className={`h-8 rounded transition-all ${getInputClass(evt.id, "id_locacion")}`}
                                 />
                               </td>
-                              <td className="p-3">
-                                <input
+
+                              {/* --- COLUMNA NOTA EDITABLE --- */}
+                              <td className="p-2 align-middle">
+                                <textarea
                                   value={evt.descripcion || ""}
                                   onChange={(e) =>
                                     handleUpdateEvent(
@@ -2066,14 +2168,20 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                       e.target.value,
                                     )
                                   }
-                                  placeholder="Añadir nota..."
-                                  className="w-full bg-transparent border-b border-transparent hover:border-slate-200 outline-none text-xs text-slate-600 focus:border-indigo-500"
+                                  placeholder="Nota..."
+                                  className={`w-full min-h-[32px] h-auto resize-none overflow-hidden rounded px-2 py-1 text-xs text-slate-600 outline-none border transition-all ${getInputClass(evt.id, "descripcion")}`}
+                                  rows={1}
+                                  onInput={(e) => {
+                                    e.target.style.height = "auto";
+                                    e.target.style.height =
+                                      e.target.scrollHeight + "px";
+                                  }}
                                 />
                               </td>
 
                               {/* CELDA SUBEN */}
                               <td
-                                className={`p-2 border-l border-emerald-50/50 ${totalUps > 0 ? "bg-emerald-50/20" : ""}`}
+                                className={`p-2 border-l border-emerald-50/50 align-middle ${totalUps > 0 ? "bg-emerald-50/20" : ""}`}
                               >
                                 <button
                                   onClick={() =>
@@ -2084,7 +2192,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                       transportId: t.id,
                                     })
                                   }
-                                  className={`w-full py-1.5 rounded-xl border text-[10px] font-black flex flex-col items-center gap-1 transition-all 
+                                  className={`w-full py-1 rounded-xl border text-[10px] font-black flex flex-col items-center gap-0.5 transition-all 
                       ${
                         totalUps > 0
                           ? "bg-emerald-100 text-emerald-700 border-emerald-200 shadow-sm"
@@ -2093,22 +2201,22 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"
                       }`}
                                 >
-                                  <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
+                                  <div className="flex items-center gap-1 w-full justify-center">
                                     <IconUpload size={10} />{" "}
                                     {totalUps > 0
-                                      ? `${totalUps} PAX`
+                                      ? `${totalUps}`
                                       : upAlert
-                                        ? "0 PAX ⚠️"
+                                        ? "0 ⚠️"
                                         : "+"}
                                   </div>
                                   {upsSummary.map((s, idx) => (
                                     <span
                                       key={idx}
-                                      className={`px-1.5 py-0.5 rounded truncate w-full ${s.count === 0 && !isMediosPropios ? "bg-orange-500 text-white font-black" : "opacity-60"}`}
+                                      className={`px-1 rounded truncate w-full text-[9px] ${s.count === 0 && !isMediosPropios ? "bg-orange-500 text-white font-black" : "opacity-60"}`}
                                     >
                                       {s.label}{" "}
                                       {s.count === 0 && !isMediosPropios
-                                        ? "⚠️"
+                                        ? ""
                                         : `(${s.count})`}
                                     </span>
                                   ))}
@@ -2117,7 +2225,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
                               {/* CELDA BAJAN */}
                               <td
-                                className={`p-2 border-l border-rose-50/50 ${totalDowns > 0 ? "bg-rose-50/30" : ""}`}
+                                className={`p-2 border-l border-rose-50/50 align-middle ${totalDowns > 0 ? "bg-rose-50/30" : ""}`}
                               >
                                 <button
                                   onClick={() =>
@@ -2128,7 +2236,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                       transportId: t.id,
                                     })
                                   }
-                                  className={`w-full py-1.5 rounded-xl border text-[10px] font-black flex flex-col items-center gap-1 transition-all 
+                                  className={`w-full py-1 rounded-xl border text-[10px] font-black flex flex-col items-center gap-0.5 transition-all 
                       ${
                         totalDowns > 0
                           ? "bg-rose-100 text-rose-700 border-rose-200 shadow-sm"
@@ -2137,29 +2245,29 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"
                       }`}
                                 >
-                                  <div className="flex items-center gap-1 border-b border-black/5 pb-0.5 w-full justify-center">
+                                  <div className="flex items-center gap-1 w-full justify-center">
                                     <IconDownload size={10} />{" "}
                                     {totalDowns > 0
-                                      ? `${totalDowns} PAX`
+                                      ? `${totalDowns}`
                                       : downAlert
-                                        ? "0 PAX ⚠️"
+                                        ? "0 ⚠️"
                                         : "+"}
                                   </div>
                                   {downsSummary.map((s, idx) => (
                                     <span
                                       key={idx}
-                                      className={`px-1.5 py-0.5 rounded truncate w-full ${s.count === 0 && !isMediosPropios ? "bg-orange-500 text-white font-black" : "opacity-60"}`}
+                                      className={`px-1 rounded truncate w-full text-[9px] ${s.count === 0 && !isMediosPropios ? "bg-orange-500 text-white font-black" : "opacity-60"}`}
                                     >
                                       {s.label}{" "}
                                       {s.count === 0 && !isMediosPropios
-                                        ? "⚠️"
+                                        ? ""
                                         : `(${s.count})`}
                                     </span>
                                   ))}
                                 </button>
                               </td>
 
-                              <td className="p-3 text-right">
+                              <td className="p-2 text-right align-middle">
                                 <button
                                   onClick={() => handleDeleteEvent(evt.id)}
                                   className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
@@ -2174,26 +2282,30 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         {/* FILA DE EDICIÓN / ALTA INLINE */}
                         {editingEventId === `new-${t.id}` && (
                           <tr className="bg-indigo-50/50 animate-in fade-in slide-in-from-left-2">
-                            <td className="p-3 text-center text-indigo-500">
+                            <td className="p-3 text-center text-indigo-500 align-middle">
                               <IconPlus size={16} />
                             </td>
-                            <td className="p-2 flex flex-col gap-1">
-                              <DateInput
-                                value={newEvent.fecha}
-                                onChange={(v) =>
-                                  setNewEvent({ ...newEvent, fecha: v })
-                                }
-                                className="h-8 border-indigo-200"
-                              />
-                              <TimeInput
-                                value={newEvent.hora}
-                                onChange={(v) =>
-                                  setNewEvent({ ...newEvent, hora: v })
-                                }
-                                className="h-8 border-indigo-200"
-                              />
+                            <td className="p-2 align-middle">
+                              <div className="flex flex-col gap-1 min-w-[150px]">
+                                <DateInput
+                                  value={newEvent.fecha}
+                                  onChange={(v) =>
+                                    setNewEvent({ ...newEvent, fecha: v })
+                                  }
+                                  className="h-7 w-full border-indigo-200 text-xs"
+                                />
+                                <div className="flex gap-1">
+                                  <TimeInput
+                                    value={newEvent.hora}
+                                    onChange={(v) =>
+                                      setNewEvent({ ...newEvent, hora: v })
+                                    }
+                                    className="h-7 w-full border-indigo-200 text-xs text-center"
+                                  />
+                                </div>
+                              </div>
                             </td>
-                            <td className="p-2">
+                            <td className="p-2 align-middle">
                               <SearchableSelect
                                 options={locationOptions}
                                 value={newEvent.id_locacion}
@@ -2203,9 +2315,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 className="h-8 border-indigo-200"
                               />
                             </td>
-                            <td className="p-2">
+                            <td className="p-2 align-middle">
                               <input
-                                placeholder="Nota de la parada..."
+                                placeholder="Nota..."
                                 className="w-full h-8 px-2 border border-indigo-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-200"
                                 value={newEvent.descripcion}
                                 onChange={(e) =>
@@ -2216,17 +2328,17 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 }
                               />
                             </td>
-                            <td className="p-2 text-right" colSpan="3">
+                            <td className="p-2 text-right align-middle" colSpan="3">
                               <div className="flex gap-2 justify-end px-2">
                                 <button
                                   onClick={() => setEditingEventId(null)}
-                                  className="px-3 py-1.5 bg-white text-slate-500 rounded-lg text-[10px] font-bold border border-slate-200 hover:bg-slate-50"
+                                  className="px-3 py-1 bg-white text-slate-500 rounded-lg text-[10px] font-bold border border-slate-200 hover:bg-slate-50"
                                 >
                                   CANCELAR
                                 </button>
                                 <button
                                   onClick={() => handleSaveEvent(t.id)}
-                                  className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-bold shadow-md hover:bg-indigo-700 flex items-center gap-1"
+                                  className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-[10px] font-bold shadow-md hover:bg-indigo-700 flex items-center gap-1"
                                 >
                                   <IconSave size={12} /> GUARDAR
                                 </button>
@@ -2238,7 +2350,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         {/* BOTÓN AGREGAR PARADA */}
                         {editingEventId !== `new-${t.id}` && (
                           <tr>
-                            <td colSpan="7" className="p-4 bg-slate-50/50">
+                            <td colSpan="7" className="p-2 bg-slate-50/50">
                               <button
                                 onClick={() => {
                                   setEditingEventId(`new-${t.id}`);
@@ -2250,9 +2362,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     id_tipo_evento: "11",
                                   });
                                 }}
-                                className="w-full py-3 border-2 border-dashed border-slate-200 rounded-2xl text-[10px] font-black text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all uppercase tracking-[0.2em] bg-white"
+                                className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all uppercase tracking-[0.2em] bg-white"
                               >
-                                + Agregar parada manual
+                                + Agregar parada
                               </button>
                             </td>
                           </tr>
