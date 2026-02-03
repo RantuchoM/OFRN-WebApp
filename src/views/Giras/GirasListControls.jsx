@@ -8,7 +8,6 @@ import {
   IconMusic,
   IconMap,
   IconFilter,
-  
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 
@@ -45,7 +44,7 @@ export default function GirasListControls({
 
   // 3. Jazz Band (Directo)
   const isJazzActive = filterType.has("Jazz Band");
-
+  const isComisionActive = filterType.has("Comisión");
   return (
     <div className="flex flex-wrap items-center gap-3 w-full">
       {/* 1. TÍTULO Y VISTAS */}
@@ -64,13 +63,13 @@ export default function GirasListControls({
             {mode === "CALENDAR"
               ? "Calendario"
               : mode === "WEEKLY"
-              ? "Semanal"
-              : mode === "FULL_AGENDA"
-              ? "Agenda"
-              : "Programas"}
+                ? "Semanal"
+                : mode === "FULL_AGENDA"
+                  ? "Agenda"
+                  : "Programas"}
           </span>
         </h2>
-       
+
         {/* Selector de Vistas Compacto */}
         <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
           {[
@@ -94,18 +93,18 @@ export default function GirasListControls({
           ))}
         </div>
       </div>
- {/* VER OBRAS (Al final) */}
-        <button
-          onClick={() => setShowRepertoireInCards(!showRepertoireInCards)}
-          className={`ml-auto px-2 py-1 rounded-md border transition-all flex items-center gap-1.5 ${
-            showRepertoireInCards
-              ? "bg-indigo-150 border-indigo-300 text-indigo-600"
-              : "bg-white border-slate-200 text-slate-400 hover:text-slate-600"
-          }`}
-          title="Ver Repertorio en tarjetas"
-        >
-          <IconMusic size={16} />
-        </button>
+      {/* VER OBRAS (Al final) */}
+      <button
+        onClick={() => setShowRepertoireInCards(!showRepertoireInCards)}
+        className={`ml-auto px-2 py-1 rounded-md border transition-all flex items-center gap-1.5 ${
+          showRepertoireInCards
+            ? "bg-indigo-150 border-indigo-300 text-indigo-600"
+            : "bg-white border-slate-200 text-slate-400 hover:text-slate-600"
+        }`}
+        title="Ver Repertorio en tarjetas"
+      >
+        <IconMusic size={16} />
+      </button>
       {/* SEPARADOR */}
       <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
 
@@ -169,8 +168,19 @@ export default function GirasListControls({
             >
               Jazz
             </button>
+            <div className="w-px bg-slate-200 my-1"></div>
+            <button
+              onClick={() => toggleFilterType("Comisión")}
+              className={`px-2.5 py-0.5 rounded text-[11px] font-bold transition-all ${
+                isComisionActive
+                  ? "bg-white text-sky-600 shadow-sm border border-slate-100"
+                  : "text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              Comisión
+            </button>
           </div>
-
+              
           <div className="h-6 w-px bg-slate-200 hidden lg:block"></div>
 
           {/* ESTADOS */}

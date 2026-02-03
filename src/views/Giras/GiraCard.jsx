@@ -1,5 +1,10 @@
 import React from "react";
-import { IconCalendar, IconMapPin, IconDrive, IconUtensils } from "../../components/ui/Icons";
+import {
+  IconCalendar,
+  IconMapPin,
+  IconDrive,
+  IconUtensils,
+} from "../../components/ui/Icons";
 import InstrumentationManager from "../../components/roster/InstrumentationManager";
 import CommentButton from "../../components/comments/CommentButton";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
@@ -65,6 +70,12 @@ export default function GiraCard({
           bg: "bg-amber-50/50",
           ring: "ring-amber-200",
         };
+      case "Comisión":
+        return {
+          border: "bg-sky-500",
+          bg: "bg-sky-50/50",
+          ring: "ring-sky-200",
+        };
       default:
         return {
           border: "bg-fuchsia-500",
@@ -110,10 +121,10 @@ export default function GiraCard({
   const getPersonnelDisplay = (gira) => {
     const roster = gira.giras_integrantes || [];
     const directors = roster.filter(
-      (r) => r.rol === "director" && r.estado === "confirmado"
+      (r) => r.rol === "director" && r.estado === "confirmado",
     );
     const soloists = roster.filter(
-      (r) => r.rol === "solista" && r.estado === "confirmado"
+      (r) => r.rol === "solista" && r.estado === "confirmado",
     );
     const formatName = (p) =>
       `${p.integrantes?.apellido || ""}, ${p.integrantes?.nombre || ""}`;
@@ -125,13 +136,13 @@ export default function GiraCard({
       output.push(
         <span key="dir" className="font-semibold text-fixed-indigo-700">
           Dir: {cleanNames(directors).join(" | ")}
-        </span>
+        </span>,
       );
     if (cleanNames(soloists).length > 0)
       output.push(
         <span key="sol" className="font-semibold text-fuchsia-700">
           Solista/s: {cleanNames(soloists).join(" | ")}
-        </span>
+        </span>,
       );
     return output.length > 0 ? output : null;
   };
@@ -143,7 +154,7 @@ export default function GiraCard({
 
     // Creamos el mapa asegurando tipos (todo a string para evitar problemas de "1" vs 1)
     const ensembleMap = new Map(
-      safeEnsemblesList.map((e) => [String(e.value), e.label])
+      safeEnsemblesList.map((e) => [String(e.value), e.label]),
     );
 
     const inclusions = [];
@@ -177,8 +188,8 @@ export default function GiraCard({
             s.tipo === "EXCL_ENSAMBLE"
               ? "text-gray-700 font-medium line-through"
               : s.tipo === "ENSAMBLE"
-              ? "text-black-700 font-medium"
-              : "text-gray-700 font-medium"
+                ? "text-black-700 font-medium"
+                : "text-gray-700 font-medium"
           }
         >
           {label}
@@ -192,7 +203,7 @@ export default function GiraCard({
         exclusions.push(
           <span key={s.id} className="text-gray-700 font-medium line-through">
             {exclLabel}
-          </span>
+          </span>,
         );
       } else {
         inclusions.push(element);
@@ -240,10 +251,10 @@ export default function GiraCard({
       .filter(
         (e) =>
           e.tipos_evento?.nombre?.toLowerCase().includes("concierto") ||
-          e.tipos_evento?.nombre?.toLowerCase().includes("función")
+          e.tipos_evento?.nombre?.toLowerCase().includes("función"),
       )
       .sort((a, b) =>
-        (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio)
+        (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
       );
 
     if (concerts.length === 0) return null;
@@ -378,7 +389,7 @@ export default function GiraCard({
                   e.stopPropagation();
                   window.open(
                     `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
-                    "_blank"
+                    "_blank",
                   );
                 }}
                 className="p-2 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors hidden sm:block"
