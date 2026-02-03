@@ -299,9 +299,12 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     link_cbu_img: "",
     link_declaracion: "",
     link_cuil: "",
-    nota_interna: "", // Nueva nota interna
+    nota_interna: "",
     avatar_url: "",
-    avatar_color: "#4f46e5", // Color Índigo por defecto
+    avatar_color: "#4f46e5",
+    // --- CAMPOS NUEVOS ---
+    cargo: "",
+    jornada: "",
     ...musician,
   });
 
@@ -693,7 +696,10 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         genero: formData.genero || "-",
         rol_sistema: "user",
         nacionalidad: "Argentina",
-        id_instr: formData.id_instr || null, // Guardar instrumento
+        id_instr: formData.id_instr || null,
+        // --- CAMPOS NUEVOS ---
+        cargo: formData.cargo || null,
+        jornada: formData.jornada || null,
       };
 
       const { data, error } = await supabase
@@ -1091,6 +1097,30 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       options={ensemblesOptions}
                       selected={selectedEnsembles}
                       onChange={handleEnsemblesChange}
+                    />
+                  </div>
+                </div>
+
+                {/* --- CARGO Y JORNADA (NUEVO) --- */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <div>
+                    <label className={labelClass}>Cargo</label>
+                    <input
+                      type="text"
+                      className={getInputStatusClass("cargo")}
+                      value={formData.cargo || ""}
+                      onChange={(e) => updateField("cargo", e.target.value)}
+                      placeholder="Ej: Agente administrativo"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Jornada</label>
+                    <input
+                      type="text"
+                      className={getInputStatusClass("jornada")}
+                      value={formData.jornada || ""}
+                      onChange={(e) => updateField("jornada", e.target.value)}
+                      placeholder="Ej: Horas cátedra"
                     />
                   </div>
                 </div>
