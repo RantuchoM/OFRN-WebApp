@@ -1875,13 +1875,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           </span>
                           <span className="text-slate-200 shrink-0">|</span>
                           <span
-                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${occupancyColor}`}
+                            className={`text-[12px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${occupancyColor}`}
                           >
                             {tPassengerCount}
                             {tInstrumentSeats > 0
-                              ? ` + ${tInstrumentSeats} inst`
-                              : ""}{" "}
-                            / {maxCap > 0 ? maxCap : "∞"}
+                              ? ` + ${tInstrumentSeats} inst = ${totalOccupied}`
+                              : ""}{" butacas"}
+                            {maxCap > 0 ? ` / ${maxCap}` : ""}
                           </span>
                         </div>
                       </>
