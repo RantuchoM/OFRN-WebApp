@@ -17,6 +17,7 @@ import {
   IconArrowLeft,
   IconPlus,
   IconDrive,
+  IconBox,
   IconList,
   IconChevronDown,
   IconMapPin,
@@ -28,6 +29,7 @@ import {
   IconDownload,
   IconBus,
   IconAlertTriangle,
+  IconEyeOff,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -175,8 +177,46 @@ export default function UnifiedAgenda({
   onOpenRepertoire = null,
   onViewChange = null,
 }) {
-  const { user } = useAuth();
+  const { user, isEditor, isManagement } = useAuth();
+  const [techFilter, setTechFilter] = useState(
+    isManagement ? "all" : "no_tech",
+  );
+  // AGREGAR ESTE EFECTO
+  // Para seguridad: si cambia el rol, forzar el filtro
+  useEffect(() => {
+    if (!isManagement) setTechFilter("no_tech");
+  }, [isManagement]);
 
+  // 3. Función para cambiar el estado "tecnica" desde la tarjeta
+  // Función para cambiar el estado "tecnica" (Actualización Conservadora)
+  const toggleEventTechnica = async (e, eventId, currentValue) => {
+    e.stopPropagation(); // Evita abrir el modal
+    if (!isEditor && !isManagement) return;
+
+    // NO activamos setLoading(true) para evitar que la UI parpadee o se desmonten los filtros
+
+    try {
+      // 1. Primero intentamos actualizar la Base de Datos
+      const { error } = await supabase
+        .from("eventos")
+        .update({ tecnica: !currentValue })
+        .eq("id", eventId);
+
+      if (error) throw error;
+
+      // 2. SOLO si la BD respondió bien, actualizamos el estado local
+      setItems((prevItems) => 
+        prevItems.map((item) => 
+          item.id === eventId ? { ...item, tecnica: !currentValue } : item
+        )
+      );
+
+    } catch (err) {
+      console.error("Error al cambiar técnica:", err);
+      alert("No se pudo guardar el cambio. Verifica tu conexión.");
+      // No hacemos nada en la UI, el tilde se queda como estaba
+    }
+  };
   const [viewAsUserId, setViewAsUserId] = useState(null);
   const [musicianOptions, setMusicianOptions] = useState([]);
 
@@ -410,7 +450,13 @@ export default function UnifiedAgenda({
       }
 
       if (item.isProgramMarker) return true;
+      if (!isManagement && item.tecnica) return false;
 
+      // 2. Si ES management, aplicar el filtro seleccionado
+      if (isManagement) {
+        if (techFilter === "only_tech" && !item.tecnica) return false;
+        if (techFilter === "no_tech" && item.tecnica) return false;
+      }
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
       if (catId && !selectedCategoryIds.includes(catId)) return false;
 
@@ -435,6 +481,8 @@ export default function UnifiedAgenda({
     showOnlyMyTransport,
     showOnlyMyMeals,
     myTransportLogistics,
+    techFilter, // <--- IMPORTANTE: AGREGAR A DEPENDENCIAS
+    isManagement, // <--- IMPORTANTE: AGREGAR A DEPENDENCIAS
   ]);
 
   const checkIsConvoked = (convocadosList, tourRole) => {
@@ -512,7 +560,7 @@ export default function UnifiedAgenda({
         .from("eventos")
         .select(
           `
-            id, fecha, hora_inicio, hora_fin, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte,
+            id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte,
             giras_transportes (
                 id, detalle,
                 transportes ( nombre, color ) 
@@ -903,6 +951,7 @@ export default function UnifiedAgenda({
       id_tipo_evento: evt.id_tipo_evento || "",
       id_locacion: evt.id_locacion || "",
       id_gira: evt.id_gira || null,
+      tecnica: evt.tecnica || false,
     });
     setIsEditOpen(true);
   };
@@ -956,6 +1005,7 @@ export default function UnifiedAgenda({
         hora_fin: editFormData.hora_fin,
         id_tipo_evento: editFormData.id_tipo_evento || null,
         id_locacion: editFormData.id_locacion || null,
+        tecnica: editFormData.tecnica || false,
         id_gira: editFormData.id_gira || null,
       };
 
@@ -1026,6 +1076,7 @@ export default function UnifiedAgenda({
         hora_fin: editFormData.hora_fin || editFormData.hora_inicio,
         id_tipo_evento: editFormData.id_tipo_evento || null,
         id_locacion: editFormData.id_locacion || null,
+        tecnica: editFormData.tecnica || false,
       };
       const { error } = await supabase
         .from("eventos")
@@ -1051,6 +1102,7 @@ export default function UnifiedAgenda({
       hora_fin: "12:00",
       id_tipo_evento: "",
       id_locacion: "",
+      tecnica: false,
     });
     setIsCreating(true);
   };
@@ -1066,6 +1118,7 @@ export default function UnifiedAgenda({
       hora_fin: newFormData.hora_fin || newFormData.hora_inicio,
       id_tipo_evento: newFormData.id_tipo_evento || null,
       id_locacion: newFormData.id_locacion || null,
+      tecnica: newFormData.tecnica,
     };
     const { error } = await supabase.from("eventos").insert([payload]);
     if (!error) {
@@ -1201,7 +1254,7 @@ export default function UnifiedAgenda({
           </div>
 
           <div className="flex gap-2 relative">
-            {!loading && availableCategories.length > 0 && (
+            {availableCategories.length > 0 && (
               <>
                 {/* BOTÓN FILTROS */}
                 <div className="relative" ref={filterMenuRef}>
@@ -1230,13 +1283,14 @@ export default function UnifiedAgenda({
                   {isFilterMenuOpen && (
                     <>
                       {/* BACKDROP PARA MÓVIL (Fondo oscuro al abrir menú) */}
-                      <div 
+                      <div
                         className="fixed inset-0 bg-black/40 z-40 sm:hidden backdrop-blur-[2px] animate-in fade-in"
                         onClick={() => setIsFilterMenuOpen(false)}
                       />
 
                       {/* CONTENEDOR DEL MENÚ (Bottom Sheet en Móvil / Dropdown en Desktop) */}
-                      <div className={`
+                      <div
+                        className={`
                         bg-white border-slate-200 shadow-2xl overflow-hidden flex flex-col z-50
                         
                         /* ESTILOS MÓVIL (Hoja inferior fija) */
@@ -1246,7 +1300,8 @@ export default function UnifiedAgenda({
                         /* ESTILOS DESKTOP (Dropdown flotante) */
                         sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72 sm:rounded-xl sm:border sm:max-h-[80vh] 
                         sm:animate-in sm:zoom-in-95 sm:origin-top-right
-                      `}>
+                      `}
+                      >
                         {/* HEADER FIJO */}
                         <div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
                           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
@@ -1260,6 +1315,7 @@ export default function UnifiedAgenda({
                               setShowOnlyMyTransport(false);
                               setShowOnlyMyMeals(false);
                               setShowNoGray(false);
+                              if (isManagement) setTechFilter("all"); // <--- RESTABLECER FILTRO TÉCNICO
                             }}
                             className="text-[10px] text-indigo-600 hover:underline font-bold"
                           >
@@ -1269,11 +1325,55 @@ export default function UnifiedAgenda({
 
                         {/* CONTENIDO SCROLLEABLE */}
                         <div className="overflow-y-auto flex-1 p-0 sm:p-0">
+                          {/* --- AGREGAR SECCIÓN DE FILTRO TÉCNICO (SOLO MANAGEMENT) --- */}
+                          {isManagement && (
+                            <div className="p-2 border-b border-slate-100">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block px-2 mb-1">
+                                Filtro Técnica
+                              </span>
+                              <div className="flex bg-slate-100 p-1 rounded-lg mx-2">
+                                <button
+                                  onClick={() => setTechFilter("all")}
+                                  className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${
+                                    techFilter === "all"
+                                      ? "bg-white shadow text-indigo-600"
+                                      : "text-slate-500 hover:text-slate-700"
+                                  }`}
+                                >
+                                  Todos
+                                </button>
+                                <button
+                                  onClick={() => setTechFilter("only_tech")}
+                                  className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${
+                                    techFilter === "only_tech"
+                                      ? "bg-white shadow text-indigo-600"
+                                      : "text-slate-500 hover:text-slate-700"
+                                  }`}
+                                >
+                                  Sólo Téc.
+                                </button>
+                                <button
+                                  onClick={() => setTechFilter("no_tech")}
+                                  className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${
+                                    techFilter === "no_tech"
+                                      ? "bg-white shadow text-indigo-600"
+                                      : "text-slate-500 hover:text-slate-700"
+                                  }`}
+                                >
+                                  Sin Téc.
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {/* ----------------------------------------------------------- */}
                           {/* TOGGLES ESPECIALES */}
                           <div className="p-2 border-b border-slate-100 space-y-1">
                             <label className="flex items-center justify-between p-3 sm:p-2 hover:bg-slate-50 rounded cursor-pointer group active:bg-slate-100">
                               <div className="flex items-center gap-3 sm:gap-2 text-sm font-medium text-slate-700">
-                                <IconBus size={18} className="text-indigo-500 sm:w-4 sm:h-4" />
+                                <IconBus
+                                  size={18}
+                                  className="text-indigo-500 sm:w-4 sm:h-4"
+                                />
                                 <span>Solo mi transporte</span>
                               </div>
                               <input
@@ -1291,7 +1391,10 @@ export default function UnifiedAgenda({
                             {canEdit && (
                               <label className="flex items-center justify-between p-3 sm:p-2 hover:bg-slate-50 rounded cursor-pointer group active:bg-slate-100">
                                 <div className="flex items-center gap-3 sm:gap-2 text-sm font-medium text-slate-700">
-                                  <IconEye size={18} className="text-slate-500 sm:w-4 sm:h-4" />
+                                  <IconEye
+                                    size={18}
+                                    className="text-slate-500 sm:w-4 sm:h-4"
+                                  />
                                   <span>Sin grises</span>
                                 </div>
                                 <input
@@ -1593,6 +1696,38 @@ export default function UnifiedAgenda({
                               {evt.programas.nomenclador}
                             </span>
                           )}
+                          {/* --- BOTÓN TOGGLE TÉCNICA (SOLO EDITOR/MANAGEMENT) --- */}
+                          {(isManagement || isEditor) && (
+                            <button
+                              onClick={(e) =>
+                                toggleEventTechnica(e, evt.id, evt.tecnica)
+                              }
+                              className={`
+              flex items-center gap-1 px-1.5 py-0.5 rounded border transition-all text-[9px] font-bold uppercase
+              ${
+                evt.tecnica
+                  ? "bg-slate-700 text-white border-slate-700 hover:bg-slate-600"
+                  : "bg-transparent text-slate-300 border-transparent hover:border-slate-200 hover:bg-white"
+              }
+            `}
+                              title={
+                                evt.tecnica
+                                  ? "Evento Técnico (Click para quitar)"
+                                  : "Marcar como Técnico"
+                              }
+                            >
+                              {evt.tecnica ? (
+                                <>
+                                  <IconEyeOff size={10} strokeWidth={4} />
+                                  <span>TÉC</span>
+                                </>
+                              ) : (
+                                <IconEye
+                                  size={12}
+                                /> /* Icono discreto para activar */
+                              )}
+                            </button>
+                          )}
                         </div>
 
                         <div className="flex flex-col md:flex-row md:items-center md:gap-4 flex-1 min-w-0">
@@ -1602,8 +1737,10 @@ export default function UnifiedAgenda({
                             }`}
                           >
                             {evt.descripcion || evt.tipos_evento?.nombre}
+                            
                           </h4>
-
+                          
+                          {/* ----------------------------------------------------- */}
                           <div className="flex flex-wrap gap-1">
                             {isTransportEvent && transportName && (
                               <span

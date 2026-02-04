@@ -1,25 +1,28 @@
 import React, { useMemo } from 'react';
 import { 
-    IconLoader, IconX, IconCheck, IconEdit, IconTrash, IconCopy 
+    IconLoader, IconX, IconCheck, IconEdit, IconTrash, IconCopy, IconSettings 
 } from '../ui/Icons';
 import DateInput from '../ui/DateInput';
 import TimeInput from '../ui/TimeInput';
 import SearchableSelect from '../ui/SearchableSelect';
+import { useAuth } from '../../context/AuthContext'; // <--- 1. IMPORTAR AUTH
 
 export default function EventForm({ 
     formData, 
     setFormData, 
     onSave, 
     onClose, 
-    onDelete,      // Nueva prop para eliminar
-    onDuplicate,   // Nueva prop para duplicar
+    onDelete,      
+    onDuplicate,   
     loading, 
     eventTypes = [], 
     locations = [], 
     isNew = false 
 }) {
-    
-    // 1. Preparamos las opciones para el Select de Ubicaciones
+    // 2. OBTENER PERMISOS
+    const { isEditor, isManagement } = useAuth();
+
+    // Preparamos opciones de ubicación
     const locationOptions = useMemo(() => {
         return locations.map(l => ({
             id: l.id,
@@ -27,7 +30,6 @@ export default function EventForm({
         }));
     }, [locations]);
 
-    // Helper para actualizar campos simples
     const handleChange = (field, value) => {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
@@ -88,6 +90,32 @@ export default function EventForm({
                     </div>
                 </div>
 
+                {/* --- 3. CHECKBOX "SÓLO TÉCNICA" (SOLO EDITORES) --- */}
+                {(isEditor || isManagement) && (
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                        <label className="flex items-center gap-3 cursor-pointer select-none group">
+                            <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${formData.tecnica ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300 group-hover:border-indigo-400'}`}>
+                                {formData.tecnica && <IconCheck size={14} className="text-white" strokeWidth={3} />}
+                            </div>
+                            <input 
+                                type="checkbox" 
+                                className="hidden"
+                                checked={formData.tecnica || false}
+                                onChange={(e) => handleChange('tecnica', e.target.checked)}
+                            />
+                            <div className="flex flex-col">
+                                <span className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1">
+                                    <IconSettings size={12} className="text-slate-400"/> Evento Técnico
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                    Visible solo para gestión técnica
+                                </span>
+                            </div>
+                        </label>
+                    </div>
+                )}
+                {/* ----------------------------------------------- */}
+
                 {/* Horarios */}
                 <div className="grid grid-cols-2 gap-4">
                     <TimeInput 
@@ -102,7 +130,7 @@ export default function EventForm({
                     />
                 </div>
 
-                {/* Ubicación con SearchableSelect */}
+                {/* Ubicación */}
                 <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ubicación / Sala</label>
                     <SearchableSelect 
@@ -120,7 +148,6 @@ export default function EventForm({
 
             {/* FOOTER */}
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
-                {/* Acciones Secundarias (Eliminar / Duplicar) - Solo si NO es nuevo */}
                 <div className="flex gap-2">
                     {!isNew && (
                         <>
@@ -148,7 +175,6 @@ export default function EventForm({
                     )}
                 </div>
 
-                {/* Acciones Principales */}
                 <div className="flex gap-2">
                     <button 
                         onClick={onClose} 
