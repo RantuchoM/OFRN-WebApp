@@ -65,3 +65,39 @@ export const calculateLogisticsForMusician = (person, rules) => {
     });
     return final;
 };
+
+// src/utils/giraUtils.js
+
+// ... (mantén tus funciones existentes como getGiraDates, etc.)
+
+/* --- CONFIGURACIÓN DE TIPOS DE PROGRAMA --- */
+export const PROGRAM_TYPES = {
+  "Sinfónico": { 
+      label: "Sinfónico", 
+      color: "bg-fixed-indigo-50 text-fixed-indigo-700 border-fixed-indigo-200 ring-fixed-indigo-500/20" 
+  },
+  "Camerata Filarmónica": { 
+      label: "Camerata", 
+      color: "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 ring-fuchsia-500/20" 
+  },
+  "Ensamble": { 
+      label: "Ensamble", 
+      color: "bg-emerald-50 text-emerald-700 border-emerald-200 ring-emerald-500/20" 
+  },
+  "Jazz Band": { 
+      label: "Jazz Band", 
+      color: "bg-amber-50 text-amber-700 border-amber-200 ring-amber-500/20" 
+  },
+  "Comisión": { 
+      label: "Comisión", 
+      color: "bg-sky-100 text-sky-600 border-sky-300 ring-sky-500/20" 
+  },
+  "default": { 
+      label: "General", 
+      color: "bg-white text-slate-600 border-slate-200" 
+  }
+};
+
+export const getProgramStyle = (type) => {
+  return PROGRAM_TYPES[type] || PROGRAM_TYPES["default"];
+};

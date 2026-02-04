@@ -3,7 +3,7 @@ import ReactCrop from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
 import * as pdfjsLib from "pdfjs-dist";
 import { createPortal } from "react-dom";
-
+import MusicianTourManager from "./MusicianTourManager";
 // Configuración del worker de PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -32,6 +32,7 @@ import {
   IconCamera,
   IconMusic,
   IconChevronDown,
+  IconCalendar
 } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import DateInput from "../../components/ui/DateInput";
@@ -307,7 +308,18 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     jornada: "",
     ...musician,
   });
-
+  const musicianForGiras = {
+    ...formData,
+    // Reconstruimos la estructura de instrumentos para sacar la familia
+    instrumentos:
+      catalogoInstrumentos.find(
+        (i) => String(i.id) === String(formData.id_instr),
+      ) || {},
+    // Reconstruimos la estructura de ensambles
+    integrantes_ensambles: Array.from(selectedEnsembles).map((id) => ({
+      id_ensamble: id,
+    })),
+  };
   useEffect(() => {
     const fetchCatalogs = async () => {
       // Instrumentos
@@ -374,8 +386,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     const status = fieldStatuses[fieldName];
     if (status === "saving")
       return (
-        inputClass +
-        " border-orange-500 ring-4 ring-orange-50 bg-orange-50/10"
+        inputClass + " border-orange-500 ring-4 ring-orange-50 bg-orange-50/10"
       );
     if (status === "saved")
       return (
@@ -388,8 +399,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const extractPathFromUrl = (url) => {
     if (!url) return null;
     if (url.includes("firmas/")) return url.split("firmas/")[1];
-    if (url.includes("musician-docs/"))
-      return url.split("musician-docs/")[1];
+    if (url.includes("musician-docs/")) return url.split("musician-docs/")[1];
     return null;
   };
 
@@ -605,8 +615,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   };
 
   const handleGenerateDJ = async () => {
-    if (!formData.id || !formData.firma)
-      return alert("Faltan datos o firma.");
+    if (!formData.id || !formData.firma) return alert("Faltan datos o firma.");
     setAssemblingType("dj");
     setFieldStatuses((p) => ({ ...p, link_declaracion: "saving" }));
     try {
@@ -631,8 +640,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   };
 
   const handleFullPack = async () => {
-    if (!formData.id || !formData.firma)
-      return alert("Faltan datos o firma.");
+    if (!formData.id || !formData.firma) return alert("Faltan datos o firma.");
     setAssemblingType("all");
     setFieldStatuses((p) => ({
       ...p,
@@ -907,6 +915,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
               label: "Seguridad",
               icon: <IconFileText size={16} />,
             },
+            { id: "giras", label: "Giras", icon: <IconCalendar size={16} /> },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1132,9 +1141,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       type="text"
                       className={getInputStatusClass("domicilio")}
                       value={formData.domicilio || ""}
-                      onChange={(e) =>
-                        updateField("domicilio", e.target.value)
-                      }
+                      onChange={(e) => updateField("domicilio", e.target.value)}
                     />
                   </div>
 
@@ -1443,6 +1450,19 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                     </button>
                   </div>
                 </div>
+              </div>
+            )}
+            {activeTab === "giras" && formData.id && (
+              <div className="h-full overflow-hidden flex flex-col">
+                <MusicianTourManager
+                  supabase={supabase}
+                  musician={musicianForGiras}
+                />
+              </div>
+            )}
+            {activeTab === "giras" && !formData.id && (
+              <div className="text-center p-10 text-slate-400">
+                Debes guardar la ficha del músico antes de gestionar sus giras.
               </div>
             )}
 
