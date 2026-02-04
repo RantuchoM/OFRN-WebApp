@@ -175,7 +175,7 @@ export default function DataView({ supabase }) {
             { value: "Bronces", label: "Bronces" },
             { value: "Percusión", label: "Percusión" },
             { value: "Cuerdas", label: "Cuerdas" },
-            { value: "Teclas/Otros", label: "Teclas/Otros" },
+            { value: "Prod.", label: "Prod." },
           ],
         },
         { key: "abreviatura", label: "Abrev.", type: "text" },

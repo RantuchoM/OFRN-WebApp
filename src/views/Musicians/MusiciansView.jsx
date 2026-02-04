@@ -769,8 +769,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
   const [searchText, setSearchText] = useState("");
   const [selectedInstruments, setSelectedInstruments] = useState(new Set());
-  const [conditionFilters, setConditionFilters] = useState(
-    new Set(["Estable"]),
+  const [conditionFilters, setConditionFilters] = useState(new Set(),
   );
   // Dentro de export default function MusiciansView...
   const [onlyVigente, setOnlyVigente] = useState(true); // Filtro vigente activo por defecto
