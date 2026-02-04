@@ -140,13 +140,14 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [filterType, setFilterType] = useState(
-    new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band"]),
+    new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band", "Comisión"]),
   );
   const PROGRAM_TYPES = [
     "Sinfónico",
     "Camerata Filarmónica",
     "Ensamble",
     "Jazz Band",
+    "Comisión"
   ];
   const today = new Date().toISOString().split("T")[0];
   const [filterDateStart, setFilterDateStart] = useState(today);
