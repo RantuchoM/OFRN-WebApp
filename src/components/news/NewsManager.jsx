@@ -9,7 +9,7 @@ import {
   IconPhoto,
   IconLink,
   IconList,
-  IconInfo,
+  IconBell,
   IconAlertTriangle,
   IconUpload, // Nuevo Icono
 } from "../ui/Icons";
@@ -360,7 +360,7 @@ export default function NewsManager({ supabase }) {
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm shrink-0">
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <IconInfo className="text-indigo-600" /> Centro de Novedades
+            <IconBell className="text-indigo-600" /> Centro de Novedades
           </h2>
           <p className="text-sm text-slate-500">
             Gestor de Comunicación{" "}
@@ -664,7 +664,7 @@ export default function NewsManager({ supabase }) {
                 </div>
 
                 <div className="bg-blue-50 text-blue-800 text-xs p-3 rounded border border-blue-100 flex gap-2">
-                  <IconInfo size={16} className="shrink-0 mt-0.5" />
+                  <IconBell size={16} className="shrink-0 mt-0.5" />
                   <div>
                     <p className="font-bold">Tips de Formato:</p>
                     <ul className="list-disc pl-4 mt-1 space-y-1">
