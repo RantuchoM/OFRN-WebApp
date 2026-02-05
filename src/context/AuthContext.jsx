@@ -27,6 +27,7 @@ export function AuthProvider({ children }) {
   const impersonate = (targetUser) => setImpersonatedUser(targetUser);
   const stopImpersonating = () => setImpersonatedUser(null);
 
+  // Login normal (con credenciales de la tabla integrantes)
   const login = async (email, password) => {
     try {
       const { data, error } = await supabase
@@ -48,11 +49,21 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // --- NUEVA FUNCIÓN PARA INVITADOS ---
+  // Permite iniciar sesión sin contraseña si el token fue validado externamente
+  const loginAsGuest = (guestUserData) => {
+    // Inyectamos el usuario directamente al estado
+    setRealUser(guestUserData);
+    // Persistimos en localStorage para que no se pierda al recargar la página
+    localStorage.setItem("app_user", JSON.stringify(guestUserData));
+  };
+
   const logout = () => {
     localStorage.removeItem("app_user");
     setRealUser(null);
     setImpersonatedUser(null);
-    window.location.reload();
+    // Forzamos recarga para limpiar estados de memoria
+    window.location.href = "/login"; 
   };
 
   const value = {
@@ -63,6 +74,7 @@ export function AuthProvider({ children }) {
     stopImpersonating,
     loading,
     login,
+    loginAsGuest, // <--- Exportamos la nueva función
     logout,
     // --- LÓGICA DE PERMISOS CENTRALIZADA (Case Insensitive) ---
     isAdmin: role === "admin",
