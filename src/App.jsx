@@ -712,7 +712,7 @@ const ProtectedApp = () => {
     return tabToMode[currentTab]?.toLowerCase() || "app_intro_general";
   })();
 
-  const needsVerification =
+  const needsVerification = 
     userData &&
     new Date(userData.last_verified_at).getFullYear() !==
       new Date().getFullYear();
