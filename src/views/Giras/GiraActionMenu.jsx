@@ -17,7 +17,7 @@ import {
   IconTrash,
   IconChevronDown,
   IconArrowRight, // Importado para "Trasladar"
-  IconCopy        // Importado para "Duplicar"
+  IconCopy, // Importado para "Duplicar"
 } from "../../components/ui/Icons";
 
 const GiraActionMenu = ({
@@ -30,7 +30,7 @@ const GiraActionMenu = ({
   onDelete,
   onGlobalComments,
   // Props nuevas:
-  onMove, 
+  onMove,
   onDuplicate,
   // Estados del menú:
   isOpen,
@@ -141,7 +141,6 @@ const GiraActionMenu = ({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="max-h-[60vh] overflow-y-auto">
-            
             {/* 1. REPERTORIO */}
             <CategoryItem
               label="Repertorio"
@@ -179,48 +178,48 @@ const GiraActionMenu = ({
             </CategoryItem>
 
             {/* 3. LOGÍSTICA */}
-            <CategoryItem
-              label="Logística"
-              icon={IconSettingsWheel}
-              categoryKey="logistica"
-            >
-              <SubMenuItem
+
+            {isEditor && (
+              <CategoryItem
+                label="Logística"
                 icon={IconSettingsWheel}
-                label="Reglas"
-                onClick={() => onViewChange("LOGISTICS", "coverage")}
-              />
-              <SubMenuItem
-                icon={IconMap}
-                label="Transporte"
-                onClick={() => onViewChange("LOGISTICS", "transporte")}
-              />
-              {isEditor && (
-                <>
-                  <SubMenuItem
-                    icon={IconHotel}
-                    label="Rooming"
-                    onClick={() => onViewChange("LOGISTICS", "rooming")}
-                  />
-                  <SubMenuItem
-                    icon={IconCalculator}
-                    label="Viáticos"
-                    onClick={() => onViewChange("LOGISTICS", "viaticos")}
-                  />
-                  <SubMenuItem
-                    icon={IconUtensils}
-                    label="Comidas"
-                    onClick={() => onViewChange("LOGISTICS", "meals")}
-                  />
-                </>
-              )}
-              {isPersonal && !isEditor && !isGuest && (
+                categoryKey="logistica"
+              >
+                <SubMenuItem
+                  icon={IconSettingsWheel}
+                  label="Reglas"
+                  onClick={() => onViewChange("LOGISTICS", "coverage")}
+                />
+                <SubMenuItem
+                  icon={IconMap}
+                  label="Transporte"
+                  onClick={() => onViewChange("LOGISTICS", "transporte")}
+                />
+                <SubMenuItem
+                  icon={IconHotel}
+                  label="Rooming"
+                  onClick={() => onViewChange("LOGISTICS", "rooming")}
+                />
+                <SubMenuItem
+                  icon={IconCalculator}
+                  label="Viáticos"
+                  onClick={() => onViewChange("LOGISTICS", "viaticos")}
+                />
                 <SubMenuItem
                   icon={IconUtensils}
-                  label="Mis Comidas"
-                  onClick={() => onViewChange("MEALS_PERSONAL")}
+                  label="Comidas"
+                  onClick={() => onViewChange("LOGISTICS", "meals")}
                 />
-              )}
-            </CategoryItem>
+
+                {isPersonal && !isEditor && !isGuest && (
+                  <SubMenuItem
+                    icon={IconUtensils}
+                    label="Mis Comidas"
+                    onClick={() => onViewChange("MEALS_PERSONAL")}
+                  />
+                )}
+              </CategoryItem>
+            )}
 
             {/* 4. EDICIÓN (Solo editores) */}
             {isEditor && (
@@ -247,7 +246,7 @@ const GiraActionMenu = ({
                     onClick={() => onViewChange("DIFUSION")}
                   />
                 </CategoryItem>
-                
+
                 {/* --- SECCIÓN DE ACCIONES --- */}
                 <CategoryItem
                   label="Edición"
@@ -267,7 +266,7 @@ const GiraActionMenu = ({
 
                   {/* NUEVOS BOTONES TRASLADAR / DUPLICAR */}
                   <div className="my-1 border-t border-slate-100"></div>
-                  
+
                   <SubMenuItem
                     icon={IconArrowRight}
                     label="Trasladar Fechas"
@@ -292,7 +291,6 @@ const GiraActionMenu = ({
                 </CategoryItem>
               </>
             )}
-            
           </div>
         </div>
       )}

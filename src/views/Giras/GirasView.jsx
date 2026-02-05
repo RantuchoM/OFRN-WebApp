@@ -140,14 +140,20 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [filterType, setFilterType] = useState(
-    new Set(["Sinfónico", "Camerata Filarmónica", "Ensamble", "Jazz Band", "Comisión"]),
+    new Set([
+      "Sinfónico",
+      "Camerata Filarmónica",
+      "Ensamble",
+      "Jazz Band",
+      "Comisión",
+    ]),
   );
   const PROGRAM_TYPES = [
     "Sinfónico",
     "Camerata Filarmónica",
     "Ensamble",
     "Jazz Band",
-    "Comisión"
+    "Comisión",
   ];
   const today = new Date().toISOString().split("T")[0];
   const [filterDateStart, setFilterDateStart] = useState(today);
@@ -766,35 +772,36 @@ export default function GirasView({ supabase, trigger = 0 }) {
             </div>
 
             {/* SECCIÓN CENTRAL: Status + Comentarios de GIRA */}
-            <div className="hidden md:flex items-center gap-2">
-              <SectionStatusControl
-                supabase={supabase}
-                giraId={selectedGira.id}
-                sectionKey={activeSection?.key || "GENERAL"}
-                sectionLabel={activeSection?.label || "Estado General"}
-                currentUserId={user.id}
-                onUpdate={fetchGiras}
-                roster={enrichedRoster}
-              />
-              <CommentButton
-                supabase={supabase}
-                entityType="GIRA"
-                entityId={String(selectedGira.id)} // <--- Forzamos String aquí para el botón (globo rojo)
-                onClick={() => {
-                  console.log(
-                    "Abriendo comentarios para Gira ID:",
-                    selectedGira.id,
-                  ); // Para depurar
-                  setCommentsState({
-                    type: "GIRA",
-                    id: String(selectedGira.id), // <--- Forzamos String aquí para el panel
-                    title: selectedGira.nombre_gira,
-                  });
-                }}
-                className="hover:bg-indigo-50"
-              />
-            </div>
-
+            {isManagement && (
+              <div className="hidden md:flex items-center gap-2">
+                <SectionStatusControl
+                  supabase={supabase}
+                  giraId={selectedGira.id}
+                  sectionKey={activeSection?.key || "GENERAL"}
+                  sectionLabel={activeSection?.label || "Estado General"}
+                  currentUserId={user.id}
+                  onUpdate={fetchGiras}
+                  roster={enrichedRoster}
+                />
+                <CommentButton
+                  supabase={supabase}
+                  entityType="GIRA"
+                  entityId={String(selectedGira.id)} // <--- Forzamos String aquí para el botón (globo rojo)
+                  onClick={() => {
+                    console.log(
+                      "Abriendo comentarios para Gira ID:",
+                      selectedGira.id,
+                    ); // Para depurar
+                    setCommentsState({
+                      type: "GIRA",
+                      id: String(selectedGira.id), // <--- Forzamos String aquí para el panel
+                      title: selectedGira.nombre_gira,
+                    });
+                  }}
+                  className="hover:bg-indigo-50"
+                />
+              </div>
+            )}
             {/* BARRA DE NAVEGACIÓN (TABS) MODIFICADA */}
             {(isEditor || isPersonal) && (
               <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
