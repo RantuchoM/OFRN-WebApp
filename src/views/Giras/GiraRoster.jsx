@@ -716,27 +716,53 @@ export default function GiraRoster({
   };
 
   const copyGuestLink = async (integrante) => {
-    let token = integrante.token_publico;
-    if (!token) {
-      if (!confirm(`Generar enlace para ${integrante.nombre}?`)) return;
-      try {
-        const newToken = self.crypto.randomUUID();
-        await supabase
-          .from("giras_integrantes")
-          .update({ token_publico: newToken })
-          .eq("id_gira", gira.id)
-          .eq("id_integrante", integrante.id);
-        token = newToken;
-        integrante.token_publico = newToken;
-      } catch (err) {
-        return alert("Error generando enlace.");
+    // 1. Primero verificamos si ya tiene token en la tabla de accesos
+    try {
+      let token = null;
+
+      // Consultar si existe
+      const { data: existingAccess, error: fetchError } = await supabase
+        .from("giras_accesos")
+        .select("token")
+        .eq("id_gira", gira.id)
+        .eq("id_integrante", integrante.id)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+
+      if (existingAccess) {
+        token = existingAccess.token;
+      } else {
+        // Si no existe, confirmar creación
+        if (!confirm(`¿Generar enlace privado para ${integrante.nombre}?`))
+          return;
+
+        // Crear nuevo registro en giras_accesos (NO TOCAMOS giras_integrantes)
+        const { data: newAccess, error: insertError } = await supabase
+          .from("giras_accesos")
+          .insert({
+            id_gira: gira.id,
+            id_integrante: integrante.id,
+            // El token se genera automático por default en DB, o lo pasamos aquí si preferimos
+          })
+          .select("token")
+          .single();
+
+        if (insertError) throw insertError;
+        token = newAccess.token;
+        toast.success("Enlace generado correctamente");
       }
+
+      // 2. Copiar al portapapeles
+      const url = `${window.location.origin}/share/${token}`;
+      navigator.clipboard
+        .writeText(url)
+        .then(() => toast.success(`Enlace copiado`))
+        .catch(() => prompt("Copia este enlace:", url));
+    } catch (err) {
+      console.error(err);
+      alert("Error gestionando enlace: " + err.message);
     }
-    const url = `${window.location.origin}/share/${token}`;
-    navigator.clipboard
-      .writeText(url)
-      .then(() => alert(`Enlace copiado`))
-      .catch(() => prompt("Copiar:", url));
   };
 
   const toggleColumn = (col) =>

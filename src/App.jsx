@@ -575,7 +575,7 @@ const ProtectedApp = () => {
     },
     {
       id: "MUSICIANS",
-      label: "Personas",
+      label: "Músicos",
       icon: <IconUsers size={20} />,
       show: isManagement || isDirector,
     },
@@ -617,31 +617,6 @@ const ProtectedApp = () => {
     },
   ];
   const visibleMenuItems = allMenuItems.filter((i) => i.show);
-
-  const mobileNavItems = [
-    ...(userRole !== "invitado"
-      ? [
-          {
-            id: "FULL_AGENDA",
-            icon: <IconCalendar size={24} />,
-            label: "Agenda",
-          },
-        ]
-      : []),
-    { id: "GIRAS", icon: <IconMap size={24} />, label: "Giras" },
-    {
-      id: "COMMENTS",
-      icon: <IconMessageCircle size={24} />,
-      label: "Avisos",
-      action: () => setGlobalCommentsOpen(true),
-    },
-    {
-      id: "MENU",
-      icon: <IconMenu size={24} />,
-      label: "Menú",
-      action: () => setIsMobileMenuOpen(true),
-    },
-  ];
 
   const renderContent = () => {
     const commonProps = { supabase };
@@ -712,7 +687,7 @@ const ProtectedApp = () => {
     return tabToMode[currentTab]?.toLowerCase() || "app_intro_general";
   })();
 
-  const needsVerification = 
+  const needsVerification =
     userData &&
     new Date(userData.last_verified_at).getFullYear() !==
       new Date().getFullYear();
@@ -984,20 +959,6 @@ const ProtectedApp = () => {
             />
           )}
         </main>
-
-        {/* BOTTOM NAV MÓVIL */}
-        <div className="lg:hidden h-16 bg-white border-t border-slate-200 flex items-center justify-around z-30 shrink-0">
-          {mobileNavItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={item.action || (() => updateView(item.id))}
-              className={`flex flex-col items-center justify-center flex-1 h-full gap-1 ${mode === item.id ? "text-indigo-600" : "text-slate-400"}`}
-            >
-              {item.icon}{" "}
-              <span className="text-[9px] font-bold">{item.label}</span>
-            </button>
-          ))}
-        </div>
       </div>
 
       <ProfileEditModal

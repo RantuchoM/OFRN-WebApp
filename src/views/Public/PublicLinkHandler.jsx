@@ -21,9 +21,9 @@ export default function PublicLinkHandler() {
         // 1. INTENTO A: Buscar si es un TOKEN PERSONAL (Músico)
         // ---------------------------------------------------------
         const { data: personalLink, error: errPersonal } = await supabase
-          .from("giras_integrantes")
+          .from("giras_accesos")
           .select(`id_gira, id_integrante, integrantes (*), programas (*)`)
-          .eq("token_publico", token)
+          .eq("token", token)
           .maybeSingle();
 
         if (personalLink) {

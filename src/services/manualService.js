@@ -150,6 +150,9 @@ export const manualService = {
     };
   },
   getUiSettings: async (userId) => {
+    if (!userId || userId === "guest-general" || isNaN(userId)) {
+      return null; // Retornar nulo sin molestar a la base de datos
+    }
     // userId aquí será un número (ej: 154), no un UUID
     const { data, error } = await supabase
       .from("user_ui_settings")

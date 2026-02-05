@@ -37,7 +37,7 @@ import MealsAttendancePersonal from "./MealsAttendancePersonal";
 import ProgramSeating from "./ProgramSeating";
 import CommentsManager from "../../components/comments/CommentsManager";
 import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer";
-import CommentButton from "../../components/comments/CommentButton"; // <--- NUEVO IMPORT
+import CommentButton from "../../components/comments/CommentButton"; 
 import GiraDifusion from "./GiraDifusion";
 import SectionStatusControl from "../../components/giras/SectionStatusControl";
 import { deleteGira } from "../../services/giraActions";
@@ -107,14 +107,12 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const { summary: enrichedRosterData, loading: logisticsLoading } =
     useLogistics(supabase, selectedGira, statsRefreshTrigger);
 
-  // --- 1. RASTREO AUTOMÁTICO DE GIRA ACTIVA ---
   useEffect(() => {
     if (selectedGira) {
       sessionStorage.setItem("last_active_gira_id", selectedGira.id);
     }
   }, [selectedGira]);
 
-  // --- 2. UPDATE VIEW CON GUARDADO DE SCROLL ---
   const updateView = (newMode, newGiraId = null, newSubTab = null) => {
     if (mode === "LIST" && newMode !== "LIST" && scrollContainerRef.current) {
       sessionStorage.setItem(
@@ -178,14 +176,11 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [allIntegrantes, setAllIntegrantes] = useState([]);
 
-  // --- 3. EFECTO DE HIGHLIGHT (RESALTADO ROBUSTO) ---
   const [highlightedGiraId, setHighlightedGiraId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     if (!params.get("giraId")) {
       const stored = sessionStorage.getItem("last_active_gira_id");
-      if (stored) {
-        return stored;
-      }
+      if (stored) return stored;
     }
     return null;
   });
@@ -196,18 +191,15 @@ export default function GirasView({ supabase, trigger = 0 }) {
       const timer = setTimeout(() => {
         setHighlightedGiraId(null);
       }, 2000);
-
       return () => clearTimeout(timer);
     }
   }, [highlightedGiraId]);
 
-  // --- 4. EFECTO DE SCROLL INTELIGENTE ---
   const scrollContainerRef = useRef(null);
 
   useEffect(() => {
     if (!giraId && !loading && scrollContainerRef.current) {
       const savedPosition = sessionStorage.getItem("giras_list_scroll");
-
       if (savedPosition) {
         requestAnimationFrame(() => {
           if (scrollContainerRef.current)
@@ -248,20 +240,54 @@ export default function GirasView({ supabase, trigger = 0 }) {
     fetchIntegrantesList();
   }, [user.id, coordinatedEnsembles.size]);
 
+  // --- FUNCIÓN FETCHGIRAS CORREGIDA PARA INVITADOS ---
   const fetchGiras = async () => {
     setLoading(true);
     try {
       if (isGuest) {
+        // Lógica de Invitado: Usar RPC para saltar bloqueo RLS
         const tokenToUse = user.token_original;
+        
         if (tokenToUse) {
-          const { data, error } = await supabase.rpc(
+          // 1. Llamar al RPC actualizado que busca en giras_accesos
+          const { data: giraBaseData, error } = await supabase.rpc(
             "get_gira_by_public_token",
             { token_input: tokenToUse },
           );
+          
           if (error) throw error;
-          setGiras(data ? [data] : []);
+
+          if (!giraBaseData || giraBaseData.length === 0) {
+            console.warn("No se encontró gira para el token:", tokenToUse);
+            setGiras([]);
+            return;
+          }
+
+          const targetGira = giraBaseData[0];
+
+          // 2. Traer manualmente los datos relacionales (ya que el RPC devuelve solo la tabla base)
+          // Esto funciona porque habilitamos RLS "public" para estas tablas en el paso SQL anterior
+          const [eventosRes, locsRes, fuentesRes] = await Promise.all([
+            supabase.from("eventos").select("id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)").eq("id_gira", targetGira.id),
+            supabase.from("giras_localidades").select("id_localidad, localidades(localidad)").eq("id_gira", targetGira.id),
+            supabase.from("giras_fuentes").select("*").eq("id_gira", targetGira.id)
+          ]);
+
+          // 3. Construir el objeto completo
+          const fullGira = {
+            ...targetGira,
+            eventos: eventosRes.data || [],
+            giras_localidades: locsRes.data || [],
+            giras_fuentes: fuentesRes.data || [],
+            giras_integrantes: [] // Privacidad: Invitado no ve lista completa
+          };
+
+          setGiras([fullGira]);
+        } else {
+            console.error("Usuario invitado sin token original");
         }
       } else {
+        // --- LÓGICA NORMAL (Usuarios Autenticados) ---
         const isPersonalRoleForDB =
           (userRole === "consulta_personal" || userRole === "personal") &&
           user.id !== "guest-general";
@@ -332,7 +358,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
         giras.length > 0 && giras.some((g) => g.id !== user.active_gira_id);
       if (needsFiltering)
         setGiras((prev) => prev.filter((g) => g.id === user.active_gira_id));
-      const GUEST_ALLOWED_VIEWS = ["AGENDA", "REPERTOIRE", "MEALS_PERSONAL"];
+      
+      const GUEST_ALLOWED_VIEWS = ["AGENDA", "REPERTOIRE", "MEALS_PERSONAL", "SEATING"];
       const currentView = searchParams.get("view");
       const currentGiraId = searchParams.get("giraId");
       const isViewAllowed = GUEST_ALLOWED_VIEWS.includes(currentView);
@@ -622,9 +649,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
   };
 
   const [filterStatus, setFilterStatus] = useState(() => {
-    // Si es personal/invitado, por defecto solo ve Vigentes
     if (isPersonal) return new Set(["Vigente"]);
-    // Si es editor/admin, ve todo
     return new Set(["Vigente", "Borrador", "Pausada"]);
   });
   // -----------------------------------------------
@@ -721,7 +746,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       "ROSTER",
       "LOGISTICS",
       "MEALS_PERSONAL",
-      "SEATING",
+      
       "DIFUSION",
       "EDICION",
     ].includes(mode) && selectedGira;
@@ -771,7 +796,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
               </div>
             </div>
 
-            {/* SECCIÓN CENTRAL: Status + Comentarios de GIRA */}
             {isManagement && (
               <div className="hidden md:flex items-center gap-2">
                 <SectionStatusControl
@@ -786,15 +810,15 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 <CommentButton
                   supabase={supabase}
                   entityType="GIRA"
-                  entityId={String(selectedGira.id)} // <--- Forzamos String aquí para el botón (globo rojo)
+                  entityId={String(selectedGira.id)}
                   onClick={() => {
                     console.log(
                       "Abriendo comentarios para Gira ID:",
                       selectedGira.id,
-                    ); // Para depurar
+                    );
                     setCommentsState({
                       type: "GIRA",
-                      id: String(selectedGira.id), // <--- Forzamos String aquí para el panel
+                      id: String(selectedGira.id),
                       title: selectedGira.nombre_gira,
                     });
                   }}
@@ -802,17 +826,20 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 />
               </div>
             )}
-            {/* BARRA DE NAVEGACIÓN (TABS) MODIFICADA */}
-            {(isEditor || isPersonal) && (
+            {(isEditor || isPersonal || isGuest) && (
               <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
                 {tourNavItems
                   .filter((item) => {
                     if (item.mode === "MEALS_PERSONAL")
                       return isGuest && !user.isGeneral;
+                    
                     if (item.mode === "EDICION")
                       return canEditGira(selectedGira);
+                    
                     if (isEditor || canEditGira(selectedGira)) return true;
-                    return ["AGENDA", "REPERTOIRE"].includes(item.mode);
+                    
+                    // Aquí habilitamos las vistas para el invitado (Personal o General)
+                    return ["AGENDA", "REPERTOIRE", "SEATING"].includes(item.mode);
                   })
                   .map((item) => {
                     const isActive = mode === item.mode;
@@ -828,7 +855,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
                         title={item.label}
                       >
                         <item.icon size={16} strokeWidth={isActive ? 2.5 : 2} />
-                        {/* VISIBILIDAD DE ETIQUETA DINÁMICA */}
                         <span
                           className={`${isActive ? "inline" : "hidden 2xl:inline"}`}
                         >
@@ -1082,10 +1108,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 );
               }
               const userCanEditThis = canEditGira(gira);
-
-              // --- COMPARACIÓN BLINDADA ---
-              // Si highlightedGiraId es null, isHighlighted será false.
-              // Si highlightedGiraId tiene valor, comparamos como Strings.
               const isHighlighted =
                 highlightedGiraId &&
                 String(gira.id) === String(highlightedGiraId);

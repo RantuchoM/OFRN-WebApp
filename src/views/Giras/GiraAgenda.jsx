@@ -9,6 +9,7 @@ export default function GiraAgenda({ supabase, gira, onBack }) {
             giraId={gira.id} 
             onBack={onBack} 
             title={gira.nombre_gira} 
+            
         />
     );
 }

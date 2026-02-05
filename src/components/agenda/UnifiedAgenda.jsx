@@ -177,7 +177,7 @@ export default function UnifiedAgenda({
   onOpenRepertoire = null,
   onViewChange = null,
 }) {
-  const { user, isEditor, isManagement } = useAuth();
+  const { user, isEditor, isManagement, isGuest } = useAuth();
   const [techFilter, setTechFilter] = useState(
     isManagement ? "all" : "no_tech",
   );
@@ -205,12 +205,11 @@ export default function UnifiedAgenda({
       if (error) throw error;
 
       // 2. SOLO si la BD respondió bien, actualizamos el estado local
-      setItems((prevItems) => 
-        prevItems.map((item) => 
-          item.id === eventId ? { ...item, tecnica: !currentValue } : item
-        )
+      setItems((prevItems) =>
+        prevItems.map((item) =>
+          item.id === eventId ? { ...item, tecnica: !currentValue } : item,
+        ),
       );
-
     } catch (err) {
       console.error("Error al cambiar técnica:", err);
       alert("No se pudo guardar el cambio. Verifica tu conexión.");
@@ -222,7 +221,8 @@ export default function UnifiedAgenda({
 
   const effectiveUserId = viewAsUserId || user.id;
   const STORAGE_KEY = `unified_agenda_filters_v4_${effectiveUserId}`;
-
+  const isGeneralAccess = user?.isGeneral === true;
+  const defaultPersonalFilter = !isGeneralAccess;
   // --- ESTADOS DE FILTROS ---
   const getInitialFilterState = (key, defaultVal) => {
     try {
@@ -241,13 +241,13 @@ export default function UnifiedAgenda({
     getInitialFilterState("categories", []),
   );
   const [showNonActive, setShowNonActive] = useState(() =>
-    getInitialFilterState("showNonActive", false),
+    getInitialFilterState("showNonActive"),
   );
   const [showOnlyMyTransport, setShowOnlyMyTransport] = useState(() =>
-    getInitialFilterState("showOnlyMyTransport", false),
+    getInitialFilterState("showOnlyMyTransport", defaultPersonalFilter),
   );
   const [showOnlyMyMeals, setShowOnlyMyMeals] = useState(() =>
-    getInitialFilterState("showOnlyMyMeals", false),
+    getInitialFilterState("showOnlyMyMeals", defaultPersonalFilter),
   );
   // "Sin Grises" (antes showAllTransport)
   const [showNoGray, setShowNoGray] = useState(() =>
@@ -458,8 +458,9 @@ export default function UnifiedAgenda({
         if (techFilter === "no_tech" && item.tecnica) return false;
       }
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
-      if (catId && !selectedCategoryIds.includes(catId)) return false;
-
+      if (selectedCategoryIds.length > 0) {
+          if (catId && !selectedCategoryIds.includes(catId)) return false;
+      }
       if (showOnlyMyTransport && item.id_gira_transporte) {
         const tId = String(item.id_gira_transporte);
         if (!myTransportLogistics[tId]?.assigned) return false;
@@ -886,12 +887,11 @@ export default function UnifiedAgenda({
 
     setAvailableCategories(uniqueCats);
 
-    const hasStored = localStorage.getItem(STORAGE_KEY);
-    if (
-      !hasStored &&
-      selectedCategoryIds.length === 0 &&
-      uniqueCats.length > 0
-    ) {
+    // --- CORRECCIÓN AQUÍ ---
+    // Si no hay ninguna categoría seleccionada actualmente en el estado
+    // (ya sea porque es la primera vez o porque el storage estaba vacío/corrupto para 'categories')
+    // seleccionamos TODAS las disponibles automáticamente.
+    if (selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
       setSelectedCategoryIds(uniqueCats.map((c) => c.id));
     }
   };
@@ -1737,9 +1737,8 @@ export default function UnifiedAgenda({
                             }`}
                           >
                             {evt.descripcion || evt.tipos_evento?.nombre}
-                            
                           </h4>
-                          
+
                           {/* ----------------------------------------------------- */}
                           <div className="flex flex-wrap gap-1">
                             {isTransportEvent && transportName && (
