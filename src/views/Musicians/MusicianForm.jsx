@@ -32,7 +32,7 @@ import {
   IconCamera,
   IconMusic,
   IconChevronDown,
-  IconCalendar
+  IconCalendar,
 } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import DateInput from "../../components/ui/DateInput";
@@ -306,6 +306,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     // --- CAMPOS NUEVOS ---
     cargo: "",
     jornada: "",
+    motivo: "",
     ...musician,
   });
   const musicianForGiras = {
@@ -708,6 +709,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         // --- CAMPOS NUEVOS ---
         cargo: formData.cargo || null,
         jornada: formData.jornada || null,
+        motivo: formData.motivo || null,
       };
 
       const { data, error } = await supabase
@@ -901,7 +903,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b text-[10px] font-black uppercase tracking-[0.2em] bg-white overflow-x-auto shrink-0">
+        <div className="flex border-b text-[13px] font-black uppercase tracking-[0.2em] bg-white overflow-x-auto shrink-0">
           {[
             { id: "personal", label: "Personal", icon: <IconId size={16} /> },
             {
@@ -910,11 +912,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
               icon: <IconUpload size={16} />,
             },
             { id: "docs", label: "Sistema", icon: <IconLink size={16} /> },
-            {
-              id: "acceso",
-              label: "Seguridad",
-              icon: <IconFileText size={16} />,
-            },
+
             { id: "giras", label: "Giras", icon: <IconCalendar size={16} /> },
           ].map((tab) => (
             <button
@@ -1110,30 +1108,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                   </div>
                 </div>
 
-                {/* --- CARGO Y JORNADA (NUEVO) --- */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                  <div>
-                    <label className={labelClass}>Cargo</label>
-                    <input
-                      type="text"
-                      className={getInputStatusClass("cargo")}
-                      value={formData.cargo || ""}
-                      onChange={(e) => updateField("cargo", e.target.value)}
-                      placeholder="Ej: Agente administrativo"
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Jornada</label>
-                    <input
-                      type="text"
-                      className={getInputStatusClass("jornada")}
-                      value={formData.jornada || ""}
-                      onChange={(e) => updateField("jornada", e.target.value)}
-                      placeholder="Ej: Horas cátedra"
-                    />
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div>
                     <label className={labelClass}>Domicilio</label>
@@ -1217,23 +1191,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       onChange={(val) => updateField("fecha_nac", val)}
                     />
                   </div>
-                  <div>
-                    <DateInput
-                      label="Fecha Alta"
-                      value={formData.fecha_alta || ""}
-                      onChange={(val) => updateField("fecha_alta", val)}
-                    />
-                  </div>
-                  <div>
-                    <DateInput
-                      label="Fecha Baja"
-                      value={formData.fecha_baja || ""}
-                      onChange={(val) => updateField("fecha_baja", val)}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-6 pt-6 border-t mt-6">
                   <div className="relative z-50">
                     <label className={labelClass}>Residencia</label>
                     <SearchableSelect
@@ -1251,6 +1208,10 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                     />
                   </div>
                 </div>
+
+               
+                  
+                
               </div>
             )}
 
@@ -1411,6 +1372,57 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       onChange={(e) =>
                         updateField("link_foto_popup", e.target.value)
                       }
+                    />
+                  </div>
+                </div>
+                {/* --- CARGO Y JORNADA (NUEVO) --- */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <div>
+                    <label className={labelClass}>Cargo</label>
+                    <input
+                      type="text"
+                      className={getInputStatusClass("cargo")}
+                      value={formData.cargo || ""}
+                      onChange={(e) => updateField("cargo", e.target.value)}
+                      placeholder="Ej: Agente administrativo"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Jornada</label>
+                    <input
+                      type="text"
+                      className={getInputStatusClass("jornada")}
+                      value={formData.jornada || ""}
+                      onChange={(e) => updateField("jornada", e.target.value)}
+                      placeholder="Ej: Horas cátedra"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-1 gap-6 mb-6">
+                  <div>
+                    <label className={labelClass}>Motivo</label>
+                    <input
+                      type="text"
+                      className={getInputStatusClass("motivo")}
+                      value={formData.motivo || ""}
+                      onChange={(e) => updateField("motivo", e.target.value)}
+                      placeholder="Si necesita un motivo personalizado"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <div>
+                    <DateInput
+                      label="Fecha Alta"
+                      value={formData.fecha_alta || ""}
+                      onChange={(val) => updateField("fecha_alta", val)}
+                    />
+                  </div>
+                  <div>
+                    <DateInput
+                      label="Fecha Baja"
+                      value={formData.fecha_baja || ""}
+                      onChange={(val) => updateField("fecha_baja", val)}
                     />
                   </div>
                 </div>

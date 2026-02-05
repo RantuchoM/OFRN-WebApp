@@ -773,7 +773,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [conditionFilters, setConditionFilters] = useState(new Set());
   const [showHorasDashboard, setShowHorasDashboard] = useState(false);
   // Dentro de export default function MusiciansView...
-  const [onlyVigente, setOnlyVigente] = useState(true); // Filtro vigente activo por defecto
+  const [onlyVigente, setOnlyVigente] = useState(false); // Filtro vigente activo por defecto
   const [missingFieldsFilters, setMissingFieldsFilters] = useState(new Set());
   const [sortConfig, setSortConfig] = useState({
     key: "apellido",

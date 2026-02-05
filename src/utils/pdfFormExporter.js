@@ -124,7 +124,7 @@ export const exportViaticosToPDFForm = async (
         f("jornada", data.jornada_laboral);
         f("ciudad_origen", data.ciudad_origen || "Viedma");
         f("lugar_comision", configData.lugar_comision);
-        f("motivo", configData.motivo);
+        f("motivo", data.motivo || configData.motivo);
         f("asiento_habitual", data.ciudad_origen || "Viedma");
         f("dia_salida", fmtDate(data.fecha_salida));
         f("hora_salida", fmtTime(data.hora_salida));
@@ -237,7 +237,7 @@ export const exportViaticosToPDFForm = async (
         f("jornada", data.jornada_laboral);
         f("ciudad_origen", data.ciudad_origen || "Viedma");
         f("lugar_comision", configData.lugar_comision);
-        f("motivo", configData.motivo);
+        f("motivo", data.motivo || configData.motivo);
         f("asiento_habitual", data.ciudad_origen || "Viedma");
 
         f("dia_salida", fmtDate(data.fecha_salida));

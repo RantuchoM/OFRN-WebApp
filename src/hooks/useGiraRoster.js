@@ -120,7 +120,7 @@ export function useGiraRoster(supabase, gira) {
                 id, nombre, apellido, fecha_alta, fecha_baja, condicion, 
                 telefono, mail, alimentacion, es_simulacion, id_instr,
                 id_localidad, id_loc_viaticos,
-                documentacion, docred, firma, nota_interna, cargo, jornada,
+                documentacion, docred, firma, nota_interna, cargo, jornada, motivo,
                 dni, fecha_nac, genero, cuil,
                 instrumentos(instrumento, familia, plaza_extra), 
                 residencia:localidades!id_localidad(id, localidad, id_region, regiones(region)), 
