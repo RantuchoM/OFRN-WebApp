@@ -525,7 +525,7 @@ export default function MusicianTourManager({ supabase, musician }) {
 
                                                 <button onClick={() => handleAction(gira.id, "SET_ABSENT")} disabled={isProcessing} className={`${btnOutlineClass} text-red-600 border-red-200 hover:bg-red-50 bg-white`} title="Marcar Ausente">
                                                     {isProcessing ? <IconLoader className="animate-spin" size={14}/> : <IconX size={14}/>} 
-                                                    <span className="hidden sm:inline">Ausente</span>
+                                                    <span className="hidden sm:inline">Marcar Ausente</span>
                                                 </button>
                                             </div>
                                         )}
@@ -547,7 +547,7 @@ export default function MusicianTourManager({ supabase, musician }) {
                                         {gira.situation === "NONE" && (
                                             <button onClick={() => handleAction(gira.id, "SET_PRESENT")} disabled={isProcessing} className={`${btnSolidClass} bg-indigo-600 text-white hover:bg-indigo-700`}>
                                                 {isProcessing ? <IconLoader className="animate-spin" size={14}/> : <IconPlus size={14}/>} 
-                                                <span className="hidden sm:inline">Adicional</span>
+                                                <span className="hidden sm:inline">Sumar Adicional</span>
                                             </button>
                                         )}
                                     </div>
