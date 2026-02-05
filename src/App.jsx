@@ -575,7 +575,7 @@ const ProtectedApp = () => {
     },
     {
       id: "MUSICIANS",
-      label: "Músicos",
+      label: "Personas",
       icon: <IconUsers size={20} />,
       show: isManagement || isDirector,
     },
