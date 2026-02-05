@@ -13,11 +13,13 @@ import {
   IconAlertTriangle,
   IconCopy,
   IconWhatsAppFilled, // Usaremos este para WhatsApp si no tienes uno específico, o importalo si existe
-  IconMail
+  IconMail,
+  IconInfo,
+  IconChevronDown
 } from "../../components/ui/Icons";
 import InstrumentFilter from "../../components/filters/InstrumentFilter";
 import MusicianForm from "./MusicianForm";
-
+import HorasCatedraDashboard from "./HorasCatedraDashboard";
 // --- CONFIGURACIÓN DE PENDIENTES ---
 const MISSING_DATA_OPTIONS = [
   { key: "domicilio", label: "Domicilio" },
@@ -47,37 +49,36 @@ const DIET_OPTIONS = [
 
 // --- HELPER WHATSAPP ---
 const WhatsAppLink = ({ phone }) => {
-    if (!phone) return null;
-    
-    // Limpiamos el número: quitamos espacios, guiones, paréntesis, etc.
-    // Si no tiene código de país (+), asumimos Argentina (+54) o el que corresponda según tu lógica.
-    // Aquí hago una limpieza básica.
-    let cleanPhone = phone.replace(/\D/g, ''); 
-    
-    // Lógica simple: Si empieza con 11 o 15 (móvil arg sin prefijo), le agregamos 549
-    // Ajusta esto según tu base de datos.
-    if (cleanPhone.length === 10) { 
-        cleanPhone = `549${cleanPhone}`;
-    } else if (cleanPhone.startsWith('0')) {
-        cleanPhone = `549${cleanPhone.substring(1)}`;
-    }
+  if (!phone) return null;
 
-    const url = `https://wa.me/${cleanPhone}`;
+  // Limpiamos el número: quitamos espacios, guiones, paréntesis, etc.
+  // Si no tiene código de país (+), asumimos Argentina (+54) o el que corresponda según tu lógica.
+  // Aquí hago una limpieza básica.
+  let cleanPhone = phone.replace(/\D/g, "");
 
-    return (
-        <a 
-            href={url} 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="text-emerald-500 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-full transition-colors ml-1"
-            title="Enviar WhatsApp"
-            onClick={(e) => e.stopPropagation()} // Evita activar edición de celda
-        >
-            <IconWhatsAppFilled size={14} /> 
-        </a>
-    );
+  // Lógica simple: Si empieza con 11 o 15 (móvil arg sin prefijo), le agregamos 549
+  // Ajusta esto según tu base de datos.
+  if (cleanPhone.length === 10) {
+    cleanPhone = `549${cleanPhone}`;
+  } else if (cleanPhone.startsWith("0")) {
+    cleanPhone = `549${cleanPhone.substring(1)}`;
+  }
+
+  const url = `https://wa.me/${cleanPhone}`;
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-emerald-500 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-full transition-colors ml-1"
+      title="Enviar WhatsApp"
+      onClick={(e) => e.stopPropagation()} // Evita activar edición de celda
+    >
+      <IconWhatsAppFilled size={14} />
+    </a>
+  );
 };
-
 
 const HighlightText = ({ text, highlight }) => {
   if (!highlight.trim()) return <span>{text}</span>;
@@ -256,11 +257,11 @@ const AVAILABLE_COLUMNS = [
     type: "text",
     sortKey: "telefono",
     render: (item) => (
-        <div className="flex items-center justify-between w-full">
-            <span className="truncate">{item.telefono}</span>
-            <WhatsAppLink phone={item.telefono} />
-        </div>
-    )
+      <div className="flex items-center justify-between w-full">
+        <span className="truncate">{item.telefono}</span>
+        <WhatsAppLink phone={item.telefono} />
+      </div>
+    ),
   },
   {
     key: "mail",
@@ -281,7 +282,7 @@ const AVAILABLE_COLUMNS = [
   {
     key: "alimentacion",
     label: "Dieta",
-    width: "120px", 
+    width: "120px",
     type: "select",
     sortKey: "alimentacion",
   },
@@ -418,11 +419,11 @@ const EditableCell = ({
   options,
   onSave,
   className = "",
-  highlight = "", 
+  highlight = "",
 }) => {
   const [localValue, setLocalValue] = useState(value || "");
   const [isSaving, setIsSaving] = useState(false);
-  const [isEditing, setIsEditing] = useState(false); 
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     setLocalValue(value || "");
@@ -474,7 +475,7 @@ const EditableCell = ({
     );
     return (
       <select
-        autoFocus 
+        autoFocus
         value={localValue}
         onChange={(e) => setLocalValue(e.target.value)}
         onBlur={handleBlur}
@@ -769,8 +770,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
   const [searchText, setSearchText] = useState("");
   const [selectedInstruments, setSelectedInstruments] = useState(new Set());
-  const [conditionFilters, setConditionFilters] = useState(new Set(),
-  );
+  const [conditionFilters, setConditionFilters] = useState(new Set());
+  const [showHorasDashboard, setShowHorasDashboard] = useState(false);
   // Dentro de export default function MusiciansView...
   const [onlyVigente, setOnlyVigente] = useState(true); // Filtro vigente activo por defecto
   const [missingFieldsFilters, setMissingFieldsFilters] = useState(new Set());
@@ -966,28 +967,30 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
     // 3. ORDENAMIENTO
     return filtered.sort((a, b) => {
-        let valA, valB;
-        
-        if (sortConfig.key === "apellido") {
-            valA = `${a.apellido} ${a.nombre}`;
-            valB = `${b.apellido} ${b.nombre}`;
-        } else {
-            // Buscamos config de columna para ver si tiene sortKey o displayKey especial
-            const colCfg = AVAILABLE_COLUMNS.find(c => (c.sortKey || c.key) === sortConfig.key);
-            
-            // Si es un campo anidado (ej: instrumentos.instrumento), lo resolvemos
-            if (colCfg && colCfg.sortKey && colCfg.sortKey.includes('.')) {
-                valA = getNestedValue(a, colCfg.sortKey) || "";
-                valB = getNestedValue(b, colCfg.sortKey) || "";
-            } else {
-                valA = a[sortConfig.key] || "";
-                valB = b[sortConfig.key] || "";
-            }
-        }
+      let valA, valB;
 
-        if (valA < valB) return sortConfig.direction === "asc" ? -1 : 1;
-        if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
-        return 0;
+      if (sortConfig.key === "apellido") {
+        valA = `${a.apellido} ${a.nombre}`;
+        valB = `${b.apellido} ${b.nombre}`;
+      } else {
+        // Buscamos config de columna para ver si tiene sortKey o displayKey especial
+        const colCfg = AVAILABLE_COLUMNS.find(
+          (c) => (c.sortKey || c.key) === sortConfig.key,
+        );
+
+        // Si es un campo anidado (ej: instrumentos.instrumento), lo resolvemos
+        if (colCfg && colCfg.sortKey && colCfg.sortKey.includes(".")) {
+          valA = getNestedValue(a, colCfg.sortKey) || "";
+          valB = getNestedValue(b, colCfg.sortKey) || "";
+        } else {
+          valA = a[sortConfig.key] || "";
+          valB = b[sortConfig.key] || "";
+        }
+      }
+
+      if (valA < valB) return sortConfig.direction === "asc" ? -1 : 1;
+      if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
+      return 0;
     });
   }, [
     resultados,
@@ -1011,35 +1014,54 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
   // HANDLER: Selección
   const toggleSelection = (id) => {
-      const newSet = new Set(selectedMusicians);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
-      setSelectedMusicians(newSet);
+    const newSet = new Set(selectedMusicians);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedMusicians(newSet);
   };
 
   const toggleAllSelection = () => {
-      if (selectedMusicians.size === processedResultados.length) {
-          setSelectedMusicians(new Set());
-      } else {
-          setSelectedMusicians(new Set(processedResultados.map(m => m.id)));
-      }
+    if (selectedMusicians.size === processedResultados.length) {
+      setSelectedMusicians(new Set());
+    } else {
+      setSelectedMusicians(new Set(processedResultados.map((m) => m.id)));
+    }
   };
 
   // HANDLER: Copiar Mails
   const copySelectedMails = () => {
-      const mails = processedResultados
-          .filter(m => selectedMusicians.has(m.id) && m.mail)
-          .map(m => m.mail)
-          .join(", "); // Separador coma + espacio, estándar para clientes de correo
-      
-      if (mails) {
-          navigator.clipboard.writeText(mails);
-          alert(`Copiados ${selectedMusicians.size} correos al portapapeles.`);
-      } else {
-          alert("No hay correos válidos en la selección.");
-      }
-  };
+    const mails = processedResultados
+      .filter((m) => selectedMusicians.has(m.id) && m.mail)
+      .map((m) => m.mail)
+      .join(", "); // Separador coma + espacio, estándar para clientes de correo
 
+    if (mails) {
+      navigator.clipboard.writeText(mails);
+      alert(`Copiados ${selectedMusicians.size} correos al portapapeles.`);
+    } else {
+      alert("No hay correos válidos en la selección.");
+    }
+  };
+  if (showHorasDashboard) {
+    return (
+      <div className="h-screen flex flex-col bg-white">
+        <div className="p-4 border-b flex items-center gap-4">
+          <button
+            onClick={() => setShowHorasDashboard(false)}
+            className="text-slate-400 hover:text-slate-600 font-bold text-xs uppercase flex items-center gap-1"
+          >
+            <IconChevronDown className="rotate-90" /> Volver
+          </button>
+          <h1 className="text-xl font-black text-slate-800">
+            Administración de Horas
+          </h1>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <HorasCatedraDashboard supabase={supabase} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="space-y-4 h-full flex flex-col overflow-hidden animate-in fade-in">
       <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 shrink-0 flex flex-col md:flex-row gap-3 items-center">
@@ -1092,15 +1114,17 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
         {/* BOTÓN COPIAR MAILS (Visible solo si hay seleccionados) */}
         {selectedMusicians.size > 0 && (
-            <button
-                onClick={copySelectedMails}
-                className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors animate-in fade-in zoom-in ml-auto md:ml-0"
-                title="Copiar correos seleccionados"
-            >
-                <IconCopy size={16} /> 
-                <span className="hidden sm:inline">Copiar Correos ({selectedMusicians.size})</span>
-                <span className="sm:hidden">({selectedMusicians.size})</span>
-            </button>
+          <button
+            onClick={copySelectedMails}
+            className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors animate-in fade-in zoom-in ml-auto md:ml-0"
+            title="Copiar correos seleccionados"
+          >
+            <IconCopy size={16} />
+            <span className="hidden sm:inline">
+              Copiar Correos ({selectedMusicians.size})
+            </span>
+            <span className="sm:hidden">({selectedMusicians.size})</span>
+          </button>
         )}
 
         {/* 7. BOTÓN AGREGAR */}
@@ -1113,6 +1137,13 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         >
           <IconPlus size={20} />
         </button>
+        <button
+          onClick={() => setShowHorasDashboard(true)}
+          className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-50 flex items-center gap-2 shadow-sm"
+        >
+          <IconInfo size={16} className="text-indigo-500" />
+          Gestión Horas
+        </button>
       </div>
 
       <div className="flex-1 bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
@@ -1122,17 +1153,22 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               {/* FILA 1: TÍTULOS Y ORDENAMIENTO */}
               <tr className="sticky top-0 z-40 bg-slate-50 shadow-sm">
                 <th className="p-2 w-10 text-center sticky left-0 bg-slate-50 z-50 border-r">
-                    <input 
-                        type="checkbox" 
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                        checked={selectedMusicians.size > 0 && selectedMusicians.size === processedResultados.length}
-                        ref={input => {
-                            if (input) {
-                                input.indeterminate = selectedMusicians.size > 0 && selectedMusicians.size < processedResultados.length;
-                            }
-                        }}
-                        onChange={toggleAllSelection}
-                    />
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    checked={
+                      selectedMusicians.size > 0 &&
+                      selectedMusicians.size === processedResultados.length
+                    }
+                    ref={(input) => {
+                      if (input) {
+                        input.indeterminate =
+                          selectedMusicians.size > 0 &&
+                          selectedMusicians.size < processedResultados.length;
+                      }
+                    }}
+                    onChange={toggleAllSelection}
+                  />
                 </th>
                 <th className="p-2 w-10 text-center sticky left-10 bg-slate-50 z-50">
                   #
@@ -1249,13 +1285,15 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                 const conditionClass = getConditionStyles(item.condicion);
                 return (
                   <tr key={item.id} className={`${conditionClass} group`}>
-                    <td className={`p-1 text-center sticky left-0 z-10 border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}>
-                        <input 
-                            type="checkbox" 
-                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                            checked={selectedMusicians.has(item.id)}
-                            onChange={() => toggleSelection(item.id)}
-                        />
+                    <td
+                      className={`p-1 text-center sticky left-0 z-10 border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        checked={selectedMusicians.has(item.id)}
+                        onChange={() => toggleSelection(item.id)}
+                      />
                     </td>
                     <td
                       className={`p-1 text-center sticky left-10 z-10 border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
@@ -1269,7 +1307,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                         <span className="truncate">
                           <HighlightText
                             text={`${item.apellido}, ${item.nombre}`}
-                            highlight={columnFilters.apellido_nombre || ""} 
+                            highlight={columnFilters.apellido_nombre || ""}
                           />
                         </span>
 
@@ -1317,7 +1355,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                                     : col.key === "id_localidad" ||
                                         col.key === "id_loc_viaticos"
                                       ? locationOptions
-                                      : col.key === "alimentacion" 
+                                      : col.key === "alimentacion"
                                         ? DIET_OPTIONS.map((d) => ({
                                             value: d,
                                             label: d,
