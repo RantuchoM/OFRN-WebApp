@@ -18,6 +18,7 @@ import {
   IconMegaphone,
   IconUtensils,
   IconLayoutDashboard,
+  IconEdit
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
@@ -37,7 +38,7 @@ import MealsAttendancePersonal from "./MealsAttendancePersonal";
 import ProgramSeating from "./ProgramSeating";
 import CommentsManager from "../../components/comments/CommentsManager";
 import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer";
-import CommentButton from "../../components/comments/CommentButton"; 
+import CommentButton from "../../components/comments/CommentButton";
 import GiraDifusion from "./GiraDifusion";
 import SectionStatusControl from "../../components/giras/SectionStatusControl";
 import { deleteGira } from "../../services/giraActions";
@@ -131,7 +132,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
     }
     setSearchParams(params);
   };
-
+  const isCoordinator = !isEditor && coordinatedEnsembles.size > 0;
   const [commentsState, setCommentsState] = useState(null);
   const [globalCommentsGiraId, setGlobalCommentsGiraId] = useState(null);
   const [showRepertoireInCards, setShowRepertoireInCards] = useState(false);
@@ -247,14 +248,14 @@ export default function GirasView({ supabase, trigger = 0 }) {
       if (isGuest) {
         // Lógica de Invitado: Usar RPC para saltar bloqueo RLS
         const tokenToUse = user.token_original;
-        
+
         if (tokenToUse) {
           // 1. Llamar al RPC actualizado que busca en giras_accesos
           const { data: giraBaseData, error } = await supabase.rpc(
             "get_gira_by_public_token",
             { token_input: tokenToUse },
           );
-          
+
           if (error) throw error;
 
           if (!giraBaseData || giraBaseData.length === 0) {
@@ -268,9 +269,20 @@ export default function GirasView({ supabase, trigger = 0 }) {
           // 2. Traer manualmente los datos relacionales (ya que el RPC devuelve solo la tabla base)
           // Esto funciona porque habilitamos RLS "public" para estas tablas en el paso SQL anterior
           const [eventosRes, locsRes, fuentesRes] = await Promise.all([
-            supabase.from("eventos").select("id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)").eq("id_gira", targetGira.id),
-            supabase.from("giras_localidades").select("id_localidad, localidades(localidad)").eq("id_gira", targetGira.id),
-            supabase.from("giras_fuentes").select("*").eq("id_gira", targetGira.id)
+            supabase
+              .from("eventos")
+              .select(
+                "id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)",
+              )
+              .eq("id_gira", targetGira.id),
+            supabase
+              .from("giras_localidades")
+              .select("id_localidad, localidades(localidad)")
+              .eq("id_gira", targetGira.id),
+            supabase
+              .from("giras_fuentes")
+              .select("*")
+              .eq("id_gira", targetGira.id),
           ]);
 
           // 3. Construir el objeto completo
@@ -279,12 +291,12 @@ export default function GirasView({ supabase, trigger = 0 }) {
             eventos: eventosRes.data || [],
             giras_localidades: locsRes.data || [],
             giras_fuentes: fuentesRes.data || [],
-            giras_integrantes: [] // Privacidad: Invitado no ve lista completa
+            giras_integrantes: [], // Privacidad: Invitado no ve lista completa
           };
 
           setGiras([fullGira]);
         } else {
-            console.error("Usuario invitado sin token original");
+          console.error("Usuario invitado sin token original");
         }
       } else {
         // --- LÓGICA NORMAL (Usuarios Autenticados) ---
@@ -358,8 +370,13 @@ export default function GirasView({ supabase, trigger = 0 }) {
         giras.length > 0 && giras.some((g) => g.id !== user.active_gira_id);
       if (needsFiltering)
         setGiras((prev) => prev.filter((g) => g.id === user.active_gira_id));
-      
-      const GUEST_ALLOWED_VIEWS = ["AGENDA", "REPERTOIRE", "MEALS_PERSONAL", "SEATING"];
+
+      const GUEST_ALLOWED_VIEWS = [
+        "AGENDA",
+        "REPERTOIRE",
+        "MEALS_PERSONAL",
+        "SEATING",
+      ];
       const currentView = searchParams.get("view");
       const currentGiraId = searchParams.get("giraId");
       const isViewAllowed = GUEST_ALLOWED_VIEWS.includes(currentView);
@@ -746,7 +763,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       "ROSTER",
       "LOGISTICS",
       "MEALS_PERSONAL",
-      
+
       "DIFUSION",
       "EDICION",
     ].includes(mode) && selectedGira;
@@ -758,7 +775,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
     { mode: "LOGISTICS", label: "Logística", icon: IconSettingsWheel },
     { mode: "ROSTER", label: "Personal", icon: IconUsers },
     { mode: "DIFUSION", label: "Difusión", icon: IconMegaphone },
-    { mode: "EDICION", label: "Edición", icon: IconSettings },
+    { mode: "EDICION", label: "Edición", icon: IconEdit },
   ];
 
   return (
@@ -832,14 +849,16 @@ export default function GirasView({ supabase, trigger = 0 }) {
                   .filter((item) => {
                     if (item.mode === "MEALS_PERSONAL")
                       return isGuest && !user.isGeneral;
-                    
+
                     if (item.mode === "EDICION")
                       return canEditGira(selectedGira);
-                    
+
                     if (isEditor || canEditGira(selectedGira)) return true;
-                    
+
                     // Aquí habilitamos las vistas para el invitado (Personal o General)
-                    return ["AGENDA", "REPERTOIRE", "SEATING"].includes(item.mode);
+                    return ["AGENDA", "REPERTOIRE", "SEATING"].includes(
+                      item.mode,
+                    );
                   })
                   .map((item) => {
                     const isActive = mode === item.mode;
@@ -1027,23 +1046,40 @@ export default function GirasView({ supabase, trigger = 0 }) {
                   <button
                     onClick={() => {
                       setIsAdding(true);
+                      
+                      // 1. PRE-SELECCIONAR ENSAMBLES SI ES COORDINADOR
+                      let initialSources = [];
+                      if (isCoordinator) {
+                        initialSources = Array.from(coordinatedEnsembles).map(id => {
+                           const ens = ensemblesList.find(e => e.value === id);
+                           return {
+                             tipo: "ENSAMBLE",
+                             valor_id: id,
+                             label: ens ? ens.label : "Mi Ensamble"
+                           };
+                        });
+                      }
+
                       setFormData({
                         nombre_gira: "",
                         subtitulo: "",
                         fecha_desde: "",
                         fecha_hasta: "",
-                        tipo: isEditor ? "Sinfónico" : "Ensamble",
+                        // 2. FORZAR TIPO
+                        tipo: isCoordinator ? "Ensamble" : (isEditor ? "Sinfónico" : "Ensamble"),
                         zona: "",
                         token_publico: "",
                       });
+                      
                       setSelectedLocations(new Set());
-                      setSelectedSources([]);
+                      setSelectedSources(initialSources); // <--- APLICAR PRE-SELECCIÓN
                       setSelectedStaff([]);
                     }}
                     className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:bg-indigo-50 flex justify-center gap-2 font-medium"
                   >
-                    {" "}
-                    <IconPlus size={20} /> Crear Nuevo Programa{" "}
+                    <IconPlus size={20} /> 
+                    {/* 3. TEXTO DINÁMICO */}
+                    {isCoordinator ? "Nuevo Programa de Ensamble" : "Crear Nuevo Programa"}
                   </button>
                 )}
                 {isAdding && (
@@ -1052,6 +1088,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                     giraId={null}
                     formData={formData}
                     setFormData={setFormData}
+                    // ... (props existentes) ...
                     onCancel={closeForm}
                     onSave={handleSave}
                     onRefresh={async () => {
@@ -1069,6 +1106,10 @@ export default function GirasView({ supabase, trigger = 0 }) {
                     setSelectedSources={setSelectedSources}
                     selectedStaff={selectedStaff}
                     setSelectedStaff={setSelectedStaff}
+                    
+                    // --- NUEVAS PROPS PARA VALIDACIÓN ---
+                    isCoordinator={isCoordinator}
+                    coordinatedEnsembles={coordinatedEnsembles}
                   />
                 )}
               </>
@@ -1085,13 +1126,12 @@ export default function GirasView({ supabase, trigger = 0 }) {
                     key={gira.id}
                     supabase={supabase}
                     giraId={gira.id}
+                    // ... (props existentes) ...
                     formData={formData}
                     setFormData={setFormData}
                     onCancel={closeForm}
                     onSave={handleSave}
-                    onRefresh={async () => {
-                      await fetchGiras();
-                    }}
+                    onRefresh={async () => { await fetchGiras(); }}
                     loading={loading}
                     isNew={false}
                     enableAutoSave={true}
@@ -1104,6 +1144,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
                     setSelectedSources={setSelectedSources}
                     selectedStaff={selectedStaff}
                     setSelectedStaff={setSelectedStaff}
+                    isCoordinator={isCoordinator}
+                    coordinatedEnsembles={coordinatedEnsembles}
                   />
                 );
               }

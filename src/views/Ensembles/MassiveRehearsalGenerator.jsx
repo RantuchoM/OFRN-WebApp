@@ -3,11 +3,12 @@ import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import MultiSelect from "../../components/ui/MultiSelect";
-import { IconSave, IconLoader, IconCalendar, IconCheck, IconTrash } from "../../components/ui/Icons";
+import { IconCalendar, IconCheck, IconLoader } from "../../components/ui/Icons";
 import { eachDayOfInterval, getDay, format } from "date-fns";
 import { es } from "date-fns/locale";
+import { toast } from "sonner"; // Usamos sonner para feedback consistente
 
-export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCancel }) {
+export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCancel, myEnsembles = [] }) {
   const [loading, setLoading] = useState(false);
   const [ensamblesOptions, setEnsamblesOptions] = useState([]);
   const [locationsOptions, setLocationsOptions] = useState([]);
@@ -18,7 +19,7 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
     fecha_fin: "",
     hora_inicio: "15:00",
     hora_fin: "17:00",
-    dias_semana: [], // [1, 4] -> Lunes y Jueves
+    dias_semana: [], 
     id_locacion: "",
     selectedEnsambles: [],
     descripcion: "Ensayo Regular"
@@ -26,30 +27,53 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
 
   const [previewDates, setPreviewDates] = useState([]);
 
-  // 1. Cargar Datos
+  // 1. Cargar Datos y Aplicar Lógica de Ensamble
   useEffect(() => {
     const loadData = async () => {
         // Cargar Ensambles
         const { data: ens } = await supabase.from("ensambles").select("id, ensamble").order("ensamble");
         
-        // Cargar Locaciones CON localidad (CORREGIDO)
+        // --- LÓGICA DE ORDENAMIENTO Y RESALTADO ---
+        const myIds = new Set(myEnsembles.map(e => e.id));
+        
+        const sortedEns = (ens || []).sort((a, b) => {
+            const aMine = myIds.has(a.id);
+            const bMine = myIds.has(b.id);
+            if (aMine && !bMine) return -1; // Los míos primero
+            if (!aMine && bMine) return 1;
+            return a.ensamble.localeCompare(b.ensamble);
+        });
+
+        const options = sortedEns.map(e => ({ 
+            id: e.id, 
+            label: myIds.has(e.id) ? `★ ${e.ensamble}` : e.ensamble // Resaltado visual
+        }));
+        
+        setEnsamblesOptions(options);
+
+        // --- LÓGICA DE SELECCIÓN POR DEFECTO ---
+        // Si coordino solo 1 -> seleccionado. Si coordino más -> ninguno seleccionado.
+        let initialSelection = [];
+        if (myEnsembles.length === 1) {
+            initialSelection = [myEnsembles[0].id];
+        }
+        setFormData(prev => ({ ...prev, selectedEnsambles: initialSelection }));
+        
+        // Cargar Locaciones
         const { data: loc } = await supabase
             .from("locaciones")
             .select("id, nombre, localidades(localidad)")
             .order("nombre");
         
-        setEnsamblesOptions(ens?.map(e => ({ id: e.id, label: e.ensamble })) || []);
-        
-        // Mapeo con Ciudad (CORREGIDO)
         setLocationsOptions(loc?.map(l => ({ 
             id: l.id, 
             label: `${l.nombre} (${l.localidades?.localidad || "Sin localidad"})` 
         })) || []);
     };
     loadData();
-  }, [supabase]);
+  }, [supabase, myEnsembles]); // Dependencia myEnsembles importante
 
-  // 2. Calcular Fechas Previas
+  // 2. Calcular Fechas Previas (Igual que antes)
   useEffect(() => {
       if (formData.fecha_inicio && formData.fecha_fin && formData.dias_semana.length > 0) {
           try {
@@ -81,34 +105,39 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
   };
 
   const handleSubmit = async () => {
-      if (previewDates.length === 0) return alert("No hay fechas seleccionadas para generar.");
-      if (formData.selectedEnsambles.length === 0) return alert("Selecciona al menos un ensamble.");
-      if (formData.hora_fin <= formData.hora_inicio) return alert("La hora de fin debe ser posterior a la de inicio.");
+      if (previewDates.length === 0) return toast.error("No hay fechas seleccionadas para generar.");
+      if (formData.selectedEnsambles.length === 0) return toast.error("Selecciona al menos un ensamble.");
+      if (formData.hora_fin <= formData.hora_inicio) return toast.error("La hora de fin debe ser posterior a la de inicio.");
+
+      // --- VALIDACIÓN DE COORDINACIÓN ---
+      const myIds = myEnsembles.map(e => e.id);
+      const hasMyEnsemble = formData.selectedEnsambles.some(id => myIds.includes(id));
+      
+      if (!hasMyEnsemble) {
+          return toast.error("Debes incluir al menos un ensamble que coordines para crear el evento.");
+      }
 
       if (!confirm(`¿Generar ${previewDates.length} ensayos?`)) return;
 
       setLoading(true);
       try {
-          // Generar todos los eventos en batch es más eficiente
-          // 1. Insertar Eventos
           const eventsPayload = previewDates.map(date => ({
               fecha: format(date, 'yyyy-MM-dd'),
               hora_inicio: formData.hora_inicio,
               hora_fin: formData.hora_fin,
               id_locacion: formData.id_locacion || null,
               id_gira: null,
-              id_tipo_evento: 13, // Ensayo Ensamble
+              id_tipo_evento: 13, 
               descripcion: formData.descripcion
           }));
 
           const { data: createdEvents, error: insertError } = await supabase
               .from("eventos")
               .insert(eventsPayload)
-              .select("id"); // Necesitamos los IDs para relacionar
+              .select("id");
 
           if (insertError) throw insertError;
 
-          // 2. Vincular Ensambles a CADA evento creado
           const allRelations = [];
           createdEvents.forEach(evt => {
               formData.selectedEnsambles.forEach(ensId => {
@@ -124,10 +153,11 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
               if (relError) throw relError; 
           }
 
+          toast.success(`Se generaron ${createdEvents.length} ensayos correctamente.`);
           if (onSuccess) onSuccess();
 
       } catch (err) {
-          alert("Error generando ensayos: " + err.message);
+          toast.error("Error generando ensayos: " + err.message);
       } finally {
           setLoading(false);
       }
@@ -151,11 +181,8 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          
           {/* COLUMNA 1: CONFIGURACIÓN */}
           <div className="space-y-5">
-              
-              {/* Rango Fechas */}
               <div className="grid grid-cols-2 gap-3">
                   <div>
                       <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Desde</label>
@@ -167,7 +194,6 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
                   </div>
               </div>
 
-              {/* Días de la Semana */}
               <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block">Días de Repetición</label>
                   <div className="flex flex-wrap gap-2">
@@ -187,7 +213,6 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
                   </div>
               </div>
 
-              {/* Horarios */}
               <div className="grid grid-cols-2 gap-3">
                   <div>
                       <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Hora Inicio</label>
@@ -199,7 +224,6 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
                   </div>
               </div>
 
-              {/* Ensambles */}
               <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Ensambles</label>
                   <MultiSelect 
@@ -208,9 +232,9 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
                       selectedIds={formData.selectedEnsambles} 
                       onChange={ids => setFormData({...formData, selectedEnsambles: ids})} 
                   />
+                  <p className="text-[9px] text-slate-400 mt-1">* Tus ensambles aparecen marcados con ★</p>
               </div>
 
-              {/* Otros */}
               <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Lugar (Opcional)</label>
                   <SearchableSelect 

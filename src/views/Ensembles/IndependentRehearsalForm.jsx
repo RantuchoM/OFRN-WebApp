@@ -21,6 +21,7 @@ export default function IndependentRehearsalForm({
   onSuccess,
   onCancel,
   initialData = null,
+  myEnsembles = [] // <--- RECIBIMOS LA LISTA
 }) {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -79,10 +80,20 @@ export default function IndependentRehearsalForm({
           })),
         );
 
+        // --- ORDENAMIENTO Y RESALTADO DE ENSAMBLES ---
+        const myIds = new Set(myEnsembles.map(e => e.id));
+        const sortedEns = (ensamblesData.data || []).sort((a, b) => {
+            const aMine = myIds.has(a.id);
+            const bMine = myIds.has(b.id);
+            if (aMine && !bMine) return -1;
+            if (!aMine && bMine) return 1;
+            return a.ensamble.localeCompare(b.ensamble);
+        });
+
         setEnsamblesOptions(
-          (ensamblesData.data || []).map((e) => ({
+          sortedEns.map((e) => ({
             id: e.id,
-            label: e.ensamble,
+            label: myIds.has(e.id) ? `★ ${e.ensamble}` : e.ensamble,
           })),
         );
 
@@ -138,6 +149,16 @@ export default function IndependentRehearsalForm({
             })) || [];
 
           setCustomAttendance(customList);
+        } else {
+            // --- NUEVO ENSAYO: SELECCIÓN POR DEFECTO ---
+            // Solo si coordina EXACTAMENTE UNO, lo seleccionamos.
+            // Si coordina más de uno, la lista está ordenada arriba pero sin selección.
+            if (myEnsembles.length === 1) {
+                setFormData(prev => ({
+                    ...prev,
+                    selectedEnsambles: [myEnsembles[0].id]
+                }));
+            }
         }
       } catch (error) {
         console.error("Error cargando datos:", error);
@@ -147,7 +168,7 @@ export default function IndependentRehearsalForm({
     };
 
     loadData();
-  }, [supabase, initialData]);
+  }, [supabase, initialData, myEnsembles]); // Dependencia myEnsembles
 
   const handleAddCustom = (tipo) => {
     if (!selectedMemberToAdd) return;
@@ -212,6 +233,14 @@ export default function IndependentRehearsalForm({
 
     if (formData.selectedEnsambles.length === 0) {
       return toast.error("Selecciona al menos un ensamble base.");
+    }
+
+    // --- VALIDACIÓN DE COORDINACIÓN ---
+    const myIds = myEnsembles.map(e => e.id);
+    const hasMyEnsemble = formData.selectedEnsambles.some(id => myIds.includes(id));
+    
+    if (!hasMyEnsemble) {
+        return toast.error("Debes incluir al menos un ensamble que coordines.");
     }
 
     setLoading(true);
@@ -395,12 +424,18 @@ export default function IndependentRehearsalForm({
               setFormData({ ...formData, selectedEnsambles: ids })
             }
           />
+          {/* MENSAJE DE AYUDA */}
+          <p className="text-[9px] text-slate-400 mt-1 ml-1">* Tus ensambles coordinados aparecen al principio marcados con ★</p>
         </div>
 
+        {/* ... (Resto del componente igual, solo se agregó el texto de ayuda y la lógica) ... */}
+        
         <div className="bg-white p-3 rounded border border-slate-200 shadow-sm">
           <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2">
             <IconUsers size={14} /> Asistencia Particular
           </h3>
+          {/* ... */}
+          {/* (El resto de secciones se mantienen igual que tu código original) */}
           <div className="flex gap-2 items-end mb-3">
             <div className="flex-1">
               <label className="text-[9px] text-slate-400 uppercase mb-1 block">

@@ -28,7 +28,7 @@ import {
 import IndependentRehearsalForm from "./IndependentRehearsalForm";
 import MassiveRehearsalGenerator from "./MassiveRehearsalGenerator";
 import EnsembleCalendar from "./EnsembleCalendar";
-import EventQuickView from "./EventQuickView"; // <--- NO OLVIDAR ESTE IMPORT
+import EventQuickView from "./EventQuickView";
 import FilterDropdown from "../../components/ui/FilterDropdown";
 import DateInput from "../../components/ui/DateInput";
 import SearchableSelect from "../../components/ui/SearchableSelect";
@@ -67,6 +67,7 @@ const RehearsalCardItem = ({
   onSelect,
 }) => {
   const { day, num, month } = formatDateBox(evt.fecha);
+
   const isMyEvent = evt.isMyRehearsal;
   const isEditable = isMyEvent;
 
@@ -114,7 +115,7 @@ const RehearsalCardItem = ({
 
   return (
     <div
-      className={`flex items-start p-2.5 border rounded-lg shadow-sm transition-all bg-white ${isSelected ? "border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/40" : "border-slate-200"} ${!isMyEvent ? "opacity-70 grayscale-[0.3]" : ""}`}
+      className={`flex items-start p-2.5 border rounded-lg shadow-sm transition-all bg-white ${isSelected ? "border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/40" : "border-slate-200"} ${!isMyEvent ? "opacity-60 grayscale-[0.5] border-dashed" : ""}`}
     >
       {isEditable && (
         <div className="mr-3 pt-2 pl-1 flex items-center justify-center">
@@ -165,12 +166,14 @@ const RehearsalCardItem = ({
               <button
                 onClick={() => onEdit(evt)}
                 className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-100 transition-colors"
+                title="Editar Evento"
               >
                 <IconEdit size={14} />
               </button>
               <button
                 onClick={() => onDelete(evt.id)}
                 className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-slate-100 transition-colors"
+                title="Eliminar Evento"
               >
                 <IconTrash size={14} />
               </button>
@@ -203,12 +206,12 @@ const RehearsalCardItem = ({
               {loadingRoster ? "..." : isFull ? "Tutti" : count}
             </span>
           )}
-          {isMyEvent && evt.eventos_ensambles?.length > 0 && (
+          {evt.eventos_ensambles?.length > 0 && (
             <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
               {evt.eventos_ensambles.map((ee) => (
                 <span
                   key={ee.ensambles?.id}
-                  className="text-[9px] text-slate-400 font-semibold uppercase"
+                  className="text-[9px] text-slate-500 font-semibold uppercase bg-slate-100 px-1 rounded"
                 >
                   {ee.ensambles?.ensamble}
                 </span>
@@ -254,8 +257,10 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase }) => {
   );
   const count = myInvolvedMembers.length;
   if (count === 0 && program.tipo !== "Ensamble") return null;
+
   const isFull =
     activeMembersSet.size > 0 && count >= activeMembersSet.size * 0.9;
+
   const showMembersList = (e) => {
     e.stopPropagation();
     if (count === 0) return;
@@ -381,7 +386,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
           supabase
             .from("tipos_evento")
             .select("id, nombre, color, id_categoria")
-            .order("nombre"), // Importante: id_categoria
+            .order("nombre"),
           supabase
             .from("integrantes")
             .select("id, nombre, apellido")
@@ -518,7 +523,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
         .toISOString()
         .split("T")[0];
 
-      // 1. Fetch de MIS ENSAYOS (Los que gestiono)
+      // 1. Fetch de MIS ENSAYOS
       const { data: myRehearsals } = await supabase
         .from("eventos_ensambles")
         .select(
@@ -536,7 +541,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
         )
         .in("id_ensamble", ensembleIds)
         .gte("eventos.fecha", todayISO)
-        .lte("eventos.fecha", endDateLimit);
+        .lte("eventos.fecha", endDateLimit)
+        .eq("eventos.tecnica", false); // <--- AGREGAR ESTA LÍNEA;
+        
 
       let allEvents = [];
       const seenEventIds = new Set();
@@ -548,7 +555,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
             const customs = r.eventos.eventos_asistencia_custom || [];
             allEvents.push({
               ...r.eventos,
-              isMyRehearsal: true, // Importante: editable
+              isMyRehearsal: true,
               deltaGuests: customs.filter((c) => c.tipo === "invitado").length,
               deltaAbsent: customs.filter((c) => c.tipo === "ausente").length,
             });
@@ -557,18 +564,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
       }
 
       // 2. Fetch de SUPERPOSICIONES
-      // Estrategia: Buscar todos los tipos de evento que coinciden con las categorías seleccionadas,
-      // Y ADEMÁS incluir siempre el tipo "Ensayo de Ensamble" (ID 13) para dar contexto.
-
-      // Obtenemos los IDs de tipos de evento que queremos ver
       const targetTypeIds = new Set();
 
-      // A. Agregar siempre Ensayo de Ensamble (ID 13 - Asumido o buscado)
-      // Buscamos si existe en la lista cargada, si no hardcodeamos 13 por seguridad
-      const ensambleRehearsalType = eventTypesList.find((t) => t.id === 13);
-      if (ensambleRehearsalType) targetTypeIds.add(13);
-
-      // B. Agregar tipos de las categorías seleccionadas
       if (overlapCategories.length > 0) {
         eventTypesList.forEach((t) => {
           if (overlapCategories.includes(t.id_categoria)) {
@@ -577,7 +574,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
         });
       }
 
-      // Si tenemos tipos para buscar (que siempre será true por el ID 13)
       if (targetTypeIds.size > 0) {
         const typeIdsArray = Array.from(targetTypeIds);
 
@@ -591,18 +587,18 @@ export default function EnsembleCoordinatorView({ supabase }) {
                     programas ( id, nombre_gira, mes_letra, nomenclador )
                 `,
           )
-          .in("id_tipo_evento", typeIdsArray) // Filtramos por TIPO (más seguro y flexible)
+          .in("id_tipo_evento", typeIdsArray)
           .gte("fecha", todayISO)
-          .lte("fecha", endDateLimit);
+          .lte("fecha", endDateLimit)
+          .eq("tecnica", false);
 
         if (extraEvents) {
           extraEvents.forEach((e) => {
-            // Solo agregamos si no lo tengo ya en "Mis Ensayos" (para no duplicar)
             if (!seenEventIds.has(e.id)) {
               seenEventIds.add(e.id);
               allEvents.push({
                 ...e,
-                isMyRehearsal: false, // Solo lectura en calendario (aparece punteado)
+                isMyRehearsal: false,
                 eventos_asistencia_custom: [],
                 eventos_ensambles: [],
               });
@@ -617,7 +613,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
     },
   });
 
-  // --- QUERY: PROGRAMAS (Lógica Corregida con Familias) ---
+  // --- QUERY: PROGRAMAS ---
   const { data: programs = [], isLoading: programsLoading } = useQuery({
     queryKey: ["programs", activeEnsembles.map((e) => e.id), monthsLimit],
     enabled: activeTab === "programas" && activeEnsembles.length > 0,
@@ -702,7 +698,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
     );
   };
 
-  // Resto de handlers
   const handleSelect = (id, checked) =>
     setSelectedIds((prev) =>
       checked ? [...prev, id] : prev.filter((x) => x !== id),
@@ -894,6 +889,35 @@ export default function EnsembleCoordinatorView({ supabase }) {
     );
   };
 
+  // --- NUEVA FUNCIÓN: ELIMINACIÓN MASIVA ---
+  const handleBulkDelete = async () => {
+    if (
+      !confirm(
+        `¿Estás seguro de eliminar ${selectedIds.length} eventos? Esta acción no se puede deshacer.`,
+      )
+    )
+      return;
+
+    toast.promise(
+      async () => {
+        const { error } = await supabase
+          .from("eventos")
+          .delete()
+          .in("id", selectedIds);
+        if (error) throw error;
+      },
+      {
+        loading: "Eliminando eventos...",
+        success: () => {
+          refreshData();
+          setSelectedIds([]);
+          return `${selectedIds.length} eventos eliminados`;
+        },
+        error: (err) => `Error: ${err.message}`,
+      },
+    );
+  };
+
   if (loading)
     return (
       <div className="h-full flex items-center justify-center">
@@ -938,13 +962,13 @@ export default function EnsembleCoordinatorView({ supabase }) {
               onClick={() => setShowSmartSelect(!showSmartSelect)}
               className="bg-white border px-3 py-1.5 rounded shadow-sm text-xs font-bold flex gap-2 text-slate-700 hover:bg-slate-50"
             >
-              <IconFilter size={14} /> Filtros
+              <IconFilter size={14} /> Selección Inteligente
             </button>
             <button
               onClick={() => setIsMassiveModalOpen(true)}
               className="bg-white border px-3 py-1.5 rounded shadow-sm text-xs font-bold flex gap-2 text-slate-700 hover:bg-slate-50"
             >
-              <IconCalendar size={14} /> Masivo
+              <IconCalendar size={14} /> Generación Múltiple
             </button>
             <button
               onClick={() => {
@@ -1051,12 +1075,21 @@ export default function EnsembleCoordinatorView({ supabase }) {
               Descartar
             </button>
           </div>
-          <button
-            onClick={() => setIsBulkEditModalOpen(true)}
-            className="bg-white text-indigo-700 hover:bg-indigo-50 font-bold px-3 py-1 rounded text-xs transition-colors flex items-center gap-2 shadow-sm"
-          >
-            <IconSettings size={14} /> Editar
-          </button>
+          {/* BOTONES DE ACCIÓN MASIVA */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleBulkDelete}
+              className="bg-red-500 text-white hover:bg-red-600 font-bold px-3 py-1 rounded text-xs transition-colors flex items-center gap-2 shadow-sm"
+            >
+              <IconTrash size={14} /> Eliminar Seleccionados
+            </button>
+            <button
+              onClick={() => setIsBulkEditModalOpen(true)}
+              className="bg-white text-indigo-700 hover:bg-indigo-50 font-bold px-3 py-1 rounded text-xs transition-colors flex items-center gap-2 shadow-sm"
+            >
+              <IconSettings size={14} /> Editar Seleccionados
+            </button>
+          </div>
         </div>
       )}
 
@@ -1507,13 +1540,13 @@ export default function EnsembleCoordinatorView({ supabase }) {
           }}
         />
       )}
-
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="w-full max-w-2xl relative">
             <IndependentRehearsalForm
               supabase={supabase}
               initialData={editingEvent}
+              myEnsembles={activeEnsembles} // <--- NUEVA PROP
               onSuccess={() => {
                 setIsModalOpen(false);
                 refreshData();
@@ -1527,6 +1560,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
           <MassiveRehearsalGenerator
             supabase={supabase}
+            myEnsembles={activeEnsembles} // <--- NUEVA PROP
             onSuccess={() => {
               setIsMassiveModalOpen(false);
               refreshData();
