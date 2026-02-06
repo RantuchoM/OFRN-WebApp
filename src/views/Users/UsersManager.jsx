@@ -10,6 +10,8 @@ import {
   IconPlus,
   IconLock,
   IconTrash,
+  IconEye,
+  IconEyeOff,
 } from "../../components/ui/Icons";
 
 export default function UsersManager({ supabase }) {
@@ -17,7 +19,9 @@ export default function UsersManager({ supabase }) {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
 
-  // Estado para Crear Nuevo Integrante (Antes "Invitar")
+  // Estado para controlar qué contraseñas son visibles
+  const [visiblePasswords, setVisiblePasswords] = useState(new Set());
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newMember, setNewMember] = useState({
     nombre: "",
@@ -35,7 +39,6 @@ export default function UsersManager({ supabase }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Solo consultamos integrantes. La tabla perfiles ya no existe/no se usa.
       const { data, error } = await supabase
         .from("integrantes")
         .select("*")
@@ -51,12 +54,75 @@ export default function UsersManager({ supabase }) {
     }
   };
 
-  // Crear un nuevo integrante en la base de datos
+  const togglePasswordVisibility = (id) => {
+    setVisiblePasswords((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      return newSet;
+    });
+  };
+
+  // Maneja el cambio de texto en inputs (Mail o Clave) solo en la UI local
+  const handleLocalChange = (userId, field, newValue) => {
+    setIntegrantes((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, [field]: newValue } : u))
+    );
+  };
+
+  // Guardar cambio de EMAIL (Confirmación + Update)
+  const handleEmailBlur = async (user) => {
+    // Si el mail está vacío no hacemos nada (o podrías validar formato)
+    if (!user.mail || user.mail.trim() === "") return;
+
+    // Podrías comparar con el valor original si tuvieras un estado previo, 
+    // por ahora pedimos confirmación simple al salir del campo.
+    const confirm = window.confirm(
+      `¿Actualizar el email de ${user.nombre} a "${user.mail}"?`
+    );
+
+    if (confirm) {
+      const { error } = await supabase
+        .from("integrantes")
+        .update({ mail: user.mail.trim() })
+        .eq("id", user.id);
+
+      if (error) {
+        alert("Error al actualizar email: " + error.message);
+        fetchData(); // Revertir
+      }
+    } else {
+      fetchData(); // Revertir si cancela
+    }
+  };
+
+  // Guardar cambio de PASSWORD (Confirmación + Update)
+  const handlePasswordBlur = async (user) => {
+    if (!user.clave_acceso) return;
+
+    const confirm = window.confirm(
+      `¿Estás seguro de cambiar la clave para ${user.nombre}?`
+    );
+
+    if (confirm) {
+      const { error } = await supabase
+        .from("integrantes")
+        .update({ clave_acceso: user.clave_acceso })
+        .eq("id", user.id);
+
+      if (error) {
+        alert("Error al actualizar clave: " + error.message);
+        fetchData();
+      }
+    } else {
+      fetchData();
+    }
+  };
+
   const handleCreateMember = async (e) => {
     e.preventDefault();
     setCreating(true);
 
-    // Validación básica
     if (!newMember.mail || !newMember.clave_acceso) {
       alert("Email y Clave son obligatorios");
       setCreating(false);
@@ -75,7 +141,7 @@ export default function UsersManager({ supabase }) {
       alert("Error al crear: " + error.message);
     } else {
       alert("Integrante creado exitosamente.");
-      setIntegrantes([...integrantes, data]); // Actualizamos la lista local
+      setIntegrantes([...integrantes, data]);
       setShowCreateModal(false);
       setNewMember({
         nombre: "",
@@ -87,9 +153,7 @@ export default function UsersManager({ supabase }) {
     }
   };
 
-  // Actualizar Rol o Clave directamente
   const handleUpdateUser = async (userId, field, value) => {
-    // Actualización optimista (UI primero)
     const updatedList = integrantes.map((u) =>
       u.id === userId ? { ...u, [field]: value } : u
     );
@@ -102,7 +166,7 @@ export default function UsersManager({ supabase }) {
 
     if (error) {
       alert("Error actualizando: " + error.message);
-      fetchData(); // Revertir si falló
+      fetchData();
     }
   };
 
@@ -159,7 +223,7 @@ export default function UsersManager({ supabase }) {
         </button>
       </div>
 
-      {/* Modal Crear Nuevo (Reemplaza al Invite) */}
+      {/* Modal Crear Nuevo */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
@@ -237,11 +301,10 @@ export default function UsersManager({ supabase }) {
                   }
                 >
                   <option value="consulta_personal">
-                    👤 Consulta Personal (Solo mis giras)
+                    👤 Consulta Personal
                   </option>
-
                   <option value="consulta_general">
-                    👁️ Consulta General (Ver todo)
+                    👁️ Consulta General
                   </option>
                   <option value="editor">✏️ Editor</option>
                   <option value="admin">🛡️ Administrador</option>
@@ -271,93 +334,115 @@ export default function UsersManager({ supabase }) {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b border-slate-200">
               <tr>
-                <th className="p-4">Integrante / Usuario</th>
-                <th className="p-4">Rol de Sistema</th>
-                <th className="p-4">Gestión de Acceso</th>
-                <th className="p-4 text-center">Acciones</th>
+                <th className="p-4 w-1/3">Integrante / Email</th>
+                <th className="p-4 w-1/4">Rol de Sistema</th>
+                <th className="p-4 w-1/4">Clave de Acceso</th>
+                <th className="p-4 text-center w-20">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredUsers.map((u) => (
-                <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-4">
-                    <div className="font-bold text-slate-700">
-                      {u.nombre} {u.apellido}
-                    </div>
-                    <div className="text-xs text-slate-500 flex items-center gap-1">
-                      <IconMail size={12} /> {u.mail || "Sin email"}
-                    </div>
-                  </td>
-
-                  <td className="p-4">
-                    <select
-                      // Dentro del map de la tabla
-                      className={`border rounded px-2 py-1 text-xs font-bold uppercase cursor-pointer outline-none ${
-                        u.rol_sistema === "admin"
-                          ? "bg-purple-100 text-purple-700 border-purple-200"
-                          : u.rol_sistema === "editor"
-                          ? "bg-indigo-100 text-indigo-700 border-indigo-200"
-                          : // Agregamos estilo para Consulta Personal
-                          u.rol_sistema === "consulta_personal"
-                          ? "bg-blue-100 text-blue-700 border-blue-200"
-                          : "bg-slate-100 text-slate-600 border-slate-200" // Consulta General por defecto
-                      }`}
-                      value={u.rol_sistema || "consulta_general"}
-                      onChange={(e) =>
-                        handleUpdateUser(u.id, "rol_sistema", e.target.value)
-                      }
-                    >
-                      <option value="consulta_personal">
-                        👤 Consulta Personal (Solo mis giras)
-                      </option>
-
-                      <option value="consulta_general">
-                        👁️ Consulta General (Ver todo)
-                      </option>
-                      <option value="editor">✏️ Editor</option>
-                      <option value="admin">🛡️ Administrador</option>
-                    </select>
-                  </td>
-
-                  <td className="p-4">
-                    {/* Input simple para cambiar contraseña rápidamente ya que no hay "Reset Password" por mail */}
-                    <div className="flex items-center gap-2">
-                      <IconLock size={14} className="text-slate-300" />
-                      <input
-                        type="text" // Visible para el admin
-                        className="border-b border-slate-200 bg-transparent text-xs py-1 focus:border-indigo-500 outline-none w-32 placeholder:text-slate-300"
-                        placeholder="Nueva Clave"
-                        onBlur={(e) => {
-                          if (e.target.value) {
-                            if (
-                              window.confirm(
-                                `¿Cambiar clave a "${e.target.value}"?`
-                              )
-                            ) {
-                              handleUpdateUser(
-                                u.id,
-                                "clave_acceso",
-                                e.target.value
-                              );
-                              e.target.value = ""; // Limpiar visualmente
-                            }
+              {filteredUsers.map((u) => {
+                const isPasswordVisible = visiblePasswords.has(u.id);
+                return (
+                  <tr
+                    key={u.id}
+                    className="hover:bg-slate-50 transition-colors"
+                  >
+                    {/* COLUMNA 1: Nombre + Email Editable */}
+                    <td className="p-4">
+                      <div className="font-bold text-slate-700 mb-1">
+                        {u.nombre} {u.apellido}
+                      </div>
+                      <div className="flex items-center gap-2 max-w-[250px]">
+                        <IconMail size={14} className="text-slate-400 shrink-0" />
+                        <input
+                          type="text"
+                          className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 outline-none w-full text-xs text-slate-600 transition-all placeholder:text-slate-300"
+                          value={u.mail || ""}
+                          onChange={(e) =>
+                            handleLocalChange(u.id, "mail", e.target.value)
                           }
-                        }}
-                      />
-                    </div>
-                  </td>
+                          onBlur={() => handleEmailBlur(u)}
+                          placeholder="Sin email"
+                        />
+                      </div>
+                    </td>
 
-                  <td className="p-4 text-center">
-                    <button
-                      onClick={() => handleDelete(u.id)}
-                      className="text-slate-400 hover:text-red-600 transition-colors"
-                      title="Eliminar Integrante"
-                    >
-                      <IconTrash size={16} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    {/* COLUMNA 2: Rol */}
+                    <td className="p-4">
+                      <select
+                        className={`border rounded px-2 py-1 text-xs font-bold uppercase cursor-pointer outline-none w-full ${
+                          u.rol_sistema === "admin"
+                            ? "bg-purple-100 text-purple-700 border-purple-200"
+                            : u.rol_sistema === "editor"
+                            ? "bg-indigo-100 text-indigo-700 border-indigo-200"
+                            : u.rol_sistema === "consulta_personal"
+                            ? "bg-blue-100 text-blue-700 border-blue-200"
+                            : "bg-slate-100 text-slate-600 border-slate-200"
+                        }`}
+                        value={u.rol_sistema || "consulta_general"}
+                        onChange={(e) =>
+                          handleUpdateUser(u.id, "rol_sistema", e.target.value)
+                        }
+                      >
+                        <option value="consulta_personal">
+                          👤 Consulta Personal
+                        </option>
+                        <option value="consulta_general">
+                          👁️ Consulta General
+                        </option>
+                        <option value="editor">✏️ Editor</option>
+                        <option value="admin">🛡️ Administrador</option>
+                      </select>
+                    </td>
+
+                    {/* COLUMNA 3: Password Editable */}
+                    <td className="p-4">
+                      <div className="flex items-center gap-2 border-b border-slate-200 pb-1 w-full max-w-[180px] hover:border-indigo-300 transition-colors">
+                        <IconLock
+                          size={14}
+                          className="text-slate-300 shrink-0"
+                        />
+                        <input
+                          type={isPasswordVisible ? "text" : "password"}
+                          className="bg-transparent text-xs outline-none w-full text-slate-600 font-mono tracking-wide"
+                          value={u.clave_acceso || ""}
+                          onChange={(e) =>
+                            handleLocalChange(u.id, "clave_acceso", e.target.value)
+                          }
+                          onBlur={() => handlePasswordBlur(u)}
+                          placeholder="Sin clave"
+                        />
+                        <button
+                          onClick={() => togglePasswordVisibility(u.id)}
+                          className="text-slate-400 hover:text-indigo-600 transition-colors shrink-0 p-1 rounded-full hover:bg-slate-100"
+                          title={
+                            isPasswordVisible
+                              ? "Ocultar clave"
+                              : "Mostrar clave"
+                          }
+                        >
+                          {isPasswordVisible ? (
+                            <IconEyeOff size={14} />
+                          ) : (
+                            <IconEye size={14} />
+                          )}
+                        </button>
+                      </div>
+                    </td>
+
+                    <td className="p-4 text-center">
+                      <button
+                        onClick={() => handleDelete(u.id)}
+                        className="text-slate-400 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-lg"
+                        title="Eliminar Integrante"
+                      >
+                        <IconTrash size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {filteredUsers.length === 0 && !loading && (
@@ -369,10 +454,10 @@ export default function UsersManager({ supabase }) {
       </div>
 
       <style>{`
-                .label-text { display: block; font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px; }
-                .input-field { width: 100%; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; outline: none; }
-                .input-field:focus { border-color: #6366f1; ring: 2px; }
-            `}</style>
+        .label-text { display: block; font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px; }
+        .input-field { width: 100%; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; outline: none; }
+        .input-field:focus { border-color: #6366f1; ring: 2px; }
+      `}</style>
     </div>
   );
 }
