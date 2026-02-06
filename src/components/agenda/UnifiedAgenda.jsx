@@ -30,11 +30,14 @@ import {
   IconBus,
   IconAlertTriangle,
   IconEyeOff,
+  IconUtensils,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import EventForm from "../forms/EventForm";
+// IMPORTAMOS EL EDITOR DE ENSAYOS
+import IndependentRehearsalForm from "../../views/Ensembles/IndependentRehearsalForm";
 import SearchableSelect from "../ui/SearchableSelect";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
 import { calculateLogisticsSummary } from "../../hooks/useLogistics";
@@ -181,22 +184,16 @@ export default function UnifiedAgenda({
   const [techFilter, setTechFilter] = useState(
     isManagement ? "all" : "no_tech",
   );
-  // AGREGAR ESTE EFECTO
-  // Para seguridad: si cambia el rol, forzar el filtro
+
   useEffect(() => {
     if (!isManagement) setTechFilter("no_tech");
   }, [isManagement]);
 
-  // 3. Función para cambiar el estado "tecnica" desde la tarjeta
-  // Función para cambiar el estado "tecnica" (Actualización Conservadora)
   const toggleEventTechnica = async (e, eventId, currentValue) => {
-    e.stopPropagation(); // Evita abrir el modal
+    e.stopPropagation();
     if (!isEditor && !isManagement) return;
 
-    // NO activamos setLoading(true) para evitar que la UI parpadee o se desmonten los filtros
-
     try {
-      // 1. Primero intentamos actualizar la Base de Datos
       const { error } = await supabase
         .from("eventos")
         .update({ tecnica: !currentValue })
@@ -204,7 +201,6 @@ export default function UnifiedAgenda({
 
       if (error) throw error;
 
-      // 2. SOLO si la BD respondió bien, actualizamos el estado local
       setItems((prevItems) =>
         prevItems.map((item) =>
           item.id === eventId ? { ...item, tecnica: !currentValue } : item,
@@ -213,9 +209,9 @@ export default function UnifiedAgenda({
     } catch (err) {
       console.error("Error al cambiar técnica:", err);
       alert("No se pudo guardar el cambio. Verifica tu conexión.");
-      // No hacemos nada en la UI, el tilde se queda como estaba
     }
   };
+
   const [viewAsUserId, setViewAsUserId] = useState(null);
   const [musicianOptions, setMusicianOptions] = useState([]);
 
@@ -223,6 +219,77 @@ export default function UnifiedAgenda({
   const STORAGE_KEY = `unified_agenda_filters_v4_${effectiveUserId}`;
   const isGeneralAccess = user?.isGeneral === true;
   const defaultPersonalFilter = !isGeneralAccess;
+
+  // --- ESTADOS DE COORDINACIÓN ---
+  const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
+  const [myEnsembleObjects, setMyEnsembleObjects] = useState([]);
+
+  // --- FETCH DE COORDINACIÓN ---
+  useEffect(() => {
+    const fetchCoordination = async () => {
+      if (!user) return;
+      const { data } = await supabase
+        .from("ensambles_coordinadores")
+        .select("id_ensamble, ensambles(id, ensamble)")
+        .eq("id_integrante", user.id);
+
+      if (data) {
+        const ids = new Set(data.map((d) => d.id_ensamble));
+        const objects = data.map((d) => d.ensambles).filter(Boolean);
+        setCoordinatedEnsembles(ids);
+        setMyEnsembleObjects(objects);
+      }
+    };
+    fetchCoordination();
+  }, [user, supabase]);
+
+  // --- LÓGICA DE PERMISOS DE EDICIÓN ---
+  const isGlobalEditor = [
+    "admin",
+    "editor",
+    "coord_general",
+    "director",
+  ].includes(user?.rol_sistema);
+
+  // Variable general para UI (filtros, toggle grises, etc)
+  const canEdit = isGlobalEditor || coordinatedEnsembles.size > 0;
+
+  // Función específica para el botón del lápiz
+  const canUserEditEvent = (evt) => {
+    // 1. Si es admin global, siempre puede
+    if (isGlobalEditor) return true;
+
+    // 2. Si soy coordinador, verifico reglas específicas
+    if (coordinatedEnsembles.size > 0) {
+      // CASO A: Ensayo de Ensamble (ID 13)
+      if (evt.id_tipo_evento === 13) {
+        const involvedEnsembles =
+          evt.eventos_ensambles?.map((ee) => ee.ensambles?.id) || [];
+        const hasMatch = involvedEnsembles.some((id) =>
+          coordinatedEnsembles.has(id),
+        );
+        if (hasMatch) return true;
+      }
+
+      // CASO B: Concierto (ID 1)
+      if (evt.id_tipo_evento === 1 && evt.programas) {
+        // Debe ser programa de tipo Ensamble
+        if (evt.programas.tipo === "Ensamble") {
+          const sources = evt.programas.giras_fuentes || [];
+          // Debe involucrar a mi ensamble
+          const hasMatch = sources.some(
+            (s) =>
+              s.tipo === "ENSAMBLE" &&
+              coordinatedEnsembles.has(parseInt(s.valor_id)),
+          );
+          if (hasMatch) return true;
+        }
+      }
+    }
+
+    return false;
+  };
+
   // --- ESTADOS DE FILTROS ---
   const getInitialFilterState = (key, defaultVal) => {
     try {
@@ -249,7 +316,6 @@ export default function UnifiedAgenda({
   const [showOnlyMyMeals, setShowOnlyMyMeals] = useState(() =>
     getInitialFilterState("showOnlyMyMeals", defaultPersonalFilter),
   );
-  // "Sin Grises" (antes showAllTransport)
   const [showNoGray, setShowNoGray] = useState(() =>
     getInitialFilterState("showAllTransport", false),
   );
@@ -260,7 +326,7 @@ export default function UnifiedAgenda({
       showNonActive,
       showOnlyMyTransport,
       showOnlyMyMeals,
-      showAllTransport: showNoGray, // Guardamos con el mismo nombre en storage por compatibilidad o migramos
+      showAllTransport: showNoGray,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [
@@ -312,21 +378,22 @@ export default function UnifiedAgenda({
   const [toursWithRules, setToursWithRules] = useState(new Set());
 
   const [commentsState, setCommentsState] = useState(null);
-  const [isEditOpen, setIsEditOpen] = useState(false);
+
+  // --- ESTADOS DE EDICIÓN ---
+  const [isEditOpen, setIsEditOpen] = useState(false); // Para EventForm (Standard)
+  const [isRehearsalEditOpen, setIsRehearsalEditOpen] = useState(false); // Para IndependentRehearsalForm
   const [editFormData, setEditFormData] = useState({});
+  const [editingEventObj, setEditingEventObj] = useState(null);
+
   const [isCreating, setIsCreating] = useState(false);
   const [newFormData, setNewFormData] = useState({});
   const [formEventTypes, setFormEventTypes] = useState([]);
   const [formLocations, setFormLocations] = useState([]);
   const [userProfile, setUserProfile] = useState(null);
 
-  const canEdit = ["admin", "editor", "coord_general", "director"].includes(
-    user?.rol_sistema,
-  );
-
   useEffect(() => {
     const fetchMusicians = async () => {
-      if (canEdit && navigator.onLine) {
+      if (isGlobalEditor && navigator.onLine) {
         try {
           const { data } = await supabase
             .from("integrantes")
@@ -347,7 +414,7 @@ export default function UnifiedAgenda({
       }
     };
     fetchMusicians();
-  }, [canEdit, supabase]);
+  }, [isGlobalEditor, supabase]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -452,14 +519,13 @@ export default function UnifiedAgenda({
       if (item.isProgramMarker) return true;
       if (!isManagement && item.tecnica) return false;
 
-      // 2. Si ES management, aplicar el filtro seleccionado
       if (isManagement) {
         if (techFilter === "only_tech" && !item.tecnica) return false;
         if (techFilter === "no_tech" && item.tecnica) return false;
       }
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
       if (selectedCategoryIds.length > 0) {
-          if (catId && !selectedCategoryIds.includes(catId)) return false;
+        if (catId && !selectedCategoryIds.includes(catId)) return false;
       }
       if (showOnlyMyTransport && item.id_gira_transporte) {
         const tId = String(item.id_gira_transporte);
@@ -482,8 +548,8 @@ export default function UnifiedAgenda({
     showOnlyMyTransport,
     showOnlyMyMeals,
     myTransportLogistics,
-    techFilter, // <--- IMPORTANTE: AGREGAR A DEPENDENCIAS
-    isManagement, // <--- IMPORTANTE: AGREGAR A DEPENDENCIAS
+    techFilter,
+    isManagement,
   ]);
 
   const checkIsConvoked = (convocadosList, tourRole) => {
@@ -583,6 +649,9 @@ export default function UnifiedAgenda({
             ),
             eventos_programas_asociados (
                 programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador, estado )
+            ),
+            eventos_ensambles (
+                ensambles ( id, ensamble )
             )
         `,
         )
@@ -648,7 +717,6 @@ export default function UnifiedAgenda({
             transportsByGira[t.id_gira].push(t);
           });
 
-          // PREPARAR DATOS DEL USUARIO UNA VEZ
           const userEnsemblesIds = (
             userProfile.integrantes_ensambles || []
           ).map((ie) => String(ie.id_ensamble));
@@ -674,7 +742,6 @@ export default function UnifiedAgenda({
             let estadoGira = null;
 
             if (sampleEvt && sampleEvt.programas) {
-              // 1. CHEQUEO: ¿Está en el Roster explícito?
               const members = sampleEvt.programas.giras_integrantes || [];
               const myRecord = members.find(
                 (i) => String(i.id_integrante) === String(effectiveUserId),
@@ -683,12 +750,10 @@ export default function UnifiedAgenda({
               if (myRecord) {
                 tourRole = myRecord.rol;
                 estadoGira = myRecord.estado;
-                // Filtro estricto: Si es baja, no_convocado o ausente, NO va a la gira.
                 if (["baja", "no_convocado", "ausente"].includes(estadoGira))
                   return;
               }
 
-              // 2. CHEQUEO: ¿Coincide con Fuentes Base?
               const sources = sampleEvt.programas.giras_fuentes || [];
               let isBase = false;
 
@@ -707,7 +772,6 @@ export default function UnifiedAgenda({
                 return false;
               });
 
-              // Si NO está en el roster explícito Y NO coincide con ninguna fuente, entonces NO va a la gira.
               if (!myRecord && !matchesSource) return;
 
               esAdicional = !!myRecord && !isBase;
@@ -767,7 +831,6 @@ export default function UnifiedAgenda({
         if (customMap.has(item.id)) return true;
         if (myEnsembleEventIds.has(item.id)) return true;
 
-        // --- LOGICA DE FILTRADO DE GIRA MEJORADA ---
         if (item.programas) {
           const overrides = item.programas.giras_integrantes || [];
           const sources = item.programas.giras_fuentes || [];
@@ -872,7 +935,6 @@ export default function UnifiedAgenda({
     }
   };
 
-  // ... (Funciones auxiliares iguales: processCategories, toggleMealAttendance, etc.) ...
   const processCategories = (eventsList) => {
     const categoriesMap = {};
     eventsList.forEach((evt) => {
@@ -887,10 +949,6 @@ export default function UnifiedAgenda({
 
     setAvailableCategories(uniqueCats);
 
-    // --- CORRECCIÓN AQUÍ ---
-    // Si no hay ninguna categoría seleccionada actualmente en el estado
-    // (ya sea porque es la primera vez o porque el storage estaba vacío/corrupto para 'categories')
-    // seleccionamos TODAS las disponibles automáticamente.
     if (selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
       setSelectedCategoryIds(uniqueCats.map((c) => c.id));
     }
@@ -942,6 +1000,20 @@ export default function UnifiedAgenda({
   };
 
   const openEditModal = (evt) => {
+    // --- LÓGICA DE RUTEO DE EDICIÓN ---
+
+    // CASO 1: ENSAYO DE ENSAMBLE + COORDINADOR
+    if (
+      evt.id_tipo_evento === 13 &&
+      coordinatedEnsembles.size > 0 &&
+      canUserEditEvent(evt)
+    ) {
+      setEditingEventObj(evt);
+      setIsRehearsalEditOpen(true);
+      return;
+    }
+
+    // CASO 2: EDICIÓN STANDARD (Admin o Coordinador en concierto propio)
     setEditFormData({
       id: evt.id,
       descripcion: evt.descripcion || "",
@@ -1254,9 +1326,9 @@ export default function UnifiedAgenda({
           </div>
 
           <div className="flex gap-2 relative">
+            {/* BOTONES DE FILTRO (Solo si hay categorías) */}
             {availableCategories.length > 0 && (
               <>
-                {/* BOTÓN FILTROS */}
                 <div className="relative" ref={filterMenuRef}>
                   <button
                     onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
@@ -1281,235 +1353,199 @@ export default function UnifiedAgenda({
                   </button>
 
                   {isFilterMenuOpen && (
-                    <>
-                      {/* BACKDROP PARA MÓVIL (Fondo oscuro al abrir menú) */}
-                      <div
-                        className="fixed inset-0 bg-black/40 z-40 sm:hidden backdrop-blur-[2px] animate-in fade-in"
-                        onClick={() => setIsFilterMenuOpen(false)}
-                      />
+                    <div className="absolute top-full right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 origin-top-right">
+                      {/* HEADER */}
+                      <div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          Opciones de Vista
+                        </span>
+                        <button
+                          onClick={() => {
+                            setSelectedCategoryIds(
+                              availableCategories.map((c) => c.id),
+                            );
+                            setShowOnlyMyTransport(false);
+                            setShowOnlyMyMeals(false);
+                            setShowNoGray(false);
+                            if (isManagement) setTechFilter("all");
+                          }}
+                          className="text-[10px] text-indigo-600 hover:underline font-bold"
+                        >
+                          Restablecer
+                        </button>
+                      </div>
 
-                      {/* CONTENEDOR DEL MENÚ (Bottom Sheet en Móvil / Dropdown en Desktop) */}
-                      <div
-                        className={`
-                        bg-white border-slate-200 shadow-2xl overflow-hidden flex flex-col z-50
-                        
-                        /* ESTILOS MÓVIL (Hoja inferior fija) */
-                        fixed bottom-0 left-0 right-0 rounded-t-2xl max-h-[85vh] border-t
-                        animate-in slide-in-from-bottom-10 duration-200
-                        
-                        /* ESTILOS DESKTOP (Dropdown flotante) */
-                        sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72 sm:rounded-xl sm:border sm:max-h-[80vh] 
-                        sm:animate-in sm:zoom-in-95 sm:origin-top-right
-                      `}
-                      >
-                        {/* HEADER FIJO */}
-                        <div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
-                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                            Opciones de Vista
+                      {/* CONTENIDO SCROLLEABLE */}
+                      <div className="max-h-[60vh] overflow-y-auto">
+                        {/* FILTRO TÉCNICA (Solo Management) */}
+                        {isManagement && (
+                          <div className="p-2 border-b border-slate-100">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block px-2 mb-1">
+                              Filtro Técnica
+                            </span>
+                            <div className="flex bg-slate-100 p-1 rounded-lg mx-2">
+                              <button
+                                onClick={() => setTechFilter("all")}
+                                className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${
+                                  techFilter === "all"
+                                    ? "bg-white shadow text-indigo-600"
+                                    : "text-slate-500 hover:text-slate-700"
+                                }`}
+                              >
+                                Todos
+                              </button>
+                              <button
+                                onClick={() => setTechFilter("only_tech")}
+                                className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${
+                                  techFilter === "only_tech"
+                                    ? "bg-white shadow text-indigo-600"
+                                    : "text-slate-500 hover:text-slate-700"
+                                }`}
+                              >
+                                Sólo Téc.
+                              </button>
+                              <button
+                                onClick={() => setTechFilter("no_tech")}
+                                className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${
+                                  techFilter === "no_tech"
+                                    ? "bg-white shadow text-indigo-600"
+                                    : "text-slate-500 hover:text-slate-700"
+                                }`}
+                              >
+                                Sin Téc.
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* TOGGLES */}
+                        <div className="p-2 border-b border-slate-100 space-y-1">
+                          <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
+                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                              <IconBus size={16} className="text-indigo-500" />
+                              <span>Solo mi transporte</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-600 w-4 h-4"
+                              checked={showOnlyMyTransport}
+                              onChange={(e) => {
+                                setShowOnlyMyTransport(e.target.checked);
+                                if (e.target.checked) setShowNoGray(false);
+                              }}
+                            />
+                          </label>
+
+                          {canEdit && (
+                            <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
+                              <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                                <IconEye size={16} className="text-slate-500" />
+                                <span>Sin grises</span>
+                              </div>
+                              <input
+                                type="checkbox"
+                                className="accent-slate-600 w-4 h-4"
+                                checked={showNoGray}
+                                onChange={(e) => {
+                                  setShowNoGray(e.target.checked);
+                                  if (e.target.checked)
+                                    setShowOnlyMyTransport(false);
+                                }}
+                              />
+                            </label>
+                          )}
+
+                          <label className="flex items-center justify-between p-2 hover:bg-slate-50 rounded cursor-pointer group">
+                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                              <span className="text-lg leading-none">🍴</span>
+                              <span>Solo mis comidas</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-600 w-4 h-4"
+                              checked={showOnlyMyMeals}
+                              onChange={(e) =>
+                                setShowOnlyMyMeals(e.target.checked)
+                              }
+                            />
+                          </label>
+                        </div>
+
+                        {/* CATEGORÍAS */}
+                        <div className="p-2">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block px-2 mb-2">
+                            Categorías
                           </span>
                           <button
                             onClick={() => {
-                              setSelectedCategoryIds(
-                                availableCategories.map((c) => c.id),
-                              );
-                              setShowOnlyMyTransport(false);
-                              setShowOnlyMyMeals(false);
-                              setShowNoGray(false);
-                              if (isManagement) setTechFilter("all"); // <--- RESTABLECER FILTRO TÉCNICO
+                              if (
+                                selectedCategoryIds.length ===
+                                availableCategories.length
+                              )
+                                setSelectedCategoryIds([]);
+                              else
+                                setSelectedCategoryIds(
+                                  availableCategories.map((c) => c.id),
+                                );
                             }}
-                            className="text-[10px] text-indigo-600 hover:underline font-bold"
+                            className="w-full px-3 py-2 mb-2 rounded text-xs font-bold border flex justify-between items-center bg-white hover:bg-slate-50 text-slate-500 border-slate-200"
                           >
-                            Restablecer
+                            <span>
+                              {selectedCategoryIds.length ===
+                              availableCategories.length
+                                ? "Deseleccionar todo"
+                                : "Seleccionar todo"}
+                            </span>
+                            <IconList size={14} />
                           </button>
+
+                          <div className="space-y-1">
+                            {availableCategories.map((cat) => {
+                              const isActive = selectedCategoryIds.includes(
+                                cat.id,
+                              );
+                              return (
+                                <button
+                                  key={cat.id}
+                                  onClick={() => handleCategoryToggle(cat.id)}
+                                  className={`w-full px-3 py-2 rounded text-xs font-bold border transition-all flex justify-between items-center ${
+                                    isActive
+                                      ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                      : "bg-white text-slate-400 border-transparent hover:bg-slate-50"
+                                  }`}
+                                >
+                                  <span>{cat.nombre}</span>
+                                  {isActive && <IconCheck size={14} />}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
 
-                        {/* CONTENIDO SCROLLEABLE */}
-                        <div className="overflow-y-auto flex-1 p-0 sm:p-0">
-                          {/* --- AGREGAR SECCIÓN DE FILTRO TÉCNICO (SOLO MANAGEMENT) --- */}
-                          {isManagement && (
-                            <div className="p-2 border-b border-slate-100">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block px-2 mb-1">
-                                Filtro Técnica
-                              </span>
-                              <div className="flex bg-slate-100 p-1 rounded-lg mx-2">
-                                <button
-                                  onClick={() => setTechFilter("all")}
-                                  className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${
-                                    techFilter === "all"
-                                      ? "bg-white shadow text-indigo-600"
-                                      : "text-slate-500 hover:text-slate-700"
-                                  }`}
-                                >
-                                  Todos
-                                </button>
-                                <button
-                                  onClick={() => setTechFilter("only_tech")}
-                                  className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${
-                                    techFilter === "only_tech"
-                                      ? "bg-white shadow text-indigo-600"
-                                      : "text-slate-500 hover:text-slate-700"
-                                  }`}
-                                >
-                                  Sólo Téc.
-                                </button>
-                                <button
-                                  onClick={() => setTechFilter("no_tech")}
-                                  className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${
-                                    techFilter === "no_tech"
-                                      ? "bg-white shadow text-indigo-600"
-                                      : "text-slate-500 hover:text-slate-700"
-                                  }`}
-                                >
-                                  Sin Téc.
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                          {/* ----------------------------------------------------------- */}
-                          {/* TOGGLES ESPECIALES */}
-                          <div className="p-2 border-b border-slate-100 space-y-1">
-                            <label className="flex items-center justify-between p-3 sm:p-2 hover:bg-slate-50 rounded cursor-pointer group active:bg-slate-100">
-                              <div className="flex items-center gap-3 sm:gap-2 text-sm font-medium text-slate-700">
-                                <IconBus
-                                  size={18}
-                                  className="text-indigo-500 sm:w-4 sm:h-4"
-                                />
-                                <span>Solo mi transporte</span>
-                              </div>
+                        {/* MOSTRAR BORRADORES (Solo Editores) */}
+                        {canEdit && (
+                          <div className="p-2 border-t border-slate-100 bg-amber-50/50">
+                            <label className="flex items-center gap-2 cursor-pointer p-2">
                               <input
                                 type="checkbox"
-                                className="accent-indigo-600 w-5 h-5 sm:w-4 sm:h-4"
-                                checked={showOnlyMyTransport}
-                                onChange={(e) => {
-                                  setShowOnlyMyTransport(e.target.checked);
-                                  if (e.target.checked) setShowNoGray(false);
-                                }}
-                              />
-                            </label>
-
-                            {/* NUEVA OPCIÓN: SIN GRISES (Solo Management) */}
-                            {canEdit && (
-                              <label className="flex items-center justify-between p-3 sm:p-2 hover:bg-slate-50 rounded cursor-pointer group active:bg-slate-100">
-                                <div className="flex items-center gap-3 sm:gap-2 text-sm font-medium text-slate-700">
-                                  <IconEye
-                                    size={18}
-                                    className="text-slate-500 sm:w-4 sm:h-4"
-                                  />
-                                  <span>Sin grises</span>
-                                </div>
-                                <input
-                                  type="checkbox"
-                                  className="accent-slate-600 w-5 h-5 sm:w-4 sm:h-4"
-                                  checked={showNoGray}
-                                  onChange={(e) => {
-                                    setShowNoGray(e.target.checked);
-                                    if (e.target.checked)
-                                      setShowOnlyMyTransport(false);
-                                  }}
-                                />
-                              </label>
-                            )}
-
-                            <label className="flex items-center justify-between p-3 sm:p-2 hover:bg-slate-50 rounded cursor-pointer group active:bg-slate-100">
-                              <div className="flex items-center gap-3 sm:gap-2 text-sm font-medium text-slate-700">
-                                <span className="text-amber-500 text-lg leading-none">
-                                  🍴
-                                </span>
-                                <span>Solo mis comidas</span>
-                              </div>
-                              <input
-                                type="checkbox"
-                                className="accent-indigo-600 w-5 h-5 sm:w-4 sm:h-4"
-                                checked={showOnlyMyMeals}
+                                className="accent-amber-600 w-4 h-4"
+                                checked={showNonActive}
                                 onChange={(e) =>
-                                  setShowOnlyMyMeals(e.target.checked)
+                                  setShowNonActive(e.target.checked)
                                 }
                               />
+                              <span className="text-xs font-bold text-amber-800">
+                                Mostrar borradores
+                              </span>
                             </label>
                           </div>
-
-                          <div className="p-3 border-b border-slate-100 bg-slate-50">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                              Categorías
-                            </span>
-                          </div>
-
-                          {/* LISTA DE CATEGORÍAS */}
-                          <div className="p-2 pb-8 sm:pb-2">
-                            <div className="grid grid-cols-1 gap-1">
-                              <button
-                                onClick={() => {
-                                  if (
-                                    selectedCategoryIds.length ===
-                                    availableCategories.length
-                                  )
-                                    setSelectedCategoryIds([]);
-                                  else
-                                    setSelectedCategoryIds(
-                                      availableCategories.map((c) => c.id),
-                                    );
-                                }}
-                                className={`px-3 py-3 sm:py-2 rounded text-xs font-bold border transition-colors flex justify-between items-center ${
-                                  selectedCategoryIds.length ===
-                                  availableCategories.length
-                                    ? "bg-slate-800 text-white border-slate-800"
-                                    : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-                                }`}
-                              >
-                                <span>
-                                  {selectedCategoryIds.length ===
-                                  availableCategories.length
-                                    ? "Deseleccionar todo"
-                                    : "Seleccionar todo"}
-                                </span>
-                                <IconList size={14} />
-                              </button>
-
-                              {availableCategories.map((cat) => {
-                                const isActive = selectedCategoryIds.includes(
-                                  cat.id,
-                                );
-                                return (
-                                  <button
-                                    key={cat.id}
-                                    onClick={() => handleCategoryToggle(cat.id)}
-                                    className={`px-3 py-3 sm:py-2 rounded text-xs font-bold border transition-all flex justify-between items-center ${
-                                      isActive
-                                        ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                        : "bg-white text-slate-400 border-transparent hover:bg-slate-50"
-                                    }`}
-                                  >
-                                    <span>{cat.nombre}</span>
-                                    {isActive && <IconCheck size={14} />}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {canEdit && (
-                            <div className="p-2 border-t border-slate-100 bg-amber-50/50 pb-6 sm:pb-2">
-                              <label className="flex items-center gap-2 cursor-pointer p-2">
-                                <input
-                                  type="checkbox"
-                                  className="accent-amber-600 w-5 h-5 sm:w-4 sm:h-4"
-                                  checked={showNonActive}
-                                  onChange={(e) =>
-                                    setShowNonActive(e.target.checked)
-                                  }
-                                />
-                                <span className="text-xs font-bold text-amber-800">
-                                  Mostrar borradores
-                                </span>
-                              </label>
-                            </div>
-                          )}
-                        </div>
+                        )}
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
 
+                {/* VER COMO... (Solo Editores) */}
                 {canEdit && musicianOptions.length > 0 && (
                   <div className="shrink-0 w-[40px] md:w-[160px]">
                     <SearchableSelect
@@ -1524,6 +1560,7 @@ export default function UnifiedAgenda({
               </>
             )}
 
+            {/* BOTÓN EXPORTAR */}
             <button
               onClick={handleExportPDF}
               disabled={loading || filteredItems.length === 0}
@@ -1533,7 +1570,8 @@ export default function UnifiedAgenda({
               <IconPrinter size={20} />
             </button>
 
-            {giraId && canEdit && !isOfflineMode && (
+            {/* BOTÓN CREAR (Solo Editores Globales) */}
+            {giraId && isGlobalEditor && !isOfflineMode && (
               <button
                 onClick={handleOpenCreate}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white w-9 h-9 rounded-full flex items-center justify-center shadow-sm shrink-0"
@@ -1546,6 +1584,7 @@ export default function UnifiedAgenda({
       </div>
 
       <div className="flex-1 overflow-y-auto bg-slate-50/50">
+        {/* ... (Listado de eventos) ... */}
         {loading && items.length === 0 && (
           <div className="text-center py-10">
             <IconLoader
@@ -1573,6 +1612,7 @@ export default function UnifiedAgenda({
               </div>
 
               {monthEvents.map((evt) => {
+                // ... (Lógica de renderizado de tarjeta) ...
                 if (evt.isProgramMarker) {
                   return <TourDivider key={evt.id} gira={evt.programas} />;
                 }
@@ -1611,11 +1651,9 @@ export default function UnifiedAgenda({
                   }
                 }
 
-                // DIMMING LOGIC
                 let isTransportDimmed = isTransportEvent && !isMyTransport;
                 if (showNoGray && isTransportEvent) isTransportDimmed = false;
 
-                // Si "Sin grises" está activado, tampoco se opacan las comidas no convocadas
                 let shouldDim = isTransportDimmed || evt.is_absent;
                 if (!showNoGray && isNonConvokedMeal) shouldDim = true;
 
@@ -1696,7 +1734,6 @@ export default function UnifiedAgenda({
                               {evt.programas.nomenclador}
                             </span>
                           )}
-                          {/* --- BOTÓN TOGGLE TÉCNICA (SOLO EDITOR/MANAGEMENT) --- */}
                           {(isManagement || isEditor) && (
                             <button
                               onClick={(e) =>
@@ -1722,9 +1759,7 @@ export default function UnifiedAgenda({
                                   <span>TÉC</span>
                                 </>
                               ) : (
-                                <IconEye
-                                  size={12}
-                                /> /* Icono discreto para activar */
+                                <IconEye size={12} />
                               )}
                             </button>
                           )}
@@ -1739,7 +1774,6 @@ export default function UnifiedAgenda({
                             {evt.descripcion || evt.tipos_evento?.nombre}
                           </h4>
 
-                          {/* ----------------------------------------------------- */}
                           <div className="flex flex-wrap gap-1">
                             {isTransportEvent && transportName && (
                               <span
@@ -1819,14 +1853,17 @@ export default function UnifiedAgenda({
                             </button>
                           )}
                         <div className="flex flex-col items-end gap-1 relative">
-                          {canEdit && !isOfflineMode && (
-                            <button
-                              onClick={() => openEditModal(evt)}
-                              className="p-1 text-slate-300 hover:text-indigo-600 bg-white rounded-full shadow-sm border border-slate-100 mb-1"
-                            >
-                              <IconEdit size={14} />
-                            </button>
-                          )}
+                          {/* --- BOTÓN DE EDICIÓN CONDICIONAL --- */}
+                          {!isOfflineMode &&
+                            (isGlobalEditor || canUserEditEvent(evt)) && (
+                              <button
+                                onClick={() => openEditModal(evt)}
+                                className="p-1 text-slate-300 hover:text-indigo-600 bg-white rounded-full shadow-sm border border-slate-100 mb-1"
+                              >
+                                <IconEdit size={14} />
+                              </button>
+                            )}
+
                           <CommentButton
                             supabase={supabase}
                             entityType="EVENTO"
@@ -1841,10 +1878,17 @@ export default function UnifiedAgenda({
                             className="text-slate-300 hover:text-indigo-500 p-1"
                           />
                         </div>
+                        {/* SECCIÓN DE COMIDAS REDISEÑADA */}
                         {isMeal &&
                           evt.is_convoked &&
                           user.id !== "guest-general" && (
-                            <div className="flex flex-col gap-1 ml-1">
+                            <div className="flex flex-col items-center gap-1 ml-2 justify-center min-w-[40px]">
+                              {/* Icono Base siempre visible (más sutil) */}
+                              <div className="text-slate-300 mb-0.5">
+                                <IconUtensils size={14} />
+                              </div>
+
+                              {/* ESTADO: CONFIRMADO (P) */}
                               {evt.mi_asistencia === "P" && (
                                 <button
                                   onClick={() =>
@@ -1852,13 +1896,16 @@ export default function UnifiedAgenda({
                                     deadlineStatus?.status === "OPEN" &&
                                     toggleMealAttendance(evt.id, null)
                                   }
-                                  className={`bg-emerald-100 text-emerald-700 p-1 rounded-md ${
+                                  className={`flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 shadow-sm transition-all hover:bg-emerald-200 hover:scale-105 ${
                                     isOfflineMode ? "opacity-50" : ""
                                   }`}
+                                  title="Asistencia Confirmada (Click para cancelar)"
                                 >
-                                  <IconCheck size={14} />
+                                  <IconCheck size={16} strokeWidth={3} />
                                 </button>
                               )}
+
+                              {/* ESTADO: RECHAZADO (A) */}
                               {evt.mi_asistencia === "A" && (
                                 <button
                                   onClick={() =>
@@ -1866,35 +1913,40 @@ export default function UnifiedAgenda({
                                     deadlineStatus?.status === "OPEN" &&
                                     toggleMealAttendance(evt.id, null)
                                   }
-                                  className={`bg-rose-100 text-rose-700 p-1 rounded-md ${
+                                  className={`flex items-center justify-center w-7 h-7 rounded-full bg-rose-100 text-rose-700 border border-rose-200 shadow-sm transition-all hover:bg-rose-200 hover:scale-105 ${
                                     isOfflineMode ? "opacity-50" : ""
                                   }`}
+                                  title="No Asistiré (Click para cambiar)"
                                 >
-                                  <IconX size={14} />
+                                  <IconX size={16} strokeWidth={3} />
                                 </button>
                               )}
+
+                              {/* ESTADO: PENDIENTE (SIN RESPUESTA) */}
                               {!evt.mi_asistencia &&
                                 deadlineStatus?.status === "OPEN" && (
-                                  <div className="flex flex-col gap-1">
+                                  <div className="flex items-center gap-1">
                                     <button
                                       onClick={() =>
                                         !isOfflineMode &&
                                         toggleMealAttendance(evt.id, "P")
                                       }
-                                      className="bg-slate-100 hover:bg-emerald-100 text-slate-400 hover:text-emerald-600 p-1 rounded-sm disabled:opacity-50"
+                                      className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all shadow-sm"
                                       disabled={isOfflineMode}
+                                      title="Confirmar"
                                     >
-                                      <IconCheck size={14} />
+                                      <IconCheck size={12} strokeWidth={3} />
                                     </button>
                                     <button
                                       onClick={() =>
                                         !isOfflineMode &&
                                         toggleMealAttendance(evt.id, "A")
                                       }
-                                      className="bg-slate-100 hover:bg-rose-100 text-slate-400 hover:text-rose-600 p-1 rounded-sm disabled:opacity-50"
+                                      className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-400 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm"
                                       disabled={isOfflineMode}
+                                      title="Rechazar"
                                     >
-                                      <IconX size={14} />
+                                      <IconX size={12} strokeWidth={3} />
                                     </button>
                                   </div>
                                 )}
@@ -1909,6 +1961,7 @@ export default function UnifiedAgenda({
           );
         })}
 
+        {/* ... (Footer de carga) ... */}
         {!giraId && !loading && (
           <div className="p-6 flex justify-center pb-12">
             <button
@@ -1927,6 +1980,7 @@ export default function UnifiedAgenda({
         )}
       </div>
 
+      {/* --- MODAL EDICIÓN STANDARD --- */}
       {isEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <EventForm
@@ -1943,6 +1997,25 @@ export default function UnifiedAgenda({
           />
         </div>
       )}
+
+      {/* --- MODAL EDICIÓN ENSAYO (COORDINADOR) --- */}
+      {isRehearsalEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-2xl relative">
+            <IndependentRehearsalForm
+              supabase={supabase}
+              initialData={editingEventObj}
+              myEnsembles={myEnsembleObjects} // <--- Pasamos los objetos de ensamble
+              onSuccess={() => {
+                setIsRehearsalEditOpen(false);
+                fetchAgenda();
+              }}
+              onCancel={() => setIsRehearsalEditOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
       {isCreating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <EventForm
