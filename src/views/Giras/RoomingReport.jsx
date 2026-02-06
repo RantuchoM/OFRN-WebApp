@@ -1,5 +1,4 @@
 // src/views/Giras/RoomingReport.jsx
-// (Este archivo se mantiene mayormente igual, ya que recibe 'logisticsMap' ya calculado por el padre)
 import React, { useRef } from "react";
 import { IconFileText, IconPrinter, IconX } from "../../components/ui/Icons";
 import { differenceInCalendarDays } from "date-fns";
@@ -66,6 +65,43 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
     const formatDOB = (isoString) => isoString ? isoString.split('-').reverse().join('/') : '-';
     const getEmptyStats = () => ({ total: 0, std: 0, plus: 0, matri: 0, cuna: 0 });
 
+    // --- HELPER ACTUALIZADO PARA CAMPOS DE BD ---
+    const getLogisticsDates = (log) => {
+        let dateIn = null;
+        let dateOut = null;
+
+        // Check-In
+        if (log?.checkin) {
+            let dStr, tStr;
+            if (typeof log.checkin === 'object') {
+                // Prioridad: Campos BD (fecha, hora_inicio) -> Alias (date, time, hora)
+                dStr = log.checkin.fecha || log.checkin.date;
+                tStr = log.checkin.hora_inicio || log.checkin.hora || log.checkin.time || '14:00';
+            } else {
+                // Fallback string simple
+                dStr = log.checkin;
+                tStr = log.checkin_time || '14:00';
+            }
+            // Slice(0,5) asegura formato HH:MM si viene HH:MM:SS
+            if (dStr) dateIn = new Date(`${dStr}T${tStr.slice(0, 5)}`);
+        }
+
+        // Check-Out
+        if (log?.checkout) {
+            let dStr, tStr;
+            if (typeof log.checkout === 'object') {
+                dStr = log.checkout.fecha || log.checkout.date;
+                tStr = log.checkout.hora_inicio || log.checkout.hora || log.checkout.time || '10:00';
+            } else {
+                dStr = log.checkout;
+                tStr = log.checkout_time || '10:00';
+            }
+            if (dStr) dateOut = new Date(`${dStr}T${tStr.slice(0, 5)}`);
+        }
+
+        return { dateIn, dateOut };
+    };
+
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
             <div className="bg-white w-full max-w-6xl h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden">
@@ -86,10 +122,11 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
                         const processedRooms = hotelRooms.map(r => {
                             const occupantsWithDates = r.occupants.map(occ => {
                                 const log = logisticsMap[occ.id] || {};
+                                const { dateIn, dateOut } = getLogisticsDates(log);
                                 return {
                                     ...occ,
-                                    dateIn: log.checkin ? new Date(log.checkin + 'T' + (log.checkin_time || '14:00')) : null,
-                                    dateOut: log.checkout ? new Date(log.checkout + 'T' + (log.checkout_time || '10:00')) : null,
+                                    dateIn,
+                                    dateOut,
                                 };
                             });
                             

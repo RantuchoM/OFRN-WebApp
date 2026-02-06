@@ -15,13 +15,14 @@ import {
   IconX,
   IconList,
   IconHelpCircle,
+  IconAlertTriangle, // <--- AGREGAR ESTE
 } from "../../components/ui/Icons";
 import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
 import RoomingReportModal from "./RoomingReport";
 import InitialOrderReportModal from "./RoomingInitialOrderReport";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
-
+import { useLogistics } from "../../hooks/useLogistics"; // <--- CAMBIO CLAVE
 // --- MODAL DE AYUDA ---
 const HelpModal = ({ onClose }) => (
   <div
@@ -96,7 +97,64 @@ const HelpModal = ({ onClose }) => (
     </div>
   </div>
 );
-
+// --- MODAL: FALTAN DATOS ---
+const MissingDataModal = ({ people, onClose }) => {
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 relative"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"
+        >
+          <IconX size={20} />
+        </button>
+        <h3 className="text-xl font-bold text-amber-700 mb-4 flex items-center gap-2">
+          <IconAlertTriangle className="text-amber-600" /> Datos Faltantes
+        </h3>
+        <p className="text-sm text-slate-600 mb-4">
+          Las siguientes personas están asignadas a una habitación pero les
+          falta información crítica para el hotel:
+        </p>
+        <div className="max-h-64 overflow-y-auto border border-slate-200 rounded-lg">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold sticky top-0">
+              <tr>
+                <th className="p-3">Nombre</th>
+                <th className="p-3">Falta</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {people.map((p) => (
+                <tr key={p.id}>
+                  <td className="p-3 font-medium text-slate-700">
+                    {p.apellido}, {p.nombre}
+                  </td>
+                  <td className="p-3 text-red-600 font-bold text-xs">
+                    {p.missingFields.join(", ")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-6 flex justify-end">
+          <button
+            onClick={onClose}
+            className="bg-slate-100 text-slate-700 px-4 py-2 rounded-lg font-bold text-sm hover:bg-slate-200"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 // --- MODAL: AGREGAR/EDITAR HOTEL ---
 const HotelForm = ({
   onSubmit,
@@ -113,7 +171,7 @@ const HotelForm = ({
   });
 
   const activeLocIds = new Set(
-    masterHotels.map((h) => h.id_localidad).filter((id) => id !== null)
+    masterHotels.map((h) => h.id_localidad).filter((id) => id !== null),
   );
   const hasNullLocHotels = masterHotels.some((h) => h.id_localidad === null);
   const visibleLocations = locationsList.filter((l) => activeLocIds.has(l.id));
@@ -325,10 +383,10 @@ const TransferRoomModal = ({
 }) => {
   const [targetHotelId, setTargetHotelId] = useState("");
   const currentHotelId = bookings.find(
-    (b) => b.id === currentBooking
+    (b) => b.id === currentBooking,
   )?.id_hotel;
   const sortedHotels = [...masterHotels].sort((a, b) =>
-    a.nombre.localeCompare(b.nombre)
+    a.nombre.localeCompare(b.nombre),
   );
 
   return (
@@ -379,7 +437,7 @@ const TransferRoomModal = ({
 const RoomForm = ({ onSubmit, onClose, initialData }) => {
   const [tipo, setTipo] = useState(initialData?.tipo || "Común");
   const [esMatrimonial, setEsMatrimonial] = useState(
-    initialData?.es_matrimonial || false
+    initialData?.es_matrimonial || false,
   );
   const [conCuna, setConCuna] = useState(initialData?.con_cuna || false);
   const [notas, setNotas] = useState(initialData?.notas_internas || "");
@@ -487,10 +545,10 @@ const MusicianCard = ({
           isSelected
             ? "bg-indigo-600 text-white border-indigo-700 ring-2 ring-indigo-300"
             : isLocalWarning
-            ? "bg-orange-100 border-orange-400 text-orange-900 ring-2 ring-orange-300/50 font-medium"
-            : isLocal
-            ? "bg-slate-100 text-slate-400 border-slate-200 grayscale opacity-80"
-            : "bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50"
+              ? "bg-orange-100 border-orange-400 text-orange-900 ring-2 ring-orange-300/50 font-medium"
+              : isLocal
+                ? "bg-slate-100 text-slate-400 border-slate-200 grayscale opacity-80"
+                : "bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50"
         }
       `}
       title={
@@ -514,8 +572,8 @@ const MusicianCard = ({
             isLocalWarning
               ? "bg-orange-200 border-orange-300 text-orange-800"
               : isSelected
-              ? "text-white border-white/30 bg-white/20"
-              : "text-slate-400 bg-black/5 border-transparent"
+                ? "text-white border-white/30 bg-white/20"
+                : "text-slate-400 bg-black/5 border-transparent"
           }`}
         >
           {loc.slice(0, 3)}
@@ -819,7 +877,11 @@ export default function RoomingManager({
   onDataChange,
 }) {
   const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
-
+  const {
+    summary: logisticsSummary,
+    loading: logisticsLoading,
+    refresh: refreshLogistics,
+  } = useLogistics(supabase, program);
   const [musicians, setMusicians] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -844,7 +906,7 @@ export default function RoomingManager({
   const [isDragging, setIsDragging] = useState(false);
   const [draggedMusician, setDraggedMusician] = useState(null);
   const [commentsState, setCommentsState] = useState(null);
-
+  const [showMissingData, setShowMissingData] = useState(false); // <--- NUEVO ESTADO
   // --- NUEVOS ESTADOS PARA SELECCIÓN MÚLTIPLE ---
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [lastSelectedId, setLastSelectedId] = useState(null);
@@ -895,7 +957,22 @@ export default function RoomingManager({
     }
     setSelectedIds(newSelected);
   };
-
+// --- CÁLCULO DE FALTANTES (NUEVO) ---
+  const missingDataPeople = useMemo(() => {
+    const list = [];
+    rooms.forEach((room) => {
+      room.occupants.forEach((p) => {
+        const missing = [];
+        if (!p.dni || p.dni.trim() === "") missing.push("DNI");
+        if (!p.fecha_nac) missing.push("F. Nac");
+        
+        if (missing.length > 0) {
+          list.push({ ...p, missingFields: missing });
+        }
+      });
+    });
+    return list;
+  }, [rooms]);
   // --- DRAG HANDLERS ---
   const handleDragStart = (e, musician, sourceRoomId = null) => {
     let itemsToDrag = [];
@@ -911,7 +988,7 @@ export default function RoomingManager({
         type: "PEOPLE_BATCH",
         ids: itemsToDrag,
         sourceRoomId,
-      })
+      }),
     );
     e.dataTransfer.effectAllowed = "move";
     setDraggedMusician({ ...musician, sourceRoomId });
@@ -944,7 +1021,7 @@ export default function RoomingManager({
       } else {
         for (let i = 0; i < newRooms.length; i++) {
           const occupantIndex = newRooms[i].occupants.findIndex(
-            (m) => m.id === id
+            (m) => m.id === id,
           );
           if (occupantIndex !== -1) {
             sourceRoomIndex = i;
@@ -1109,7 +1186,8 @@ export default function RoomingManager({
     }
   };
 
-  const calculateLogisticsForMusician = (person, rules) => {
+  // --- CALCULO LOGÍSTICA (Versión Corregida con Eventos) ---
+  const calculateLogisticsForMusician = (person, rules, allEvents = []) => {
     const applicable = rules.filter((r) => {
       const scope = r.alcance === "Instrumento" ? "Categoria" : r.alcance;
       if (scope === "General") return true;
@@ -1134,13 +1212,39 @@ export default function RoomingManager({
       }
       return false;
     });
+
+    // Ordenar por prioridad
     applicable.sort((a, b) => a.prioridad - b.prioridad);
+
     let final = {};
     applicable.forEach((r) => {
-      if (r.fecha_checkin) final.checkin = r.fecha_checkin;
-      if (r.hora_checkin) final.checkin_time = r.hora_checkin;
-      if (r.fecha_checkout) final.checkout = r.fecha_checkout;
-      if (r.hora_checkout) final.checkout_time = r.hora_checkout;
+      // CHECKIN: Si hay evento vinculado, usar sus datos. Si no, fecha manual.
+      // IMPORTANTE: Convertimos IDs a String para comparar seguramente
+      if (r.id_evento_checkin) {
+        const evt = allEvents.find(
+          (e) => String(e.id) === String(r.id_evento_checkin),
+        );
+        if (evt) {
+          final.checkin = { fecha: evt.fecha, hora_inicio: evt.hora_inicio };
+        }
+      } else if (r.fecha_checkin) {
+        final.checkin = { fecha: r.fecha_checkin, hora_inicio: r.hora_checkin };
+      }
+
+      // CHECKOUT: Igual lógica
+      if (r.id_evento_checkout) {
+        const evt = allEvents.find(
+          (e) => String(e.id) === String(r.id_evento_checkout),
+        );
+        if (evt) {
+          final.checkout = { fecha: evt.fecha, hora_inicio: evt.hora_inicio };
+        }
+      } else if (r.fecha_checkout) {
+        final.checkout = {
+          fecha: r.fecha_checkout,
+          hora_inicio: r.hora_checkout,
+        };
+      }
     });
     return final;
   };
@@ -1156,10 +1260,15 @@ export default function RoomingManager({
     data?.forEach((d) => (map[d.id] = d));
     return baseRoster.map((m) => ({ ...m, ...map[m.id] }));
   };
+  // EFECTO PRINCIPAL: Cargar datos iniciales y procesar Logística
+  useEffect(() => {
+    if (program.id && !logisticsLoading) fetchInitialData();
+  }, [program.id, logisticsLoading, logisticsSummary]);
 
   const fetchInitialData = async () => {
     setLoading(true);
     try {
+      // 1. Cargar Bookings (Hoteles de la gira)
       const { data: bookingsData } = await supabase
         .from("programas_hospedajes")
         .select("*, hoteles(nombre, localidades(localidad))")
@@ -1168,60 +1277,33 @@ export default function RoomingManager({
       setBookings(bookingsData || []);
       const bookingIds = (bookingsData || []).map((b) => b.id);
 
-      const { data: locs } = await supabase
-        .from("localidades")
-        .select("id, localidad")
-        .order("localidad");
-      setLocationsList(locs || []);
-      const { data: allHotels } = await supabase
-        .from("hoteles")
-        .select("id, nombre, id_localidad")
-        .order("nombre");
-      setMasterHotels(allHotels || []);
-
+      // 2. Cargar Habitaciones
       let roomsData = [];
       if (bookingIds.length > 0) {
         const { data } = await supabase
           .from("hospedaje_habitaciones")
           .select("*")
           .in("id_hospedaje", bookingIds)
-          .order("orden", { ascending: false }); // DESCENDENTE
+          .order("orden", { ascending: false });
         roomsData = data || [];
       }
 
-      const { data: rules } = await supabase
-        .from("giras_logistica_reglas")
-        .select("*")
-        .eq("id_gira", program.id);
-      const normalizedRules = (rules || []).map((r) => ({
-        ...r,
-        target_ids:
-          r.target_ids && Array.isArray(r.target_ids)
-            ? r.target_ids
-            : [
-                r.id_integrante ||
-                  r.id_localidad ||
-                  r.id_region ||
-                  r.instrumento_familia,
-              ].filter(Boolean),
-      }));
-      setLogisticsRules(normalizedRules);
-
-      const fullMusicians = await enrichRosterWithGender(roster);
+      // 3. PROCESAR LOGÍSTICA (Aquí está la magia)
+      // logisticsSummary ya viene calculado desde el hook con fechas de eventos resueltas
       const logMap = {};
       const allMusiciansMap = new Map();
 
-      fullMusicians.forEach((m) => {
-        if (m.estado_gira !== "ausente") {
-          logMap[m.id] = calculateLogisticsForMusician(m, normalizedRules);
-          allMusiciansMap.set(m.id, m);
-        }
+      logisticsSummary.forEach((person) => {
+        // Guardamos el objeto completo de logística para el reporte
+        logMap[person.id] = person.logistics;
+        allMusiciansMap.set(person.id, person);
       });
       setLogisticsMap(logMap);
 
+      // 4. Mapear ocupantes a habitaciones
       const roomsWithDetails = roomsData.map((room) => {
         const occupants = (room.id_integrantes_asignados || [])
-          .map((id) => allMusiciansMap.get(id))
+          .map((id) => allMusiciansMap.get(id)) // Obtenemos el músico enriquecido del summary
           .filter(Boolean);
         return {
           ...room,
@@ -1230,13 +1312,14 @@ export default function RoomingManager({
         };
       });
 
+      // 5. Determinar quiénes faltan asignar
       const assignedIds = new Set();
       roomsData.forEach((r) =>
-        (r.id_integrantes_asignados || []).forEach((id) => assignedIds.add(id))
+        (r.id_integrantes_asignados || []).forEach((id) => assignedIds.add(id)),
       );
 
       const unassigned = Array.from(allMusiciansMap.values())
-        .filter((m) => !assignedIds.has(m.id))
+        .filter((m) => !assignedIds.has(m.id) && m.estado_gira !== "ausente")
         .sort((a, b) => {
           if (a.is_local !== b.is_local) return a.is_local ? 1 : -1;
           return (a.apellido || "").localeCompare(b.apellido || "");
@@ -1245,12 +1328,11 @@ export default function RoomingManager({
       setMusicians(unassigned);
       setRooms(roomsWithDetails);
     } catch (error) {
-      console.error(error);
+      console.error("Error en RoomingManager:", error);
     } finally {
       setLoading(false);
     }
   };
-
   const updateLocalState = (newRooms, newMusicians) => {
     setRooms(newRooms);
     setMusicians(newMusicians);
@@ -1285,7 +1367,7 @@ export default function RoomingManager({
     let idHotelMaestro = id_hotel;
     if (!editingId && mode === "select") {
       const alreadyExists = bookings.some(
-        (b) => b.id_hotel === parseInt(id_hotel)
+        (b) => b.id_hotel === parseInt(id_hotel),
       );
       if (alreadyExists) {
         alert("Hotel ya agregado.");
@@ -1389,7 +1471,7 @@ export default function RoomingManager({
     let newRooms = [...rooms];
     const targetRoom = { ...newRooms[roomIndex] };
     targetRoom.occupants = targetRoom.occupants.filter(
-      (m) => m.id !== musician.id
+      (m) => m.id !== musician.id,
     );
     if (targetRoom.occupants.length === 0) {
       newRooms.splice(roomIndex, 1);
@@ -1411,7 +1493,7 @@ export default function RoomingManager({
 
     if (roomData.id) {
       setRooms((prev) =>
-        prev.map((r) => (r.id === roomData.id ? { ...r, ...roomData } : r))
+        prev.map((r) => (r.id === roomData.id ? { ...r, ...roomData } : r)),
       );
       await supabase
         .from("hospedaje_habitaciones")
@@ -1450,7 +1532,7 @@ export default function RoomingManager({
       (a, b) => {
         if (a.is_local !== b.is_local) return a.is_local ? 1 : -1;
         return a.apellido.localeCompare(b.apellido);
-      }
+      },
     );
     updateLocalState(newRooms, newMusicians);
     await supabase.from("hospedaje_habitaciones").delete().eq("id", id);
@@ -1514,9 +1596,8 @@ export default function RoomingManager({
       .length,
     M: rooms.filter((r) => r.roomGender === "M" && r.occupants.length > 0)
       .length,
-    Mix: rooms.filter(
-      (r) => r.roomGender === "Mixto" && r.occupants.length > 0
-    ).length,
+    Mix: rooms.filter((r) => r.roomGender === "Mixto" && r.occupants.length > 0)
+      .length,
   };
 
   const women = musicians.filter((m) => m.genero === "F");
@@ -1525,11 +1606,11 @@ export default function RoomingManager({
   // --- CALCULO DE TOTALES POR GÉNERO ---
   const lodgedWomen = rooms.reduce(
     (acc, r) => acc + r.occupants.filter((m) => m.genero === "F").length,
-    0
+    0,
   );
   const lodgedMen = rooms.reduce(
     (acc, r) => acc + r.occupants.filter((m) => m.genero !== "F").length,
-    0
+    0,
   );
 
   if (rosterLoading)
@@ -1561,6 +1642,17 @@ export default function RoomingManager({
             </button>
           </div>
           <div className="flex gap-2">
+            {/* --- BOTÓN DE ALERTA (NUEVO) --- */}
+            {missingDataPeople.length > 0 && (
+              <button
+                onClick={() => setShowMissingData(true)}
+                className="bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg border border-amber-200 text-xs font-bold hover:bg-amber-100 flex items-center gap-2 animate-pulse"
+                title="Ver personas con datos faltantes"
+              >
+                <IconAlertTriangle size={16} />
+                <span>Faltan Datos ({missingDataPeople.length})</span>
+              </button>
+            )}
             <button
               onClick={() => {
                 setEditingHotelData(null);
@@ -1716,7 +1808,7 @@ export default function RoomingManager({
               const roomsF = hotelRooms.filter((r) => r.roomGender === "F");
               const roomsM = hotelRooms.filter((r) => r.roomGender === "M");
               const roomsMix = hotelRooms.filter(
-                (r) => r.roomGender === "Mixto"
+                (r) => r.roomGender === "Mixto",
               );
               return (
                 <div
@@ -1735,7 +1827,7 @@ export default function RoomingManager({
                         Habitaciones: {hotelRooms.length} | Pax:{" "}
                         {hotelRooms.reduce(
                           (acc, r) => acc + r.occupants.length,
-                          0
+                          0,
                         )}
                       </div>
                       <button
@@ -1794,7 +1886,7 @@ export default function RoomingManager({
                               type: "HABITACION",
                               id: r.id,
                               title: `Hab ${getCapacityLabel(
-                                r.occupants.length
+                                r.occupants.length,
                               )} en ${bk.hoteles.nombre}`,
                             })
                           }
@@ -1852,7 +1944,7 @@ export default function RoomingManager({
                               type: "HABITACION",
                               id: r.id,
                               title: `Hab ${getCapacityLabel(
-                                r.occupants.length
+                                r.occupants.length,
                               )} en ${bk.hoteles.nombre}`,
                             })
                           }
@@ -1888,7 +1980,7 @@ export default function RoomingManager({
                               type: "HABITACION",
                               id: r.id,
                               title: `Hab ${getCapacityLabel(
-                                r.occupants.length
+                                r.occupants.length,
                               )} en ${bk.hoteles.nombre}`,
                             })
                           }
@@ -1914,6 +2006,12 @@ export default function RoomingManager({
             onMusicianClick={handleMusicianClick}
           />
         </div>
+      )}
+      {showMissingData && (
+        <MissingDataModal 
+          people={missingDataPeople} 
+          onClose={() => setShowMissingData(false)} 
+        />
       )}
       {commentsState && (
         <div
