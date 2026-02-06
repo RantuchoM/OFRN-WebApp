@@ -9,7 +9,8 @@ import {
   IconSortDesc,
   IconAlertCircle,
   IconCheck,
-  IconX
+  IconX,
+  IconAlertTriangle // Nuevo icono para el aviso
 } from "../../components/ui/Icons";
 
 // --- SUB-COMPONENTE: SELECTOR BUSCABLE (Sin cambios) ---
@@ -134,7 +135,6 @@ const SearchableSelect = ({ value, options, onChange, onBlur, className }) => {
 
 // --- SUB-COMPONENTE: CELDA EDITABLE ---
 const EditableCell = ({ row, col, onSave }) => {
-  // LÓGICA CLAVE: Si es ID y es borrador, leemos de '_manual_id', si no, del campo normal
   const isDraft = String(row.id).startsWith("temp-");
   const initialValue = (col.key === 'id' && isDraft) ? (row._manual_id || "") : row[col.key];
 
@@ -142,12 +142,10 @@ const EditableCell = ({ row, col, onSave }) => {
   const [status, setStatus] = useState("idle"); 
   const inputRef = useRef(null);
 
-  // Si la columna es 'id' y NO es un borrador, mostramos solo texto (no editable)
   if (col.key === 'id' && !isDraft) {
       return <span className="px-2 py-1.5 text-xs font-mono text-slate-400 block truncate" title={value}>{value}</span>;
   }
 
-  // Sincronizar estado si cambia el prop row (importante para updates)
   useEffect(() => {
     const nextVal = (col.key === 'id' && isDraft) ? (row._manual_id || "") : row[col.key];
     setValue(nextVal);
@@ -156,9 +154,7 @@ const EditableCell = ({ row, col, onSave }) => {
   const handleSave = async (newValue) => {
     const valToSave = newValue !== undefined ? newValue : value;
     
-    // Si es borrador, guardamos en memoria (padre) inmediatamente
     if (isDraft) {
-        // Truco: si es la columna ID, guardamos en la propiedad especial '_manual_id'
         const targetKey = col.key === 'id' ? '_manual_id' : col.key;
         onSave(row.id, targetKey, valToSave);
         return;
@@ -169,13 +165,15 @@ const EditableCell = ({ row, col, onSave }) => {
       return;
     }
 
-    // Auto-save normal para filas existentes
+    // --- CAMBIO: Estado SAVING (Amarillo) ---
     setStatus("saving");
     const success = await onSave(row.id, col.key, valToSave);
     if (success) {
+      // --- CAMBIO: Estado SUCCESS (Verde) ---
       setStatus("success");
       setTimeout(() => setStatus("idle"), 2000);
     } else {
+      // --- CAMBIO: Estado ERROR (Rojo) ---
       setStatus("error");
     }
   };
@@ -186,11 +184,19 @@ const EditableCell = ({ row, col, onSave }) => {
     }
   };
 
+  // --- CAMBIO: Clases visuales según estado ---
   const getStatusClass = () => {
     if (status === "editing") return "ring-2 ring-indigo-500 z-10 bg-white shadow-sm";
-    if (status === "saving") return "bg-slate-100 text-slate-400";
-    if (status === "success") return "bg-emerald-50 transition-colors duration-500";
-    if (status === "error") return "bg-red-50 ring-2 ring-red-500 z-10";
+    
+    // GUARDANDO: Amarillo suave
+    if (status === "saving") return "bg-amber-100 text-amber-800 ring-1 ring-amber-300 transition-colors";
+    
+    // ÉXITO: Verde suave que se desvanece
+    if (status === "success") return "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300 transition-colors duration-1000";
+    
+    // ERROR: Rojo fuerte
+    if (status === "error") return "bg-red-50 text-red-800 ring-2 ring-red-500 z-10";
+    
     return "hover:bg-slate-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-500 focus-within:z-10";
   };
 
@@ -254,7 +260,6 @@ const EditableCell = ({ row, col, onSave }) => {
       value={value === null || value === undefined ? "" : value}
       onChange={(e) => {
           setValue(e.target.value);
-          // Si es borrador, actualizamos en tiempo real para no perder el foco ni el estado
           if(isDraft) {
              const targetKey = col.key === 'id' ? '_manual_id' : col.key;
              onSave(row.id, targetKey, e.target.value); 
@@ -277,6 +282,7 @@ export default function UniversalTable({
   defaultSort = "id",
   onDataChange,
   onDirtyChange,
+  warningMessage // <--- NUEVA PROP RECIBIDA
 }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -286,7 +292,6 @@ export default function UniversalTable({
 
   const fetchData = async () => {
     setLoading(true);
-    // Ordenar por ID por defecto
     const { data: rows, error } = await supabase.from(tableName).select("*").order('id', { ascending: true });
     if (!error) setData(rows || []);
     setLoading(false);
@@ -297,7 +302,6 @@ export default function UniversalTable({
     setFilters({});
   }, [tableName]);
 
-  // --- DETECTAR BORRADORES ---
   useEffect(() => {
     const hasDrafts = data.some(row => String(row.id).startsWith("temp-"));
     if (onDirtyChange) onDirtyChange(hasDrafts);
@@ -320,7 +324,6 @@ export default function UniversalTable({
   const handleAutoSave = async (id, key, value) => {
     const cleanValue = sanitizeValue(value);
 
-    // Si es borrador, actualizamos estado local (incluso si la key es '_manual_id')
     if (String(id).startsWith("temp-")) {
         setData((prev) =>
             prev.map((row) => (row.id === id ? { ...row, [key]: cleanValue } : row))
@@ -328,7 +331,6 @@ export default function UniversalTable({
         return true; 
     }
 
-    // Si NO es borrador y intentan editar ID -> BLOQUEAR
     if (key === 'id') return false; 
 
     try {
@@ -352,7 +354,7 @@ export default function UniversalTable({
 
   const handleCreate = () => {
     const tempId = `temp-${Date.now()}`;
-    const newRow = { id: tempId, _manual_id: "" }; // _manual_id guarda lo que el usuario escribe en ID
+    const newRow = { id: tempId, _manual_id: "" }; 
     
     columns.forEach((col) => {
       if (col.key !== 'id') {
@@ -380,7 +382,6 @@ export default function UniversalTable({
 
         columns.forEach(col => {
             if (col.key === 'id') {
-                // Si la tabla pide ID manual, usamos el valor temporal que escribió el usuario
                 payload['id'] = rowToSave._manual_id || null;
             } else {
                 const val = rowToSave[col.key];
@@ -388,7 +389,6 @@ export default function UniversalTable({
             }
         });
 
-        // Validación: Si hay columna ID manual, verificar que no esté vacía
         if (hasIdCol && !payload.id) {
             alert("El campo ID es obligatorio.");
             setIsSavingNew(false);
@@ -403,7 +403,6 @@ export default function UniversalTable({
 
         if (error) throw error;
 
-        // Reemplazamos la fila temporal con la real
         setData(prev => prev.map(r => r.id === tempId ? inserted : r));
         if (onDataChange) onDataChange();
 
@@ -433,7 +432,6 @@ export default function UniversalTable({
   const processedData = useMemo(() => {
     let result = [...data];
 
-    // Filtrar
     Object.keys(filters).forEach((key) => {
       const filterVal = filters[key].toLowerCase();
       if (filterVal) {
@@ -450,7 +448,6 @@ export default function UniversalTable({
       }
     });
 
-    // Ordenar
     if (sortConfig.key) {
       result.sort((a, b) => {
         const isDraftA = String(a.id).startsWith("temp-");
@@ -487,21 +484,29 @@ export default function UniversalTable({
     setFilters((prev) => ({ ...prev, [key]: value }));
   };
 
-  // Detectamos si la tabla visual tiene columna 'id' para no duplicar la columna #
   const hasExplicitId = columns.some(c => c.key === 'id');
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-slate-200 bg-white flex justify-between items-center shrink-0 z-20">
-        <div className="flex items-center gap-3">
-          <h3 className="font-bold text-slate-800 uppercase text-sm tracking-wide flex items-center gap-2">
-            {tableName}
-            {loading && <IconLoader className="animate-spin text-indigo-500" size={14} />}
-          </h3>
-          <span className="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100">
-            {processedData.length} / {data.length} filas
-          </span>
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-3">
+                <h3 className="font-bold text-slate-800 uppercase text-sm tracking-wide flex items-center gap-2">
+                    {tableName}
+                    {loading && <IconLoader className="animate-spin text-indigo-500" size={14} />}
+                </h3>
+                <span className="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100">
+                    {processedData.length} / {data.length} filas
+                </span>
+            </div>
+            {/* --- CAMBIO: RENDERIZADO DEL AVISO --- */}
+            {warningMessage && (
+                <div className="flex items-center gap-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-md animate-in fade-in slide-in-from-top-1 max-w-xl">
+                    <IconAlertTriangle size={14} className="shrink-0" />
+                    <span>{warningMessage}</span>
+                </div>
+            )}
         </div>
         <button
           onClick={handleCreate}
