@@ -12,14 +12,17 @@ import {
   IconMusic,
   IconAlertTriangle,
   IconCopy,
-  IconWhatsAppFilled, // Usaremos este para WhatsApp si no tienes uno específico, o importalo si existe
+  IconWhatsAppFilled,
   IconMail,
   IconInfo,
-  IconChevronDown
+  IconChevronDown,
+  IconUsers, // Nuevo icono para edición masiva
 } from "../../components/ui/Icons";
+import { toast } from "sonner"; // IMPORTANTE: Usamos Sonner
 import InstrumentFilter from "../../components/filters/InstrumentFilter";
 import MusicianForm from "./MusicianForm";
 import HorasCatedraDashboard from "./HorasCatedraDashboard";
+
 // --- CONFIGURACIÓN DE PENDIENTES ---
 const MISSING_DATA_OPTIONS = [
   { key: "domicilio", label: "Domicilio" },
@@ -47,25 +50,46 @@ const DIET_OPTIONS = [
   "Sin Lactosa",
 ];
 
+// --- CAMPOS PERMITIDOS PARA EDICIÓN MASIVA ---
+// --- CAMPOS PERMITIDOS PARA EDICIÓN MASIVA ---
+const MASS_EDIT_FIELDS = [
+  {
+    key: "condicion",
+    label: "Condición",
+    type: "select",
+    options: CONDITION_OPTIONS.map((c) => ({ value: c, label: c })),
+  },
+  {
+    key: "alimentacion",
+    label: "Dieta / Alimentación",
+    type: "select",
+    options: DIET_OPTIONS.map((c) => ({ value: c, label: c })),
+  },
+
+  // --- NUEVOS CAMPOS ---
+  { key: "cargo", label: "Cargo / Función", type: "text" },
+  { key: "jornada", label: "Jornada", type: "text" },
+  { key: "motivo", label: "Motivo", type: "text" },
+  // ---------------------
+
+  { key: "nacionalidad", label: "Nacionalidad", type: "text" },
+  {
+    key: "id_localidad",
+    label: "Localidad (Residencia)",
+    type: "location_select",
+  },
+  { key: "id_instr", label: "Instrumento", type: "instrument_select" },
+];
 // --- HELPER WHATSAPP ---
 const WhatsAppLink = ({ phone }) => {
   if (!phone) return null;
-
-  // Limpiamos el número: quitamos espacios, guiones, paréntesis, etc.
-  // Si no tiene código de país (+), asumimos Argentina (+54) o el que corresponda según tu lógica.
-  // Aquí hago una limpieza básica.
   let cleanPhone = phone.replace(/\D/g, "");
-
-  // Lógica simple: Si empieza con 11 o 15 (móvil arg sin prefijo), le agregamos 549
-  // Ajusta esto según tu base de datos.
   if (cleanPhone.length === 10) {
     cleanPhone = `549${cleanPhone}`;
   } else if (cleanPhone.startsWith("0")) {
     cleanPhone = `549${cleanPhone.substring(1)}`;
   }
-
   const url = `https://wa.me/${cleanPhone}`;
-
   return (
     <a
       href={url}
@@ -73,7 +97,7 @@ const WhatsAppLink = ({ phone }) => {
       rel="noopener noreferrer"
       className="text-emerald-500 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-full transition-colors ml-1"
       title="Enviar WhatsApp"
-      onClick={(e) => e.stopPropagation()} // Evita activar edición de celda
+      onClick={(e) => e.stopPropagation()}
     >
       <IconWhatsAppFilled size={14} />
     </a>
@@ -101,6 +125,8 @@ const HighlightText = ({ text, highlight }) => {
     </span>
   );
 };
+
+// ... (MissingDataFilter se mantiene igual)
 const MissingDataFilter = ({ selectedFields, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
@@ -187,6 +213,7 @@ const MissingDataFilter = ({ selectedFields, onChange }) => {
     </div>
   );
 };
+
 const getConditionStyles = (condition) => {
   switch (condition) {
     case "Estable":
@@ -203,6 +230,7 @@ const getConditionStyles = (condition) => {
   }
 };
 
+// ... (AVAILABLE_COLUMNS y getNestedValue se mantienen igual)
 const AVAILABLE_COLUMNS = [
   {
     key: "id_instr",
@@ -253,7 +281,7 @@ const AVAILABLE_COLUMNS = [
   {
     key: "telefono",
     label: "Teléfono",
-    width: "140px", // Aumenté ancho para el icono
+    width: "140px",
     type: "text",
     sortKey: "telefono",
     render: (item) => (
@@ -324,6 +352,7 @@ const getNestedValue = (obj, path) => {
 
 // --- COMPONENTE FILTRO MULTIPLE DE CONDICIÓN ---
 const ConditionFilter = ({ selectedConds, onChange }) => {
+  // ... (Mismo código que en tu ejemplo)
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
   const [dropdownStyle, setDropdownStyle] = useState({});
@@ -421,6 +450,7 @@ const EditableCell = ({
   className = "",
   highlight = "",
 }) => {
+  // ... (Mismo código que en tu ejemplo)
   const [localValue, setLocalValue] = useState(value || "");
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -447,17 +477,14 @@ const EditableCell = ({
       </div>
     );
 
-  // --- MODO LECTURA ---
   if (!isEditing) {
     let displayValue = localValue;
-
     if (type === "select" && options) {
       const selectedOpt = options.find(
         (opt) => String(opt.value) === String(localValue),
       );
       displayValue = selectedOpt ? selectedOpt.label : localValue;
     }
-
     return (
       <div
         onClick={() => setIsEditing(true)}
@@ -468,7 +495,6 @@ const EditableCell = ({
     );
   }
 
-  // --- MODO EDICIÓN ---
   if (type === "select") {
     const valueExistsInOptions = options.some(
       (opt) => String(opt.value) === String(localValue),
@@ -508,6 +534,7 @@ const EditableCell = ({
   );
 };
 
+// ... (EnsembleManagerCell, ColumnSelector, getMissingFieldsList, EnsembleFilter se mantienen igual para ahorrar espacio en la respuesta, pero asumo que están ahí)
 // --- CELDA ENSAMBLES ---
 const EnsembleManagerCell = ({
   musicianId,
@@ -516,6 +543,7 @@ const EnsembleManagerCell = ({
   supabase,
   onRefresh,
 }) => {
+  // (Mismo código que proveíste)
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
   const [dropdownStyle, setDropdownStyle] = useState({});
@@ -605,8 +633,8 @@ const EnsembleManagerCell = ({
   );
 };
 
-// --- SELECTOR DE COLUMNAS ---
 const ColumnSelector = ({ visibleCols, onChange }) => {
+  // (Mismo código que proveíste)
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
   const [dropdownStyle, setDropdownStyle] = useState({});
@@ -666,6 +694,7 @@ const ColumnSelector = ({ visibleCols, onChange }) => {
     </div>
   );
 };
+
 const getMissingFieldsList = (item) => {
   const missing = [];
   if (!item.domicilio) missing.push("Domicilio");
@@ -675,7 +704,9 @@ const getMissingFieldsList = (item) => {
   if (!item.firma) missing.push("Firma");
   return missing;
 };
+
 const EnsembleFilter = ({ ensembles, selectedIds, onChange }) => {
+  // (Mismo código que proveíste)
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
   const [dropdownStyle, setDropdownStyle] = useState({});
@@ -703,11 +734,7 @@ const EnsembleFilter = ({ ensembles, selectedIds, onChange }) => {
     <div className="relative" ref={containerRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all relative ${
-          selectedIds.size > 0
-            ? "bg-indigo-50 border-indigo-300 text-indigo-700"
-            : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
-        }`}
+        className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all relative ${selectedIds.size > 0 ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}`}
       >
         <IconMusic size={14} /> Ensambles
         {selectedIds.size > 0 && (
@@ -763,6 +790,137 @@ const EnsembleFilter = ({ ensembles, selectedIds, onChange }) => {
     </div>
   );
 };
+
+// --- NUEVO COMPONENTE: MODAL DE EDICIÓN MASIVA ---
+const MassEditModal = ({
+  isOpen,
+  onClose,
+  count,
+  onSave,
+  instrumentOptions,
+  locationOptions,
+}) => {
+  const [selectedField, setSelectedField] = useState(MASS_EDIT_FIELDS[0].key);
+  const [newValue, setNewValue] = useState("");
+
+  if (!isOpen) return null;
+
+  const fieldConfig = MASS_EDIT_FIELDS.find((f) => f.key === selectedField);
+
+  const handleSave = () => {
+    onSave(selectedField, newValue);
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+        <div className="p-4 bg-indigo-50 border-b border-indigo-100">
+          <h3 className="text-indigo-800 font-bold flex items-center gap-2">
+            <IconUsers size={20} />
+            Edición Masiva
+          </h3>
+          <p className="text-xs text-indigo-600 mt-1">
+            Se actualizarán <b>{count}</b> registros.
+          </p>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              Campo a editar
+            </label>
+            <select
+              className="w-full border rounded-lg p-2 text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-indigo-200"
+              value={selectedField}
+              onChange={(e) => {
+                setSelectedField(e.target.value);
+                setNewValue(""); // Reset value on field change
+              }}
+            >
+              {MASS_EDIT_FIELDS.map((f) => (
+                <option key={f.key} value={f.key}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              Nuevo Valor
+            </label>
+
+            {fieldConfig.type === "select" ? (
+              <select
+                className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+              >
+                <option value="">Seleccionar...</option>
+                {fieldConfig.options.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            ) : fieldConfig.type === "instrument_select" ? (
+              <select
+                className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+              >
+                <option value="">Seleccionar Instrumento...</option>
+                {instrumentOptions.map((i) => (
+                  <option key={i.value} value={i.value}>
+                    {i.label}
+                  </option>
+                ))}
+              </select>
+            ) : fieldConfig.type === "location_select" ? (
+              <select
+                className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+              >
+                <option value="">Seleccionar Localidad...</option>
+                {locationOptions.map((l) => (
+                  <option key={l.value} value={l.value}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+                placeholder={`Ingresar ${fieldConfig.label}...`}
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="p-4 bg-slate-50 border-t flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-slate-600 font-bold text-xs hover:bg-slate-200 rounded-lg transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 bg-indigo-600 text-white font-bold text-xs rounded-lg hover:bg-indigo-700 shadow-md transition-all"
+          >
+            Aplicar Cambios
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
 // --- COMPONENTE PRINCIPAL ---
 export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [resultados, setResultados] = useState([]);
@@ -772,8 +930,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [selectedInstruments, setSelectedInstruments] = useState(new Set());
   const [conditionFilters, setConditionFilters] = useState(new Set());
   const [showHorasDashboard, setShowHorasDashboard] = useState(false);
-  // Dentro de export default function MusiciansView...
-  const [onlyVigente, setOnlyVigente] = useState(false); // Filtro vigente activo por defecto
+
+  const [onlyVigente, setOnlyVigente] = useState(false);
   const [missingFieldsFilters, setMissingFieldsFilters] = useState(new Set());
   const [sortConfig, setSortConfig] = useState({
     key: "apellido",
@@ -788,8 +946,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [locationsList, setLocationsList] = useState([]);
   const [editFormData, setEditFormData] = useState({});
 
-  // ESTADO SELECCIÓN
+  // ESTADO SELECCIÓN Y EDICIÓN MASIVA
   const [selectedMusicians, setSelectedMusicians] = useState(new Set());
+  const [isMassEditOpen, setIsMassEditOpen] = useState(false);
 
   useEffect(() => {
     const allIds = new Set(catalogoInstrumentos.map((i) => i.id));
@@ -823,7 +982,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     if (data) setLocationsList(data);
   };
 
-  // --- LÓGICA DE FILTRADO EN EL SERVIDOR ---
   const fetchEnsemblesAndData = async (
     instruments,
     conditions,
@@ -831,7 +989,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   ) => {
     setLoading(true);
     try {
-      // 1. Cargamos la lista maestra de ensambles para los dropdowns si no existe
       if (ensemblesList.length === 0) {
         const { data: ens } = await supabase
           .from("ensambles")
@@ -840,7 +997,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         if (ens) setEnsemblesList(ens);
       }
 
-      // 2. Consulta principal con JOINS relacionales
       let query = supabase.from("integrantes").select(`
         *, 
         instrumentos(instrumento), 
@@ -851,7 +1007,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         )
     `);
 
-      // --- FILTROS ---
       if (searchText.trim())
         query = query.or(
           `nombre.ilike.%${searchText.trim()}%,apellido.ilike.%${searchText.trim()}%`,
@@ -887,9 +1042,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       const { data: musicians, error } = await query;
       if (error) throw error;
 
-      // 3. Formateo de la data para aplanarla
-      // Supabase devuelve los ensambles como: integrantes_ensambles: [{ ensambles: { id, ensamble } }]
-      // Lo convertimos a lo que el componente espera: [ { id, ensamble } ]
       const formatted = (musicians || []).map((m) => ({
         ...m,
         integrantes_ensambles:
@@ -900,28 +1052,63 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       setResultados(formatted);
     } catch (err) {
       console.error("Error en fetchData:", err);
+      toast.error("Error al cargar datos");
     } finally {
       setLoading(false);
     }
   };
 
   const handleInlineUpdate = async (id, field, value) => {
+    // Usamos toast.promise para feedback visual
+    toast.promise(
+      (async () => {
+        let updatePayload = { [field]: value === "" ? null : value };
+        if (field === "id_instr") updatePayload = { id_instr: value || null };
+        if (field === "id_localidad")
+          updatePayload = { id_localidad: value ? parseInt(value) : null };
+        if (field === "id_loc_viaticos")
+          updatePayload = { id_loc_viaticos: value ? parseInt(value) : null };
+
+        const { error } = await supabase
+          .from("integrantes")
+          .update(updatePayload)
+          .eq("id", id);
+        if (error) throw error;
+        fetchData();
+      })(),
+      {
+        loading: "Guardando...",
+        success: "Campo actualizado",
+        error: (err) => `Error: ${err.message}`,
+      },
+    );
+  };
+
+  // --- LÓGICA DE EDICIÓN MASIVA ---
+  const handleMassUpdate = async (field, value) => {
+    const toastId = toast.loading("Aplicando cambios masivos...");
     try {
-      let updatePayload = { [field]: value === "" ? null : value };
-      if (field === "id_instr") updatePayload = { id_instr: value || null };
-      if (field === "id_localidad")
-        updatePayload = { id_localidad: value ? parseInt(value) : null };
-      if (field === "id_loc_viaticos")
-        updatePayload = { id_loc_viaticos: value ? parseInt(value) : null };
+      const ids = Array.from(selectedMusicians);
+      // Preparar valor (por si es número)
+      let finalValue = value === "" ? null : value;
+      if (field === "id_localidad" || field === "id_instr") {
+        finalValue = value ? parseInt(value) : null;
+      }
 
       const { error } = await supabase
         .from("integrantes")
-        .update(updatePayload)
-        .eq("id", id);
+        .update({ [field]: finalValue })
+        .in("id", ids);
+
       if (error) throw error;
+
+      toast.success(`Se actualizaron ${ids.length} registros`, { id: toastId });
       fetchData();
-    } catch (err) {
-      alert("Error: " + err.message);
+      setIsMassEditOpen(false);
+      setSelectedMusicians(new Set()); // Opcional: Limpiar selección al terminar
+    } catch (error) {
+      console.error(error);
+      toast.error("Error en edición masiva: " + error.message, { id: toastId });
     }
   };
 
@@ -930,22 +1117,18 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     setEditFormData({ ...item });
   };
 
-  const [columnFilters, setColumnFilters] = useState({}); // { id_instr: 'vlo', mail: '@gmail' }
-  // Filtro y Ordenamiento Combinado
+  const [columnFilters, setColumnFilters] = useState({});
   const processedResultados = useMemo(() => {
     let filtered = [...resultados];
 
-    // 1. FILTRO POR ENSAMBLES (Multi-selección)
     if (selectedEnsembles.size > 0) {
       filtered = filtered.filter((item) =>
-        // Verificamos si alguno de los ensambles del músico está en el filtro
         item.integrantes_ensambles?.some((ens) =>
           selectedEnsembles.has(ens.id),
         ),
       );
     }
 
-    // 2. FILTROS POR COLUMNA (Los que ya tenías)
     Object.keys(columnFilters).forEach((key) => {
       const term = columnFilters[key].toLowerCase().trim();
       if (term) {
@@ -965,7 +1148,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       }
     });
 
-    // 3. ORDENAMIENTO
     return filtered.sort((a, b) => {
       let valA, valB;
 
@@ -973,12 +1155,10 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         valA = `${a.apellido} ${a.nombre}`;
         valB = `${b.apellido} ${b.nombre}`;
       } else {
-        // Buscamos config de columna para ver si tiene sortKey o displayKey especial
         const colCfg = AVAILABLE_COLUMNS.find(
           (c) => (c.sortKey || c.key) === sortConfig.key,
         );
 
-        // Si es un campo anidado (ej: instrumentos.instrumento), lo resolvemos
         if (colCfg && colCfg.sortKey && colCfg.sortKey.includes(".")) {
           valA = getNestedValue(a, colCfg.sortKey) || "";
           valB = getNestedValue(b, colCfg.sortKey) || "";
@@ -1012,7 +1192,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     label: c,
   }));
 
-  // HANDLER: Selección
   const toggleSelection = (id) => {
     const newSet = new Set(selectedMusicians);
     if (newSet.has(id)) newSet.delete(id);
@@ -1028,20 +1207,22 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     }
   };
 
-  // HANDLER: Copiar Mails
   const copySelectedMails = () => {
     const mails = processedResultados
       .filter((m) => selectedMusicians.has(m.id) && m.mail)
       .map((m) => m.mail)
-      .join(", "); // Separador coma + espacio, estándar para clientes de correo
+      .join(", ");
 
     if (mails) {
       navigator.clipboard.writeText(mails);
-      alert(`Copiados ${selectedMusicians.size} correos al portapapeles.`);
+      toast.success(
+        `Copiados ${selectedMusicians.size} correos al portapapeles.`,
+      );
     } else {
-      alert("No hay correos válidos en la selección.");
+      toast.error("No hay correos válidos en la selección.");
     }
   };
+
   if (showHorasDashboard) {
     return (
       <div className="h-screen flex flex-col bg-white">
@@ -1065,27 +1246,24 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   return (
     <div className="space-y-4 h-full flex flex-col overflow-hidden animate-in fade-in">
       <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 shrink-0 flex flex-col md:flex-row gap-3 items-center">
-        {/* 1. FILTRO DE ENSAMBLES */}
+        {/* FILTROS EXISTENTES ... */}
         <EnsembleFilter
           ensembles={ensemblesList}
           selectedIds={selectedEnsembles}
           onChange={setSelectedEnsembles}
         />
 
-        {/* 2. FILTRO DE INSTRUMENTOS */}
         <InstrumentFilter
           catalogo={catalogoInstrumentos}
           selectedIds={selectedInstruments}
           onChange={(s) => setSelectedInstruments(s)}
         />
 
-        {/* 3. FILTRO DE CONDICIÓN */}
         <ConditionFilter
           selectedConds={conditionFilters}
           onChange={setConditionFilters}
         />
 
-        {/* 4. FILTRO VIGENTES */}
         <button
           onClick={() => setOnlyVigente(!onlyVigente)}
           className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all ${
@@ -1100,50 +1278,63 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           Vigentes
         </button>
 
-        {/* 5. FILTRO PENDIENTES */}
         <MissingDataFilter
           selectedFields={missingFieldsFilters}
           onChange={setMissingFieldsFilters}
         />
 
-        {/* 6. SELECTOR DE COLUMNAS */}
         <ColumnSelector
           visibleCols={visibleColumns}
           onChange={setVisibleColumns}
         />
 
-        {/* BOTÓN COPIAR MAILS (Visible solo si hay seleccionados) */}
+        {/* --- BARRA DE ACCIONES MASIVAS (Visible si hay seleccionados) --- */}
         {selectedMusicians.size > 0 && (
-          <button
-            onClick={copySelectedMails}
-            className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors animate-in fade-in zoom-in ml-auto md:ml-0"
-            title="Copiar correos seleccionados"
-          >
-            <IconCopy size={16} />
-            <span className="hidden sm:inline">
-              Copiar Correos ({selectedMusicians.size})
+          <div className="flex items-center gap-2 ml-auto md:ml-2 bg-indigo-50/50 p-1 rounded-lg border border-indigo-100 animate-in fade-in zoom-in">
+            <span className="text-[10px] font-bold text-indigo-400 px-2 hidden lg:inline">
+              {selectedMusicians.size} selec.
             </span>
-            <span className="sm:hidden">({selectedMusicians.size})</span>
-          </button>
+            <button
+              onClick={copySelectedMails}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-indigo-600 rounded-md text-xs font-bold hover:bg-indigo-600 hover:text-white transition-colors border border-indigo-200 shadow-sm"
+              title="Copiar correos"
+            >
+              <IconCopy size={14} />
+              <span className="hidden sm:inline">Mails</span>
+            </button>
+            <button
+              onClick={() => setIsMassEditOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
+              title="Edición Masiva"
+            >
+              <IconEdit size={14} />
+              <span className="hidden sm:inline">Editar Lote</span>
+            </button>
+          </div>
         )}
 
-        {/* 7. BOTÓN AGREGAR */}
-        <button
-          onClick={() => {
-            setEditingId(null);
-            setIsAdding(true);
-          }}
-          className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 shadow-md transition-all md:ml-auto"
+        {/* BOTONES DE ACCIÓN PRINCIPAL (Empujados a la derecha si no hay selección) */}
+        <div
+          className={`flex gap-2 ${selectedMusicians.size === 0 ? "ml-auto" : ""}`}
         >
-          <IconPlus size={20} />
-        </button>
-        <button
-          onClick={() => setShowHorasDashboard(true)}
-          className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-50 flex items-center gap-2 shadow-sm"
-        >
-          <IconInfo size={16} className="text-indigo-500" />
-          Gestión Horas
-        </button>
+          <button
+            onClick={() => {
+              setEditingId(null);
+              setIsAdding(true);
+            }}
+            className="bg-slate-800 text-white p-2 rounded-lg hover:bg-slate-900 shadow-md transition-all"
+            title="Agregar Músico"
+          >
+            <IconPlus size={20} />
+          </button>
+          <button
+            onClick={() => setShowHorasDashboard(true)}
+            className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-50 flex items-center gap-2 shadow-sm"
+          >
+            <IconInfo size={16} className="text-indigo-500" />
+            <span className="hidden xl:inline">Gestión Horas</span>
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
@@ -1424,6 +1615,16 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           </div>,
           document.body,
         )}
+
+      {/* MODAL DE EDICIÓN MASIVA */}
+      <MassEditModal
+        isOpen={isMassEditOpen}
+        onClose={() => setIsMassEditOpen(false)}
+        count={selectedMusicians.size}
+        onSave={handleMassUpdate}
+        instrumentOptions={instrumentOptions}
+        locationOptions={locationOptions}
+      />
     </div>
   );
 }
