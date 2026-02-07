@@ -37,10 +37,16 @@ import CnrtExportModal from "./CnrtExportModal";
 import ItineraryManagerModal from "./ItineraryManagerModal";
 import BoardingManagerModal from "./BoardingManagerModal";
 import StopRulesManager from "./StopRulesManager";
-// CAMBIO IMPORTANTE: Importamos el nuevo modal de reglas de admisión
 import TransportAdmissionModal from "./TransportAdmissionModal";
-// BUSCA ESTA LÍNEA (Línea 41 aprox.)
-import { useLogistics, matchesRule } from "../../hooks/useLogistics"; // <--- AGREGAR matchesRule AQUÍ
+import { useLogistics, matchesRule } from "../../hooks/useLogistics";
+
+// --- IMPORT DE SONNER ---
+import { toast } from "sonner";
+
+// --- CONSTANTES PARA EL TOGGLE DE TIPO DE EVENTO ---
+const TIPO_EVENTO_DEFAULT = 11; // Viaje / Logística Estándar
+const TIPO_EVENTO_ALT = 3;      // Logística Especial / Interna
+
 // --- UTILIDADES ---
 const formatDateSafe = (dateString) => {
   if (!dateString) return "-";
@@ -172,10 +178,10 @@ const generateRoadmapExcel = async (
     if (address) details.push(address);
     if (city) details.push(city);
     if (details.length > 0) fullPlace += ` (${details.join(" - ")})`;
-    if (extraDesc) fullPlace += `\nNota: ${extraDesc}`; // 1. HEADER DE LA PARADA
+    if (extraDesc) fullPlace += `\nNota: ${extraDesc}`; 
 
     const headerRow = worksheet.addRow([
-      `PARADA #${stopNum}    |    ${timeStr} hs    |    ${dateStr}`,
+      `PARADA #${stopNum}     |     ${timeStr} hs     |     ${dateStr}`,
       "",
       "",
     ]);
@@ -186,7 +192,7 @@ const generateRoadmapExcel = async (
       fgColor: { argb: "FF1565C0" },
     };
     headerRow.getCell(1).alignment = { vertical: "middle" };
-    worksheet.mergeCells(`A${headerRow.number}:C${headerRow.number}`); // 2. DETALLE DEL LUGAR
+    worksheet.mergeCells(`A${headerRow.number}:C${headerRow.number}`); 
 
     const placeRow = worksheet.addRow(["LUGAR:", fullPlace, ""]);
     placeRow.font = { bold: true };
@@ -198,7 +204,7 @@ const generateRoadmapExcel = async (
     };
     placeRow.getCell(1).alignment = { vertical: "top" };
     placeRow.getCell(2).alignment = { vertical: "top", wrapText: true };
-    worksheet.mergeCells(`B${placeRow.number}:C${placeRow.number}`); // Filtros de Pasajeros usando la nueva estructura 'subidaId' / 'bajadaId' del hook
+    worksheet.mergeCells(`B${placeRow.number}:C${placeRow.number}`);
 
     const ups = passengers.filter((p) =>
       p.logistics?.transports?.some(
@@ -211,7 +217,7 @@ const generateRoadmapExcel = async (
       ),
     );
     ups.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
-    downs.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || "")); // Cálculo de total a bordo
+    downs.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || "")); 
 
     const paxOnBoard = passengers.filter((p) => {
       return p.logistics?.transports?.some((t) => {
@@ -224,10 +230,10 @@ const generateRoadmapExcel = async (
         );
         const currentIdx = sortedEvts.findIndex(
           (e) => String(e.id) === String(evt.id),
-        ); // Está a bordo si subió en esta o antes, Y baja DESPUÉS de esta
+        ); 
         return upIdx <= currentIdx && downIdx > currentIdx;
       });
-    }).length; // 3. SECCIÓN SUBEN
+    }).length; 
 
     if (ups.length > 0) {
       const subenHeader = worksheet.addRow([
@@ -247,7 +253,7 @@ const generateRoadmapExcel = async (
         const nombreCompleto = `${p.nombre} ${loc ? `(${loc})` : ""}`;
         worksheet.addRow([p.apellido?.toUpperCase(), nombreCompleto, loc]);
       });
-    } // 4. SECCIÓN BAJAN
+    }
 
     if (downs.length > 0) {
       const bajanHeader = worksheet.addRow([
@@ -262,7 +268,7 @@ const generateRoadmapExcel = async (
         const nombreCompleto = `${p.nombre} ${loc ? `(${loc})` : ""}`;
         worksheet.addRow([p.apellido?.toUpperCase(), nombreCompleto, loc]);
       });
-    } // 5. TOTAL A BORDO
+    } 
 
     const totalRow = worksheet.addRow([
       `TOTAL A BORDO AL SALIR: ${paxOnBoard}`,
@@ -279,7 +285,7 @@ const generateRoadmapExcel = async (
     worksheet.mergeCells(`A${totalRow.number}:C${totalRow.number}`);
 
     worksheet.addRow(["", "", ""]);
-  }); // Bordes
+  }); 
 
   worksheet.eachRow((row) => {
     row.eachCell((cell) => {
@@ -323,68 +329,49 @@ const DataIntegrityIndicator = ({ passengers }) => {
   if (issues.length === 0) {
     return (
       <div className="flex items-center gap-1.5 text-emerald-600 px-3 py-1.5 bg-emerald-50 rounded border border-emerald-100 transition-all select-none">
-                <IconCheckCircle size={14} />       {" "}
-        <span className="text-xs font-bold">Datos completos</span>     {" "}
+        <IconCheckCircle size={14} />
+        <span className="text-xs font-bold">Datos completos</span>
       </div>
     );
   }
 
   return (
     <div className="group relative flex items-center gap-2 cursor-help select-none mr-2">
-           {" "}
       <span className="flex h-3 w-3 relative">
-               {" "}
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-               {" "}
         <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-             {" "}
       </span>
-           {" "}
       <span className="text-xs font-bold text-red-600 animate-pulse">
-                Faltan datos ({issues.length})      {" "}
+        Faltan datos ({issues.length})
       </span>
-           {" "}
       <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-red-200 shadow-xl rounded-lg p-0 z-50 hidden group-hover:flex flex-col max-h-60">
-               {" "}
         <div className="bg-red-50 p-2 border-b border-red-100 rounded-t-lg">
-                   {" "}
           <p className="text-[10px] font-bold text-red-800 uppercase tracking-wider">
-                        Datos Personales Faltantes          {" "}
+            Datos Personales Faltantes
           </p>
-                 {" "}
         </div>
-               {" "}
         <div className="overflow-y-auto p-2">
-                   {" "}
           <ul className="space-y-2">
-                       {" "}
             {issues.map((issue) => (
               <li
                 key={issue.id}
                 className="flex flex-col border-b border-slate-50 last:border-0 pb-1"
               >
-                               {" "}
                 <span className="text-xs font-semibold text-slate-700">
-                                    {issue.name}               {" "}
+                  {issue.name}
                 </span>
-                               {" "}
                 <span className="text-[10px] text-red-500 flex gap-1 items-center">
-                                    <IconAlertTriangle size={8} />{" "}
-                  {issue.missing.join(", ")}               {" "}
+                  <IconAlertTriangle size={8} /> {issue.missing.join(", ")}
                 </span>
-                             {" "}
               </li>
             ))}
-                     {" "}
           </ul>
-                 {" "}
         </div>
-             {" "}
       </div>
-         {" "}
     </div>
   );
 };
+
 const ShiftScheduleModal = ({
   isOpen,
   onClose,
@@ -392,7 +379,7 @@ const ShiftScheduleModal = ({
   transportName,
   events = [],
 }) => {
-  const [shift, setShift] = useState({ days: 0, hours: 0, minutes: 0 }); // 1. Ordenamos para estar seguros de quién es el primero y el último
+  const [shift, setShift] = useState({ days: 0, hours: 0, minutes: 0 });
 
   const sorted = useMemo(() => {
     return [...events].sort((a, b) =>
@@ -403,7 +390,7 @@ const ShiftScheduleModal = ({
   if (!isOpen) return null;
 
   const first = sorted[0];
-  const last = sorted[sorted.length - 1]; // Helper para calcular el nuevo tiempo
+  const last = sorted[sorted.length - 1]; 
 
   const getPreview = (evt) => {
     if (!evt) return null;
@@ -423,35 +410,24 @@ const ShiftScheduleModal = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-           {" "}
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
-               {" "}
         <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
-                   {" "}
           <h3 className="font-bold text-slate-700">
-                        Mover Horarios: {transportName}         {" "}
+            Mover Horarios: {transportName}
           </h3>
-                   {" "}
           <button
             onClick={onClose}
             className="text-slate-400 hover:text-slate-600"
           >
-                        <IconX size={20} />         {" "}
+            <IconX size={20} />
           </button>
-                 {" "}
         </div>
-               {" "}
         <div className="p-5 space-y-4">
-                   {" "}
           <div className="grid grid-cols-3 gap-3">
-                        {/* Inputs de Días, Horas, Minutos (igual que antes) */}
-                       {" "}
             <div className="flex flex-col gap-1">
-                           {" "}
               <label className="text-[10px] font-black text-slate-400 uppercase text-center">
-                                Días              {" "}
+                Días
               </label>
-                           {" "}
               <input
                 type="number"
                 className="border rounded p-2 text-center font-bold text-sm"
@@ -460,15 +436,11 @@ const ShiftScheduleModal = ({
                   setShift({ ...shift, days: parseInt(e.target.value) || 0 })
                 }
               />
-                         {" "}
             </div>
-                       {" "}
             <div className="flex flex-col gap-1">
-                           {" "}
               <label className="text-[10px] font-black text-slate-400 uppercase text-center">
-                                Horas              {" "}
+                Horas
               </label>
-                           {" "}
               <input
                 type="number"
                 className="border rounded p-2 text-center font-bold text-sm"
@@ -477,15 +449,11 @@ const ShiftScheduleModal = ({
                   setShift({ ...shift, hours: parseInt(e.target.value) || 0 })
                 }
               />
-                         {" "}
             </div>
-                       {" "}
             <div className="flex flex-col gap-1">
-                           {" "}
               <label className="text-[10px] font-black text-slate-400 uppercase text-center">
-                                Minutos              {" "}
+                Minutos
               </label>
-                           {" "}
               <input
                 type="number"
                 className="border rounded p-2 text-center font-bold text-sm"
@@ -494,20 +462,14 @@ const ShiftScheduleModal = ({
                   setShift({ ...shift, minutes: parseInt(e.target.value) || 0 })
                 }
               />
-                         {" "}
             </div>
-                     {" "}
           </div>
-                    {/* --- SECCIÓN DE PREVISUALIZACIÓN --- */}         {" "}
           {(shift.days !== 0 || shift.hours !== 0 || shift.minutes !== 0) && (
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3">
-                           {" "}
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-1">
-                                Previsualización de impacto              {" "}
+                Previsualización de impacto
               </p>
-                           {" "}
               <div className="flex flex-col gap-2">
-                               {" "}
                 {[
                   { title: "PRIMERA PARADA", data: previewFirst },
                   { title: "ÚLTIMA PARADA", data: previewLast },
@@ -515,67 +477,47 @@ const ShiftScheduleModal = ({
                   (item, idx) =>
                     item.data && (
                       <div key={idx} className="flex flex-col">
-                                               {" "}
                         <span className="text-[9px] font-bold text-indigo-500">
-                                                    {item.title}               
-                                 {" "}
+                          {item.title}
                         </span>
-                                               {" "}
                         <p className="text-[10px] font-medium text-slate-600 truncate">
-                                                    {item.data.label}           
-                                     {" "}
+                          {item.data.label}
                         </p>
-                                               {" "}
                         <div className="flex items-center gap-2 text-[11px]">
-                                                   {" "}
                           <span className="text-slate-400 line-through">
-                                                        {item.data.old}         
-                                           {" "}
+                            {item.data.old}
                           </span>
-                                                   {" "}
-                          <span className="text-slate-400">→</span>             
-                                     {" "}
+                          <span className="text-slate-400">→</span>
                           <span className="font-bold text-indigo-600 bg-indigo-50 px-1 rounded">
-                                                        {item.data.new}         
-                                           {" "}
+                            {item.data.new}
                           </span>
-                                                 {" "}
                         </div>
-                                             {" "}
                       </div>
                     ),
                 )}
-                             {" "}
               </div>
-                         {" "}
             </div>
           )}
-                 {" "}
         </div>
-               {" "}
         <div className="p-4 bg-slate-50 border-t flex gap-2">
-                   {" "}
           <button
             onClick={onClose}
             className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300"
           >
-                        Cancelar          {" "}
+            Cancelar
           </button>
-                   {" "}
           <button
             onClick={() => onApply(shift)}
             className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-md"
           >
-                        Aplicar a todos          {" "}
+            Aplicar a todos
           </button>
-                 {" "}
         </div>
-             {" "}
       </div>
-         {" "}
     </div>
   );
 };
+
 // =================================================================================================
 // COMPONENTE PRINCIPAL
 // ================================================================================================
@@ -584,24 +526,26 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const {
     summary: rawSummary,
     routeRules,
-    admissionRules,
+    // admissionRules, (No lo usamos directamente aquí, el modal lo carga)
     transportes: transportsList,
     loading: rosterLoading,
     refresh,
     roster,
-  } = useLogistics(supabase, gira); // A. Nuevo estado para el modal (dentro del componente)
+  } = useLogistics(supabase, gira); 
+  
   const [shiftModal, setShiftModal] = useState({
     isOpen: false,
     transportId: null,
     transportName: "",
   });
 
-  const [selectedEventIds, setSelectedEventIds] = useState(new Set()); // Función para limpiar selección al cambiar de transporte o cerrar modal
+  const [selectedEventIds, setSelectedEventIds] = useState(new Set()); 
 
-  const clearSelection = () => setSelectedEventIds(new Set()); // B. Función para aplicar el desplazamiento masivo
+  const clearSelection = () => setSelectedEventIds(new Set()); 
+  
   const handleApplyShiftSchedule = async (offset) => {
     const tId = shiftModal.transportId;
-    const allTransportEvents = transportEvents[tId] || []; // Filtramos los eventos a los que realmente aplicaremos el update
+    const allTransportEvents = transportEvents[tId] || []; 
 
     const eventsToMove = allTransportEvents.filter((e) =>
       selectedEventIds.size > 0 ? selectedEventIds.has(e.id) : true,
@@ -612,14 +556,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
     setLoading(true);
     try {
       const updatePromises = eventsToMove.map((evt) => {
-        // Creamos un objeto Date desde la fecha y hora actual del evento
         const currentFullDate = new Date(
           `${evt.fecha}T${evt.hora_inicio || "00:00:00"}`,
-        ); // Aplicamos el desplazamiento usando date-fns
+        ); 
 
         let newDate = addDays(currentFullDate, offset.days);
         newDate = addHours(newDate, offset.hours);
-        newDate = addMinutes(newDate, offset.minutes); // Formateamos para SQL
+        newDate = addMinutes(newDate, offset.minutes); 
 
         return supabase
           .from("eventos")
@@ -633,8 +576,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
       await Promise.all(updatePromises);
 
       setShiftModal({ isOpen: false, transportId: null, transportName: "" });
-      await fetchData(); // Recargar datos
-      refresh(); // Refrescar lógica global
+      await fetchData(); 
+      refresh(); 
     } catch (error) {
       console.error(error);
       alert("Error al mover los horarios");
@@ -644,14 +587,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
   };
   const passengerList = rawSummary || [];
   const giraId = gira?.id;
-  // ... (dentro de GirasTransportesManager)
 
-  // ESTADOS PARA FEEDBACK VISUAL
   const [updatingFields, setUpdatingFields] = useState(new Set());
   const [successFields, setSuccessFields] = useState(new Set());
   const [errorFields, setErrorFields] = useState(new Set());
 
-  // HELPER PARA CLASES CSS SEGÚN ESTADO
   const getInputClass = (id, field) => {
     const key = `${id}-${field}`;
     if (errorFields.has(key)) return "border-rose-500 bg-rose-50 text-rose-900";
@@ -659,7 +599,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       return "border-emerald-500 bg-emerald-50 text-emerald-900";
     if (updatingFields.has(key))
       return "border-amber-500 bg-amber-50 text-amber-900";
-    return "border-transparent hover:border-slate-300 focus:border-indigo-500 bg-transparent"; // Default limpio
+    return "border-transparent hover:border-slate-300 focus:border-indigo-500 bg-transparent"; 
   };
   const [transports, setTransports] = useState([]);
   const [catalog, setCatalog] = useState([]);
@@ -676,7 +616,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     title: "",
     list: [],
     transportId: null,
-  }); // Modal de Admisión (NUEVO)
+  }); 
 
   const [admissionModal, setAdmissionModal] = useState({
     isOpen: false,
@@ -701,24 +641,17 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
         return (
           <div className="space-y-4">
-                       {" "}
             {Object.keys(grouped)
               .sort()
               .map((locName) => (
                 <div key={locName}>
-                                   {" "}
                   <h4 className="bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 uppercase tracking-wider mb-1 rounded flex justify-between items-center">
-                                        <span>{locName}</span>                 
-                     {" "}
+                    <span>{locName}</span>
                     <span className="bg-white px-2 py-0.5 rounded text-slate-400 border text-[10px]">
-                                            {grouped[locName].length}           
-                             {" "}
+                      {grouped[locName].length}
                     </span>
-                                     {" "}
                   </h4>
-                                   {" "}
                   <ul className="divide-y divide-slate-50">
-                                       {" "}
                     {grouped[locName].map((p) => {
                       const trData = p.logistics?.transports?.find(
                         (t) =>
@@ -732,46 +665,30 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           key={p.id}
                           className="py-2 text-sm flex justify-between items-center pl-2 hover:bg-white"
                         >
-                                                   {" "}
                           <span className="font-medium text-slate-700">
-                                                        {p.apellido}, {p.nombre}
-                                                     {" "}
+                            {p.apellido}, {p.nombre}
                           </span>
-                                                   {" "}
                           <div className="flex gap-1 text-[10px] font-bold">
-                                                       {" "}
                             {missingUp && (
                               <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
-                                                               {" "}
-                                <IconAlertTriangle size={10} /> Falta Subida    
-                                                         {" "}
+                                <IconAlertTriangle size={10} /> Falta Subida
                               </span>
                             )}
-                                                       {" "}
                             {missingDown && (
                               <span className="bg-orange-50 text-orange-600 px-2 py-0.5 rounded border border-orange-100 flex items-center gap-1">
-                                                               {" "}
-                                <IconAlertTriangle size={10} /> Falta Bajada    
-                                                         {" "}
+                                <IconAlertTriangle size={10} /> Falta Bajada
                               </span>
                             )}
-                                                     {" "}
                           </div>
-                                                 {" "}
                         </li>
                       );
                     })}
-                                     {" "}
                   </ul>
-                                 {" "}
                 </div>
               ))}
-                     {" "}
           </div>
         );
       }
-
-      // ... dentro de InfoListModal, en la parte final de renderContent:
 
       return (
         <ul className="divide-y divide-slate-100">
@@ -790,13 +707,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       {locNombre}
                     </span>
                   </div>
-                  {/* Contador total al costado por si son muchos */}
                   <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-black">
                     {p.logistics?.transports?.length} BUSES
                   </span>
                 </div>
 
-                {/* LISTADO DETALLADO DE LOS TRANSPORTES ASIGNADOS */}
                 <div className="flex flex-wrap gap-1.5 mt-1">
                   {p.logistics?.transports?.map((tr, idx) => (
                     <div
@@ -822,51 +737,38 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
     return (
       <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-               {" "}
         <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col animate-in zoom-in-95">
-                   {" "}
           <div className="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-lg">
-                       {" "}
-            <h3 className="font-bold text-slate-700">{infoListModal.title}</h3> 
-                     {" "}
+            <h3 className="font-bold text-slate-700">{infoListModal.title}</h3>
             <button
               onClick={() =>
                 setInfoListModal({ ...infoListModal, isOpen: false })
               }
               className="text-slate-400 hover:text-slate-600"
             >
-                            <IconX size={20} />           {" "}
+              <IconX size={20} />
             </button>
-                     {" "}
           </div>
-                   {" "}
           <div className="p-4 overflow-y-auto flex-1 bg-white/50">
-                       {" "}
             {infoListModal.list.length === 0 ? (
               <p className="text-center text-slate-500 italic">
-                                La lista está vacía.              {" "}
+                La lista está vacía.
               </p>
             ) : (
               renderContent()
             )}
-                     {" "}
           </div>
-                   {" "}
           <div className="p-3 border-t bg-slate-50 rounded-b-lg text-right">
-                       {" "}
             <button
               onClick={() =>
                 setInfoListModal({ ...infoListModal, isOpen: false })
               }
               className="px-4 py-2 bg-slate-200 text-slate-700 rounded text-xs font-bold hover:bg-slate-300"
             >
-                            Cerrar            {" "}
+              Cerrar
             </button>
-                     {" "}
           </div>
-                 {" "}
         </div>
-             {" "}
       </div>
     );
   };
@@ -879,10 +781,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
   });
   const [activeTransportId, setActiveTransportId] = useState(null);
   const [editingTransportId, setEditingTransportId] = useState(null);
+  
+  // --- EDICIÓN DEL TRANSPORTE CON TOGGLE ---
   const [editFormData, setEditFormData] = useState({
     detalle: "",
     capacidad: "",
     costo: "",
+    es_tipo_alternativo: false, // Nuevo campo
   });
   const [editingEventId, setEditingEventId] = useState(null);
   const [newEvent, setNewEvent] = useState({
@@ -999,7 +904,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       const { data: list } = await supabase
         .from("giras_transportes")
         .select(
-          `id, detalle, costo, capacidad_maxima, id_transporte, transportes ( nombre, patente)`,
+          `id, detalle, costo, capacidad_maxima, id_transporte, es_tipo_alternativo, transportes ( nombre, patente)`,
         )
         .eq("id_gira", giraId)
         .order("id");
@@ -1035,7 +940,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const handleUpdateEvent = async (eventId, field, value) => {
     const key = `${eventId}-${field}`;
 
-    // 1. Actualización Optimista (Visual inmediata)
     const newEventsMap = { ...transportEvents };
     for (const tId in newEventsMap) {
       const idx = newEventsMap[tId].findIndex((e) => e.id === eventId);
@@ -1046,7 +950,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
     }
     setTransportEvents(newEventsMap);
 
-    // 2. Estado: Actualizando (Amarillo)
     setUpdatingFields((prev) => new Set(prev).add(key));
     setSuccessFields((prev) => {
       const n = new Set(prev);
@@ -1065,10 +968,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
         .update({ [field]: value })
         .eq("id", eventId);
 
-      // 3. Estado: Éxito (Verde)
       setSuccessFields((prev) => new Set(prev).add(key));
 
-      // Limpiar el verde después de 2 segundos
       setTimeout(() => {
         setSuccessFields((prev) => {
           const n = new Set(prev);
@@ -1078,12 +979,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
       }, 2000);
     } catch (e) {
       console.error(e);
-      // 4. Estado: Error (Rojo)
       setErrorFields((prev) => new Set(prev).add(key));
-      // Revertir cambios visuales (opcional, aquí forzamos fetch)
       fetchData();
     } finally {
-      // Quitar estado de carga
       setUpdatingFields((prev) => {
         const n = new Set(prev);
         n.delete(key);
@@ -1104,10 +1002,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
     });
 
     return relevantRules.map((r) => {
-      // VALIDACIÓN CRÍTICA:
-      // Contamos solo si:
-      // 1. Cumple la regla (matchesRule)
-      // 2. ESTÁ ADMITIDO en este bus (p.logistics.transports)
       const count = passengerList.filter((p) => {
         const matchesStop = matchesRule(r, p, localitiesList);
         const isAdmittedInBus = p.logistics?.transports?.some(
@@ -1140,7 +1034,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
       return { label, count };
     });
-  }; // --- FUNCIÓN CLAVE: INSERTAR ITINERARIO CON PERSONAS ---
+  }; 
+  
   const handleInsertItinerary = async (template, startDate, startTime) => {
     const tId = itineraryModal.transportId;
     if (!tId || !template || !startDate || !startTime) return;
@@ -1151,7 +1046,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         (a, b) => a.orden - b.orden,
       );
       let currentDateTime = new Date(`${startDate}T${startTime}`);
-      const eventsToCreate = []; // 1. Crear Evento Inicial (Salida)
+      const eventsToCreate = [];
 
       if (tramos.length > 0) {
         const primerTramo = tramos[0];
@@ -1160,14 +1055,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
           hora: format(currentDateTime, "HH:mm:ss"),
           id_locacion: primerTramo.id_locacion_origen,
           descripcion: primerTramo.nota || "Inicio Recorrido",
-          id_tipo_evento: primerTramo.id_tipo_evento || 11, // LOCALIDADES
-          suben: primerTramo.ids_localidades_suben || [], // PERSONAS (Nuevo)
+          id_tipo_evento: primerTramo.id_tipo_evento || 11, 
+          suben: primerTramo.ids_localidades_suben || [], 
           subenInd: primerTramo.ids_integrantes_suben || [],
 
           bajan: [],
           bajanInd: [],
         });
-      } // 2. Crear Eventos Intermedios/Finales
+      } 
 
       tramos.forEach((tramo, index) => {
         currentDateTime = addMinutes(
@@ -1185,10 +1080,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
             : "Fin de Recorrido",
           id_tipo_evento: siguienteTramo
             ? siguienteTramo.id_tipo_evento || 11
-            : 11, // Bajada de este tramo
+            : 11, 
 
           bajan: tramo.ids_localidades_bajan || [],
-          bajanInd: tramo.ids_integrantes_bajan || [], // Subida del siguiente
+          bajanInd: tramo.ids_integrantes_bajan || [], 
 
           suben: siguienteTramo
             ? siguienteTramo.ids_localidades_suben || []
@@ -1197,7 +1092,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             ? siguienteTramo.ids_integrantes_suben || []
             : [],
         });
-      }); // 3. Insertar en DB
+      }); 
 
       for (const evtData of eventsToCreate) {
         const { data: eventDB, error } = await supabase
@@ -1220,7 +1115,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         if (error) throw error;
         const eventId = eventDB.id;
 
-        const routeRulesToInsert = []; // Helper para insertar reglas
+        const routeRulesToInsert = []; 
 
         const addRules = (ids, type, scope) => {
           if (!ids || ids.length === 0) return;
@@ -1228,18 +1123,18 @@ export default function GirasTransportesManager({ supabase, gira }) {
             const rule = {
               id_gira: giraId,
               id_transporte_fisico: tId,
-              alcance: scope, // 'Localidad' o 'Persona'
+              alcance: scope, 
               [scope === "Localidad" ? "id_localidad" : "id_integrante"]: id,
-              prioridad: scope === "Persona" ? 5 : 3, // Reglas por persona tienen prioridad alta
+              prioridad: scope === "Persona" ? 5 : 3, 
             };
             if (type === "subida") rule.id_evento_subida = eventId;
             else rule.id_evento_bajada = eventId;
             routeRulesToInsert.push(rule);
           });
-        }; // Procesar Localidades
+        }; 
 
         addRules(evtData.suben, "subida", "Localidad");
-        addRules(evtData.bajan, "bajada", "Localidad"); // Procesar Personas (AQUÍ ESTABA EL FALTANTE)
+        addRules(evtData.bajan, "bajada", "Localidad"); 
 
         addRules(evtData.subenInd, "subida", "Persona");
         addRules(evtData.bajanInd, "bajada", "Persona");
@@ -1300,7 +1195,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         descripcion: newEvent.descripcion || "",
         id_tipo_evento: parseInt(newEvent.id_tipo_evento),
         convocados: [],
-      }; // Si el ID empieza con "new-", es una inserción
+      }; 
 
       if (String(editingEventId).startsWith("new-")) {
         await supabase.from("eventos").insert([payload]);
@@ -1308,7 +1203,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         await supabase.from("eventos").update(payload).eq("id", editingEventId);
       }
 
-      setEditingEventId(null); // Cerramos la fila de edición
+      setEditingEventId(null); 
       setNewEvent({
         fecha: "",
         hora: "",
@@ -1476,7 +1371,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
       return alert("Rango inválido");
 
     const tPax = passengerList.filter((p) => {
-      // CORRECCIÓN: Usar String comparison para IDs
       const transportData = p.logistics?.transports?.find(
         (t) => String(t.id) === String(tId),
       );
@@ -1496,7 +1390,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   const handleExportRoadmap = (startId, endId) => {
     const tId = roadmapModal.transportId;
-    const tInfo = transports.find((t) => t.id === tId); // CORRECCIÓN: Usar String comparison
+    const tInfo = transports.find((t) => t.id === tId); 
     const tPax = passengerList.filter((p) =>
       p.logistics?.transports?.some((t) => String(t.id) === String(tId)),
     );
@@ -1518,6 +1412,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
       detalle: t.detalle || "",
       capacidad: t.capacidad_maxima || "",
       costo: t.costo || "",
+      // Lógica añadida: cargar el estado actual
+      es_tipo_alternativo: t.es_tipo_alternativo || false,
     });
   };
 
@@ -1529,9 +1425,23 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const saveTransportChanges = async (e) => {
     e.stopPropagation();
     if (!editingTransportId) return;
+    
     setLoading(true);
+    // Usamos un toast de carga de Sonner
+    const toastId = toast.loading("Guardando cambios...");
+
     try {
-      await supabase
+      const targetEventType = editFormData.es_tipo_alternativo
+        ? TIPO_EVENTO_ALT
+        : TIPO_EVENTO_DEFAULT;
+      
+      const typeName = editFormData.es_tipo_alternativo ? "Solo Logístico" : "de Pasajeros";
+
+      // 1. Calcular impacto (usamos el estado local que es más rápido)
+      const eventsAffectedCount = transportEvents[editingTransportId]?.length || 0;
+
+      // 2. Actualizar Transporte en DB
+      const { error: transportError } = await supabase
         .from("giras_transportes")
         .update({
           detalle: editFormData.detalle,
@@ -1539,13 +1449,42 @@ export default function GirasTransportesManager({ supabase, gira }) {
             ? parseInt(editFormData.capacidad)
             : null,
           costo: parseFloat(editFormData.costo) || 0,
+          es_tipo_alternativo: editFormData.es_tipo_alternativo,
         })
         .eq("id", editingTransportId);
+
+      if (transportError) throw transportError;
+
+      // 3. Actualización masiva de eventos en DB
+      const { error: eventsError } = await supabase
+        .from("eventos")
+        .update({ id_tipo_evento: targetEventType })
+        .eq("id_gira_transporte", editingTransportId);
+
+      if (eventsError) throw eventsError;
+
       setEditingTransportId(null);
       await fetchData();
+
+      // --- FEEDBACK VISUAL EXITOSO CON SONNER ---
+      if (eventsAffectedCount > 0) {
+        toast.success(
+          <div className="flex flex-col gap-1">
+            <span>Transporte actualizado.</span>
+            <span className="text-xs opacity-90">
+              Se cambiaron <b>{eventsAffectedCount} paradas</b> al tipo <b>{typeName}</b>.
+            </span>
+          </div>,
+          { id: toastId, duration: 5000 }
+        );
+      } else {
+        toast.success("Transporte actualizado correctamente.", { id: toastId });
+      }
+
     } catch (error) {
       console.error(error);
-      alert("Error al actualizar transporte");
+      // Actualizamos el toast a error con Sonner
+      toast.error("Error al actualizar el transporte.", { id: toastId });
     } finally {
       setLoading(false);
     }
@@ -1553,10 +1492,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   return (
     <div className="h-full overflow-y-auto p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
-            {/* 1. DASHBOARD DE COBERTURA */}     {" "}
-      {/* Dashboard de Cobertura */}
       <div className="mb-6 grid grid-cols-3 gap-4 w-full">
-        {/* 1. ASIGNADOS OK */}
+        {/* DASHBOARD... */}
         <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
           <div className="p-2.5 bg-emerald-100 rounded-xl text-emerald-600 shrink-0">
             <IconCheckCircle size={22} />
@@ -1571,7 +1508,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
           </div>
         </div>
 
-        {/* 2. MULTI-TRANSPORTE */}
         <div
           onClick={() =>
             setInfoListModal({
@@ -1595,7 +1531,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
           </div>
         </div>
 
-        {/* 3. SIN TRANSPORTE */}
         <div
           onClick={() =>
             setInfoListModal({
@@ -1619,44 +1554,44 @@ export default function GirasTransportesManager({ supabase, gira }) {
           </div>
         </div>
       </div>
-           {" "}
+            
       <div className="flex justify-between items-center mb-4 border-b pb-2">
-               {" "}
+                
         <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                    <IconTruck className="text-indigo-600" /> Gestión de
-          Transportes        {" "}
+                    <IconTruck className="text-indigo-600" /> Gestión de
+          Transportes        
         </h3>
-               {" "}
+                
         <div className="flex gap-2 items-center">
-                    <DataIntegrityIndicator passengers={passengerList} />       
-           {" "}
+                    <DataIntegrityIndicator passengers={passengerList} />        
+            
           <button
             onClick={handleExportGlobal}
             className="flex items-center gap-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold transition-colors shadow-sm"
           >
-                        <IconDownload size={14} /> Excel General          {" "}
+                        <IconDownload size={14} /> Excel General          
           </button>
-                   {" "}
+                    
           <button
             onClick={() =>
               setItineraryModal({ isOpen: true, transportId: null })
             }
             className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded text-xs font-bold hover:bg-indigo-100"
           >
-                        <IconMapPin size={14} /> Gestor de Itinerarios        
-             {" "}
+                        <IconMapPin size={14} /> Gestor de Itinerarios        
+              
           </button>
-                 {" "}
+                  
         </div>
-             {" "}
+              
       </div>
-            {/* FORMULARIO DE AGREGAR TRANSPORTE */}     {" "}
+            
       <div className="flex gap-2 mb-6 items-end bg-slate-50 p-3 rounded-lg border border-slate-200">
-               {" "}
+                
         <div className="w-1/4">
-                   {" "}
-          <label className="text-[10px] font-bold text-slate-500">TIPO</label> 
-                 {" "}
+                    
+          <label className="text-[10px] font-bold text-slate-500">TIPO</label> 
+                  
           <select
             className="w-full text-xs border p-2 rounded"
             value={newTransp.id_transporte}
@@ -1664,23 +1599,23 @@ export default function GirasTransportesManager({ supabase, gira }) {
               setNewTransp({ ...newTransp, id_transporte: e.target.value })
             }
           >
-                        <option value="">Seleccionar...</option>           {" "}
+                        <option value="">Seleccionar...</option>            
             {catalog.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.nombre} {c.patente ? `(${c.patente})` : ""}
               </option>
             ))}
-                     {" "}
+                      
           </select>
-                 {" "}
+                  
         </div>
-               {" "}
+                
         <div className="flex-1">
-                   {" "}
+                    
           <label className="text-[10px] font-bold text-slate-500">
-                        DETALLE          {" "}
+                        DETALLE          
           </label>
-                   {" "}
+                    
           <input
             type="text"
             className="w-full text-xs border p-2 rounded"
@@ -1690,15 +1625,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
               setNewTransp({ ...newTransp, detalle: e.target.value })
             }
           />
-                 {" "}
+                  
         </div>
-               {" "}
+                
         <div className="w-24">
-                   {" "}
+                    
           <label className="text-[10px] font-bold text-slate-500">
-                        CAPACIDAD          {" "}
+                        CAPACIDAD          
           </label>
-                   {" "}
+                    
           <input
             type="number"
             min="0"
@@ -1709,26 +1644,25 @@ export default function GirasTransportesManager({ supabase, gira }) {
               setNewTransp({ ...newTransp, capacidad: e.target.value })
             }
           />
-                 {" "}
+                  
         </div>
-               {" "}
+                
         <button
           onClick={handleAddTransport}
           className="bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700"
         >
-                    <IconPlus size={18} />       {" "}
+                    <IconPlus size={18} />        
         </button>
-             {" "}
+              
       </div>
-            {/* LISTA DE TRANSPORTES */}     {" "}
+            
       <div className="space-y-4">
-               {" "}
+                
         {transports.map((t) => {
           const isExpanded = activeTransportId === t.id;
           const myEvents = transportEvents[t.id] || [];
           const isMediosPropios = String(t.id_transporte) === "9";
 
-          // Lógica de Pasajeros
           const tPax = passengerList.filter((p) =>
             p.logistics?.transports?.some(
               (tr) => String(tr.id) === String(t.id),
@@ -1760,14 +1694,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
               key={t.id}
               className={`group border rounded-2xl transition-all duration-300 ${isExpanded ? "border-indigo-300 shadow-xl ring-4 ring-indigo-50/50 bg-white" : "border-slate-200 bg-white hover:border-slate-300 shadow-sm"}`}
             >
-              {/* HEADER DE LA TARJETA */}
+              
               <div
                 className="p-2 md:p-3 flex flex-col md:flex-row justify-between md:items-center gap-2 cursor-pointer"
                 onClick={() =>
                   !isEditing && setActiveTransportId(isExpanded ? null : t.id)
                 }
               >
-                {/* LADO IZQUIERDO: Info del Vehículo */}
+                
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                   <div
                     className={`p-2 rounded-xl shrink-0 transition-colors ${
@@ -1781,15 +1715,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
                   <div className="min-w-0 flex-1">
                     {isEditing ? (
-                      // --- MODO EDICIÓN ---
+                      
                       <div
                         className="flex flex-wrap items-center gap-2"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {/* Selector de Tipo de Transporte */}
+                        
                         <select
                           className="border border-indigo-300 rounded px-2 py-1 text-xs bg-white focus:ring-2 focus:ring-indigo-200 outline-none w-24"
-                          value={editFormData.id_transporte || t.id_transporte} // Fallback al original si no se cambió
+                          value={editFormData.id_transporte || t.id_transporte} 
                           onChange={(e) =>
                             setEditFormData({
                               ...editFormData,
@@ -1804,7 +1738,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           ))}
                         </select>
 
-                        {/* Input Detalle */}
+                        
                         <input
                           type="text"
                           value={editFormData.detalle}
@@ -1819,7 +1753,34 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           autoFocus
                         />
 
-                        {/* Input Capacidad */}
+                        {/* --- TOGGLE DE TIPO DE EVENTO (NUEVO) --- */}
+                        <label 
+                          className={`flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer select-none transition-colors ${
+                            editFormData.es_tipo_alternativo 
+                              ? "bg-amber-50 border-amber-200 text-amber-700" 
+                              : "bg-slate-50 border-slate-200 text-slate-400"
+                          }`}
+                          title="Cambiar el tipo de evento de todas las paradas (Logística vs Especial)"
+                        >
+                          <input
+                            type="checkbox"
+                            className="hidden" 
+                            checked={editFormData.es_tipo_alternativo}
+                            onChange={(e) =>
+                              setEditFormData({
+                                ...editFormData,
+                                es_tipo_alternativo: e.target.checked,
+                              })
+                            }
+                          />
+                          {editFormData.es_tipo_alternativo ? <IconAlertTriangle size={14} /> : <IconBus size={14} />}
+                          
+                          <span className="text-[9px] font-bold uppercase">
+                            {editFormData.es_tipo_alternativo ? "Solo logístico" : "De pasajeros"}
+                          </span>
+                        </label>
+
+                        
                         <input
                           type="number"
                           value={editFormData.capacidad}
@@ -1833,7 +1794,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           placeholder="Cap."
                         />
 
-                        {/* Botones Guardar/Cancelar */}
+                        
                         <div className="flex gap-1">
                           <button
                             onClick={saveTransportChanges}
@@ -1850,7 +1811,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         </div>
                       </div>
                     ) : (
-                      // --- MODO VISUALIZACIÓN (Original) ---
+                      
                       <>
                         <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden">
                           <h4 className="font-black text-slate-800 uppercase tracking-tighter text-sm truncate shrink">
@@ -1883,20 +1844,25 @@ export default function GirasTransportesManager({ supabase, gira }) {
                               : ""}{" butacas"}
                             {maxCap > 0 ? ` / ${maxCap}` : ""}
                           </span>
+                          {/* Indicador visual de tipo alternativo (si no se edita) */}
+                          {t.es_tipo_alternativo && (
+                             <span className="ml-1 text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold border border-amber-200" title="Transporte Alternativo / Especial">
+                               Solo logístico
+                             </span>
+                          )}
                         </div>
                       </>
                     )}
                   </div>
                 </div>
 
-                {/* LADO DERECHO: Acciones (Solo visible si NO se edita) */}
-                {/* LADO DERECHO: Acciones (Solo visible si NO se edita) */}
+                
                 {!isEditing && (
                   <div
                     className="flex items-center gap-1 shrink-0 ml-auto md:ml-0"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {/* Alerta de Incompletos */}
+                    
                     {incompletePax.length > 0 && !isMediosPropios && (
                       <button
                         onClick={() =>
@@ -1917,7 +1883,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       </button>
                     )}
 
-                    {/* Botonera de Acciones */}
+                    
                     <div className="flex items-center bg-slate-100/80 p-0.5 rounded-xl border border-slate-200 gap-0.5">
                       <button
                         onClick={() =>
@@ -1939,7 +1905,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         <IconCheckCircle size={16} />
                       </button>
 
-                      {/* --- BOTÓN RESTAURADO: INSERTAR ITINERARIO --- */}
+                      
                       <button
                         onClick={() =>
                           setItineraryModal({ isOpen: true, transportId: t.id })
@@ -1949,7 +1915,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       >
                         <IconMapPin size={16} />
                       </button>
-                      {/* --------------------------------------------- */}
+                      
 
                       <button
                         onClick={() =>
@@ -2007,7 +1973,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                 )}
               </div>
 
-              {/* CONTENIDO EXPANDIDO (TABLA) */}
+              
               {isExpanded && (
                 <div className="border-t border-slate-100 overflow-hidden rounded-b-2xl bg-slate-50/30">
                   <div className="overflow-x-auto">
@@ -2095,10 +2061,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 />
                               </td>
 
-                              {/* --- COLUMNA FECHA Y HORARIOS (TODO HORIZONTAL) --- */}
+                              
                               <td className="p-2 align-middle">
                                 <div className="flex items-center gap-1">
-                                  {/* Fecha */}
+                                  
                                   <div className="w-[115px] relative group/date">
                                     <DateInput
                                       value={evt.fecha}
@@ -2109,7 +2075,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     />
                                   </div>
 
-                                  {/* Hora Inicio */}
+                                  
                                   <div className="w-[80px] relative group/time">
                                     <TimeInput
                                       value={evt.hora_inicio}
@@ -2128,7 +2094,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     -
                                   </span>
 
-                                  {/* Hora Fin */}
+                                  
                                   <div className="w-[80px] relative group/time">
                                     <TimeInput
                                       value={evt.hora_fin || evt.hora_inicio}
@@ -2145,7 +2111,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 </div>
                               </td>
 
-                              {/* --- COLUMNA LOCACIÓN EDITABLE --- */}
+                              
                               <td className="p-2 min-w-[180px] align-middle">
                                 <SearchableSelect
                                   options={locationOptions}
@@ -2157,7 +2123,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 />
                               </td>
 
-                              {/* --- COLUMNA NOTA EDITABLE --- */}
+                              
                               <td className="p-2 align-middle">
                                 <textarea
                                   value={evt.descripcion || ""}
@@ -2179,7 +2145,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 />
                               </td>
 
-                              {/* CELDA SUBEN */}
+                              
                               <td
                                 className={`p-2 border-l border-emerald-50/50 align-middle ${totalUps > 0 ? "bg-emerald-50/20" : ""}`}
                               >
@@ -2223,7 +2189,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 </button>
                               </td>
 
-                              {/* CELDA BAJAN */}
+                              
                               <td
                                 className={`p-2 border-l border-rose-50/50 align-middle ${totalDowns > 0 ? "bg-rose-50/30" : ""}`}
                               >
@@ -2279,7 +2245,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           );
                         })}
 
-                        {/* FILA DE EDICIÓN / ALTA INLINE */}
+                        
                         {editingEventId === `new-${t.id}` && (
                           <tr className="bg-indigo-50/50 animate-in fade-in slide-in-from-left-2">
                             <td className="p-3 text-center text-indigo-500 align-middle">
@@ -2347,7 +2313,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           </tr>
                         )}
 
-                        {/* BOTÓN AGREGAR PARADA */}
+                        
                         {editingEventId !== `new-${t.id}` && (
                           <tr>
                             <td colSpan="7" className="p-2 bg-slate-50/50">
@@ -2359,7 +2325,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     hora: "08:00:00",
                                     id_locacion: null,
                                     descripcion: "",
-                                    id_tipo_evento: "11",
+                                    id_tipo_evento: t.es_tipo_alternativo ? "3" : "11", // ID Dinámico según tipo de transporte
                                   });
                                 }}
                                 className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all uppercase tracking-[0.2em] bg-white"
@@ -2377,9 +2343,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
             </div>
           );
         })}
-             {" "}
+              
       </div>
-            <InfoListModal />     {" "}
+            <InfoListModal />      
       {admissionModal.isOpen && (
         <TransportAdmissionModal
           isOpen={admissionModal.isOpen}
@@ -2397,7 +2363,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onUpdate={refresh}
         />
       )}
-           {" "}
+            
       {cnrtModal.isOpen && (
         <CnrtExportModal
           transport={transports.find((t) => t.id === cnrtModal.transportId)}
@@ -2406,7 +2372,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onExport={handleExportCNRT}
         />
       )}
-           {" "}
+            
       {roadmapModal.isOpen && (
         <CnrtExportModal
           title="Exportar Hoja de Ruta"
@@ -2416,7 +2382,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onExport={handleExportRoadmap}
         />
       )}
-           {" "}
+            
       {itineraryModal.isOpen && (
         <ItineraryManagerModal
           supabase={supabase}
@@ -2424,7 +2390,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onClose={() =>
             setItineraryModal({ isOpen: false, transportId: null })
           }
-          giraId={giraId} // Obtenemos el transporte actual de la lista
+          giraId={giraId} 
           transportId={itineraryModal.transportId}
           transportName={
             transports.find((t) => t.id === itineraryModal.transportId)
@@ -2435,11 +2401,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
           }
           locations={locationsList}
           localities={localitiesList}
-          roster={roster} // Pasamos el roster completo
+          roster={roster} 
           onApplyItinerary={handleInsertItinerary}
         />
       )}
-           {" "}
+            
       {boardingModal.isOpen && (
         <BoardingManagerModal
           isOpen={boardingModal.isOpen}
@@ -2451,7 +2417,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onDeleteBoarding={handleDeleteBoardingRule}
         />
       )}
-           {" "}
+            
       {rulesModal.isOpen && (
         <StopRulesManager
           isOpen={rulesModal.isOpen}
@@ -2474,10 +2440,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
           onRefresh={refresh}
         />
       )}
-           {" "}
+            
       <ShiftScheduleModal
         isOpen={shiftModal.isOpen}
-        transportName={shiftModal.transportName} // FILTRO: Si hay seleccionados, solo mandamos esos al modal
+        transportName={shiftModal.transportName} 
         events={(transportEvents[shiftModal.transportId] || []).filter((e) =>
           selectedEventIds.size > 0 ? selectedEventIds.has(e.id) : true,
         )}
@@ -2486,10 +2452,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
         }
         onApply={(offset) => {
           handleApplyShiftSchedule(offset);
-          clearSelection(); // Limpiamos al terminar
+          clearSelection(); 
         }}
       />
-         {" "}
+          
     </div>
   );
 }
