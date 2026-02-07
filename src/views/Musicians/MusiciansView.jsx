@@ -945,7 +945,18 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [locationsList, setLocationsList] = useState([]);
   const [editFormData, setEditFormData] = useState({});
+  // Estado para controlar el acordeón en móviles
+  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
 
+  // Calcular cantidad de filtros activos para mostrar el "badge" cuando está cerrado
+  const activeFiltersCount =
+    selectedEnsembles.size +
+    (selectedInstruments.has("null")
+      ? selectedInstruments.size - 1
+      : selectedInstruments.size) + // Ajuste por 'null' default
+    conditionFilters.size +
+    (onlyVigente ? 1 : 0) +
+    missingFieldsFilters.size;
   // ESTADO SELECCIÓN Y EDICIÓN MASIVA
   const [selectedMusicians, setSelectedMusicians] = useState(new Set());
   const [isMassEditOpen, setIsMassEditOpen] = useState(false);
@@ -1245,95 +1256,146 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   }
   return (
     <div className="space-y-4 h-full flex flex-col overflow-hidden animate-in fade-in">
-      <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 shrink-0 flex flex-col md:flex-row gap-3 items-center">
-        {/* FILTROS EXISTENTES ... */}
-        <EnsembleFilter
-          ensembles={ensemblesList}
-          selectedIds={selectedEnsembles}
-          onChange={setSelectedEnsembles}
-        />
-
-        <InstrumentFilter
-          catalogo={catalogoInstrumentos}
-          selectedIds={selectedInstruments}
-          onChange={(s) => setSelectedInstruments(s)}
-        />
-
-        <ConditionFilter
-          selectedConds={conditionFilters}
-          onChange={setConditionFilters}
-        />
-
-        <button
-          onClick={() => setOnlyVigente(!onlyVigente)}
-          className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all ${
-            onlyVigente
-              ? "bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm"
-              : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
-          }`}
+      {/* --- HEADER DE FILTROS (MODIFICADO PARA MÓVIL) --- */}
+      <div className="bg-white rounded-lg shadow-sm border border-slate-200 shrink-0 transition-all overflow-hidden">
+        {/* BARRA DE TÍTULO MÓVIL (Solo visible en pantallas chicas) */}
+        <div
+          className="md:hidden p-3 flex items-center justify-between cursor-pointer bg-slate-50/50 active:bg-slate-100 transition-colors"
+          onClick={() => setIsMobileFiltersOpen(!isMobileFiltersOpen)}
         >
-          <div
-            className={`w-2 h-2 rounded-full ${onlyVigente ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`}
-          />
-          Vigentes
-        </button>
-
-        <MissingDataFilter
-          selectedFields={missingFieldsFilters}
-          onChange={setMissingFieldsFilters}
-        />
-
-        <ColumnSelector
-          visibleCols={visibleColumns}
-          onChange={setVisibleColumns}
-        />
-
-        {/* --- BARRA DE ACCIONES MASIVAS (Visible si hay seleccionados) --- */}
-        {selectedMusicians.size > 0 && (
-          <div className="flex items-center gap-2 ml-auto md:ml-2 bg-indigo-50/50 p-1 rounded-lg border border-indigo-100 animate-in fade-in zoom-in">
-            <span className="text-[10px] font-bold text-indigo-400 px-2 hidden lg:inline">
-              {selectedMusicians.size} selec.
+          <div className="flex items-center gap-2">
+            <IconFilter size={16} className="text-slate-500" />
+            <span className="text-sm font-bold text-slate-700">
+              Filtros y Acciones
             </span>
+            {activeFiltersCount > 0 && (
+              <span className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+                {activeFiltersCount}
+              </span>
+            )}
+          </div>
+          <IconChevronDown
+            size={18}
+            className={`text-slate-400 transition-transform duration-300 ${isMobileFiltersOpen ? "rotate-180" : ""}`}
+          />
+        </div>
+
+        {/* CONTENEDOR DE CONTROLES (Oculto en móvil si está cerrado, siempre visible en Desktop) */}
+        <div
+          className={`
+            p-3 gap-3 items-center
+            ${isMobileFiltersOpen ? "flex flex-col" : "hidden"} 
+            md:flex md:flex-row border-t md:border-t-0 border-slate-100
+        `}
+        >
+          {/* 1. FILTRO DE ENSAMBLES */}
+          <div className="w-full md:w-auto">
+            <EnsembleFilter
+              ensembles={ensemblesList}
+              selectedIds={selectedEnsembles}
+              onChange={setSelectedEnsembles}
+            />
+          </div>
+
+          {/* 2. FILTRO DE INSTRUMENTOS */}
+          <div className="w-full md:w-auto">
+            <InstrumentFilter
+              catalogo={catalogoInstrumentos}
+              selectedIds={selectedInstruments}
+              onChange={(s) => setSelectedInstruments(s)}
+            />
+          </div>
+
+          {/* 3. FILTRO DE CONDICIÓN */}
+          <div className="w-full md:w-auto">
+            <ConditionFilter
+              selectedConds={conditionFilters}
+              onChange={setConditionFilters}
+            />
+          </div>
+
+          {/* 4. FILTRO VIGENTES */}
+          <button
+            onClick={() => setOnlyVigente(!onlyVigente)}
+            className={`w-full md:w-auto flex items-center justify-center md:justify-start gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all ${
+              onlyVigente
+                ? "bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm"
+                : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <div
+              className={`w-2 h-2 rounded-full ${onlyVigente ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`}
+            />
+            Vigentes
+          </button>
+
+          {/* 5. FILTRO PENDIENTES */}
+          <div className="w-full md:w-auto">
+            <MissingDataFilter
+              selectedFields={missingFieldsFilters}
+              onChange={setMissingFieldsFilters}
+            />
+          </div>
+
+          {/* 6. SELECTOR DE COLUMNAS */}
+          <div className="w-full md:w-auto">
+            <ColumnSelector
+              visibleCols={visibleColumns}
+              onChange={setVisibleColumns}
+            />
+          </div>
+
+          {/* SEPARADOR EN MÓVIL */}
+          <div className="w-full h-px bg-slate-100 md:hidden my-1"></div>
+
+          {/* BARRA DE ACCIONES MASIVAS (Visible si hay seleccionados) */}
+          {selectedMusicians.size > 0 && (
+            <div className="w-full md:w-auto flex items-center justify-center md:justify-start gap-2 md:ml-auto bg-indigo-50/50 p-1 rounded-lg border border-indigo-100 animate-in fade-in zoom-in">
+              <span className="text-[10px] font-bold text-indigo-400 px-2 hidden lg:inline">
+                {selectedMusicians.size} selec.
+              </span>
+              <button
+                onClick={copySelectedMails}
+                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white text-indigo-600 rounded-md text-xs font-bold hover:bg-indigo-600 hover:text-white transition-colors border border-indigo-200 shadow-sm"
+                title="Copiar correos"
+              >
+                <IconCopy size={14} />
+                <span className="hidden sm:inline">Mails</span>
+              </button>
+              <button
+                onClick={() => setIsMassEditOpen(true)}
+                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
+                title="Edición Masiva"
+              >
+                <IconEdit size={14} />
+                <span className="hidden sm:inline">Editar Lote</span>
+              </button>
+            </div>
+          )}
+
+          {/* BOTONES DE ACCIÓN PRINCIPAL */}
+          <div
+            className={`w-full md:w-auto flex gap-2 ${selectedMusicians.size === 0 ? "ml-auto" : ""}`}
+          >
             <button
-              onClick={copySelectedMails}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-indigo-600 rounded-md text-xs font-bold hover:bg-indigo-600 hover:text-white transition-colors border border-indigo-200 shadow-sm"
-              title="Copiar correos"
+              onClick={() => {
+                setEditingId(null);
+                setIsAdding(true);
+              }}
+              className="flex-1 md:flex-none flex justify-center items-center gap-2 bg-slate-800 text-white px-3 py-2 rounded-lg hover:bg-slate-900 shadow-md transition-all"
+              title="Agregar Músico"
             >
-              <IconCopy size={14} />
-              <span className="hidden sm:inline">Mails</span>
+              <IconPlus size={18} />
+              <span className="md:hidden text-xs font-bold">Nuevo</span>
             </button>
             <button
-              onClick={() => setIsMassEditOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
-              title="Edición Masiva"
+              onClick={() => setShowHorasDashboard(true)}
+              className="flex-1 md:flex-none flex justify-center items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-50 shadow-sm"
             >
-              <IconEdit size={14} />
-              <span className="hidden sm:inline">Editar Lote</span>
+              <IconInfo size={16} className="text-indigo-500" />
+              <span className="">Gestión Horas</span>
             </button>
           </div>
-        )}
-
-        {/* BOTONES DE ACCIÓN PRINCIPAL (Empujados a la derecha si no hay selección) */}
-        <div
-          className={`flex gap-2 ${selectedMusicians.size === 0 ? "ml-auto" : ""}`}
-        >
-          <button
-            onClick={() => {
-              setEditingId(null);
-              setIsAdding(true);
-            }}
-            className="bg-slate-800 text-white p-2 rounded-lg hover:bg-slate-900 shadow-md transition-all"
-            title="Agregar Músico"
-          >
-            <IconPlus size={20} />
-          </button>
-          <button
-            onClick={() => setShowHorasDashboard(true)}
-            className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-50 flex items-center gap-2 shadow-sm"
-          >
-            <IconInfo size={16} className="text-indigo-500" />
-            <span className="hidden xl:inline">Gestión Horas</span>
-          </button>
         </div>
       </div>
 
