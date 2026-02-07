@@ -304,9 +304,15 @@ export default function UnifiedAgenda({
     return defaultVal;
   };
 
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState(() =>
-    getInitialFilterState("categories", []),
-  );
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState(() => {
+    const saved = getInitialFilterState("categories", []);
+    // REGLA: Al iniciar el componente (F5), si no es staff, quitamos Logística (ID 3)
+    // aunque esté guardado en el localStorage.
+    if (!isEditor && !isManagement) {
+      return saved.filter((id) => id !== 3);
+    }
+    return saved;
+  });
   const [showNonActive, setShowNonActive] = useState(() =>
     getInitialFilterState("showNonActive"),
   );
@@ -345,12 +351,22 @@ export default function UnifiedAgenda({
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
           const p = JSON.parse(saved);
-          setSelectedCategoryIds(p.categories || []);
+
+          let loadedCats = p.categories || [];
+
+          // --- REGLA: Al cambiar de usuario, limpiar Logística si corresponde ---
+          if (!isEditor && !isManagement) {
+            loadedCats = loadedCats.filter((id) => id !== 3);
+          }
+          // ---------------------------------------------------------------------
+
+          setSelectedCategoryIds(loadedCats);
           setShowNonActive(p.showNonActive || false);
           setShowOnlyMyTransport(p.showOnlyMyTransport || false);
           setShowOnlyMyMeals(p.showOnlyMyMeals || false);
           setShowNoGray(p.showAllTransport || false);
         } else {
+          // Valores por defecto
           setSelectedCategoryIds([]);
           setShowNonActive(false);
           setShowOnlyMyTransport(false);
@@ -362,8 +378,7 @@ export default function UnifiedAgenda({
       }
       prevUserIdRef.current = effectiveUserId;
     }
-  }, [effectiveUserId, STORAGE_KEY]);
-
+  }, [effectiveUserId, STORAGE_KEY, isEditor, isManagement]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
@@ -507,6 +522,11 @@ export default function UnifiedAgenda({
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      // 1. OBTENER ID DE CATEGORÍA
+      // Accedemos a la relación anidada para saber la categoría real
+      const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
+
+      // 3. FILTRO DE BORRADORES
       if (!showNonActive) {
         const estadoGira = item.programas?.estado || "Borrador";
         if (item.isProgramMarker) {
@@ -516,6 +536,7 @@ export default function UnifiedAgenda({
         }
       }
 
+      // 4. FILTRO DE TÉCNICA (MANAGEMENT)
       if (item.isProgramMarker) return true;
       if (!isManagement && item.tecnica) return false;
 
@@ -523,15 +544,20 @@ export default function UnifiedAgenda({
         if (techFilter === "only_tech" && !item.tecnica) return false;
         if (techFilter === "no_tech" && item.tecnica) return false;
       }
-      const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
+
+      // 5. FILTRO DE CATEGORÍAS (SELECCIÓN DEL USUARIO)
       if (selectedCategoryIds.length > 0) {
+        // Usamos el mismo catId que obtuvimos arriba
         if (catId && !selectedCategoryIds.includes(catId)) return false;
       }
+
+      // 6. FILTRO DE TRANSPORTE PERSONAL
       if (showOnlyMyTransport && item.id_gira_transporte) {
         const tId = String(item.id_gira_transporte);
         if (!myTransportLogistics[tId]?.assigned) return false;
       }
 
+      // 7. FILTRO DE COMIDAS PERSONALES
       if (showOnlyMyMeals) {
         const isMeal =
           [7, 8, 9, 10].includes(item.id_tipo_evento) ||
@@ -550,6 +576,7 @@ export default function UnifiedAgenda({
     myTransportLogistics,
     techFilter,
     isManagement,
+    isEditor,
   ]);
 
   const checkIsConvoked = (convocadosList, tourRole) => {
@@ -949,8 +976,18 @@ export default function UnifiedAgenda({
 
     setAvailableCategories(uniqueCats);
 
+    // Si no hay selección previa, seleccionamos por defecto
     if (selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
-      setSelectedCategoryIds(uniqueCats.map((c) => c.id));
+      const defaultSelection = uniqueCats
+        .filter((cat) => {
+          // Si es Staff, selecciona todo.
+          if (isEditor || isManagement) return true;
+          // Si NO es Staff, selecciona todo EXCEPTO Logística (ID 3)
+          return cat.id !== 3;
+        })
+        .map((c) => c.id);
+
+      setSelectedCategoryIds(defaultSelection);
     }
   };
 
@@ -1361,9 +1398,16 @@ export default function UnifiedAgenda({
                         </span>
                         <button
                           onClick={() => {
-                            setSelectedCategoryIds(
-                              availableCategories.map((c) => c.id),
-                            );
+                            // --- CORRECCIÓN: Filtramos ID 3 si no es staff ---
+                            const catsToSelect = availableCategories
+                              .filter((c) =>
+                                isEditor || isManagement ? true : c.id !== 3,
+                              )
+                              .map((c) => c.id);
+
+                            setSelectedCategoryIds(catsToSelect);
+                            // ------------------------------------------------
+
                             setShowOnlyMyTransport(false);
                             setShowOnlyMyMeals(false);
                             setShowNoGray(false);
@@ -1481,12 +1525,21 @@ export default function UnifiedAgenda({
                               if (
                                 selectedCategoryIds.length ===
                                 availableCategories.length
-                              )
+                              ) {
                                 setSelectedCategoryIds([]);
-                              else
-                                setSelectedCategoryIds(
-                                  availableCategories.map((c) => c.id),
-                                );
+                              } else {
+                                // --- CORRECCIÓN: Filtramos ID 3 si no es staff ---
+                                const catsToSelect = availableCategories
+                                  .filter((c) =>
+                                    isEditor || isManagement
+                                      ? true
+                                      : c.id !== 3,
+                                  )
+                                  .map((c) => c.id);
+
+                                setSelectedCategoryIds(catsToSelect);
+                                // ------------------------------------------------
+                              }
                             }}
                             className="w-full px-3 py-2 mb-2 rounded text-xs font-bold border flex justify-between items-center bg-white hover:bg-slate-50 text-slate-500 border-slate-200"
                           >
@@ -1507,6 +1560,7 @@ export default function UnifiedAgenda({
                               return (
                                 <button
                                   key={cat.id}
+                                  // Simplemente toggleamos, sin restricciones
                                   onClick={() => handleCategoryToggle(cat.id)}
                                   className={`w-full px-3 py-2 rounded text-xs font-bold border transition-all flex justify-between items-center ${
                                     isActive
