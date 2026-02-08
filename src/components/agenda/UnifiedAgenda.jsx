@@ -175,24 +175,34 @@ const DriveSmartButton = ({ evt }) => {
 };
 const ConnectionBadge = ({ status, lastUpdate, onRefresh }) => {
   const isOnline = status === "SUBSCRIBED";
-
-  // Forzamos un re-render cada minuto
   const [, setTick] = useState(0);
+
   useEffect(() => {
     const timer = setInterval(() => setTick((t) => t + 1), 60000);
     return () => clearInterval(timer);
   }, []);
 
-  const timeText = lastUpdate
-    ? formatDistanceToNow(lastUpdate, { addSuffix: true, locale: es })
-    : "recién";
+  // --- BLOQUE DE SEGURIDAD ---
+  let timeText = "recién";
+  try {
+    // Verificamos que lastUpdate sea una fecha válida y que 'es' exista
+    if (lastUpdate && !isNaN(new Date(lastUpdate).getTime()) && es) {
+      timeText = formatDistanceToNow(new Date(lastUpdate), {
+        addSuffix: true,
+        locale: es,
+      });
+    }
+  } catch (err) {
+    console.warn("Error formateando fecha:", err);
+    timeText = "hace un momento";
+  }
+  // ---------------------------
 
   return (
     <button
       onClick={onRefresh}
       className={`
         flex items-center gap-2 rounded-full font-bold shadow-sm border transition-all animate-in fade-in
-        /* Ajuste de padding: menor en móvil (px-2), normal en desktop (sm:px-3) */
         px-2 py-1 sm:px-3
         ${
           isOnline
@@ -200,10 +210,8 @@ const ConnectionBadge = ({ status, lastUpdate, onRefresh }) => {
             : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
         }
       `}
-      // Tooltip simple para que en móvil se entienda al mantener presionado
-      title={`Estado: ${isOnline ? "En línea" : "Conectando"}. Última act.: ${timeText}`}
+      title={`Estado: ${isOnline ? "En línea" : "Conectando"}`}
     >
-      {/* El punto de luz siempre visible */}
       <span className="relative flex h-2.5 w-2.5 sm:h-2 sm:w-2">
         {isOnline && (
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -215,7 +223,6 @@ const ConnectionBadge = ({ status, lastUpdate, onRefresh }) => {
         ></span>
       </span>
 
-      {/* El texto: OCULTO en móvil (hidden), VISIBLE en desktop (sm:flex) */}
       <div className="hidden sm:flex flex-col items-start leading-tight">
         <span className="uppercase tracking-wider text-[9px]">
           {isOnline ? "En línea" : "Conectando..."}
@@ -1475,13 +1482,12 @@ export default function UnifiedAgenda({
           </div>
 
           <div className="flex gap-2 items-center">
-            
-              <ConnectionBadge
-                status={realtimeStatus}
-                lastUpdate={lastUpdate}
-                onRefresh={() => fetchAgenda(false)}
-              />
-            
+            <ConnectionBadge
+              status={realtimeStatus}
+              lastUpdate={lastUpdate}
+              onRefresh={() => fetchAgenda(false)}
+            />
+
             {/* BOTONES DE FILTRO (Solo si hay categorías) */}
             {availableCategories.length > 0 && (
               <>
