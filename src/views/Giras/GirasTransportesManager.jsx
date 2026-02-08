@@ -45,7 +45,7 @@ import { toast } from "sonner";
 
 // --- CONSTANTES PARA EL TOGGLE DE TIPO DE EVENTO ---
 const TIPO_EVENTO_DEFAULT = 11; // Viaje / Logística Estándar
-const TIPO_EVENTO_ALT = 3;      // Logística Especial / Interna
+const TIPO_EVENTO_ALT = 12;      // Logística Especial / Interna
 
 // --- UTILIDADES ---
 const formatDateSafe = (dateString) => {

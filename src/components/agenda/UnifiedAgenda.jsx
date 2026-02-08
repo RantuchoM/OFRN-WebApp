@@ -8,6 +8,8 @@ import {
   differenceInDays,
   differenceInHours,
 } from "date-fns";
+import { formatDistanceToNow } from "date-fns"; // Necesario para "hace X minutos"
+import { toast } from "sonner"; // Usamos tu toaster actual
 import { es } from "date-fns/locale";
 import {
   IconLoader,
@@ -171,7 +173,60 @@ const DriveSmartButton = ({ evt }) => {
     </div>
   );
 };
+const ConnectionBadge = ({ status, lastUpdate, onRefresh }) => {
+  const isOnline = status === "SUBSCRIBED";
 
+  // Forzamos un re-render cada minuto
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const timeText = lastUpdate
+    ? formatDistanceToNow(lastUpdate, { addSuffix: true, locale: es })
+    : "recién";
+
+  return (
+    <button
+      onClick={onRefresh}
+      className={`
+        flex items-center gap-2 rounded-full font-bold shadow-sm border transition-all animate-in fade-in
+        /* Ajuste de padding: menor en móvil (px-2), normal en desktop (sm:px-3) */
+        px-2 py-1 sm:px-3
+        ${
+          isOnline
+            ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+            : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+        }
+      `}
+      // Tooltip simple para que en móvil se entienda al mantener presionado
+      title={`Estado: ${isOnline ? "En línea" : "Conectando"}. Última act.: ${timeText}`}
+    >
+      {/* El punto de luz siempre visible */}
+      <span className="relative flex h-2.5 w-2.5 sm:h-2 sm:w-2">
+        {isOnline && (
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+        )}
+        <span
+          className={`relative inline-flex rounded-full h-2.5 w-2.5 sm:h-2 sm:w-2 ${
+            isOnline ? "bg-emerald-500" : "bg-amber-500"
+          }`}
+        ></span>
+      </span>
+
+      {/* El texto: OCULTO en móvil (hidden), VISIBLE en desktop (sm:flex) */}
+      <div className="hidden sm:flex flex-col items-start leading-tight">
+        <span className="uppercase tracking-wider text-[9px]">
+          {isOnline ? "En línea" : "Conectando..."}
+        </span>
+        <span className="font-normal opacity-80 text-[9px] normal-case whitespace-nowrap">
+          Act. {timeText}
+        </span>
+      </div>
+    </button>
+  );
+};
 export default function UnifiedAgenda({
   supabase,
   giraId = null,
@@ -595,9 +650,12 @@ export default function UnifiedAgenda({
       return false;
     });
   };
+  const [realtimeStatus, setRealtimeStatus] = useState("CONNECTING");
+  const [lastUpdate, setLastUpdate] = useState(new Date());
 
-  const fetchAgenda = async () => {
-    setLoading(true);
+  const fetchAgenda = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
+
     const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
       giraId || "general"
     }_v5`;
@@ -649,7 +707,20 @@ export default function UnifiedAgenda({
       const myEnsembleEventIds = new Set(
         ensembleEvents.data?.map((e) => e.id_evento),
       );
+      if (!isBackground) {
+        const cachedData = localStorage.getItem(CACHE_KEY);
+        if (cachedData) {
+          const parsedData = JSON.parse(cachedData);
+          setItems(parsedData);
+          processCategories(parsedData);
+        }
+      }
 
+      if (!navigator.onLine) {
+        setIsOfflineMode(true);
+        setLoading(false);
+        return;
+      }
       let query = supabase
         .from("eventos")
         .select(
@@ -956,12 +1027,53 @@ export default function UnifiedAgenda({
       setIsOfflineMode(false);
     } catch (err) {
       console.error("Error fetching agenda:", err);
-      setIsOfflineMode(true);
+      if (!isBackground) setIsOfflineMode(true);
     } finally {
+      setLastUpdate(new Date());
       setLoading(false);
     }
   };
+  // 2. Suscripción a Realtime
+  useEffect(() => {
+    if (!user) return;
 
+    const channel = supabase
+      .channel("agenda-updates")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "eventos" },
+        (payload) => {
+          console.log("Cambio detectado:", payload);
+
+          // ESTRATEGIA HÍBRIDA
+
+          // 1. Si es un DELETE: Lo sacamos de la lista visualmente AL INSTANTE.
+          // Esto da una sensación de velocidad extrema.
+          if (payload.eventType === "DELETE") {
+            setItems((currentItems) =>
+              currentItems.filter((item) => item.id !== payload.old.id),
+            );
+            toast.error("Evento eliminado", { icon: "🗑️", duration: 2000 });
+            // Aún así hacemos fetch silencioso por seguridad (sincronizar contadores, etc)
+            fetchAgenda(true);
+          }
+
+          // 2. Si es INSERT o UPDATE: Hacemos fetch silencioso.
+          // No podemos inyectarlo directo porque nos faltan los datos de las tablas relacionadas (Left Joins).
+          else {
+            toast.info("Actualizando datos...", { icon: "🔄", duration: 1500 });
+            fetchAgenda(true); // <--- TRUE activa el modo silencioso
+          }
+        },
+      )
+      .subscribe((status) => {
+        setRealtimeStatus(status);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, giraId]); // Asegúrate de NO poner 'items' en dependencias para evitar loops
   const processCategories = (eventsList) => {
     const categoriesMap = {};
     eventsList.forEach((evt) => {
@@ -1362,7 +1474,14 @@ export default function UnifiedAgenda({
             </div>
           </div>
 
-          <div className="flex gap-2 relative">
+          <div className="flex gap-2 items-center">
+            
+              <ConnectionBadge
+                status={realtimeStatus}
+                lastUpdate={lastUpdate}
+                onRefresh={() => fetchAgenda(false)}
+              />
+            
             {/* BOTONES DE FILTRO (Solo si hay categorías) */}
             {availableCategories.length > 0 && (
               <>
