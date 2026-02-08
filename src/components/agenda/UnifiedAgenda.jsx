@@ -185,7 +185,6 @@ const ConnectionBadge = ({ status, lastUpdate, onRefresh }) => {
   // --- BLOQUE DE SEGURIDAD ---
   let timeText = "recién";
   try {
-    // Verificamos que lastUpdate sea una fecha válida y que 'es' exista
     if (lastUpdate && !isNaN(new Date(lastUpdate).getTime()) && es) {
       timeText = formatDistanceToNow(new Date(lastUpdate), {
         addSuffix: true,
@@ -662,17 +661,22 @@ export default function UnifiedAgenda({
 
   const fetchAgenda = async (isBackground = false) => {
     if (!isBackground) setLoading(true);
+    // Si ES background, activamos un estado local de "refrescando" para el indicador flotante, 
+    // pero NO tocamos el loading principal si ya hay datos.
+    if (isBackground) setLoading(true); 
 
     const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
       giraId || "general"
     }_v5`;
 
     try {
-      const cachedData = localStorage.getItem(CACHE_KEY);
-      if (cachedData) {
-        const parsedData = JSON.parse(cachedData);
-        setItems(parsedData);
-        processCategories(parsedData);
+      if (!isBackground && items.length === 0) {
+        const cachedData = localStorage.getItem(CACHE_KEY);
+        if (cachedData) {
+          const parsedData = JSON.parse(cachedData);
+          setItems(parsedData);
+          processCategories(parsedData);
+        }
       }
 
       if (!navigator.onLine) {
@@ -714,20 +718,7 @@ export default function UnifiedAgenda({
       const myEnsembleEventIds = new Set(
         ensembleEvents.data?.map((e) => e.id_evento),
       );
-      if (!isBackground) {
-        const cachedData = localStorage.getItem(CACHE_KEY);
-        if (cachedData) {
-          const parsedData = JSON.parse(cachedData);
-          setItems(parsedData);
-          processCategories(parsedData);
-        }
-      }
 
-      if (!navigator.onLine) {
-        setIsOfflineMode(true);
-        setLoading(false);
-        return;
-      }
       let query = supabase
         .from("eventos")
         .select(
@@ -1032,14 +1023,22 @@ export default function UnifiedAgenda({
       setItems(allItems);
       localStorage.setItem(CACHE_KEY, JSON.stringify(allItems));
       setIsOfflineMode(false);
+      setLastUpdate(new Date());
     } catch (err) {
       console.error("Error fetching agenda:", err);
-      if (!isBackground) setIsOfflineMode(true);
+      // Si falla en background, NO borramos los datos viejos. 
+      // Solo mostramos error si es carga inicial.
+      if (!isBackground) {
+         setIsOfflineMode(true);
+      }
     } finally {
-      setLastUpdate(new Date());
       setLoading(false);
     }
   };
+
+  // Referencia para el debounce
+  const refreshTimeoutRef = useRef(null);
+
   // 2. Suscripción a Realtime
   useEffect(() => {
     if (!user) return;
@@ -1052,25 +1051,20 @@ export default function UnifiedAgenda({
         (payload) => {
           console.log("Cambio detectado:", payload);
 
-          // ESTRATEGIA HÍBRIDA
-
-          // 1. Si es un DELETE: Lo sacamos de la lista visualmente AL INSTANTE.
-          // Esto da una sensación de velocidad extrema.
-          if (payload.eventType === "DELETE") {
-            setItems((currentItems) =>
-              currentItems.filter((item) => item.id !== payload.old.id),
-            );
-            toast.error("Evento eliminado", { icon: "🗑️", duration: 2000 });
-            // Aún así hacemos fetch silencioso por seguridad (sincronizar contadores, etc)
-            fetchAgenda(true);
-          }
-
-          // 2. Si es INSERT o UPDATE: Hacemos fetch silencioso.
-          // No podemos inyectarlo directo porque nos faltan los datos de las tablas relacionadas (Left Joins).
-          else {
-            toast.info("Actualizando datos...", { icon: "🔄", duration: 1500 });
-            fetchAgenda(true); // <--- TRUE activa el modo silencioso
-          }
+          // 1. DELETE Optimista (Inmediato)
+          if (payload.eventType === "DELETE" && payload.old?.id) {
+             setItems((current) => current.filter((i) => i.id !== payload.old.id));
+             toast.error("Evento eliminado", { icon: "🗑️" });
+          } 
+          
+          // 2. RECARGA INTELIGENTE (Debounce de 1 segundo)
+          // Si llega otro evento antes de 1s, cancelamos el anterior y esperamos.
+          if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+          
+          refreshTimeoutRef.current = setTimeout(() => {
+             toast.info("Sincronizando...", { icon: "🔄", duration: 1000 });
+             fetchAgenda(true); // Recarga silenciosa
+          }, 1000); 
         },
       )
       .subscribe((status) => {
@@ -1079,8 +1073,10 @@ export default function UnifiedAgenda({
 
     return () => {
       supabase.removeChannel(channel);
+      if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
     };
-  }, [user, giraId]); // Asegúrate de NO poner 'items' en dependencias para evitar loops
+  }, [user, giraId]);
+
   const processCategories = (eventsList) => {
     const categoriesMap = {};
     eventsList.forEach((evt) => {
@@ -1762,8 +1758,8 @@ export default function UnifiedAgenda({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-slate-50/50">
-        {/* ... (Listado de eventos) ... */}
+      <div className="flex-1 overflow-y-auto bg-slate-50/50 relative">
+        {/* SPINNER SOLO SI ESTÁ VACÍO Y CARGANDO */}
         {loading && items.length === 0 && (
           <div className="text-center py-10">
             <IconLoader
@@ -1772,153 +1768,175 @@ export default function UnifiedAgenda({
             />
           </div>
         )}
-        {!loading && filteredItems.length === 0 && (
-          <div className="text-center text-slate-400 py-10 italic">
-            No hay eventos visibles.
-          </div>
-        )}
 
-        {Object.entries(groupedByMonth).map(([monthKey, monthEvents]) => {
-          const monthDate = parseISO(monthEvents[0].fecha);
-          let lastDateRendered = null;
+        {/* CONTENEDOR DE LA LISTA */}
+        {/* Usamos opacity-50 para indicar "actualizando" pero MANTENEMOS la lista visible */}
+        <div
+          className={`transition-opacity duration-500 ${loading && items.length > 0 ? "opacity-60" : "opacity-100"}`}
+        >
+          {/* Si hay items y estamos cargando, mostramos indicador flotante */}
+          {loading && items.length > 0 && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-indigo-600/90 backdrop-blur rounded-full px-4 py-1.5 text-xs font-bold text-white shadow-lg flex items-center gap-2 animate-in fade-in zoom-in">
+              <IconLoader size={12} className="animate-spin" /> Sincronizando...
+            </div>
+          )}
 
-          return (
-            <div key={monthKey} className="mb-0">
-              <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 text-center py-2 shadow-sm">
-                <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest bg-indigo-50 px-3 py-1 rounded-full">
-                  {format(monthDate, "MMMM yyyy", { locale: es })}
-                </span>
-              </div>
-
-              {monthEvents.map((evt) => {
-                // ... (Lógica de renderizado de tarjeta) ...
-                if (evt.isProgramMarker) {
-                  return <TourDivider key={evt.id} gira={evt.programas} />;
-                }
-
-                const eventColor = evt.tipos_evento?.color || "#6366f1";
-                const isMeal =
-                  [7, 8, 9, 10].includes(evt.id_tipo_evento) ||
-                  evt.tipos_evento?.nombre?.toLowerCase().includes("comida");
-                const isNonConvokedMeal = isMeal && !evt.is_convoked;
-
-                const isTransportEvent = !!evt.id_gira_transporte;
-                let isMyTransport = false;
-                let isMyUp = false;
-                let isMyDown = false;
-                let debugReason = null;
-
-                const transportName =
-                  evt.giras_transportes?.transportes?.nombre;
-                const transportDetail = evt.giras_transportes?.detalle;
-                const transportColor =
-                  evt.giras_transportes?.transportes?.color || "#6366f1";
-
-                if (isTransportEvent && evt.id_gira_transporte) {
-                  const transportIdStr = String(evt.id_gira_transporte);
-                  const myStatus = myTransportLogistics[transportIdStr];
-
-                  if (myStatus && myStatus.assigned) {
-                    isMyTransport = true;
-                    if (String(myStatus.subidaId) === String(evt.id))
-                      isMyUp = true;
-                    if (String(myStatus.bajadaId) === String(evt.id))
-                      isMyDown = true;
-                  } else {
-                    const tourHasRules = toursWithRules.has(evt.id_gira);
-                    debugReason = tourHasRules ? "No Match" : "Sin Reglas";
-                  }
-                }
-
-                let isTransportDimmed = isTransportEvent && !isMyTransport;
-                if (showNoGray && isTransportEvent) isTransportDimmed = false;
-
-                let shouldDim = isTransportDimmed || evt.is_absent;
-                if (!showNoGray && isNonConvokedMeal) shouldDim = true;
-
-                const deadlineStatus =
-                  isMeal && evt.is_convoked
-                    ? getDeadlineStatus(
-                        evt.programas?.fecha_confirmacion_limite,
-                      )
-                    : null;
-
-                const showDay = evt.fecha !== lastDateRendered;
-                if (showDay) lastDateRendered = evt.fecha;
-
-                const locName = evt.locaciones?.nombre || "";
-                const locCity = evt.locaciones?.localidades?.localidad;
-
-                const cardStyle = {
-                  backgroundColor: `${eventColor}10`,
-                };
+          {items.length > 0
+            ? Object.entries(groupedByMonth).map(([monthKey, monthEvents]) => {
+                const monthDate = parseISO(monthEvents[0].fecha);
+                let lastDateRendered = null;
 
                 return (
-                  <React.Fragment key={evt.id}>
-                    {showDay && (
-                      <div className="bg-slate-50/80 px-4 py-1.5 text-xs font-bold text-slate-500 uppercase border-b border-slate-100 flex items-center gap-2 sticky top-[45px] z-10">
-                        <IconCalendar size={12} />{" "}
-                        {format(parseISO(evt.fecha), "EEEE d", { locale: es })}
-                      </div>
-                    )}
+                  <div key={monthKey} className="mb-0">
+                    <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 text-center py-2 shadow-sm">
+                      <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest bg-indigo-50 px-3 py-1 rounded-full">
+                        {format(monthDate, "MMMM yyyy", { locale: es })}
+                      </span>
+                    </div>
 
-                    <div
-                      className={`relative flex flex-row items-stretch px-4 py-2 border-b border-slate-100 transition-colors hover:bg-slate-50 group gap-2 ${
-                        shouldDim ? "opacity-50 grayscale" : ""
-                      } ${evt.is_guest ? "bg-emerald-50/30" : ""} ${
-                        isMyTransport
-                          ? "bg-indigo-50/30 border-l-4 border-l-indigo-400"
-                          : ""
-                      }`}
-                      style={
-                        !shouldDim && !evt.is_guest && !isMyTransport
-                          ? cardStyle
-                          : {}
+                    {monthEvents.map((evt) => {
+                      if (evt.isProgramMarker) {
+                        return (
+                          <TourDivider key={evt.id} gira={evt.programas} />
+                        );
                       }
-                    >
-                      <div
-                        className="absolute left-0 top-0 bottom-0 w-[4px]"
-                        style={{
-                          backgroundColor: evt.is_absent
-                            ? "#94a3b8"
-                            : isMyTransport
-                              ? "transparent"
-                              : eventColor,
-                        }}
-                      ></div>
 
-                      <div className="w-10 md:w-14 font-mono text-xs md:text-sm text-slate-600 font-bold shrink-0 flex flex-col items-center md:items-end justify-center md:pr-4 md:border-r border-slate-100 pt-1 md:pt-0">
-                        <span>{evt.hora_inicio?.slice(0, 5)}</span>
-                        {evt.hora_fin && evt.hora_fin !== evt.hora_inicio && (
-                          <span className="text-[9px] text-slate-400 block">
-                            {evt.hora_fin.slice(0, 5)}
-                          </span>
-                        )}
-                      </div>
+                      const eventColor = evt.tipos_evento?.color || "#6366f1";
+                      const isMeal =
+                        [7, 8, 9, 10].includes(evt.id_tipo_evento) ||
+                        evt.tipos_evento?.nombre
+                          ?.toLowerCase()
+                          .includes("comida");
+                      const isNonConvokedMeal = isMeal && !evt.is_convoked;
 
-                      <div className="flex-1 min-w-0 flex flex-col md:flex-row md:items-center md:gap-4 py-1">
-                        <div className="flex items-center gap-2 shrink-0 md:w-48 mb-0.5 md:mb-0">
-                          <span
-                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-[120px]"
-                            style={{
-                              color: eventColor,
-                              borderColor: `${eventColor}40`,
-                              backgroundColor: `${eventColor}10`,
-                            }}
-                          >
-                            {evt.tipos_evento?.nombre}
-                          </span>
-                          {evt.programas?.nomenclador && (
-                            <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
-                              {evt.programas.nomenclador}
-                            </span>
+                      const isTransportEvent = !!evt.id_gira_transporte;
+                      let isMyTransport = false;
+                      let isMyUp = false;
+                      let isMyDown = false;
+                      let debugReason = null;
+
+                      const transportName =
+                        evt.giras_transportes?.transportes?.nombre;
+                      const transportDetail = evt.giras_transportes?.detalle;
+                      const transportColor =
+                        evt.giras_transportes?.transportes?.color || "#6366f1";
+
+                      if (isTransportEvent && evt.id_gira_transporte) {
+                        const transportIdStr = String(evt.id_gira_transporte);
+                        const myStatus = myTransportLogistics[transportIdStr];
+
+                        if (myStatus && myStatus.assigned) {
+                          isMyTransport = true;
+                          if (String(myStatus.subidaId) === String(evt.id))
+                            isMyUp = true;
+                          if (String(myStatus.bajadaId) === String(evt.id))
+                            isMyDown = true;
+                        } else {
+                          const tourHasRules = toursWithRules.has(evt.id_gira);
+                          debugReason = tourHasRules
+                            ? "No Match"
+                            : "Sin Reglas";
+                        }
+                      }
+
+                      let isTransportDimmed =
+                        isTransportEvent && !isMyTransport;
+                      if (showNoGray && isTransportEvent)
+                        isTransportDimmed = false;
+
+                      let shouldDim = isTransportDimmed || evt.is_absent;
+                      if (!showNoGray && isNonConvokedMeal) shouldDim = true;
+
+                      const deadlineStatus =
+                        isMeal && evt.is_convoked
+                          ? getDeadlineStatus(
+                              evt.programas?.fecha_confirmacion_limite,
+                            )
+                          : null;
+
+                      const showDay = evt.fecha !== lastDateRendered;
+                      if (showDay) lastDateRendered = evt.fecha;
+
+                      const locName = evt.locaciones?.nombre || "";
+                      const locCity = evt.locaciones?.localidades?.localidad;
+
+                      const cardStyle = {
+                        backgroundColor: `${eventColor}10`,
+                      };
+
+                      return (
+                        <React.Fragment key={evt.id}>
+                          {showDay && (
+                            <div className="bg-slate-50/80 px-4 py-1.5 text-xs font-bold text-slate-500 uppercase border-b border-slate-100 flex items-center gap-2 sticky top-[45px] z-10">
+                              <IconCalendar size={12} />{" "}
+                              {format(parseISO(evt.fecha), "EEEE d", {
+                                locale: es,
+                              })}
+                            </div>
                           )}
-                          {(isManagement || isEditor) && (
-                            <button
-                              onClick={(e) =>
-                                toggleEventTechnica(e, evt.id, evt.tecnica)
-                              }
-                              className={`
+
+                          <div
+                            className={`relative flex flex-row items-stretch px-4 py-2 border-b border-slate-100 transition-colors hover:bg-slate-50 group gap-2 ${
+                              shouldDim ? "opacity-50 grayscale" : ""
+                            } ${evt.is_guest ? "bg-emerald-50/30" : ""} ${
+                              isMyTransport
+                                ? "bg-indigo-50/30 border-l-4 border-l-indigo-400"
+                                : ""
+                            }`}
+                            style={
+                              !shouldDim && !evt.is_guest && !isMyTransport
+                                ? cardStyle
+                                : {}
+                            }
+                          >
+                            <div
+                              className="absolute left-0 top-0 bottom-0 w-[4px]"
+                              style={{
+                                backgroundColor: evt.is_absent
+                                  ? "#94a3b8"
+                                  : isMyTransport
+                                    ? "transparent"
+                                    : eventColor,
+                              }}
+                            ></div>
+
+                            <div className="w-10 md:w-14 font-mono text-xs md:text-sm text-slate-600 font-bold shrink-0 flex flex-col items-center md:items-end justify-center md:pr-4 md:border-r border-slate-100 pt-1 md:pt-0">
+                              <span>{evt.hora_inicio?.slice(0, 5)}</span>
+                              {evt.hora_fin &&
+                                evt.hora_fin !== evt.hora_inicio && (
+                                  <span className="text-[9px] text-slate-400 block">
+                                    {evt.hora_fin.slice(0, 5)}
+                                  </span>
+                                )}
+                            </div>
+
+                            <div className="flex-1 min-w-0 flex flex-col md:flex-row md:items-center md:gap-4 py-1">
+                              <div className="flex items-center gap-2 shrink-0 md:w-48 mb-0.5 md:mb-0">
+                                <span
+                                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-[120px]"
+                                  style={{
+                                    color: eventColor,
+                                    borderColor: `${eventColor}40`,
+                                    backgroundColor: `${eventColor}10`,
+                                  }}
+                                >
+                                  {evt.tipos_evento?.nombre}
+                                </span>
+                                {evt.programas?.nomenclador && (
+                                  <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
+                                    {evt.programas.nomenclador}
+                                  </span>
+                                )}
+                                {(isManagement || isEditor) && (
+                                  <button
+                                    onClick={(e) =>
+                                      toggleEventTechnica(
+                                        e,
+                                        evt.id,
+                                        evt.tecnica,
+                                      )
+                                    }
+                                    className={`
               flex items-center gap-1 px-1.5 py-0.5 rounded border transition-all text-[9px] font-bold uppercase
               ${
                 evt.tecnica
@@ -1926,219 +1944,233 @@ export default function UnifiedAgenda({
                   : "bg-transparent text-slate-300 border-transparent hover:border-slate-200 hover:bg-white"
               }
             `}
-                              title={
-                                evt.tecnica
-                                  ? "Evento Técnico (Click para quitar)"
-                                  : "Marcar como Técnico"
-                              }
-                            >
-                              {evt.tecnica ? (
-                                <>
-                                  <IconEyeOff size={10} strokeWidth={4} />
-                                  <span>TÉC</span>
-                                </>
-                              ) : (
-                                <IconEye size={12} />
-                              )}
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="flex flex-col md:flex-row md:items-center md:gap-4 flex-1 min-w-0">
-                          <h4
-                            className={`text-sm font-bold leading-tight truncate ${
-                              shouldDim ? "text-slate-400" : "text-slate-800"
-                            }`}
-                          >
-                            {evt.descripcion || evt.tipos_evento?.nombre}
-                          </h4>
-
-                          <div className="flex flex-wrap gap-1">
-                            {isTransportEvent && transportName && (
-                              <span
-                                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border`}
-                                style={{
-                                  backgroundColor: isMyTransport
-                                    ? `${transportColor}30`
-                                    : `${transportColor}15`,
-                                  color: isMyTransport ? "#1e293b" : "#64748b",
-                                  borderColor: `${transportColor}60`,
-                                }}
-                              >
-                                <IconBus
-                                  size={10}
-                                  style={{ color: transportColor }}
-                                />
-                                {transportName}{" "}
-                                {transportDetail && (
-                                  <span className="font-normal opacity-80">
-                                    ({transportDetail})
-                                  </span>
+                                    title={
+                                      evt.tecnica
+                                        ? "Evento Técnico (Click para quitar)"
+                                        : "Marcar como Técnico"
+                                    }
+                                  >
+                                    {evt.tecnica ? (
+                                      <>
+                                        <IconEyeOff size={10} strokeWidth={4} />
+                                        <span>TÉC</span>
+                                      </>
+                                    ) : (
+                                      <IconEye size={12} />
+                                    )}
+                                  </button>
                                 )}
-                              </span>
-                            )}
-
-                            {isMyUp && (
-                              <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 animate-pulse">
-                                <IconUpload size={12} /> Mi Subida
-                              </span>
-                            )}
-                            {isMyDown && (
-                              <span className="flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 animate-pulse">
-                                <IconDownload size={12} /> Mi Bajada
-                              </span>
-                            )}
-
-                            {isTransportEvent &&
-                              !isMyTransport &&
-                              !showNoGray && (
-                                <span
-                                  className="text-[8px] text-red-300 font-mono select-none"
-                                  title="El sistema no te asignó este transporte."
-                                >
-                                  [{debugReason}]
-                                </span>
-                              )}
-                          </div>
-
-                          {locName && (
-                            <div className="flex items-center gap-1 text-xs text-slate-500 md:border-l md:border-slate-200 md:pl-3 truncate mt-0.5 md:mt-0">
-                              <IconMapPin
-                                size={10}
-                                className="text-slate-400 shrink-0"
-                              />
-                              <span className="truncate">
-                                {locName} {locCity ? `(${locCity})` : ""}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="shrink-0 flex items-start md:items-center gap-1 pl-2 md:pl-4 md:border-l border-slate-100 pt-1 md:pt-0">
-                        <DriveSmartButton evt={evt} />
-                        {evt.programas?.id &&
-                          onOpenRepertoire &&
-                          !isNonConvokedMeal && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onOpenRepertoire(evt.programas.id);
-                              }}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-white border border-transparent hover:border-slate-100"
-                              title="Ver Repertorio"
-                            >
-                              <IconList size={16} />
-                            </button>
-                          )}
-                        <div className="flex flex-col items-end gap-1 relative">
-                          {/* --- BOTÓN DE EDICIÓN CONDICIONAL --- */}
-                          {!isOfflineMode &&
-                            (isGlobalEditor || canUserEditEvent(evt)) && (
-                              <button
-                                onClick={() => openEditModal(evt)}
-                                className="p-1 text-slate-300 hover:text-indigo-600 bg-white rounded-full shadow-sm border border-slate-100 mb-1"
-                              >
-                                <IconEdit size={14} />
-                              </button>
-                            )}
-
-                          <CommentButton
-                            supabase={supabase}
-                            entityType="EVENTO"
-                            entityId={evt.id}
-                            onClick={() =>
-                              setCommentsState({
-                                type: "EVENTO",
-                                id: evt.id,
-                                title: evt.descripcion,
-                              })
-                            }
-                            className="text-slate-300 hover:text-indigo-500 p-1"
-                          />
-                        </div>
-                        {/* SECCIÓN DE COMIDAS REDISEÑADA */}
-                        {isMeal &&
-                          evt.is_convoked &&
-                          user.id !== "guest-general" && (
-                            <div className="flex flex-col items-center gap-1 ml-2 justify-center min-w-[40px]">
-                              {/* Icono Base siempre visible (más sutil) */}
-                              <div className="text-slate-300 mb-0.5">
-                                <IconUtensils size={14} />
                               </div>
 
-                              {/* ESTADO: CONFIRMADO (P) */}
-                              {evt.mi_asistencia === "P" && (
-                                <button
-                                  onClick={() =>
-                                    !isOfflineMode &&
-                                    deadlineStatus?.status === "OPEN" &&
-                                    toggleMealAttendance(evt.id, null)
-                                  }
-                                  className={`flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 shadow-sm transition-all hover:bg-emerald-200 hover:scale-105 ${
-                                    isOfflineMode ? "opacity-50" : ""
+                              <div className="flex flex-col md:flex-row md:items-center md:gap-4 flex-1 min-w-0">
+                                <h4
+                                  className={`text-sm font-bold leading-tight truncate ${
+                                    shouldDim
+                                      ? "text-slate-400"
+                                      : "text-slate-800"
                                   }`}
-                                  title="Asistencia Confirmada (Click para cancelar)"
                                 >
-                                  <IconCheck size={16} strokeWidth={3} />
-                                </button>
-                              )}
+                                  {evt.descripcion || evt.tipos_evento?.nombre}
+                                </h4>
 
-                              {/* ESTADO: RECHAZADO (A) */}
-                              {evt.mi_asistencia === "A" && (
-                                <button
+                                <div className="flex flex-wrap gap-1">
+                                  {isTransportEvent && transportName && (
+                                    <span
+                                      className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border`}
+                                      style={{
+                                        backgroundColor: isMyTransport
+                                          ? `${transportColor}30`
+                                          : `${transportColor}15`,
+                                        color: isMyTransport
+                                          ? "#1e293b"
+                                          : "#64748b",
+                                        borderColor: `${transportColor}60`,
+                                      }}
+                                    >
+                                      <IconBus
+                                        size={10}
+                                        style={{ color: transportColor }}
+                                      />
+                                      {transportName}{" "}
+                                      {transportDetail && (
+                                        <span className="font-normal opacity-80">
+                                          ({transportDetail})
+                                        </span>
+                                      )}
+                                    </span>
+                                  )}
+
+                                  {isMyUp && (
+                                    <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 animate-pulse">
+                                      <IconUpload size={12} /> Mi Subida
+                                    </span>
+                                  )}
+                                  {isMyDown && (
+                                    <span className="flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 animate-pulse">
+                                      <IconDownload size={12} /> Mi Bajada
+                                    </span>
+                                  )}
+
+                                  {isTransportEvent &&
+                                    !isMyTransport &&
+                                    !showNoGray && (
+                                      <span
+                                        className="text-[8px] text-red-300 font-mono select-none"
+                                        title="El sistema no te asignó este transporte."
+                                      >
+                                        [{debugReason}]
+                                      </span>
+                                    )}
+                                </div>
+
+                                {locName && (
+                                  <div className="flex items-center gap-1 text-xs text-slate-500 md:border-l md:border-slate-200 md:pl-3 truncate mt-0.5 md:mt-0">
+                                    <IconMapPin
+                                      size={10}
+                                      className="text-slate-400 shrink-0"
+                                    />
+                                    <span className="truncate">
+                                      {locName} {locCity ? `(${locCity})` : ""}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 flex items-start md:items-center gap-1 pl-2 md:pl-4 md:border-l border-slate-100 pt-1 md:pt-0">
+                              <DriveSmartButton evt={evt} />
+                              {evt.programas?.id &&
+                                onOpenRepertoire &&
+                                !isNonConvokedMeal && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onOpenRepertoire(evt.programas.id);
+                                    }}
+                                    className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-white border border-transparent hover:border-slate-100"
+                                    title="Ver Repertorio"
+                                  >
+                                    <IconList size={16} />
+                                  </button>
+                                )}
+                              <div className="flex flex-col items-end gap-1 relative">
+                                {/* --- BOTÓN DE EDICIÓN CONDICIONAL --- */}
+                                {!isOfflineMode &&
+                                  (isGlobalEditor || canUserEditEvent(evt)) && (
+                                    <button
+                                      onClick={() => openEditModal(evt)}
+                                      className="p-1 text-slate-300 hover:text-indigo-600 bg-white rounded-full shadow-sm border border-slate-100 mb-1"
+                                    >
+                                      <IconEdit size={14} />
+                                    </button>
+                                  )}
+
+                                <CommentButton
+                                  supabase={supabase}
+                                  entityType="EVENTO"
+                                  entityId={evt.id}
                                   onClick={() =>
-                                    !isOfflineMode &&
-                                    deadlineStatus?.status === "OPEN" &&
-                                    toggleMealAttendance(evt.id, null)
+                                    setCommentsState({
+                                      type: "EVENTO",
+                                      id: evt.id,
+                                      title: evt.descripcion,
+                                    })
                                   }
-                                  className={`flex items-center justify-center w-7 h-7 rounded-full bg-rose-100 text-rose-700 border border-rose-200 shadow-sm transition-all hover:bg-rose-200 hover:scale-105 ${
-                                    isOfflineMode ? "opacity-50" : ""
-                                  }`}
-                                  title="No Asistiré (Click para cambiar)"
-                                >
-                                  <IconX size={16} strokeWidth={3} />
-                                </button>
-                              )}
+                                  className="text-slate-300 hover:text-indigo-500 p-1"
+                                />
+                              </div>
+                              {/* SECCIÓN DE COMIDAS REDISEÑADA */}
+                              {isMeal &&
+                                evt.is_convoked &&
+                                user.id !== "guest-general" && (
+                                  <div className="flex flex-col items-center gap-1 ml-2 justify-center min-w-[40px]">
+                                    {/* Icono Base siempre visible (más sutil) */}
+                                    <div className="text-slate-300 mb-0.5">
+                                      <IconUtensils size={14} />
+                                    </div>
 
-                              {/* ESTADO: PENDIENTE (SIN RESPUESTA) */}
-                              {!evt.mi_asistencia &&
-                                deadlineStatus?.status === "OPEN" && (
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      onClick={() =>
-                                        !isOfflineMode &&
-                                        toggleMealAttendance(evt.id, "P")
-                                      }
-                                      className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all shadow-sm"
-                                      disabled={isOfflineMode}
-                                      title="Confirmar"
-                                    >
-                                      <IconCheck size={12} strokeWidth={3} />
-                                    </button>
-                                    <button
-                                      onClick={() =>
-                                        !isOfflineMode &&
-                                        toggleMealAttendance(evt.id, "A")
-                                      }
-                                      className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-400 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm"
-                                      disabled={isOfflineMode}
-                                      title="Rechazar"
-                                    >
-                                      <IconX size={12} strokeWidth={3} />
-                                    </button>
+                                    {/* ESTADO: CONFIRMADO (P) */}
+                                    {evt.mi_asistencia === "P" && (
+                                      <button
+                                        onClick={() =>
+                                          !isOfflineMode &&
+                                          deadlineStatus?.status === "OPEN" &&
+                                          toggleMealAttendance(evt.id, null)
+                                        }
+                                        className={`flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 shadow-sm transition-all hover:bg-emerald-200 hover:scale-105 ${
+                                          isOfflineMode ? "opacity-50" : ""
+                                        }`}
+                                        title="Asistencia Confirmada (Click para cancelar)"
+                                      >
+                                        <IconCheck size={16} strokeWidth={3} />
+                                      </button>
+                                    )}
+
+                                    {/* ESTADO: RECHAZADO (A) */}
+                                    {evt.mi_asistencia === "A" && (
+                                      <button
+                                        onClick={() =>
+                                          !isOfflineMode &&
+                                          deadlineStatus?.status === "OPEN" &&
+                                          toggleMealAttendance(evt.id, null)
+                                        }
+                                        className={`flex items-center justify-center w-7 h-7 rounded-full bg-rose-100 text-rose-700 border border-rose-200 shadow-sm transition-all hover:bg-rose-200 hover:scale-105 ${
+                                          isOfflineMode ? "opacity-50" : ""
+                                        }`}
+                                        title="No Asistiré (Click para cambiar)"
+                                      >
+                                        <IconX size={16} strokeWidth={3} />
+                                      </button>
+                                    )}
+
+                                    {/* ESTADO: PENDIENTE (SIN RESPUESTA) */}
+                                    {!evt.mi_asistencia &&
+                                      deadlineStatus?.status === "OPEN" && (
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            onClick={() =>
+                                              !isOfflineMode &&
+                                              toggleMealAttendance(evt.id, "P")
+                                            }
+                                            className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all shadow-sm"
+                                            disabled={isOfflineMode}
+                                            title="Confirmar"
+                                          >
+                                            <IconCheck
+                                              size={12}
+                                              strokeWidth={3}
+                                            />
+                                          </button>
+                                          <button
+                                            onClick={() =>
+                                              !isOfflineMode &&
+                                              toggleMealAttendance(evt.id, "A")
+                                            }
+                                            className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-400 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm"
+                                            disabled={isOfflineMode}
+                                            title="Rechazar"
+                                          >
+                                            <IconX size={12} strokeWidth={3} />
+                                          </button>
+                                        </div>
+                                      )}
                                   </div>
                                 )}
                             </div>
-                          )}
-                      </div>
-                    </div>
-                  </React.Fragment>
+                          </div>
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
                 );
-              })}
-            </div>
-          );
-        })}
+              })
+            : // Mensaje "No hay eventos" solo si no está cargando
+              !loading && (
+                <div className="text-center text-slate-400 py-10 italic">
+                  No hay eventos en la agenda.
+                </div>
+              )}
+        </div>
 
         {/* ... (Footer de carga) ... */}
         {!giraId && !loading && (
@@ -2152,13 +2184,12 @@ export default function UnifiedAgenda({
             </button>
           </div>
         )}
-        {loading && (
+        {loading && items.length === 0 && (
           <div className="text-center py-6 text-slate-400 text-xs">
             Cargando eventos...
           </div>
         )}
       </div>
-
       {/* --- MODAL EDICIÓN STANDARD --- */}
       {isEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
