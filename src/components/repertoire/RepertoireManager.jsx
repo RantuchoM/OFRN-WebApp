@@ -923,7 +923,7 @@ export default function RepertoireManager({
   return (
     <div className={containerClasses(isCompact)}>
       {repertorios.map((rep) => {
-        // 1. Calculamos el seating para este usuario (si existe)
+        // Calculamos el atril para el usuario actual en este bloque (si aplica)
         const userSeating = user ? seatingMap[user.id] : null;
 
         return (
@@ -933,8 +933,8 @@ export default function RepertoireManager({
               isCompact ? "mb-4 rounded shadow-sm" : "shadow-sm bg-white mb-6"
             }`}
           >
-            {/* HEADER BLOQUE */}
-            <div className="bg-fixed-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center h-10">
+            {/* --- HEADER DEL BLOQUE (TÍTULO Y DURACIÓN) --- */}
+            <div className="bg-fixed-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center h-10 sticky top-0 z-10 backdrop-blur-sm">
               <div className="flex items-center gap-2">
                 <IconMusic size={14} className="text-fixed-indigo-600" />
                 {editingBlock.id === rep.id ? (
@@ -969,7 +969,7 @@ export default function RepertoireManager({
                       )}
                     </span>
 
-                    {/* --- AQUÍ MOSTRAMOS EL ATRIL (si existe) --- */}
+                    {/* Badge de Atril (si el usuario tiene asignación) */}
                     {userSeating && (
                       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-white border border-fixed-indigo-200 rounded text-[10px] text-fixed-indigo-700 shadow-sm animate-in fade-in">
                         <span className="font-bold">
@@ -999,8 +999,184 @@ export default function RepertoireManager({
               </div>
             </div>
 
-            {/* TABLA OBRAS */}
-            <div className="overflow-x-auto">
+            {/* ============================================================ */}
+            {/* VISTA MÓVIL: TARJETAS (Visible solo en < md)               */}
+            {/* ============================================================ */}
+            <div className="md:hidden bg-slate-50 p-2 space-y-3">
+              {rep.repertorio_obras.map((item, idx) => (
+                <div
+                  key={item.id}
+                  className="bg-white rounded-lg border border-slate-200 shadow-sm p-3 relative overflow-hidden"
+                >
+                  {/* Barra lateral de estado */}
+                  <div
+                    className={`absolute left-0 top-0 bottom-0 w-1 ${
+                      item.excluir
+                        ? "bg-red-400"
+                        : item.obras.estado !== "Oficial"
+                          ? "bg-amber-400"
+                          : "bg-fixed-indigo-500"
+                    }`}
+                  ></div>
+
+                  {/* Fila 1: Orden, Compositor, Duración */}
+                  <div className="flex justify-between items-start mb-1 pl-2">
+                    <div className="flex items-center gap-2">
+                      <span className="bg-slate-100 text-slate-500 text-[12px] font-bold w-5 h-5 flex items-center justify-center rounded-full">
+                        {idx + 1}
+                      </span>
+                      <span className="text-s  text-slate-500 uppercase tracking-wide truncate max-w-[150px]">
+                        {getComposers(item.obras)}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono bg-slate-50 px-1.5 py-0.5 rounded text-slate-600 border border-slate-100">
+                      {formatSecondsToTime(item.obras.duracion_segundos)}
+                    </span>
+                  </div>
+
+                  {/* Fila 2: Título y Arreglador */}
+                  <div className="pl-2 mb-2">
+                    <div className="text-[17px] font-bold text-slate-800 leading-tight">
+                      <RichTextPreview content={item.obras.titulo} />
+                    </div>
+                    {getArranger(item.obras) !== "-" && (
+                      <p className="text-[10px] text-slate-400 italic">
+                        Arr: {getArranger(item.obras)}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Fila 3: Instrumentación + Mi Parte */}
+                  <div className="pl-2 flex flex-wrap items-center gap-2 mb-3">
+                    <span className="text-[10px] font-mono text-slate-500 bg-slate-50 px-1 rounded">
+                      {item.obras.instrumentacion ||
+                        calculateInstrumentation(
+                          item.obras.obras_particellas,
+                        ) ||
+                        "-"}
+                    </span>
+                    {/* Badge de Particella (Tu función renderMyPartBadge) */}
+                    {renderMyPartBadge(item.obras)}
+                  </div>
+
+                  {/* Fila 4: Notas Específicas */}
+                  {item.notas_especificas && (
+                    <div className="pl-2 mb-3">
+                      <div className="bg-yellow-50 border border-yellow-100 text-yellow-800 text-[11px] p-2 rounded relative">
+                        <IconAlertCircle
+                          size={10}
+                          className="absolute top-2 left-1.5 opacity-50"
+                        />
+                        <div className="pl-3">
+                          <RichTextPreview content={item.notas_especificas} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fila 5: Solistas */}
+                  {(item.ids_solistas || item.id_solista) && (
+                    <div className="pl-2 mb-3 flex flex-wrap gap-1">
+                      {(
+                        item.ids_solistas ||
+                        (item.id_solista ? [item.id_solista] : [])
+                      ).map((id) => {
+                        const m = musicians.find((mus) => mus.id === id);
+                        return m ? (
+                          <span
+                            key={id}
+                            className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100"
+                          >
+                            ★ {m.apellido}
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
+                  )}
+
+                  {/* Fila 6: Botonera de Acciones */}
+                  <div className="pl-2 pt-2 border-t border-slate-50 flex justify-between items-center">
+                    {/* Enlaces Rápidos */}
+                    <div className="flex gap-3">
+                      {item.google_drive_shortcut_id ||
+                      item.obras.link_drive ? (
+                        <a
+                          href={item.obras.link_drive}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 flex items-center gap-1 text-[10px] font-medium"
+                        >
+                          <IconDrive size={14} /> Drive
+                        </a>
+                      ) : null}
+
+                      {item.obras.link_youtube && (
+                        <a
+                          href={item.obras.link_youtube}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-red-600 flex items-center gap-1 text-[10px] font-medium"
+                        >
+                          <IconYoutube size={14} /> Video
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Acciones */}
+                    <div className="flex items-center gap-1">
+                      <CommentButton
+                        supabase={supabase}
+                        entityType="OBRA"
+                        entityId={item.id}
+                        onClick={() =>
+                          setCommentsState({
+                            type: "OBRA",
+                            id: item.id,
+                            title: item.obras.titulo,
+                          })
+                        }
+                        className="text-slate-400 hover:text-fixed-indigo-600 p-1.5"
+                      />
+                      {isEditor && (
+                        <>
+                          <button
+                            onClick={() => openEditModal(item)}
+                            className="text-slate-400 hover:text-fixed-indigo-600 p-1.5 bg-slate-50 rounded-full"
+                          >
+                            <IconEdit size={14} />
+                          </button>
+                          {/* Flechas mover en móvil */}
+                          <div className="flex flex-col">
+                            <button
+                              onClick={() => moveWork(rep.id, item.id, -1)}
+                              disabled={idx === 0}
+                              className="p-0.5 text-slate-300 hover:text-indigo-600 disabled:opacity-0"
+                            >
+                              <IconChevronDown
+                                size={10}
+                                className="rotate-180"
+                              />
+                            </button>
+                            <button
+                              onClick={() => moveWork(rep.id, item.id, 1)}
+                              disabled={idx === rep.repertorio_obras.length - 1}
+                              className="p-0.5 text-slate-300 hover:text-indigo-600 disabled:opacity-0"
+                            >
+                              <IconChevronDown size={10} />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* ============================================================ */}
+            {/* VISTA ESCRITORIO: TABLA (Visible solo en md o superior)     */}
+            {/* ============================================================ */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1000px]">
                 <thead className={tableHeaderClasses(isCompact)}>
                   <tr>
@@ -1014,7 +1190,6 @@ export default function RepertoireManager({
                     <th className="p-1 w-24">Arr.</th>
                     <th className="p-1 w-30">Notas</th>
                     <th className="p-1 w-24 text-center">Arcos</th>
-
                     <th className="p-1 w-8 text-center">YT</th>
                     <th className="p-1 w-16 text-right"></th>
                     <th className="p-1 w-8 text-center">Excl.</th>
@@ -1062,8 +1237,6 @@ export default function RepertoireManager({
                           <span className="text-slate-200">-</span>
                         )}
                       </td>
-
-                      {/* CELDA COMPOSITOR (VERTICAL) */}
                       <td className="p-1 text-slate-600 align-middle">
                         <div className="flex flex-col justify-center">
                           <span
@@ -1072,11 +1245,9 @@ export default function RepertoireManager({
                           >
                             {getComposers(item.obras)}
                           </span>
-                          {/* Badge simplificado (solo Icono) */}
                           {renderMyPartBadge(item.obras)}
                         </div>
                       </td>
-
                       <td
                         className="p-1 text-slate-800"
                         title={item.obras.titulo?.replace(/<[^>]*>?/gm, "")}
@@ -1088,7 +1259,6 @@ export default function RepertoireManager({
                           </span>
                         )}
                       </td>
-
                       <td className="p-1 text-center whitespace-pre-line text-[10px] text-slate-500 font-mono">
                         {item.obras.instrumentacion ||
                           calculateInstrumentation(
@@ -1101,7 +1271,6 @@ export default function RepertoireManager({
                       </td>
                       <td className="p-0 border-l border-slate-100 align-middle">
                         {isEditor ? (
-                          /* VISTA EDICIÓN: Permite añadir y quitar solistas */
                           <div className="px-1">
                             <MultiSoloistSelect
                               selectedIds={
@@ -1132,7 +1301,6 @@ export default function RepertoireManager({
                             />
                           </div>
                         ) : (
-                          /* VISTA LECTURA: Solo muestra los nombres de los solistas seleccionados */
                           <div className="flex flex-wrap gap-1 p-1">
                             {(
                               item.ids_solistas ||
@@ -1165,7 +1333,6 @@ export default function RepertoireManager({
                       <td className="p-1 truncate text-slate-500">
                         {getArranger(item.obras)}
                       </td>
-
                       <td className="p-0 border-l border-slate-100 align-middle">
                         {isEditor ? (
                           <input
@@ -1187,18 +1354,11 @@ export default function RepertoireManager({
                           </div>
                         )}
                       </td>
-                      {/* --- COLUMNA ARCOS (DISEÑO CHIP) --- */}
                       <td className="px-2 py-4 align-middle">
                         <div className="flex flex-row items-center gap-2 w-full max-w-[160px]">
-                          {/* Contenedor del "Chip" Select */}
                           <div className="relative flex-1 min-w-0 group">
-                            {/* 1. CAPA VISUAL (LO QUE EL USUARIO VE) */}
                             <div
-                              className={`flex items-center justify-between px-2 py-1 rounded-full border text-[10px] font-medium truncate transition-all ${
-                                item.id_arco_seleccionado
-                                  ? "bg-fixed-indigo-50 border-fixed-indigo-200 text-fixed-indigo-700 group-hover:border-fixed-indigo-300"
-                                  : "bg-white border-slate-200 text-slate-400 border-dashed group-hover:border-fixed-indigo-300 group-hover:text-fixed-indigo-400"
-                              }`}
+                              className={`flex items-center justify-between px-2 py-1 rounded-full border text-[10px] font-medium truncate transition-all ${item.id_arco_seleccionado ? "bg-fixed-indigo-50 border-fixed-indigo-200 text-fixed-indigo-700 group-hover:border-fixed-indigo-300" : "bg-white border-slate-200 text-slate-400 border-dashed group-hover:border-fixed-indigo-300 group-hover:text-fixed-indigo-400"}`}
                             >
                               <span className="truncate w-full text-center">
                                 {item.id_arco_seleccionado
@@ -1208,8 +1368,6 @@ export default function RepertoireManager({
                                   : "+ Asignar Arcos"}
                               </span>
                             </div>
-
-                            {/* 2. CAPA INTERACTIVA (SELECT INVISIBLE ENCIMA) */}
                             <select
                               value={item.id_arco_seleccionado || ""}
                               onChange={(e) => {
@@ -1228,7 +1386,6 @@ export default function RepertoireManager({
                               }}
                               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                               title={
-                                // Tooltip nativo al pasar el mouse
                                 item.id_arco_seleccionado
                                   ? arcosByWork[item.obras.id]?.find(
                                       (a) => a.id == item.id_arco_seleccionado,
@@ -1237,21 +1394,17 @@ export default function RepertoireManager({
                               }
                             >
                               <option value="">-- Sin definir --</option>
-
                               {arcosByWork[item.obras.id]?.map((arco) => (
                                 <option key={arco.id} value={arco.id}>
                                   {arco.nombre}
                                 </option>
                               ))}
-
                               <option disabled>──────────</option>
                               <option value="NEW_SET_ACTION">
                                 + Crear Nuevo Set...
                               </option>
                             </select>
                           </div>
-
-                          {/* BOTÓN LINK DRIVE (Visible solo si hay selección) */}
                           {item.id_arco_seleccionado && (
                             <a
                               href={
@@ -1282,7 +1435,6 @@ export default function RepertoireManager({
                           <span className="text-slate-200">-</span>
                         )}
                       </td>
-
                       <td className="p-1 text-right">
                         <div className="flex justify-end gap-1">
                           <CommentButton
@@ -1344,6 +1496,7 @@ export default function RepertoireManager({
                 </tbody>
               </table>
             </div>
+
             {isEditor && (
               <div className="bg-slate-50 border-t p-1">
                 <button
@@ -1547,7 +1700,6 @@ export default function RepertoireManager({
           </div>
         </div>
       )}
-      {/* BOTÓN TEMPORAL DE ADMIN PARA ARREGLAR PERMISOS */}
     </div>
   );
 }

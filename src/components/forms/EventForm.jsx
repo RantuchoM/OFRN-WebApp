@@ -5,7 +5,7 @@ import {
 import DateInput from '../ui/DateInput';
 import TimeInput from '../ui/TimeInput';
 import SearchableSelect from '../ui/SearchableSelect';
-import { useAuth } from '../../context/AuthContext'; // <--- 1. IMPORTAR AUTH
+import { useAuth } from '../../context/AuthContext';
 
 export default function EventForm({ 
     formData, 
@@ -19,7 +19,6 @@ export default function EventForm({
     locations = [], 
     isNew = false 
 }) {
-    // 2. OBTENER PERMISOS
     const { isEditor, isManagement } = useAuth();
 
     // Preparamos opciones de ubicación
@@ -32,6 +31,13 @@ export default function EventForm({
 
     const handleChange = (field, value) => {
         setFormData(prev => ({ ...prev, [field]: value }));
+    };
+
+    // Función para obtener el color del tipo seleccionado
+    const getSelectedTypeColor = () => {
+        if (!formData.id_tipo_evento) return 'transparent';
+        const type = eventTypes.find(t => String(t.id) === String(formData.id_tipo_evento));
+        return type?.color || '#94a3b8'; // Slate-400 por defecto
     };
 
     return (
@@ -54,7 +60,7 @@ export default function EventForm({
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Descripción</label>
                     <input 
                         type="text" 
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
                         value={formData.descripcion || ''} 
                         onChange={e => handleChange('descripcion', e.target.value)} 
                         autoFocus 
@@ -62,7 +68,7 @@ export default function EventForm({
                     />
                 </div>
                 
-                {/* Fecha y Tipo */}
+                {/* Fecha y Tipo (GRID MEJORADO) */}
                 <div className="grid grid-cols-2 gap-4">
                     <DateInput 
                         label="Fecha*" 
@@ -70,51 +76,36 @@ export default function EventForm({
                         onChange={val => handleChange('fecha', val)} 
                     />
                     
+                    {/* SELECTOR DE TIPO DE EVENTO CON COLOR */}
                     <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Tipo de Evento</label>
                         <div className="relative">
+                            {/* Indicador de color visual */}
+                            <div 
+                                className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border border-slate-200 shadow-sm pointer-events-none z-10"
+                                style={{ backgroundColor: getSelectedTypeColor() }}
+                            ></div>
+
                             <select 
-                                className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white" 
+                                className="w-full border border-slate-300 rounded-lg py-2 pl-7 pr-8 text-sm focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white cursor-pointer hover:bg-slate-50 transition-colors" 
                                 value={formData.id_tipo_evento || ''} 
                                 onChange={e => handleChange('id_tipo_evento', e.target.value)}
                             >
                                 <option value="">-- Seleccionar --</option>
                                 {eventTypes.map(t => (
-                                    <option key={t.id} value={t.id}>{t.nombre}</option>
+                                    <option key={t.id} value={t.id}>
+                                        {t.nombre}
+                                    </option>
                                 ))}
                             </select>
+                            
+                            {/* Icono flecha */}
                             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
                                 <svg className="h-4 w-4 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
                             </div>
                         </div>
                     </div>
                 </div>
-
-                {/* --- 3. CHECKBOX "SÓLO TÉCNICA" (SOLO EDITORES) --- */}
-                {(isEditor || isManagement) && (
-                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                        <label className="flex items-center gap-3 cursor-pointer select-none group">
-                            <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${formData.tecnica ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300 group-hover:border-indigo-400'}`}>
-                                {formData.tecnica && <IconCheck size={14} className="text-white" strokeWidth={3} />}
-                            </div>
-                            <input 
-                                type="checkbox" 
-                                className="hidden"
-                                checked={formData.tecnica || false}
-                                onChange={(e) => handleChange('tecnica', e.target.checked)}
-                            />
-                            <div className="flex flex-col">
-                                <span className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1">
-                                    <IconSettings size={12} className="text-slate-400"/> Evento Técnico
-                                </span>
-                                <span className="text-[10px] text-slate-400 font-medium">
-                                    Visible solo para gestión técnica
-                                </span>
-                            </div>
-                        </label>
-                    </div>
-                )}
-                {/* ----------------------------------------------- */}
 
                 {/* Horarios */}
                 <div className="grid grid-cols-2 gap-4">
@@ -140,10 +131,36 @@ export default function EventForm({
                         placeholder="Buscar ubicación..."
                         className="w-full"
                     />
-                    <p className="text-[10px] text-slate-400 mt-1 ml-1">
-                        Escribe para buscar por nombre o ciudad.
+                    <p className="text-[10px] text-slate-400 mt-1 ml-1 flex justify-between">
+                        <span>Escribe para buscar por nombre o ciudad.</span>
+                        {/* Link rápido a Google Maps si hay ubicación seleccionada (opcional, solo visual) */}
                     </p>
                 </div>
+
+                {/* --- CHECKBOX "SÓLO TÉCNICA" (SOLO EDITORES) --- */}
+                {(isEditor || isManagement) && (
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 hover:border-indigo-200 transition-colors">
+                        <label className="flex items-center gap-3 cursor-pointer select-none group">
+                            <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${formData.tecnica ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300 group-hover:border-indigo-400'}`}>
+                                {formData.tecnica && <IconCheck size={14} className="text-white" strokeWidth={3} />}
+                            </div>
+                            <input 
+                                type="checkbox" 
+                                className="hidden"
+                                checked={formData.tecnica || false}
+                                onChange={(e) => handleChange('tecnica', e.target.checked)}
+                            />
+                            <div className="flex flex-col">
+                                <span className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1">
+                                    <IconSettings size={12} className="text-slate-400"/> Evento Técnico
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-medium group-hover:text-indigo-500 transition-colors">
+                                    Visible solo para gestión técnica y producción
+                                </span>
+                            </div>
+                        </label>
+                    </div>
+                )}
             </div>
 
             {/* FOOTER */}
@@ -155,7 +172,7 @@ export default function EventForm({
                                 <button 
                                     onClick={onDelete} 
                                     disabled={loading}
-                                    className="p-2 text-red-500 hover:bg-red-50 border border-red-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                                    className="p-2 text-red-500 hover:bg-red-50 border border-red-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold shadow-sm hover:shadow"
                                     title="Eliminar evento"
                                 >
                                     <IconTrash size={16}/> <span className="hidden sm:inline">Eliminar</span>
@@ -165,7 +182,7 @@ export default function EventForm({
                                 <button 
                                     onClick={onDuplicate} 
                                     disabled={loading}
-                                    className="p-2 text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                                    className="p-2 text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold shadow-sm hover:shadow"
                                     title="Duplicar evento"
                                 >
                                     <IconCopy size={16}/> <span className="hidden sm:inline">Duplicar</span>
@@ -185,7 +202,7 @@ export default function EventForm({
                     <button 
                         onClick={onSave} 
                         disabled={loading} 
-                        className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2 shadow-sm transition-colors"
+                        className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2 shadow-md hover:shadow-lg transition-all active:scale-95"
                     >
                         {loading ? <IconLoader className="animate-spin"/> : <IconCheck size={18}/>} 
                         {isNew ? 'Crear' : 'Guardar'}
