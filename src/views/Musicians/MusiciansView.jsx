@@ -948,12 +948,16 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   // Estado para controlar el acordeón en móviles
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
 
-  // Calcular cantidad de filtros activos para mostrar el "badge" cuando está cerrado
+  // Calcular si están TODOS los instrumentos seleccionados (estado por defecto)
+  // Le sumamos 1 al largo del catálogo por la opción 'null' (sin instrumento)
+  const totalInstrumentosPosibles = catalogoInstrumentos.length + 1;
+  const estanTodosLosInstrumentos =
+    selectedInstruments.size >= totalInstrumentosPosibles;
+
   const activeFiltersCount =
     selectedEnsembles.size +
-    (selectedInstruments.has("null")
-      ? selectedInstruments.size - 1
-      : selectedInstruments.size) + // Ajuste por 'null' default
+    // CORRECCIÓN: Si están todos seleccionados, cuenta 0. Si no, cuenta 1 (filtro de instrumentos activo)
+    (estanTodosLosInstrumentos ? 0 : 1) +
     conditionFilters.size +
     (onlyVigente ? 1 : 0) +
     missingFieldsFilters.size;
