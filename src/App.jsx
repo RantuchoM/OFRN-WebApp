@@ -918,7 +918,7 @@ const ProtectedApp = () => {
 
             <NewsModal supabase={supabase} />
 
-            {isManagement && (
+            {isEditor && (
               <button
                 onClick={() => setGlobalCommentsOpen(true)}
                 className={`relative p-2 rounded-full transition-all duration-200 ${

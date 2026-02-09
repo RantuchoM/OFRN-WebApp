@@ -83,6 +83,7 @@ export function AuthProvider({ children }) {
       "admin",
       "editor",
       "coord_general",
+      "consulta_general",
       "produccion_general",
       "director",
     ].includes(role),
