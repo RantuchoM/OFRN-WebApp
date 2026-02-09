@@ -704,19 +704,12 @@ export default function GiraCard({
                 <span
                   className={`text-2xl font-black leading-none ${titleColorClass}`}
                 >
-                  {dateInfo.d1}
+                  {dateInfo.d1}-{dateInfo.d2}
                 </span>
                 <span className="text-[10px] font-bold uppercase opacity-60 leading-tight">
-                  {dateInfo.m1}
+                  {dateInfo.m1}{dateInfo.m2 !== dateInfo.m1 ? ` - ${dateInfo.m2}` : ""}
                 </span>
-                {dateInfo.d1 !== dateInfo.d2 && (
-                  <div className="w-full h-px bg-current opacity-20 my-1"></div>
-                )}
-                {dateInfo.d1 !== dateInfo.d2 && (
-                  <span className="text-xs font-bold opacity-80 leading-none">
-                    {dateInfo.d2}
-                  </span>
-                )}
+                
               </>
             ) : (
               <IconCalendar size={20} className="opacity-20" />

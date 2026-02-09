@@ -3,7 +3,7 @@ import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import MultiSelect from "../../components/ui/MultiSelect";
-import ConfirmModal from "../../components/ui/ConfirmModal"; // Importamos el modal personalizado
+import ConfirmModal from "../../components/ui/ConfirmModal";
 import {
   IconSave,
   IconLoader,
@@ -16,6 +16,7 @@ import {
 } from "../../components/ui/Icons";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { useAuth } from "../../context/AuthContext"; // Importamos el contexto de autenticación
 
 export default function IndependentRehearsalForm({
   supabase,
@@ -24,6 +25,7 @@ export default function IndependentRehearsalForm({
   initialData = null,
   myEnsembles = [],
 }) {
+  const { isEditor, isManagement } = useAuth(); // Obtenemos los roles del usuario
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
@@ -46,7 +48,6 @@ export default function IndependentRehearsalForm({
   const [customAttendance, setCustomAttendance] = useState([]);
   const [selectedMemberToAdd, setSelectedMemberToAdd] = useState("");
 
-  // --- LÓGICA DE VALIDACIÓN DE CAMBIOS (DIRTY STATE) ---
   const [initialSnapshot, setInitialSnapshot] = useState(null);
 
   const isDirty = useMemo(() => {
@@ -184,7 +185,6 @@ export default function IndependentRehearsalForm({
 
         setFormData(finalForm);
         setCustomAttendance(finalCustom);
-        // Guardamos la foto inicial para comparar después
         setInitialSnapshot({ form: finalForm, attendance: finalCustom });
       } catch (error) {
         console.error("Error cargando datos:", error);
@@ -261,12 +261,14 @@ export default function IndependentRehearsalForm({
       return toast.error("Selecciona al menos un ensamble base.");
     }
 
+    // --- LÓGICA DE PERMISOS ACTUALIZADA ---
     const myIds = myEnsembles.map((e) => e.id);
     const hasMyEnsemble = formData.selectedEnsambles.some((id) =>
       myIds.includes(id),
     );
 
-    if (!hasMyEnsemble) {
+    // Si NO es editor ni admin, obligatoriamente debe incluir un ensamble propio
+    if (!isEditor && !isManagement && !hasMyEnsemble) {
       return toast.error("Debes incluir al menos un ensamble que coordines.");
     }
 
@@ -588,11 +590,10 @@ export default function IndependentRehearsalForm({
         </div>
       </div>
 
-      {/* MODAL DE CONFIRMACIÓN DE SALIDA */}
       <ConfirmModal
         isOpen={showExitConfirm}
-        onClose={() => setShowExitConfirm(false)} // Vuelve al formulario
-        onConfirm={onCancel} // Ejecuta el cierre real
+        onClose={() => setShowExitConfirm(false)}
+        onConfirm={onCancel}
         title="Cambios sin guardar"
         message="Has modificado los datos del ensayo. Si sales ahora, se perderán todos los cambios que no hayas guardado."
         confirmText="Descartar y salir"
