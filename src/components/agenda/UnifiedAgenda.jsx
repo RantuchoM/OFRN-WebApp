@@ -601,20 +601,29 @@ export default function UnifiedAgenda({
       return false;
     });
   };
-
+  // --- REALTIME SUBSCRIPTION (DEBOUNCE + SAFETY) ---
+  // Control para cancelar peticiones viejas si llegan nuevas rápido
+  const abortControllerRef = useRef(null);
+  const refreshTimeoutRef = useRef(null);
   // --- FUNCIÓN FETCH BLINDADA ---
+  // --- FUNCIÓN FETCH BLINDADA Y COMPLETA ---
+  // --- FUNCIÓN FETCH BLINDADA Y COMPLETA ---
   const fetchAgenda = async (isBackground = false) => {
-    // Si no es background (carga inicial) mostramos el spinner que ocupa toda la pantalla
+    // 1. GESTIÓN DE ABORT CONTROLLER
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const signal = controller.signal;
+
     if (!isBackground) setLoading(true);
-    // Si es background, activamos el estado refreshing para el indicador flotante
     else setIsRefreshing(true);
 
-    const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
-      giraId || "general"
-    }_v5`;
+    const CACHE_KEY = `agenda_cache_${effectiveUserId}_${giraId || "general"}_v5`;
 
     try {
-      // Cache-first para carga inicial
+      // 2. CARGA INICIAL DESDE CACHÉ
       if (!isBackground && items.length === 0) {
         const cachedData = localStorage.getItem(CACHE_KEY);
         if (cachedData) {
@@ -624,13 +633,13 @@ export default function UnifiedAgenda({
         }
       }
 
+      // 3. VERIFICACIÓN ONLINE
       if (!navigator.onLine) {
         setIsOfflineMode(true);
-        setLoading(false);
-        setIsRefreshing(false);
-        return;
+        throw new Error("OFFLINE_MODE");
       }
 
+      // 4. PREPARACIÓN DE VARIABLES
       const start = startOfDay(new Date()).toISOString();
       const end = addMonths(new Date(), monthsLimit).toISOString();
       const profileRole = userProfile?.rol_sistema || "musico";
@@ -645,6 +654,7 @@ export default function UnifiedAgenda({
         myFamily = userProfile.instrumentos?.familia;
       }
 
+      // 5. FETCH DATOS AUXILIARES
       const [customAttendance, ensembleEvents] = await Promise.all([
         supabase
           .from("eventos_asistencia_custom")
@@ -658,12 +668,15 @@ export default function UnifiedAgenda({
           : Promise.resolve({ data: [] }),
       ]);
 
+      if (signal.aborted) return;
+
       const customMap = new Map();
       customAttendance.data?.forEach((c) => customMap.set(c.id_evento, c));
       const myEnsembleEventIds = new Set(
         ensembleEvents.data?.map((e) => e.id_evento),
       );
 
+      // 6. QUERY PRINCIPAL
       let query = supabase
         .from("eventos")
         .select(
@@ -697,15 +710,26 @@ export default function UnifiedAgenda({
         `,
         )
         .order("fecha", { ascending: true })
-        .order("hora_inicio", { ascending: true });
+        .order("hora_inicio", { ascending: true })
+        .abortSignal(signal);
 
       if (giraId) query = query.eq("id_gira", giraId);
       else query = query.gte("fecha", start).lte("fecha", end);
 
       const { data: eventsData, error } = await query;
-      if (error) throw error;
 
-      // ... Lógica de Logística (Sin cambios, solo dentro del try) ...
+      if (error) {
+        // DETECCIÓN ROBUSTA DE ABORT
+        if (
+          error.code === "AbortError" ||
+          error.message?.includes("AbortError") ||
+          signal.aborted
+        )
+          return;
+        throw error;
+      }
+
+      // 7. LÓGICA DE LOGÍSTICA
       const activeTourIds = new Set();
       eventsData?.forEach((e) => {
         if (e.id_gira) activeTourIds.add(e.id_gira);
@@ -761,7 +785,6 @@ export default function UnifiedAgenda({
           const userEnsemblesIds = (
             userProfile.integrantes_ensambles || []
           ).map((ie) => String(ie.id_ensamble));
-          const userFamily = userProfile.instrumentos?.familia;
           const cleanLocId = userProfile.id_localidad
             ? Number(userProfile.id_localidad)
             : null;
@@ -806,7 +829,7 @@ export default function UnifiedAgenda({
                   isBase = true;
                   return true;
                 }
-                if (src.tipo === "FAMILIA" && src.valor_texto === userFamily) {
+                if (src.tipo === "FAMILIA" && src.valor_texto === myFamily) {
                   isBase = true;
                   return true;
                 }
@@ -857,6 +880,7 @@ export default function UnifiedAgenda({
       setMyTransportLogistics(logisticsMap);
       setToursWithRules(foundRuleTours);
 
+      // 8. FILTRADO
       const visibleEvents = (eventsData || []).filter((item) => {
         if (giraId) return true;
         const isManagementProfile = [
@@ -893,6 +917,7 @@ export default function UnifiedAgenda({
         return false;
       });
 
+      // 9. MARCADORES
       const programStartMarkers = [];
       const processedPrograms = new Set();
       visibleEvents.forEach((evt) => {
@@ -911,6 +936,7 @@ export default function UnifiedAgenda({
         }
       });
 
+      // 10. UNIÓN
       const allItems = [...visibleEvents, ...programStartMarkers].sort(
         (a, b) => {
           const dateA = new Date(`${a.fecha}T${a.hora_inicio || "00:00:00"}`);
@@ -923,8 +949,10 @@ export default function UnifiedAgenda({
         },
       );
 
+      // 11. CATEGORÍAS
       processCategories(visibleEvents);
 
+      // 12. FLAGS Y ASISTENCIA
       visibleEvents.forEach((evt) => {
         const custom = customMap.get(evt.id);
         if (custom) {
@@ -944,10 +972,12 @@ export default function UnifiedAgenda({
           .select("id_evento, estado")
           .in("id_evento", eventIds)
           .eq("id_integrante", effectiveUserId);
+
         const attendanceMap = {};
         attendanceData?.forEach((a) => {
           attendanceMap[a.id_evento] = a.estado;
         });
+
         visibleEvents.forEach((evt) => {
           evt.mi_asistencia = attendanceMap[evt.id];
           const myTourRecord = evt.programas?.giras_integrantes?.find(
@@ -958,21 +988,39 @@ export default function UnifiedAgenda({
         });
       }
 
+      // 13. CHEQUEO FINAL DE ABORT
+      if (signal.aborted) return;
+
       setItems(allItems);
       localStorage.setItem(CACHE_KEY, JSON.stringify(allItems));
       setIsOfflineMode(false);
       setLastUpdate(new Date());
     } catch (err) {
+      // MANEJO DE ERRORES DE CANCELACIÓN (CATCH)
+      if (
+        err.name === "AbortError" ||
+        err.code === 20 ||
+        err.message?.includes("AbortError") ||
+        signal.aborted
+      ) {
+        console.log("Petición cancelada por actualización más reciente");
+        return;
+      }
+
+      if (err.message === "OFFLINE_MODE") {
+        return;
+      }
+
       console.error("Error fetching agenda:", err);
       if (!isBackground) setIsOfflineMode(true);
     } finally {
-      setLoading(false);
-      setIsRefreshing(false);
+      // Solo desactivamos loading si esta es la petición activa
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
     }
   };
-
-  // --- REALTIME SUBSCRIPTION (DEBOUNCE + SAFETY) ---
-  const refreshTimeoutRef = useRef(null);
 
   useEffect(() => {
     if (!user) return;
@@ -983,23 +1031,22 @@ export default function UnifiedAgenda({
         "postgres_changes",
         { event: "*", schema: "public", table: "eventos" },
         (payload) => {
-          console.log("Cambio detectado:", payload);
+          console.log("Cambio detectado:", payload.eventType);
 
-          // 1. DELETE Optimista
-          if (payload.eventType === "DELETE" && payload.old?.id) {
-            setItems((currentItems) =>
-              currentItems.filter((item) => item.id !== payload.old.id),
-            );
-            toast.error("Evento eliminado", { icon: "🗑️", duration: 2000 });
-          }
-
-          // 2. Debounce para evitar recargas masivas en móvil
+          // ESTRATEGIA: "CALMA, LUEGO ACTUALIZA"
+          // Si hay una ráfaga de cambios, cancelamos el timer anterior y reiniciamos.
           if (refreshTimeoutRef.current)
             clearTimeout(refreshTimeoutRef.current);
+
+          // Feedback visual inmediato (pero no tocamos la lista todavía)
+          toast.info("Detectando cambios...", {
+            id: "sync-toast",
+            duration: 2000,
+          });
+
           refreshTimeoutRef.current = setTimeout(() => {
-            toast.info("Sincronizando...", { icon: "🔄", duration: 1500 });
-            fetchAgenda(true); // Recarga silenciosa
-          }, 1000); // Esperar 1 segundo de inactividad antes de recargar
+            fetchAgenda(true); // <--- Esto llamará al fetch blindado con AbortController
+          }, 1500); // Esperamos 1.5 segundos de silencio total antes de recargar
         },
       )
       .subscribe((status) => {
@@ -1009,6 +1056,7 @@ export default function UnifiedAgenda({
     return () => {
       supabase.removeChannel(channel);
       if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort(); // Limpieza al desmontar
     };
   }, [user, giraId]);
 

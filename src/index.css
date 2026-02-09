@@ -12,32 +12,53 @@ body {
   @apply bg-slate-50 text-slate-800 transition-colors duration-300;
 }
 
-/* --- MODO NOCTURNO AUTOMÁTICO (Estilo Samsung Internet) --- */
+/* ========================================= */
+/* MODO OSCURO "MATEMÁTICO" (Invert + Hue)   */
+/* ========================================= */
 
 /* 1. Invertir toda la interfaz */
 html.dark {
-  /* invert(0.92): Invierte blanco a gris muy oscuro (no negro puro para evitar ghosting) */
-  /* hue-rotate(180deg): Rota los colores para que el azul siga siendo azul (y no naranja por la inversión) */
-  filter: invert(0.92) hue-rotate(180deg);
+  /* invert(0.92): Invierte luminosidad.
+     hue-rotate(180deg): Recupera el tono original.
+     saturate(0.85): BAJA la intensidad de los colores (evita el efecto neón).
+     contrast(0.90): SUAVIZA la diferencia entre negro y blanco (menos fatiga visual).
+  */
+  filter: invert(0.99) hue-rotate(180deg) saturate(0.8) contrast(0.80);
 }
 
 /* 2. Proteger elementos sensibles (Re-inversión) */
-/* Aplicamos el mismo filtro a imágenes y videos para "cancelar" el efecto y que se vean naturales */
 html.dark img, 
 html.dark video, 
 html.dark iframe,
-html.dark svg, /* A veces los iconos SVG necesitan esto, a veces no. Pruébalo. */
+html.dark .re-invert,
 html.dark [style*="background-image"] {
-  filter: invert(1) hue-rotate(180deg);
+  /* Aquí invertimos de vuelta para que se vean bien.
+     IMPORTANTE: Aumentamos un poco la saturación y contraste aquí (1.1 y 1.2)
+     para contrarrestar la reducción que hicimos en el html.dark global.
+  */
+  filter: invert(1) hue-rotate(180deg) saturate(1.1) contrast(1.05);
 }
 
 /* 3. Ajuste fino para imágenes */
 html.dark img {
-  opacity: 0.85; /* Baja un poco el brillo de las fotos para que no encandilen */
+  opacity: 0.85; /* Baja un poco el brillo de las fotos */
+  transition: opacity 0.3s;
+}
+html.dark img:hover {
+  opacity: 1;
 }
 
 /* 4. Excepción manual */
-/* Si tienes algún div con color de fondo específico que se ve mal, agrégale esta clase */
 html.dark .no-dark-invert {
-  filter: invert(1) hue-rotate(180deg);
+  /* Aquí también compensamos la saturación global */
+  filter: invert(1) hue-rotate(180deg) saturate(1.2) contrast(1.1);
+}
+
+/* 5. Ajuste para Sombras */
+html.dark .shadow-sm, 
+html.dark .shadow-md, 
+html.dark .shadow-lg, 
+html.dark .shadow-xl {
+  box-shadow: none !important; 
+  border: 1px solid rgba(255, 255, 255, 0.1); 
 }

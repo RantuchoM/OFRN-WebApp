@@ -19,7 +19,7 @@ import {
   CreateParticellaModal,
 } from "../../components/seating/SeatingControls";
 
-// Librerías para reporte PDF (Asegúrate de tener jspdf-autotable instalado)
+// Librerías para reporte PDF
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -35,8 +35,271 @@ const EXCLUDED_ROLES = [
   "sonido",
 ];
 
-// --- CELDA DE INFO: Estructura Original ---
-const ContainerInfoCell = ({ container, readOnly, myStandInfo }) => {
+// --- COMPONENTE MÓVIL OPTIMIZADO ---
+const MobileSeatingTable = ({
+  user,
+  obras,
+  assignments,
+  filteredRoster,
+  containers,
+  particellas,
+}) => {
+  // Estado para acordeón
+  const [expandedIds, setExpandedIds] = useState(() => {
+    const myContainer = containers.find((c) =>
+      c.items.some((i) => i.id_musico === user.id),
+    );
+    return myContainer ? [myContainer.id] : [];
+  });
+
+  const toggleContainer = (id) => {
+    setExpandedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
+
+  // --- HELPERS DE TEXTO ---
+  const getShortComposer = (name) => {
+    if (!name) return "";
+    const parts = name.trim().split(" ");
+    return parts[parts.length - 1].toUpperCase();
+  };
+
+  const getFirstWord = (title) => {
+    if (!title) return "";
+    const clean = title.replace(/<[^>]*>?/gm, "");
+    return clean.split(" ")[0];
+  };
+
+  const getPartName = (partId) => {
+    if (!partId) return "-";
+    const part = particellas.find((p) => p.id === partId);
+    if (!part) return "?";
+
+    // Abreviaciones para ahorrar espacio horizontal
+    return part.nombre_archivo
+      .replace(/Violin/i, "Vln")
+      .replace(/Violoncello/i, "Vlc")
+      .replace(/Contrabajo/i, "Cb")
+      .replace(/Flauta/i, "Fl")
+      .replace(/Oboe/i, "Ob")
+      .replace(/Clarinete/i, "Cl")
+      .replace(/Fagot/i, "Fg")
+      .replace(/Corno/i, "Hn")
+      .replace(/Trompeta/i, "Tpt")
+      .replace(/Trombon/i, "Tbn")
+      .replace(/Tuba/i, "Tb")
+      .substring(0, 10);
+  };
+
+  const showFullTitle = (obra) => {
+    alert(`${obra.composer}\n\n${obra.title.replace(/<[^>]*>?/gm, "")}`);
+  };
+
+  const windsAndPerc = filteredRoster.filter(
+    (m) => !["01", "02", "03", "04"].includes(m.id_instr),
+  );
+
+  return (
+    <div className="relative w-full border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm flex flex-col h-full">
+      <div className="overflow-auto max-h-full">
+        <table className="w-full text-left border-collapse">
+          {/* --- HEADER --- */}
+          <thead className="bg-slate-800 text-white sticky top-0 z-30 shadow-md">
+            <tr>
+              <th className="p-1 pl-2 w-[32vw] min-w-[110px] max-w-[140px] sticky left-0 z-40 bg-slate-800 border-r border-slate-600 text-[10px] font-bold uppercase tracking-tight align-bottom">
+                Grupo / Músico
+              </th>
+              {obras.map((obra) => (
+                <th
+                  key={obra.id}
+                  onClick={() => showFullTitle(obra)}
+                  className="p-1 min-w-[70px] max-w-[80px] border-l border-slate-600 text-center cursor-pointer active:bg-slate-700 align-bottom pb-2"
+                >
+                  <div className="flex flex-col leading-none">
+                    <span className="text-[8px] text-slate-400 font-normal truncate">
+                      {getShortComposer(obra.composer)}
+                    </span>
+                    <span className="text-[10px] font-bold text-white truncate mt-0.5">
+                      {getFirstWord(obra.title)}
+                    </span>
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-slate-100">
+            {/* --- CUERDAS (ACORDEÓN) --- */}
+            {containers.map((c) => {
+              const isExpanded = expandedIds.includes(c.id);
+              const isMyContainer = c.items.some(
+                (i) => i.id_musico === user.id,
+              );
+
+              return (
+                <React.Fragment key={c.id}>
+                  {/* FILA PADRE: NOMBRE GRUPO + ASIGNACIÓN GRUPAL */}
+                  <tr
+                    onClick={() => toggleContainer(c.id)}
+                    className="cursor-pointer bg-slate-100 hover:bg-slate-200 transition-colors border-b border-slate-300"
+                  >
+                    <td
+                      className={`p-1.5 pl-2 sticky left-0 z-20 border-r border-slate-300 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] ${isMyContainer ? "bg-amber-100 border-l-4 border-l-amber-500" : "bg-slate-100"}`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-bold text-[10px] text-slate-800 uppercase truncate">
+                          {c.nombre}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[8px] text-slate-500">
+                            ({c.items.length})
+                          </span>
+                          <IconChevronDown
+                            size={14}
+                            className={`text-slate-500 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                          />
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Loop Obras (Asignación Contenedor) */}
+                    {obras.map((obra) => {
+                      const containerPartId =
+                        assignments[`C-${c.id}-${obra.obra_id}`];
+                      return (
+                        <td
+                          key={obra.id}
+                          className="p-1 border-l border-slate-200 text-center align-middle"
+                        >
+                          <span className="text-[10px] font-bold text-slate-700 block truncate max-w-[75px]">
+                            {getPartName(containerPartId)}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* FILAS HIJAS: MÚSICOS (Solo si expandido) */}
+                  {isExpanded &&
+                    c.items.map((item, idx) => {
+                      const isMe = String(item.id_musico) === String(user.id);
+                      const deskNum = Math.floor(idx / 2) + 1;
+
+                      return (
+                        <tr
+                          key={item.id}
+                          className={isMe ? "bg-amber-50" : "bg-white"}
+                        >
+                          <td
+                            className={`p-1 pl-4 sticky left-0 z-20 border-r border-slate-200 border-b border-slate-50 align-middle ${isMe ? "bg-amber-50" : "bg-white"}`}
+                          >
+                            <div className="flex flex-col leading-none border-l-2 border-slate-200 pl-2">
+                              <span
+                                className={`text-[10px] font-medium truncate ${isMe ? "text-amber-900 font-bold" : "text-slate-600"}`}
+                              >
+                                {item.integrantes.apellido},{" "}
+                                {item.integrantes.nombre?.charAt(0)}.
+                              </span>
+                              <span className="text-[8px] text-slate-400 mt-0.5">
+                                Atril {deskNum}
+                              </span>
+                            </div>
+                          </td>
+
+                          {obras.map((obra) => {
+                            const individualPartId =
+                              assignments[
+                                `M-${item.id_musico}-${obra.obra_id}`
+                              ];
+                            const containerPartId =
+                              assignments[`C-${c.id}-${obra.obra_id}`];
+                            const showPart =
+                              individualPartId &&
+                              individualPartId !== containerPartId;
+
+                            return (
+                              <td
+                                key={`${item.id}-${obra.id}`}
+                                className="p-1 border-l border-slate-100 border-b border-slate-50 text-center align-middle"
+                              >
+                                {showPart ? (
+                                  <span className="text-[9px] text-indigo-600 font-bold bg-indigo-50 px-1 rounded truncate max-w-[70px] block mx-auto">
+                                    {getPartName(individualPartId)}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-slate-300 select-none">
+                                    〃
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                </React.Fragment>
+              );
+            })}
+
+            {/* --- VIENTOS Y PERCUSIÓN (SEPARADOR) --- */}
+            {windsAndPerc.length > 0 && (
+              <tr className="bg-slate-200">
+                <td
+                  className="sticky left-0 bg-slate-200 z-20 p-1.5 pl-2 text-[9px] font-bold text-slate-600 border-r border-slate-300 uppercase tracking-wider"
+                  colSpan={obras.length + 1}
+                >
+                  Vientos y Percusión
+                </td>
+              </tr>
+            )}
+
+            {windsAndPerc.map((m) => {
+              const isMe = String(m.id) === String(user.id);
+              return (
+                <tr
+                  key={m.id}
+                  className={isMe ? "bg-amber-50" : "even:bg-slate-50/50"}
+                >
+                  <td
+                    className={`p-1 pl-2 sticky left-0 z-20 border-r border-slate-200 align-middle ${isMe ? "bg-amber-50 border-l-4 border-l-amber-400" : "bg-white"}`}
+                  >
+                    <div className="flex flex-col leading-none">
+                      <span
+                        className={`font-bold text-[10px] truncate ${isMe ? "text-amber-900" : "text-slate-800"}`}
+                      >
+                        {m.apellido}, {m.nombre?.charAt(0)}.
+                      </span>
+                      <span className="text-[8px] text-slate-400 truncate mt-0.5">
+                        {m.instrumentos?.instrumento}
+                      </span>
+                    </div>
+                  </td>
+                  {obras.map((obra) => {
+                    const partId = assignments[`M-${m.id}-${obra.obra_id}`];
+                    return (
+                      <td
+                        key={`${m.id}-${obra.id}`}
+                        className="p-1 border-l border-slate-100 text-center align-middle"
+                      >
+                        <span className="text-[9px] text-slate-700 font-medium block truncate max-w-[75px]">
+                          {getPartName(partId)}
+                        </span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+// --- CELDA DE INFO (ESCRITORIO) ---
+const ContainerInfoCell = ({ container, myStandInfo }) => {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -55,10 +318,7 @@ const ContainerInfoCell = ({ container, readOnly, myStandInfo }) => {
             </span>
           )}
           {!myStandInfo && container.capacidad && (
-            <span
-              className="text-[9px] text-slate-400 bg-slate-100 px-1 rounded-full border border-slate-200 w-fit mt-0.5"
-              title="Capacidad"
-            >
+            <span className="text-[9px] text-slate-400 bg-slate-100 px-1 rounded-full border border-slate-200 w-fit mt-0.5">
               {container.items.length}/{container.capacidad}
             </span>
           )}
@@ -151,6 +411,7 @@ export default function ProgramSeating({
   const [createModalInfo, setCreateModalInfo] = useState(null);
   const [fetchedBlocks, setFetchedBlocks] = useState([]);
 
+  // Fetch Obras
   useEffect(() => {
     const fetchRepertoire = async () => {
       if (repertoireBlocks.length === 0 && program?.id) {
@@ -191,7 +452,6 @@ export default function ProgramSeating({
           )?.compositores;
           const compName = comp?.apellido || "Anónimo";
           const title = ro.obras.titulo || "Obra";
-          // Limpieza de HTML para evitar errores en PDF
           const cleanTitle =
             typeof title === "string"
               ? title.replace(/<[^>]*>?/gm, "")
@@ -210,6 +470,28 @@ export default function ProgramSeating({
       .filter(Boolean);
   }, [effectiveBlocks]);
 
+  // Fetch Particellas (Triggered when works change)
+  useEffect(() => {
+    const fetchParts = async () => {
+      if (obras.length === 0) return;
+      const workIds = [...new Set(obras.map((o) => o.obra_id))];
+      let partsData = [];
+      // Chunk para no saturar URL
+      for (let i = 0; i < workIds.length; i += 10) {
+        const chunk = workIds.slice(i, i + 10);
+        const { data } = await supabase
+          .from("obras_particellas")
+          .select(
+            "id, id_obra, nombre_archivo, id_instrumento, instrumentos(id, instrumento)",
+          )
+          .in("id_obra", chunk);
+        if (data) partsData = [...partsData, ...data];
+      }
+      setParticellas(partsData);
+    };
+    fetchParts();
+  }, [obras, supabase]);
+
   const particellaCounts = useMemo(() => {
     const counts = {};
     Object.values(assignments).forEach((partId) => {
@@ -218,9 +500,19 @@ export default function ProgramSeating({
     return counts;
   }, [assignments]);
 
+  // --- MEMOIZACIÓN CRÍTICA PARA RENDIMIENTO ---
+  // Pre-calculamos las opciones disponibles por obra para no filtrar en cada celda
+  const availablePartsByWork = useMemo(() => {
+    const map = {};
+    obras.forEach((o) => {
+      map[o.obra_id] = particellas.filter((p) => p.id_obra === o.obra_id);
+    });
+    return map;
+  }, [obras, particellas]);
+
   useEffect(() => {
     if (program?.id && !rosterLoading) fetchInitialData();
-  }, [program.id, effectiveBlocks, rosterLoading, rawRoster]);
+  }, [program.id, rosterLoading, rawRoster]);
 
   const isString = (id) => ["01", "02", "03", "04"].includes(id);
 
@@ -245,8 +537,7 @@ export default function ProgramSeating({
       });
       setFilteredRoster(musicians);
       await fetchContainers();
-      const workIds = [...new Set(obras.map((o) => o.obra_id))];
-      await fetchParticellas(workIds);
+
       const { data: assigns } = await supabase
         .from("seating_asignaciones")
         .select("*")
@@ -269,28 +560,6 @@ export default function ProgramSeating({
     }
   };
 
-  const fetchParticellas = async (workIds) => {
-    if (workIds.length === 0) return;
-    let partsData = [];
-    const chunkArray = (arr, size) => {
-      const res = [];
-      for (let i = 0; i < arr.length; i += size)
-        res.push(arr.slice(i, i + size));
-      return res;
-    };
-    const chunks = chunkArray(workIds, 10);
-    for (const chunk of chunks) {
-      const { data } = await supabase
-        .from("obras_particellas")
-        .select(
-          "id, id_obra, nombre_archivo, id_instrumento, instrumentos(id, instrumento)",
-        )
-        .in("id_obra", chunk);
-      if (data) partsData = [...partsData, ...data];
-    }
-    setParticellas(partsData);
-  };
-
   const fetchContainers = async () => {
     const { data: conts } = await supabase
       .from("seating_contenedores")
@@ -306,67 +575,51 @@ export default function ProgramSeating({
           conts.map((c) => c.id),
         )
         .order("orden");
-      const full = conts.map((c) => ({
-        ...c,
-        items: items?.filter((i) => i.id_contenedor === c.id) || [],
-      }));
-      setContainers(full);
+      setContainers(
+        conts.map((c) => ({
+          ...c,
+          items: items?.filter((i) => i.id_contenedor === c.id) || [],
+        })),
+      );
     }
   };
 
-  // --- COMPONENTE DEL EXPORTADOR ACTUALIZADO ---
-  // --- COMPONENTE DEL EXPORTADOR ACTUALIZADO (A4 landscape) ---
-  // --- COMPONENTE DEL EXPORTADOR ACTUALIZADO (A4 Portrait - Vertical) ---
+  // --- PDF EXPORT (Igual que antes) ---
   const handleExportReport = () => {
     setIsExporting(true);
     try {
-      // Cambio a orientación "p" (portrait / vertical)
       const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
-      const pageWidth = doc.internal.pageSize.getWidth();
-
-      // Obtención de campos corregidos
-      const nombre_gira = program?.nombre_gira || "Sin Título";
-      const mes_letra = program?.mes_letra || "";
-      const nomenclador = program?.nomenclador || "";
-
       const cleanHTML = (str) =>
         typeof str === "string" ? str.replace(/<[^>]*>?/gm, "") : "";
       const truncate = (str, n) =>
         str && str.length > n ? str.substr(0, n - 1) + "..." : str;
 
-      // 1. Título y Encabezado - Formato: Seating | mes_letra - nomenclador. nombre_gira
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
       doc.text(
-        `Seating | ${mes_letra} - ${nomenclador}. ${nombre_gira}`,
+        `Seating | ${program?.mes_letra || ""} - ${program?.nomenclador || ""}. ${program?.nombre_gira || ""}`,
         14,
         12,
       );
-
       doc.setFontSize(8);
       doc.setFont("helvetica", "normal");
       doc.text(`Generado: ${new Date().toLocaleDateString()}`, 14, 16);
-      doc.line(14, 18, pageWidth - 14, 18);
+      doc.line(14, 18, 196, 18);
 
-      // 2. Tabla Superior: Contenedores en Columnas (Cuerdas)
       const maxMembers = Math.max(
         ...containers.map((c) => c.items?.length || 0),
         0,
       );
       const containerHeaders = containers.map((c) => c.nombre.toUpperCase());
       const containerBody = [];
-
       for (let i = 0; i < maxMembers; i++) {
-        const row = containers.map((c) => {
-          const item = c.items[i];
-          if (!item || !item.integrantes) return "";
-          const apellido = item.integrantes.apellido || "";
-          const inicialNombre = item.integrantes.nombre
-            ? item.integrantes.nombre.charAt(0) + "."
-            : "";
-          return `${apellido}, ${inicialNombre}`;
-        });
-        containerBody.push(row);
+        containerBody.push(
+          containers.map((c) => {
+            const item = c.items[i];
+            if (!item?.integrantes) return "";
+            return `${item.integrantes.apellido}, ${item.integrantes.nombre?.charAt(0) || ""}.`;
+          }),
+        );
       }
 
       autoTable(doc, {
@@ -375,46 +628,35 @@ export default function ProgramSeating({
         body: containerBody,
         theme: "grid",
         styles: { fontSize: 6.5, cellPadding: 0.6, halign: "center" },
-        headStyles: {
-          fillColor: [63, 81, 181],
-          textColor: [255, 255, 255],
-          fontSize: 7,
-        },
+        headStyles: { fillColor: [63, 81, 181], textColor: 255, fontSize: 7 },
         margin: { left: 14, right: 14 },
       });
 
-      // 3. Tabla Inferior: Grilla de Asignación (Vientos y Percusión)
       const finalY = doc.lastAutoTable.finalY;
       doc.setFontSize(10);
       doc.setFont("helvetica", "bold");
-      doc.text(
-        "Asignación de Particellas (Vientos y Percusión)",
-        14,
-        finalY + 8,
-      );
+      doc.text("Asignación de Particellas", 14, finalY + 8);
 
-      // Header con "Compositor \n Obra" truncados
+      const otherMusicians = filteredRoster.filter(
+        (m) => !isString(m.id_instr),
+      );
       const tableHeaders = [
         [
           "Músico",
-          ...obras.map((o) => {
-            const comp = truncate(cleanHTML(o.composer), 10);
-            const tit = truncate(cleanHTML(o.title), 12);
-            return `${comp}\n${tit}`;
-          }),
+          ...obras.map(
+            (o) =>
+              `${truncate(cleanHTML(o.composer), 10)}\n${truncate(cleanHTML(o.title), 12)}`,
+          ),
         ],
       ];
-
-      const tableBody = [];
-      otherMusicians.forEach((m) => {
+      const tableBody = otherMusicians.map((m) => {
         const row = [`${m.apellido}, ${m.nombre}`];
         obras.forEach((o) => {
-          const key = `M-${m.id}-${o.obra_id}`;
-          const partId = assignments[key];
-          const part = particellas.find((p) => String(p.id) === String(partId));
-          row.push(part ? part.nombre_archivo : "-");
+          const pid = assignments[`M-${m.id}-${o.obra_id}`];
+          const p = particellas.find((x) => String(x.id) === String(pid));
+          row.push(p ? p.nombre_archivo : "-");
         });
-        tableBody.push(row);
+        return row;
       });
 
       autoTable(doc, {
@@ -433,32 +675,27 @@ export default function ProgramSeating({
           fillColor: [30, 41, 59],
           halign: "center",
           fontSize: 5.5,
-          cellPadding: 1,
         },
         columnStyles: {
-          0: {
-            fontStyle: "bold",
-            fillColor: [245, 245, 245],
-            halign: "left",
-            cellWidth: "auto",
-          },
+          0: { fontStyle: "bold", fillColor: [245, 245, 245], halign: "left" },
         },
-        tableWidth: "wrap",
         margin: { left: 14, right: 14 },
         pageBreak: "avoid",
       });
-
-      doc.save(`Seating_${nombre_gira.replace(/\s+/g, "_")}.pdf`);
+      doc.save("Seating_Reporte.pdf");
     } catch (err) {
-      console.error("Error al exportar PDF:", err);
-      alert("Error al generar el reporte PDF.");
+      alert("Error PDF");
+      console.error(err);
     } finally {
       setIsExporting(false);
     }
   };
+
+  // --- MODALS & UPDATES ---
   const openCreateModal = (obraId, defaultInstrId, targetType, targetId) => {
     setCreateModalInfo({ obraId, targetType, targetId, defaultInstrId });
   };
+
   const handleConfirmCreate = async (instrumentId, name) => {
     if (!createModalInfo) return;
     const { obraId, targetType, targetId } = createModalInfo;
@@ -472,17 +709,17 @@ export default function ProgramSeating({
       .select()
       .single();
     if (error) {
-      alert("Error: " + error.message);
+      alert(error.message);
       return;
     }
+
+    // Optimista local update
     const instrName =
-      instrumentList.find((i) => i.id === instrumentId)?.instrumento ||
-      "Nuevo Instr.";
-    const newPart = {
-      ...data,
-      instrumentos: { id: instrumentId, instrumento: instrName },
-    };
-    setParticellas((prev) => [...prev, newPart]);
+      instrumentList.find((i) => i.id === instrumentId)?.instrumento || "Nuevo";
+    setParticellas((prev) => [
+      ...prev,
+      { ...data, instrumentos: { id: instrumentId, instrumento: instrName } },
+    ]);
     handleAssign(targetType, targetId, obraId, data.id);
     setCreateModalInfo(null);
   };
@@ -490,26 +727,35 @@ export default function ProgramSeating({
   const handleAssign = async (targetType, targetId, obraId, particellaId) => {
     if (!isEditor) return;
     const key = `${targetType}-${targetId}-${obraId}`;
+
+    // Update local state instantáneamente
     setAssignments((prev) => {
       const copy = { ...prev };
       if (!particellaId) delete copy[key];
       else copy[key] = particellaId;
       return copy;
     });
+
+    // DB Sync
     if (targetType === "C") {
-      await supabase.from("seating_asignaciones").delete().match({
-        id_programa: program.id,
-        id_contenedor: targetId,
-        id_obra: obraId,
-      });
-      if (particellaId)
-        await supabase.from("seating_asignaciones").insert({
+      await supabase
+        .from("seating_asignaciones")
+        .delete()
+        .match({
           id_programa: program.id,
-          id_obra: obraId,
-          id_particella: particellaId,
           id_contenedor: targetId,
-          id_musicos_asignados: null,
+          id_obra: obraId,
         });
+      if (particellaId)
+        await supabase
+          .from("seating_asignaciones")
+          .insert({
+            id_programa: program.id,
+            id_obra: obraId,
+            id_particella: particellaId,
+            id_contenedor: targetId,
+            id_musicos_asignados: null,
+          });
     } else {
       const { data: existing } = await supabase
         .from("seating_asignaciones")
@@ -551,12 +797,14 @@ export default function ProgramSeating({
           );
         } else {
           updates.push(
-            supabase.from("seating_asignaciones").insert({
-              id_programa: program.id,
-              id_obra: obraId,
-              id_particella: particellaId,
-              id_musicos_asignados: [targetId],
-            }),
+            supabase
+              .from("seating_asignaciones")
+              .insert({
+                id_programa: program.id,
+                id_obra: obraId,
+                id_particella: particellaId,
+                id_musicos_asignados: [targetId],
+              }),
           );
         }
       }
@@ -617,7 +865,8 @@ export default function ProgramSeating({
             disabled={isExporting}
             className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm active:scale-95 disabled:opacity-50"
           >
-            <IconDownload size={16} /> Descargar Reporte
+            <IconDownload size={16} />{" "}
+            <span className="hidden sm:inline">Reporte</span>
           </button>
           {canManageSeating && (
             <>
@@ -625,20 +874,21 @@ export default function ProgramSeating({
                 onClick={() => setShowRotationModal(true)}
                 className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-white border border-slate-300 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 shadow-sm"
               >
-                <IconLayers size={16} /> Rotación Anual
+                <IconLayers size={16} />{" "}
+                <span className="hidden sm:inline">Rotación</span>
               </button>
               <button
                 onClick={() => setShowHistory(!showHistory)}
                 className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-white border border-slate-300 text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 shadow-sm"
               >
-                <IconHistory size={16} /> Reporte Histórico
+                <IconHistory size={16} />{" "}
+                <span className="hidden sm:inline">Historial</span>
               </button>
               <button
                 onClick={() => setShowConfig(!showConfig)}
                 className={`px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors ${showConfig ? "bg-indigo-600 text-white" : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"}`}
               >
-                <IconSettings size={16} />{" "}
-                {isEditor ? "Configurar Cuerdas" : "Ver Grupos Cuerdas"}
+                <IconSettings size={16} /> {isEditor ? "Cuerdas" : "Ver Grupos"}
               </button>
             </>
           )}
@@ -651,12 +901,10 @@ export default function ProgramSeating({
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden p-4 flex flex-col">
+      <div className="flex-1 overflow-hidden p-2 md:p-4 flex flex-col">
         <Suspense
           fallback={
-            <div className="p-4 text-center text-slate-400">
-              Cargando gestor...
-            </div>
+            <div className="p-4 text-center text-slate-400">Cargando...</div>
           }
         >
           {showConfig && canManageSeating && (
@@ -671,29 +919,42 @@ export default function ProgramSeating({
           )}
         </Suspense>
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex-1 overflow-auto max-h-full">
-          <table className="w-full text-left text-xs border-collapse min-w-[1000px]">
+        {/* --- VISTA MÓVIL --- */}
+        <div className="md:hidden flex-1 overflow-hidden">
+          <MobileSeatingTable
+            user={user}
+            obras={obras}
+            assignments={assignments}
+            filteredRoster={filteredRoster}
+            containers={containers}
+            particellas={particellas}
+          />
+        </div>
+
+        {/* --- VISTA ESCRITORIO (OPTIMIZADA) --- */}
+        <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 flex-1 overflow-auto max-h-full">
+          <table className="w-full text-left text-xs border-collapse min-w-[1000px] table-fixed">
             <thead className="bg-slate-800 text-white font-bold sticky top-0 z-30 shadow-md">
               <tr>
-                <th className="p-2 w-64 sticky left-0 bg-slate-800 z-40 border-r border-slate-600 pl-4">
+                <th className="p-2 w-48 sticky left-0 bg-slate-800 z-40 border-r border-slate-600 pl-4">
                   Contenedor / Músico
                 </th>
                 {obras.map((obra) => {
-                  const obraParts = particellas.filter(
-                    (p) => p.id_obra === obra.obra_id,
-                  );
+                  // Pre-cálculo para el header (Unassigned Warning)
+                  const obraParts = availablePartsByWork[obra.obra_id] || [];
                   const unassignedParts = obraParts.filter(
                     (p) => !particellaCounts[p.id],
                   );
                   const hasUnassigned = unassignedParts.length > 0;
+
                   return (
                     <th
                       key={obra.id}
-                      className="p-1 min-w-[140px] border-l border-slate-600 align-bottom relative group"
+                      className="p-1 w-32 border-l border-slate-600 align-bottom relative group"
                     >
-                      <div className="flex flex-col gap-0.5 items-center w-full pb-1">
-                        <div className="flex items-center gap-1 opacity-70 hover:opacity-100 transition-opacity">
-                          <span className="text-[9px] uppercase tracking-wide">
+                      <div className="flex flex-col gap-0.5 items-center w-full pb-1 overflow-hidden">
+                        <div className="flex items-center gap-1 opacity-70 hover:opacity-100">
+                          <span className="text-[9px] uppercase tracking-wide truncate">
                             {obra.composer}
                           </span>
                           {obra.link && (
@@ -702,40 +963,24 @@ export default function ProgramSeating({
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-indigo-300 hover:text-white"
-                              title="Abrir en Drive"
                             >
                               <IconExternalLink size={10} />
                             </a>
                           )}
                         </div>
-                        <div className="text-[10px] font-bold text-white leading-tight text-center px-1 mb-1 flex items-center justify-center gap-1">
-                          <span
-                            dangerouslySetInnerHTML={{ __html: obra.title }}
-                          />
-                          {hasUnassigned && (
-                            <div className="relative group/icon">
-                              <IconAlertCircle
-                                size={12}
-                                className="text-amber-400 cursor-help"
-                              />
-                              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 w-40 bg-white text-slate-700 shadow-xl rounded border border-slate-200 p-2 z-50 hidden group-hover/icon:block animate-in fade-in zoom-in-95 pointer-events-none">
-                                <div className="text-[9px] font-bold text-slate-400 uppercase border-b border-slate-100 mb-1 pb-1">
-                                  Sin Asignar ({unassignedParts.length})
-                                </div>
-                                <ul className="space-y-0.5">
-                                  {unassignedParts.map((p) => (
-                                    <li
-                                      key={p.id}
-                                      className="text-[9px] font-medium truncate"
-                                    >
-                                      • {p.nombre_archivo}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                        <div
+                          className="text-[10px] font-bold text-white leading-tight text-center px-1 mb-1 w-full truncate"
+                          title={obra.title}
+                          dangerouslySetInnerHTML={{ __html: obra.title }}
+                        />
+                        {hasUnassigned && (
+                          <div className="absolute top-1 right-1">
+                            <IconAlertCircle
+                              size={10}
+                              className="text-amber-400"
+                            />
+                          </div>
+                        )}
                       </div>
                     </th>
                   );
@@ -743,64 +988,88 @@ export default function ProgramSeating({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
+              {/* CUERDAS */}
               {containers.length > 0 && (
                 <>
                   <tr className="bg-indigo-50/50">
                     <td
                       colSpan={obras.length + 1}
-                      className="p-1 px-4 text-[10px] font-bold text-indigo-800 uppercase tracking-wider border-b border-indigo-100"
+                      className="p-1 px-4 text-[10px] font-bold text-indigo-800 uppercase"
                     >
                       Sección de Cuerdas
                     </td>
                   </tr>
                   {containers.map((c) => {
-                    const userItemIndex = c.items.findIndex(
-                      (i) => String(i.id_musico) === String(user.id),
+                    const isMyContainer = c.items.some(
+                      (i) => i.id_musico === user.id,
                     );
-                    const isMyContainer = userItemIndex !== -1;
-                    const myStandText = isMyContainer
-                      ? `Atril ${Math.floor(userItemIndex / 2) + 1}`
-                      : null;
-
+                    const myStandText = isMyContainer ? "Tu lugar" : null;
                     return (
                       <tr
                         key={c.id}
                         className={`transition-colors group ${isMyContainer ? "bg-amber-50" : "hover:bg-indigo-50/30"}`}
                       >
                         <td
-                          className={`p-2 sticky left-0 border-r border-slate-200 z-20 pl-4 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] align-top ${isMyContainer ? "bg-amber-50 border-l-4 border-l-amber-400" : "bg-white group-hover:bg-indigo-50/30"}`}
+                          className={`p-2 sticky left-0 border-r border-slate-200 z-20 pl-4 align-top ${isMyContainer ? "bg-amber-50 border-l-4 border-l-amber-400" : "bg-white group-hover:bg-indigo-50/30"}`}
                         >
                           <ContainerInfoCell
                             container={c}
-                            readOnly={!isEditor}
                             myStandInfo={myStandText}
                           />
                         </td>
                         {obras.map((obra) => {
-                          const availableParts = particellas.filter(
-                            (p) => p.id_obra === obra.obra_id,
-                          );
                           const currentVal =
                             assignments[`C-${c.id}-${obra.obra_id}`];
+                          // Usamos la lista memoizada
+                          const availableParts =
+                            availablePartsByWork[obra.obra_id] || [];
+
                           return (
                             <td
                               key={`${c.id}-${obra.id}`}
-                              className={`p-1 border-l border-slate-100 relative min-w-[140px] align-top ${isMyContainer ? "bg-amber-50" : "bg-slate-50/30"}`}
+                              className={`p-1 border-l border-slate-100 relative align-top ${isMyContainer ? "bg-amber-50" : "bg-slate-50/30"}`}
                             >
-                              <ParticellaSelect
-                                options={availableParts}
-                                value={currentVal}
-                                onChange={(val) =>
-                                  handleAssign("C", c.id, obra.obra_id, val)
-                                }
-                                onRequestCreate={() =>
-                                  openCreateModal(obra.obra_id, "00", "C", c.id)
-                                }
-                                disabled={!isEditor}
-                                placeholder="Asignar Grupo"
-                                preferredInstrumentId={c.id_instrumento}
-                                counts={particellaCounts}
-                              />
+                              {isEditor ? (
+                                <ParticellaSelect
+                                  options={availableParts}
+                                  value={currentVal}
+                                  onChange={(val) =>
+                                    handleAssign("C", c.id, obra.obra_id, val)
+                                  }
+                                  onRequestCreate={() =>
+                                    openCreateModal(
+                                      obra.obra_id,
+                                      "00",
+                                      "C",
+                                      c.id,
+                                    )
+                                  }
+                                  disabled={false}
+                                  placeholder="Asignar"
+                                  preferredInstrumentId={c.id_instrumento}
+                                  counts={particellaCounts}
+                                />
+                              ) : (
+                                /* LECTURA OPTIMIZADA: Texto plano */
+                                <div className="flex items-center justify-center h-full px-2">
+                                  <span
+                                    className="text-xs text-slate-700 truncate"
+                                    title={
+                                      currentVal
+                                        ? availableParts.find(
+                                            (p) => p.id === currentVal,
+                                          )?.nombre_archivo
+                                        : ""
+                                    }
+                                  >
+                                    {currentVal
+                                      ? availableParts.find(
+                                          (p) => p.id === currentVal,
+                                        )?.nombre_archivo
+                                      : "-"}
+                                  </span>
+                                </div>
+                              )}
                             </td>
                           );
                         })}
@@ -809,77 +1078,93 @@ export default function ProgramSeating({
                   })}
                 </>
               )}
+              {/* VIENTOS */}
               {otherMusicians.length > 0 && (
                 <>
                   <tr className="bg-slate-100/50">
                     <td
                       colSpan={obras.length + 1}
-                      className="p-1 px-4 text-[10px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200 border-t border-slate-200 mt-4"
+                      className="p-1 px-4 text-[10px] font-bold text-slate-600 uppercase"
                     >
                       Vientos y Percusión
                     </td>
                   </tr>
-                  {otherMusicians.map((musician) => {
-                    const isMe = String(musician.id) === String(user.id);
+                  {otherMusicians.map((m) => {
+                    const isMe = String(m.id) === String(user.id);
                     return (
                       <tr
-                        key={musician.id}
+                        key={m.id}
                         className={`transition-colors group ${isMe ? "bg-amber-50" : "hover:bg-slate-50"}`}
                       >
                         <td
-                          className={`p-2 sticky left-0 border-r border-slate-200 z-20 pl-4 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] ${isMe ? "bg-amber-50 border-l-4 border-l-amber-400" : "bg-white group-hover:bg-slate-50"}`}
+                          className={`p-2 sticky left-0 border-r border-slate-200 z-20 pl-4 align-top ${isMe ? "bg-amber-50 border-l-4 border-l-amber-400" : "bg-white group-hover:bg-slate-50"}`}
                         >
                           <div className="flex flex-col">
                             <span
                               className={`font-bold truncate text-xs ${isMe ? "text-amber-900" : "text-slate-700"}`}
                             >
-                              {musician.apellido}, {musician.nombre}
+                              {m.apellido}, {m.nombre}
                             </span>
-                            <span className="text-[9px] text-slate-400 truncate flex items-center gap-1">
-                              {musician.instrumentos?.instrumento}{" "}
-                              {musician.rol_gira &&
-                                musician.rol_gira !== "musico" && (
-                                  <span className="text-amber-600">
-                                    ({musician.rol_gira})
-                                  </span>
-                                )}
+                            <span className="text-[9px] text-slate-400 truncate">
+                              {m.instrumentos?.instrumento}{" "}
+                              {m.rol_gira && m.rol_gira !== "musico" && (
+                                <span className="text-amber-600">
+                                  ({m.rol_gira})
+                                </span>
+                              )}
                             </span>
                           </div>
                         </td>
                         {obras.map((obra) => {
-                          const availableParts = particellas.filter(
-                            (p) => p.id_obra === obra.obra_id,
-                          );
                           const currentVal =
-                            assignments[`M-${musician.id}-${obra.obra_id}`];
+                            assignments[`M-${m.id}-${obra.obra_id}`];
+                          const availableParts =
+                            availablePartsByWork[obra.obra_id] || [];
                           return (
                             <td
-                              key={`${musician.id}-${obra.id}`}
-                              className={`p-1 border-l border-slate-100 relative min-w-[140px] ${isMe ? "bg-amber-50" : ""}`}
+                              key={`${m.id}-${obra.id}`}
+                              className={`p-1 border-l border-slate-100 relative align-top ${isMe ? "bg-amber-50" : ""}`}
                             >
-                              <ParticellaSelect
-                                options={availableParts}
-                                value={currentVal}
-                                onChange={(val) =>
-                                  handleAssign(
-                                    "M",
-                                    musician.id,
-                                    obra.obra_id,
-                                    val,
-                                  )
-                                }
-                                onRequestCreate={() =>
-                                  openCreateModal(
-                                    obra.obra_id,
-                                    musician.id_instr,
-                                    "M",
-                                    musician.id,
-                                  )
-                                }
-                                disabled={!isEditor}
-                                preferredInstrumentId={musician.id_instr}
-                                counts={particellaCounts}
-                              />
+                              {isEditor ? (
+                                <ParticellaSelect
+                                  options={availableParts}
+                                  value={currentVal}
+                                  onChange={(val) =>
+                                    handleAssign("M", m.id, obra.obra_id, val)
+                                  }
+                                  onRequestCreate={() =>
+                                    openCreateModal(
+                                      obra.obra_id,
+                                      m.id_instr,
+                                      "M",
+                                      m.id,
+                                    )
+                                  }
+                                  disabled={false}
+                                  placeholder="Asignar"
+                                  preferredInstrumentId={m.id_instr}
+                                  counts={particellaCounts}
+                                />
+                              ) : (
+                                <div className="flex items-center justify-center h-full px-2">
+                                  <span
+                                    className="text-xs text-slate-700 truncate"
+                                    title={
+                                      currentVal
+                                        ? availableParts.find(
+                                            (p) => p.id === currentVal,
+                                          )?.nombre_archivo
+                                        : ""
+                                    }
+                                  >
+                                    {currentVal
+                                      ? availableParts.find(
+                                          (p) => p.id === currentVal,
+                                        )?.nombre_archivo
+                                      : "-"}
+                                  </span>
+                                </div>
+                              )}
                             </td>
                           );
                         })}

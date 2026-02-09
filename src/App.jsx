@@ -75,8 +75,8 @@ import {
   IconUser,
   IconEye,
   IconEyeOff,
-  IconSun,  // Asegúrate de tener este ícono en Icons.jsx
-  IconMoon, // Asegúrate de tener este ícono en Icons.jsx
+  IconSun,
+  IconMoon,
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal";
 import SearchableSelect from "./components/ui/SearchableSelect";
@@ -89,11 +89,12 @@ const normalizeId = (id) => {
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5, // Los datos se consideran "frescos" por 5 minutos
-      refetchOnWindowFocus: false, // Evita recargas molestas al cambiar de ventana
+      staleTime: 1000 * 60 * 5,
+      refetchOnWindowFocus: false,
     },
   },
 });
+
 // --- MODAL CALENDARIO ---
 const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
   if (!isOpen || !userId) return null;
@@ -315,6 +316,21 @@ const ProtectedApp = () => {
         .then(({ data }) => setOrchestraList(data || []));
     }
   }, [isActuallyAdmin]);
+
+  // --- ESTADOS PARA SIDEBAR ESCRITORIO ---
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => 
+    localStorage.getItem("sidebar_collapsed") === "true"
+  );
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+
+  // El sidebar se ve expandido si NO está colapsado O si el usuario tiene el mouse encima
+  const isDesktopExpanded = !isSidebarCollapsed || isSidebarHovered;
+
+  const toggleSidebarCollapse = () => {
+    const newState = !isSidebarCollapsed;
+    setIsSidebarCollapsed(newState);
+    localStorage.setItem("sidebar_collapsed", newState);
+  };
 
   // Estados unificados de UI
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -707,28 +723,51 @@ const ProtectedApp = () => {
 
       {/* SIDEBAR */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"} flex flex-col`}
+        onMouseEnter={() => setIsSidebarHovered(true)}
+        onMouseLeave={() => setIsSidebarHovered(false)}
+        className={`
+            fixed inset-y-0 left-0 z-50 bg-white border-r border-slate-200 
+            transform transition-all duration-300 ease-in-out flex flex-col
+            ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"} 
+            lg:relative lg:translate-x-0 
+            ${isDesktopExpanded ? "lg:w-64" : "lg:w-20"} 
+        `}
       >
         <div className="p-4 border-b border-slate-100 shrink-0 flex flex-col gap-3">
           {/* Top Row: Logo & Mobile Close */}
-          <div className="flex items-center justify-between">
+          <div className={`flex items-center ${isDesktopExpanded ? "justify-between" : "justify-center"} transition-all`}>
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">
+              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shrink-0">
                 O
               </div>
-              <h1 className="font-bold text-slate-800 text-lg">OFRN</h1>
+              <h1 className={`font-bold text-slate-800 text-lg transition-opacity duration-200 ${isDesktopExpanded ? "opacity-100 block" : "opacity-0 hidden lg:hidden"}`}>
+                OFRN
+              </h1>
             </div>
+            
             <button
               onClick={() => setIsMobileMenuOpen(false)}
               className="lg:hidden p-1 text-slate-400"
             >
               <IconX size={20} />
             </button>
+
+            {/* BOTÓN COLAPSAR ESCRITORIO */}
+            <button 
+                onClick={toggleSidebarCollapse}
+                className={`hidden lg:flex p-1 rounded hover:bg-slate-100 text-slate-400 ${!isDesktopExpanded ? 'hidden' : ''}`}
+                title={isSidebarCollapsed ? "Fijar menú" : "Colapsar menú"}
+            >
+                {isSidebarCollapsed ? (
+                    <IconChevronRight size={18} />
+                ) : (
+                    <IconChevronLeft size={18} />
+                )}
+            </button>
           </div>
 
           {/* Controls Row (MODO NOCTURNO Y ZOOM) */}
-          <div className="flex items-center justify-between bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-            {/* Theme Toggle */}
+          <div className={`flex items-center justify-between bg-slate-50 p-1.5 rounded-xl border border-slate-200 transition-all ${isDesktopExpanded ? "opacity-100" : "opacity-0 hidden"}`}>
             <button
               onClick={toggleDarkMode}
               className={`p-1.5 rounded-lg transition-all flex-1 flex justify-center items-center ${isDarkMode ? 'bg-slate-800 text-indigo-400' : 'bg-white text-orange-500 shadow-sm'}`}
@@ -737,10 +776,8 @@ const ProtectedApp = () => {
               {isDarkMode ? <IconMoon size={16} /> : <IconSun size={16} />}
             </button>
 
-            {/* Divider */}
             <div className="w-px h-4 bg-slate-200 mx-2"></div>
 
-            {/* Zoom Controls */}
             <div className="flex items-center gap-2 px-2 bg-white rounded-lg border border-slate-100 shadow-sm h-8">
               <button
                 onClick={() => setUiScale(s => Math.max(80, s - 5))}
@@ -761,15 +798,23 @@ const ProtectedApp = () => {
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1 custom-scrollbar">
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden py-4 px-3 space-y-1 custom-scrollbar">
           {visibleMenuItems.map((item) => (
             <button
               key={item.id}
               onClick={() => handleMobileNavigate(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${mode === item.id ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200" : "text-slate-600 hover:bg-slate-100"}`}
+              className={`
+                w-full flex items-center px-3 py-2.5 rounded-xl transition-all relative group
+                ${mode === item.id ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200" : "text-slate-600 hover:bg-slate-100"}
+                ${!isDesktopExpanded ? "justify-center" : "gap-3"} 
+              `}
+              title={!isDesktopExpanded ? item.label : ""}
             >
-              {item.icon}{" "}
-              <span className="text-sm font-medium">{item.label}</span>
+              <div className="shrink-0">{item.icon}</div>
+              
+              <span className={`text-sm font-medium whitespace-nowrap transition-all duration-200 ${isDesktopExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 absolute left-10 hidden"}`}>
+                {item.label}
+              </span>
             </button>
           ))}
         </nav>
@@ -777,10 +822,12 @@ const ProtectedApp = () => {
         <div className="p-4 border-t border-slate-100 shrink-0">
           <button
             onClick={logout}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+            className={`w-full flex items-center px-3 py-2.5 rounded-xl text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-colors ${!isDesktopExpanded ? "justify-center" : "gap-3"}`}
           >
-            <IconLogOut size={20} />{" "}
-            <span className="text-sm font-medium">Cerrar Sesión</span>
+            <IconLogOut size={20} className="shrink-0" />{" "}
+            <span className={`text-sm font-medium whitespace-nowrap ${isDesktopExpanded ? "block" : "hidden"}`}>
+                Cerrar Sesión
+            </span>
           </button>
         </div>
       </aside>

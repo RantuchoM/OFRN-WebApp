@@ -158,8 +158,7 @@ export const manualService = {
       .from("user_ui_settings")
       .select("hide_manual_triggers")
       .eq("user_id", userId)
-      .single();
-
+      .maybeSingle();
     if (error && error.code !== "PGRST116") {
       console.warn("Error cargando preferencias UI:", error.message);
       return null;
@@ -182,7 +181,6 @@ export const manualService = {
       })
       .select()
       .single();
-
     if (error) throw error;
     return data;
   },

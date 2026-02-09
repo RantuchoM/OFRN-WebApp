@@ -727,9 +727,9 @@ export default function RepertoireManager({
 
     if (!user || !assignments.length) {
       if (isDebugWork && !user)
-        console.log(`DEBUG BADGE [${obra.titulo}]: No hay user`);
+        //console.log(`DEBUG BADGE [${obra.titulo}]: No hay user`);
       if (isDebugWork && !assignments.length)
-        console.log(`DEBUG BADGE [${obra.titulo}]: No hay assignments`);
+        //console.log(`DEBUG BADGE [${obra.titulo}]: No hay assignments`);
       return null;
     }
 
@@ -755,12 +755,12 @@ export default function RepertoireManager({
     });
 
     if (isDebugWork) {
-      console.log(`DEBUG BADGE [${obra.titulo}]:`, {
+      /*console.log(`DEBUG BADGE [${obra.titulo}]:`, {
         userId,
         myContainerId: mySeating?.containerId,
         foundAssignment: !!assignment,
         particellaId: assignment?.id_particella,
-      });
+      });*/
     }
 
     if (!assignment) return null;
@@ -771,9 +771,9 @@ export default function RepertoireManager({
 
     if (!myPart) {
       if (isDebugWork)
-        console.log(
+        /*console.log(
           `DEBUG BADGE [${obra.titulo}]: Asignación hallada pero particella no encontrada en array de obra`,
-        );
+        );*/
       return null;
     }
 
