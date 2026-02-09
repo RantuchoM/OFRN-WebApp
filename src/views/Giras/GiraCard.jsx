@@ -185,8 +185,11 @@ export default function GiraCard({
     }
 
     if (isUrgent) {
+      // AQUÍ ESTÁ EL CAMBIO DE ESTILO
       return {
-        color: "text-red-600",
+        // Fondo rojo, texto gris claro (slate-200), borde rojo
+        color:
+          "bg-red-500 text-slate-200 border-red-600 hover:bg-red-600 hover:text-white",
         animate: true,
         title: "¡Pendiente Urgente!",
       };
