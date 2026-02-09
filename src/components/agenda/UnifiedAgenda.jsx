@@ -152,7 +152,32 @@ const DriveSmartButton = ({ evt }) => {
     </div>
   );
 };
+// Función segura para guardar en caché
+const saveToCache = (key, data) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (error) {
+    // Si el error es por falta de espacio (QuotaExceededError)
+    if (error.name === 'QuotaExceededError' || error.code === 22) {
+      console.warn("⚠️ LocalStorage lleno. Limpiando caché antigua...");
+      
+      // 1. Borrar todas las claves que empiecen con 'agenda_cache_'
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith('agenda_cache_')) {
+          localStorage.removeItem(k);
+        }
+      });
 
+      // 2. Intentar guardar de nuevo ahora que hicimos espacio
+      try {
+        localStorage.setItem(key, JSON.stringify(data));
+        console.log("✅ Caché guardado tras limpieza.");
+      } catch (retryError) {
+        console.error("❌ Imposible guardar en caché (datos demasiado grandes). La app funcionará sin caché.");
+      }
+    }
+  }
+};
 const ConnectionBadge = ({ status, lastUpdate, onRefresh, isRefreshing }) => {
   const isOnline = status === "SUBSCRIBED";
   const [, setTick] = useState(0);
@@ -992,7 +1017,8 @@ export default function UnifiedAgenda({
       if (signal.aborted) return;
 
       setItems(allItems);
-      localStorage.setItem(CACHE_KEY, JSON.stringify(allItems));
+      // 🟢 AHORA (Solución segura)
+      saveToCache(CACHE_KEY, allItems);
       setIsOfflineMode(false);
       setLastUpdate(new Date());
     } catch (err) {

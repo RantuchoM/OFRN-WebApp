@@ -63,7 +63,7 @@ export default function GiraCard({
   const [currentSlide, setCurrentSlide] = useState(0);
   const scrollRef = useRef(null);
 
-  // Determinar si mostramos la barra lateral (No editores)
+  // Determinar si mostramos los accesos rápidos (No editores)
   const showQuickAccessSidebar = !isEditor;
 
   const handleScroll = () => {
@@ -75,7 +75,6 @@ export default function GiraCard({
     }
   };
 
-  // Función para mover el slider con las flechas
   const scrollSlide = (direction) => {
     if (scrollRef.current) {
       const width = scrollRef.current.offsetWidth;
@@ -229,7 +228,7 @@ export default function GiraCard({
     );
   };
 
-  // --- HELPERS DESKTOP (Sin cambios) ---
+  // --- HELPERS DESKTOP ---
   const getPersonnelDisplayDesktop = () => {
     const roster = gira.giras_integrantes || [];
     const directors = roster.filter(
@@ -362,6 +361,8 @@ export default function GiraCard({
     ?.map((l) => l.localidades?.localidad)
     .join(", ");
 
+  const desktopBtnClass = "p-1.5 bg-white/80 backdrop-blur rounded-full text-slate-400 shadow-sm border border-black/5 transition-all hover:scale-105 active:scale-95";
+
   return (
     <div
       id={`gira-card-${gira.id}`}
@@ -391,7 +392,7 @@ export default function GiraCard({
 
             {/* 2. REPERTORIO */}
             <button
-              onClick={() => updateView("REPERTOIRE", gira.id,"my_parts")}
+              onClick={() => updateView("REPERTOIRE", gira.id, "my_parts")}
               className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-fuchsia-600 transition-colors"
               title="Mis Partes"
             >
@@ -462,90 +463,47 @@ export default function GiraCard({
 
         {/* --- CONTENEDOR PRINCIPAL CON FLECHAS Y SLIDER --- */}
         <div className="h-40 w-full overflow-hidden relative group">
-          {/* FLECHA IZQUIERDA (Visible si no es el primer slide) */}
+          {/* FLECHAS */}
           {currentSlide > 0 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                scrollSlide(-1);
-              }}
-              className="absolute left-1 top-1/2 -translate-y-1/2 z-20 text-black/20 hover:text-black/50 p-1"
-            >
+            <button onClick={(e) => { e.stopPropagation(); scrollSlide(-1); }} className="absolute left-1 top-1/2 -translate-y-1/2 z-20 text-black/20 hover:text-black/50 p-1">
               <IconChevronDown size={20} className="rotate-90" />
             </button>
           )}
-
-          {/* FLECHA DERECHA (Visible si no es el último slide) */}
           {currentSlide < 2 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                scrollSlide(1);
-              }}
-              className={`absolute top-1/2 -translate-y-1/2 z-20 text-black/20 hover:text-black/50 p-1 ${showQuickAccessSidebar ? "right-12" : "right-1"}`}
-            >
+            <button onClick={(e) => { e.stopPropagation(); scrollSlide(1); }} className={`absolute top-1/2 -translate-y-1/2 z-20 text-black/20 hover:text-black/50 p-1 ${showQuickAccessSidebar ? "right-12" : "right-1"}`}>
               <IconChevronDown size={20} className="-rotate-90" />
             </button>
           )}
 
-          <div
-            ref={scrollRef}
-            onScroll={handleScroll}
-            className={`flex w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth ${showQuickAccessSidebar ? "pr-11" : ""}`}
-          >
-            {/* === SLIDE 1: PORTADA === */}
+          <div ref={scrollRef} onScroll={handleScroll} className={`flex w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth ${showQuickAccessSidebar ? "pr-11" : ""}`}>
+            {/* SLIDE 1 */}
             <div className="min-w-full w-full h-full snap-center p-3 flex flex-col justify-between relative">
-              {/* Línea Superior: Tipo | Zona | Mes | Nomenclador */}
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide opacity-60 truncate pr-4">
                 <span>{gira.tipo}</span>
-                {gira.zona && (
-                  <>
-                    <span className="opacity-30">|</span>
-                    <span>{gira.zona}</span>
-                  </>
-                )}
+                {gira.zona && <><span className="opacity-30">|</span><span>{gira.zona}</span></>}
                 <span className="opacity-30">|</span>
               </div>
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide opacity-60 truncate pr-4">
                 <span className="truncate">{gira.nomenclador}</span>
                 <span className="opacity-30">|</span>
-
                 <span>{gira.mes_letra}</span>
               </div>
               {(gira.estado === "Borrador" || gira.estado === "Pausada") && (
                 <div className="absolute top-8 left-3 z-10">
-                  <span className="bg-white/80 border border-black/10 px-2 py-0.5 rounded text-[9px] font-bold uppercase">
-                    {gira.estado}
-                  </span>
+                  <span className="bg-white/80 border border-black/10 px-2 py-0.5 rounded text-[9px] font-bold uppercase">{gira.estado}</span>
                 </div>
               )}
-
-              {/* Centro: Fechas Gigantes */}
               <div className="flex flex-col items-center justify-center flex-1">
                 {dateInfo ? (
                   <div className="flex items-baseline gap-2">
                     <div className="text-center">
-                      <span
-                        className={`text-3xl font-black leading-none ${titleColorClass}`}
-                      >
-                        {dateInfo.d1}
-                      </span>
-                      {dateInfo.m1 !== dateInfo.m2 && (
-                        <span className="text-[13px] font-bold opacity-70 ml-1">
-                          {dateInfo.m1}
-                        </span>
-                      )}
+                      <span className={`text-3xl font-black leading-none ${titleColorClass}`}>{dateInfo.d1}</span>
+                      {dateInfo.m1 !== dateInfo.m2 && <span className="text-[13px] font-bold opacity-70 ml-1">{dateInfo.m1}</span>}
                     </div>
                     <div className="h-px w-4 bg-current opacity-30 self-center"></div>
                     <div className="text-center">
-                      <span
-                        className={`text-3xl font-black leading-none ${titleColorClass}`}
-                      >
-                        {dateInfo.d2}
-                      </span>
-                      <span className="text-[13px] font-bold opacity-70 ml-1">
-                        {dateInfo.m2}
-                      </span>
+                      <span className={`text-3xl font-black leading-none ${titleColorClass}`}>{dateInfo.d2}</span>
+                      <span className="text-[13px] font-bold opacity-70 ml-1">{dateInfo.m2}</span>
                     </div>
                   </div>
                 ) : (
@@ -556,66 +514,23 @@ export default function GiraCard({
                 <IconMapPin size={18} className="shrink-0" />
                 <span className="truncate">{locs || "Sin localía"}</span>
               </div>
-              {/* Abajo: Título */}
               <div className="text-center pb-1">
-                <h3 className="text-sm font-bold text-slate-800 leading-tight line-clamp-2">
-                  {gira.nombre_gira}
-                </h3>
-                {gira.subtitulo && (
-                  <p className="text-[11px] opacity-60 truncate">
-                    {gira.subtitulo}
-                  </p>
-                )}
+                <h3 className="text-sm font-bold text-slate-800 leading-tight line-clamp-2">{gira.nombre_gira}</h3>
+                {gira.subtitulo && <p className="text-[11px] opacity-60 truncate">{gira.subtitulo}</p>}
               </div>
             </div>
-
-            {/* === SLIDE 2: EQUIPO === */}
+            {/* SLIDE 2 */}
             <div className="min-w-full w-full h-full snap-center p-3 flex flex-col relative px-8">
-              {" "}
-              {/* px-8 para dejar espacio a flechas */}
-              <div className="flex-1 overflow-hidden pt-2">
-                {renderPersonnelCompact()}
-              </div>
+              <div className="flex-1 overflow-hidden pt-2">{renderPersonnelCompact()}</div>
             </div>
-
-            {/* === SLIDE 3: AGENDA === */}
+            {/* SLIDE 3 */}
             <div className="min-w-full w-full h-full snap-center p-3 flex flex-col relative px-8">
-              <div className="flex-1 overflow-hidden pt-1">
-                {renderConcertsCompact()}
-              </div>
+              <div className="flex-1 overflow-hidden pt-1">{renderConcertsCompact()}</div>
             </div>
           </div>
-
-          {/* INDICADORES (DOTS) */}
-          <div
-            className={`absolute bottom-1 left-0 flex justify-center gap-1 ${showQuickAccessSidebar ? "right-11" : "right-0"}`}
-          >
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className={`w-1 h-1 rounded-full transition-all ${currentSlide === i ? `bg-slate-600 w-3` : "bg-slate-300/50"}`}
-              ></div>
-            ))}
+          <div className={`absolute bottom-1 left-0 flex justify-center gap-1 ${showQuickAccessSidebar ? "right-11" : "right-0"}`}>
+            {[0, 1, 2].map((i) => <div key={i} className={`w-1 h-1 rounded-full transition-all ${currentSlide === i ? `bg-slate-600 w-3` : "bg-slate-300/50"}`}></div>)}
           </div>
-
-          {/* Botón Comentarios Flotante (Solo si NO hay sidebar, para no tapar) */}
-          {!showQuickAccessSidebar && (
-            <div className="absolute bottom-2 right-2 z-30">
-              <CommentButton
-                supabase={supabase}
-                entityType="GIRA"
-                entityId={gira.id}
-                onClick={() =>
-                  setCommentsState({
-                    type: "GIRA",
-                    id: gira.id,
-                    title: gira.nombre_gira,
-                  })
-                }
-                className="bg-white/80 backdrop-blur shadow-sm border border-black/10 p-1.5 rounded-full text-slate-400 hover:text-fixed-indigo-600"
-              />
-            </div>
-          )}
         </div>
       </div>
 
@@ -696,50 +611,61 @@ export default function GiraCard({
           />
         </div>
 
-        {/* Menú Desktop */}
-        <div className="absolute top-2 right-2 z-30 flex items-center gap-1">
-          {gira.google_drive_folder_id && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                window.open(
-                  `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
-                  "_blank",
-                );
-              }}
-              className="p-1.5 bg-white/80 backdrop-blur rounded-full text-slate-400 hover:text-green-600 shadow-sm border border-black/5"
-            >
-              <IconDrive size={16} />
-            </button>
-          )}
-          <div className="hidden md:block">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                updateView("MEALS_PERSONAL", gira.id);
-              }}
-              className="p-1.5 bg-white/80 backdrop-blur rounded-full text-slate-400 hover:text-amber-600 shadow-sm border border-black/5"
-            >
-              <IconUtensils size={16} />
-            </button>
-          </div>
-          <div className="relative">
-            <GiraActionMenu
-              gira={gira}
-              onViewChange={(mode, tab) => updateView(mode, gira.id, tab)}
-              isEditor={isEditor}
-              isPersonal={isPersonal}
-              userRole={userRole}
-              onEdit={() => startEdit(gira)}
-              onDelete={onDelete}
-              onGlobalComments={() => setGlobalCommentsGiraId(gira.id)}
-              isOpen={isMenuOpen}
-              onToggle={() => setActiveMenuId(isMenuOpen ? null : gira.id)}
-              onClose={() => setActiveMenuId(null)}
-              onMove={() => onMove(gira)}
-              onDuplicate={() => onDuplicate(gira)}
-            />
-          </div>
+        {/* --- MENÚ Y BOTONES ESCRITORIO --- */}
+        <div className="absolute top-2 right-2 z-30 flex flex-col items-end gap-2">
+            
+            {/* 1. Menú "..." (ARRIBA DE TODO) */}
+            <div className="relative">
+                <GiraActionMenu
+                    gira={gira}
+                    onViewChange={(mode, tab) => updateView(mode, gira.id, tab)}
+                    isEditor={isEditor}
+                    isPersonal={isPersonal}
+                    userRole={userRole}
+                    onEdit={() => startEdit(gira)}
+                    onDelete={onDelete}
+                    onGlobalComments={() => setGlobalCommentsGiraId(gira.id)}
+                    isOpen={isMenuOpen}
+                    onToggle={() => setActiveMenuId(isMenuOpen ? null : gira.id)}
+                    onClose={() => setActiveMenuId(null)}
+                    onMove={() => onMove(gira)}
+                    onDuplicate={() => onDuplicate(gira)}
+                />
+            </div>
+
+            {/* 2. ACCESOS RÁPIDOS VERTICALES (Solo si no es editor) */}
+            {showQuickAccessSidebar ? (
+                <div className="flex flex-col gap-1.5 mt-1">
+                    {/* AGENDA */}
+                    <button onClick={() => updateView("AGENDA", gira.id)} className={`${desktopBtnClass} hover:text-fixed-indigo-600`} title="Agenda">
+                        <IconCalendar size={16} />
+                    </button>
+                    {/* PARTES */}
+                    <button onClick={() => updateView("REPERTOIRE", gira.id, "my_parts")} className={`${desktopBtnClass} hover:text-fuchsia-600`} title="Mis Partes">
+                        <IconMusic size={16} />
+                    </button>
+                    {/* DRIVE */}
+                    <button onClick={(e) => { e.stopPropagation(); if (gira.google_drive_folder_id) window.open(`https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`, "_blank"); }} className={`${desktopBtnClass} ${!gira.google_drive_folder_id ? "opacity-30 cursor-not-allowed" : "hover:text-green-600"}`} title="Drive">
+                        <IconDrive size={16} />
+                    </button>
+                    {/* COMIDAS */}
+                    <button onClick={(e) => { e.stopPropagation(); updateView("MEALS_PERSONAL", gira.id); }} className={`${desktopBtnClass} hover:text-amber-600`} title="Comidas">
+                        <IconUtensils size={16} />
+                    </button>
+                </div>
+            ) : (
+                /* ACCESOS RÁPIDOS EDITORES (Horizontal como antes o vertical si prefieres, aquí lo dejo agrupado vertical bajo el menú para consistencia) */
+                <div className="flex flex-col gap-1.5 mt-1">
+                    {gira.google_drive_folder_id && (
+                        <button onClick={(e) => { e.stopPropagation(); window.open(`https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`, "_blank"); }} className={`${desktopBtnClass} hover:text-green-600`}>
+                            <IconDrive size={16} />
+                        </button>
+                    )}
+                    <button onClick={(e) => { e.stopPropagation(); updateView("MEALS_PERSONAL", gira.id); }} className={`${desktopBtnClass} hover:text-amber-600`}>
+                        <IconUtensils size={16} />
+                    </button>
+                </div>
+            )}
         </div>
       </div>
 
