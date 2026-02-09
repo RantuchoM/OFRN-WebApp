@@ -16,14 +16,15 @@ import {
   IconMail,
   IconInfo,
   IconChevronDown,
-  IconUsers, // Nuevo icono para edición masiva
+  IconUsers,
+  IconUser,
 } from "../../components/ui/Icons";
-import { toast } from "sonner"; // IMPORTANTE: Usamos Sonner
+import { toast } from "sonner";
 import InstrumentFilter from "../../components/filters/InstrumentFilter";
 import MusicianForm from "./MusicianForm";
 import HorasCatedraDashboard from "./HorasCatedraDashboard";
 
-// --- CONFIGURACIÓN DE PENDIENTES ---
+// --- CONFIGURACIÓN ---
 const MISSING_DATA_OPTIONS = [
   { key: "domicilio", label: "Domicilio" },
   { key: "link_dni_img", label: "Foto DNI" },
@@ -32,7 +33,6 @@ const MISSING_DATA_OPTIONS = [
   { key: "firma", label: "Firma Digital" },
 ];
 
-// --- CONFIGURACIÓN ---
 const CONDITION_OPTIONS = [
   "Estable",
   "Contratado",
@@ -50,8 +50,6 @@ const DIET_OPTIONS = [
   "Sin Lactosa",
 ];
 
-// --- CAMPOS PERMITIDOS PARA EDICIÓN MASIVA ---
-// --- CAMPOS PERMITIDOS PARA EDICIÓN MASIVA ---
 const MASS_EDIT_FIELDS = [
   {
     key: "condicion",
@@ -65,13 +63,9 @@ const MASS_EDIT_FIELDS = [
     type: "select",
     options: DIET_OPTIONS.map((c) => ({ value: c, label: c })),
   },
-
-  // --- NUEVOS CAMPOS ---
   { key: "cargo", label: "Cargo / Función", type: "text" },
   { key: "jornada", label: "Jornada", type: "text" },
   { key: "motivo", label: "Motivo", type: "text" },
-  // ---------------------
-
   { key: "nacionalidad", label: "Nacionalidad", type: "text" },
   {
     key: "id_localidad",
@@ -80,32 +74,62 @@ const MASS_EDIT_FIELDS = [
   },
   { key: "id_instr", label: "Instrumento", type: "instrument_select" },
 ];
-// --- HELPER WHATSAPP ---
+
+// --- HELPERS ---
+const getNestedValue = (obj, path) => {
+  if (!path) return null;
+  return path.split(".").reduce((o, i) => (o ? o[i] : null), obj);
+};
+
+const getMissingFieldsList = (item) => {
+  const missing = [];
+  if (!item.domicilio) missing.push("Domicilio");
+  if (!item.link_dni_img) missing.push("DNI");
+  if (!item.link_cuil) missing.push("CUIL");
+  if (!item.link_cbu_img) missing.push("CBU");
+  if (!item.firma) missing.push("Firma");
+  return missing;
+};
+
+const getConditionStyles = (condition) => {
+  switch (condition) {
+    case "Estable":
+      return "bg-emerald-50/60 hover:bg-emerald-100/60 transition-colors";
+    case "Invitado":
+      return "bg-amber-50/60 hover:bg-amber-100/60 transition-colors";
+    case "Contratado":
+    case "Becario":
+      return "bg-indigo-50/40 hover:bg-indigo-100/40 transition-colors";
+    case "Refuerzo":
+      return "bg-slate-50/50 hover:bg-slate-100/50 transition-colors";
+    default:
+      return "bg-white hover:bg-slate-50";
+  }
+};
+
 const WhatsAppLink = ({ phone }) => {
   if (!phone) return null;
   let cleanPhone = phone.replace(/\D/g, "");
-  if (cleanPhone.length === 10) {
-    cleanPhone = `549${cleanPhone}`;
-  } else if (cleanPhone.startsWith("0")) {
+  if (cleanPhone.length === 10) cleanPhone = `549${cleanPhone}`;
+  else if (cleanPhone.startsWith("0"))
     cleanPhone = `549${cleanPhone.substring(1)}`;
-  }
-  const url = `https://wa.me/${cleanPhone}`;
+
   return (
     <a
-      href={url}
+      href={`https://wa.me/${cleanPhone}`}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-emerald-500 hover:text-emerald-700 p-1 hover:bg-emerald-50 rounded-full transition-colors ml-1"
+      className="text-emerald-500 hover:text-emerald-700 p-1.5 hover:bg-emerald-50 rounded bg-white border border-emerald-100 shadow-sm"
       title="Enviar WhatsApp"
       onClick={(e) => e.stopPropagation()}
     >
-      <IconWhatsAppFilled size={14} />
+      <IconWhatsAppFilled size={16} />
     </a>
   );
 };
 
 const HighlightText = ({ text, highlight }) => {
-  if (!highlight.trim()) return <span>{text}</span>;
+  if (!highlight?.trim()) return <span>{text}</span>;
   const regex = new RegExp(`(${highlight})`, "gi");
   const parts = String(text).split(regex);
   return (
@@ -126,8 +150,15 @@ const HighlightText = ({ text, highlight }) => {
   );
 };
 
-// ... (MissingDataFilter se mantiene igual)
-const MissingDataFilter = ({ selectedFields, onChange }) => {
+// --- COMPONENTES AUXILIARES PARA CELDAS ---
+
+const EnsembleManagerCell = ({
+  musicianId,
+  assignedEnsembles,
+  allEnsembles,
+  supabase,
+  onRefresh,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
   const [dropdownStyle, setDropdownStyle] = useState({});
@@ -138,99 +169,179 @@ const MissingDataFilter = ({ selectedFields, onChange }) => {
       setDropdownStyle({
         top: rect.bottom + window.scrollY + 5,
         left: rect.left + window.scrollX,
-        width: "200px",
+        width: "220px",
         zIndex: 99999,
       });
     }
   }, [isOpen]);
 
-  const toggleField = (key) => {
-    const newSet = new Set(selectedFields);
-    if (newSet.has(key)) newSet.delete(key);
-    else newSet.add(key);
-    onChange(newSet);
+  const toggleEnsemble = async (ensembleId) => {
+    const isAssigned = assignedEnsembles.some((e) => e.id === ensembleId);
+    if (isAssigned) {
+      await supabase
+        .from("integrantes_ensambles")
+        .delete()
+        .match({ id_integrante: musicianId, id_ensamble: ensembleId });
+    } else {
+      await supabase
+        .from("integrantes_ensambles")
+        .insert({ id_integrante: musicianId, id_ensamble: ensembleId });
+    }
+    onRefresh();
   };
 
   return (
-    <div className="relative" ref={containerRef}>
-      <button
+    <div className="w-full h-full relative" ref={containerRef}>
+      <div
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all relative ${
-          selectedFields.size > 0
-            ? "bg-orange-50 border-orange-300 text-orange-700"
-            : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
-        }`}
+        className="w-full h-full px-2 py-1 flex items-center flex-wrap gap-1 cursor-pointer hover:bg-slate-50 min-h-[30px]"
       >
-        <IconAlertTriangle size={14} /> Pendientes
-        {selectedFields.size > 0 && (
-          <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-orange-500 text-white text-[9px] rounded-full flex items-center justify-center border-2 border-white font-black">
-            {selectedFields.size}
-          </span>
+        {assignedEnsembles.length > 0 ? (
+          assignedEnsembles.map((e) => (
+            <span
+              key={e.id}
+              className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100 truncate max-w-[100px]"
+            >
+              {e.ensamble}
+            </span>
+          ))
+        ) : (
+          <span className="text-slate-300 text-[10px] italic">Sin asignar</span>
         )}
-      </button>
+      </div>
       {isOpen &&
         createPortal(
-          <>
-            <div
-              className="fixed inset-0 z-[99998]"
-              onClick={() => setIsOpen(false)}
-            />
-            <div
-              className="fixed bg-white border border-slate-300 shadow-2xl rounded-lg z-[99999] p-2 animate-in fade-in slide-in-from-top-1"
-              style={dropdownStyle}
-            >
-              <div className="text-[10px] font-black text-slate-400 uppercase mb-2 px-2 border-b border-slate-100 pb-1">
-                Falta subir...
-              </div>
-              {MISSING_DATA_OPTIONS.map((opt) => (
-                <div
-                  key={opt.key}
-                  onClick={() => toggleField(opt.key)}
-                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs text-slate-700 select-none"
-                >
-                  <div
-                    className={`w-4 h-4 border rounded flex items-center justify-center transition-colors ${selectedFields.has(opt.key) ? "bg-orange-500 border-orange-500" : "border-slate-300"}`}
-                  >
-                    {selectedFields.has(opt.key) && (
-                      <IconCheck size={10} className="text-white" />
-                    )}
-                  </div>
-                  {opt.label}
-                </div>
-              ))}
-              {selectedFields.size > 0 && (
-                <button
-                  onClick={() => onChange(new Set())}
-                  className="w-full mt-2 pt-2 border-t border-slate-100 text-[10px] font-bold text-red-500 hover:text-red-700 text-center uppercase"
-                >
-                  Limpiar Pendientes
-                </button>
-              )}
+          <div
+            className="fixed bg-white border border-slate-300 shadow-xl rounded-lg p-1 z-[99999]"
+            style={dropdownStyle}
+          >
+            <div className="text-[10px] font-bold text-slate-400 uppercase px-2 py-1 border-b border-slate-100">
+              Vincular Ensamble
             </div>
-          </>,
+            <div className="max-h-48 overflow-y-auto">
+              {allEnsembles.map((ens) => {
+                const isAssigned = assignedEnsembles.some(
+                  (e) => e.id === ens.id,
+                );
+                return (
+                  <div
+                    key={ens.id}
+                    onClick={() => toggleEnsemble(ens.id)}
+                    className={`flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs ${isAssigned ? "text-indigo-700 bg-indigo-50/50" : "text-slate-700"}`}
+                  >
+                    <div
+                      className={`w-3 h-3 border rounded flex items-center justify-center ${isAssigned ? "bg-indigo-600 border-indigo-600" : "border-slate-300"}`}
+                    >
+                      {isAssigned && (
+                        <IconCheck size={8} className="text-white" />
+                      )}
+                    </div>
+                    {ens.ensamble}
+                  </div>
+                );
+              })}
+            </div>
+          </div>,
           document.body,
         )}
     </div>
   );
 };
 
-const getConditionStyles = (condition) => {
-  switch (condition) {
-    case "Estable":
-      return "bg-emerald-50/60 hover:bg-emerald-100/60 transition-colors";
-    case "Invitado":
-      return "bg-amber-50/60 hover:bg-amber-100/60 transition-colors";
-    case "Contratado":
-    case "Becario":
-      return "bg-indigo-50/40 hover:bg-indigo-100/40 transition-colors";
-    case "Refuerzo":
-      return "bg-slate-50/50 hover:bg-slate-100/50 transition-colors";
-    default:
-      return "bg-white hover:bg-slate-50";
+const EditableCell = ({
+  value,
+  rowId,
+  field,
+  type,
+  options,
+  onSave,
+  className = "",
+  highlight = "",
+}) => {
+  const [localValue, setLocalValue] = useState(value || "");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+
+  useEffect(() => {
+    setLocalValue(value || "");
+  }, [value]);
+
+  const handleBlur = async () => {
+    setIsEditing(false);
+    if (String(localValue) !== String(value || "")) {
+      setIsSaving(true);
+      await onSave(rowId, field, localValue);
+      setIsSaving(false);
+    }
+  };
+
+  const baseClass = `w-full h-full bg-transparent px-2 py-1.5 outline-none text-xs border border-transparent focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 transition-all rounded ${className}`;
+
+  if (isSaving)
+    return (
+      <div className="px-2 py-1">
+        <IconLoader size={12} className="animate-spin text-indigo-500" />
+      </div>
+    );
+
+  if (!isEditing) {
+    let displayValue = localValue;
+    if (type === "select" && options) {
+      const selectedOpt = options.find(
+        (opt) => String(opt.value) === String(localValue),
+      );
+      displayValue = selectedOpt ? selectedOpt.label : localValue;
+    }
+    return (
+      <div
+        onClick={() => setIsEditing(true)}
+        className="w-full h-full px-2 py-1.5 cursor-text min-h-[32px] flex items-center hover:bg-slate-50 transition-colors"
+      >
+        <HighlightText text={displayValue || "-"} highlight={highlight} />
+      </div>
+    );
   }
+
+  if (type === "select") {
+    const valueExistsInOptions = options.some(
+      (opt) => String(opt.value) === String(localValue),
+    );
+    return (
+      <select
+        autoFocus
+        value={localValue}
+        onChange={(e) => setLocalValue(e.target.value)}
+        onBlur={handleBlur}
+        className={`${baseClass} cursor-pointer appearance-none ${!valueExistsInOptions && localValue ? "text-orange-600 font-bold" : ""}`}
+      >
+        <option value="">-</option>
+        {!valueExistsInOptions && localValue && (
+          <option value={localValue}>⚠️ {localValue} (No estándar)</option>
+        )}
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  return (
+    <input
+      autoFocus
+      type={type === "date" ? "date" : "text"}
+      value={
+        type === "date" && localValue ? localValue.split("T")[0] : localValue
+      }
+      onChange={(e) => setLocalValue(e.target.value)}
+      onBlur={handleBlur}
+      className={baseClass}
+    />
+  );
 };
 
-// ... (AVAILABLE_COLUMNS y getNestedValue se mantienen igual)
+// --- DEFINICIÓN DE COLUMNAS (AHORA SÍ EN ORDEN CORRECTO) ---
 const AVAILABLE_COLUMNS = [
   {
     key: "id_instr",
@@ -345,14 +456,197 @@ const AVAILABLE_COLUMNS = [
   { key: "firma", label: "Firma Digital", width: "150px", type: "text" },
 ];
 
-const getNestedValue = (obj, path) => {
-  if (!path) return null;
-  return path.split(".").reduce((o, i) => (o ? o[i] : null), obj);
+// --- COMPONENTES UI RESTANTES ---
+
+const MusicianCard = ({
+  item,
+  onEdit,
+  isSelected,
+  onSelect,
+  highlightText,
+}) => {
+  const missing = getMissingFieldsList(item);
+  const hasMissing = missing.length > 0;
+
+  const handleCopyEmail = (e) => {
+    e.stopPropagation();
+    if (item.mail) {
+      navigator.clipboard.writeText(item.mail);
+      toast.success("Email copiado");
+    } else {
+      toast.error("No tiene email");
+    }
+  };
+
+  return (
+    <div
+      className={`bg-white rounded-lg border shadow-sm p-2.5 flex flex-col gap-2 relative transition-all ${isSelected ? "border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/20" : "border-slate-200"}`}
+    >
+      {/* FILA SUPERIOR */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2 min-w-0">
+          <div className="pt-0.5">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => onSelect(item.id)}
+              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="min-w-0">
+            <div className="font-bold text-slate-800 text-sm leading-tight truncate pr-1">
+              <HighlightText
+                text={`${item.apellido}, ${item.nombre}`}
+                highlight={highlightText}
+              />
+            </div>
+            <div className="text-xs text-indigo-600 font-medium truncate mt-0.5">
+              {item.instrumentos?.instrumento || "Sin Instr."}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => onEdit(item)}
+            className="p-1.5 text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 hover:text-indigo-600"
+          >
+            <IconEdit size={16} />
+          </button>
+          {item.mail && (
+            <button
+              onClick={handleCopyEmail}
+              className="p-1.5 text-blue-500 bg-white border border-blue-100 rounded hover:bg-blue-50"
+            >
+              <IconMail size={16} />
+            </button>
+          )}
+          {item.telefono && <WhatsAppLink phone={item.telefono} />}
+        </div>
+      </div>
+
+      {/* FILA INFERIOR */}
+      <div className="flex items-center gap-1.5 flex-wrap border-t border-slate-100 pt-2">
+        <span
+          className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${
+            item.condicion === "Estable"
+              ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+              : item.condicion === "Contratado"
+                ? "bg-indigo-50 text-indigo-700 border-indigo-100"
+                : "bg-slate-50 text-slate-600 border-slate-200"
+          }`}
+        >
+          {item.condicion || "S/D"}
+        </span>
+
+        {item.integrantes_ensambles?.length > 0 && (
+          <div className="flex gap-1 overflow-hidden">
+            {item.integrantes_ensambles.slice(0, 2).map((e) => (
+              <span
+                key={e.id}
+                className="text-[9px] bg-slate-50 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200 truncate max-w-[60px]"
+              >
+                {e.ensamble}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {hasMissing && (
+          <div className="ml-auto flex items-center gap-1 text-[9px] text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100">
+            <IconAlertTriangle size={10} />
+            <span className="font-bold">{missing.length}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 };
 
-// --- COMPONENTE FILTRO MULTIPLE DE CONDICIÓN ---
+const MissingDataFilter = ({ selectedFields, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+  const [dropdownStyle, setDropdownStyle] = useState({});
+
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setDropdownStyle({
+        top: rect.bottom + window.scrollY + 5,
+        left: rect.left + window.scrollX,
+        width: "200px",
+        zIndex: 99999,
+      });
+    }
+  }, [isOpen]);
+
+  const toggleField = (key) => {
+    const newSet = new Set(selectedFields);
+    if (newSet.has(key)) newSet.delete(key);
+    else newSet.add(key);
+    onChange(newSet);
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all relative ${selectedFields.size > 0 ? "bg-orange-50 border-orange-300 text-orange-700" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}`}
+      >
+        <IconAlertTriangle size={14} /> Pendientes
+        {selectedFields.size > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-orange-500 text-white text-[9px] rounded-full flex items-center justify-center border-2 border-white font-black">
+            {selectedFields.size}
+          </span>
+        )}
+      </button>
+      {isOpen &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[99998]"
+              onClick={() => setIsOpen(false)}
+            />
+            <div
+              className="fixed bg-white border border-slate-300 shadow-2xl rounded-lg z-[99999] p-2 animate-in fade-in slide-in-from-top-1"
+              style={dropdownStyle}
+            >
+              <div className="text-[10px] font-black text-slate-400 uppercase mb-2 px-2 border-b border-slate-100 pb-1">
+                Falta subir...
+              </div>
+              {MISSING_DATA_OPTIONS.map((opt) => (
+                <div
+                  key={opt.key}
+                  onClick={() => toggleField(opt.key)}
+                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs text-slate-700 select-none"
+                >
+                  <div
+                    className={`w-4 h-4 border rounded flex items-center justify-center transition-colors ${selectedFields.has(opt.key) ? "bg-orange-500 border-orange-500" : "border-slate-300"}`}
+                  >
+                    {selectedFields.has(opt.key) && (
+                      <IconCheck size={10} className="text-white" />
+                    )}
+                  </div>
+                  {opt.label}
+                </div>
+              ))}
+              {selectedFields.size > 0 && (
+                <button
+                  onClick={() => onChange(new Set())}
+                  className="w-full mt-2 pt-2 border-t border-slate-100 text-[10px] font-bold text-red-500 hover:text-red-700 text-center uppercase"
+                >
+                  Limpiar Pendientes
+                </button>
+              )}
+            </div>
+          </>,
+          document.body,
+        )}
+    </div>
+  );
+};
+
 const ConditionFilter = ({ selectedConds, onChange }) => {
-  // ... (Mismo código que en tu ejemplo)
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
   const [dropdownStyle, setDropdownStyle] = useState({});
@@ -380,11 +674,7 @@ const ConditionFilter = ({ selectedConds, onChange }) => {
     <div className="relative" ref={containerRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all relative ${
-          selectedConds.size > 0
-            ? "bg-amber-50 border-amber-300 text-amber-700"
-            : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
-        }`}
+        className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all relative ${selectedConds.size > 0 ? "bg-amber-50 border-amber-300 text-amber-700" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}`}
       >
         <IconFilter size={14} /> Condición
         {selectedConds.size > 0 && (
@@ -439,202 +729,7 @@ const ConditionFilter = ({ selectedConds, onChange }) => {
   );
 };
 
-// --- CELDA EDITABLE ---
-const EditableCell = ({
-  value,
-  rowId,
-  field,
-  type,
-  options,
-  onSave,
-  className = "",
-  highlight = "",
-}) => {
-  // ... (Mismo código que en tu ejemplo)
-  const [localValue, setLocalValue] = useState(value || "");
-  const [isSaving, setIsSaving] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-
-  useEffect(() => {
-    setLocalValue(value || "");
-  }, [value]);
-
-  const handleBlur = async () => {
-    setIsEditing(false);
-    if (String(localValue) !== String(value || "")) {
-      setIsSaving(true);
-      await onSave(rowId, field, localValue);
-      setIsSaving(false);
-    }
-  };
-
-  const baseClass = `w-full h-full bg-transparent px-2 py-1.5 outline-none text-xs border border-transparent focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 transition-all rounded ${className}`;
-
-  if (isSaving)
-    return (
-      <div className="px-2 py-1">
-        <IconLoader size={12} className="animate-spin text-indigo-500" />
-      </div>
-    );
-
-  if (!isEditing) {
-    let displayValue = localValue;
-    if (type === "select" && options) {
-      const selectedOpt = options.find(
-        (opt) => String(opt.value) === String(localValue),
-      );
-      displayValue = selectedOpt ? selectedOpt.label : localValue;
-    }
-    return (
-      <div
-        onClick={() => setIsEditing(true)}
-        className="w-full h-full px-2 py-1.5 cursor-text min-h-[32px] flex items-center hover:bg-slate-50 transition-colors"
-      >
-        <HighlightText text={displayValue || "-"} highlight={highlight} />
-      </div>
-    );
-  }
-
-  if (type === "select") {
-    const valueExistsInOptions = options.some(
-      (opt) => String(opt.value) === String(localValue),
-    );
-    return (
-      <select
-        autoFocus
-        value={localValue}
-        onChange={(e) => setLocalValue(e.target.value)}
-        onBlur={handleBlur}
-        className={`${baseClass} cursor-pointer appearance-none ${!valueExistsInOptions && localValue ? "text-orange-600 font-bold" : ""}`}
-      >
-        <option value="">-</option>
-        {!valueExistsInOptions && localValue && (
-          <option value={localValue}>⚠️ {localValue} (No estándar)</option>
-        )}
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    );
-  }
-
-  return (
-    <input
-      autoFocus
-      type={type === "date" ? "date" : "text"}
-      value={
-        type === "date" && localValue ? localValue.split("T")[0] : localValue
-      }
-      onChange={(e) => setLocalValue(e.target.value)}
-      onBlur={handleBlur}
-      className={baseClass}
-    />
-  );
-};
-
-// ... (EnsembleManagerCell, ColumnSelector, getMissingFieldsList, EnsembleFilter se mantienen igual para ahorrar espacio en la respuesta, pero asumo que están ahí)
-// --- CELDA ENSAMBLES ---
-const EnsembleManagerCell = ({
-  musicianId,
-  assignedEnsembles,
-  allEnsembles,
-  supabase,
-  onRefresh,
-}) => {
-  // (Mismo código que proveíste)
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef(null);
-  const [dropdownStyle, setDropdownStyle] = useState({});
-
-  useEffect(() => {
-    if (isOpen && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      setDropdownStyle({
-        top: rect.bottom + window.scrollY + 5,
-        left: rect.left + window.scrollX,
-        width: "220px",
-        zIndex: 99999,
-      });
-    }
-  }, [isOpen]);
-
-  const toggleEnsemble = async (ensembleId) => {
-    const isAssigned = assignedEnsembles.some((e) => e.id === ensembleId);
-    if (isAssigned) {
-      await supabase
-        .from("integrantes_ensambles")
-        .delete()
-        .match({ id_integrante: musicianId, id_ensamble: ensembleId });
-    } else {
-      await supabase
-        .from("integrantes_ensambles")
-        .insert({ id_integrante: musicianId, id_ensamble: ensembleId });
-    }
-    onRefresh();
-  };
-
-  return (
-    <div className="w-full h-full relative" ref={containerRef}>
-      <div
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full h-full px-2 py-1 flex items-center flex-wrap gap-1 cursor-pointer hover:bg-slate-50 min-h-[30px]"
-      >
-        {assignedEnsembles.length > 0 ? (
-          assignedEnsembles.map((e) => (
-            <span
-              key={e.id}
-              className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100 truncate max-w-[100px]"
-            >
-              {e.ensamble}
-            </span>
-          ))
-        ) : (
-          <span className="text-slate-300 text-[10px] italic">Sin asignar</span>
-        )}
-      </div>
-      {isOpen &&
-        createPortal(
-          <div
-            className="fixed bg-white border border-slate-300 shadow-xl rounded-lg p-1 z-[99999]"
-            style={dropdownStyle}
-          >
-            <div className="text-[10px] font-bold text-slate-400 uppercase px-2 py-1 border-b border-slate-100">
-              Vincular Ensamble
-            </div>
-            <div className="max-h-48 overflow-y-auto">
-              {allEnsembles.map((ens) => {
-                const isAssigned = assignedEnsembles.some(
-                  (e) => e.id === ens.id,
-                );
-                return (
-                  <div
-                    key={ens.id}
-                    onClick={() => toggleEnsemble(ens.id)}
-                    className={`flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs ${isAssigned ? "text-indigo-700 bg-indigo-50/50" : "text-slate-700"}`}
-                  >
-                    <div
-                      className={`w-3 h-3 border rounded flex items-center justify-center ${isAssigned ? "bg-indigo-600 border-indigo-600" : "border-slate-300"}`}
-                    >
-                      {isAssigned && (
-                        <IconCheck size={8} className="text-white" />
-                      )}
-                    </div>
-                    {ens.ensamble}
-                  </div>
-                );
-              })}
-            </div>
-          </div>,
-          document.body,
-        )}
-    </div>
-  );
-};
-
 const ColumnSelector = ({ visibleCols, onChange }) => {
-  // (Mismo código que proveíste)
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
   const [dropdownStyle, setDropdownStyle] = useState({});
@@ -695,18 +790,7 @@ const ColumnSelector = ({ visibleCols, onChange }) => {
   );
 };
 
-const getMissingFieldsList = (item) => {
-  const missing = [];
-  if (!item.domicilio) missing.push("Domicilio");
-  if (!item.link_dni_img) missing.push("DNI");
-  if (!item.link_cuil) missing.push("CUIL");
-  if (!item.link_cbu_img) missing.push("CBU");
-  if (!item.firma) missing.push("Firma");
-  return missing;
-};
-
 const EnsembleFilter = ({ ensembles, selectedIds, onChange }) => {
-  // (Mismo código que proveíste)
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
   const [dropdownStyle, setDropdownStyle] = useState({});
@@ -791,7 +875,6 @@ const EnsembleFilter = ({ ensembles, selectedIds, onChange }) => {
   );
 };
 
-// --- NUEVO COMPONENTE: MODAL DE EDICIÓN MASIVA ---
 const MassEditModal = ({
   isOpen,
   onClose,
@@ -806,7 +889,6 @@ const MassEditModal = ({
   if (!isOpen) return null;
 
   const fieldConfig = MASS_EDIT_FIELDS.find((f) => f.key === selectedField);
-
   const handleSave = () => {
     onSave(selectedField, newValue);
   };
@@ -816,14 +898,12 @@ const MassEditModal = ({
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
         <div className="p-4 bg-indigo-50 border-b border-indigo-100">
           <h3 className="text-indigo-800 font-bold flex items-center gap-2">
-            <IconUsers size={20} />
-            Edición Masiva
+            <IconUsers size={20} /> Edición Masiva
           </h3>
           <p className="text-xs text-indigo-600 mt-1">
             Se actualizarán <b>{count}</b> registros.
           </p>
         </div>
-
         <div className="p-5 space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
@@ -834,7 +914,7 @@ const MassEditModal = ({
               value={selectedField}
               onChange={(e) => {
                 setSelectedField(e.target.value);
-                setNewValue(""); // Reset value on field change
+                setNewValue("");
               }}
             >
               {MASS_EDIT_FIELDS.map((f) => (
@@ -844,12 +924,10 @@ const MassEditModal = ({
               ))}
             </select>
           </div>
-
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
               Nuevo Valor
             </label>
-
             {fieldConfig.type === "select" ? (
               <select
                 className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
@@ -900,7 +978,6 @@ const MassEditModal = ({
             )}
           </div>
         </div>
-
         <div className="p-4 bg-slate-50 border-t flex justify-end gap-2">
           <button
             onClick={onClose}
@@ -945,23 +1022,18 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [locationsList, setLocationsList] = useState([]);
   const [editFormData, setEditFormData] = useState({});
-  // Estado para controlar el acordeón en móviles
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
 
-  // Calcular si están TODOS los instrumentos seleccionados (estado por defecto)
-  // Le sumamos 1 al largo del catálogo por la opción 'null' (sin instrumento)
   const totalInstrumentosPosibles = catalogoInstrumentos.length + 1;
   const estanTodosLosInstrumentos =
     selectedInstruments.size >= totalInstrumentosPosibles;
-
   const activeFiltersCount =
     selectedEnsembles.size +
-    // CORRECCIÓN: Si están todos seleccionados, cuenta 0. Si no, cuenta 1 (filtro de instrumentos activo)
     (estanTodosLosInstrumentos ? 0 : 1) +
     conditionFilters.size +
     (onlyVigente ? 1 : 0) +
     missingFieldsFilters.size;
-  // ESTADO SELECCIÓN Y EDICIÓN MASIVA
+
   const [selectedMusicians, setSelectedMusicians] = useState(new Set());
   const [isMassEditOpen, setIsMassEditOpen] = useState(false);
 
@@ -1011,22 +1083,15 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           .order("ensamble");
         if (ens) setEnsemblesList(ens);
       }
-
-      let query = supabase.from("integrantes").select(`
-        *, 
-        instrumentos(instrumento), 
-        residencia:localidades!id_localidad(localidad),
-        viaticos:localidades!id_loc_viaticos(localidad),
-        integrantes_ensambles(
-          ensambles(id, ensamble)
-        )
-    `);
-
+      let query = supabase
+        .from("integrantes")
+        .select(
+          `*, instrumentos(instrumento), residencia:localidades!id_localidad(localidad), viaticos:localidades!id_loc_viaticos(localidad), integrantes_ensambles(ensambles(id, ensamble))`,
+        );
       if (searchText.trim())
         query = query.or(
           `nombre.ilike.%${searchText.trim()}%,apellido.ilike.%${searchText.trim()}%`,
         );
-
       const realIds = Array.from(instruments).filter((id) => id !== "null");
       if (realIds.length > 0 || instruments.has("null")) {
         let orParts = [];
@@ -1035,10 +1100,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         if (instruments.has("null")) orParts.push(`id_instr.is.null`);
         query = query.or(orParts.join(","));
       }
-
       if (conditions.size > 0)
         query = query.in("condicion", Array.from(conditions));
-
       if (missingFields.size > 0) {
         const missingOrParts = [];
         missingFields.forEach((field) => {
@@ -1047,23 +1110,19 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         });
         query = query.or(missingOrParts.join(","));
       }
-
       if (onlyVigente) {
         const hoy = new Date().toISOString().split("T")[0];
         query = query.or(`fecha_alta.lte.${hoy},fecha_alta.is.null`);
         query = query.or(`fecha_baja.gte.${hoy},fecha_baja.is.null`);
       }
-
       const { data: musicians, error } = await query;
       if (error) throw error;
-
       const formatted = (musicians || []).map((m) => ({
         ...m,
         integrantes_ensambles:
           m.integrantes_ensambles?.map((ie) => ie.ensambles).filter(Boolean) ||
           [],
       }));
-
       setResultados(formatted);
     } catch (err) {
       console.error("Error en fetchData:", err);
@@ -1074,7 +1133,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   };
 
   const handleInlineUpdate = async (id, field, value) => {
-    // Usamos toast.promise para feedback visual
     toast.promise(
       (async () => {
         let updatePayload = { [field]: value === "" ? null : value };
@@ -1083,7 +1141,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           updatePayload = { id_localidad: value ? parseInt(value) : null };
         if (field === "id_loc_viaticos")
           updatePayload = { id_loc_viaticos: value ? parseInt(value) : null };
-
         const { error } = await supabase
           .from("integrantes")
           .update(updatePayload)
@@ -1099,28 +1156,22 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     );
   };
 
-  // --- LÓGICA DE EDICIÓN MASIVA ---
   const handleMassUpdate = async (field, value) => {
     const toastId = toast.loading("Aplicando cambios masivos...");
     try {
       const ids = Array.from(selectedMusicians);
-      // Preparar valor (por si es número)
       let finalValue = value === "" ? null : value;
-      if (field === "id_localidad" || field === "id_instr") {
+      if (field === "id_localidad" || field === "id_instr")
         finalValue = value ? parseInt(value) : null;
-      }
-
       const { error } = await supabase
         .from("integrantes")
         .update({ [field]: finalValue })
         .in("id", ids);
-
       if (error) throw error;
-
       toast.success(`Se actualizaron ${ids.length} registros`, { id: toastId });
       fetchData();
       setIsMassEditOpen(false);
-      setSelectedMusicians(new Set()); // Opcional: Limpiar selección al terminar
+      setSelectedMusicians(new Set());
     } catch (error) {
       console.error(error);
       toast.error("Error en edición masiva: " + error.message, { id: toastId });
@@ -1135,15 +1186,12 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [columnFilters, setColumnFilters] = useState({});
   const processedResultados = useMemo(() => {
     let filtered = [...resultados];
-
-    if (selectedEnsembles.size > 0) {
+    if (selectedEnsembles.size > 0)
       filtered = filtered.filter((item) =>
         item.integrantes_ensambles?.some((ens) =>
           selectedEnsembles.has(ens.id),
         ),
       );
-    }
-
     Object.keys(columnFilters).forEach((key) => {
       const term = columnFilters[key].toLowerCase().trim();
       if (term) {
@@ -1155,17 +1203,14 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               : key === "apellido_nombre"
                 ? `${item.apellido} ${item.nombre}`
                 : item[key];
-
           return String(val || "")
             .toLowerCase()
             .includes(term);
         });
       }
     });
-
     return filtered.sort((a, b) => {
       let valA, valB;
-
       if (sortConfig.key === "apellido") {
         valA = `${a.apellido} ${a.nombre}`;
         valB = `${b.apellido} ${b.nombre}`;
@@ -1173,7 +1218,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         const colCfg = AVAILABLE_COLUMNS.find(
           (c) => (c.sortKey || c.key) === sortConfig.key,
         );
-
         if (colCfg && colCfg.sortKey && colCfg.sortKey.includes(".")) {
           valA = getNestedValue(a, colCfg.sortKey) || "";
           valB = getNestedValue(b, colCfg.sortKey) || "";
@@ -1182,7 +1226,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           valB = b[sortConfig.key] || "";
         }
       }
-
       if (valA < valB) return sortConfig.direction === "asc" ? -1 : 1;
       if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
       return 0;
@@ -1194,6 +1237,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     visibleColumns,
     columnFilters,
   ]);
+
   const instrumentOptions = catalogoInstrumentos.map((i) => ({
     value: i.id,
     label: i.instrumento,
@@ -1213,13 +1257,10 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     else newSet.add(id);
     setSelectedMusicians(newSet);
   };
-
   const toggleAllSelection = () => {
-    if (selectedMusicians.size === processedResultados.length) {
+    if (selectedMusicians.size === processedResultados.length)
       setSelectedMusicians(new Set());
-    } else {
-      setSelectedMusicians(new Set(processedResultados.map((m) => m.id)));
-    }
+    else setSelectedMusicians(new Set(processedResultados.map((m) => m.id)));
   };
 
   const copySelectedMails = () => {
@@ -1227,7 +1268,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       .filter((m) => selectedMusicians.has(m.id) && m.mail)
       .map((m) => m.mail)
       .join(", ");
-
     if (mails) {
       navigator.clipboard.writeText(mails);
       toast.success(
@@ -1258,11 +1298,10 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       </div>
     );
   }
+
   return (
     <div className="space-y-4 h-full flex flex-col overflow-hidden animate-in fade-in">
-      {/* --- HEADER DE FILTROS (MODIFICADO PARA MÓVIL) --- */}
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 shrink-0 transition-all overflow-hidden">
-        {/* BARRA DE TÍTULO MÓVIL (Solo visible en pantallas chicas) */}
         <div
           className="md:hidden p-3 flex items-center justify-between cursor-pointer bg-slate-50/50 active:bg-slate-100 transition-colors"
           onClick={() => setIsMobileFiltersOpen(!isMobileFiltersOpen)}
@@ -1284,15 +1323,24 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           />
         </div>
 
-        {/* CONTENEDOR DE CONTROLES (Oculto en móvil si está cerrado, siempre visible en Desktop) */}
         <div
-          className={`
-            p-3 gap-3 items-center
-            ${isMobileFiltersOpen ? "flex flex-col" : "hidden"} 
-            md:flex md:flex-row border-t md:border-t-0 border-slate-100
-        `}
+          className={`p-3 gap-3 items-center ${isMobileFiltersOpen ? "flex flex-col" : "hidden"} md:flex md:flex-row border-t md:border-t-0 border-slate-100`}
         >
-          {/* 1. FILTRO DE ENSAMBLES */}
+          <div className="w-full md:hidden mb-2">
+            <div className="relative">
+              <IconSearch
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                type="text"
+                placeholder="Buscar por nombre..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 shadow-sm"
+              />
+            </div>
+          </div>
           <div className="w-full md:w-auto">
             <EnsembleFilter
               ensembles={ensemblesList}
@@ -1300,8 +1348,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               onChange={setSelectedEnsembles}
             />
           </div>
-
-          {/* 2. FILTRO DE INSTRUMENTOS */}
           <div className="w-full md:w-auto">
             <InstrumentFilter
               catalogo={catalogoInstrumentos}
@@ -1309,50 +1355,34 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               onChange={(s) => setSelectedInstruments(s)}
             />
           </div>
-
-          {/* 3. FILTRO DE CONDICIÓN */}
           <div className="w-full md:w-auto">
             <ConditionFilter
               selectedConds={conditionFilters}
               onChange={setConditionFilters}
             />
           </div>
-
-          {/* 4. FILTRO VIGENTES */}
           <button
             onClick={() => setOnlyVigente(!onlyVigente)}
-            className={`w-full md:w-auto flex items-center justify-center md:justify-start gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all ${
-              onlyVigente
-                ? "bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm"
-                : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
-            }`}
+            className={`w-full md:w-auto flex items-center justify-center md:justify-start gap-2 px-3 py-2 border rounded-lg text-xs font-bold transition-all ${onlyVigente ? "bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}`}
           >
             <div
               className={`w-2 h-2 rounded-full ${onlyVigente ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`}
-            />
+            />{" "}
             Vigentes
           </button>
-
-          {/* 5. FILTRO PENDIENTES */}
           <div className="w-full md:w-auto">
             <MissingDataFilter
               selectedFields={missingFieldsFilters}
               onChange={setMissingFieldsFilters}
             />
           </div>
-
-          {/* 6. SELECTOR DE COLUMNAS */}
           <div className="w-full md:w-auto">
             <ColumnSelector
               visibleCols={visibleColumns}
               onChange={setVisibleColumns}
             />
           </div>
-
-          {/* SEPARADOR EN MÓVIL */}
           <div className="w-full h-px bg-slate-100 md:hidden my-1"></div>
-
-          {/* BARRA DE ACCIONES MASIVAS (Visible si hay seleccionados) */}
           {selectedMusicians.size > 0 && (
             <div className="w-full md:w-auto flex items-center justify-center md:justify-start gap-2 md:ml-auto bg-indigo-50/50 p-1 rounded-lg border border-indigo-100 animate-in fade-in zoom-in">
               <span className="text-[10px] font-bold text-indigo-400 px-2 hidden lg:inline">
@@ -1363,7 +1393,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                 className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white text-indigo-600 rounded-md text-xs font-bold hover:bg-indigo-600 hover:text-white transition-colors border border-indigo-200 shadow-sm"
                 title="Copiar correos"
               >
-                <IconCopy size={14} />
+                <IconCopy size={14} />{" "}
                 <span className="hidden sm:inline">Mails</span>
               </button>
               <button
@@ -1371,13 +1401,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                 className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
                 title="Edición Masiva"
               >
-                <IconEdit size={14} />
+                <IconEdit size={14} />{" "}
                 <span className="hidden sm:inline">Editar Lote</span>
               </button>
             </div>
           )}
-
-          {/* BOTONES DE ACCIÓN PRINCIPAL */}
           <div
             className={`w-full md:w-auto flex gap-2 ${selectedMusicians.size === 0 ? "ml-auto" : ""}`}
           >
@@ -1389,25 +1417,69 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               className="flex-1 md:flex-none flex justify-center items-center gap-2 bg-slate-800 text-white px-3 py-2 rounded-lg hover:bg-slate-900 shadow-md transition-all"
               title="Agregar Músico"
             >
-              <IconPlus size={18} />
+              <IconPlus size={18} />{" "}
               <span className="md:hidden text-xs font-bold">Nuevo</span>
             </button>
             <button
               onClick={() => setShowHorasDashboard(true)}
               className="flex-1 md:flex-none flex justify-center items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-50 shadow-sm"
             >
-              <IconInfo size={16} className="text-indigo-500" />
+              <IconInfo size={16} className="text-indigo-500" />{" "}
               <span className="">Gestión Horas</span>
             </button>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
-        <div className="overflow-auto flex-1">
+      {/* BARRA BUSQUEDA MOVIL */}
+      <div className="md:hidden">
+        <div className="relative">
+          <IconSearch
+            size={14}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+          />
+          <input
+            type="text"
+            placeholder="Buscar por nombre..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 shadow-sm"
+          />
+        </div>
+      </div>
+
+      <div className="flex-1 bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col relative">
+        {loading && (
+          <div className="absolute inset-0 z-50 bg-white/80 flex items-center justify-center">
+            <IconLoader className="animate-spin text-indigo-600" size={32} />
+          </div>
+        )}
+
+        {/* --- VISTA MÓVIL --- */}
+        <div className="md:hidden flex-1 overflow-y-auto p-2 bg-slate-50">
+          <div className="flex flex-col gap-2">
+            {processedResultados.map((item) => (
+              <MusicianCard
+                key={item.id}
+                item={item}
+                onEdit={startEditModal}
+                isSelected={selectedMusicians.has(item.id)}
+                onSelect={toggleSelection}
+                highlightText={searchText}
+              />
+            ))}
+            {processedResultados.length === 0 && !loading && (
+              <div className="text-center py-10 text-slate-400 text-sm">
+                No se encontraron músicos.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* --- VISTA ESCRITORIO --- */}
+        <div className="hidden md:block overflow-auto flex-1">
           <table className="w-full text-left border-collapse min-w-[1200px]">
             <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] z-30 border-b border-slate-200">
-              {/* FILA 1: TÍTULOS Y ORDENAMIENTO */}
               <tr className="sticky top-0 z-40 bg-slate-50 shadow-sm">
                 <th className="p-2 w-10 text-center sticky left-0 bg-slate-50 z-50 border-r">
                   <input
@@ -1475,8 +1547,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                   Acciones
                 </th>
               </tr>
-
-              {/* FILA 2: INPUTS DE BÚSQUEDA (FILTROS) */}
               <tr className="sticky top-[33px] z-30 bg-white border-b border-slate-200">
                 <th className="p-1 sticky left-0 bg-white z-40 border-r"></th>
                 <th className="p-1 sticky left-10 bg-white z-40 border-r"></th>
@@ -1567,12 +1637,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                             highlight={columnFilters.apellido_nombre || ""}
                           />
                         </span>
-
-                        {/* INDICADOR DE PENDIENTES */}
                         {(() => {
                           const missing = getMissingFieldsList(item);
                           if (missing.length === 0) return null;
-
                           return (
                             <div
                               className="text-orange-500 hover:text-orange-600 cursor-help shrink-0 bg-orange-100 p-0.5 rounded-md transition-colors"
@@ -1682,7 +1749,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           document.body,
         )}
 
-      {/* MODAL DE EDICIÓN MASIVA */}
       <MassEditModal
         isOpen={isMassEditOpen}
         onClose={() => setIsMassEditOpen(false)}
