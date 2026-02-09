@@ -14,6 +14,7 @@ import {
   IconEdit,
   IconYoutube,
   IconDrive,
+  IconEyeOff,
 } from "../ui/Icons";
 import { formatSecondsToTime } from "../../utils/time";
 import {
@@ -42,6 +43,40 @@ const RichTextPreview = ({ content, className = "" }) => {
       className={`whitespace-pre-wrap [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:ml-1 leading-tight ${className}`}
       dangerouslySetInnerHTML={{ __html: content }}
     />
+  );
+};
+// --- NUEVO: RENDERER DE TÍTULO INTELIGENTE (MULTI-LÍNEA) ---
+const MultiLineTitle = ({ content }) => {
+  if (!content) return null;
+
+  // Limpieza básica
+  let clean = content.replace(/^<p>|<\/p>$/g, "");
+
+  // Separar por saltos de línea (html o texto)
+  const rawParts = clean.split(/<br\s*\/?>|<\/div><div>|\n/i);
+  const parts = rawParts
+    .map((p) => p.replace(/<div>|<\/div>/g, ""))
+    .filter((p) => p.trim() !== "");
+
+  if (parts.length === 0) return null;
+
+  return (
+    <div className="flex flex-col text-slate-800">
+      {/* Primera línea: Tamaño normal y Negrita */}
+      <div
+        className="text-[15px] font-bold leading-tight"
+        dangerouslySetInnerHTML={{ __html: parts[0] }}
+      />
+
+      {/* Líneas subsiguientes: Más pequeñas y tenues */}
+      {parts.length > 1 && (
+        <div className="mt-0.5 text-[11px] font-medium opacity-60 leading-tight">
+          {parts.slice(1).map((line, idx) => (
+            <div key={idx} dangerouslySetInnerHTML={{ __html: line }} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -650,6 +685,40 @@ export default function RepertoireManager({
   // Si hay un giraId presente, asumimos que estamos en contexto de gira.
   // Para una lógica más precisa, podrías comparar la fecha actual con la de la gira.
   const isTourStarted = !!giraId;
+  // --- OBTENER URL DE MI PARTE (Para lógica de borde y badge) ---
+  const getMyPartUrl = (obra) => {
+    if (!user || !assignments.length) return null;
+
+    const userId = String(user.id);
+    const mySeating = seatingMap[userId];
+
+    const assignment = assignments.find((a) => {
+      const matchObra = String(a.id_obra) === String(obra.id);
+      if (!matchObra) return false;
+      const matchUser = a.id_musicos_asignados?.some(
+        (id) => String(id) === userId,
+      );
+      const matchContainer =
+        mySeating?.containerId &&
+        String(a.id_contenedor) === String(mySeating.containerId);
+      return matchUser || matchContainer;
+    });
+
+    if (!assignment) return null;
+
+    const myPart = obra.obras_particellas?.find(
+      (p) => String(p.id) === String(assignment.id_particella),
+    );
+
+    if (!myPart) return null;
+
+    let url = myPart.url_archivo;
+    try {
+      if (url?.startsWith("[")) url = JSON.parse(url)[0]?.url;
+    } catch (e) {}
+
+    return { url, name: myPart.nombre_archivo };
+  };
   // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL ---
   // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL (MODIFICADO) ---
   const renderMyPartBadge = (obra) => {
@@ -998,179 +1067,163 @@ export default function RepertoireManager({
                 )}
               </div>
             </div>
+            {/* ============================================================ */}
+            {/* VISTA MÓVIL: TARJETAS COMPACTAS (LESS SPACING)             */}
+            {/* ============================================================ */}
+            <div className="md:hidden bg-slate-50 p-2 space-y-1">
+              {rep.repertorio_obras.map((item, idx) => {
+                // LÓGICA DE BORDE IZQUIERDO:
+                const myPartData = getMyPartUrl(item.obras);
+                // Está cargada si existe myPartData y tiene URL
+                const hasUploadedPart = !!myPartData?.url;
 
-            {/* ============================================================ */}
-            {/* VISTA MÓVIL: TARJETAS (Visible solo en < md)               */}
-            {/* ============================================================ */}
-            <div className="md:hidden bg-slate-50 p-2 space-y-3">
-              {rep.repertorio_obras.map((item, idx) => (
-                <div
-                  key={item.id}
-                  className="bg-white rounded-lg border border-slate-200 shadow-sm p-3 relative overflow-hidden"
-                >
-                  {/* Barra lateral de estado */}
+                // Verde si está cargada, Gris si no (independiente de exclusión)
+                const borderClass = hasUploadedPart
+                  ? "bg-emerald-500"
+                  : "bg-slate-300";
+
+                return (
                   <div
-                    className={`absolute left-0 top-0 bottom-0 w-1 ${
-                      item.excluir
-                        ? "bg-red-400"
-                        : item.obras.estado !== "Oficial"
-                          ? "bg-amber-400"
-                          : "bg-fixed-indigo-500"
-                    }`}
-                  ></div>
+                    key={item.id}
+                    className="bg-white rounded-lg border border-slate-200 shadow-sm p-2 relative overflow-hidden"
+                  >
+                    {/* Barra lateral de estado (Cargada/No Cargada) */}
+                    <div
+                      className={`absolute left-0 top-0 bottom-0 w-1 ${borderClass}`}
+                    ></div>
 
-                  {/* Fila 1: Orden, Compositor, Duración */}
-                  <div className="flex justify-between items-start mb-1 pl-2">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-slate-100 text-slate-500 text-[12px] font-bold w-5 h-5 flex items-center justify-center rounded-full">
-                        {idx + 1}
-                      </span>
-                      <span className="text-s  text-slate-500 uppercase tracking-wide truncate max-w-[150px]">
-                        {getComposers(item.obras)}
+                    {/* Fila 1: Orden, Compositor, Duración */}
+                    <div className="flex justify-between items-start mb-1 pl-2">
+                      <div className="flex items-center gap-2">
+                        <span className="bg-slate-100 text-slate-500 text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full relative">
+                          {idx + 1}
+                          {/* ICONO OJO TACHADO SI ESTÁ EXCLUIDA (Solo visual) */}
+                          {item.excluir && (
+                            <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 border border-red-100">
+                              <IconEyeOff size={8} className="text-red-500" />
+                            </div>
+                          )}
+                        </span>
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide truncate max-w-[150px]">
+                          {getComposers(item.obras)}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono bg-slate-50 px-1.5 py-0.5 rounded text-slate-600 border border-slate-100">
+                        {formatSecondsToTime(item.obras.duracion_segundos)}
                       </span>
                     </div>
-                    <span className="text-[10px] font-mono bg-slate-50 px-1.5 py-0.5 rounded text-slate-600 border border-slate-100">
-                      {formatSecondsToTime(item.obras.duracion_segundos)}
-                    </span>
-                  </div>
 
-                  {/* Fila 2: Título y Arreglador */}
-                  <div className="pl-2 mb-2">
-                    <div className="text-[17px] font-bold text-slate-800 leading-tight">
-                      <RichTextPreview content={item.obras.titulo} />
+                    {/* Fila 2: Título Multi-línea */}
+                    <div className="pl-2 mb-1">
+                      <MultiLineTitle content={item.obras.titulo} />
+                      {getArranger(item.obras) !== "-" && (
+                        <p className="text-[10px] text-slate-400 italic mt-0.5">
+                          Arr: {getArranger(item.obras)}
+                        </p>
+                      )}
                     </div>
-                    {getArranger(item.obras) !== "-" && (
-                      <p className="text-[10px] text-slate-400 italic">
-                        Arr: {getArranger(item.obras)}
-                      </p>
-                    )}
-                  </div>
 
-                  {/* Fila 3: Instrumentación + Mi Parte */}
-                  <div className="pl-2 flex flex-wrap items-center gap-2 mb-3">
-                    <span className="text-[10px] font-mono text-slate-500 bg-slate-50 px-1 rounded">
-                      {item.obras.instrumentacion ||
-                        calculateInstrumentation(
-                          item.obras.obras_particellas,
-                        ) ||
-                        "-"}
-                    </span>
-                    {/* Badge de Particella (Tu función renderMyPartBadge) */}
-                    {renderMyPartBadge(item.obras)}
-                  </div>
+                    {/* Fila 3: Instrumentación + Mi Parte */}
+                    <div className="pl-2 flex flex-wrap items-center gap-2 mb-2">
+                      <span className="text-[10px] font-mono text-slate-500 bg-slate-50 px-1 rounded">
+                        {item.obras.instrumentacion ||
+                          calculateInstrumentation(
+                            item.obras.obras_particellas,
+                          ) ||
+                          "-"}
+                      </span>
+                      {renderMyPartBadge(item.obras)}
+                    </div>
 
-                  {/* Fila 4: Notas Específicas */}
-                  {item.notas_especificas && (
-                    <div className="pl-2 mb-3">
-                      <div className="bg-yellow-50 border border-yellow-100 text-yellow-800 text-[11px] p-2 rounded relative">
-                        <IconAlertCircle
-                          size={10}
-                          className="absolute top-2 left-1.5 opacity-50"
-                        />
-                        <div className="pl-3">
-                          <RichTextPreview content={item.notas_especificas} />
+                    {/* Fila 4: Notas */}
+                    {item.notas_especificas && (
+                      <div className="pl-2 mb-2">
+                        <div className="bg-yellow-50 border border-yellow-100 text-yellow-800 text-[10px] p-1.5 rounded relative">
+                          <IconAlertCircle
+                            size={10}
+                            className="absolute top-2 left-1 opacity-50"
+                          />
+                          <div className="pl-3 leading-tight">
+                            <RichTextPreview content={item.notas_especificas} />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {/* Fila 5: Solistas */}
-                  {(item.ids_solistas || item.id_solista) && (
-                    <div className="pl-2 mb-3 flex flex-wrap gap-1">
-                      {(
-                        item.ids_solistas ||
-                        (item.id_solista ? [item.id_solista] : [])
-                      ).map((id) => {
-                        const m = musicians.find((mus) => mus.id === id);
-                        return m ? (
-                          <span
-                            key={id}
-                            className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100"
+                    {/* Fila 5: Solistas */}
+                    {(item.ids_solistas || item.id_solista) && (
+                      <div className="pl-2 flex flex-wrap items-center gap-1 mb-2">
+                        {(
+                          item.ids_solistas ||
+                          (item.id_solista ? [item.id_solista] : [])
+                        ).map((id) => {
+                          const m = musicians.find((mus) => mus.id === id);
+                          return m ? (
+                            <span
+                              key={id}
+                              className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100"
+                            >
+                              ★ {`${m.apellido}, ${m.nombre}`}
+                            </span>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
+
+                    {/* Fila 6: Botonera */}
+                    <div className="pl-2 pt-1 border-t border-slate-50 flex justify-between items-center">
+                      <div className="flex gap-3">
+                        {(item.google_drive_shortcut_id ||
+                          item.obras.link_drive) && (
+                          <a
+                            href={item.obras.link_drive}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-600 flex items-center gap-1 text-[10px] font-medium"
                           >
-                            ★ {m.apellido}
-                          </span>
-                        ) : null;
-                      })}
-                    </div>
-                  )}
+                            <IconDrive size={12} /> Drive
+                          </a>
+                        )}
+                        {item.obras.link_youtube && (
+                          <a
+                            href={item.obras.link_youtube}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-red-600 flex items-center gap-1 text-[10px] font-medium"
+                          >
+                            <IconYoutube size={12} /> Video
+                          </a>
+                        )}
+                      </div>
 
-                  {/* Fila 6: Botonera de Acciones */}
-                  <div className="pl-2 pt-2 border-t border-slate-50 flex justify-between items-center">
-                    {/* Enlaces Rápidos */}
-                    <div className="flex gap-3">
-                      {item.google_drive_shortcut_id ||
-                      item.obras.link_drive ? (
-                        <a
-                          href={item.obras.link_drive}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 flex items-center gap-1 text-[10px] font-medium"
-                        >
-                          <IconDrive size={14} /> Drive
-                        </a>
-                      ) : null}
-
-                      {item.obras.link_youtube && (
-                        <a
-                          href={item.obras.link_youtube}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-red-600 flex items-center gap-1 text-[10px] font-medium"
-                        >
-                          <IconYoutube size={14} /> Video
-                        </a>
-                      )}
-                    </div>
-
-                    {/* Acciones */}
-                    <div className="flex items-center gap-1">
-                      <CommentButton
-                        supabase={supabase}
-                        entityType="OBRA"
-                        entityId={item.id}
-                        onClick={() =>
-                          setCommentsState({
-                            type: "OBRA",
-                            id: item.id,
-                            title: item.obras.titulo,
-                          })
-                        }
-                        className="text-slate-400 hover:text-fixed-indigo-600 p-1.5"
-                      />
-                      {isEditor && (
-                        <>
+                      <div className="flex items-center gap-1">
+                        <CommentButton
+                          supabase={supabase}
+                          entityType="OBRA"
+                          entityId={item.id}
+                          onClick={() =>
+                            setCommentsState({
+                              type: "OBRA",
+                              id: item.id,
+                              title: item.obras.titulo,
+                            })
+                          }
+                          className="text-slate-400 hover:text-fixed-indigo-600 p-1"
+                        />
+                        {/* Botones de edición (si es editor) */}
+                        {isEditor && (
                           <button
                             onClick={() => openEditModal(item)}
-                            className="text-slate-400 hover:text-fixed-indigo-600 p-1.5 bg-slate-50 rounded-full"
+                            className="text-slate-300 hover:text-fixed-indigo-600 p-1"
                           >
-                            <IconEdit size={14} />
+                            <IconEdit size={12} />
                           </button>
-                          {/* Flechas mover en móvil */}
-                          <div className="flex flex-col">
-                            <button
-                              onClick={() => moveWork(rep.id, item.id, -1)}
-                              disabled={idx === 0}
-                              className="p-0.5 text-slate-300 hover:text-indigo-600 disabled:opacity-0"
-                            >
-                              <IconChevronDown
-                                size={10}
-                                className="rotate-180"
-                              />
-                            </button>
-                            <button
-                              onClick={() => moveWork(rep.id, item.id, 1)}
-                              disabled={idx === rep.repertorio_obras.length - 1}
-                              className="p-0.5 text-slate-300 hover:text-indigo-600 disabled:opacity-0"
-                            >
-                              <IconChevronDown size={10} />
-                            </button>
-                          </div>
-                        </>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* ============================================================ */}

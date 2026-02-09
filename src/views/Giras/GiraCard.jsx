@@ -1,14 +1,46 @@
-import React from "react";
+import React, { useState, useRef } from "react";
+import { format, parseISO } from "date-fns";
+import { es } from "date-fns/locale";
 import {
   IconCalendar,
   IconMapPin,
   IconDrive,
   IconUtensils,
+  IconMusic,
+  IconUsers,
+  IconChevronDown,
 } from "../../components/ui/Icons";
 import InstrumentationManager from "../../components/roster/InstrumentationManager";
 import CommentButton from "../../components/comments/CommentButton";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import GiraActionMenu from "./GiraActionMenu";
+// Asegúrate de ajustar la ruta de importación según tu estructura
+import { getProgramStyle } from "../../utils/giraUtils";
+
+// --- HELPER PARA FECHAS GRANDES ---
+const formatDateRangeBig = (start, end) => {
+  if (!start) return null;
+  try {
+    const d1 = parseISO(start);
+    const d2 = end ? parseISO(end) : d1;
+    return {
+      d1: format(d1, "dd"),
+      m1: format(d1, "MMM", { locale: es }).toUpperCase(),
+      d2: format(d2, "dd"),
+      m2: format(d2, "MMM", { locale: es }).toUpperCase(),
+      year: format(d1, "yyyy"),
+    };
+  } catch (e) {
+    return null;
+  }
+};
+
+// --- HELPER FECHA CORTA (Escritorio) ---
+const formatDate = (dateString) => {
+  if (!dateString) return "-";
+  const [y, m, d] = dateString.split("-");
+  return `${d}/${m}`;
+};
 
 export default function GiraCard({
   gira,
@@ -30,95 +62,172 @@ export default function GiraCard({
   isHighlighted,
 }) {
   const isMenuOpen = activeMenuId === gira.id;
-  if (isHighlighted) {
-    //console.log(`🔥 GiraCard ${gira.id} RECIBIÓ HIGHLIGHT TRUE`);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const scrollRef = useRef(null);
+
+  // --- MANEJO DEL SCROLL (DOTS) ---
+  const handleScroll = () => {
+    if (scrollRef.current) {
+      const scrollLeft = scrollRef.current.scrollLeft;
+      const width = scrollRef.current.offsetWidth;
+      const index = Math.round(scrollLeft / width);
+      setCurrentSlide(index);
+    }
+  };
+
+  // --- ESTILOS DINÁMICOS ---
+  // Obtenemos el estilo base del util
+  const baseStyle = getProgramStyle(gira.tipo);
+
+  // Lógica de estado (Borrador/Pausada tiene prioridad visual)
+  let cardClasses = baseStyle.color; // Ej: "bg-fixed-indigo-50 ..."
+
+  if (gira.estado === "Pausada") {
+    cardClasses = "bg-amber-50 border-amber-300 text-amber-900 opacity-75";
+  } else if (gira.estado === "Borrador") {
+    cardClasses = "bg-slate-50 border-slate-300 text-slate-600";
   }
-  // --- 1. DEFINICIÓN DE COLORES POR TIPO ---
-  // Centralizamos los colores para usarlos en Borde, Fondo y Ring
-  const getTypeColors = (tipo, estado) => {
-    if (estado === "Pausada") {
-      return {
-        border: "bg-amber-400",
-        bg: "bg-amber-50",
-        ring: "ring-amber-200",
-      };
-    }
-    if (estado === "Borrador") {
-      return {
-        border: "bg-slate-300",
-        bg: "bg-slate-50",
-        ring: "ring-slate-200",
-      };
-    }
 
-    switch (tipo) {
-      case "Sinfónico":
-        return {
-          border: "bg-fixed-indigo-500",
-          bg: "bg-fixed-indigo-50/50",
-          ring: "ring-fixed-indigo-200",
-        };
-      case "Ensamble":
-        return {
-          border: "bg-emerald-500",
-          bg: "bg-emerald-50/50",
-          ring: "ring-emerald-200",
-        };
-      case "Jazz Band":
-        return {
-          border: "bg-amber-500",
-          bg: "bg-amber-50/50",
-          ring: "ring-amber-200",
-        };
-      case "Comisión":
-        return {
-          border: "bg-sky-500",
-          bg: "bg-sky-50/50",
-          ring: "ring-sky-200",
-        };
-      default:
-        return {
-          border: "bg-fuchsia-500",
-          bg: "bg-fuchsia-50/50",
-          ring: "ring-fuchsia-200",
-        };
-    }
-  };
+  // Extraemos un color "fuerte" para títulos basado en el tipo, para usar en textos
+  const titleColorClass =
+    gira.estado === "Vigente"
+      ? baseStyle.color.match(/text-[\w]+-\d+/)?.[0] || "text-slate-800"
+      : "text-current";
 
-  const colors = getTypeColors(gira.tipo, gira.estado);
+  const dateInfo = formatDateRangeBig(gira.fecha_desde, gira.fecha_hasta);
 
-  // --- Helpers de visualización (Sin cambios) ---
-  const formatDate = (dateString) => {
-    if (!dateString) return "-";
-    const [y, m, d] = dateString.split("-");
-    return `${d}/${m}`;
-  };
+  // --- HELPERS DE CONTENIDO (MÓVIL) ---
+  const renderPersonnelCompact = () => {
+    const roster = gira.giras_integrantes || [];
+    const directors = roster.filter(
+      (r) => r.rol === "director" && r.estado === "confirmado",
+    );
+    const soloists = roster.filter(
+      (r) => r.rol === "solista" && r.estado === "confirmado",
+    );
+    const getName = (p) =>
+      `${p.integrantes?.apellido} ${p.integrantes?.nombre?.[0] || ""}.`;
 
-  const getStatusBadge = (estado) => {
-    const status = estado || "Borrador";
-
-    // --- CAMBIO: Si es Vigente, no mostramos nada ---
-    if (status === "Vigente") return null;
-    // -----------------------------------------------
-
-    let styles = "bg-slate-100 text-slate-600 border-slate-200";
-    let label = "Borrador";
-
-    if (status === "Pausada") {
-      styles = "bg-amber-100 text-amber-700 border-amber-200";
-      label = "Pausada";
-    }
+    const sources = gira.giras_fuentes || [];
+    const safeEnsembles = Array.isArray(ensemblesList) ? ensemblesList : [];
+    const ensembleMap = new Map(
+      safeEnsembles.map((e) => [String(e.value), e.label]),
+    );
 
     return (
-      <span
-        className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ml-1 ${styles}`}
-      >
-        {label}
-      </span>
+      <div className="flex flex-col h-full justify-center space-y-3 text-xs">
+        {directors.length > 0 && (
+          <div className="flex gap-2 items-baseline">
+            <span className="font-bold opacity-60 w-12 shrink-0 text-[10px] uppercase">
+              Dir.
+            </span>
+            <span className="font-bold truncate">
+              {directors.map(getName).join(", ")}
+            </span>
+          </div>
+        )}
+        {soloists.length > 0 && (
+          <div className="flex gap-2 items-baseline">
+            <span className="font-bold opacity-60 w-12 shrink-0 text-[10px] uppercase">
+              Solista
+            </span>
+            <span className="font-medium truncate">
+              {soloists.map(getName).join(", ")}
+            </span>
+          </div>
+        )}
+        {sources.length > 0 && (
+          <div className="flex gap-2 items-start">
+            <span className="font-bold opacity-60 w-12 shrink-0 text-[10px] uppercase pt-0.5">
+              Org.
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {sources.map((s) => {
+                let lbl =
+                  s.tipo === "FAMILIA"
+                    ? s.valor_texto
+                    : ensembleMap.get(String(s.valor_id)) || "Ens.";
+                return (
+                  <span
+                    key={s.id}
+                    className={`text-[10px] px-1.5 rounded border bg-white/60 border-current opacity-80 ${s.tipo === "EXCL_ENSAMBLE" ? "line-through opacity-50" : ""}`}
+                  >
+                    {lbl}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {directors.length === 0 &&
+          soloists.length === 0 &&
+          sources.length === 0 && (
+            <p className="opacity-50 italic text-center">Sin asignaciones</p>
+          )}
+      </div>
     );
   };
-  // ... (getPersonnelDisplay, getSourcesDisplay, getConcertList siguen igual)
-  const getPersonnelDisplay = (gira) => {
+
+  const renderConcertsCompact = () => {
+    const concerts = (gira.eventos || [])
+      .filter(
+        (e) =>
+          e.tipos_evento?.nombre?.toLowerCase().includes("concierto") ||
+          e.tipos_evento?.nombre?.toLowerCase().includes("función"),
+      )
+      .sort((a, b) =>
+        (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
+      );
+
+    if (concerts.length === 0)
+      return (
+        <div className="text-center opacity-50 text-xs mt-4">
+          Sin conciertos
+        </div>
+      );
+
+    return (
+      <div className="flex flex-col h-full">
+        {/* Lista scrolleable si hay muchos */}
+        <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+          {concerts.map((c, idx) => (
+            <div
+              key={idx}
+              className="flex gap-3 items-center p-1.5 bg-white/60 rounded border border-black/5"
+            >
+              <div className="bg-white/80 px-1.5 py-0.5 rounded border border-black/10 text-center min-w-[36px]">
+                <span className="block text-[9px] font-black opacity-50 uppercase">
+                  {format(parseISO(c.fecha), "MMM", { locale: es })}
+                </span>
+                <span className="block text-xs font-bold">
+                  {format(parseISO(c.fecha), "dd")}
+                </span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-bold truncate">
+                  {c.locaciones?.nombre || "TBA"}
+                </div>
+                <div className="text-[10px] opacity-70 truncate">
+                  {c.locaciones?.localidades?.localidad} •{" "}
+                  {c.hora_inicio.slice(0, 5)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* Botón ver todo si hay muchos, opcional o fijo */}
+        <div
+          className="text-[10px] text-center opacity-60 mt-1 pt-1 border-t border-black/5 cursor-pointer"
+          onClick={() => updateView("AGENDA", gira.id)}
+        >
+          Ver Agenda Completa
+        </div>
+      </div>
+    );
+  };
+
+  // --- HELPERS DE CONTENIDO (ESCRITORIO - ORIGINAL) ---
+  const getPersonnelDisplayDesktop = () => {
     const roster = gira.giras_integrantes || [];
     const directors = roster.filter(
       (r) => r.rol === "director" && r.estado === "confirmado",
@@ -146,107 +255,72 @@ export default function GiraCard({
       );
     return output.length > 0 ? output : null;
   };
-  const getSourcesDisplay = (gira) => {
+
+  const getSourcesDisplayDesktop = () => {
     const sources = gira.giras_fuentes || [];
-
-    // Aseguramos que ensemblesList sea un array antes de mapear
     const safeEnsemblesList = Array.isArray(ensemblesList) ? ensemblesList : [];
-
-    // Creamos el mapa asegurando tipos (todo a string para evitar problemas de "1" vs 1)
     const ensembleMap = new Map(
       safeEnsemblesList.map((e) => [String(e.value), e.label]),
     );
-
     const inclusions = [];
     const exclusions = [];
 
     sources.forEach((s) => {
       let label = "";
-
-      if (s.tipo === "ENSAMBLE") {
-        // Buscamos convirtiendo el ID a string
-        const foundLabel = ensembleMap.get(String(s.valor_id));
-
-        // Si encontramos el label, lo usamos. Si no, fallback.
-        // Importante: Verificamos que foundLabel sea string, si es objeto lo stringificamos (debug)
-        label = foundLabel
-          ? typeof foundLabel === "object"
-            ? JSON.stringify(foundLabel)
-            : foundLabel
-          : `Ensamble ${s.valor_id}`;
-      } else if (s.tipo === "FAMILIA") {
-        label = s.valor_texto;
-      }
-
-      // Si por alguna razón label sigue siendo un objeto (error de datos), forzamos string
-      if (typeof label === "object") label = "Error de Datos";
+      if (s.tipo === "ENSAMBLE")
+        label = ensembleMap.get(String(s.valor_id)) || `Ensamble ${s.valor_id}`;
+      else if (s.tipo === "FAMILIA") label = s.valor_texto;
 
       const element = (
         <span
-          key={s.id || Math.random()} // Key única
+          key={s.id}
           className={
             s.tipo === "EXCL_ENSAMBLE"
-              ? "text-gray-700 font-medium line-through"
-              : s.tipo === "ENSAMBLE"
-                ? "text-black-700 font-medium"
-                : "text-gray-700 font-medium"
+              ? "text-gray-500 font-medium line-through"
+              : "text-black-700 font-medium"
           }
         >
           {label}
         </span>
       );
-
       if (s.tipo === "EXCL_ENSAMBLE") {
-        // Para exclusiones también necesitamos buscar el nombre
         let exclLabel =
           ensembleMap.get(String(s.valor_id)) || `Ensamble ${s.valor_id}`;
         exclusions.push(
-          <span key={s.id} className="text-gray-700 font-medium line-through">
+          <span key={s.id} className="text-gray-500 font-medium line-through">
             {exclLabel}
           </span>,
         );
-      } else {
-        inclusions.push(element);
-      }
+      } else inclusions.push(element);
     });
 
     if (inclusions.length === 0 && exclusions.length === 0) return null;
-
     return (
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs ml-2 pl-2 border-l border-slate-200 shrink-0">
-        {/* Renderizamos con reduce para agregar separadores si es necesario */}
-        {inclusions.reduce((acc, curr, idx) => {
-          return idx === 0
-            ? [curr]
-            : [
-                ...acc,
-                <span key={`sep-${idx}`} className="text-slate-300">
-                  |
-                </span>,
-                curr,
-              ];
-        }, [])}
-
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs ml-2 pl-2 border-l border-black/10 shrink-0">
+        {inclusions.reduce(
+          (acc, curr, idx) =>
+            idx === 0
+              ? [curr]
+              : [
+                  ...acc,
+                  <span key={`s${idx}`} className="opacity-30">
+                    |
+                  </span>,
+                  curr,
+                ],
+          [],
+        )}
         {exclusions.length > 0 && (
           <>
-            {inclusions.length > 0 && <span className="text-slate-300">|</span>}
-            {exclusions.reduce((acc, curr, idx) => {
-              return idx === 0
-                ? [curr]
-                : [
-                    ...acc,
-                    <span key={`sep-ex-${idx}`} className="text-slate-300">
-                      |
-                    </span>,
-                    curr,
-                  ];
-            }, [])}
+            <span className="opacity-30">|</span>
+            {exclusions}
           </>
         )}
       </div>
     );
   };
-  const getConcertList = (gira) => {
+
+  const getConcertListDesktop = () => {
     const concerts = (gira.eventos || [])
       .filter(
         (e) =>
@@ -256,26 +330,23 @@ export default function GiraCard({
       .sort((a, b) =>
         (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
       );
-
     if (concerts.length === 0) return null;
     return (
-      <div className="text-xs space-y-1">
+      <div className="text-xs space-y-1 mt-2 border-t border-black/5 pt-2">
         <ul className="pl-1 space-y-0.5">
           {concerts.slice(0, 3).map((c, idx) => (
             <li
               key={idx}
-              className="text-slate-500 truncate max-w-full flex items-center gap-1"
+              className="opacity-70 truncate max-w-full flex items-center gap-1"
             >
-              <span className="font-mono text-[10px] mr-1 bg-slate-100 px-1 rounded">
+              <span className="font-mono text-[10px] mr-1 bg-white/60 px-1 rounded border border-black/10">
                 {formatDate(c.fecha)} - {c.hora_inicio.slice(0, 5)}
               </span>
-              {`${c.locaciones?.nombre || ""} | ${
-                c.locaciones?.localidades?.localidad || ""
-              }`}
+              {`${c.locaciones?.nombre || ""} | ${c.locaciones?.localidades?.localidad || ""}`}
             </li>
           ))}
           {concerts.length > 3 && (
-            <li className="text-slate-400 italic text-[10px] pt-1">
+            <li className="opacity-50 italic text-[10px] pt-1">
               y {concerts.length - 3} evento(s) más.
             </li>
           )}
@@ -292,124 +363,176 @@ export default function GiraCard({
     <div
       id={`gira-card-${gira.id}`}
       className={`
-        rounded-xl border p-3 md:p-4 relative overflow-visible 
+        relative rounded-xl border p-0 overflow-visible 
         transition-all duration-700 ease-out
         ${isMenuOpen ? "z-50" : "z-0"} 
-        ${gira.estado === "Pausada" ? "opacity-75" : ""} 
-        
-        /* FONDO: Usamos el color suave calculado */
-        ${colors.bg}
-
-        /* HIGHLIGHT VS NORMAL */
-        ${
-          isHighlighted
-            ? `!border-transparent ring-4 ${colors.ring} shadow-xl z-40` // QUITAMOS 'scale-[1.01]'
-            : "bg-white border-slate-200 shadow-sm hover:border-fixed-indigo-300 hover:shadow-md"
-        }
+        ${cardClasses}
+        ${isHighlighted ? "ring-4 ring-offset-2 ring-indigo-200 z-40" : "shadow-sm hover:shadow-md"}
       `}
     >
-      {/* BARRA LATERAL DE COLOR 
-          - Si highlight: pulsa y es más ancha (w-2.5)
-          - Si normal: estática y delgada (w-1.5)
-      */}
-      <div
-        className={`
-            absolute left-0 top-0 bottom-0 rounded-l-xl z-20 
-            transition-all duration-300 ease-in-out origin-left
-            w-1.5  /* ANCHO BASE FIJO para no mover el contenido */
-            ${colors.border}
-            
-            ${
-              isHighlighted
-                ? "scale-x-[2.5] shadow-[0_0_15px_rgba(0,0,0,0.3)] animate-pulse" // Crece visualmente con escala
-                : "scale-x-100"
-            }
-        `}
-      ></div>
-
-      {/* CONTENIDO (Igual que antes) */}
-      <div className="pl-3 flex flex-col gap-2 relative z-20">
-        <div className="flex justify-between items-start gap-2">
-          {/* ... */}
-          <div
-            className="cursor-pointer flex-1 min-w-0"
-            onClick={() => updateView("AGENDA", gira.id)}
+      {/* --- MENU ACCIONES (FIJO ARRIBA DERECHA) --- */}
+      <div className="absolute top-2 right-2 z-30 flex items-center gap-1">
+        {gira.google_drive_folder_id && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              window.open(
+                `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
+                "_blank",
+              );
+            }}
+            className="p-1.5 bg-white/80 backdrop-blur rounded-full text-slate-400 hover:text-green-600 shadow-sm border border-black/5"
           >
-            <div className="flex flex-col gap-1 mb-2">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span className="font-black text-slate-800 uppercase tracking-wide">
-                  {gira.tipo}
-                </span>
-                {getStatusBadge(gira.estado)}
+            <IconDrive size={16} />
+          </button>
+        )}
+
+        {/* En escritorio mostramos el botón de comida aquí */}
+        <div className="hidden md:block">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              updateView("MEALS_PERSONAL", gira.id);
+            }}
+            className="p-1.5 bg-white/80 backdrop-blur rounded-full text-slate-400 hover:text-amber-600 shadow-sm border border-black/5"
+          >
+            <IconUtensils size={16} />
+          </button>
+        </div>
+
+        <div className="relative">
+          <GiraActionMenu
+            gira={gira}
+            onViewChange={(mode, tab) => updateView(mode, gira.id, tab)}
+            isEditor={isEditor}
+            isPersonal={isPersonal}
+            userRole={userRole}
+            onEdit={() => startEdit(gira)}
+            onDelete={onDelete}
+            onGlobalComments={() => setGlobalCommentsGiraId(gira.id)}
+            isOpen={isMenuOpen}
+            onToggle={() => setActiveMenuId(isMenuOpen ? null : gira.id)}
+            onClose={() => setActiveMenuId(null)}
+            onMove={() => onMove(gira)}
+            onDuplicate={() => onDuplicate(gira)}
+          />
+        </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* VISTA MÓVIL: SLIDER 3 PANELES (Solo visible en móviles)      */}
+      {/* ============================================================ */}
+      <div className="md:hidden">
+        <div className="h-40 w-full overflow-hidden relative">
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="flex w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth"
+          >
+            {/* === SLIDE 1: PORTADA === */}
+            <div className="min-w-full w-full h-full snap-center p-3 flex flex-col justify-between relative">
+              {/* Línea Superior: Tipo | Zona | Mes | Nomenclador */}
+              <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wide opacity-60 truncate pr-16">
+                <span>{gira.tipo}</span>
                 {gira.zona && (
-                  <span className="font-medium text-slate-600">
-                    ({gira.zona})
-                  </span>
+                  <>
+                    <span className="opacity-30">|</span>
+                    <span>{gira.zona}</span>
+                  </>
                 )}
-                <div className="flex items-center gap-1 whitespace-nowrap ml-auto sm:ml-2 sm:pl-2 sm:border-l border-slate-200">
-                  <IconCalendar size={12} /> {formatDate(gira.fecha_desde)}-
-                  {formatDate(gira.fecha_hasta)}
-                </div>
-                <span className="font-bold text-slate-600 bg-white/50 px-1.5 rounded whitespace-nowrap ml-1 border border-slate-100">
-                  {gira.mes_letra} | {gira.nomenclador}
-                </span>
+                <span className="opacity-30">|</span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide opacity-60 truncate pr-16">
+                <span className="truncate">{gira.nomenclador}</span>
+                <span className="opacity-30">|</span>
+                <span>{gira.mes_letra}</span>
               </div>
 
-              <div className="flex flex-wrap items-baseline gap-x-2">
-                <span className="text-base font-bold text-slate-800 truncate max-w-full">
-                  {gira.nombre_gira}
-                </span>
-                {gira.subtitulo && (
-                  <span className="text-xs italic text-slate-600 truncate max-w-full">
-                    {gira.subtitulo}
+              {/* Estado (Si no es Vigente) */}
+              {(gira.estado === "Borrador" || gira.estado === "Pausada") && (
+                <div className="absolute top-8 left-3 z-10">
+                  <span className="bg-white/80 border border-black/10 px-2 py-0.5 rounded text-[9px] font-bold uppercase">
+                    {gira.estado}
                   </span>
+                </div>
+              )}
+
+              {/* Centro: Fechas Gigantes */}
+              <div className="flex flex-col items-center justify-center flex-1">
+                {dateInfo ? (
+                  <div className="flex items-baseline gap-2">
+                    <div className="text-center">
+                      <span
+                        className={`text-3xl font-black leading-none ${titleColorClass}`}
+                      >
+                        {dateInfo.d1}
+                      </span>
+                      <span className="text-[14px] font-bold opacity-50 ml-1">
+                        {dateInfo.m1}
+                      </span>
+                    </div>
+                    <div className="h-px w-4 bg-current opacity-30 self-center"></div>
+                    <div className="text-center">
+                      <span
+                        className={`text-3xl font-black leading-none ${titleColorClass}`}
+                      >
+                        {dateInfo.d2}
+                      </span>
+                      <span className="text-[14px] font-bold opacity-50 ml-1">
+                        {dateInfo.m2}
+                      </span>
+                    </div>
+                  </div>
+                  
+                ) : (
+                  <span className="opacity-40 italic text-xs">Sin fecha</span>
                 )}
-                <div className="flex items-center gap-1 text-xs text-slate-500 truncate max-w-full">
-                  <IconMapPin size={12} className="shrink-0" />
+              </div>
+              <div className="flex justify-center gap-1 text-s opacity-60 truncate max-w-full">
+                  <IconMapPin size={18} className="shrink-0" />
                   <span className="truncate">{locs || "Sin localía"}</span>
                 </div>
+
+              {/* Abajo: Título */}
+              <div className="text-center pb-1">
+                <h3 className="text-sm font-bold text-slate-800 leading-tight line-clamp-2">
+                  {gira.nombre_gira}
+                </h3>
+                {gira.subtitulo && (
+                  <p className="text-[10px] opacity-60 truncate">
+                    {gira.subtitulo}
+                  </p>
+                )}
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 mt-1">
-              {getPersonnelDisplay(gira)}
-              <div className="w-full md:w-auto md:ml-2 md:pl-2 md:border-l border-slate-200 mt-1 md:mt-0">
-                <InstrumentationManager supabase={supabase} gira={gira} />
+            {/* === SLIDE 2: EQUIPO === */}
+            <div className="min-w-full w-full h-full snap-center p-3 flex flex-col relative">
+              <div className="flex-1 overflow-hidden pt-2">
+                {renderPersonnelCompact()}
               </div>
             </div>
-            <div className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
-              {getSourcesDisplay(gira)}
+
+            {/* === SLIDE 3: AGENDA === */}
+            <div className="min-w-full w-full h-full snap-center p-3 flex flex-col relative">
+              <div className="flex-1 overflow-hidden pt-1">
+                {renderConcertsCompact()}
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1 md:gap-2 shrink-0 relative z-30">
-            {gira.google_drive_folder_id && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  window.open(
-                    `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
-                    "_blank",
-                  );
-                }}
-                className="p-2 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors hidden sm:block"
-              >
-                <IconDrive size={20} />
-              </button>
-            )}
+          {/* INDICADORES (DOTS) */}
+          <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className={`w-1 h-1 rounded-full transition-all ${currentSlide === i ? `bg-slate-600 w-3` : "bg-slate-300/50"}`}
+              ></div>
+            ))}
+          </div>
 
-            {/* BOTÓN MIS COMIDAS (Redirige a MEALS_PERSONAL) */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                updateView("MEALS_PERSONAL", gira.id);
-              }}
-              className="p-2 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors hidden sm:block"
-              title="Mis Comidas / Dietas"
-            >
-              <IconUtensils size={20} />
-            </button>
-
+          {/* Botón Comentarios Flotante Móvil (Abajo Derecha) */}
+          <div className="absolute bottom-2 right-2 z-30">
             <CommentButton
               supabase={supabase}
               entityType="GIRA"
@@ -421,36 +544,109 @@ export default function GiraCard({
                   title: gira.nombre_gira,
                 })
               }
-            />
-            <GiraActionMenu
-              gira={gira}
-              onViewChange={(mode, tab) => updateView(mode, gira.id, tab)}
-              isEditor={isEditor}
-              isPersonal={isPersonal}
-              userRole={userRole}
-              onEdit={() => startEdit(gira)}
-              onDelete={onDelete}
-              onGlobalComments={() => setGlobalCommentsGiraId(gira.id)}
-              isOpen={isMenuOpen}
-              onToggle={() => setActiveMenuId(isMenuOpen ? null : gira.id)}
-              onClose={() => setActiveMenuId(null)}
-              onMove={() => onMove(gira)}
-              onDuplicate={() => onDuplicate(gira)}
+              className="bg-white/80 backdrop-blur shadow-sm border border-black/10 p-1.5 rounded-full text-slate-400 hover:text-fixed-indigo-600"
             />
           </div>
         </div>
-
-        {(getConcertList(gira) || showRepertoireInCards) && (
-          <div className="mt-2 border-t border-slate-200/60 pt-2 relative z-20">
-            {getConcertList(gira)}
-            {showRepertoireInCards && (
-              <div className="mt-3 animate-in slide-in-from-top-2">
-                <RepertoireManager supabase={supabase} programId={gira.id} />
-              </div>
-            )}
-          </div>
-        )}
       </div>
+
+      {/* ============================================================ */}
+      {/* VISTA ESCRITORIO: DISEÑO ORIGINAL (Solo visible en >= md)    */}
+      {/* ============================================================ */}
+      <div className="hidden md:block p-4">
+        <div className="flex justify-between items-start gap-2">
+          <div
+            className="cursor-pointer flex-1 min-w-0"
+            onClick={() => updateView("AGENDA", gira.id)}
+          >
+            <div className="flex flex-col gap-1 mb-2">
+              <div className="flex flex-wrap items-center gap-2 text-xs opacity-70">
+                <span className="font-black uppercase tracking-wide">
+                  {gira.tipo}
+                </span>
+                {gira.estado !== "Vigente" && (
+                  <span className="border border-current px-1 rounded text-[10px] uppercase font-bold">
+                    {gira.estado}
+                  </span>
+                )}
+                {gira.zona && (
+                  <span className="font-medium">({gira.zona})</span>
+                )}
+                <div className="flex items-center gap-1 whitespace-nowrap ml-auto pl-2 border-l border-black/10">
+                  <IconCalendar size={12} /> {formatDate(gira.fecha_desde)}-
+                  {formatDate(gira.fecha_hasta)}
+                </div>
+                <span className="font-bold bg-white/50 px-1.5 rounded whitespace-nowrap ml-1 border border-black/5">
+                  {gira.mes_letra} | {gira.nomenclador}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-base font-bold text-slate-800 truncate max-w-full">
+                  {gira.nombre_gira}
+                </span>
+                {gira.subtitulo && (
+                  <span className="text-xs italic opacity-70 truncate max-w-full">
+                    {gira.subtitulo}
+                  </span>
+                )}
+                <div className="flex items-center gap-1 text-xs opacity-60 truncate max-w-full">
+                  <IconMapPin size={12} className="shrink-0" />
+                  <span className="truncate">{locs || "Sin localía"}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs opacity-80 mt-1">
+              {getPersonnelDisplayDesktop()}
+              <div className="w-full border-t border-black/5 pt-1 mt-1">
+                <InstrumentationManager supabase={supabase} gira={gira} />
+              </div>
+            </div>
+            <div className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap mt-1">
+              {getSourcesDisplayDesktop()}
+            </div>
+          </div>
+          {/* Espacio para los botones absolutos */}
+          <div className="w-16"></div>
+        </div>
+
+        {/* Agenda Desktop */}
+        {getConcertListDesktop()}
+
+        {/* Botón Comentarios Desktop (Posición estática) */}
+        <div className="absolute bottom-2 right-2">
+          <CommentButton
+            supabase={supabase}
+            entityType="GIRA"
+            entityId={gira.id}
+            onClick={() =>
+              setCommentsState({
+                type: "GIRA",
+                id: gira.id,
+                title: gira.nombre_gira,
+              })
+            }
+          />
+        </div>
+      </div>
+
+      {/* ============================================================ */}
+      {/* REPERTORIO COMPARTIDO (Siempre abajo)                        */}
+      {/* ============================================================ */}
+      {showRepertoireInCards && (
+        <div className="border-t border-black/5 bg-white/40 p-2 relative z-20">
+          <div className="animate-in slide-in-from-top-2">
+            <RepertoireManager
+              supabase={supabase}
+              programId={gira.id}
+              giraId={gira.id}
+              isCompact={true}
+              readOnly={true}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
