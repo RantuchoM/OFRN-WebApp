@@ -101,3 +101,50 @@ export const PROGRAM_TYPES = {
 export const getProgramStyle = (type) => {
   return PROGRAM_TYPES[type] || PROGRAM_TYPES["default"];
 };
+
+// src/utils/giraUtils.js
+
+/**
+ * Verifica si un usuario está convocado a un evento basado en etiquetas y su perfil.
+ * @param {Array<string>} convocadosList - Lista de etiquetas (ej: ["GRP:TUTTI", "123"])
+ * @param {Object} userProfile - Objeto del usuario (debe tener id, id_localidad, instrumentos, etc.)
+ * @param {string} tourRole - Rol del usuario en ESTA gira específica (ej: "solista", "produccion")
+ */
+export const checkIsConvoked = (convocadosList, userProfile, tourRole) => {
+  if (!convocadosList || convocadosList.length === 0) return false;
+  if (!userProfile) return false;
+
+  const normalizedRole = (tourRole || "").toLowerCase();
+  // Normalizamos familia de instrumento si existe
+  const userFamily = userProfile.instrumentos?.familia?.toLowerCase() || ""; 
+
+  return convocadosList.some((tag) => {
+    // 1. Coincidencia directa por ID
+    if (tag === String(userProfile.id)) return true;
+
+    // 2. Etiquetas de Grupo
+    if (tag === "GRP:TUTTI") return true;
+    if (tag === "GRP:LOCALES") return !!userProfile.is_local;
+    if (tag === "GRP:NO_LOCALES") return !userProfile.is_local;
+    
+    // 3. Etiquetas de Rol en Gira
+    if (tag === "GRP:PRODUCCION") return normalizedRole === "produccion" || normalizedRole === "coordinacion";
+    if (tag === "GRP:STAFF") return normalizedRole === "staff";
+    if (tag === "GRP:SOLISTAS") return normalizedRole === "solista";
+    if (tag === "GRP:DIRECTORES") return normalizedRole === "director";
+
+    // 4. Etiquetas de Localidad (LOC:123)
+    if (tag.startsWith("LOC:")) {
+      const locId = parseInt(tag.split(":")[1]);
+      return userProfile.id_localidad === locId;
+    }
+
+    // 5. Etiquetas de Familia de Instrumento (FAM:Cuerdas)
+    if (tag.startsWith("FAM:")) {
+      const targetFamily = tag.split(":")[1].toLowerCase();
+      return userFamily === targetFamily;
+    }
+
+    return false;
+  });
+};

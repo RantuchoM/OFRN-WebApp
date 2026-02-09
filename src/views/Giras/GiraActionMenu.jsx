@@ -43,13 +43,23 @@ const GiraActionMenu = ({
 
   useEffect(() => {
     const handleClickOutside = (event) => {
+      // Si el clic es fuera del menú, lo cerramos
       if (menuRef.current && !menuRef.current.contains(event.target)) {
         onClose();
         setExpandedCategory(null);
       }
     };
-    if (isOpen) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+
+    if (isOpen) {
+      // Usamos un pequeño delay para que el evento que abrió el menú no lo cierre inmediatamente
+      const timer = setTimeout(() => {
+        document.addEventListener("click", handleClickOutside);
+      }, 10);
+      return () => {
+        clearTimeout(timer);
+        document.removeEventListener("click", handleClickOutside);
+      };
+    }
   }, [isOpen, onClose]);
 
   useEffect(() => {

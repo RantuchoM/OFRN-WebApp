@@ -18,7 +18,7 @@ import {
   IconMegaphone,
   IconUtensils,
   IconLayoutDashboard,
-  IconEdit
+  IconEdit,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
@@ -323,7 +323,27 @@ export default function GirasView({ supabase, trigger = 0 }) {
         const { data, error } = await supabase
           .from("programas")
           .select(
-            `*, giras_localidades(id_localidad, localidades(localidad)), giras_fuentes(*), eventos (id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)), giras_integrantes (id_integrante, estado, rol, integrantes (nombre, apellido))`,
+                      `
+            *,
+            giras_localidades(id_localidad, localidades(localidad)), 
+
+            giras_integrantes!inner(
+              id_integrante, rol, estado, 
+              integrantes(
+                id, nombre, apellido, 
+                id_localidad,        
+                instrumentos(familia)  
+              )
+            ),
+
+            eventos(
+              *, 
+              tipos_evento(*), 
+              locaciones(*, localidades(localidad)),
+              eventos_asistencia(*) 
+            ),
+            giras_fuentes(*)
+          `,
           )
           .order("fecha_desde", { ascending: true });
         if (error) throw error;
@@ -405,7 +425,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const fetchIntegrantesList = async () => {
     const { data } = await supabase
       .from("integrantes")
-      .select("id, nombre, apellido")
+      .select("id, nombre, apellido, id_localidad, instrumentos(familia)")
       .order("apellido");
     if (data)
       setAllIntegrantes(
@@ -1046,18 +1066,22 @@ export default function GirasView({ supabase, trigger = 0 }) {
                   <button
                     onClick={() => {
                       setIsAdding(true);
-                      
+
                       // 1. PRE-SELECCIONAR ENSAMBLES SI ES COORDINADOR
                       let initialSources = [];
                       if (isCoordinator) {
-                        initialSources = Array.from(coordinatedEnsembles).map(id => {
-                           const ens = ensemblesList.find(e => e.value === id);
-                           return {
-                             tipo: "ENSAMBLE",
-                             valor_id: id,
-                             label: ens ? ens.label : "Mi Ensamble"
-                           };
-                        });
+                        initialSources = Array.from(coordinatedEnsembles).map(
+                          (id) => {
+                            const ens = ensemblesList.find(
+                              (e) => e.value === id,
+                            );
+                            return {
+                              tipo: "ENSAMBLE",
+                              valor_id: id,
+                              label: ens ? ens.label : "Mi Ensamble",
+                            };
+                          },
+                        );
                       }
 
                       setFormData({
@@ -1066,20 +1090,26 @@ export default function GirasView({ supabase, trigger = 0 }) {
                         fecha_desde: "",
                         fecha_hasta: "",
                         // 2. FORZAR TIPO
-                        tipo: isCoordinator ? "Ensamble" : (isEditor ? "Sinfónico" : "Ensamble"),
+                        tipo: isCoordinator
+                          ? "Ensamble"
+                          : isEditor
+                            ? "Sinfónico"
+                            : "Ensamble",
                         zona: "",
                         token_publico: "",
                       });
-                      
+
                       setSelectedLocations(new Set());
                       setSelectedSources(initialSources); // <--- APLICAR PRE-SELECCIÓN
                       setSelectedStaff([]);
                     }}
                     className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:border-indigo-500 hover:bg-indigo-50 flex justify-center gap-2 font-medium"
                   >
-                    <IconPlus size={20} /> 
+                    <IconPlus size={20} />
                     {/* 3. TEXTO DINÁMICO */}
-                    {isCoordinator ? "Nuevo Programa de Ensamble" : "Crear Nuevo Programa"}
+                    {isCoordinator
+                      ? "Nuevo Programa de Ensamble"
+                      : "Crear Nuevo Programa"}
                   </button>
                 )}
                 {isAdding && (
@@ -1106,7 +1136,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
                     setSelectedSources={setSelectedSources}
                     selectedStaff={selectedStaff}
                     setSelectedStaff={setSelectedStaff}
-                    
                     // --- NUEVAS PROPS PARA VALIDACIÓN ---
                     isCoordinator={isCoordinator}
                     coordinatedEnsembles={coordinatedEnsembles}
@@ -1131,7 +1160,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
                     setFormData={setFormData}
                     onCancel={closeForm}
                     onSave={handleSave}
-                    onRefresh={async () => { await fetchGiras(); }}
+                    onRefresh={async () => {
+                      await fetchGiras();
+                    }}
                     loading={loading}
                     isNew={false}
                     enableAutoSave={true}
