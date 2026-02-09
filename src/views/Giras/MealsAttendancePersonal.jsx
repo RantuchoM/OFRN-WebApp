@@ -5,6 +5,8 @@ import {
 import { format, parseISO, isAfter, formatDistanceToNow, isValid } from "date-fns";
 import { es } from "date-fns/locale";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import ManualTrigger from '../../components/manual/ManualTrigger';
+
 
 // Helper Convocatoria
 const isUserConvoked = (convocadosList, userAttributes) => {
@@ -69,7 +71,7 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
             // 3. Traer Eventos (Solo fetching de eventos)
             const { data: events, error: eventError } = await supabase
                 .from('eventos')
-                .select('*, locaciones(nombre), tipos_evento(nombre)')
+                .select('*, locaciones(nombre,localidades(localidad)), tipos_evento(nombre)')
                 .eq('id_gira', gira.id)
                 .in('id_tipo_evento', [7,8,9,10]) // Desayuno, Almuerzo, Merienda, Cena
                 .order('fecha', { ascending: true })
@@ -218,7 +220,7 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
                                                 {evt.hora_inicio?.slice(0,5)} <span className="text-xs font-normal text-slate-400">hs</span>
                                             </div>
                                             {evt.locaciones?.nombre && (
-                                                <div className="text-xs text-slate-500 flex items-center gap-1 mt-1"><IconMapPin size={12}/> {evt.locaciones.nombre}</div>
+                                                <div className="text-xs text-slate-500 flex items-center gap-1 mt-1"><IconMapPin size={12}/> {`${evt.locaciones.nombre} (${evt.locaciones.localidades?.localidad}})`}</div>
                                             )}
                                         </div>
 

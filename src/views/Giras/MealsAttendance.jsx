@@ -18,6 +18,8 @@ import TimeInput from "../../components/ui/TimeInput";
 import { format, parseISO, isAfter, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import ManualTrigger from '../../components/manual/ManualTrigger';
+
 
 // Helper simplificado: Verifica si una persona está convocada a un evento
 const parseConvocation = (convocadosList, person) => {
