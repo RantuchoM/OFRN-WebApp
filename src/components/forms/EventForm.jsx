@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { 
     IconLoader, IconX, IconCheck, IconEdit, IconTrash, IconCopy, IconSettings 
 } from '../ui/Icons';
 import DateInput from '../ui/DateInput';
 import TimeInput from '../ui/TimeInput';
 import SearchableSelect from '../ui/SearchableSelect';
+import ConfirmModal from '../ui/ConfirmModal';
 import { useAuth } from '../../context/AuthContext';
 
 export default function EventForm({ 
@@ -20,8 +21,15 @@ export default function EventForm({
     isNew = false 
 }) {
     const { isEditor, isManagement } = useAuth();
+    const [showExitConfirm, setShowExitConfirm] = useState(false);
 
-    // Preparamos opciones de ubicación
+    // 1. Referencia inicial y detección de cambios
+    const initialData = useMemo(() => ({ ...formData }), []);
+    const isDirty = useMemo(() => {
+        return JSON.stringify(initialData) !== JSON.stringify(formData);
+    }, [formData, initialData]);
+
+    // 2. Opciones de ubicación
     const locationOptions = useMemo(() => {
         return locations.map(l => ({
             id: l.id,
@@ -33,29 +41,46 @@ export default function EventForm({
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
-    // Función para obtener el color del tipo seleccionado
     const getSelectedTypeColor = () => {
         if (!formData.id_tipo_evento) return 'transparent';
         const type = eventTypes.find(t => String(t.id) === String(formData.id_tipo_evento));
-        return type?.color || '#94a3b8'; // Slate-400 por defecto
+        return type?.color || '#94a3b8';
+    };
+
+    // 3. FUNCIONES DE CIERRE (Ajustadas a tu ConfirmModal)
+    const handleSafeClose = (e) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        if (isDirty) {
+            setShowExitConfirm(true); 
+        } else {
+            onClose(); // Si no hay cambios, cerramos directo
+        }
     };
 
     return (
-        <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+        <div 
+            className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh] relative"
+            onClick={(e) => e.stopPropagation()} 
+        >
             {/* HEADER */}
             <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
                     <IconEdit size={18}/> {isNew ? 'Nuevo Evento' : 'Editar Evento'}
                 </h3>
-                <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-200 transition-colors">
+                <button 
+                    onClick={handleSafeClose} 
+                    className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-200 transition-colors"
+                >
                     <IconX size={20}/>
                 </button>
             </div>
 
             {/* BODY */}
             <div className="p-5 space-y-5 overflow-y-auto">
-                
-                {/* Descripción */}
                 <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Descripción</label>
                     <input 
@@ -68,7 +93,6 @@ export default function EventForm({
                     />
                 </div>
                 
-                {/* Fecha y Tipo (GRID MEJORADO) */}
                 <div className="grid grid-cols-2 gap-4">
                     <DateInput 
                         label="Fecha*" 
@@ -76,16 +100,13 @@ export default function EventForm({
                         onChange={val => handleChange('fecha', val)} 
                     />
                     
-                    {/* SELECTOR DE TIPO DE EVENTO CON COLOR */}
                     <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Tipo de Evento</label>
                         <div className="relative">
-                            {/* Indicador de color visual */}
                             <div 
                                 className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border border-slate-200 shadow-sm pointer-events-none z-10"
                                 style={{ backgroundColor: getSelectedTypeColor() }}
                             ></div>
-
                             <select 
                                 className="w-full border border-slate-300 rounded-lg py-2 pl-7 pr-8 text-sm focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white cursor-pointer hover:bg-slate-50 transition-colors" 
                                 value={formData.id_tipo_evento || ''} 
@@ -93,13 +114,9 @@ export default function EventForm({
                             >
                                 <option value="">-- Seleccionar --</option>
                                 {eventTypes.map(t => (
-                                    <option key={t.id} value={t.id}>
-                                        {t.nombre}
-                                    </option>
+                                    <option key={t.id} value={t.id}>{t.nombre}</option>
                                 ))}
                             </select>
-                            
-                            {/* Icono flecha */}
                             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
                                 <svg className="h-4 w-4 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
                             </div>
@@ -107,7 +124,6 @@ export default function EventForm({
                     </div>
                 </div>
 
-                {/* Horarios */}
                 <div className="grid grid-cols-2 gap-4">
                     <TimeInput 
                         label="Hora Inicio*" 
@@ -121,7 +137,6 @@ export default function EventForm({
                     />
                 </div>
 
-                {/* Ubicación */}
                 <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ubicación / Sala</label>
                     <SearchableSelect 
@@ -131,15 +146,10 @@ export default function EventForm({
                         placeholder="Buscar ubicación..."
                         className="w-full"
                     />
-                    <p className="text-[10px] text-slate-400 mt-1 ml-1 flex justify-between">
-                        <span>Escribe para buscar por nombre o ciudad.</span>
-                        {/* Link rápido a Google Maps si hay ubicación seleccionada (opcional, solo visual) */}
-                    </p>
                 </div>
 
-                {/* --- CHECKBOX "SÓLO TÉCNICA" (SOLO EDITORES) --- */}
                 {(isEditor || isManagement) && (
-                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 hover:border-indigo-200 transition-colors">
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                         <label className="flex items-center gap-3 cursor-pointer select-none group">
                             <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${formData.tecnica ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300 group-hover:border-indigo-400'}`}>
                                 {formData.tecnica && <IconCheck size={14} className="text-white" strokeWidth={3} />}
@@ -154,7 +164,7 @@ export default function EventForm({
                                 <span className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1">
                                     <IconSettings size={12} className="text-slate-400"/> Evento Técnico
                                 </span>
-                                <span className="text-[10px] text-slate-400 font-medium group-hover:text-indigo-500 transition-colors">
+                                <span className="text-[10px] text-slate-400 font-medium">
                                     Visible solo para gestión técnica y producción
                                 </span>
                             </div>
@@ -172,8 +182,7 @@ export default function EventForm({
                                 <button 
                                     onClick={onDelete} 
                                     disabled={loading}
-                                    className="p-2 text-red-500 hover:bg-red-50 border border-red-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold shadow-sm hover:shadow"
-                                    title="Eliminar evento"
+                                    className="p-2 text-red-500 hover:bg-red-50 border border-red-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
                                 >
                                     <IconTrash size={16}/> <span className="hidden sm:inline">Eliminar</span>
                                 </button>
@@ -182,8 +191,7 @@ export default function EventForm({
                                 <button 
                                     onClick={onDuplicate} 
                                     disabled={loading}
-                                    className="p-2 text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold shadow-sm hover:shadow"
-                                    title="Duplicar evento"
+                                    className="p-2 text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
                                 >
                                     <IconCopy size={16}/> <span className="hidden sm:inline">Duplicar</span>
                                 </button>
@@ -194,7 +202,7 @@ export default function EventForm({
 
                 <div className="flex gap-2">
                     <button 
-                        onClick={onClose} 
+                        onClick={handleSafeClose} 
                         className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
                     >
                         Cancelar
@@ -209,6 +217,17 @@ export default function EventForm({
                     </button>
                 </div>
             </div>
+
+            {/* MODAL DE CONFIRMACIÓN - Usando tus props: isOpen, onClose, onConfirm */}
+            <ConfirmModal
+                isOpen={showExitConfirm}
+                onClose={() => setShowExitConfirm(false)} // 'onClose' vuelve al formulario
+                onConfirm={onClose} // 'onConfirm' ejecuta el cierre real del formulario
+                title="Cambios sin guardar"
+                message="Tienes modificaciones pendientes. Si sales ahora, se perderán todos los cambios realizados en este evento."
+                confirmText="Descartar y salir"
+                cancelText="Continuar editando"
+            />
         </div>
     );
 }

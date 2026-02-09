@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import MultiSelect from "../../components/ui/MultiSelect";
+import ConfirmModal from "../../components/ui/ConfirmModal"; // Importamos el modal personalizado
 import {
   IconSave,
   IconLoader,
@@ -21,10 +22,11 @@ export default function IndependentRehearsalForm({
   onSuccess,
   onCancel,
   initialData = null,
-  myEnsembles = [] // <--- RECIBIMOS LA LISTA
+  myEnsembles = [],
 }) {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
 
   const [programasOptions, setProgramasOptions] = useState([]);
   const [ensamblesOptions, setEnsamblesOptions] = useState([]);
@@ -43,6 +45,26 @@ export default function IndependentRehearsalForm({
 
   const [customAttendance, setCustomAttendance] = useState([]);
   const [selectedMemberToAdd, setSelectedMemberToAdd] = useState("");
+
+  // --- LÓGICA DE VALIDACIÓN DE CAMBIOS (DIRTY STATE) ---
+  const [initialSnapshot, setInitialSnapshot] = useState(null);
+
+  const isDirty = useMemo(() => {
+    if (!initialSnapshot) return false;
+    const currentSnapshot = {
+      form: formData,
+      attendance: customAttendance,
+    };
+    return JSON.stringify(initialSnapshot) !== JSON.stringify(currentSnapshot);
+  }, [formData, customAttendance, initialSnapshot]);
+
+  const handleSafeCancel = () => {
+    if (isDirty) {
+      setShowExitConfirm(true);
+    } else {
+      onCancel();
+    }
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -80,14 +102,13 @@ export default function IndependentRehearsalForm({
           })),
         );
 
-        // --- ORDENAMIENTO Y RESALTADO DE ENSAMBLES ---
-        const myIds = new Set(myEnsembles.map(e => e.id));
+        const myIds = new Set(myEnsembles.map((e) => e.id));
         const sortedEns = (ensamblesData.data || []).sort((a, b) => {
-            const aMine = myIds.has(a.id);
-            const bMine = myIds.has(b.id);
-            if (aMine && !bMine) return -1;
-            if (!aMine && bMine) return 1;
-            return a.ensamble.localeCompare(b.ensamble);
+          const aMine = myIds.has(a.id);
+          const bMine = myIds.has(b.id);
+          if (aMine && !bMine) return -1;
+          if (!aMine && bMine) return 1;
+          return a.ensamble.localeCompare(b.ensamble);
         });
 
         setEnsamblesOptions(
@@ -112,6 +133,18 @@ export default function IndependentRehearsalForm({
           })),
         );
 
+        let finalForm = {
+          fecha: "",
+          hora_inicio: "",
+          hora_fin: "",
+          id_locacion: "",
+          descripcion: "",
+          selectedEnsambles:
+            myEnsembles.length === 1 ? [myEnsembles[0].id] : [],
+          selectedProgramas: [],
+        };
+        let finalCustom = [];
+
         if (initialData) {
           const [relsEns, relsProg, relsCustom] = await Promise.all([
             supabase
@@ -130,7 +163,7 @@ export default function IndependentRehearsalForm({
               .eq("id_evento", initialData.id),
           ]);
 
-          setFormData({
+          finalForm = {
             fecha: initialData.fecha || "",
             hora_inicio: initialData.hora_inicio || "",
             hora_fin: initialData.hora_fin || "",
@@ -138,28 +171,21 @@ export default function IndependentRehearsalForm({
             descripcion: initialData.descripcion || "",
             selectedEnsambles: relsEns.data?.map((r) => r.id_ensamble) || [],
             selectedProgramas: relsProg.data?.map((r) => r.id_programa) || [],
-          });
+          };
 
-          const customList =
+          finalCustom =
             relsCustom.data?.map((c) => ({
               id_integrante: c.id_integrante,
               tipo: c.tipo,
               nota: c.nota || "",
               label: `${c.integrantes?.apellido}, ${c.integrantes?.nombre}`,
             })) || [];
-
-          setCustomAttendance(customList);
-        } else {
-            // --- NUEVO ENSAYO: SELECCIÓN POR DEFECTO ---
-            // Solo si coordina EXACTAMENTE UNO, lo seleccionamos.
-            // Si coordina más de uno, la lista está ordenada arriba pero sin selección.
-            if (myEnsembles.length === 1) {
-                setFormData(prev => ({
-                    ...prev,
-                    selectedEnsambles: [myEnsembles[0].id]
-                }));
-            }
         }
+
+        setFormData(finalForm);
+        setCustomAttendance(finalCustom);
+        // Guardamos la foto inicial para comparar después
+        setInitialSnapshot({ form: finalForm, attendance: finalCustom });
       } catch (error) {
         console.error("Error cargando datos:", error);
       } finally {
@@ -168,7 +194,7 @@ export default function IndependentRehearsalForm({
     };
 
     loadData();
-  }, [supabase, initialData, myEnsembles]); // Dependencia myEnsembles
+  }, [supabase, initialData, myEnsembles]);
 
   const handleAddCustom = (tipo) => {
     if (!selectedMemberToAdd) return;
@@ -235,12 +261,13 @@ export default function IndependentRehearsalForm({
       return toast.error("Selecciona al menos un ensamble base.");
     }
 
-    // --- VALIDACIÓN DE COORDINACIÓN ---
-    const myIds = myEnsembles.map(e => e.id);
-    const hasMyEnsemble = formData.selectedEnsambles.some(id => myIds.includes(id));
-    
+    const myIds = myEnsembles.map((e) => e.id);
+    const hasMyEnsemble = formData.selectedEnsambles.some((id) =>
+      myIds.includes(id),
+    );
+
     if (!hasMyEnsemble) {
-        return toast.error("Debes incluir al menos un ensamble que coordines.");
+      return toast.error("Debes incluir al menos un ensamble que coordines.");
     }
 
     setLoading(true);
@@ -350,222 +377,227 @@ export default function IndependentRehearsalForm({
     );
 
   return (
-    <div className="bg-white p-5 rounded-lg shadow-lg border border-slate-200 w-full max-w-2xl mx-auto max-h-[90vh] overflow-y-auto">
-      <div className="flex justify-between items-center mb-4 border-b pb-2">
-        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-          <IconCalendar className="text-indigo-600" />{" "}
-          {initialData ? "Editar Ensayo" : "Nuevo Ensayo"}
-        </h2>
-        <button
-          onClick={onCancel}
-          className="text-slate-400 hover:text-slate-600"
-        >
-          <span className="text-xs font-bold">ESC</span>
-        </button>
-      </div>
-
-      <div className="space-y-5">
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
-              Fecha
-            </label>
-            <DateInput
-              value={formData.fecha}
-              onChange={(v) => setFormData({ ...formData, fecha: v })}
-              className="w-full border-slate-300"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
-              Hora Inicio
-            </label>
-            <TimeInput
-              value={formData.hora_inicio}
-              onChange={(v) => setFormData({ ...formData, hora_inicio: v })}
-              className="w-full border-slate-300"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
-              Hora Fin
-            </label>
-            <TimeInput
-              value={formData.hora_fin}
-              onChange={(v) => setFormData({ ...formData, hora_fin: v })}
-              className="w-full border-slate-300"
-            />
-          </div>
+    <>
+      <div className="bg-white p-5 rounded-lg shadow-lg border border-slate-200 w-full max-w-2xl mx-auto max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4 border-b pb-2">
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <IconCalendar className="text-indigo-600" />{" "}
+            {initialData ? "Editar Ensayo" : "Nuevo Ensayo"}
+          </h2>
+          <button
+            onClick={handleSafeCancel}
+            className="text-slate-400 hover:text-slate-600"
+          >
+            <span className="text-xs font-bold">ESC</span>
+          </button>
         </div>
 
-        <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
-            Lugar / Sala (Opcional)
-          </label>
-          <SearchableSelect
-            options={locationsOptions}
-            value={formData.id_locacion}
-            onChange={(v) => setFormData({ ...formData, id_locacion: v })}
-            placeholder="Sin lugar asignado"
-            className="w-full border-slate-300"
-            tabIndex={0}
-          />
-        </div>
-
-        <div className="bg-slate-50 p-3 rounded border border-slate-200">
-          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2">
-            <IconMusic size={14} /> Convocatoria (Ensambles Base)
-          </h3>
-          <MultiSelect
-            placeholder="Seleccionar ensambles..."
-            options={ensamblesOptions}
-            selectedIds={formData.selectedEnsambles}
-            onChange={(ids) =>
-              setFormData({ ...formData, selectedEnsambles: ids })
-            }
-          />
-          {/* MENSAJE DE AYUDA */}
-          <p className="text-[9px] text-slate-400 mt-1 ml-1">* Tus ensambles coordinados aparecen al principio marcados con ★</p>
-        </div>
-
-        {/* ... (Resto del componente igual, solo se agregó el texto de ayuda y la lógica) ... */}
-        
-        <div className="bg-white p-3 rounded border border-slate-200 shadow-sm">
-          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2">
-            <IconUsers size={14} /> Asistencia Particular
-          </h3>
-          {/* ... */}
-          {/* (El resto de secciones se mantienen igual que tu código original) */}
-          <div className="flex gap-2 items-end mb-3">
-            <div className="flex-1">
-              <label className="text-[9px] text-slate-400 uppercase mb-1 block">
-                Buscar Integrante
+        <div className="space-y-5">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+                Fecha
               </label>
-              <SearchableSelect
-                options={membersOptions}
-                value={selectedMemberToAdd}
-                onChange={setSelectedMemberToAdd}
-                placeholder="Escribe para buscar..."
+              <DateInput
+                value={formData.fecha}
+                onChange={(v) => setFormData({ ...formData, fecha: v })}
+                className="w-full border-slate-300"
               />
             </div>
-            <button
-              onClick={() => handleAddCustom("invitado")}
-              disabled={!selectedMemberToAdd}
-              className="h-[38px] px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-100 flex items-center gap-1 text-xs font-bold disabled:opacity-50"
-            >
-              <IconUserPlus size={14} /> Invitado
-            </button>
-            <button
-              onClick={() => handleAddCustom("ausente")}
-              disabled={!selectedMemberToAdd}
-              className="h-[38px] px-3 bg-red-50 text-red-700 border border-red-200 rounded hover:bg-red-100 flex items-center gap-1 text-xs font-bold disabled:opacity-50"
-            >
-              <IconUserX size={14} /> Ausente
-            </button>
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+                Hora Inicio
+              </label>
+              <TimeInput
+                value={formData.hora_inicio}
+                onChange={(v) => setFormData({ ...formData, hora_inicio: v })}
+                className="w-full border-slate-300"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+                Hora Fin
+              </label>
+              <TimeInput
+                value={formData.hora_fin}
+                onChange={(v) => setFormData({ ...formData, hora_fin: v })}
+                className="w-full border-slate-300"
+              />
+            </div>
           </div>
-          {customAttendance.length > 0 ? (
-            <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
-              {customAttendance.map((item, idx) => (
-                <div
-                  key={`${item.id_integrante}-${idx}`}
-                  className="flex items-center justify-between text-xs p-2 bg-slate-50 rounded border border-slate-100"
-                >
-                  <div className="flex items-center gap-2">
-                    {item.tipo === "invitado" ? (
-                      <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase">
-                        Invitado
-                      </span>
-                    ) : (
-                      <span className="bg-red-100 text-red-800 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase">
-                        Ausente
-                      </span>
-                    )}
-                    <span className="font-medium text-slate-700">
-                      {item.label}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => handleRemoveCustom(item.id_integrante)}
-                    className="text-slate-400 hover:text-red-600"
+
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+              Lugar / Sala (Opcional)
+            </label>
+            <SearchableSelect
+              options={locationsOptions}
+              value={formData.id_locacion}
+              onChange={(v) => setFormData({ ...formData, id_locacion: v })}
+              placeholder="Sin lugar asignado"
+              className="w-full border-slate-300"
+            />
+          </div>
+
+          <div className="bg-slate-50 p-3 rounded border border-slate-200">
+            <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2">
+              <IconMusic size={14} /> Convocatoria (Ensambles Base)
+            </h3>
+            <MultiSelect
+              placeholder="Seleccionar ensambles..."
+              options={ensamblesOptions}
+              selectedIds={formData.selectedEnsambles}
+              onChange={(ids) =>
+                setFormData({ ...formData, selectedEnsambles: ids })
+              }
+            />
+            <p className="text-[9px] text-slate-400 mt-1 ml-1">
+              * Tus ensambles coordinados aparecen al principio marcados con ★
+            </p>
+          </div>
+
+          <div className="bg-white p-3 rounded border border-slate-200 shadow-sm">
+            <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2">
+              <IconUsers size={14} /> Asistencia Particular
+            </h3>
+            <div className="flex gap-2 items-end mb-3">
+              <div className="flex-1">
+                <label className="text-[9px] text-slate-400 uppercase mb-1 block">
+                  Buscar Integrante
+                </label>
+                <SearchableSelect
+                  options={membersOptions}
+                  value={selectedMemberToAdd}
+                  onChange={setSelectedMemberToAdd}
+                  placeholder="Escribe para buscar..."
+                />
+              </div>
+              <button
+                onClick={() => handleAddCustom("invitado")}
+                disabled={!selectedMemberToAdd}
+                className="h-[38px] px-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-100 flex items-center gap-1 text-xs font-bold disabled:opacity-50"
+              >
+                <IconUserPlus size={14} /> Invitado
+              </button>
+              <button
+                onClick={() => handleAddCustom("ausente")}
+                disabled={!selectedMemberToAdd}
+                className="h-[38px] px-3 bg-red-50 text-red-700 border border-red-200 rounded hover:bg-red-100 flex items-center gap-1 text-xs font-bold disabled:opacity-50"
+              >
+                <IconUserX size={14} /> Ausente
+              </button>
+            </div>
+            {customAttendance.length > 0 ? (
+              <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                {customAttendance.map((item, idx) => (
+                  <div
+                    key={`${item.id_integrante}-${idx}`}
+                    className="flex items-center justify-between text-xs p-2 bg-slate-50 rounded border border-slate-100"
                   >
-                    <IconTrash size={14} />
-                  </button>
-                </div>
-              ))}
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${item.tipo === "invitado" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}
+                      >
+                        {item.tipo}
+                      </span>
+                      <span className="font-medium text-slate-700">
+                        {item.label}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => handleRemoveCustom(item.id_integrante)}
+                      className="text-slate-400 hover:text-red-600"
+                    >
+                      <IconTrash size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[10px] text-slate-400 italic text-center py-2 bg-slate-50 rounded border border-dashed border-slate-200">
+                No hay excepciones cargadas.
+              </div>
+            )}
+          </div>
+
+          <div className="bg-emerald-50 p-3 rounded border border-emerald-100">
+            <h3 className="text-xs font-bold text-emerald-800 mb-2 flex items-center gap-2">
+              <IconMusic size={14} /> Repertorio / Preparación
+            </h3>
+            <MultiSelect
+              placeholder="Vincular con Programas..."
+              options={programasOptions}
+              selectedIds={formData.selectedProgramas}
+              onChange={(ids) =>
+                setFormData({ ...formData, selectedProgramas: ids })
+              }
+            />
+            <p className="text-[10px] text-emerald-600 mt-2 ml-1">
+              * Se mostrará el repertorio de estos programas en la agenda.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
+              Nota Pública
+            </label>
+            <input
+              type="text"
+              className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
+              placeholder="Ej: Solo cuerdas, traer atril..."
+              value={formData.descripcion}
+              onChange={(e) =>
+                setFormData({ ...formData, descripcion: e.target.value })
+              }
+            />
+          </div>
+
+          <div className="flex justify-between pt-4 border-t border-slate-100 items-center">
+            {initialData ? (
+              <button
+                onClick={handleDelete}
+                className="text-red-500 hover:text-red-700 text-xs font-bold flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50"
+              >
+                <IconTrash size={14} /> Eliminar Ensayo
+              </button>
+            ) : (
+              <div />
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleSafeCancel}
+                className="px-4 py-2 text-sm text-slate-600 font-bold hover:bg-slate-100 rounded"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                className="px-6 py-2 bg-indigo-600 text-white text-sm font-bold rounded hover:bg-indigo-700 flex items-center gap-2 disabled:opacity-50"
+              >
+                {loading ? (
+                  <IconLoader className="animate-spin" />
+                ) : (
+                  <IconSave size={16} />
+                )}
+                {initialData ? "Guardar Cambios" : "Crear Ensayo"}
+              </button>
             </div>
-          ) : (
-            <div className="text-[10px] text-slate-400 italic text-center py-2 bg-slate-50 rounded border border-dashed border-slate-200">
-              No hay excepciones cargadas.
-            </div>
-          )}
-        </div>
-
-        <div className="bg-emerald-50 p-3 rounded border border-emerald-100">
-          <h3 className="text-xs font-bold text-emerald-800 mb-2 flex items-center gap-2">
-            <IconMusic size={14} /> Repertorio / Preparación
-          </h3>
-          <MultiSelect
-            placeholder="Vincular con Programas..."
-            options={programasOptions}
-            selectedIds={formData.selectedProgramas}
-            onChange={(ids) =>
-              setFormData({ ...formData, selectedProgramas: ids })
-            }
-          />
-          <p className="text-[10px] text-emerald-600 mt-2 ml-1">
-            * Se mostrará el repertorio de estos programas en la agenda.
-          </p>
-        </div>
-
-        <div>
-          <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
-            Nota Pública
-          </label>
-          <input
-            type="text"
-            className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
-            placeholder="Ej: Solo cuerdas, traer atril..."
-            value={formData.descripcion}
-            onChange={(e) =>
-              setFormData({ ...formData, descripcion: e.target.value })
-            }
-          />
-        </div>
-
-        <div className="flex justify-between pt-4 border-t border-slate-100 items-center">
-          {initialData ? (
-            <button
-              onClick={handleDelete}
-              className="text-red-500 hover:text-red-700 text-xs font-bold flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50"
-            >
-              <IconTrash size={14} /> Eliminar Ensayo
-            </button>
-          ) : (
-            <div></div>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              onClick={onCancel}
-              className="px-4 py-2 text-sm text-slate-600 font-bold hover:bg-slate-100 rounded"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={loading}
-              className="px-6 py-2 bg-indigo-600 text-white text-sm font-bold rounded hover:bg-indigo-700 flex items-center gap-2 disabled:opacity-50"
-            >
-              {loading ? (
-                <IconLoader className="animate-spin" />
-              ) : (
-                <IconSave size={16} />
-              )}
-              {initialData ? "Guardar Cambios" : "Crear Ensayo"}
-            </button>
           </div>
         </div>
       </div>
-    </div>
+
+      {/* MODAL DE CONFIRMACIÓN DE SALIDA */}
+      <ConfirmModal
+        isOpen={showExitConfirm}
+        onClose={() => setShowExitConfirm(false)} // Vuelve al formulario
+        onConfirm={onCancel} // Ejecuta el cierre real
+        title="Cambios sin guardar"
+        message="Has modificado los datos del ensayo. Si sales ahora, se perderán todos los cambios que no hayas guardado."
+        confirmText="Descartar y salir"
+        cancelText="Continuar editando"
+      />
+    </>
   );
 }
