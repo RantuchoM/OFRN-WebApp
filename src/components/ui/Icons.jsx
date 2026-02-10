@@ -1098,6 +1098,26 @@ export const IconMoreVertical = ({ size = 24, className = "" }) => (
     <circle cx="12" cy="19" r="1" />
   </svg>
 );
+export const IconBookOff = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2c2 0 4 1.5 6 3" />
+    <path d="M20 4.5v15A2.5 2.5 0 0 1 17.5 22c-2 0-4-1.5-6-3" />
+    <path d="M6.5 2C4 2 2 4.5 2 4.5" />
+    <path d="M10 22c-2 0-4-1.5-6-3v-1" />
+    <line x1="2" y1="2" x2="22" y2="22" />
+  </svg>
+);
 export const IconEye = ({ size = 24, className = "" }) => (
   <svg
     className={className}

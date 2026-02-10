@@ -77,6 +77,7 @@ import {
   IconEyeOff,
   IconSun,
   IconMoon,
+  IconBookOff
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal";
 import SearchableSelect from "./components/ui/SearchableSelect";
@@ -107,7 +108,7 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
   const [activeTab, setActiveTab] = useState("PERSONAL");
 
   const formatLinks = (webcalUrl) => {
-    const httpsLink = webcalUrl.replace(/^webcal:/, "https:");
+    const httpsLink = webcalUrl;
     const googleMagicLink = `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcalUrl)}`;
     return { webcalLink: webcalUrl, googleMagicLink, httpsLink };
   };
@@ -318,8 +319,8 @@ const ProtectedApp = () => {
   }, [isActuallyAdmin]);
 
   // --- ESTADOS PARA SIDEBAR ESCRITORIO ---
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => 
-    localStorage.getItem("sidebar_collapsed") === "true"
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
+    () => localStorage.getItem("sidebar_collapsed") === "true",
   );
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
 
@@ -335,7 +336,7 @@ const ProtectedApp = () => {
   // Estados unificados de UI
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
-  
+
   // Estado para el modal global de comentarios
   const [globalCommentsOpen, setGlobalCommentsOpen] = useState(false);
 
@@ -357,10 +358,10 @@ const ProtectedApp = () => {
   const [uiScale, setUiScale] = useState(() =>
     parseInt(localStorage.getItem("app_ui_scale") || "100", 10),
   );
-  
+
   // Inicializar estado del modo oscuro leyendo localStorage
-  const [isDarkMode, setIsDarkMode] = useState(() => 
-    localStorage.getItem('theme_mode') === 'dark'
+  const [isDarkMode, setIsDarkMode] = useState(
+    () => localStorage.getItem("theme_mode") === "dark",
   );
 
   useEffect(() => {
@@ -372,14 +373,16 @@ const ProtectedApp = () => {
   const toggleDarkMode = () => {
     const newMode = !isDarkMode;
     setIsDarkMode(newMode);
-    
+
     // Disparar evento para que ThemeController actúe
-    window.dispatchEvent(new CustomEvent('theme-changed', {
-        detail: { darkMode: newMode }
-    }));
-    
+    window.dispatchEvent(
+      new CustomEvent("theme-changed", {
+        detail: { darkMode: newMode },
+      }),
+    );
+
     // Guardar preferencia localmente para persistencia rápida
-    localStorage.setItem('theme_mode', newMode ? 'dark' : 'light');
+    localStorage.setItem("theme_mode", newMode ? "dark" : "light");
   };
 
   // Lógica para obtener conteo de comentarios no leídos en segundo plano
@@ -521,7 +524,7 @@ const ProtectedApp = () => {
   useEffect(() => {
     const newMode = tabToMode[currentTabParam] || defaultMode;
     setMode(newMode);
-    
+
     if (newMode === "GIRAS") {
       setActiveGiraId(currentGiraIdParam);
     } else {
@@ -735,16 +738,20 @@ const ProtectedApp = () => {
       >
         <div className="p-4 border-b border-slate-100 shrink-0 flex flex-col gap-3">
           {/* Top Row: Logo & Mobile Close */}
-          <div className={`flex items-center ${isDesktopExpanded ? "justify-between" : "justify-center"} transition-all`}>
+          <div
+            className={`flex items-center ${isDesktopExpanded ? "justify-between" : "justify-center"} transition-all`}
+          >
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shrink-0">
                 O
               </div>
-              <h1 className={`font-bold text-slate-800 text-lg transition-opacity duration-200 ${isDesktopExpanded ? "opacity-100 block" : "opacity-0 hidden lg:hidden"}`}>
+              <h1
+                className={`font-bold text-slate-800 text-lg transition-opacity duration-200 ${isDesktopExpanded ? "opacity-100 block" : "opacity-0 hidden lg:hidden"}`}
+              >
                 OFRN
               </h1>
             </div>
-            
+
             <button
               onClick={() => setIsMobileMenuOpen(false)}
               className="lg:hidden p-1 text-slate-400"
@@ -753,24 +760,26 @@ const ProtectedApp = () => {
             </button>
 
             {/* BOTÓN COLAPSAR ESCRITORIO */}
-            <button 
-                onClick={toggleSidebarCollapse}
-                className={`hidden lg:flex p-1 rounded hover:bg-slate-100 text-slate-400 ${!isDesktopExpanded ? 'hidden' : ''}`}
-                title={isSidebarCollapsed ? "Fijar menú" : "Colapsar menú"}
+            <button
+              onClick={toggleSidebarCollapse}
+              className={`hidden lg:flex p-1 rounded hover:bg-slate-100 text-slate-400 ${!isDesktopExpanded ? "hidden" : ""}`}
+              title={isSidebarCollapsed ? "Fijar menú" : "Colapsar menú"}
             >
-                {isSidebarCollapsed ? (
-                    <IconChevronRight size={18} />
-                ) : (
-                    <IconChevronLeft size={18} />
-                )}
+              {isSidebarCollapsed ? (
+                <IconChevronRight size={18} />
+              ) : (
+                <IconChevronLeft size={18} />
+              )}
             </button>
           </div>
 
           {/* Controls Row (MODO NOCTURNO Y ZOOM) */}
-          <div className={`flex items-center justify-between bg-slate-50 p-1.5 rounded-xl border border-slate-200 transition-all ${isDesktopExpanded ? "opacity-100" : "opacity-0 hidden"}`}>
+          <div
+            className={`flex items-center justify-between bg-slate-50 p-1.5 rounded-xl border border-slate-200 transition-all ${isDesktopExpanded ? "opacity-100" : "opacity-0 hidden"}`}
+          >
             <button
               onClick={toggleDarkMode}
-              className={`p-1.5 rounded-lg transition-all flex-1 flex justify-center items-center ${isDarkMode ? 'bg-slate-800 text-indigo-400' : 'bg-white text-orange-500 shadow-sm'}`}
+              className={`p-1.5 rounded-lg transition-all flex-1 flex justify-center items-center ${isDarkMode ? "bg-slate-800 text-indigo-400" : "bg-white text-orange-500 shadow-sm"}`}
               title="Cambiar Modo"
             >
               {isDarkMode ? <IconMoon size={16} /> : <IconSun size={16} />}
@@ -780,7 +789,7 @@ const ProtectedApp = () => {
 
             <div className="flex items-center gap-2 px-2 bg-white rounded-lg border border-slate-100 shadow-sm h-8">
               <button
-                onClick={() => setUiScale(s => Math.max(80, s - 5))}
+                onClick={() => setUiScale((s) => Math.max(80, s - 5))}
                 className="text-slate-400 hover:text-indigo-600 font-bold text-lg leading-none active:scale-90 transition-transform w-5 flex justify-center"
               >
                 -
@@ -789,7 +798,7 @@ const ProtectedApp = () => {
                 {uiScale}
               </span>
               <button
-                onClick={() => setUiScale(s => Math.min(140, s + 5))}
+                onClick={() => setUiScale((s) => Math.min(140, s + 5))}
                 className="text-slate-400 hover:text-indigo-600 font-bold text-lg leading-none active:scale-90 transition-transform w-5 flex justify-center"
               >
                 +
@@ -811,8 +820,10 @@ const ProtectedApp = () => {
               title={!isDesktopExpanded ? item.label : ""}
             >
               <div className="shrink-0">{item.icon}</div>
-              
-              <span className={`text-sm font-medium whitespace-nowrap transition-all duration-200 ${isDesktopExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 absolute left-10 hidden"}`}>
+
+              <span
+                className={`text-sm font-medium whitespace-nowrap transition-all duration-200 ${isDesktopExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 absolute left-10 hidden"}`}
+              >
                 {item.label}
               </span>
             </button>
@@ -825,8 +836,10 @@ const ProtectedApp = () => {
             className={`w-full flex items-center px-3 py-2.5 rounded-xl text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-colors ${!isDesktopExpanded ? "justify-center" : "gap-3"}`}
           >
             <IconLogOut size={20} className="shrink-0" />{" "}
-            <span className={`text-sm font-medium whitespace-nowrap ${isDesktopExpanded ? "block" : "hidden"}`}>
-                Cerrar Sesión
+            <span
+              className={`text-sm font-medium whitespace-nowrap ${isDesktopExpanded ? "block" : "hidden"}`}
+            >
+              Cerrar Sesión
             </span>
           </button>
         </div>
@@ -835,7 +848,6 @@ const ProtectedApp = () => {
       {/* MAIN */}
       <div className="flex-1 flex flex-col h-full relative overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-30 gap-4">
-          
           {/* 1. SECCIÓN IZQUIERDA (Logo/Título/Suplantación) */}
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -892,19 +904,31 @@ const ProtectedApp = () => {
 
           {/* 2. SECCIÓN CENTRAL (BARRA DE COMANDOS) */}
           <div className="flex-1 hidden md:flex justify-center max-w-xl mx-auto px-4">
-             <CommandBarTrigger className="w-full shadow-none bg-slate-50 border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:border-indigo-400" />
+            <CommandBarTrigger className="w-full shadow-none bg-slate-50 border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:border-indigo-400" />
           </div>
           {/* 3. SECCIÓN DERECHA (Acciones/Perfil) */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* BOTÓN MANUAL (MODIFICADO) */}
             <div className="flex items-center bg-slate-50 border border-slate-200 rounded-full p-1">
               <button
                 onClick={toggleVisibility}
-                className={`p-1.5 rounded-full transition-colors ${!showTriggers ? "text-slate-400" : "text-sky-600 bg-white shadow-sm"}`}
+                className={`p-1.5 rounded-full transition-colors ${
+                  !showTriggers
+                    ? "text-slate-400"
+                    : "text-sky-600 bg-white shadow-sm"
+                }`}
+                title={
+                  showTriggers
+                    ? "Ocultar ayudas del manual"
+                    : "Mostrar ayudas del manual"
+                }
               >
                 {showTriggers ? (
-                  <IconEye size={18} />
-                ) : (
+                  // Icono Manual Tachado (Ocultar)
                   <IconEyeOff size={18} />
+                ) : (
+                  // Icono Manual Abierto (Mostrar)
+                  <IconBookOpen size={18} />
                 )}
               </button>
               {showTriggers && (
@@ -942,12 +966,16 @@ const ProtectedApp = () => {
               </button>
             )}
 
+            {/* BOTÓN CALENDARIO (MODIFICADO PARA MÓVIL) */}
             <button
               onClick={() => setCalendarModalOpen(true)}
-              className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 font-bold text-xs hover:bg-indigo-100"
+              // Se cambió 'hidden xl:flex' por 'flex' para que siempre se vea
+              className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 font-bold text-xs hover:bg-indigo-100"
+              title="Sincronizar Calendario"
             >
               <IconCalendar size={14} />
-              <span className="hidden 2xl:inline">Sincronizar</span>
+              {/* El texto se oculta en móvil para ahorrar espacio, aparece en pantallas grandes */}
+              <span className="hidden xl:inline">Sincronizar</span>
             </button>
 
             <button
