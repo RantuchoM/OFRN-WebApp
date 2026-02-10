@@ -94,16 +94,20 @@ export default function GirasListControls({
         </div>
       </div>
       {/* VER OBRAS (Al final) */}
-      <button
+     <button
         onClick={() => setShowRepertoireInCards(!showRepertoireInCards)}
         className={`ml-auto px-2 py-1 rounded-md border transition-all flex items-center gap-1.5 ${
           showRepertoireInCards
-            ? "bg-indigo-150 border-indigo-300 text-indigo-600"
+            ? "bg-indigo-600 border-indigo-600" // Fondo Indigo sólido
             : "bg-white border-slate-200 text-slate-400 hover:text-slate-600"
         }`}
         title="Ver Repertorio en tarjetas"
       >
-        <IconMusic size={16} />
+        <IconMusic 
+          size={16} 
+          // Aplicamos color Slate claro explícitamente al ícono cuando está activo
+          className={showRepertoireInCards ? "text-slate-300" : ""} 
+        />
       </button>
       {/* SEPARADOR */}
       <div className="h-6 w-px bg-slate-200 hidden md:block"></div>

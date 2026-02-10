@@ -172,6 +172,7 @@ export default function RepertoireManager({
   initialData = [],
   isCompact = false,
   readOnly = undefined,
+  onSyncArco,
 }) {
   const { user, isEditor: isGlobalEditor } = useAuth();
 
@@ -180,9 +181,8 @@ export default function RepertoireManager({
   const [repertorios, setRepertorios] = useState(initialData);
   const [musicians, setMusicians] = useState([]);
 
-  // --- CORRECCIÓN AQUÍ: Definimos seatingMap correctamente ---
   const [seatingMap, setSeatingMap] = useState({});
-  const [assignments, setAssignments] = useState([]); // <--- AGREGAR ESTO
+  const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [syncingDrive, setSyncingDrive] = useState(false);
   const [editingBlock, setEditingBlock] = useState({ id: null, nombre: "" });
@@ -234,7 +234,7 @@ export default function RepertoireManager({
 
     // CALL THE NEW FETCH
     fetchSeating();
-  }, [programId, user?.id]); // <--- AÑADIR user?.id AQUÍ
+  }, [programId, user?.id]);
   useEffect(() => {
     if (isAddModalOpen || isEditWorkModalOpen) {
       if (worksLibrary.length === 0) fetchLibrary();
@@ -250,8 +250,6 @@ export default function RepertoireManager({
     if (data) setMusicians(data);
   };
 
-  // --- FETCH SEATING LOGIC ---
-  // --- FETCH SEATING LOGIC ACTUALIZADA ---
   const fetchSeating = async () => {
     if (!programId) return;
 
@@ -277,7 +275,7 @@ export default function RepertoireManager({
       if (item.id_musico) {
         const container = containers.find((c) => c.id === item.id_contenedor);
         newMap[String(item.id_musico)] = {
-          containerId: item.id_contenedor, // <--- IMPORTANTE
+          containerId: item.id_contenedor,
           containerName: container?.nombre,
           desk: Math.floor(item.orden || 0) + 1,
         };
@@ -405,7 +403,7 @@ export default function RepertoireManager({
           id_arco_seleccionado, 
           obras (
               id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, 
-              obras_arcos (id, nombre, link, descripcion),
+              obras_arcos (id, nombre, link, descripcion, id_drive_folder),
               compositores (id, apellido, nombre), 
               obras_compositores (rol, compositores(id, apellido, nombre)),
               obras_particellas (id, nombre_archivo, nota_organico, id_instrumento, url_archivo, instrumentos (instrumento))
@@ -681,11 +679,7 @@ export default function RepertoireManager({
     ].some((s) => instr.includes(s));
   }, [musicians, user]);
 
-  // --- LÓGICA PARA SABER SI LA GIRA EMPEZÓ (Simplificada) ---
-  // Si hay un giraId presente, asumimos que estamos en contexto de gira.
-  // Para una lógica más precisa, podrías comparar la fecha actual con la de la gira.
   const isTourStarted = !!giraId;
-  // --- OBTENER URL DE MI PARTE (Para lógica de borde y badge) ---
   const getMyPartUrl = (obra) => {
     if (!user || !assignments.length) return null;
 
@@ -719,49 +713,34 @@ export default function RepertoireManager({
 
     return { url, name: myPart.nombre_archivo };
   };
-  // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL ---
-  // --- HELPER PARA RENDERIZAR BADGE DE MI PARTE + ATRIL (MODIFICADO) ---
   const renderMyPartBadge = (obra) => {
-    // Solo logueamos una obra específica para no inundar la consola, por ejemplo la primera
     const isDebugWork = true;
 
     if (!user || !assignments.length) {
       if (isDebugWork && !user)
-        //console.log(`DEBUG BADGE [${obra.titulo}]: No hay user`);
-      if (isDebugWork && !assignments.length)
-        //console.log(`DEBUG BADGE [${obra.titulo}]: No hay assignments`);
-      return null;
+        if (isDebugWork && !assignments.length)
+          //console.log(`DEBUG BADGE [${obra.titulo}]: No hay user`);
+          //console.log(`DEBUG BADGE [${obra.titulo}]: No hay assignments`);
+          return null;
     }
 
     const userId = String(user.id);
     const mySeating = seatingMap[userId];
 
-    // Buscamos la asignación
     const assignment = assignments.find((a) => {
       const matchObra = String(a.id_obra) === String(obra.id);
       if (!matchObra) return false;
 
-      // Verificación por Músico (convertimos todo a String para comparar)
       const matchUser = a.id_musicos_asignados?.some(
         (id) => String(id) === userId,
       );
 
-      // Verificación por Contenedor
       const matchContainer =
         mySeating?.containerId &&
         String(a.id_contenedor) === String(mySeating.containerId);
 
       return matchUser || matchContainer;
     });
-
-    if (isDebugWork) {
-      /*console.log(`DEBUG BADGE [${obra.titulo}]:`, {
-        userId,
-        myContainerId: mySeating?.containerId,
-        foundAssignment: !!assignment,
-        particellaId: assignment?.id_particella,
-      });*/
-    }
 
     if (!assignment) return null;
 
@@ -770,10 +749,6 @@ export default function RepertoireManager({
     );
 
     if (!myPart) {
-      if (isDebugWork)
-        /*console.log(
-          `DEBUG BADGE [${obra.titulo}]: Asignación hallada pero particella no encontrada en array de obra`,
-        );*/
       return null;
     }
 
@@ -831,24 +806,21 @@ export default function RepertoireManager({
           ?.toLowerCase()
           .includes(filters.arreglador.toLowerCase())),
   );
-  // --- MANEJADOR CAMBIO DE ARCO (BD + DRIVE) ---
+  // --- MANEJADOR CAMBIO DE ARCO (BD + DRIVE VIA PADRE) ---
   const handleArcoSelectionChange = async (item, newArcoId) => {
-    // 1. Actualización optimista en BD
-    // Nota: updateWorkDetail devuelve una promesa, pero no necesitamos esperarla para seguir
+    // 1. Actualización optimista en BD (Repertorio)
     updateWorkDetail(item.id, "id_arco_seleccionado", newArcoId);
 
-    // 2. Si es null (deselección), no hay que crear shortcut
+    // 2. Si es deselección, terminamos
     if (!newArcoId) return;
 
-    // 3. Obtener datos del arco
+    // 3. Obtener datos del arco seleccionado
     const selectedArco = arcosByWork[item.obras.id]?.find(
       (a) => a.id == newArcoId,
     );
-
     if (!selectedArco) return;
 
-    // INTENTO DE RECUPERACIÓN DE ID:
-    // Si no tiene id_drive_folder (legacy), intentamos sacarlo del link
+    // Intentar obtener ID de Drive
     let targetId = selectedArco.id_drive_folder;
     if (!targetId && selectedArco.link) {
       const match = selectedArco.link.match(/[-\w]{25,}/);
@@ -856,41 +828,21 @@ export default function RepertoireManager({
     }
 
     if (!targetId) {
-      console.warn(
-        "No se pudo obtener ID de Drive para el arco seleccionado. Solo se actualizó BD.",
-      );
+      console.warn("No hay ID de Drive para vincular shortcut.");
       return;
     }
 
-    console.log(
-      "Iniciando Sync Drive para:",
-      item.obras.titulo,
-      "->",
-      selectedArco.nombre,
-    );
-
-    // 4. Llamar a Edge Function
-    supabase.functions
-      .invoke("manage-drive", {
-        body: {
-          action: "link_existing_arco",
-          programId: programId || giraId,
-          targetDriveId: targetId,
-          obraTitulo: item.obras.titulo,
-          nombreSet: selectedArco.nombre,
-        },
-      })
-      .then(({ data, error }) => {
-        if (error) console.error("Error en Edge Function:", error);
-        else console.log("Drive Sync exitoso:", data);
-      })
-      .catch((err) => console.error("Error de red/fetch:", err));
+    // 4. Delegar al padre la sincronización con Drive
+    if (onSyncArco) {
+      onSyncArco(item.obras, selectedArco.nombre, targetId)
+        .then(() => console.log("Arcos vinculados correctamente."))
+        .catch((err) => console.error("Error vinculando arcos:", err));
+    }
   };
-  // --- NUEVA FUNCIÓN: Crear Set de Arcos ---
+  // --- NUEVA FUNCIÓN: Crear Set de Arcos (DELEGADA AL PADRE) ---
   const handleCreateBowingSet = async (workId, workTitle) => {
-    // Validación previa
-    if (!programId && !giraId) {
-      alert("Error: No se identifica el ID del programa/gira.");
+    if (!onSyncArco) {
+      alert("Error: Función de sincronización no disponible.");
       return;
     }
 
@@ -903,88 +855,39 @@ export default function RepertoireManager({
     try {
       setLoading(true);
 
-      // 1. Llamar a Edge Function
-      const { data: driveData, error: driveError } =
-        await supabase.functions.invoke("manage-drive", {
-          body: {
-            action: "create_bowing_set",
-            // Aseguramos enviar un ID válido (programId suele ser el id numérico de la tabla programas)
-            programId: programId || giraId,
-            nombreSet: nombreSet,
-            obraTitulo: workTitle,
-          },
-        });
+      // 1. Pedir al padre que cree todo
+      // Pasamos null en targetDriveId para indicar que es NUEVO
+      const result = await onSyncArco(
+        { id: workId, titulo: workTitle },
+        nombreSet,
+        null,
+      );
 
-      // Manejo detallado del error 400/500
-      if (driveError) {
-        // Intentamos leer el mensaje que envió la Edge Function (ej: "La gira no tiene carpeta...")
-        let serverMessage = driveError.message;
-        try {
-          // A veces el error viene en el cuerpo de la respuesta si es un 400 manejado
-          if (
-            driveError.context &&
-            typeof driveError.context.json === "function"
-          ) {
-            const body = await driveError.context.json();
-            if (body.error) serverMessage = body.error;
+      if (result.success && result.newArcoId) {
+        // 2. Asignar el nuevo arco creado a la obra en el repertorio
+        // Buscamos el item específico
+        let targetItem = null;
+        for (const r of repertorios) {
+          const found = r.repertorio_obras.find((o) => o.obras.id === workId);
+          if (found) {
+            targetItem = found;
+            break;
           }
-        } catch (e) {}
-
-        throw new Error(serverMessage);
-      }
-
-      if (!driveData || !driveData.success) {
-        throw new Error("La respuesta del servidor no fue exitosa.");
-      }
-
-      // 2. Crear registro en BD
-      const { data: newArco, error: dbError } = await supabase
-        .from("obras_arcos")
-        .insert({
-          id_obra: workId,
-          nombre: nombreSet,
-          link: driveData.webViewLink,
-          id_drive_folder: driveData.folderId,
-          descripcion: `Creado automáticamente desde Gira`,
-        })
-        .select()
-        .single();
-
-      if (dbError) throw dbError;
-
-      // 3. Asignar este nuevo arco a la obra
-      // Buscamos el item específico en la estructura de repertorios
-      let targetItem = null;
-      for (const r of repertorios) {
-        const found = r.repertorio_obras.find((o) => o.obras.id === workId);
-        if (found) {
-          targetItem = found;
-          break;
         }
-      }
 
-      if (targetItem) {
-        await updateWorkDetail(
-          targetItem.id,
-          "id_arco_seleccionado",
-          newArco.id,
-        );
-        // Recargar forzada para refrescar los arcos disponibles en el select
-        window.location.reload();
+        if (targetItem) {
+          await updateWorkDetail(
+            targetItem.id,
+            "id_arco_seleccionado",
+            result.newArcoId,
+          );
+          // Recargamos para que el nuevo arco aparezca en el <select>
+          window.location.reload();
+        }
       }
     } catch (error) {
       console.error("Error creando set de arcos:", error);
-      // Mensaje amigable si es el error de la carpeta
-      if (
-        error.message.includes("no tiene carpeta") ||
-        error.message.includes("Bad Request")
-      ) {
-        alert(
-          "Error: La Gira no tiene carpeta en Drive.\n\nPor favor, haz clic en el botón de sincronizar (icono de nube/recarga) en el panel principal de la gira primero.",
-        );
-      } else {
-        alert(`Error: ${error.message}`);
-      }
+      alert(`Error al crear set: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -1227,25 +1130,42 @@ export default function RepertoireManager({
             </div>
 
             {/* ============================================================ */}
-            {/* VISTA ESCRITORIO: TABLA (Visible solo en md o superior)     */}
+            {/* VISTA ESCRITORIO: TABLA (Visible solo en md o superior)      */}
             {/* ============================================================ */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1000px]">
+            <div className="hidden md:block overflow-x-auto pb-4">
+              <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1100px]">
+                {/* --- NUEVO: DEFINICIÓN DE ANCHOS INDEPENDIENTE DE HEADER --- */}
+                <colgroup>
+                  <col className="w-8" /> {/* # */}
+                  <col className="w-8" /> {/* GD */}
+                  <col className="w-[80px]" /> {/* Compositor */}
+                  <col className="w-[160px]" /> {/* Obra */}
+                  <col className="w-[110px]" /> {/* Instr */}
+                  <col className="w-12" /> {/* Dur */}
+                  <col className="w-[100px]" /> {/* Solista */}
+                  <col className="w-[70px]" /> {/* Arr */}
+                  <col className="w-[70px]" /> {/* Notas */}
+                  <col className="w-24" /> {/* Arcos */}
+                  <col className="w-8" /> {/* YT */}
+                  <col className="w-16" /> {/* Actions */}
+                  <col className="w-8" /> {/* Excl */}
+                </colgroup>
+
                 <thead className={tableHeaderClasses(isCompact)}>
                   <tr>
-                    <th className="p-1 w-8 text-center">#</th>
-                    <th className="p-1 w-8 text-center">GD</th>
-                    <th className="p-1 w-32">Compositor</th>
-                    <th className="p-1 w-110">Obra</th>
-                    <th className="p-1 w-58 text-center">Instr.</th>
-                    <th className="p-1 w-12 text-center">Dur.</th>
-                    <th className="p-1 w-32">Solista</th>
-                    <th className="p-1 w-24">Arr.</th>
-                    <th className="p-1 w-30">Notas</th>
-                    <th className="p-1 w-24 text-center">Arcos</th>
-                    <th className="p-1 w-8 text-center">YT</th>
-                    <th className="p-1 w-16 text-right"></th>
-                    <th className="p-1 w-8 text-center">Excl.</th>
+                    <th className="p-1 text-center">#</th>
+                    <th className="p-1 text-center">GD</th>
+                    <th className="p-1">Compositor</th>
+                    <th className="p-1">Obra</th>
+                    <th className="p-1 text-center">Instr.</th>
+                    <th className="p-1 text-center">Dur.</th>
+                    <th className="p-1">Solista</th>
+                    <th className="p-1">Arr.</th>
+                    <th className="p-1">Notas</th>
+                    <th className="p-1 text-center">Arcos</th>
+                    <th className="p-1 text-center">YT</th>
+                    <th className="p-1 text-right"></th>
+                    <th className="p-1 text-center">Excl.</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1284,6 +1204,7 @@ export default function RepertoireManager({
                           <a
                             href={item.obras.link_drive}
                             target="_blank"
+                            rel="noreferrer"
                             className="block w-2 h-2 bg-amber-400 rounded-full mx-auto"
                           ></a>
                         ) : (
@@ -1480,6 +1401,7 @@ export default function RepertoireManager({
                           <a
                             href={item.obras.link_youtube}
                             target="_blank"
+                            rel="noreferrer"
                             className="text-red-600"
                           >
                             <IconYoutube size={14} />

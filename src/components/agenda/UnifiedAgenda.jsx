@@ -1507,7 +1507,19 @@ export default function UnifiedAgenda({
                   </button>
 
                   {isFilterMenuOpen && (
-                    <div className="absolute top-full right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 origin-top-right">
+                    <div 
+                      className={`
+                        /* --- MÓVIL: Centrado fijo --- */
+                        fixed top-20 left-1/2 -translate-x-1/2 w-[80%] max-w-sm
+                        
+                        /* --- ESCRITORIO (sm+): Absoluto a la derecha --- */
+                        sm:absolute sm:top-full sm:left-auto sm:right-0 sm:translate-x-0 sm:mt-2 sm:w-72 sm:max-w-none
+                        
+                        /* --- ESTILOS COMUNES --- */
+                        bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden 
+                        animate-in fade-in zoom-in-95 origin-top sm:origin-top-right
+                      `}
+                    >
                       {/* ... Menú de filtros (igual) ... */}
                       <div className="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
                         <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">

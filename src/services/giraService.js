@@ -142,3 +142,18 @@ export const getEnrichedRosterOnDemand = async (supabase, giraId) => {
     return [];
   }
 };
+export const syncBowingToProgram = async (supabase, { programId, obraId, obraTitulo, nombreSet, targetDriveId }) => {
+  const { data, error } = await supabase.functions.invoke('manage-drive', {
+    body: {
+      action: "sync_bowing_to_program",
+      programId,
+      obraId, // <--- AÑADIR ESTO
+      obraTitulo,
+      nombreSet,
+      targetDriveId
+    }
+  });
+
+  if (error) throw error;
+  return data;
+};

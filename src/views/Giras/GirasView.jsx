@@ -24,7 +24,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { useLogistics } from "../../hooks/useLogistics";
-import ManualTrigger from '../../components/manual/ManualTrigger';
+import ManualTrigger from "../../components/manual/ManualTrigger";
 
 // Sub-vistas
 import GiraForm from "./GiraForm";
@@ -324,7 +324,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
         const { data, error } = await supabase
           .from("programas")
           .select(
-                      `
+            `
             *,
             giras_localidades(id_localidad, localidades(localidad)), 
 
@@ -946,7 +946,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden relative"
+        // Cambiamos 'overflow-x-hidden' por 'overflow-x-auto' y agregamos bg-slate-50
+        className="flex-1 overflow-y-auto overflow-x-auto relative bg-slate-50"
       >
         {mode === "FULL_AGENDA" && <AgendaGeneral supabase={supabase} />}
         {mode === "CALENDAR" && <MusicianCalendar supabase={supabase} />}
@@ -1014,8 +1015,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
               </button>
               {<ManualTrigger section="mis_comidas" size="sm" />}
               <h2 className="text-lg font-bold text-slate-800">
-                Mi Asistencia -{" "}        
-
+                Mi Asistencia -{" "}
                 <span className="text-slate-500 text-sm font-normal">
                   {selectedGira.nombre_gira}
                 </span>

@@ -13,7 +13,7 @@ import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import ProgramSeating from "../Giras/ProgramSeating";
 import InstrumentationManager from "../../components/roster/InstrumentationManager";
 import MyPartsViewer from "./MyPartsViewer";
-
+import { syncBowingToProgram } from "../../services/giraService";
 export default function ProgramRepertoire({ supabase, program, onBack }) {
   const { user, isEditor } = useAuth(); // Hook de auth
   const [searchParams, setSearchParams] = useSearchParams();
@@ -102,7 +102,48 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
       onBack();
     }
   };
+  /**
+   * Manejador unificado para crear/vincular arcos.
+   * Se pasa como prop a RepertoireManager.
+   */
+  const handleSyncArco = async (obra, nombreSet, targetDriveId = null) => {
+    try {
+      // 1. Llamada a Edge Function
+      const result = await syncBowingToProgram(supabase, {
+        programId: program.id,
+        obraId: obra.id, // <--- CAMBIO IMPORTANTE: Pasar ID explícito de la obra
+        obraTitulo: obra.titulo,
+        nombreSet,
+        targetDriveId
+      });
 
+      let arcoId = null;
+
+      // 2. Si es un set NUEVO, guardar en BD
+      if (!targetDriveId && result.realFolderId) {
+        const { data: newArco, error: dbError } = await supabase
+          .from('obras_arcos')
+          .insert({
+            id_obra: obra.id,
+            nombre: nombreSet,
+            id_drive_folder: result.realFolderId,
+            link: `https://drive.google.com/drive/folders/${result.realFolderId}`,
+            descripcion: `Creado automáticamente para gira ${program.nomenclador}`
+          })
+          .select()
+          .single();
+        
+        if (dbError) throw dbError;
+        arcoId = newArco.id;
+      }
+
+      return { success: true, ...result, newArcoId: arcoId };
+
+    } catch (error) {
+      console.error("Error en sincronización de arcos:", error);
+      throw error;
+    }
+  };
   return (
     <div className="flex flex-col h-full bg-slate-100 animate-in fade-in">
       {/* Header */}
@@ -194,6 +235,7 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
               initialData={program.programas_repertorios}
               onUpdate={handleRepertoireUpdate}
               readOnly={!canEdit} // <--- AQUI PASAMOS EL PERMISO
+              onSyncArco={handleSyncArco}
             />
           </div>
         )}

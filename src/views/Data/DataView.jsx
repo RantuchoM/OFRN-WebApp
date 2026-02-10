@@ -122,7 +122,7 @@ export default function DataView({ supabase }) {
         { key: "orden", label: "Orden", type: "int" },
       ],
       warning:
-        "🏨 Nota: Por una cuestión de seguridad ",
+        "🏨 Nota: Por una cuestión de seguridad en los cálculos, no se pueden editar los nombres; pero si necesitan agregar, contáctenme",
     },
     provincias: {
       label: "Provincias",
