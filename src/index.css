@@ -62,3 +62,50 @@ html.dark .shadow-xl {
   box-shadow: none !important; 
   border: 1px solid rgba(255, 255, 255, 0.1); 
 }
+
+/* Al final de src/index.css */
+@media print {
+  /* 1. Reset base */
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+    color: black !important;
+    filter: none !important; /* Desactiva modo oscuro */
+  }
+
+  /* 2. Ocultar ABSOLUTAMENTE TODO por defecto */
+  body > * {
+    display: none !important;
+  }
+
+  /* 3. Mostrar UNICAMENTE el modal y sus ancestros */
+  /* Nota: Si usas Portals, esto puede variar, pero para el modal fijo: */
+  body > div[class*="fixed"] {
+    display: block !important;
+    position: relative !important; /* Cambia de fixed a relative para fluir en páginas */
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    z-index: auto !important;
+  }
+
+  /* 4. Ocultar elementos de la UI dentro del modal */
+  .print\:hidden,
+  button,
+  header,
+  aside {
+    display: none !important;
+  }
+
+  /* 5. Forzar el contenedor del reporte a ocupar todo el ancho */
+  .print\:block {
+    display: block !important;
+  }
+  
+  /* Asegurar que el fondo del reporte sea blanco y sin sombras */
+  .bg-slate-100, .shadow-2xl {
+    background: white !important;
+    box-shadow: none !important;
+  }
+}

@@ -77,7 +77,7 @@ import {
   IconEyeOff,
   IconSun,
   IconMoon,
-  IconBookOff
+  IconBookOff,
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal";
 import SearchableSelect from "./components/ui/SearchableSelect";
@@ -1019,7 +1019,8 @@ const ProtectedApp = () => {
           </div>
         )}
 
-        <main className="flex-1 overflow-hidden relative bg-slate-50">
+        <main className="flex-1 overflow-hidden relative bg-slate-50 print:overflow-visible print:static">
+          {" "}
           {renderContent()}
           {/* MODAL GLOBAL DE COMENTARIOS */}
           {globalCommentsOpen && (

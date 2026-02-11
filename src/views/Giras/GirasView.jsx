@@ -947,7 +947,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       <div
         ref={scrollContainerRef}
         // Cambiamos 'overflow-x-hidden' por 'overflow-x-auto' y agregamos bg-slate-50
-        className="flex-1 overflow-y-auto overflow-x-auto relative bg-slate-50"
+        className="flex-1 overflow-y-auto overflow-x-auto relative bg-slate-50 print:overflow-visible print:h-auto"
       >
         {mode === "FULL_AGENDA" && <AgendaGeneral supabase={supabase} />}
         {mode === "CALENDAR" && <MusicianCalendar supabase={supabase} />}
