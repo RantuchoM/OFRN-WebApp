@@ -158,12 +158,12 @@ const saveToCache = (key, data) => {
     localStorage.setItem(key, JSON.stringify(data));
   } catch (error) {
     // Si el error es por falta de espacio (QuotaExceededError)
-    if (error.name === 'QuotaExceededError' || error.code === 22) {
+    if (error.name === "QuotaExceededError" || error.code === 22) {
       console.warn("⚠️ LocalStorage lleno. Limpiando caché antigua...");
-      
+
       // 1. Borrar todas las claves que empiecen con 'agenda_cache_'
       Object.keys(localStorage).forEach((k) => {
-        if (k.startsWith('agenda_cache_')) {
+        if (k.startsWith("agenda_cache_")) {
           localStorage.removeItem(k);
         }
       });
@@ -173,7 +173,9 @@ const saveToCache = (key, data) => {
         localStorage.setItem(key, JSON.stringify(data));
         console.log("✅ Caché guardado tras limpieza.");
       } catch (retryError) {
-        console.error("❌ Imposible guardar en caché (datos demasiado grandes). La app funcionará sin caché.");
+        console.error(
+          "❌ Imposible guardar en caché (datos demasiado grandes). La app funcionará sin caché.",
+        );
       }
     }
   }
@@ -286,8 +288,7 @@ export default function UnifiedAgenda({
 
   const effectiveUserId = viewAsUserId || user.id;
   const STORAGE_KEY = `unified_agenda_filters_v4_${effectiveUserId}`;
-  const defaultPersonalFilter = user?.isGeneral !== true;
-
+  const defaultPersonalFilter = !isEditor && !isManagement && !user?.isGeneral;
   // --- ESTADOS ---
   const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
   const [myEnsembleObjects, setMyEnsembleObjects] = useState([]);
@@ -1507,7 +1508,7 @@ export default function UnifiedAgenda({
                   </button>
 
                   {isFilterMenuOpen && (
-                    <div 
+                    <div
                       className={`
                         /* --- MÓVIL: Centrado fijo --- */
                         fixed top-20 left-1/2 -translate-x-1/2 w-[80%] max-w-sm
