@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { IconLoader, IconPrinter } from "../../components/ui/Icons";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { handlePrintExport } from "../../utils/PrintWrapper";
 
 const SERVICE_IDS = {
   7: "Desayuno",
@@ -11,86 +11,37 @@ const SERVICE_IDS = {
   10: "Cena",
 };
 
-export default function MealsReport({ supabase, gira }) {
-  const reportRef = useRef(null); // Referencia para capturar el HTML
-  // 1. Usar Hook Centralizado
-  const { roster, loading: rosterLoading } = useGiraRoster(supabase, gira);
-
+// IMPORTANTE: Ahora usamos la prop 'roster' que viene del LogisticsDashboard
+export default function MealsReport({ supabase, gira, roster: enrichedRoster }) {
+  const reportRef = useRef(null);
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState([]);
-
-  // Filtros
   const [selectedTypes, setSelectedTypes] = useState(
-    new Set(["Desayuno", "Almuerzo", "Merienda", "Cena"]),
+    new Set(["Desayuno", "Almuerzo", "Merienda", "Cena"])
   );
   const [includePending, setIncludePending] = useState(false);
-  const handlePrintDirect = () => {
-    const content = reportRef.current.innerHTML;
-    const printWindow = window.open("", "_blank", "width=1000,height=800");
 
-    // Estilos mínimos necesarios para que la tabla se vea bien en el PDF
-    const styles = `
-        <html>
-            <head>
-                <title>Reporte de Comidas - ${gira.nombre_gira}</title>
-                <style>
-                    body { font-family: sans-serif; padding: 20px; color: #333; }
-                    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
-                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                    th { background-color: #f8f9fa; font-weight: bold; }
-                    .text-right { text-align: right; }
-                    .font-black { font-weight: 900; }
-                    .bg-slate-50 { background-color: #f8f9fa; }
-                    h1 { font-size: 20px; margin-bottom: 5px; }
-                    p { color: #666; font-size: 14px; }
-                    .servicio-tag { font-weight: bold; text-transform: uppercase; font-size: 10px; }
-                    @media print { 
-                        table { page-break-inside: auto; }
-                        tr { page-break-inside: avoid; page-break-after: auto; }
-                    }
-                </style>
-            </head>
-            <body>
-                <h1>${gira.nombre_gira}</h1>
-                <p>Reporte de Cantidades - Alimentación</p>
-                ${content}
-            </body>
-        </html>
-    `;
-
-    printWindow.document.write(styles);
-    printWindow.document.close();
-
-    // Esperar a que cargue el contenido y disparar impresión
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 250);
-  };
   useEffect(() => {
-    if (gira?.id && !rosterLoading) fetchReportData();
-  }, [gira?.id, rosterLoading, includePending, roster]);
+    if (gira?.id && enrichedRoster?.length > 0) {
+      fetchReportData();
+    }
+  }, [gira?.id, enrichedRoster, includePending]);
 
   const fetchReportData = async () => {
     setLoading(true);
     try {
-      // 2. Filtrar Roster: Solo Confirmados
-      const activeRoster = roster.filter((p) => p.estado_gira === "confirmado");
+      // 1. Filtrar solo confirmados del roster que ya viene enriquecido
+      const activeRoster = enrichedRoster.filter((p) => p.estado_gira === "confirmado");
 
       if (activeRoster.length === 0) {
         setReportData([]);
-        setLoading(false);
         return;
       }
 
-      // 3. Obtener Eventos
+      // 2. Obtener Eventos de Comida
       const { data: events } = await supabase
         .from("eventos")
-        // CAMBIO AQUÍ: Agregamos localidades(localidad) a la query
-        .select(
-          "*, tipos_evento(nombre), locaciones(nombre, localidades(localidad)), convocados",
-        )
+        .select("*, tipos_evento(nombre), locaciones(nombre, localidades(localidad)), convocados")
         .eq("id_gira", gira.id)
         .in("id_tipo_evento", [7, 8, 9, 10])
         .order("fecha", { ascending: true })
@@ -98,55 +49,62 @@ export default function MealsReport({ supabase, gira }) {
 
       if (!events || events.length === 0) {
         setReportData([]);
-        setLoading(false);
         return;
       }
 
-      // 4. Obtener Asistencias
+      // 3. Obtener Asistencias manuales
       const eventIds = events.map((e) => e.id);
       const { data: attendance } = await supabase
         .from("eventos_asistencia")
         .select("id_evento, id_integrante, estado")
-        .in("id_evento", eventIds)
-        .in(
-          "id_integrante",
-          activeRoster.map((p) => p.id),
-        );
+        .in("id_evento", eventIds);
 
       const attendanceMap = {};
       attendance?.forEach((a) => {
         attendanceMap[`${a.id_evento}-${a.id_integrante}`] = a.estado;
       });
 
-      // 5. Helper Convocatoria (Simplificado usando propiedades del hook)
+      // Helper para convocatoria técnica
       const isConvoked = (convocadosList, person) => {
         if (!convocadosList || convocadosList.length === 0) return false;
         return convocadosList.some((tag) => {
           if (tag === "GRP:TUTTI") return true;
-          // Aquí usamos la propiedad calculada por el hook: is_local
           if (tag === "GRP:LOCALES") return person.is_local;
           if (tag === "GRP:NO_LOCALES") return !person.is_local;
-
           if (tag === "GRP:PRODUCCION") return person.rol_gira === "produccion";
           if (tag === "GRP:SOLISTAS") return person.rol_gira === "solista";
           if (tag === "GRP:DIRECTORES") return person.rol_gira === "director";
-
-          if (tag.startsWith("LOC:"))
-            return person.id_localidad === parseInt(tag.split(":")[1]);
-          if (tag.startsWith("FAM:"))
-            return person.instrumentos?.familia === tag.split(":")[1];
+          if (tag.startsWith("LOC:")) return person.id_localidad === String(tag.split(":")[1]);
+          if (tag.startsWith("FAM:")) return person.instrumentos?.familia === tag.split(":")[1];
           return false;
         });
       };
 
-      // 6. Procesar Datos
+      // 4. PROCESAMIENTO CRITICAL: Cruzar Fecha de Evento vs Cobertura Logística
       const processed = events.map((evt) => {
         const counts = { Total: 0 };
+        const eventDate = evt.fecha; // 'YYYY-MM-DD'
 
         activeRoster.forEach((person) => {
-          // Verificar convocatoria
+          // A. ¿Está convocado técnicamente?
           if (!isConvoked(evt.convocados, person)) return;
 
+          // B. ¿Tiene cobertura logística para esta fecha?
+          // Usamos las fechas procesadas por useLogistics que ya están en person.logistics
+          const coverageFrom = person.logistics?.comida_inicio?.date;
+          const coverageTo = person.logistics?.comida_fin?.date;
+
+          if (coverageFrom && coverageTo) {
+            // Si la fecha del evento de comida está fuera del rango asignado, NO CUENTA
+            if (eventDate < coverageFrom || eventDate > coverageTo) {
+              return;
+            }
+          } else {
+            // Si no tiene reglas logísticas y NO es local, no debería comer (según tu lógica de Tutti)
+            if (!person.is_local) return;
+          }
+
+          // C. Validar asistencia manual (Presente / Ausente / Pendiente)
           const status = attendanceMap[`${evt.id}-${person.id}`];
           let shouldCount = false;
 
@@ -161,261 +119,144 @@ export default function MealsReport({ supabase, gira }) {
           }
         });
 
-        // CAMBIO AQUÍ: Formatear string de Lugar - Localidad
         const locName = evt.locaciones?.nombre || "Sin ubicación";
         const locCity = evt.locaciones?.localidades?.localidad;
-        const lugarFull = locCity ? `${locName} - ${locCity}` : locName;
-
         return {
           id: evt.id,
           fecha: evt.fecha,
           hora: evt.hora_inicio?.slice(0, 5),
           servicio: SERVICE_IDS[evt.id_tipo_evento] || evt.tipos_evento?.nombre,
-          lugar: lugarFull,
+          lugar: locCity ? `${locName} - ${locCity}` : locName,
           counts,
         };
       });
 
       setReportData(processed);
     } catch (error) {
-      console.error(error);
+      console.error("Error MealsReport:", error);
     } finally {
       setLoading(false);
     }
   };
 
+  // --- Memorias y Totales ---
   const allDiets = useMemo(() => {
     const diets = new Set();
     reportData.forEach((row) => {
-      Object.keys(row.counts).forEach((k) => {
-        if (k !== "Total") diets.add(k);
-      });
+      Object.keys(row.counts).forEach((k) => { if (k !== "Total") diets.add(k); });
     });
-    return Array.from(diets).sort((a, b) => {
-      if (a === "Estándar") return -1;
-      if (b === "Estándar") return 1;
-      return a.localeCompare(b);
-    });
+    return Array.from(diets).sort((a, b) => a === "Estándar" ? -1 : b === "Estándar" ? 1 : a.localeCompare(b));
   }, [reportData]);
 
-  const filteredReport = reportData.filter((r) =>
-    selectedTypes.has(r.servicio),
-  );
-
-  const toggleFilter = (type) => {
-    setSelectedTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
-      return next;
-    });
-  };
+  const filteredReport = reportData.filter((r) => selectedTypes.has(r.servicio));
 
   const calculateGroupTotals = (services) => {
     const totals = { Total: 0 };
     allDiets.forEach((d) => (totals[d] = 0));
-
-    filteredReport
-      .filter((r) => services.includes(r.servicio))
-      .forEach((row) => {
-        totals.Total += row.counts.Total || 0;
-        allDiets.forEach((d) => {
-          totals[d] += row.counts[d] || 0;
-        });
-      });
+    filteredReport.filter((r) => services.includes(r.servicio)).forEach((row) => {
+      totals.Total += row.counts.Total || 0;
+      allDiets.forEach((d) => { totals[d] += row.counts[d] || 0; });
+    });
     return totals;
   };
 
   const mainMealsTotal = calculateGroupTotals(["Almuerzo", "Cena"]);
   const lightMealsTotal = calculateGroupTotals(["Desayuno", "Merienda"]);
 
-  if (rosterLoading)
-    return (
-      <div className="flex justify-center py-20">
-        <IconLoader className="animate-spin text-indigo-500" size={32} />
-      </div>
-    );
+  if (loading) return <div className="flex justify-center py-20"><IconLoader className="animate-spin text-indigo-500" size={32} /></div>;
 
   return (
     <div className="flex flex-col h-full bg-white animate-in fade-in">
-      {/* HEADER CON FILTROS */}
+      {/* Barra de Filtros */}
       <div className="p-4 border-b border-slate-200 flex flex-wrap justify-between items-center gap-4 bg-slate-50 print:hidden">
         <div className="flex flex-col gap-2">
-          <h2 className="text-lg font-bold text-slate-800">
-            Reporte de Comidas
-          </h2>
+          <h2 className="text-lg font-bold text-slate-800">Reporte de Comidas</h2>
           <div className="flex items-center gap-4">
             <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1 gap-1">
               {["Desayuno", "Almuerzo", "Merienda", "Cena"].map((type) => (
                 <button
                   key={type}
-                  onClick={() => toggleFilter(type)}
+                  onClick={() => setSelectedTypes(prev => {
+                    const next = new Set(prev);
+                    next.has(type) ? next.delete(type) : next.add(type);
+                    return next;
+                  })}
                   className={`px-3 py-1 text-xs font-bold rounded transition-colors ${
-                    selectedTypes.has(type)
-                      ? "bg-indigo-600 text-white shadow-sm"
-                      : "text-slate-500 hover:bg-slate-100"
+                    selectedTypes.has(type) ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100"
                   }`}
                 >
                   {type.charAt(0)}
                 </button>
               ))}
             </div>
-
-            <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-medium text-slate-700">
-              <div className="relative">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={includePending}
-                  onChange={() => setIncludePending(!includePending)}
-                />
-                <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-              </div>
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">
+              <input type="checkbox" className="sr-only peer" checked={includePending} onChange={() => setIncludePending(!includePending)} />
+              <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:bg-indigo-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full relative"></div>
               Incluir Pendientes
             </label>
           </div>
         </div>
         <button
-          onClick={handlePrintDirect} // Cambiado aquí
+          onClick={() => handlePrintExport(reportRef, `Reporte Comidas - ${gira.nombre_gira}`)}
           className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-700"
         >
-          <IconPrinter size={18} /> Generar PDF Directo
+          <IconPrinter size={18} /> Exportar PDF
         </button>
       </div>
 
-      {/* TABLA DE REPORTE */}
-      <div className="flex-1 overflow-auto p-8 print:p-0">
-        {loading ? (
-          <div className="flex justify-center py-10">
-            <IconLoader className="animate-spin text-indigo-500" />
-          </div>
-        ) : (
-          <div className="print:w-full">
-            <div className="mb-6 hidden print:block">
-              <h1 className="text-2xl font-bold text-slate-800">
-                {gira.nombre_gira}
-              </h1>
-              <p className="text-slate-500 text-sm">
-                Reporte de Cantidades - Comidas
-                {includePending && (
-                  <span className="ml-2 font-bold text-amber-600">
-                    (Incluye pendientes como confirmados)
-                  </span>
-                )}
-              </p>
-            </div>
-            <div className="flex-1 overflow-auto p-8 print:p-0" ref={reportRef}>
-              <table className="w-full text-left border-collapse text-sm">
-                <thead>
-                  <tr className="border-b-2 border-slate-800 text-slate-800">
-                    <th className="py-2 px-2 w-24">Fecha</th>
-                    <th className="py-2 px-2 w-16">Hora</th>
-                    <th className="py-2 px-2 w-32">Servicio</th>
-                    <th className="py-2 px-2">Lugar</th>
-                    <th className="py-2 px-2 text-right font-black bg-slate-100 w-20">
-                      TOTAL
-                    </th>
-                    {allDiets.map((d) => (
-                      <th
-                        key={d}
-                        className="py-2 px-2 text-right w-24 text-xs uppercase text-slate-500 font-bold border-l border-slate-200"
-                      >
-                        {d}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filteredReport.map((row) => (
-                    <tr key={row.id} className="break-inside-avoid">
-                      <td className="py-3 px-2 font-medium">
-                        {format(parseISO(row.fecha), "EEE dd/MM", {
-                          locale: es,
-                        })}
-                      </td>
-                      <td className="py-3 px-2 text-slate-500">{row.hora}</td>
-                      <td className="py-3 px-2">
-                        <span
-                          className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
-                            row.servicio === "Almuerzo"
-                              ? "bg-amber-50 border-amber-200 text-amber-700"
-                              : row.servicio === "Cena"
-                                ? "bg-indigo-50 border-indigo-200 text-indigo-700"
-                                : "bg-slate-50 border-slate-200 text-slate-600"
-                          }`}
-                        >
-                          {row.servicio}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2 text-slate-600">{row.lugar}</td>
-                      <td className="py-3 px-2 text-right font-black text-lg bg-slate-50">
-                        {row.counts.Total}
-                      </td>
-                      {allDiets.map((d) => (
-                        <td
-                          key={d}
-                          className="py-3 px-2 text-right border-l border-slate-100 text-slate-600 font-mono"
-                        >
-                          {row.counts[d] || "-"}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                  {filteredReport.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={5 + allDiets.length}
-                        className="p-8 text-center text-slate-400 italic"
-                      >
-                        No hay datos para mostrar
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-                <tfoot className="border-t-4 border-slate-300 bg-slate-50 text-sm">
-                  <tr>
-                    <td
-                      colSpan={4}
-                      className="py-3 px-4 text-right font-bold text-slate-700 uppercase tracking-wide"
-                    >
-                      Total Almuerzos + Cenas
-                    </td>
-                    <td className="py-3 px-2 text-right font-black text-lg text-slate-900 border-l border-slate-200">
-                      {mainMealsTotal.Total}
-                    </td>
-                    {allDiets.map((d) => (
-                      <td
-                        key={d}
-                        className="py-3 px-2 text-right border-l border-slate-200 font-bold text-slate-700"
-                      >
-                        {mainMealsTotal[d] || 0}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-t border-slate-200">
-                    <td
-                      colSpan={4}
-                      className="py-3 px-4 text-right font-bold text-slate-500 uppercase tracking-wide"
-                    >
-                      Total Desayunos + Meriendas
-                    </td>
-                    <td className="py-3 px-2 text-right font-black text-lg text-slate-600 border-l border-slate-200">
-                      {lightMealsTotal.Total}
-                    </td>
-                    {allDiets.map((d) => (
-                      <td
-                        key={d}
-                        className="py-3 px-2 text-right border-l border-slate-200 font-bold text-slate-500"
-                      >
-                        {lightMealsTotal[d] || 0}
-                      </td>
-                    ))}
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-        )}
+      {/* Contenido Reporte */}
+      <div className="flex-1 overflow-auto p-8" ref={reportRef}>
+        <div className="mb-6 hidden print:block">
+          <h1 className="text-2xl font-bold">{gira.nombre_gira}</h1>
+          <p className="text-slate-500">Reporte de Alimentación - Cantidades por Dieta</p>
+        </div>
+
+        <table className="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr className="border-b-2 border-slate-800">
+              <th className="py-2 px-2">Fecha</th>
+              <th className="py-2 px-2">Hora</th>
+              <th className="py-2 px-2">Servicio</th>
+              <th className="py-2 px-2">Lugar</th>
+              <th className="py-2 px-2 text-right bg-slate-100">TOTAL</th>
+              {allDiets.map((d) => (
+                <th key={d} className="py-2 px-2 text-right border-l text-xs uppercase text-slate-500 font-bold">{d}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {filteredReport.map((row) => (
+              <tr key={row.id} className="break-inside-avoid">
+                <td className="py-3 px-2 font-medium">{format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}</td>
+                <td className="py-3 px-2 text-slate-500">{row.hora}</td>
+                <td className="py-3 px-2">
+                  <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
+                    row.servicio === "Almuerzo" ? "bg-amber-50 border-amber-200 text-amber-700" :
+                    row.servicio === "Cena" ? "bg-indigo-50 border-indigo-200 text-indigo-700" :
+                    "bg-slate-50 border-slate-200 text-slate-600"
+                  }`}>{row.servicio}</span>
+                </td>
+                <td className="py-3 px-2 text-slate-600">{row.lugar}</td>
+                <td className="py-3 px-2 text-right font-black text-lg bg-slate-50">{row.counts.Total}</td>
+                {allDiets.map((d) => (
+                  <td key={d} className="py-3 px-2 text-right border-l font-mono">{row.counts[d] || "-"}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="border-t-4 border-slate-300 bg-slate-50">
+            <tr>
+              <td colSpan={4} className="py-3 px-4 text-right font-bold uppercase">Total Almuerzos + Cenas</td>
+              <td className="py-3 px-2 text-right font-black text-lg border-l">{mainMealsTotal.Total}</td>
+              {allDiets.map((d) => (<td key={d} className="py-3 px-2 text-right border-l font-bold">{mainMealsTotal[d] || 0}</td>))}
+            </tr>
+            <tr>
+              <td colSpan={4} className="py-3 px-4 text-right font-bold uppercase">Total Desayunos + Meriendas</td>
+              <td className="py-3 px-2 text-right font-black text-lg border-l">{lightMealsTotal.Total}</td>
+              {allDiets.map((d) => (<td key={d} className="py-3 px-2 text-right border-l font-bold">{lightMealsTotal[d] || 0}</td>))}
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
   );
