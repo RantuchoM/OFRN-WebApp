@@ -181,13 +181,28 @@ const HotelForm = ({
     if (!formData.id_localidad) return true;
     return h.id_localidad === parseInt(formData.id_localidad);
   });
-
   const handleSubmit = () => {
+    // Validaciones
     if (mode === "select" && !formData.id_hotel)
       return alert("Selecciona un hotel");
+
     if (mode === "create" && (!formData.nombre || !formData.id_localidad))
       return alert("Completa nombre y localidad");
-    onSubmit({ ...formData, mode });
+
+    // Enviar datos al padre
+    onSubmit({
+      ...formData,
+      mode,
+      // IMPORTANTE: Pasamos el ID de la relación (programas_hospedajes)
+      // para que el padre sepa que es una EDICIÓN y no una creación.
+      id: initialData?.id,
+    });
+
+    // Cerrar modal (opcional si el padre lo cierra, pero tu código original lo tenía aquí)
+    onClose();
+    // Nota: En tu implementación de handleSaveHotel ya llamas a setShowHotelForm(false),
+    // por lo que podrías quitar este onClose() si quieres evitar parpadeos,
+    // pero dejarlo no rompe nada.
   };
 
   return (
@@ -957,7 +972,7 @@ export default function RoomingManager({
     }
     setSelectedIds(newSelected);
   };
-// --- CÁLCULO DE FALTANTES (NUEVO) ---
+  // --- CÁLCULO DE FALTANTES (NUEVO) ---
   const missingDataPeople = useMemo(() => {
     const list = [];
     rooms.forEach((room) => {
@@ -965,7 +980,7 @@ export default function RoomingManager({
         const missing = [];
         if (!p.dni || p.dni.trim() === "") missing.push("DNI");
         if (!p.fecha_nac) missing.push("F. Nac");
-        
+
         if (missing.length > 0) {
           list.push({ ...p, missingFields: missing });
         }
@@ -1262,9 +1277,27 @@ export default function RoomingManager({
   };
   // EFECTO PRINCIPAL: Cargar datos iniciales y procesar Logística
   useEffect(() => {
-    if (program.id && !logisticsLoading) fetchInitialData();
+    if (program.id && !logisticsLoading) {
+      fetchInitialData();
+      fetchLocations(); // <--- AGREGAR ESTA LÍNEA
+      fetchMasterHotels();
+    }
   }, [program.id, logisticsLoading, logisticsSummary]);
+  const fetchLocations = async () => {
+    const { data } = await supabase
+      .from("localidades")
+      .select("id, localidad")
+      .order("localidad");
+    if (data) setLocationsList(data);
+  };
 
+  const fetchMasterHotels = async () => {
+    const { data } = await supabase
+      .from("hoteles")
+      .select("id, nombre, id_localidad")
+      .order("nombre");
+    if (data) setMasterHotels(data);
+  };
   const fetchInitialData = async () => {
     setLoading(true);
     try {
@@ -1361,41 +1394,77 @@ export default function RoomingManager({
     nombre,
     id_localidad,
     mode,
-    id: editingId,
+    id: editingId, // Aquí recibimos el ID que enviamos desde handleSubmit
   }) => {
     setLoading(true);
     let idHotelMaestro = id_hotel;
+
+    // 1. Validación: Evitar duplicados si estamos AGREGANDO uno existente (mode select)
+    // Si estamos editando (editingId existe), permitimos cambiar el hotel aunque ya exista otro igual (edge case raro pero posible)
     if (!editingId && mode === "select") {
       const alreadyExists = bookings.some(
         (b) => b.id_hotel === parseInt(id_hotel),
       );
       if (alreadyExists) {
-        alert("Hotel ya agregado.");
+        alert("Este hotel ya está agregado a la gira.");
         setLoading(false);
         return;
       }
     }
-    if (mode === "create") {
-      const { data: newHotel } = await supabase
-        .from("hoteles")
-        .insert([{ nombre, id_localidad: id_localidad || null }])
-        .select()
-        .single();
-      if (newHotel) idHotelMaestro = newHotel.id;
+
+    try {
+      // 2. Si es modo CREAR, primero insertamos en la tabla maestra de 'hoteles'
+      if (mode === "create") {
+        const { data: newHotel, error: hotelError } = await supabase
+          .from("hoteles")
+          .insert([{ nombre, id_localidad: id_localidad || null }])
+          .select()
+          .single();
+
+        if (hotelError) throw hotelError;
+        if (newHotel) idHotelMaestro = newHotel.id;
+      }
+
+      // 3. Insertar o Actualizar la relación en 'programas_hospedajes'
+      if (idHotelMaestro) {
+        const payload = {
+          id_programa: program.id,
+          id_hotel: idHotelMaestro,
+        };
+
+        if (editingId) {
+          // --- MODO EDICIÓN (UPDATE) ---
+          const { error } = await supabase
+            .from("programas_hospedajes")
+            .update(payload)
+            .eq("id", editingId);
+
+          if (error) throw error;
+        } else {
+          // --- MODO CREACIÓN (INSERT) ---
+          const { error } = await supabase
+            .from("programas_hospedajes")
+            .insert([payload]);
+
+          if (error) throw error;
+        }
+
+        // 4. Recargar datos para reflejar cambios en la UI
+        await fetchInitialData();
+
+        // Si creamos un hotel nuevo, recargamos la lista maestra para futuros usos
+        if (mode === "create") {
+          await fetchMasterHotels();
+        }
+      }
+    } catch (error) {
+      console.error("Error guardando hotel:", error);
+      alert("Error al guardar el hotel: " + error.message);
+    } finally {
+      setLoading(false);
+      setShowHotelForm(false);
+      setEditingHotelData(null);
     }
-    if (idHotelMaestro) {
-      const payload = { id_programa: program.id, id_hotel: idHotelMaestro };
-      if (editingId)
-        await supabase
-          .from("programas_hospedajes")
-          .update(payload)
-          .eq("id", editingId);
-      else await supabase.from("programas_hospedajes").insert([payload]);
-      await fetchInitialData();
-    }
-    setLoading(false);
-    setShowHotelForm(false);
-    setEditingHotelData(null);
   };
   const handleDeleteHotel = async (bookingId) => {
     if (!confirm("¿Eliminar hotel y habitaciones?")) return;
@@ -2008,9 +2077,9 @@ export default function RoomingManager({
         </div>
       )}
       {showMissingData && (
-        <MissingDataModal 
-          people={missingDataPeople} 
-          onClose={() => setShowMissingData(false)} 
+        <MissingDataModal
+          people={missingDataPeople}
+          onClose={() => setShowMissingData(false)}
         />
       )}
       {commentsState && (
