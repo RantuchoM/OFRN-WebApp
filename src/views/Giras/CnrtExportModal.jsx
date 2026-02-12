@@ -12,8 +12,9 @@ export default function CnrtExportModal({
   events,
   onClose,
   onExport,
+  title = "Exportar Logística", // Prop por defecto por si no se envía
 }) {
-  // Ordenamos eventos cronológicamente
+  // 1. Ordenamos eventos cronológicamente para los selectores
   const sortedEvents = useMemo(() => {
     return [...events].sort((a, b) => {
       const dateA = (a.fecha || "") + (a.hora_inicio || "");
@@ -22,46 +23,37 @@ export default function CnrtExportModal({
     });
   }, [events]);
 
+  // 2. Estados locales (Solo rango de fechas)
   const [startId, setStartId] = useState(String(sortedEvents[0]?.id || ""));
   const [endId, setEndId] = useState(
     String(sortedEvents[sortedEvents.length - 1]?.id || ""),
   );
 
-  /**
-   * REVISIÓN DE LÓGICA DE ETIQUETA:
-   * Priorizamos la DESCRIPCIÓN (Nota) para que aparezca al inicio.
-   */
+  // 3. Formateador de etiquetas para los selectores
   const formatLabel = (evt) => {
     if (!evt) return "-";
-
     const hora = evt.hora_inicio?.slice(0, 5) || "--:--";
     const [y, m, d] = (evt.fecha || "2000-01-01").split("-");
     const fechaFormateada = `${d}/${m}`;
 
-    // Extraemos la descripción (nota) o usamos el nombre de la locación como plan B
     const nota = evt.descripcion?.trim();
-    const locName = evt.locaciones?.nombre || "";
+    const locacion = evt.locaciones?.nombre || "";
 
-    /**
-     * ESTRATEGIA:
-     * Si hay nota: "NOTA EN MAYÚSCULAS - 12/02 08:30hs"
-     * Si no hay nota: "Nombre Locación - 12/02 08:30hs"
-     */
     if (nota) {
-      const notaCorta = nota.length > 35 ? nota.substring(0, 32) + "..." : nota;
-      return `${notaCorta.toUpperCase()} - ${fechaFormateada} ${hora}HS`;
+      const notaCorta =
+        nota.length > 30 ? nota.substring(0, 27) + "..." : nota;
+      return `${notaCorta.toUpperCase()} - ${fechaFormateada} ${hora}HS (${locacion})`;
     }
-
-    return `${locName || "PARADA"} - ${fechaFormateada} ${hora}HS`;
+    return `${locacion || "PARADA"} - ${fechaFormateada} ${hora}HS`;
   };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+        {/* Cabecera */}
         <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <IconFileText className="text-indigo-600" /> Lista de Pasajeros
-            (CNRT)
+            <IconFileText className="text-indigo-600" /> {title}
           </h3>
           <button
             onClick={onClose}
@@ -71,19 +63,14 @@ export default function CnrtExportModal({
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="p-6 space-y-5">
+          {/* Info del Transporte */}
           <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100 text-sm text-indigo-800">
             <p className="font-bold">
               {transport.transportes?.nombre || "Transporte"}
             </p>
             <p className="text-xs opacity-75">{transport.detalle || ""}</p>
           </div>
-
-          <p className="text-[11px] text-slate-500 leading-relaxed">
-            Selecciona el tramo. Se incluirán los pasajeros que viajen en
-            cualquier punto entre la <b>Salida</b> y la <b>Llegada</b>{" "}
-            seleccionadas.
-          </p>
 
           <div className="space-y-4">
             {/* SELECT DESDE */}
@@ -142,6 +129,7 @@ export default function CnrtExportModal({
           </div>
         </div>
 
+        {/* Acciones */}
         <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
           <button
             onClick={onClose}
@@ -150,10 +138,12 @@ export default function CnrtExportModal({
             Cancelar
           </button>
           <button
+            // Ya no enviamos el tercer argumento, solo start y end
             onClick={() => onExport(startId, endId)}
-            className="px-5 py-2 text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg shadow-lg shadow-indigo-200 transition-all flex items-center gap-2 active:scale-95"
+            className="px-5 py-2 text-xs font-bold text-white rounded-lg shadow-lg transition-all flex items-center gap-2 active:scale-95 bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700"
           >
-            <IconDownload size={14} /> Generar Lista
+            <IconDownload size={14} />
+            Descargar Archivo
           </button>
         </div>
       </div>
