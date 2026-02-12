@@ -246,7 +246,7 @@ export default function GiraCard({
             <span className="font-bold opacity-60 w-12 shrink-0 text-[10px] uppercase">
               Dir.
             </span>
-            <span className="font-bold truncate">
+            <span className="font-bold truncate text-[14px]">
               {directors.map(getName).join(", ")}
             </span>
           </div>
@@ -256,7 +256,7 @@ export default function GiraCard({
             <span className="font-bold opacity-60 w-12 shrink-0 text-[10px] uppercase">
               Solista
             </span>
-            <span className="font-medium truncate">
+            <span className="font-medium truncate text-[14px]">
               {soloists.map(getName).join(", ")}
             </span>
           </div>
@@ -266,7 +266,7 @@ export default function GiraCard({
             <span className="font-bold opacity-60 w-12 shrink-0 text-[10px] uppercase pt-0.5">
               Org.
             </span>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1 text-[15px]">
               {sources.map((s) => {
                 let lbl =
                   s.tipo === "FAMILIA"
@@ -275,7 +275,7 @@ export default function GiraCard({
                 return (
                   <span
                     key={s.id}
-                    className={`text-[10px] px-1.5 rounded border bg-white/60 border-current opacity-80 ${s.tipo === "EXCL_ENSAMBLE" ? "line-through opacity-50" : ""}`}
+                    className={`text-[14px] px-1.5 rounded border bg-white/60 border-current opacity-80 ${s.tipo === "EXCL_ENSAMBLE" ? "line-through opacity-50" : ""}`}
                   >
                     {lbl}
                   </span>
@@ -320,15 +320,15 @@ export default function GiraCard({
               className="flex gap-3 items-center p-1.5 bg-white/60 rounded border border-black/5"
             >
               <div className="bg-white/80 px-1.5 py-0.5 rounded border border-black/10 text-center min-w-[36px]">
-                <span className="block text-[9px] font-black opacity-50 uppercase">
+                <span className="block text-[11px] font-black opacity-50 uppercase">
                   {format(parseISO(c.fecha), "MMM", { locale: es })}
                 </span>
-                <span className="block text-xs font-bold">
+                <span className="block text-s font-bold">
                   {format(parseISO(c.fecha), "dd")}
                 </span>
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-bold truncate">
+                <div className="text-s font-bold truncate">
                   {c.locaciones?.nombre || "TBA"}
                 </div>
                 <div className="text-[10px] opacity-70 truncate">
@@ -584,7 +584,7 @@ export default function GiraCard({
           >
             {/* SLIDE 1 */}
             <div className="min-w-full w-full h-full snap-center p-3 flex flex-col justify-between relative">
-              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide opacity-60 truncate pr-4">
+              <div className="flex items-center gap-2 text-[14px] font-bold uppercase tracking-wide opacity-60 truncate pr-4">
                 <span>{gira.tipo}</span>
                 {gira.zona && (
                   <>
@@ -628,7 +628,7 @@ export default function GiraCard({
                       >
                         {dateInfo.d2}
                       </span>
-                      <span className="text-[13px] font-bold opacity-70 ml-1">
+                      <span className="text-[23px] font-bold opacity-70 ml-1">
                         {dateInfo.m2}
                       </span>
                     </div>
