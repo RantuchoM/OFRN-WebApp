@@ -697,6 +697,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
 
     setLoading(true);
     try {
+      // AQUÍ ESTABA EL ERROR: Faltaban agregar los campos al payload
       const payload = {
         nombre: formData.nombre,
         apellido: formData.apellido,
@@ -704,8 +705,25 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         condicion: formData.condicion || "Invitado",
         genero: formData.genero || "-",
         rol_sistema: "user",
-        nacionalidad: "Argentina",
+        nacionalidad: formData.nacionalidad || "Argentina", // Usar el del form, no hardcodeado
         id_instr: formData.id_instr || null,
+
+        // --- CAMPOS FALTANTES AGREGADOS ---
+        mail: formData.mail || null,
+        telefono: formData.telefono || null,
+        dni: formData.dni || null,
+        cuil: formData.cuil || null,
+        fecha_nac: formData.fecha_nac || null,
+        alimentacion: formData.alimentacion || null,
+        id_localidad: formData.id_localidad || null,
+        id_loc_viaticos: formData.id_loc_viaticos || null,
+        fecha_alta: formData.fecha_alta || null,
+        fecha_baja: formData.fecha_baja || null,
+        email_acceso: formData.email_acceso || null,
+        clave_acceso: formData.clave_acceso || null,
+        nota_interna: formData.nota_interna || null,
+        avatar_color: formData.avatar_color || "#4f46e5",
+
         // --- CAMPOS NUEVOS ---
         cargo: formData.cargo || null,
         jornada: formData.jornada || null,
@@ -1208,10 +1226,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                     />
                   </div>
                 </div>
-
-               
-                  
-                
               </div>
             )}
 
