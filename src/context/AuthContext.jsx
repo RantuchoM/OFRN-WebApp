@@ -21,13 +21,11 @@ export function AuthProvider({ children }) {
   }, []);
 
   const activeUser = impersonatedUser || realUser;
-  // Normalizamos el rol para comparaciones seguras
   const role = activeUser?.rol_sistema?.toLowerCase().trim() || "";
 
   const impersonate = (targetUser) => setImpersonatedUser(targetUser);
   const stopImpersonating = () => setImpersonatedUser(null);
 
-  // Login normal (con credenciales de la tabla integrantes)
   const login = async (email, password) => {
     try {
       const { data, error } = await supabase
@@ -49,12 +47,8 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // --- NUEVA FUNCIÓN PARA INVITADOS ---
-  // Permite iniciar sesión sin contraseña si el token fue validado externamente
   const loginAsGuest = (guestUserData) => {
-    // Inyectamos el usuario directamente al estado
     setRealUser(guestUserData);
-    // Persistimos en localStorage para que no se pierda al recargar la página
     localStorage.setItem("app_user", JSON.stringify(guestUserData));
   };
 
@@ -62,7 +56,6 @@ export function AuthProvider({ children }) {
     localStorage.removeItem("app_user");
     setRealUser(null);
     setImpersonatedUser(null);
-    // Forzamos recarga para limpiar estados de memoria
     window.location.href = "/login"; 
   };
 
@@ -74,11 +67,13 @@ export function AuthProvider({ children }) {
     stopImpersonating,
     loading,
     login,
-    loginAsGuest, // <--- Exportamos la nueva función
+    loginAsGuest,
     logout,
-    // --- LÓGICA DE PERMISOS CENTRALIZADA (Case Insensitive) ---
+    // --- LÓGICA DE PERMISOS ---
     isAdmin: role === "admin",
-    isEditor: ["admin", "editor"].includes(role),
+    isDifusion: role === "difusion", // Nuevo rol específico
+    // Incluimos difusion en isEditor para permitir UPDATES en la tabla de difusión
+    isEditor: ["admin", "editor", "difusion"].includes(role), 
     isManagement: [
       "admin",
       "editor",
@@ -86,6 +81,7 @@ export function AuthProvider({ children }) {
       "consulta_general",
       "produccion_general",
       "director",
+      "difusion" // Permitimos acceso a vistas de gestión
     ].includes(role),
     isPersonal: [
       "musico",
@@ -97,7 +93,6 @@ export function AuthProvider({ children }) {
       role === "invitado" ||
       role === "consulta_personal" ||
       activeUser?.id === "guest-general",
-    // Esta es la única que siempre mira al usuario real
     isActuallyAdmin: realUser?.rol_sistema?.toLowerCase().trim() === "admin",
     userName: activeUser ? `${activeUser.nombre} ${activeUser.apellido}` : "",
   };

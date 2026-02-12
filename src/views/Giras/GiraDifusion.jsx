@@ -9,10 +9,16 @@ import {
   IconPlus,
   IconTrash,
   IconPhoto,
+  IconFileText, // Icono para el reporte
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
+// --- IMPORTACIONES PARA PDF ---
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { generateSeatingPdf } from "../../utils/seatingPdfExporter"; // <--- IMPORTAR AQUÍ
 
-// --- UTILIDAD: RENDERER DE TEXTO RICO (Importado o Definido Localmente) ---
+// --- UTILIDAD: RENDERER DE TEXTO RICO ---
 const RichTextPreview = ({ content, className = "" }) => {
   if (!content) return null;
   return (
@@ -23,14 +29,14 @@ const RichTextPreview = ({ content, className = "" }) => {
   );
 };
 
-// --- UTILIDAD NUEVA: CONVERTIR LINK DRIVE A IMAGEN (CDN) ---
+// --- UTILIDAD: CONVERTIR LINK DRIVE A IMAGEN ---
 const getDirectDriveLink = (url) => {
   if (!url) return null;
   const regex =
     /(?:drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)|drive\.google\.com\/file\/u\/[0-9]\/d\/)([-a-zA-Z0-9]+)/;
   const match = url.match(regex);
   if (match && match[1]) {
-    return `https://lh3.googleusercontent.com/d/${match[1]}`; // URL CDN Correcta para imágenes públicas
+    return `https://lh3.googleusercontent.com/u/0/d/${match[1]}`;
   }
   return url;
 };
@@ -199,14 +205,12 @@ const GeneralLogosManager = ({ supabase }) => {
                   <div className="flex justify-end gap-2 mt-1">
                     <button
                       onClick={handleCancelEdit}
-                      disabled={saving}
                       className="p-1.5 text-slate-400 hover:text-slate-600"
                     >
                       <IconX size={16} />
                     </button>
                     <button
                       onClick={() => handleSaveEdit(logo.id)}
-                      disabled={saving}
                       className="p-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                     >
                       <IconCheck size={16} />
@@ -427,7 +431,6 @@ const EditableField = ({
   );
 };
 
-// --- COMPONENTE DE PREVISUALIZACIÓN DE LOGO ESPECÍFICO ---
 const SpecificLogoPreview = ({ url }) => {
   if (!url) return null;
   const directLink = getDirectDriveLink(url);
@@ -457,7 +460,12 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
   const [localRepertorio, setLocalRepertorio] = useState([]);
   const [localidadesMap, setLocalidadesMap] = useState({});
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false); // Estado para el PDF
   const [artistsDetails, setArtistsDetails] = useState({});
+  const { roster: fullRoster, loading: rosterLoading } = useGiraRoster(
+    supabase,
+    gira,
+  );
 
   useEffect(() => {
     const loadData = async () => {
@@ -543,6 +551,12 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
     if (gira?.id) loadData();
   }, [gira?.id, supabase]);
 
+  const handleExportSeatingReport = async () => {
+    setIsExporting(true);
+    // Pasamos supabase, la gira y el repertorio local (que ya tienes cargado en el estado)
+    await generateSeatingPdf(supabase, gira, localRepertorio, fullRoster);
+    setIsExporting(false);
+  };
   const handleUpdateDifusion = async (fieldBaseName, value) => {
     try {
       const currentEditor = allIntegrantes.find(
@@ -592,59 +606,42 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
   const getCitiesList = () => {
     const cities = [
       ...new Set(
-        filteredEvents.map((e) => {
-          const idLoc = e.locaciones?.id_localidad;
-          return localidadesMap[idLoc] || null;
-        }),
+        filteredEvents.map(
+          (e) => localidadesMap[e.locaciones?.id_localidad] || null,
+        ),
       ),
     ].filter((c) => c);
     return cities.join(" / ");
   };
+
   const getGroupedEvents = () => {
     const groups = {};
     filteredEvents.forEach((ev) => {
       const key = ev.locaciones?.id || "unknown";
-      const venueName = ev.locaciones?.nombre || "Locación a confirmar";
-      const idLoc = ev.locaciones?.id_localidad;
-      const cityName = localidadesMap[idLoc] || "";
       if (!groups[key])
-        groups[key] = { locacion: venueName, localidad: cityName, dates: [] };
+        groups[key] = {
+          locacion: ev.locaciones?.nombre || "Locación a confirmar",
+          localidad: localidadesMap[ev.locaciones?.id_localidad] || "",
+          dates: [],
+        };
       groups[key].dates.push({ fecha: ev.fecha, hora: ev.hora_inicio });
     });
     return Object.values(groups);
   };
-  // - src/views/Giras/GiraDifusion.jsx
 
-  // Reemplazar la definición de 'staff' (aproximadamente línea 390)
-  const getOrderedStaff = () => {
-    const allStaff =
-      gira.giras_integrantes?.filter(
-        (gi) =>
-          ["director", "solista"].includes(gi.rol) &&
-          gi.estado === "confirmado",
-      ) || [];
+  const staff =
+    gira.giras_integrantes?.filter(
+      (gi) =>
+        ["director", "solista"].includes(gi.rol) && gi.estado === "confirmado",
+    ) || [];
 
-    // Separar y ordenar: primero directores, luego solistas
-    const directors = allStaff.filter((p) => p.rol === "director");
-    const soloists = allStaff.filter((p) => p.rol === "solista");
-
-    return [...directors, ...soloists];
-  };
-
-  const staff = getOrderedStaff();
   const getComposerName = (obra) => {
-    if (obra.obras_compositores && obra.obras_compositores.length > 0) {
-      const compositores = obra.obras_compositores
+    if (obra.obras_compositores?.length > 0) {
+      const comps = obra.obras_compositores
         .filter((oc) => oc.rol === "compositor" && oc.compositores)
         .map((oc) => oc.compositores);
-      if (compositores.length > 0)
-        return compositores.map((c) => `${c.nombre} ${c.apellido}`).join("\n");
-    }
-    if (obra.compositores) {
-      const c = Array.isArray(obra.compositores)
-        ? obra.compositores[0]
-        : obra.compositores;
-      if (c && c.nombre && c.apellido) return `${c.nombre} ${c.apellido}`;
+      if (comps.length > 0)
+        return comps.map((c) => `${c.nombre} ${c.apellido}`).join("\n");
     }
     return "Autor Desconocido";
   };
@@ -658,21 +655,37 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative animate-in fade-in">
-      <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3 sticky top-0 z-10 shadow-sm">
-        <button
-          onClick={onBack}
-          className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
-        >
-          <IconArrowLeft size={20} />
-        </button>
-        <div>
-          <h2 className="text-lg font-bold text-slate-800">
-            Material de Prensa
-          </h2>
-          <p className="text-xs text-slate-500">
-            Gestión de contenidos para difusión
-          </p>
+      <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
+          >
+            <IconArrowLeft size={20} />
+          </button>
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">
+              Material de Prensa
+            </h2>
+            <p className="text-xs text-slate-500">
+              Gestión de contenidos para difusión
+            </p>
+          </div>
         </div>
+
+        {/* BOTÓN DE EXPORTACIÓN AGREGADO */}
+        <button
+          onClick={handleExportSeatingReport}
+          disabled={isExporting}
+          className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-900 transition-all shadow-sm disabled:opacity-50"
+        >
+          {isExporting ? (
+            <IconLoader size={14} className="animate-spin" />
+          ) : (
+            <IconFileText size={14} />
+          )}
+          Exportar Seating PDF
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full space-y-8 pb-20">
@@ -681,23 +694,18 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
           <h3 className="text-sm font-bold text-indigo-700 uppercase mb-4 border-b border-indigo-100 pb-2">
             Sección Home
           </h3>
-
-          {/* FOTO HOME + PREVIEW */}
-          <div>
-            <EditableField
-              label="Link Foto Home"
-              value={difusionData?.link_foto_home}
-              timestamp={difusionData?.timestamp_link_foto_home}
-              editorId={difusionData?.editor_link_foto_home}
-              allIntegrantes={allIntegrantes}
-              onSave={(val) => handleUpdateDifusion("link_foto_home", val)}
-              isLink
-            />
-            {difusionData?.link_foto_home && (
-              <SpecificLogoPreview url={difusionData.link_foto_home} />
-            )}
-          </div>
-
+          <EditableField
+            label="Link Foto Home"
+            value={difusionData?.link_foto_home}
+            timestamp={difusionData?.timestamp_link_foto_home}
+            editorId={difusionData?.editor_link_foto_home}
+            allIntegrantes={allIntegrantes}
+            onSave={(val) => handleUpdateDifusion("link_foto_home", val)}
+            isLink
+          />
+          {difusionData?.link_foto_home && (
+            <SpecificLogoPreview url={difusionData.link_foto_home} />
+          )}
           <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 space-y-3 mt-4">
             <div className="text-xs text-slate-400 font-bold uppercase mb-2">
               Vista Previa Datos Fijos
@@ -724,61 +732,19 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
           <h3 className="text-sm font-bold text-indigo-700 uppercase mb-4 border-b border-indigo-100 pb-2">
             Sección Detalle
           </h3>
-
-          {/* BANNER + PREVIEW */}
-          <div>
-            <EditableField
-              label="Link Foto Banner"
-              value={difusionData?.link_foto_banner}
-              timestamp={difusionData?.timestamp_link_foto_banner}
-              editorId={difusionData?.editor_link_foto_banner}
-              allIntegrantes={allIntegrantes}
-              onSave={(val) => handleUpdateDifusion("link_foto_banner", val)}
-              isLink
-            />
-            {difusionData?.link_foto_banner && (
-              <SpecificLogoPreview url={difusionData.link_foto_banner} />
-            )}
-          </div>
-
-          <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 mt-4 mb-6">
-            <div className="text-xs text-slate-400 font-bold uppercase mb-2">
-              Vista Previa Agenda Detallada
-            </div>
-            <h4 className="text-lg font-bold text-slate-800 mb-3">
-              {gira.nombre_gira}
-            </h4>
-            <div className="space-y-4">
-              {getGroupedEvents().length > 0 ? (
-                getGroupedEvents().map((group, idx) => (
-                  <div key={idx} className="border-l-2 border-indigo-400 pl-3">
-                    {group.dates.map((d, i) => (
-                      <p key={i} className="text-slate-700 font-medium text-sm">
-                        {formatDateExtended(d.fecha, d.hora)}
-                      </p>
-                    ))}
-                    <div className="mt-1">
-                      <p className="text-sm font-bold text-slate-800">
-                        {group.locacion}
-                      </p>
-                      {group.localidad && (
-                        <p className="text-xs text-slate-500 uppercase">
-                          {group.localidad}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-slate-400 italic text-sm p-2 border border-dashed border-slate-300 rounded">
-                  No se encontraron conciertos (ID Tipo Evento = 1).
-                </div>
-              )}
-            </div>
-          </div>
-
+          <EditableField
+            label="Link Foto Banner"
+            value={difusionData?.link_foto_banner}
+            timestamp={difusionData?.timestamp_link_foto_banner}
+            editorId={difusionData?.editor_link_foto_banner}
+            allIntegrantes={allIntegrantes}
+            onSave={(val) => handleUpdateDifusion("link_foto_banner", val)}
+            isLink
+          />
+          {difusionData?.link_foto_banner && (
+            <SpecificLogoPreview url={difusionData.link_foto_banner} />
+          )}
           <GeneralLogosManager supabase={supabase} />
-
           <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <EditableField
@@ -822,48 +788,39 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
                 <React.Fragment key={rep.id}>
                   {rep.repertorio_obras
                     ?.filter((o) => !o.excluir)
-                    .map((obraItem) => {
-                      return (
-                        <li
-                          key={obraItem.id}
-                          className="text-sm border-b border-slate-200 last:border-0 pb-1 flex flex-wrap gap-x-2"
-                        >
-                          <span className="font-bold text-slate-700">
-                            {getComposerName(obraItem.obras)}
-                          </span>
-                          <span className="text-slate-300 hidden sm:inline">
-                            |
-                          </span>
-                          {/* CAMBIO: Usamos RichTextPreview para que se vea el formato */}
-                          <div className="text-slate-600 italic inline-block flex-1 min-w-[200px]">
-                            <RichTextPreview
-                              content={obraItem.obras.titulo
-                                .replace(/\[.*?\]/g, "")
-                                .trim()}
-                            />
-                          </div>
-                        </li>
-                      );
-                    })}
+                    .map((obraItem) => (
+                      <li
+                        key={obraItem.id}
+                        className="text-sm border-b border-slate-200 last:border-0 pb-1 flex flex-wrap gap-x-2"
+                      >
+                        <span className="font-bold text-slate-700">
+                          {getComposerName(obraItem.obras)}
+                        </span>
+                        <span className="text-slate-300 hidden sm:inline">
+                          |
+                        </span>
+                        <div className="text-slate-600 italic inline-block flex-1 min-w-[200px]">
+                          <RichTextPreview
+                            content={obraItem.obras.titulo
+                              .replace(/\[.*?\]/g, "")
+                              .trim()}
+                          />
+                        </div>
+                      </li>
+                    ))}
                 </React.Fragment>
               ))}
-              {localRepertorio.length === 0 && (
-                <p className="text-slate-400 italic text-sm">
-                  No hay repertorio cargado.
-                </p>
-              )}
             </ul>
           </div>
         </section>
 
-        {/* --- SECCIÓN ARTISTAS (Con preview de fotos) --- */}
+        {/* --- SECCIÓN ARTISTAS --- */}
         <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
           <h3 className="text-sm font-bold text-indigo-700 uppercase mb-4 border-b border-indigo-100 pb-2">
             Sección Artistas
           </h3>
           <div className="space-y-6">
             {staff.map((person) => {
-              const fullName = `${person.integrantes?.nombre} ${person.integrantes?.apellido}`;
               const details = artistsDetails[person.id_integrante] || {};
               return (
                 <div
@@ -872,7 +829,8 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
                 >
                   <div className="flex justify-between items-start mb-2">
                     <h4 className="font-bold text-lg text-slate-800">
-                      {fullName}
+                      {person.integrantes?.nombre}{" "}
+                      {person.integrantes?.apellido}
                     </h4>
                     <div className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-1 rounded uppercase">
                       {person.rol}
@@ -886,25 +844,23 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
                       <div className="flex gap-2">
                         <input
                           type="text"
-                          className="w-full text-xs p-2 border rounded bg-white shadow-sm"
+                          className="w-full text-xs p-2 border rounded bg-white"
                           placeholder="Enlace..."
                           defaultValue={details.link_bio || ""}
-                          onBlur={(e) => {
-                            if (e.target.value !== details.link_bio) {
-                              handleUpdateIntegrante(
-                                person.id_integrante,
-                                "link_bio",
-                                e.target.value,
-                              );
-                            }
-                          }}
+                          onBlur={(e) =>
+                            handleUpdateIntegrante(
+                              person.id_integrante,
+                              "link_bio",
+                              e.target.value,
+                            )
+                          }
                         />
                         {details.link_bio && (
                           <a
                             href={details.link_bio}
                             target="_blank"
                             rel="noreferrer"
-                            className="p-2 bg-indigo-50 rounded hover:bg-indigo-100 text-indigo-600"
+                            className="p-2 bg-indigo-50 rounded text-indigo-600"
                           >
                             <IconLink size={14} />
                           </a>
@@ -918,25 +874,23 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
                       <div className="flex gap-2">
                         <input
                           type="text"
-                          className="w-full text-xs p-2 border rounded bg-white shadow-sm"
+                          className="w-full text-xs p-2 border rounded bg-white"
                           placeholder="Enlace..."
                           defaultValue={details.link_foto_popup || ""}
-                          onBlur={(e) => {
-                            if (e.target.value !== details.link_foto_popup) {
-                              handleUpdateIntegrante(
-                                person.id_integrante,
-                                "link_foto_popup",
-                                e.target.value,
-                              );
-                            }
-                          }}
+                          onBlur={(e) =>
+                            handleUpdateIntegrante(
+                              person.id_integrante,
+                              "link_foto_popup",
+                              e.target.value,
+                            )
+                          }
                         />
                         {details.link_foto_popup && (
                           <a
                             href={details.link_foto_popup}
                             target="_blank"
                             rel="noreferrer"
-                            className="p-2 bg-indigo-50 rounded hover:bg-indigo-100 text-indigo-600"
+                            className="p-2 bg-indigo-50 rounded text-indigo-600"
                           >
                             <IconLink size={14} />
                           </a>
@@ -950,11 +904,6 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
                 </div>
               );
             })}
-            <div className="p-4 bg-slate-100 rounded border border-slate-200 text-center">
-              <span className="font-serif font-bold text-slate-700 text-lg">
-                Orquesta Filarmónica de Río Negro
-              </span>
-            </div>
           </div>
         </section>
 

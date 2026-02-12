@@ -13,9 +13,8 @@ import {
 import CommentButton from "../../components/comments/CommentButton";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import GiraActionMenu from "./GiraActionMenu";
-import { getProgramStyle, checkIsConvoked } from "../../utils/giraUtils"; // <--- IMPORTAR AQUÍ
+import { getProgramStyle, checkIsConvoked } from "../../utils/giraUtils";
 
-// ... (Helpers de fecha se mantienen igual) ...
 const formatDateRangeBig = (start, end) => {
   if (!start) return null;
   try {
@@ -58,12 +57,17 @@ export default function GiraCard({
   onDelete,
   isHighlighted,
 }) {
-  const { user } = useAuth();
+  const { user, isDifusion } = useAuth();
   const isMenuOpen = activeMenuId === gira.id;
   const [currentSlide, setCurrentSlide] = useState(0);
   const scrollRef = useRef(null);
 
-  const showQuickAccessSidebar = !isEditor;
+  // --- LÓGICA DE ROLES PARA UI ---
+  const normalizedRole = userRole?.toLowerCase().trim();
+  const isDifusionRole = normalizedRole === "difusion";
+
+  // Ocultamos accesos rápidos si es Difusión o si es Editor
+  const showQuickAccessSidebar = !isEditor && !isDifusionRole;
 
   const handleViewChange = (mode, tab) => {
     setActiveMenuId(null);
@@ -89,49 +93,29 @@ export default function GiraCard({
     }
   };
 
-  // --- LÓGICA DE ESTADO DE COMIDAS (CON checkIsConvoked) ---
-  // --- LÓGICA DE ESTADO DE COMIDAS ---
-  // --- LÓGICA DE ESTADO DE COMIDAS ---
   const getMealStatusConfig = () => {
     if (!gira.eventos || !user) {
       return { color: "text-slate-300", animate: false, title: "Sin datos" };
     }
-
-    // 1. OBTENER PERFIL DE INTEGRANTE (CON LÓGICA DE LOCALÍA)
-
-    // A. Buscar mi registro en esta gira
     const memberRecord = gira.giras_integrantes?.find(
       (i) => String(i.id_integrante) === String(user.id),
     );
-
-    // B. Obtener datos base del usuario (de la relación 'integrantes')
-    // IMPORTANTE: Asegúrate de que GirasView traiga: integrantes(id_localidad, instrumentos(familia))
     const userData = memberRecord?.integrantes;
-
-    // C. Calcular si soy LOCAL para ESTA gira
     let isLocal = false;
     if (userData?.id_localidad && gira.giras_localidades) {
-      // Obtenemos los IDs de las localidades de la gira
       const tourLocIds = gira.giras_localidades.map((l) => l.id_localidad);
-      // Comparamos mi localidad con las de la gira
       isLocal = tourLocIds.includes(userData.id_localidad);
     } else if (memberRecord?.integrantes?.is_local !== undefined) {
-      // Fallback si ya venía calculado (raro en la vista de lista)
       isLocal = memberRecord.integrantes.is_local;
     }
-
-    // D. Construir perfil enriquecido para checkIsConvoked
     const userProfile = {
       id: user.id,
-      is_local: isLocal, // <--- AQUÍ ESTÁ LA CLAVE
+      is_local: isLocal,
       id_localidad: userData?.id_localidad || null,
       instrumentos: userData?.instrumentos || { familia: "" },
       rol_gira: memberRecord?.rol || "musico",
     };
-
-    // 2. FILTRAR EVENTOS
     const myMeals = gira.eventos.filter((e) => {
-      // Es comida?
       const isMeal =
         e.tipos_evento?.id_categoria === 4 ||
         [7, 8, 9, 10].includes(e.id_tipo_evento) ||
@@ -140,41 +124,24 @@ export default function GiraCard({
         e.tipos_evento?.nombre?.toLowerCase().includes("cena");
 
       if (!isMeal) return false;
-
-      // Estoy convocado? (Ahora userProfile tiene is_local correcto)
       return checkIsConvoked(e.convocados, userProfile, userProfile.rol_gira);
     });
 
-    // ... (Resto de la lógica de conteo igual que antes) ...
     if (myMeals.length === 0) {
-      return {
-        color: "text-slate-300",
-        animate: false,
-        title: "Sin comidas asignadas",
-      };
+      return { color: "text-slate-300", animate: false, title: "Sin comidas" };
     }
-
     let respondedCount = 0;
     myMeals.forEach((evt) => {
       const responses = evt.eventos_asistencia || [];
-      // Aquí buscamos en las respuestas
       const hasResponded = responses.some(
         (r) => String(r.id_integrante) === String(user.id),
       );
       if (hasResponded) respondedCount++;
     });
-
     const total = myMeals.length;
-
     if (respondedCount >= total) {
-      return {
-        color: "text-emerald-600",
-        animate: false,
-        title: "Comidas completas",
-      };
+      return { color: "text-emerald-600", animate: false, title: "Completas" };
     }
-
-    // Urgencia
     let isUrgent = false;
     const deadlineStr = gira.fecha_confirmacion_limite || gira.fecha_desde;
     if (deadlineStr) {
@@ -183,28 +150,18 @@ export default function GiraCard({
         isUrgent = true;
       }
     }
-
     if (isUrgent) {
-      // AQUÍ ESTÁ EL CAMBIO DE ESTILO
       return {
-        // Fondo rojo, texto gris claro (slate-200), borde rojo
         color:
           "bg-red-500 text-slate-200 border-red-600 hover:bg-red-600 hover:text-white",
         animate: true,
-        title: "¡Pendiente Urgente!",
+        title: "¡Urgente!",
       };
     }
-
-    return {
-      color: "text-amber-500",
-      animate: false,
-      title: "Comidas pendientes",
-    };
+    return { color: "text-amber-500", animate: false, title: "Pendientes" };
   };
 
   const mealConfig = getMealStatusConfig();
-
-  // --- ESTILOS ---
   const baseStyle = getProgramStyle(gira.tipo);
   let cardClasses = baseStyle.color;
   if (gira.estado === "Pausada") {
@@ -218,11 +175,9 @@ export default function GiraCard({
       ? baseStyle.color.match(/text-[\w]+-\d+/)?.[0] || "text-slate-800"
       : "text-current";
   const dateInfo = formatDateRangeBig(gira.fecha_desde, gira.fecha_hasta);
-
   const desktopBtnClass =
     "w-7 h-7 flex items-center justify-center bg-white/80 backdrop-blur rounded-full shadow-sm border border-black/5 transition-all hover:scale-105 active:scale-95 cursor-pointer";
 
-  // --- RENDERIZADORES (SIN CAMBIOS) ---
   const renderPersonnelCompact = () => {
     const roster = gira.giras_integrantes || [];
     const directors = roster.filter(
@@ -234,9 +189,11 @@ export default function GiraCard({
     const getName = (p) =>
       `${p.integrantes?.apellido} ${p.integrantes?.nombre?.[0] || ""}.`;
     const sources = gira.giras_fuentes || [];
-    const safeEnsembles = Array.isArray(ensemblesList) ? ensemblesList : [];
     const ensembleMap = new Map(
-      safeEnsembles.map((e) => [String(e.value), e.label]),
+      (Array.isArray(ensemblesList) ? ensemblesList : []).map((e) => [
+        String(e.value),
+        e.label,
+      ]),
     );
 
     return (
@@ -284,11 +241,6 @@ export default function GiraCard({
             </div>
           </div>
         )}
-        {directors.length === 0 &&
-          soloists.length === 0 &&
-          sources.length === 0 && (
-            <p className="opacity-50 italic text-center">Sin asignaciones</p>
-          )}
       </div>
     );
   };
@@ -341,7 +293,7 @@ export default function GiraCard({
         </div>
         <div
           className="text-[10px] text-center opacity-60 mt-1 pt-1 border-t border-black/5 cursor-pointer"
-          onClick={() => updateView("AGENDA", gira.id)}
+          onClick={() => updateView(isDifusion? "DIFUSION": "AGENDA", gira.id)}
         >
           Ver Agenda Completa
         </div>
@@ -361,7 +313,6 @@ export default function GiraCard({
       `${p.integrantes?.apellido || ""}, ${p.integrantes?.nombre || ""}`;
     const cleanNames = (arr) =>
       arr.map(formatName).filter((n) => n.trim() !== ",");
-
     let output = [];
     if (cleanNames(directors).length > 0)
       output.push(
@@ -380,19 +331,19 @@ export default function GiraCard({
 
   const getSourcesDisplayDesktop = () => {
     const sources = gira.giras_fuentes || [];
-    const safeEnsemblesList = Array.isArray(ensemblesList) ? ensemblesList : [];
     const ensembleMap = new Map(
-      safeEnsemblesList.map((e) => [String(e.value), e.label]),
+      (Array.isArray(ensemblesList) ? ensemblesList : []).map((e) => [
+        String(e.value),
+        e.label,
+      ]),
     );
     const inclusions = [];
     const exclusions = [];
-
     sources.forEach((s) => {
-      let label = "";
-      if (s.tipo === "ENSAMBLE")
-        label = ensembleMap.get(String(s.valor_id)) || `Ensamble ${s.valor_id}`;
-      else if (s.tipo === "FAMILIA") label = s.valor_texto;
-
+      let label =
+        s.tipo === "ENSAMBLE"
+          ? ensembleMap.get(String(s.valor_id)) || `Ensamble ${s.valor_id}`
+          : s.valor_texto;
       const element = (
         <span
           key={s.id}
@@ -405,17 +356,9 @@ export default function GiraCard({
           {label}
         </span>
       );
-      if (s.tipo === "EXCL_ENSAMBLE") {
-        let exclLabel =
-          ensembleMap.get(String(s.valor_id)) || `Ensamble ${s.valor_id}`;
-        exclusions.push(
-          <span key={s.id} className="text-gray-500 font-medium line-through">
-            {exclLabel}
-          </span>,
-        );
-      } else inclusions.push(element);
+      if (s.tipo === "EXCL_ENSAMBLE") exclusions.push(element);
+      else inclusions.push(element);
     });
-
     if (inclusions.length === 0 && exclusions.length === 0) return null;
     return (
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs ml-2 pl-2 border-l border-black/10 shrink-0">
@@ -484,13 +427,7 @@ export default function GiraCard({
   return (
     <div
       id={`gira-card-${gira.id}`}
-      className={`
-        relative rounded-xl border p-0 overflow-visible 
-        transition-all duration-700 ease-out
-        ${isMenuOpen ? "z-50" : "z-0"} 
-        ${cardClasses}
-        ${isHighlighted ? "ring-4 ring-offset-2 ring-indigo-200 z-40" : "shadow-sm hover:shadow-md"}
-      `}
+      className={`relative rounded-xl border p-0 overflow-visible transition-all duration-700 ease-out ${isMenuOpen ? "z-50" : "z-0"} ${cardClasses} ${isHighlighted ? "ring-4 ring-offset-2 ring-indigo-200 z-40" : "shadow-sm hover:shadow-md"}`}
     >
       {/* VISTA MÓVIL */}
       <div className="md:hidden">
@@ -529,10 +466,9 @@ export default function GiraCard({
           </div>
         ) : (
           <div className="absolute top-2 right-2 z-30 flex items-center gap-1">
-            {/* 2. Menú de Acción */}
             <div
               className="order-1 relative z-[100] pointer-events-auto"
-              onClick={(e) => e.stopPropagation()} // Bloqueo total de propagación al contenedor de la Card
+              onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
             >
               <GiraActionMenu
@@ -554,7 +490,6 @@ export default function GiraCard({
           </div>
         )}
         <div className="h-40 w-full overflow-hidden relative group">
-          {/* ... (Flechas y Slider Móvil igual que antes) ... */}
           {currentSlide > 0 && (
             <button
               onClick={(e) => {
@@ -582,7 +517,6 @@ export default function GiraCard({
             onScroll={handleScroll}
             className={`flex w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth ${showQuickAccessSidebar ? "pr-11" : ""}`}
           >
-            {/* SLIDE 1 */}
             <div className="min-w-full w-full h-full snap-center p-3 flex flex-col justify-between relative">
               <div className="flex items-center gap-2 text-[14px] font-bold uppercase tracking-wide opacity-60 truncate pr-4">
                 <span>{gira.tipo}</span>
@@ -599,13 +533,6 @@ export default function GiraCard({
                 <span className="opacity-30">|</span>
                 <span>{gira.mes_letra}</span>
               </div>
-              {(gira.estado === "Borrador" || gira.estado === "Pausada") && (
-                <div className="absolute top-8 left-3 z-10">
-                  <span className="bg-white/80 border border-black/10 px-2 py-0.5 rounded text-[9px] font-bold uppercase">
-                    {gira.estado}
-                  </span>
-                </div>
-              )}
               <div className="flex flex-col items-center justify-center flex-1">
                 {dateInfo ? (
                   <div className="flex items-baseline gap-2">
@@ -652,13 +579,11 @@ export default function GiraCard({
                 )}
               </div>
             </div>
-            {/* SLIDE 2 */}
             <div className="min-w-full w-full h-full snap-center p-3 flex flex-col relative px-8">
               <div className="flex-1 overflow-hidden pt-2">
                 {renderPersonnelCompact()}
               </div>
             </div>
-            {/* SLIDE 3 */}
             <div className="min-w-full w-full h-full snap-center p-3 flex flex-col relative px-8">
               <div className="flex-1 overflow-hidden pt-1">
                 {renderConcertsCompact()}
@@ -675,7 +600,9 @@ export default function GiraCard({
               ></div>
             ))}
           </div>
-          {!showQuickAccessSidebar && (
+
+          {/* BOTÓN COMENTARIOS MÓVIL: Oculto si es Difusión */}
+          {!showQuickAccessSidebar && !isDifusionRole && (
             <div className="absolute bottom-2 right-2 z-30">
               <CommentButton
                 supabase={supabase}
@@ -695,7 +622,7 @@ export default function GiraCard({
         </div>
       </div>
 
-      {/* VISTA ESCRITORIO (>= MD) */}
+      {/* VISTA ESCRITORIO */}
       <div className="hidden md:block p-3 pl-4 relative">
         <div className="flex gap-4 items-start pr-10">
           <div className="flex flex-col items-center justify-center p-2 bg-white/60 rounded-lg border border-black/5 shrink-0 min-w-[60px] self-start">
@@ -707,18 +634,17 @@ export default function GiraCard({
                   {dateInfo.d1}-{dateInfo.d2}
                 </span>
                 <span className="text-[10px] font-bold uppercase opacity-60 leading-tight">
-                  {dateInfo.m1}{dateInfo.m2 !== dateInfo.m1 ? ` - ${dateInfo.m2}` : ""}
+                  {dateInfo.m1}
+                  {dateInfo.m2 !== dateInfo.m1 ? ` - ${dateInfo.m2}` : ""}
                 </span>
-                
               </>
             ) : (
               <IconCalendar size={20} className="opacity-20" />
             )}
           </div>
-
           <div
             className="cursor-pointer flex-1 min-w-0 pt-0.5"
-            onClick={() => updateView("AGENDA", gira.id)}
+            onClick={() => updateView(isDifusion? "DIFUSION": "AGENDA", gira.id)}
           >
             <div className="flex flex-wrap items-center gap-2 text-xs opacity-70 mb-1">
               <span className="font-black uppercase tracking-wide text-[10px]">
@@ -740,7 +666,6 @@ export default function GiraCard({
                 </span>
               )}
             </div>
-
             <div className="mb-1">
               <h3 className="text-base font-bold text-slate-800 truncate leading-tight">
                 {gira.nombre_gira}
@@ -759,7 +684,6 @@ export default function GiraCard({
                 </div>
               </div>
             </div>
-
             <div className="flex flex-wrap items-center gap-2 text-xs opacity-80">
               {getPersonnelDisplayDesktop()}
               {gira.giras_integrantes?.length > 0 && (
@@ -769,16 +693,13 @@ export default function GiraCard({
             </div>
           </div>
         </div>
-
         {getConcertListDesktop()}
 
-        {/* --- GRID DE BOTONES Y MENÚ (Columna Derecha) --- */}
         <div className="absolute top-2 right-2 z-30 grid grid-cols-2 gap-1 items-start justify-items-end">
-          {/* 1. Menú "..." (Fila 1, Col 2) */}
           <div className="col-start-2 relative z-[100]">
             <GiraActionMenu
               gira={gira}
-              onViewChange={handleViewChange} // Función segura
+              onViewChange={handleViewChange}
               isEditor={isEditor}
               isPersonal={isPersonal}
               userRole={userRole}
@@ -793,114 +714,115 @@ export default function GiraCard({
             />
           </div>
 
-          {/* 2. Botones de Acción */}
-          {showQuickAccessSidebar ? (
+          {/* ACCESOS RÁPIDOS ESCRITORIO: Ocultos si es Difusión */}
+          {!isDifusionRole && (
             <>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  updateView("AGENDA", gira.id);
-                }}
-                className={`${desktopBtnClass} hover:text-fixed-indigo-600`}
-                title="Agenda"
-              >
-                <IconCalendar size={14} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  updateView("REPERTOIRE", gira.id, "my_parts");
-                }}
-                className={`${desktopBtnClass} hover:text-fuchsia-600`}
-                title="Mis Partes"
-              >
-                <IconMusic size={14} />
-              </button>
-
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (gira.google_drive_folder_id)
-                    window.open(
-                      `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
-                      "_blank",
-                    );
-                }}
-                className={`${desktopBtnClass} ${!gira.google_drive_folder_id ? "opacity-30 cursor-not-allowed" : "hover:text-green-600"}`}
-                title="Drive"
-              >
-                <IconDrive size={14} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  updateView("MEALS_PERSONAL", gira.id);
-                }}
-                className={`${desktopBtnClass} ${mealConfig.color} ${mealConfig.animate ? "animate-pulse" : ""}`}
-                title={mealConfig.title}
-              >
-                <IconUtensils size={14} />
-              </button>
-
-              <CommentButton
-                supabase={supabase}
-                entityType="GIRA"
-                entityId={gira.id}
-                onClick={() => {
-                  setCommentsState({
-                    type: "GIRA",
-                    id: gira.id,
-                    title: gira.nombre_gira,
-                  });
-                }}
-                className={desktopBtnClass}
-                iconSize={14}
-              />
-            </>
-          ) : (
-            <>
-              {gira.google_drive_folder_id && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    window.open(
-                      `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
-                      "_blank",
-                    );
-                  }}
-                  className={`${desktopBtnClass} hover:text-green-600`}
-                >
-                  <IconDrive size={14} />
-                </button>
+              {showQuickAccessSidebar ? (
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateView("AGENDA", gira.id);
+                    }}
+                    className={`${desktopBtnClass} hover:text-fixed-indigo-600`}
+                    title="Agenda"
+                  >
+                    <IconCalendar size={14} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateView("REPERTOIRE", gira.id, "my_parts");
+                    }}
+                    className={`${desktopBtnClass} hover:text-fuchsia-600`}
+                    title="Mis Partes"
+                  >
+                    <IconMusic size={14} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (gira.google_drive_folder_id)
+                        window.open(
+                          `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
+                          "_blank",
+                        );
+                    }}
+                    className={`${desktopBtnClass} ${!gira.google_drive_folder_id ? "opacity-30 cursor-not-allowed" : "hover:text-green-600"}`}
+                    title="Drive"
+                  >
+                    <IconDrive size={14} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateView("MEALS_PERSONAL", gira.id);
+                    }}
+                    className={`${desktopBtnClass} ${mealConfig.color} ${mealConfig.animate ? "animate-pulse" : ""}`}
+                    title={mealConfig.title}
+                  >
+                    <IconUtensils size={14} />
+                  </button>
+                  <CommentButton
+                    supabase={supabase}
+                    entityType="GIRA"
+                    entityId={gira.id}
+                    onClick={() =>
+                      setCommentsState({
+                        type: "GIRA",
+                        id: gira.id,
+                        title: gira.nombre_gira,
+                      })
+                    }
+                    className={desktopBtnClass}
+                    iconSize={14}
+                  />
+                </>
+              ) : (
+                <>
+                  {gira.google_drive_folder_id && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.open(
+                          `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
+                          "_blank",
+                        );
+                      }}
+                      className={`${desktopBtnClass} hover:text-green-600`}
+                    >
+                      <IconDrive size={14} />
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateView("MEALS_PERSONAL", gira.id);
+                    }}
+                    className={`${desktopBtnClass} hover:text-amber-600`}
+                  >
+                    <IconUtensils size={14} />
+                  </button>
+                  <CommentButton
+                    supabase={supabase}
+                    entityType="GIRA"
+                    entityId={gira.id}
+                    onClick={() =>
+                      setCommentsState({
+                        type: "GIRA",
+                        id: gira.id,
+                        title: gira.nombre_gira,
+                      })
+                    }
+                    className={desktopBtnClass}
+                    iconSize={14}
+                  />
+                </>
               )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  updateView("MEALS_PERSONAL", gira.id);
-                }}
-                className={`${desktopBtnClass} hover:text-amber-600`}
-              >
-                <IconUtensils size={14} />
-              </button>
-              <CommentButton
-                supabase={supabase}
-                entityType="GIRA"
-                entityId={gira.id}
-                onClick={() => {
-                  setCommentsState({
-                    type: "GIRA",
-                    id: gira.id,
-                    title: gira.nombre_gira,
-                  });
-                }}
-                className={desktopBtnClass}
-                iconSize={14}
-              />
             </>
           )}
         </div>
       </div>
-
       {showRepertoireInCards && (
         <div className="border-t border-black/5 bg-white/40 p-2 relative z-20">
           <div className="animate-in slide-in-from-top-2">

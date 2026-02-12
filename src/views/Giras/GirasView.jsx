@@ -54,7 +54,7 @@ import {
 import { moveGira, duplicateGira } from "../../services/giraActions";
 
 export default function GirasView({ supabase, trigger = 0 }) {
-  const { user, isEditor, isManagement, isPersonal, isGuest } = useAuth();
+  const { user, isEditor, isManagement, isPersonal, isGuest, isDifusion } = useAuth();
   const userRole = user?.rol_sistema || "";
   const [statsRefreshTrigger, setStatsRefreshTrigger] = useState(0);
 
@@ -877,10 +877,13 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 />
               </div>
             )}
-            {(isEditor || isPersonal || isGuest) && (
+            {(isEditor || isPersonal || isGuest || isDifusion) && ( // <--- AGREGAR isDifusion aquí
               <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
                 {tourNavItems
                   .filter((item) => {
+                    // RESTRICCIÓN PARA ROL DIFUSIÓN: Solo ve la tab de Difusión
+                    if (isDifusion) return item.mode === "DIFUSION";
+
                     if (item.mode === "MEALS_PERSONAL")
                       return isGuest && !user.isGeneral;
 
@@ -889,7 +892,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
                     if (isEditor || canEditGira(selectedGira)) return true;
 
-                    // Aquí habilitamos las vistas para el invitado (Personal o General)
                     return ["AGENDA", "REPERTOIRE", "SEATING"].includes(
                       item.mode,
                     );

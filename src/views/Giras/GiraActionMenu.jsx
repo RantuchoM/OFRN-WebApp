@@ -16,8 +16,8 @@ import {
   IconMessageCircle,
   IconTrash,
   IconChevronDown,
-  IconArrowRight, // Importado para "Trasladar"
-  IconCopy, // Importado para "Duplicar"
+  IconArrowRight,
+  IconCopy,
 } from "../../components/ui/Icons";
 
 const GiraActionMenu = ({
@@ -29,29 +29,27 @@ const GiraActionMenu = ({
   onEdit,
   onDelete,
   onGlobalComments,
-  // Props nuevas:
   onMove,
   onDuplicate,
-  // Estados del menú:
   isOpen,
   onToggle,
   onClose,
 }) => {
   const [expandedCategory, setExpandedCategory] = useState(null);
   const menuRef = useRef(null);
-  const isGuest = userRole === "invitado";
+
+  const normalizedRole = userRole?.toLowerCase().trim();
+  const isOnlyDifusion = normalizedRole === "difusion";
+  const isGuest = normalizedRole === "invitado";
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      // Si el clic es fuera del menú, lo cerramos
       if (menuRef.current && !menuRef.current.contains(event.target)) {
         onClose();
         setExpandedCategory(null);
       }
     };
-
     if (isOpen) {
-      // Usamos un pequeño delay para que el evento que abrió el menú no lo cierre inmediatamente
       const timer = setTimeout(() => {
         document.addEventListener("click", handleClickOutside);
       }, 10);
@@ -70,14 +68,11 @@ const GiraActionMenu = ({
     setExpandedCategory(expandedCategory === key ? null : key);
   };
 
-  // --- SUBCOMPONENTES ---
-
   const SubMenuItem = ({ icon: Icon, label, onClick, className = "" }) => (
     <button
       onClick={(e) => {
         e.stopPropagation();
         onClose();
-        // FIX: Verificamos que onClick exista antes de ejecutarlo
         if (onClick) onClick();
       }}
       className={`w-full text-left px-4 py-3 md:py-2 text-sm md:text-xs hover:bg-slate-50 flex items-center gap-3 md:gap-2 text-slate-600 border-l-2 border-transparent hover:border-indigo-500 pl-6 ${className}`}
@@ -89,6 +84,9 @@ const GiraActionMenu = ({
 
   const CategoryItem = ({ label, icon: Icon, categoryKey, children }) => {
     if (categoryKey === "logistica" && isGuest) return null;
+    // Si el rol es difusión, ocultamos el resto de categorías excepto Difusión
+    if (isOnlyDifusion && categoryKey !== "difusion") return null;
+
     const isExpanded = expandedCategory === categoryKey;
     return (
       <div className="border-b border-slate-50 last:border-0">
@@ -126,8 +124,6 @@ const GiraActionMenu = ({
     );
   };
 
-  // --- RENDER ---
-
   return (
     <div className="relative" ref={menuRef}>
       <button
@@ -135,23 +131,14 @@ const GiraActionMenu = ({
           e.stopPropagation();
           onToggle();
         }}
-        className={`p-3 md:p-2 rounded-lg transition-colors ${
-          isOpen
-            ? "bg-slate-100 text-indigo-600"
-            : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
-        }`}
-        title="Más opciones"
+        className={`p-3 md:p-2 rounded-lg transition-colors ${isOpen ? "bg-slate-100 text-indigo-600" : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"}`}
       >
         <IconMoreVertical size={20} />
       </button>
 
       {isOpen && (
-        <div
-          className="absolute right-0 top-full mt-1 w-64 md:w-56 bg-white rounded-xl shadow-2xl border border-slate-200 z-[1000] overflow-hidden animate-in fade-in zoom-in-95 origin-top-right"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="absolute right-0 top-full mt-1 w-64 md:w-56 bg-white rounded-xl shadow-2xl border border-slate-200 z-[1000] overflow-hidden animate-in fade-in zoom-in-95 origin-top-right">
           <div className="max-h-[60vh] overflow-y-auto">
-            {/* 1. REPERTORIO */}
             <CategoryItem
               label="Repertorio"
               icon={IconMusic}
@@ -174,7 +161,6 @@ const GiraActionMenu = ({
               />
             </CategoryItem>
 
-            {/* 2. AGENDA */}
             <CategoryItem
               icon={IconCalendar}
               label="Agenda"
@@ -186,8 +172,6 @@ const GiraActionMenu = ({
                 onClick={() => onViewChange("AGENDA")}
               />
             </CategoryItem>
-
-            {/* 3. LOGÍSTICA */}
 
             {isEditor && (
               <CategoryItem
@@ -220,18 +204,9 @@ const GiraActionMenu = ({
                   label="Comidas"
                   onClick={() => onViewChange("LOGISTICS", "meals")}
                 />
-
-                {isPersonal && !isEditor && !isGuest && (
-                  <SubMenuItem
-                    icon={IconUtensils}
-                    label="Mis Comidas"
-                    onClick={() => onViewChange("MEALS_PERSONAL")}
-                  />
-                )}
               </CategoryItem>
             )}
 
-            {/* 4. EDICIÓN (Solo editores) */}
             {isEditor && (
               <>
                 <CategoryItem
@@ -245,6 +220,8 @@ const GiraActionMenu = ({
                     onClick={() => onViewChange("ROSTER")}
                   />
                 </CategoryItem>
+
+                {/* ESTA ES LA ÚNICA CATEGORÍA QUE VERÁ EL ROL DIFUSION */}
                 <CategoryItem
                   label="Difusión"
                   icon={IconMegaphone}
@@ -257,7 +234,6 @@ const GiraActionMenu = ({
                   />
                 </CategoryItem>
 
-                {/* --- SECCIÓN DE ACCIONES --- */}
                 <CategoryItem
                   label="Edición"
                   icon={IconEdit}
@@ -273,30 +249,25 @@ const GiraActionMenu = ({
                     label="Editar Programa"
                     onClick={onEdit}
                   />
-
-                  {/* NUEVOS BOTONES TRASLADAR / DUPLICAR */}
                   <div className="my-1 border-t border-slate-100"></div>
-
                   <SubMenuItem
                     icon={IconArrowRight}
                     label="Trasladar Fechas"
-                    onClick={onMove} // Asegúrate de que GiraCard pase esta función
-                    className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                    onClick={onMove}
+                    className="text-orange-600 hover:text-orange-700"
                   />
                   <SubMenuItem
                     icon={IconCopy}
                     label="Duplicar Gira"
-                    onClick={onDuplicate} // Asegúrate de que GiraCard pase esta función
-                    className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                    onClick={onDuplicate}
+                    className="text-indigo-600 hover:text-indigo-700"
                   />
-
                   <div className="my-1 border-t border-slate-100"></div>
-
                   <SubMenuItem
                     icon={IconTrash}
                     label="Eliminar Programa"
                     onClick={onDelete}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    className="text-red-600 hover:text-red-700"
                   />
                 </CategoryItem>
               </>

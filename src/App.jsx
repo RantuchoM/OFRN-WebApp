@@ -302,6 +302,7 @@ const ProtectedApp = () => {
     isPersonal,
     isGuest,
     realUser,
+    isDifusion
   } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -514,7 +515,11 @@ const ProtectedApp = () => {
   );
 
   const currentTab = searchParams.get("tab");
-  const defaultMode = isPersonal ? "FULL_AGENDA" : "GIRAS";
+  const defaultMode = isPersonal
+    ? "FULL_AGENDA"
+    : isDifusion
+      ? "GIRAS"
+      : "GIRAS";
   const [mode, setMode] = useState(tabToMode[currentTab] || defaultMode);
   const [activeGiraId, setActiveGiraId] = useState(searchParams.get("giraId"));
 
@@ -564,69 +569,71 @@ const ProtectedApp = () => {
       id: "DASHBOARD",
       label: "Dashboard",
       icon: <IconSpiralNotebook size={20} />,
-      show: isManagement || isDirector,
+      show: (isManagement || isDirector) && !isDifusion,
     },
     {
       id: "FULL_AGENDA",
       label: "Agenda General",
       icon: <IconCalendar size={20} />,
-      show: userRole !== "invitado",
+      show: userRole !== "invitado" && !isDifusion,
     },
     { id: "GIRAS", label: "Giras", icon: <IconMap size={20} />, show: true },
     {
       id: "ENSAMBLES",
       label: "Ensambles",
       icon: <IconMusic size={20} />,
-      show: isManagement,
+      show: isManagement && !isDifusion,
     },
     {
       id: "COORDINACION",
       label: "Coordinación",
       icon: <IconList size={20} />,
-      show: isEnsembleCoordinator,
+      show: isEnsembleCoordinator && !isDifusion,
     },
     {
       id: "REPERTOIRE",
       label: "Repertorio",
       icon: <IconFileText size={20} />,
       show:
-        userRole !== "invitado" && (!isPersonal || userRole === "archivista"),
+        userRole !== "invitado" &&
+        (!isPersonal || userRole === "archivista") &&
+        !isDifusion,
     },
     {
       id: "MUSICIANS",
       label: "Personas",
       icon: <IconUsers size={20} />,
-      show: isManagement || isDirector,
+      show: (isManagement || isDirector) && !isDifusion,
     },
     {
       id: "DATA",
       label: "Datos",
       icon: <IconDatabase size={20} />,
-      show: isManagement,
+      show: isManagement && !isDifusion,
     },
     {
       id: "NEWS_MANAGER",
       label: "Comunicación",
       icon: <IconBell size={20} />,
-      show: isManagement,
+      show: isManagement&& !isDifusion,
     },
     {
       id: "MANUAL_INDEX",
       label: "Manual de Usuario",
       icon: <IconBookOpen size={20} />,
-      show: userRole !== "invitado",
+      show: userRole !== "invitado" && !isDifusion,
     },
     {
       id: "MANUAL_ADMIN",
       label: "Editor Manual",
       icon: <IconEdit size={20} />,
-      show: isManagement,
+      show: isManagement && !isDifusion,
     },
     {
       id: "USERS",
       label: "Usuarios",
       icon: <IconSettings size={20} />,
-      show: userRole === "admin",
+      show: userRole === "admin", 
     },
     {
       id: "FEEDBACK_ADMIN",

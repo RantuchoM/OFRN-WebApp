@@ -33,6 +33,7 @@ const EXCLUDED_ROLES = [
   "asistente",
   "iluminador",
   "sonido",
+  "acompañante"
 ];
 
 // --- COMPONENTE MÓVIL OPTIMIZADO ---
@@ -617,7 +618,7 @@ export default function ProgramSeating({
           containers.map((c) => {
             const item = c.items[i];
             if (!item?.integrantes) return "";
-            return `${item.integrantes.apellido}, ${item.integrantes.nombre?.charAt(0) || ""}.`;
+            return `${item.integrantes.apellido}, ${item.integrantes.nombre || ""}.`;
           }),
         );
       }
