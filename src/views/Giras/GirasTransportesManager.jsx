@@ -41,12 +41,10 @@ import StopRulesManager from "./StopRulesManager";
 import TransportAdmissionModal from "./TransportAdmissionModal";
 import { useLogistics, matchesRule } from "../../hooks/useLogistics";
 
-// --- IMPORT DE SONNER ---
 import { toast } from "sonner";
 
-// --- CONSTANTES PARA EL TOGGLE DE TIPO DE EVENTO ---
-const TIPO_EVENTO_DEFAULT = 11; // Viaje / Logística Estándar
-const TIPO_EVENTO_ALT = 12; // Logística Especial / Interna
+const TIPO_EVENTO_DEFAULT = 11;
+const TIPO_EVENTO_ALT = 12;
 
 // --- UTILIDADES ---
 const formatDateSafe = (dateString) => {
@@ -134,7 +132,6 @@ const downloadStyledExcel = async (
   window.URL.revokeObjectURL(url);
 };
 
-// --- NUEVA FUNCIÓN PARA SOLO PARADAS ---
 const generateStopsOnlyExcel = async (
   transportName,
   events,
@@ -153,17 +150,15 @@ const generateStopsOnlyExcel = async (
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Hoja de Paradas");
 
-  // --- SE AGREGÓ LA COLUMNA DIRECCIÓN ---
   worksheet.columns = [
     { header: "FECHA", key: "fecha", width: 25 },
     { header: "HORA", key: "hora", width: 12 },
     { header: "NOTA", key: "nota", width: 35 },
     { header: "LOCACIÓN", key: "locacion", width: 35 },
-    { header: "DIRECCIÓN", key: "direccion", width: 35 }, // Nueva columna
+    { header: "DIRECCIÓN", key: "direccion", width: 35 },
     { header: "LOCALIDAD", key: "localidad", width: 25 },
   ];
 
-  // Estilo del encabezado (Azul índigo)
   worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   worksheet.getRow(1).fill = {
     type: "pattern",
@@ -174,7 +169,6 @@ const generateStopsOnlyExcel = async (
   activeEvents.forEach((evt) => {
     let formattedDate = "-";
     if (evt.fecha) {
-      // Forzamos mediodía para evitar desfases de zona horaria
       const dateObj = new Date(evt.fecha + "T12:00:00");
       const dayName = format(dateObj, "EEEE", { locale: es });
       const dayNum = format(dateObj, "dd/MM");
@@ -186,12 +180,11 @@ const generateStopsOnlyExcel = async (
       hora: evt.hora_inicio ? evt.hora_inicio.slice(0, 5) : "--:--",
       nota: (evt.descripcion || "").toUpperCase(),
       locacion: evt.locaciones?.nombre || "-",
-      direccion: evt.locaciones?.direccion || "-", // Dato de la dirección
+      direccion: evt.locaciones?.direccion || "-",
       localidad: evt.locaciones?.localidades?.localidad || "-",
     });
   });
 
-  // Bordes y alineación
   worksheet.eachRow((row) => {
     row.eachCell((cell) => {
       cell.border = {
@@ -244,7 +237,7 @@ const generateRoadmapExcel = async (
   worksheet.columns = [
     { key: "col1", width: 30 },
     { key: "col2", width: 35 },
-    { key: "col3", width: 20 }, // Ancho ajustado para DNI
+    { key: "col3", width: 20 },
   ];
 
   activeEvents.forEach((evt, idx) => {
@@ -253,7 +246,6 @@ const generateRoadmapExcel = async (
     const dateStr = formatDateSafe(evt.fecha);
     const nota = evt.descripcion || "";
 
-    // ENCABEZADO AZUL: PARADA #X | HORA | FECHA | NOTA
     const headerText = `PARADA #${stopNum}      |      ${timeStr} hs      |      ${dateStr}${nota ? `      |      ${nota.toUpperCase()}` : ""}`;
 
     const locName = evt.locaciones?.nombre || "Sin Locación Asignada";
@@ -297,7 +289,6 @@ const generateRoadmapExcel = async (
     ups.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
     downs.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
 
-    // --- SECCIÓN SUBEN ---
     if (ups.length > 0) {
       const subenHeader = worksheet.addRow([
         `SUBEN (${ups.length})`,
@@ -322,7 +313,6 @@ const generateRoadmapExcel = async (
       });
     }
 
-    // --- SECCIÓN BAJAN ---
     if (downs.length > 0) {
       const bajanHeader = worksheet.addRow([
         `BAJAN (${downs.length})`,
@@ -599,20 +589,22 @@ const ShiftScheduleModal = ({
   );
 };
 
-// =================================================================================================
-// COMPONENTE PRINCIPAL
-// ================================================================================================
-
 export default function GirasTransportesManager({ supabase, gira }) {
   const {
     summary: rawSummary,
     routeRules,
-    // admissionRules, (No lo usamos directamente aquí, el modal lo carga)
     transportes: transportsList,
     loading: rosterLoading,
     refresh,
     roster,
   } = useLogistics(supabase, gira);
+
+  // --- FILTRO MAESTRO DE PASAJEROS: Solo activos (ni ausentes ni bajas) ---
+  const passengerList = useMemo(() => {
+    return (rawSummary || []).filter(
+      (p) => p.estado_gira !== "ausente" && p.estado_gira !== "baja",
+    );
+  }, [rawSummary]);
 
   const [shiftModal, setShiftModal] = useState({
     isOpen: false,
@@ -666,7 +658,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       setLoading(false);
     }
   };
-  const passengerList = rawSummary || [];
+
   const giraId = gira?.id;
 
   const [updatingFields, setUpdatingFields] = useState(new Set());
@@ -868,12 +860,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const [activeTransportId, setActiveTransportId] = useState(null);
   const [editingTransportId, setEditingTransportId] = useState(null);
 
-  // --- EDICIÓN DEL TRANSPORTE CON TOGGLE ---
   const [editFormData, setEditFormData] = useState({
     detalle: "",
     capacidad: "",
     costo: "",
-    es_tipo_alternativo: false, // Nuevo campo
+    es_tipo_alternativo: false,
   });
   const [editingEventId, setEditingEventId] = useState(null);
   const [newEvent, setNewEvent] = useState({
@@ -881,7 +872,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     hora: "",
     id_locacion: null,
     descripcion: "",
-    id_tipo_evento: String(TIPO_EVENTO_DEFAULT), // Default inicial
+    id_tipo_evento: String(TIPO_EVENTO_DEFAULT),
   });
 
   const [cnrtModal, setCnrtModal] = useState({
@@ -933,7 +924,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
     const stats = { none: [], single: [], multiple: [] };
     passengerList.forEach((p) => {
-      if (p.estado_gira === "ausente") return;
+      // Nota: El filtro de 'ausente' ya se hizo en el useMemo de passengerList
       const count = p.logistics?.transports?.length || 0;
       if (count === 0) stats.none.push(p);
       else if (count === 1) stats.single.push(p);
@@ -1437,8 +1428,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
     }
   };
 
-  // --- FUNCIÓN QUE ESTABA FALTANDO (Ahora incluida) ---
   const handleExportGlobal = () => {
+    // passengerList ya está filtrado (sin ausentes)
     const travelingPax = passengerList.filter(
       (p) => p.logistics?.transports?.length > 0,
     );
@@ -1486,6 +1477,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         (e) => String(e.id) === String(endId),
       );
 
+      // passengerList ya está filtrado (sin ausentes)
       const tPax = passengerList.filter((p) => {
         const transportData = p.logistics?.transports?.find(
           (t) => String(t.id) === String(currentTransportId),
@@ -1509,6 +1501,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const handleExportRoadmap = (startId, endId) => {
     const tId = roadmapModal.transportId;
     const tInfo = transports.find((t) => t.id === tId);
+    // passengerList ya está filtrado (sin ausentes)
     const tPax = passengerList.filter((p) =>
       p.logistics?.transports?.some((t) => String(t.id) === String(tId)),
     );
@@ -1660,7 +1653,6 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
         <div className="flex gap-2 items-center">
           <DataIntegrityIndicator passengers={passengerList} />
-          {/* BOTÓN EXCEL GENERAL CORREGIDO */}
           <button
             onClick={handleExportGlobal}
             className="flex items-center gap-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold transition-colors shadow-sm"
@@ -1861,7 +1853,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 const next = new Set(selectedEventIds);
                                 myEvents.forEach((ev) => e.target.checked ? next.add(ev.id) : next.delete(ev.id));
                                 setSelectedEventIds(next);
-                            }} />
+                              }}
+                            />
                           </th>
                           <th className="p-3 w-32">Horario / Fecha</th>
                           <th className="p-3 w-44">Locación (Destino)</th>
