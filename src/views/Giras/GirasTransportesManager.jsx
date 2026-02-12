@@ -160,30 +160,26 @@ const generateRoadmapExcel = async (
   const worksheet = workbook.addWorksheet("Hoja de Ruta");
   worksheet.columns = [
     { key: "col1", width: 30 },
-    { key: "col2", width: 30 },
-    { key: "col3", width: 30 },
+    { key: "col2", width: 35 },
+    { key: "col3", width: 20 }, // Ancho ajustado para DNI
   ];
 
   activeEvents.forEach((evt, idx) => {
     const stopNum = idx + 1;
     const timeStr = evt.hora_inicio ? evt.hora_inicio.slice(0, 5) : "--:--";
     const dateStr = formatDateSafe(evt.fecha);
-    const nota = evt.descripcion || ""; // Obtenemos la nota del evento
+    const nota = evt.descripcion || "";
 
-    // --- FORMATO DE ENCABEZADO SOLICITADO ---
-    // PARADA #X      |      HH:MM hs      |      DD/MM      |      NOTA
+    // ENCABEZADO AZUL: PARADA #X | HORA | FECHA | NOTA
     const headerText = `PARADA #${stopNum}      |      ${timeStr} hs      |      ${dateStr}${nota ? `      |      ${nota.toUpperCase()}` : ""}`;
 
     const locName = evt.locaciones?.nombre || "Sin Locación Asignada";
     const address = evt.locaciones?.direccion || "";
     const city = evt.locaciones?.localidades?.localidad || "";
     let fullPlace = locName;
-    const details = [];
-    if (address) details.push(address);
-    if (city) details.push(city);
-    if (details.length > 0) fullPlace += ` (${details.join(" - ")})`;
+    if (address || city)
+      fullPlace += ` (${[address, city].filter(Boolean).join(" - ")})`;
 
-    // FILA ENCABEZADO AZUL
     const headerRow = worksheet.addRow([headerText, "", ""]);
     headerRow.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 12 };
     headerRow.fill = {
@@ -191,10 +187,9 @@ const generateRoadmapExcel = async (
       pattern: "solid",
       fgColor: { argb: "FF1565C0" },
     };
-    headerRow.getCell(1).alignment = { vertical: "middle", wrapText: false };
+    headerRow.getCell(1).alignment = { vertical: "middle" };
     worksheet.mergeCells(`A${headerRow.number}:C${headerRow.number}`);
 
-    // FILA LUGAR
     const placeRow = worksheet.addRow(["LUGAR:", fullPlace, ""]);
     placeRow.font = { bold: true };
     placeRow.height = 30;
@@ -203,11 +198,9 @@ const generateRoadmapExcel = async (
       color: { argb: "FF555555" },
       size: 10,
     };
-    placeRow.getCell(1).alignment = { vertical: "top" };
     placeRow.getCell(2).alignment = { vertical: "top", wrapText: true };
     worksheet.mergeCells(`B${placeRow.number}:C${placeRow.number}`);
 
-    // --- LÓGICA DE PASAJEROS ---
     const ups = passengers.filter((p) =>
       p.logistics?.transports?.some(
         (t) => String(t.subidaId) === String(evt.id),
@@ -220,6 +213,56 @@ const generateRoadmapExcel = async (
     );
     ups.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
     downs.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
+
+    // --- SECCIÓN SUBEN ---
+    if (ups.length > 0) {
+      const subenHeader = worksheet.addRow([
+        `SUBEN (${ups.length})`,
+        "NOMBRE / RESIDENCIA",
+        "DNI",
+      ]);
+      subenHeader.font = { bold: true, color: { argb: "FF2E7D32" } };
+      subenHeader.getCell(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFEBF7ED" },
+      };
+
+      ups.forEach((p) => {
+        const loc = p.localidades?.localidad || paxLocalities[p.id] || "";
+        const nombreYResidencia = loc ? `${p.nombre} (${loc})` : p.nombre;
+        worksheet.addRow([
+          p.apellido?.toUpperCase(),
+          nombreYResidencia,
+          p.dni || "-",
+        ]);
+      });
+    }
+
+    // --- SECCIÓN BAJAN ---
+    if (downs.length > 0) {
+      const bajanHeader = worksheet.addRow([
+        `BAJAN (${downs.length})`,
+        "NOMBRE / RESIDENCIA",
+        "DNI",
+      ]);
+      bajanHeader.font = { bold: true, color: { argb: "FFC62828" } };
+      bajanHeader.getCell(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFEEBEB" },
+      };
+
+      downs.forEach((p) => {
+        const loc = p.localidades?.localidad || paxLocalities[p.id] || "";
+        const nombreYResidencia = loc ? `${p.nombre} (${loc})` : p.nombre;
+        worksheet.addRow([
+          p.apellido?.toUpperCase(),
+          nombreYResidencia,
+          p.dni || "-",
+        ]);
+      });
+    }
 
     const paxOnBoard = passengers.filter((p) => {
       return p.logistics?.transports?.some((t) => {
@@ -236,61 +279,6 @@ const generateRoadmapExcel = async (
         return upIdx <= currentIdx && downIdx > currentIdx;
       });
     }).length;
-
-    if (ups.length > 0) {
-      const subenHeader = worksheet.addRow([
-        `SUBEN (${ups.length})`,
-        "NOMBRE / RESIDENCIA",
-        "DESTINO (BAJADA)",
-      ]);
-      subenHeader.font = { bold: true, color: { argb: "FF2E7D32" } };
-      subenHeader.getCell(1).fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FFEBF7ED" },
-      };
-      ups.forEach((p) => {
-        const loc = paxLocalities[p.id] || "";
-        // Buscamos la nota de la parada de bajada para este pasajero
-        const transportInfo = p.logistics?.transports?.find(
-          (t) => String(t.id) === String(evt.id_gira_transporte),
-        );
-        const bajadaEvt = sortedEvts.find(
-          (e) => String(e.id) === String(transportInfo?.bajadaId),
-        );
-        const destinoStr = bajadaEvt
-          ? bajadaEvt.descripcion || bajadaEvt.locaciones?.nombre || "Fin"
-          : "";
-
-        worksheet.addRow([
-          p.apellido?.toUpperCase(),
-          `${p.nombre} (${loc})`,
-          destinoStr,
-        ]);
-      });
-    }
-
-    if (downs.length > 0) {
-      const bajanHeader = worksheet.addRow([
-        `BAJAN (${downs.length})`,
-        "NOMBRE / RESIDENCIA",
-        "LOCALIDAD",
-      ]);
-      bajanHeader.font = { bold: true, color: { argb: "FFC62828" } };
-      bajanHeader.getCell(1).fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FFFEEBEB" },
-      };
-      downs.forEach((p) => {
-        const loc = paxLocalities[p.id] || "";
-        worksheet.addRow([
-          p.apellido?.toUpperCase(),
-          `${p.nombre} (${loc})`,
-          loc,
-        ]);
-      });
-    }
 
     const totalRow = worksheet.addRow([
       `TOTAL A BORDO AL SALIR: ${paxOnBoard}`,
