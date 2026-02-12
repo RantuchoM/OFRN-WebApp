@@ -45,7 +45,7 @@ import { toast } from "sonner";
 
 // --- CONSTANTES PARA EL TOGGLE DE TIPO DE EVENTO ---
 const TIPO_EVENTO_DEFAULT = 11; // Viaje / Logística Estándar
-const TIPO_EVENTO_ALT = 12;     // Logística Especial / Interna
+const TIPO_EVENTO_ALT = 12; // Logística Especial / Interna
 
 // --- UTILIDADES ---
 const formatDateSafe = (dateString) => {
@@ -168,32 +168,33 @@ const generateRoadmapExcel = async (
     const stopNum = idx + 1;
     const timeStr = evt.hora_inicio ? evt.hora_inicio.slice(0, 5) : "--:--";
     const dateStr = formatDateSafe(evt.fecha);
+    const nota = evt.descripcion || ""; // Obtenemos la nota del evento
+
+    // --- FORMATO DE ENCABEZADO SOLICITADO ---
+    // PARADA #X      |      HH:MM hs      |      DD/MM      |      NOTA
+    const headerText = `PARADA #${stopNum}      |      ${timeStr} hs      |      ${dateStr}${nota ? `      |      ${nota.toUpperCase()}` : ""}`;
+
     const locName = evt.locaciones?.nombre || "Sin Locación Asignada";
     const address = evt.locaciones?.direccion || "";
     const city = evt.locaciones?.localidades?.localidad || "";
-    const extraDesc =
-      evt.descripcion && evt.descripcion !== locName ? evt.descripcion : "";
     let fullPlace = locName;
     const details = [];
     if (address) details.push(address);
     if (city) details.push(city);
     if (details.length > 0) fullPlace += ` (${details.join(" - ")})`;
-    if (extraDesc) fullPlace += `\nNota: ${extraDesc}`;
 
-    const headerRow = worksheet.addRow([
-      `PARADA #${stopNum}      |     ${timeStr} hs     |     ${dateStr}`,
-      "",
-      "",
-    ]);
+    // FILA ENCABEZADO AZUL
+    const headerRow = worksheet.addRow([headerText, "", ""]);
     headerRow.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 12 };
     headerRow.fill = {
       type: "pattern",
       pattern: "solid",
       fgColor: { argb: "FF1565C0" },
     };
-    headerRow.getCell(1).alignment = { vertical: "middle" };
+    headerRow.getCell(1).alignment = { vertical: "middle", wrapText: false };
     worksheet.mergeCells(`A${headerRow.number}:C${headerRow.number}`);
 
+    // FILA LUGAR
     const placeRow = worksheet.addRow(["LUGAR:", fullPlace, ""]);
     placeRow.font = { bold: true };
     placeRow.height = 30;
@@ -206,6 +207,7 @@ const generateRoadmapExcel = async (
     placeRow.getCell(2).alignment = { vertical: "top", wrapText: true };
     worksheet.mergeCells(`B${placeRow.number}:C${placeRow.number}`);
 
+    // --- LÓGICA DE PASAJEROS ---
     const ups = passengers.filter((p) =>
       p.logistics?.transports?.some(
         (t) => String(t.subidaId) === String(evt.id),
@@ -245,13 +247,26 @@ const generateRoadmapExcel = async (
       subenHeader.getCell(1).fill = {
         type: "pattern",
         pattern: "solid",
-        fgColor: { argb: "FFEBQEFA" },
+        fgColor: { argb: "FFEBF7ED" },
       };
-
       ups.forEach((p) => {
         const loc = paxLocalities[p.id] || "";
-        const nombreCompleto = `${p.nombre} ${loc ? `(${loc})` : ""}`;
-        worksheet.addRow([p.apellido?.toUpperCase(), nombreCompleto, loc]);
+        // Buscamos la nota de la parada de bajada para este pasajero
+        const transportInfo = p.logistics?.transports?.find(
+          (t) => String(t.id) === String(evt.id_gira_transporte),
+        );
+        const bajadaEvt = sortedEvts.find(
+          (e) => String(e.id) === String(transportInfo?.bajadaId),
+        );
+        const destinoStr = bajadaEvt
+          ? bajadaEvt.descripcion || bajadaEvt.locaciones?.nombre || "Fin"
+          : "";
+
+        worksheet.addRow([
+          p.apellido?.toUpperCase(),
+          `${p.nombre} (${loc})`,
+          destinoStr,
+        ]);
       });
     }
 
@@ -262,11 +277,18 @@ const generateRoadmapExcel = async (
         "LOCALIDAD",
       ]);
       bajanHeader.font = { bold: true, color: { argb: "FFC62828" } };
-
+      bajanHeader.getCell(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFEEBEB" },
+      };
       downs.forEach((p) => {
         const loc = paxLocalities[p.id] || "";
-        const nombreCompleto = `${p.nombre} ${loc ? `(${loc})` : ""}`;
-        worksheet.addRow([p.apellido?.toUpperCase(), nombreCompleto, loc]);
+        worksheet.addRow([
+          p.apellido?.toUpperCase(),
+          `${p.nombre} (${loc})`,
+          loc,
+        ]);
       });
     }
 
@@ -287,17 +309,6 @@ const generateRoadmapExcel = async (
     worksheet.addRow(["", "", ""]);
   });
 
-  worksheet.eachRow((row) => {
-    row.eachCell((cell) => {
-      if (!cell.border) {
-        cell.border = {
-          top: { style: "thin", color: { argb: "FFDDDDDD" } },
-          bottom: { style: "thin", color: { argb: "FFDDDDDD" } },
-        };
-      }
-    });
-  });
-
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -305,9 +316,8 @@ const generateRoadmapExcel = async (
   const url = window.URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `Hoja_Ruta_Detallada_${transportName}.xlsx`;
+  anchor.download = `Hoja_Ruta_${transportName}.xlsx`;
   anchor.click();
-  window.URL.revokeObjectURL(url);
 };
 
 const DataIntegrityIndicator = ({ passengers }) => {
@@ -781,7 +791,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
   });
   const [activeTransportId, setActiveTransportId] = useState(null);
   const [editingTransportId, setEditingTransportId] = useState(null);
-   
+
   // --- EDICIÓN DEL TRANSPORTE CON TOGGLE ---
   const [editFormData, setEditFormData] = useState({
     detalle: "",
@@ -1959,7 +1969,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
               {isExpanded && (
                 <div className="border-t border-slate-100 overflow-hidden rounded-b-2xl bg-slate-50/30">
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left border-separate border-spacing-0">
+                    <table
+                      className="w-full text-sm text-left border-separate border-spacing-0"
+                      style={{ tableLayout: "fixed" }}
+                    >
+                      {" "}
                       <thead className="bg-slate-100/50 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b">
                         <tr>
                           <th className="p-3 w-10 text-center">
@@ -1983,13 +1997,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
                               }}
                             />
                           </th>
-                          <th className="p-3">Horario / Fecha</th>
-                          <th className="p-3">Locación (Destino)</th>
-                          <th className="p-3">Nota</th>
-                          <th className="p-3 text-center bg-emerald-50/50 text-emerald-600 border-l border-emerald-100">
+                          <th className="p-3 w-65">Horario / Fecha</th>
+                          {/* ACHICAMOS ESTA COLUMNA: de min-w-[180px] a w-40 */}
+                          <th className="p-3 w-70">Locación (Destino)</th>
+                          {/* AGRANDAMOS ESTA COLUMNA: eliminamos min-w y dejamos que flexione */}
+                          <th className="p-3 min-w-[250px]">Nota</th>
+                          <th className="p-3 w-40 text-center bg-emerald-50/50 text-emerald-600 border-l border-emerald-100">
                             Suben
                           </th>
-                          <th className="p-3 text-center bg-rose-50/50 text-rose-600 border-l border-rose-100">
+                          <th className="p-3 w-40 text-center bg-rose-50/50 text-rose-600 border-l border-rose-100">
                             Bajan
                           </th>
                           <th className="p-3 w-10"></th>
@@ -2077,11 +2093,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     <TimeInput
                                       value={evt.hora_fin || evt.hora_inicio}
                                       onChange={(v) =>
-                                        handleUpdateEvent(
-                                          evt.id,
-                                          "hora_fin",
-                                          v,
-                                        )
+                                        handleUpdateEvent(evt.id, "hora_fin", v)
                                       }
                                       className={`h-7 w-full text-[11px] font-bold text-center border rounded text-slate-500 transition-all ${getInputClass(evt.id, "hora_fin")}`}
                                     />
@@ -2089,7 +2101,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 </div>
                               </td>
 
-                              <td className="p-2 min-w-[180px] align-middle">
+                              <td className="p-2 min-w-[120px] align-middle">
                                 <SearchableSelect
                                   options={locationOptions}
                                   value={evt.id_locacion}
@@ -2220,51 +2232,87 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         })}
 
                         {editingEventId === `new-${t.id}` && (
-                          <tr className="bg-indigo-50/50 animate-in fade-in slide-in-from-left-2">
-                            <td className="p-3 text-center text-indigo-500 align-middle">
-                              <IconPlus size={16} />
+                          <tr
+                            key={evt.id}
+                            className="hover:bg-slate-50 group transition-colors"
+                          >
+                            <td className="p-2 text-center align-middle">
+                              <input
+                                type="checkbox"
+                                className="rounded border-slate-300 text-indigo-600"
+                                checked={selectedEventIds.has(evt.id)}
+                                onChange={() => {
+                                  const next = new Set(selectedEventIds);
+                                  next.has(evt.id)
+                                    ? next.delete(evt.id)
+                                    : next.add(evt.id);
+                                  setSelectedEventIds(next);
+                                }}
+                              />
                             </td>
+
                             <td className="p-2 align-middle">
-                              <div className="flex flex-col gap-1 min-w-[150px]">
-                                <DateInput
-                                  value={newEvent.fecha}
-                                  onChange={(v) =>
-                                    setNewEvent({ ...newEvent, fecha: v })
-                                  }
-                                  className="h-7 w-full border-indigo-200 text-xs"
-                                />
-                                <div className="flex gap-1">
-                                  <TimeInput
-                                    value={newEvent.hora}
+                              <div className="flex items-center gap-1">
+                                <div className="w-[85px]">
+                                  {" "}
+                                  {/* Ajuste leve de ancho de fecha */}
+                                  <DateInput
+                                    value={evt.fecha}
                                     onChange={(v) =>
-                                      setNewEvent({ ...newEvent, hora: v })
+                                      handleUpdateEvent(evt.id, "fecha", v)
                                     }
-                                    className="h-7 w-full border-indigo-200 text-xs text-center"
+                                    className={`h-7 w-full text-[11px] font-bold text-center border rounded transition-all ${getInputClass(evt.id, "fecha")}`}
+                                  />
+                                </div>
+                                <div className="w-[65px]">
+                                  {" "}
+                                  {/* Ajuste leve de ancho de hora */}
+                                  <TimeInput
+                                    value={evt.hora_inicio}
+                                    onChange={(v) =>
+                                      handleUpdateEvent(
+                                        evt.id,
+                                        "hora_inicio",
+                                        v,
+                                      )
+                                    }
+                                    className={`h-7 w-full text-[11px] font-bold text-center border rounded transition-all ${getInputClass(evt.id, "hora_inicio")}`}
                                   />
                                 </div>
                               </div>
                             </td>
-                            <td className="p-2 align-middle">
+
+                            {/* COLUMNA LOCACIÓN ACHICADA */}
+                            <td className="p-2 w-40 align-middle">
                               <SearchableSelect
                                 options={locationOptions}
-                                value={newEvent.id_locacion}
+                                value={evt.id_locacion}
                                 onChange={(v) =>
-                                  setNewEvent({ ...newEvent, id_locacion: v })
+                                  handleUpdateEvent(evt.id, "id_locacion", v)
                                 }
-                                className="h-8 border-indigo-200"
+                                className={`h-8 rounded transition-all text-[11px] ${getInputClass(evt.id, "id_locacion")}`}
                               />
                             </td>
+
+                            {/* COLUMNA NOTA AGRANDADA */}
                             <td className="p-2 align-middle">
-                              <input
-                                placeholder="Nota..."
-                                className="w-full h-8 px-2 border border-indigo-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-200"
-                                value={newEvent.descripcion}
+                              <textarea
+                                value={evt.descripcion || ""}
                                 onChange={(e) =>
-                                  setNewEvent({
-                                    ...newEvent,
-                                    descripcion: e.target.value,
-                                  })
+                                  handleUpdateEvent(
+                                    evt.id,
+                                    "descripcion",
+                                    e.target.value,
+                                  )
                                 }
+                                placeholder="Nota..."
+                                className={`w-full min-h-[32px] h-auto resize-none overflow-hidden rounded px-2 py-1.5 text-xs text-slate-600 outline-none border transition-all ${getInputClass(evt.id, "descripcion")}`}
+                                rows={1}
+                                onInput={(e) => {
+                                  e.target.style.height = "auto";
+                                  e.target.style.height =
+                                    e.target.scrollHeight + "px";
+                                }}
                               />
                             </td>
                             <td
