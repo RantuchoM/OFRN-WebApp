@@ -153,14 +153,17 @@ const generateStopsOnlyExcel = async (
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Hoja de Paradas");
 
+  // --- SE AGREGÓ LA COLUMNA DIRECCIÓN ---
   worksheet.columns = [
     { header: "FECHA", key: "fecha", width: 25 },
     { header: "HORA", key: "hora", width: 12 },
     { header: "NOTA", key: "nota", width: 35 },
     { header: "LOCACIÓN", key: "locacion", width: 35 },
+    { header: "DIRECCIÓN", key: "direccion", width: 35 }, // Nueva columna
     { header: "LOCALIDAD", key: "localidad", width: 25 },
   ];
 
+  // Estilo del encabezado (Azul índigo)
   worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   worksheet.getRow(1).fill = {
     type: "pattern",
@@ -183,10 +186,12 @@ const generateStopsOnlyExcel = async (
       hora: evt.hora_inicio ? evt.hora_inicio.slice(0, 5) : "--:--",
       nota: (evt.descripcion || "").toUpperCase(),
       locacion: evt.locaciones?.nombre || "-",
+      direccion: evt.locaciones?.direccion || "-", // Dato de la dirección
       localidad: evt.locaciones?.localidades?.localidad || "-",
     });
   });
 
+  // Bordes y alineación
   worksheet.eachRow((row) => {
     row.eachCell((cell) => {
       cell.border = {
