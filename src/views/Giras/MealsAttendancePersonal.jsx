@@ -210,7 +210,7 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
                                 }`}>
                                     <div className="p-4 flex justify-between items-start gap-4">
                                         <div>
-                                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide mb-1 ${
+                                            <span className={`inline-block px-2 py-0.5 rounded text-[15px] font-bold uppercase tracking-wide mb-1 ${
                                                 evt.id_tipo_evento === 8 ? 'bg-amber-100 text-amber-700' : 
                                                 evt.id_tipo_evento === 10 ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'
                                             }`}>
