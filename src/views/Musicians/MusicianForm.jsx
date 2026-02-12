@@ -392,7 +392,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     if (status === "saved")
       return (
         inputClass +
-        " border-emerald-500 ring-4 ring-emerald-50 bg-emerald-50/10"
+        // CAMBIO AQUÍ: Fondo más oscuro (bg-emerald-100), borde más fuerte y texto verde oscuro
+        " border-emerald-600 ring-4 ring-emerald-200 bg-emerald-100 text-emerald-800 font-medium"
       );
     return inputClass;
   };
