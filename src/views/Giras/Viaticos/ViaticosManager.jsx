@@ -849,6 +849,7 @@ export default function ViaticosManager({ supabase, giraId }) {
         rich.motivo =
           p.motivo && p.motivo.trim() !== "" ? p.motivo : config.motivo || "";
         rich.jornada = p.jornada_laboral || p.jornada || "";
+        rich.jornada_laboral = rich.jornada;
 
         let dias = 0;
         if (p.travelData) {

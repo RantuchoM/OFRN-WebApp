@@ -727,24 +727,37 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const allCalendarEvents = useMemo(() => {
     return giras.flatMap((gira) => {
       if (!gira.eventos) return [];
-      return gira.eventos.map((evento) => {
-        const startStr = `${evento.fecha}T${evento.hora_inicio}`;
-        const startDate = new Date(startStr);
-        const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
-        return {
-          id: evento.id,
-          title: gira.nombre_gira,
-          subtitle: evento.locaciones?.nombre || "",
-          start: startStr,
-          end: endDate.toISOString(),
-          programLabel: (evento.tipos_evento?.nombre || "Evento").toUpperCase(),
-          programType: gira.tipo,
-          programName: gira.nombre_gira,
-          location: evento.locaciones?.nombre || "Sin lugar",
-          giraId: gira.id,
-          eventType: evento.tipos_evento?.nombre || "",
-        };
-      });
+
+      return gira.eventos
+        .map((evento) => {
+          // 1. Validación: Si faltan datos, no procesamos
+          if (!evento.fecha || !evento.hora_inicio) return null;
+
+          const startStr = `${evento.fecha}T${evento.hora_inicio}`;
+          const startDate = new Date(startStr);
+
+          // 2. Validación: Si la fecha generada es inválida
+          if (isNaN(startDate.getTime())) return null;
+
+          const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
+
+          return {
+            id: evento.id,
+            title: gira.nombre_gira,
+            subtitle: evento.locaciones?.nombre || "",
+            start: startStr,
+            end: endDate.toISOString(), // Ahora es seguro llamarlo
+            programLabel: (
+              evento.tipos_evento?.nombre || "Evento"
+            ).toUpperCase(),
+            programType: gira.tipo,
+            programName: gira.nombre_gira,
+            location: evento.locaciones?.nombre || "Sin lugar",
+            giraId: gira.id,
+            eventType: evento.tipos_evento?.nombre || "",
+          };
+        })
+        .filter(Boolean); // 3. Filtramos los nulos (eventos inválidos)
     });
   }, [giras]);
 

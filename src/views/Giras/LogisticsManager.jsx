@@ -20,12 +20,13 @@ import {
   IconCalendarPlus,
   IconSearch,
   IconLinkOff,
+  IconExchange, // Usaremos este icono para la nueva opción
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import { useLogistics } from "../../hooks/useLogistics";
 import EventForm from "../../components/forms/EventForm";
-import ManualTrigger from "../../components/manual/ManualTrigger"; // Ajusta la ruta según donde estés
+import ManualTrigger from "../../components/manual/ManualTrigger";
 
 // --- CONSTANTES ---
 const CATEGORIA_OPTIONS = [
@@ -51,8 +52,17 @@ const getDayLong = (dateStr) => {
   if (!dateStr) return "";
   const date = new Date(dateStr + "T00:00:00");
   return date
-    .toLocaleDateString("es-ES", { weekday: "long" })
-    .replace(/^\w/, (c) => c.toUpperCase());
+    .toLocaleDateString("es-ES", { weekday: "short" }) // Cambiado a 'short' para "lun."
+    .replace(/^\w/, (c) => c.toUpperCase()); // Capitalizar primera letra
+};
+
+// Nueva utilidad para formato breve en tarjeta
+const formatDateBrief = (dateStr) => {
+  if (!dateStr) return "";
+  const [year, month, day] = dateStr.split("-");
+  const date = new Date(dateStr + "T00:00:00");
+  const dayName = date.toLocaleDateString("es-ES", { weekday: "short" });
+  return `${dayName} ${day}/${month}`;
 };
 
 const formatDiff = (ms) => {
@@ -89,6 +99,7 @@ const getBadgeColorClass = (src) => {
       return "bg-slate-50 text-slate-400 border-slate-200";
   }
 };
+
 const MultiSelectCell = ({
   options = [],
   selectedIds,
@@ -101,7 +112,6 @@ const MultiSelectCell = ({
   const containerRef = useRef(null);
   const current = Array.isArray(selectedIds) ? selectedIds : [];
 
-  // --- NUEVA LÓGICA DE COLOR TEMÁTICO SUAVE ---
   const theme = useMemo(() => {
     if (colorClass.includes("bg-blue"))
       return {
@@ -145,7 +155,6 @@ const MultiSelectCell = ({
     <div className="relative min-w-0 flex-1" ref={containerRef}>
       <div
         onClick={() => setIsOpen(!isOpen)}
-        // CAMBIO EN CLASSNAME: Ahora usa 'theme' si está vacío
         className={`min-h-[30px] p-1 border rounded cursor-pointer flex flex-wrap gap-1 items-center transition-colors ${
           current.length > 0
             ? colorClass + " border-black/10 shadow-sm"
@@ -153,7 +162,6 @@ const MultiSelectCell = ({
         }`}
       >
         {current.length === 0 ? (
-          // CAMBIO EN EL SPAN: Usa el color del texto del tema
           <span
             className={`text-[8px] uppercase font-black px-1 ${theme.text}`}
           >
@@ -229,7 +237,7 @@ const EventCellEditor = ({
   labelDefault,
   onManualUpdate,
   onEditEvent,
-  isExternalProcessing, // <--- Nueva Prop
+  isExternalProcessing,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -241,11 +249,13 @@ const EventCellEditor = ({
       : field === "comida_fin"
         ? rule?.comida_fin_fecha
         : rule?.[`fecha_${field}`];
+
   useEffect(() => {
     setIsProcessing(false);
   }, [eventId]);
+
   const handleLink = async (id) => {
-    setIsProcessing(true); // <--- AÑADIR ESTO
+    setIsProcessing(true);
     try {
       const { error } = await supabase
         .from("giras_logistica_reglas")
@@ -258,7 +268,7 @@ const EventCellEditor = ({
       onRefresh();
     } catch (err) {
       console.error(err);
-      setIsProcessing(false); // <--- SI FALLA, APAGAMOS EL CARGANDO
+      setIsProcessing(false);
     }
   };
 
@@ -266,14 +276,14 @@ const EventCellEditor = ({
     e.stopPropagation();
     if (!confirm("¿Desvincular evento de esta regla?")) return;
 
-    setIsProcessing(true); // Iniciamos señal visual
+    setIsProcessing(true);
     try {
       await supabase
         .from("giras_logistica_reglas")
         .update({ [`id_evento_${field}`]: null })
         .eq("id", rule.id);
 
-      onRefresh(); // El refresh del padre desmontará este componente
+      onRefresh();
     } catch (err) {
       console.error(err);
       setIsProcessing(false);
@@ -291,8 +301,10 @@ const EventCellEditor = ({
           </span>
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
-              onClick={() => onEditEvent(event)}
+              // AQUI PASAMOS EL CALLBACK setIsOpen(true) para que al desvincular se abra el menú
+              onClick={() => onEditEvent(event, () => setIsOpen(true))}
               className="p-0.5 hover:bg-slate-100 rounded text-slate-600 transition-colors"
+              title="Editar"
             >
               <IconEdit size={10} />
             </button>
@@ -300,8 +312,8 @@ const EventCellEditor = ({
               onClick={handleUnlink}
               disabled={isProcessing}
               className="p-0.5 hover:bg-red-50 rounded text-red-500 transition-colors"
+              title="Desvincular"
             >
-              {/* 3. Si está procesando, el icono puede cambiar o girar */}
               <IconLinkOff
                 size={10}
                 className={isProcessing ? "animate-spin" : ""}
@@ -312,9 +324,9 @@ const EventCellEditor = ({
         <div className="text-[9px] font-black text-slate-800 break-words whitespace-normal leading-tight w-full mb-1">
           {event.descripcion}
         </div>
+        {/* FORMATO DE FECHA BREVE AQUI */}
         <div className="text-[8px] font-bold text-slate-400 leading-none shrink-0 italic">
-          {event?.fecha?.split("-").reverse().slice(0, 2).join("/")} •{" "}
-          {event?.hora_inicio?.slice(0, 5)} hs
+          {formatDateBrief(event.fecha)} • {event?.hora_inicio?.slice(0, 5)} hs
         </div>
       </div>
     );
@@ -365,7 +377,7 @@ const EventCellEditor = ({
                             {ev.descripcion}
                           </div>
                           <div className="text-[10px] text-slate-500">
-                            {ev.fecha.split("-").reverse().join("/")} •{" "}
+                            {formatDateBrief(ev.fecha)} •{" "}
                             {ev.hora_inicio?.slice(0, 5)} hs
                           </div>
                         </div>
@@ -378,7 +390,6 @@ const EventCellEditor = ({
                 </div>
                 <button
                   onClick={() => {
-                    // En lugar de insertar, abrimos el formulario con datos iniciales
                     onEditEvent({
                       id_gira: giraId,
                       id_tipo_evento: tipoEventoIds[0],
@@ -387,7 +398,6 @@ const EventCellEditor = ({
                       hora_inicio: "12:00:00",
                       descripcion: labelDefault,
                       visible_agenda: true,
-                      // Metadatos para que el Manager sepa qué hacer al guardar
                       _isNew: true,
                       _linkTo: { ruleId: rule.id, field: field },
                     });
@@ -431,7 +441,6 @@ const TimelineNode = ({
         />
       )}
 
-      {/* BADGE CON COLOR RECUPERADO */}
       {src && src !== "-" && (
         <span
           className={`absolute -top-1 -right-2 text-[8px] font-black px-1 rounded border shadow-sm z-20 ${getBadgeColorClass(src)}`}
@@ -470,11 +479,14 @@ export default function LogisticsManager({ supabase, gira }) {
   });
   const [collapsedLocalities, setCollapsedLocalities] = useState(new Set());
   const [showOnlyMissing, setShowOnlyMissing] = useState(false);
-  const [searchTerm, setSearchTerm] = useState(""); // <--- NUEVO ESTADO
+  const [searchTerm, setSearchTerm] = useState("");
   const [criteriaCollapsed, setCriteriaCollapsed] = useState(true);
   const [catalogs, setCatalogs] = useState({ locations: [], regions: [] });
   const [managingHito, setManagingHito] = useState(null);
   const [editingFormData, setEditingFormData] = useState(null);
+  
+  const [conflictModal, setConflictModal] = useState(null);
+
   const debounceRef = useRef({});
 
   useEffect(() => {
@@ -486,13 +498,11 @@ export default function LogisticsManager({ supabase, gira }) {
       );
   }, [logisticsRules]);
 
-  // Dentro de LogisticsManager
   useEffect(() => {
     const fetchC = async () => {
       const [l, r, v, t] = await Promise.all([
         supabase.from("localidades").select("id, localidad"),
         supabase.from("regiones").select("id, region"),
-        // Traemos el lugar físico + el nombre de la ciudad
         supabase
           .from("locaciones")
           .select("id, nombre, id_localidad, localidades(localidad)"),
@@ -505,7 +515,7 @@ export default function LogisticsManager({ supabase, gira }) {
           label: x.localidad,
         })),
         regions: (r.data || []).map((x) => ({ id: x.id, label: x.region })),
-        venues: v.data || [], // Estos son los lugares para el EventForm
+        venues: v.data || [],
         eventTypes: t.data || [],
       });
     };
@@ -520,10 +530,8 @@ export default function LogisticsManager({ supabase, gira }) {
     [roster],
   );
 
-  // Busca esta parte en tu componente y reemplázala:
   const groupedSummary = useMemo(() => {
     let list = summary || [];
-    // --- NUEVO FILTRO DE BÚSQUEDA ---
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       list = list.filter(
@@ -535,15 +543,13 @@ export default function LogisticsManager({ supabase, gira }) {
     if (showOnlyMissing) {
       list = list.filter((m) => {
         const l = m.logistics;
-        const isLocal = m.is_local; // Propiedad que viene del hook
+        const isLocal = m.is_local;
 
-        // Definimos qué es obligatorio
         const missingCheckIn = !isLocal && !l.checkin?.date;
         const missingCheckOut = !isLocal && !l.checkout?.date;
         const missingSubida = !l.transports[0]?.subidaData?.date;
         const missingBajada = !l.transports[0]?.bajadaData?.date;
 
-        // Retorna true si le falta al menos una cosa obligatoria
         return (
           missingCheckIn || missingCheckOut || missingSubida || missingBajada
         );
@@ -556,7 +562,7 @@ export default function LogisticsManager({ supabase, gira }) {
       acc[city].push(p);
       return acc;
     }, {});
-  }, [summary, showOnlyMissing, searchTerm]); // <--- AÑADIR searchTerm AQUÍ
+  }, [summary, showOnlyMissing, searchTerm]);
 
   const handleRowChange = (idx, field, val) => {
     setLocalRules((prev) => {
@@ -587,16 +593,150 @@ export default function LogisticsManager({ supabase, gira }) {
     });
   };
 
+  const getEventAssociations = (eventId) => {
+    if (!eventId || !logisticsRules) return "";
+
+    const relatedRules = logisticsRules.filter(
+      (r) =>
+        Number(r.id_evento_checkin) === Number(eventId) ||
+        Number(r.id_evento_checkout) === Number(eventId) ||
+        Number(r.id_evento_comida_inicio) === Number(eventId) ||
+        Number(r.id_evento_comida_fin) === Number(eventId),
+    );
+
+    if (relatedRules.length === 0) return "No se encontraron asociaciones";
+
+    const associations = new Set();
+    relatedRules.forEach((r) => {
+      if (normalize(r.alcance) === "general") associations.add("Toda la gira");
+
+      (r.target_regions || []).forEach((id) => {
+        const label = catalogs.regions.find(
+          (x) => Number(x.id) === Number(id),
+        )?.label;
+        if (label) associations.add(label);
+      });
+      (r.target_localities || []).forEach((id) => {
+        const label = catalogs.locations.find(
+          (x) => Number(x.id) === Number(id),
+        )?.label;
+        if (label) associations.add(label);
+      });
+      (r.target_categories || []).forEach((cat) => {
+        const label = CATEGORIA_OPTIONS.find((x) => x.val === cat)?.label;
+        if (label) associations.add(label);
+      });
+      (r.target_ids || []).forEach((id) => {
+        const label = rosterOptions.find(
+          (x) => Number(x.id) === Number(id),
+        )?.label;
+        if (label) associations.add(label);
+      });
+
+      if (r.id_integrante)
+        associations.add(
+          rosterOptions.find((x) => Number(x.id) === Number(r.id_integrante))
+            ?.label,
+        );
+      if (r.id_localidad)
+        associations.add(
+          catalogs.locations.find(
+            (x) => Number(x.id) === Number(r.id_localidad),
+          )?.label,
+        );
+      if (r.id_region)
+        associations.add(
+          catalogs.regions.find((x) => Number(x.id) === Number(r.id_region))
+            ?.label,
+        );
+    });
+
+    return Array.from(associations).filter(Boolean).join(", ");
+  };
+
+  const getRelatedRules = (eventId, rules) => {
+    if (!eventId || !rules) return [];
+    return rules.filter(
+      (r) =>
+        String(r.id_evento_checkin) === String(eventId) ||
+        String(r.id_evento_checkout) === String(eventId) ||
+        String(r.id_evento_comida_inicio) === String(eventId) ||
+        String(r.id_evento_comida_fin) === String(eventId)
+    );
+  };
+
+  // --- LÓGICA DE CONFLICTOS ---
+  const handleRequestEditEvent = (event, ruleId, field, openLinkMenu) => {
+    const related = getRelatedRules(event.id, logisticsRules);
+    
+    // Si solo se usa en 1 regla (o ninguna, raro), editamos directo
+    if (related.length <= 1) {
+      setEditingFormData(event);
+      return;
+    }
+
+    // Si hay conflicto, mostramos modal y guardamos el callback del hijo
+    const summaryText = getEventAssociations(event.id);
+    setConflictModal({
+      isOpen: true,
+      event,
+      ruleId,
+      field,
+      summary: summaryText,
+      count: related.length,
+      onRelink: openLinkMenu // Guardamos la función para abrir el popup del hijo
+    });
+  };
+
+  const confirmEditShared = () => {
+    if (conflictModal?.event) {
+      setEditingFormData(conflictModal.event);
+    }
+    setConflictModal(null);
+  };
+
+  const confirmCreateNew = () => {
+    if (conflictModal?.event) {
+      const { event, ruleId, field } = conflictModal;
+      setEditingFormData({
+        ...event,
+        id: undefined, 
+        _isNew: true,
+        _linkTo: { ruleId, field }, 
+        fecha: event.fecha || new Date().toISOString().split("T")[0],
+        hora_inicio: event.hora_inicio || "12:00:00",
+      });
+    }
+    setConflictModal(null);
+  };
+
+  // --- NUEVA FUNCIÓN PARA DESVINCULAR Y RE-VINCULAR ---
+  const confirmRelink = async () => {
+     if (!conflictModal) return;
+     const { ruleId, field, onRelink } = conflictModal;
+     
+     // 1. Desvincular en BD (usando tu función existente)
+     await handleUnlinkGlobal(ruleId, field);
+     
+     // 2. Cerrar modal de conflicto
+     setConflictModal(null);
+     
+     // 3. Activar el popup "Vincular" en el hijo (si se pasó el callback)
+     if (onRelink) {
+         // Pequeño timeout para dar tiempo a que se cierre el modal anterior y se refresque la UI
+         setTimeout(() => onRelink(), 100);
+     }
+  };
+
+
   const handleSaveEvent = async () => {
     if (!editingFormData) return;
 
     const { id, _isNew, _linkTo, ...rest } = editingFormData;
 
-    // 1. Si vamos a vincular, marcamos la celda en el estado global
     const statusKey = _linkTo ? `${_linkTo.ruleId}-${_linkTo.field}` : null;
     if (statusKey) setSavingStatus((p) => ({ ...p, [statusKey]: "saving" }));
 
-    // ... (tu lógica de cleanPayload se mantiene igual)
     const cleanPayload = {
       fecha: rest.fecha || editingFormData.date,
       hora_inicio: rest.hora_inicio || editingFormData.time,
@@ -637,7 +777,6 @@ export default function LogisticsManager({ supabase, gira }) {
           .eq("id", _linkTo.ruleId);
       }
 
-      // 2. Feedback de éxito y limpieza
       if (statusKey) setSavingStatus((p) => ({ ...p, [statusKey]: "success" }));
       setEditingFormData(null);
       refresh();
@@ -662,11 +801,10 @@ export default function LogisticsManager({ supabase, gira }) {
       alert("Error: " + error.message);
     }
   };
-  // Añadir esto dentro de LogisticsManager
+
   const handleUnlinkGlobal = async (ruleId, field) => {
     if (!ruleId || !field) return;
 
-    // Normalizamos el nombre de la columna (id_evento_checkin, etc)
     const columnName = field.startsWith("id_evento_")
       ? field
       : `id_evento_${field}`;
@@ -681,73 +819,20 @@ export default function LogisticsManager({ supabase, gira }) {
       refresh();
     }
   };
-  const getEventAssociations = (eventId) => {
-    if (!eventId || !logisticsRules) return "";
 
-    const relatedRules = logisticsRules.filter(
-      (r) =>
-        Number(r.id_evento_checkin) === Number(eventId) ||
-        Number(r.id_evento_checkout) === Number(eventId) ||
-        Number(r.id_evento_comida_inicio) === Number(eventId) ||
-        Number(r.id_evento_comida_fin) === Number(eventId),
-    );
-
-    if (relatedRules.length === 0) return "No se encontraron asociaciones";
-
-    const associations = new Set();
-    relatedRules.forEach((r) => {
-      if (normalize(r.alcance) === "general") associations.add("Toda la gira");
-
-      // Arrays de selección múltiple
-      (r.target_regions || []).forEach((id) => {
-        const label = catalogs.regions.find(
-          (x) => Number(x.id) === Number(id),
-        )?.label;
-        if (label) associations.add(label);
-      });
-      (r.target_localities || []).forEach((id) => {
-        const label = catalogs.locations.find(
-          (x) => Number(x.id) === Number(id),
-        )?.label;
-        if (label) associations.add(label);
-      });
-      (r.target_categories || []).forEach((cat) => {
-        const label = CATEGORIA_OPTIONS.find((x) => x.val === cat)?.label;
-        if (label) associations.add(label);
-      });
-      (r.target_ids || []).forEach((id) => {
-        const label = rosterOptions.find(
-          (x) => Number(x.id) === Number(id),
-        )?.label;
-        if (label) associations.add(label);
-      });
-
-      // Campos individuales legacy
-      if (r.id_integrante)
-        associations.add(
-          rosterOptions.find((x) => Number(x.id) === Number(r.id_integrante))
-            ?.label,
-        );
-      if (r.id_localidad)
-        associations.add(
-          catalogs.locations.find(
-            (x) => Number(x.id) === Number(r.id_localidad),
-          )?.label,
-        );
-      if (r.id_region)
-        associations.add(
-          catalogs.regions.find((x) => Number(x.id) === Number(r.id_region))
-            ?.label,
-        );
+  const toggleLocality = (city) => {
+    setCollapsedLocalities((prev) => {
+      const next = new Set(prev);
+      if (next.has(city)) next.delete(city);
+      else next.add(city);
+      return next;
     });
-
-    return Array.from(associations).filter(Boolean).join(", ");
   };
+
   return (
     <div className="flex flex-col h-full bg-slate-200 animate-in fade-in font-sans overflow-hidden">
       <div className="flex-1 overflow-auto p-4 space-y-8">
         {/* HEADER */}
-
         <div className="bg-white border-2 border-slate-300 rounded-xl shadow-2xl overflow-hidden overflow-x-auto">
           {/* TABLA ADAPTATIVA */}
           <div className="bg-white border-b border-slate-300 p-3 flex justify-between items-center z-0 shrink-0 mb-2">
@@ -785,7 +870,6 @@ export default function LogisticsManager({ supabase, gira }) {
           </div>
           <table className="w-full text-left text-sm border-collapse">
             <thead className="bg-slate-800 text-white uppercase font-black text-[9px] z-10">
-              {" "}
               <tr>
                 <th
                   className={`px-3 py-4 border-r border-white/10 sticky left-0 z-40 bg-slate-800 ${criteriaCollapsed ? "w-[18%]" : "w-[45%]"}`}
@@ -921,7 +1005,8 @@ export default function LogisticsManager({ supabase, gira }) {
                           giraId={gira.id}
                           labelDefault="Check-In"
                           onManualUpdate={(f, v) => handleRowChange(idx, f, v)}
-                          onEditEvent={setEditingFormData}
+                          // PASAMOS EL CALLBACK
+                          onEditEvent={(evt, triggerOpen) => handleRequestEditEvent(evt, row.id, "checkin", triggerOpen)}
                           locations={catalogs.venues}
                           eventTypes={catalogs.eventTypes}
                         />
@@ -938,7 +1023,7 @@ export default function LogisticsManager({ supabase, gira }) {
                           giraId={gira.id}
                           labelDefault="Check-Out"
                           onManualUpdate={(f, v) => handleRowChange(idx, f, v)}
-                          onEditEvent={setEditingFormData}
+                          onEditEvent={(evt, triggerOpen) => handleRequestEditEvent(evt, row.id, "checkout", triggerOpen)}
                           locations={catalogs.venues}
                           eventTypes={catalogs.eventTypes}
                         />
@@ -959,7 +1044,7 @@ export default function LogisticsManager({ supabase, gira }) {
                           giraId={gira.id}
                           labelDefault={row.comida_inicio_servicio || "Inicio"}
                           onManualUpdate={(f, v) => handleRowChange(idx, f, v)}
-                          onEditEvent={setEditingFormData}
+                          onEditEvent={(evt, triggerOpen) => handleRequestEditEvent(evt, row.id, "comida_inicio", triggerOpen)}
                           locations={catalogs.venues}
                           eventTypes={catalogs.eventTypes}
                         />
@@ -976,7 +1061,7 @@ export default function LogisticsManager({ supabase, gira }) {
                           giraId={gira.id}
                           labelDefault={row.comida_fin_servicio || "Fin"}
                           onManualUpdate={(f, v) => handleRowChange(idx, f, v)}
-                          onEditEvent={setEditingFormData}
+                          onEditEvent={(evt, triggerOpen) => handleRequestEditEvent(evt, row.id, "comida_fin", triggerOpen)}
                           locations={catalogs.venues}
                           eventTypes={catalogs.eventTypes}
                         />
@@ -1359,7 +1444,61 @@ export default function LogisticsManager({ supabase, gira }) {
           </div>
         </div>
       )}
-      {/* MODAL EVENTFORM */}
+      
+      {/* CONFLICT MODAL */}
+      {conflictModal && conflictModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
+             <div className="p-5 border-b bg-slate-50">
+               <h3 className="font-black text-slate-800 uppercase flex items-center gap-2">
+                 <IconAlertCircle className="text-orange-500" /> Evento Compartido
+               </h3>
+             </div>
+             <div className="p-6 space-y-4 text-sm text-slate-600">
+               <p>
+                 Estás intentando editar el evento <strong>"{conflictModal.event.descripcion}"</strong>.
+               </p>
+               <div className="bg-orange-50 border border-orange-200 p-3 rounded-xl">
+                 <p className="text-xs font-bold text-orange-800 mb-1 uppercase">Afecta a {conflictModal.count} reglas:</p>
+                 <p className="text-xs text-orange-900 italic leading-relaxed">
+                   {conflictModal.summary}
+                 </p>
+               </div>
+               <p className="font-medium">¿Qué deseas hacer?</p>
+             </div>
+             <div className="p-4 bg-slate-50 border-t flex flex-col gap-2">
+               <button 
+                 onClick={confirmEditShared}
+                 className="w-full py-3 bg-white border-2 border-orange-200 text-orange-700 rounded-xl font-bold uppercase text-xs hover:bg-orange-50 transition-colors shadow-sm"
+               >
+                 Editar para TODOS (Mantener vínculo)
+               </button>
+               <button 
+                 onClick={confirmCreateNew}
+                 className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold uppercase text-xs hover:bg-indigo-700 transition-colors shadow-lg"
+               >
+                 <IconCalendarPlus size={14} className="inline mr-1"/> Crear Copia Individual
+               </button>
+               
+               {/* NUEVO BOTÓN: DESVINCULAR Y ASIGNAR OTRO */}
+               <button 
+                 onClick={confirmRelink}
+                 className="w-full py-3 bg-white border-2 border-slate-200 text-slate-600 rounded-xl font-bold uppercase text-xs hover:bg-slate-50 transition-colors shadow-sm flex items-center justify-center gap-2"
+               >
+                 <IconExchange size={14} /> Desvincular y Asignar Otro
+               </button>
+
+               <button 
+                 onClick={() => setConflictModal(null)}
+                 className="mt-2 text-xs font-bold text-slate-400 uppercase hover:text-slate-600"
+               >
+                 Cancelar
+               </button>
+             </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL EVENTFORM */}
       {editingFormData && (editingFormData.id || editingFormData._isNew) && (
         <div
