@@ -62,7 +62,7 @@ const formatDateBrief = (dateStr) => {
   const [year, month, day] = dateStr.split("-");
   const date = new Date(dateStr + "T00:00:00");
   const dayName = date.toLocaleDateString("es-ES", { weekday: "short" });
-  return `${dayName} ${day}/${month}`;
+  return `${dayName} ${day}/${month}/${year.slice(2)}`;
 };
 
 const formatDiff = (ms) => {

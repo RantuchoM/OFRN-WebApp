@@ -113,7 +113,7 @@ const GroupInspectorHeader = ({ roster, catalogs }) => {
             </button>
 
             {selectedGroup === g.id && (
-              <div className="absolute top-[calc(100%+5px)] left-0 w-64 bg-white border border-slate-200 shadow-xl rounded-lg z-[100] p-2 animate-in fade-in zoom-in-95 origin-top">
+              <div className="absolute top-[calc(100%+5px)] left-0 w-64 bg-white border border-slate-200 shadow-xl rounded-lg z-25 p-2 animate-in fade-in zoom-in-95 origin-top">
                 <div className="text-[9px] font-bold text-slate-400 uppercase mb-1 border-b pb-1">
                   Integrantes de {getGroupLabelShort(g.id, catalogs)}
                 </div>
