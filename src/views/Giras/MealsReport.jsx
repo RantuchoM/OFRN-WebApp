@@ -12,12 +12,16 @@ const SERVICE_IDS = {
 };
 
 // IMPORTANTE: Ahora usamos la prop 'roster' que viene del LogisticsDashboard
-export default function MealsReport({ supabase, gira, roster: enrichedRoster }) {
+export default function MealsReport({
+  supabase,
+  gira,
+  roster: enrichedRoster,
+}) {
   const reportRef = useRef(null);
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState([]);
   const [selectedTypes, setSelectedTypes] = useState(
-    new Set(["Desayuno", "Almuerzo", "Merienda", "Cena"])
+    new Set(["Desayuno", "Almuerzo", "Merienda", "Cena"]),
   );
   const [includePending, setIncludePending] = useState(false);
 
@@ -31,7 +35,9 @@ export default function MealsReport({ supabase, gira, roster: enrichedRoster }) 
     setLoading(true);
     try {
       // 1. Filtrar solo confirmados del roster que ya viene enriquecido
-      const activeRoster = enrichedRoster.filter((p) => p.estado_gira === "confirmado");
+      const activeRoster = enrichedRoster.filter(
+        (p) => p.estado_gira === "confirmado",
+      );
 
       if (activeRoster.length === 0) {
         setReportData([]);
@@ -41,7 +47,9 @@ export default function MealsReport({ supabase, gira, roster: enrichedRoster }) 
       // 2. Obtener Eventos de Comida
       const { data: events } = await supabase
         .from("eventos")
-        .select("*, tipos_evento(nombre), locaciones(nombre, localidades(localidad)), convocados")
+        .select(
+          "*, tipos_evento(nombre), locaciones(nombre, localidades(localidad)), convocados",
+        )
         .eq("id_gira", gira.id)
         .in("id_tipo_evento", [7, 8, 9, 10])
         .order("fecha", { ascending: true })
@@ -71,11 +79,26 @@ export default function MealsReport({ supabase, gira, roster: enrichedRoster }) 
           if (tag === "GRP:TUTTI") return true;
           if (tag === "GRP:LOCALES") return person.is_local;
           if (tag === "GRP:NO_LOCALES") return !person.is_local;
-          if (tag === "GRP:PRODUCCION") return person.rol_gira === "produccion";
+          if (tag === "GRP:PRODUCCION") {
+            // Lista de roles que "comen" con el grupo de Producción
+            const rolesProduccion = [
+              "produccion",
+              "chofer",
+              "acompañante",
+              "staff",
+              "mus_prod",
+              "técnico",
+            ];
+
+            // Verificamos si el rol de la persona está en esa lista
+            return rolesProduccion.includes(person.rol_gira);
+          }
           if (tag === "GRP:SOLISTAS") return person.rol_gira === "solista";
           if (tag === "GRP:DIRECTORES") return person.rol_gira === "director";
-          if (tag.startsWith("LOC:")) return person.id_localidad === String(tag.split(":")[1]);
-          if (tag.startsWith("FAM:")) return person.instrumentos?.familia === tag.split(":")[1];
+          if (tag.startsWith("LOC:"))
+            return person.id_localidad === String(tag.split(":")[1]);
+          if (tag.startsWith("FAM:"))
+            return person.instrumentos?.familia === tag.split(":")[1];
           return false;
         });
       };
@@ -143,46 +166,67 @@ export default function MealsReport({ supabase, gira, roster: enrichedRoster }) 
   const allDiets = useMemo(() => {
     const diets = new Set();
     reportData.forEach((row) => {
-      Object.keys(row.counts).forEach((k) => { if (k !== "Total") diets.add(k); });
+      Object.keys(row.counts).forEach((k) => {
+        if (k !== "Total") diets.add(k);
+      });
     });
-    return Array.from(diets).sort((a, b) => a === "Estándar" ? -1 : b === "Estándar" ? 1 : a.localeCompare(b));
+    return Array.from(diets).sort((a, b) =>
+      a === "Estándar" ? -1 : b === "Estándar" ? 1 : a.localeCompare(b),
+    );
   }, [reportData]);
 
-  const filteredReport = reportData.filter((r) => selectedTypes.has(r.servicio));
+  const filteredReport = reportData.filter((r) =>
+    selectedTypes.has(r.servicio),
+  );
 
   const calculateGroupTotals = (services) => {
     const totals = { Total: 0 };
     allDiets.forEach((d) => (totals[d] = 0));
-    filteredReport.filter((r) => services.includes(r.servicio)).forEach((row) => {
-      totals.Total += row.counts.Total || 0;
-      allDiets.forEach((d) => { totals[d] += row.counts[d] || 0; });
-    });
+    filteredReport
+      .filter((r) => services.includes(r.servicio))
+      .forEach((row) => {
+        totals.Total += row.counts.Total || 0;
+        allDiets.forEach((d) => {
+          totals[d] += row.counts[d] || 0;
+        });
+      });
     return totals;
   };
 
   const mainMealsTotal = calculateGroupTotals(["Almuerzo", "Cena"]);
   const lightMealsTotal = calculateGroupTotals(["Desayuno", "Merienda"]);
 
-  if (loading) return <div className="flex justify-center py-20"><IconLoader className="animate-spin text-indigo-500" size={32} /></div>;
+  if (loading)
+    return (
+      <div className="flex justify-center py-20">
+        <IconLoader className="animate-spin text-indigo-500" size={32} />
+      </div>
+    );
 
   return (
     <div className="flex flex-col h-full bg-white animate-in fade-in">
       {/* Barra de Filtros */}
       <div className="p-4 border-b border-slate-200 flex flex-wrap justify-between items-center gap-4 bg-slate-50 print:hidden">
         <div className="flex flex-col gap-2">
-          <h2 className="text-lg font-bold text-slate-800">Reporte de Comidas</h2>
+          <h2 className="text-lg font-bold text-slate-800">
+            Reporte de Comidas
+          </h2>
           <div className="flex items-center gap-4">
             <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1 gap-1">
               {["Desayuno", "Almuerzo", "Merienda", "Cena"].map((type) => (
                 <button
                   key={type}
-                  onClick={() => setSelectedTypes(prev => {
-                    const next = new Set(prev);
-                    next.has(type) ? next.delete(type) : next.add(type);
-                    return next;
-                  })}
+                  onClick={() =>
+                    setSelectedTypes((prev) => {
+                      const next = new Set(prev);
+                      next.has(type) ? next.delete(type) : next.add(type);
+                      return next;
+                    })
+                  }
                   className={`px-3 py-1 text-xs font-bold rounded transition-colors ${
-                    selectedTypes.has(type) ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100"
+                    selectedTypes.has(type)
+                      ? "bg-indigo-600 text-white"
+                      : "text-slate-500 hover:bg-slate-100"
                   }`}
                 >
                   {type.charAt(0)}
@@ -190,14 +234,24 @@ export default function MealsReport({ supabase, gira, roster: enrichedRoster }) 
               ))}
             </div>
             <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700">
-              <input type="checkbox" className="sr-only peer" checked={includePending} onChange={() => setIncludePending(!includePending)} />
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={includePending}
+                onChange={() => setIncludePending(!includePending)}
+              />
               <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:bg-indigo-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full relative"></div>
               Incluir Pendientes
             </label>
           </div>
         </div>
         <button
-          onClick={() => handlePrintExport(reportRef, `Reporte Comidas - ${gira.nombre_gira}`)}
+          onClick={() =>
+            handlePrintExport(
+              reportRef,
+              `Reporte Comidas - ${gira.nombre_gira}`,
+            )
+          }
           className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-700"
         >
           <IconPrinter size={18} /> Exportar PDF
@@ -208,7 +262,9 @@ export default function MealsReport({ supabase, gira, roster: enrichedRoster }) 
       <div className="flex-1 overflow-auto p-8" ref={reportRef}>
         <div className="mb-6 hidden print:block">
           <h1 className="text-2xl font-bold">{gira.nombre_gira}</h1>
-          <p className="text-slate-500">Reporte de Alimentación - Cantidades por Dieta</p>
+          <p className="text-slate-500">
+            Reporte de Alimentación - Cantidades por Dieta
+          </p>
         </div>
 
         <table className="w-full text-left border-collapse text-sm">
@@ -220,40 +276,82 @@ export default function MealsReport({ supabase, gira, roster: enrichedRoster }) 
               <th className="py-2 px-2">Lugar</th>
               <th className="py-2 px-2 text-right bg-slate-100">TOTAL</th>
               {allDiets.map((d) => (
-                <th key={d} className="py-2 px-2 text-right border-l text-xs uppercase text-slate-500 font-bold">{d}</th>
+                <th
+                  key={d}
+                  className="py-2 px-2 text-right border-l text-xs uppercase text-slate-500 font-bold"
+                >
+                  {d}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
             {filteredReport.map((row) => (
               <tr key={row.id} className="break-inside-avoid">
-                <td className="py-3 px-2 font-medium">{format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}</td>
+                <td className="py-3 px-2 font-medium">
+                  {format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}
+                </td>
                 <td className="py-3 px-2 text-slate-500">{row.hora}</td>
                 <td className="py-3 px-2">
-                  <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
-                    row.servicio === "Almuerzo" ? "bg-amber-50 border-amber-200 text-amber-700" :
-                    row.servicio === "Cena" ? "bg-indigo-50 border-indigo-200 text-indigo-700" :
-                    "bg-slate-50 border-slate-200 text-slate-600"
-                  }`}>{row.servicio}</span>
+                  <span
+                    className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
+                      row.servicio === "Almuerzo"
+                        ? "bg-amber-50 border-amber-200 text-amber-700"
+                        : row.servicio === "Cena"
+                          ? "bg-indigo-50 border-indigo-200 text-indigo-700"
+                          : "bg-slate-50 border-slate-200 text-slate-600"
+                    }`}
+                  >
+                    {row.servicio}
+                  </span>
                 </td>
                 <td className="py-3 px-2 text-slate-600">{row.lugar}</td>
-                <td className="py-3 px-2 text-right font-black text-lg bg-slate-50">{row.counts.Total}</td>
+                <td className="py-3 px-2 text-right font-black text-lg bg-slate-50">
+                  {row.counts.Total}
+                </td>
                 {allDiets.map((d) => (
-                  <td key={d} className="py-3 px-2 text-right border-l font-mono">{row.counts[d] || "-"}</td>
+                  <td
+                    key={d}
+                    className="py-3 px-2 text-right border-l font-mono"
+                  >
+                    {row.counts[d] || "-"}
+                  </td>
                 ))}
               </tr>
             ))}
           </tbody>
           <tfoot className="border-t-4 border-slate-300 bg-slate-50">
             <tr>
-              <td colSpan={4} className="py-3 px-4 text-right font-bold uppercase">Total Almuerzos + Cenas</td>
-              <td className="py-3 px-2 text-right font-black text-lg border-l">{mainMealsTotal.Total}</td>
-              {allDiets.map((d) => (<td key={d} className="py-3 px-2 text-right border-l font-bold">{mainMealsTotal[d] || 0}</td>))}
+              <td
+                colSpan={4}
+                className="py-3 px-4 text-right font-bold uppercase"
+              >
+                Total Almuerzos + Cenas
+              </td>
+              <td className="py-3 px-2 text-right font-black text-lg border-l">
+                {mainMealsTotal.Total}
+              </td>
+              {allDiets.map((d) => (
+                <td key={d} className="py-3 px-2 text-right border-l font-bold">
+                  {mainMealsTotal[d] || 0}
+                </td>
+              ))}
             </tr>
             <tr>
-              <td colSpan={4} className="py-3 px-4 text-right font-bold uppercase">Total Desayunos + Meriendas</td>
-              <td className="py-3 px-2 text-right font-black text-lg border-l">{lightMealsTotal.Total}</td>
-              {allDiets.map((d) => (<td key={d} className="py-3 px-2 text-right border-l font-bold">{lightMealsTotal[d] || 0}</td>))}
+              <td
+                colSpan={4}
+                className="py-3 px-4 text-right font-bold uppercase"
+              >
+                Total Desayunos + Meriendas
+              </td>
+              <td className="py-3 px-2 text-right font-black text-lg border-l">
+                {lightMealsTotal.Total}
+              </td>
+              {allDiets.map((d) => (
+                <td key={d} className="py-3 px-2 text-right border-l font-bold">
+                  {lightMealsTotal[d] || 0}
+                </td>
+              ))}
             </tr>
           </tfoot>
         </table>

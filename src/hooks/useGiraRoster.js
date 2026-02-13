@@ -194,7 +194,7 @@ export function useGiraRoster(supabase, gira) {
             isBaseValid = true;
           }
         }
-
+        
         // Auto-detectar Producción desde familia de instrumento
         if (m.instrumentos?.familia?.includes("Prod")) {
           rolReal = "produccion";

@@ -617,7 +617,20 @@ export default function UnifiedAgenda({
       if (tag === "GRP:TUTTI") return true;
       if (tag === "GRP:LOCALES") return userProfile.is_local;
       if (tag === "GRP:NO_LOCALES") return !userProfile.is_local;
-      if (tag === "GRP:PRODUCCION") return tourRole === "produccion";
+      if (tag === "GRP:PRODUCCION") {
+        // Lista de roles que "comen" con el grupo de Producción
+        const rolesProduccion = [
+          "produccion",
+          "chofer",
+          "acompañante",
+          "staff",
+          "mus_prod",
+          "técnico",
+        ];
+
+        // Verificamos si el rol de la persona está en esa lista
+        return rolesProduccion.includes(person.rol_gira);
+      }
       if (tag === "GRP:SOLISTAS") return tourRole === "solista";
       if (tag === "GRP:DIRECTORES") return tourRole === "director";
       if (tag.startsWith("LOC:"))

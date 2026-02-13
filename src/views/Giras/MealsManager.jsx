@@ -550,7 +550,20 @@ export default function MealsManager({ supabase, gira, roster }) {
         if (tag === "GRP:TUTTI") return true;
         if (tag === "GRP:LOCALES") return p.is_local;
         if (tag === "GRP:NO_LOCALES") return !p.is_local;
-        if (tag === "GRP:PRODUCCION") return p.rol_gira === "produccion";
+        if (tag === "GRP:PRODUCCION") {
+          // Lista de roles que "comen" con el grupo de Producción
+          const rolesProduccion = [
+            "produccion",
+            "chofer",
+            "acompañante",
+            "staff",
+            "mus_prod",
+            "técnico",
+          ];
+
+          // Verificamos si el rol de la persona está en esa lista
+          return rolesProduccion.includes(p.rol_gira);
+        }
         if (tag === "GRP:SOLISTAS") return p.rol_gira === "solista";
         if (tag === "GRP:DIRECTORES") return p.rol_gira === "director";
         if (tag.startsWith("LOC:"))
