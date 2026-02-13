@@ -95,6 +95,7 @@ export function AuthProvider({ children }) {
       activeUser?.id === "guest-general",
     isActuallyAdmin: realUser?.rol_sistema?.toLowerCase().trim() === "admin",
     userName: activeUser ? `${activeUser.nombre} ${activeUser.apellido}` : "",
+    userId: activeUser?.id || null,
   };
 
   return (
