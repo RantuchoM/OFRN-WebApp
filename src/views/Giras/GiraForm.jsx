@@ -516,24 +516,27 @@ export default function GiraForm({
       }
     }
   }, [isNew, isCoordinator, myEnsembleIds, ensemblesList]);
-
-  // --- VALIDACIÓN DE GUARDADO ---
-  const isSaveDisabled = useMemo(() => {
-    if (loading) return true;
-
-    // Si no es coordinador o no tiene ensambles asignados, no aplicamos restricción
+  // 1. Error específico de Coordinador (para mostrar el mensaje)
+  const coordinatorError = useMemo(() => {
     if (!isCoordinator || myEnsembleIds.size === 0) return false;
 
-    // 1. Validar Tipo
+    // Si no es tipo Ensamble
     if (formData.tipo !== "Ensamble") return true;
 
-    // 2. Validar que seleccionó al menos UNO de SUS ensambles
+    // Si no seleccionó uno de sus ensambles
     const hasMyEnsemble = selectedSources.some(
       (s) => s.tipo === "ENSAMBLE" && myEnsembleIds.has(String(s.valor_id)),
     );
-
     return !hasMyEnsemble;
-  }, [loading, isCoordinator, myEnsembleIds, formData.tipo, selectedSources]);
+  }, [isCoordinator, myEnsembleIds, formData.tipo, selectedSources]);
+
+  // 2. Error de Fechas (Nuevo requerimiento)
+  const dateError = useMemo(() => {
+    return !formData.fecha_desde || !formData.fecha_hasta;
+  }, [formData.fecha_desde, formData.fecha_hasta]);
+
+  // 3. Estado general del botón Guardar
+  const isSaveDisabled = loading || coordinatorError || dateError;
 
   const handleAutoSave = async (fieldName, valueOverride = null) => {
     if (isNew || !enableAutoSave || !giraId) return;
@@ -601,16 +604,14 @@ export default function GiraForm({
           else query = query.eq("valor_texto", value);
           await query;
         } else {
-          await supabase
-            .from("giras_fuentes")
-            .insert([
-              {
-                id_gira: giraId,
-                tipo,
-                valor_id: isId ? value : null,
-                valor_texto: !isId ? value : null,
-              },
-            ]);
+          await supabase.from("giras_fuentes").insert([
+            {
+              id_gira: giraId,
+              tipo,
+              valor_id: isId ? value : null,
+              valor_texto: !isId ? value : null,
+            },
+          ]);
         }
       } catch (error) {
         console.error("Error guardando fuente:", error);
@@ -633,16 +634,14 @@ export default function GiraForm({
     ]);
     if (!isNew && enableAutoSave) {
       setGlobalSaving(true);
-      await supabase
-        .from("giras_integrantes")
-        .insert([
-          {
-            id_gira: giraId,
-            id_integrante: idInt,
-            rol: staffRole,
-            estado: "confirmado",
-          },
-        ]);
+      await supabase.from("giras_integrantes").insert([
+        {
+          id_gira: giraId,
+          id_integrante: idInt,
+          rol: staffRole,
+          estado: "confirmado",
+        },
+      ]);
       setGlobalSaving(false);
     }
   };
@@ -711,16 +710,14 @@ export default function GiraForm({
   const handleDetailedSave = async (newMusician) => {
     if (!isNew && giraId) {
       setGlobalSaving(true);
-      await supabase
-        .from("giras_integrantes")
-        .insert([
-          {
-            id_gira: giraId,
-            id_integrante: newMusician.id,
-            rol: staffRole,
-            estado: "confirmado",
-          },
-        ]);
+      await supabase.from("giras_integrantes").insert([
+        {
+          id_gira: giraId,
+          id_integrante: newMusician.id,
+          rol: staffRole,
+          estado: "confirmado",
+        },
+      ]);
       setGlobalSaving(false);
     }
     setSelectedStaff((prev) => [
@@ -913,7 +910,7 @@ export default function GiraForm({
             }}
           />
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1 md:col-span-3">
           <label className="text-xs font-bold text-slate-500 uppercase">
             Estado
           </label>
@@ -1232,10 +1229,20 @@ export default function GiraForm({
 
       {/* FOOTER */}
       <div className="flex flex-col items-end gap-2 mt-8 pt-3 border-t border-fixed-indigo-100/50">
-        {isSaveDisabled && (
-          <div className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded font-bold animate-pulse">
-            ⚠️ Debes seleccionar un tipo 'Ensamble' y al menos uno de tus
-            ensambles coordinados
+        {/* Mensaje de Error Coordinador (Solo si no está cargando) */}
+        {!loading && coordinatorError && (
+          <div className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded font-bold animate-pulse flex items-center gap-2">
+            <IconAlertTriangle size={14} />
+            Debes seleccionar el tipo 'Ensamble' y al menos uno de tus ensambles
+            asignados.
+          </div>
+        )}
+
+        {/* Mensaje de Error Fechas (Solo si no está cargando) */}
+        {!loading && dateError && (
+          <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1 rounded font-bold flex items-center gap-2">
+            <IconCalendar size={14} />
+            Las fechas de inicio y fin son obligatorias.
           </div>
         )}
 
@@ -1251,19 +1258,21 @@ export default function GiraForm({
           {(!enableAutoSave || isNew) && (
             <button
               onClick={(e) => {
-                // VALIDACIÓN EXPLÍCITA AL CLICK
                 if (isSaveDisabled) {
                   e.preventDefault();
                   e.stopPropagation();
-                  alert(
-                    "No se puede guardar: Debes seleccionar un tipo 'Ensamble' y al menos uno de tus ensambles coordinados",
-                  );
+                  // Feedback visual explícito si hacen click forzados
+                  if (coordinatorError)
+                    alert(
+                      "Error: Verifica el tipo de programa y los ensambles.",
+                    );
+                  else if (dateError)
+                    alert("Error: Faltan las fechas de la gira.");
                   return;
                 }
                 onSave(e);
               }}
-              // NO USAMOS 'disabled' AQUÍ PARA QUE EL CLICK SE DISPARE Y MUESTRE LA ALERTA
-              // SOLO LO ESTILIZAMOS COMO DESHABILITADO
+              // Visualmente deshabilitado, pero permitimos click para validación si se requiere
               className={`flex items-center gap-2 px-4 py-1.5 rounded text-white text-sm font-bold shadow-sm transition-all ${
                 isSaveDisabled
                   ? "bg-slate-400 opacity-70 cursor-not-allowed"
@@ -1284,7 +1293,6 @@ export default function GiraForm({
           )}
         </div>
       </div>
-
       {/* MODAL DETALLADO DE MÚSICO */}
       {isCreatingDetailed && (
         <div

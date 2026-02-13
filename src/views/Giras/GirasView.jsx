@@ -329,7 +329,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
             *,
             giras_localidades(id_localidad, localidades(localidad)), 
 
-            giras_integrantes!inner(
+            giras_integrantes(
               id_integrante, rol, estado, 
               integrantes(
                 id, nombre, apellido, 
@@ -616,6 +616,22 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
       // 2. Gestión de Relaciones (solo si tenemos un ID válido)
       if (targetId) {
+        // --- CORRECCIÓN: CREACIÓN AUTOMÁTICA DE BLOQUE REPERTORIO ---
+        // Solo si es una creación nueva (!editingId)
+        if (!editingId) {
+          const { error: blockError } = await supabase
+            .from("programas_repertorios") // <--- NOMBRE DE TABLA CORRECTO
+            .insert([
+              {
+                id_programa: targetId, // <--- CAMPO CORRECTO (no id_gira)
+                nombre: "Repertorio", // <--- CAMPO CORRECTO (no titulo)
+                orden: 0,
+              },
+            ]);
+
+          if (blockError)
+            console.warn("Error creando bloque por defecto:", blockError);
+        }
         // Localidades
         await supabase
           .from("giras_localidades")
