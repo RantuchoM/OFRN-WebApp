@@ -54,7 +54,8 @@ import {
 import { moveGira, duplicateGira } from "../../services/giraActions";
 
 export default function GirasView({ supabase, trigger = 0 }) {
-  const { user, isEditor, isManagement, isPersonal, isGuest, isDifusion } = useAuth();
+  const { user, isEditor, isManagement, isPersonal, isGuest, isDifusion } =
+    useAuth();
   const userRole = user?.rol_sistema || "";
   const [statsRefreshTrigger, setStatsRefreshTrigger] = useState(0);
 
@@ -568,70 +569,126 @@ export default function GirasView({ supabase, trigger = 0 }) {
   };
 
   const handleSave = async () => {
-    if (!formData.nombre_gira) return alert("Nombre obligatorio");
+    if (!formData.nombre_gira?.trim())
+      return alert("El nombre de la gira es obligatorio");
+
     setLoading(true);
-    const payload = { ...formData };
-    if (!payload.token_publico) payload.token_publico = null;
-    if (!payload.fecha_desde) payload.fecha_desde = null;
-    if (!payload.fecha_hasta) payload.fecha_hasta = null;
-    if (!isEditor && coordinatedEnsembles.size > 0) payload.tipo = "Ensamble";
+
+    // 1. Limpieza rigurosa del payload para evitar errores de tipo en la DB
+    const payload = {
+      nombre_gira: formData.nombre_gira.trim(),
+      subtitulo: formData.subtitulo?.trim() || null,
+      fecha_desde: formData.fecha_desde || null,
+      fecha_hasta: formData.fecha_hasta || null,
+      tipo: formData.tipo || "Sinfónico",
+      zona: formData.zona?.trim() || null,
+      token_publico: formData.token_publico || null,
+      estado: formData.estado || "Borrador",
+      nomenclador: formData.nomenclador || null,
+    };
+
+    // Ajuste de seguridad para coordinadores
+    if (isCoordinator) {
+      payload.tipo = "Ensamble";
+    }
+
     try {
       let targetId = editingId;
+
       if (editingId) {
-        await supabase.from("programas").update(payload).eq("id", editingId);
+        // ACTUALIZACIÓN
+        const { error: updateError } = await supabase
+          .from("programas")
+          .update(payload)
+          .eq("id", editingId);
+        if (updateError) throw updateError;
       } else {
-        const { data } = await supabase
+        // CREACIÓN NUEVA
+        const { data: newData, error: insertError } = await supabase
           .from("programas")
           .insert([payload])
-          .select();
-        if (data && data.length > 0) targetId = data[0].id;
+          .select()
+          .single(); // Usamos single para obtener el ID directamente
+
+        if (insertError) throw insertError;
+        targetId = newData.id;
       }
+
+      // 2. Gestión de Relaciones (solo si tenemos un ID válido)
       if (targetId) {
+        // Localidades
         await supabase
           .from("giras_localidades")
           .delete()
           .eq("id_gira", targetId);
-        const locPayload = Array.from(selectedLocations).map((lid) => ({
-          id_gira: targetId,
-          id_localidad: lid,
-        }));
-        if (locPayload.length > 0)
-          await supabase.from("giras_localidades").insert(locPayload);
+        if (selectedLocations.size > 0) {
+          const locPayload = Array.from(selectedLocations).map((lid) => ({
+            id_gira: targetId,
+            id_localidad: lid,
+          }));
+          const { error: locError } = await supabase
+            .from("giras_localidades")
+            .insert(locPayload);
+          if (locError) console.error("Error en localidades:", locError);
+        }
+
+        // Fuentes (Ensambles/Familias)
         await supabase.from("giras_fuentes").delete().eq("id_gira", targetId);
-        const srcPayload = selectedSources.map((s) => ({
-          id_gira: targetId,
-          tipo: s.tipo,
-          valor_id: s.valor_id || null,
-          valor_texto: s.valor_texto || null,
-        }));
-        if (srcPayload.length > 0)
-          await supabase.from("giras_fuentes").insert(srcPayload);
+        if (selectedSources.length > 0) {
+          const srcPayload = selectedSources.map((s) => ({
+            id_gira: targetId,
+            tipo: s.tipo,
+            valor_id: s.valor_id || null,
+            valor_texto: s.valor_texto || null,
+          }));
+          const { error: srcError } = await supabase
+            .from("giras_fuentes")
+            .insert(srcPayload);
+          if (srcError) console.error("Error en fuentes:", srcError);
+        }
+
+        // Staff Artístico
         await supabase
           .from("giras_integrantes")
           .delete()
           .eq("id_gira", targetId)
           .in("rol", ["director", "solista"]);
-        const staffPayload = selectedStaff.map((s) => ({
-          id_gira: targetId,
-          id_integrante: s.id_integrante,
-          rol: s.rol,
-          estado: "confirmado",
-        }));
-        if (staffPayload.length > 0)
-          await supabase.from("giras_integrantes").insert(staffPayload);
-        await supabase.functions.invoke("drive-manager", {
-          body: { action: "sync_program", programId: targetId },
-        });
+
+        if (selectedStaff.length > 0) {
+          const staffPayload = selectedStaff.map((s) => ({
+            id_gira: targetId,
+            id_integrante: s.id_integrante,
+            rol: s.rol,
+            estado: "confirmado",
+          }));
+          const { error: staffError } = await supabase
+            .from("giras_integrantes")
+            .insert(staffPayload);
+          if (staffError) console.error("Error en staff:", staffError);
+        }
+
+        // 3. Sincronización con Google Drive (Edge Function)
+        // Usamos 'manage-drive' que es el estándar en tu proyecto según otros archivos
+        try {
+          await supabase.functions.invoke("manage-drive", {
+            body: { action: "sync_program", programId: targetId },
+          });
+        } catch (driveErr) {
+          console.warn("Error (no crítico) sincronizando Drive:", driveErr);
+        }
       }
+
+      // Finalización
       await fetchGiras();
-      if (mode === "LIST") closeForm();
+      closeForm();
+      alert(editingId ? "Gira actualizada con éxito" : "Gira creada con éxito");
     } catch (err) {
-      alert(err.message);
+      console.error("Error detallado al guardar gira:", err);
+      alert(`Error al guardar: ${err.message || "Error desconocido"}`);
     } finally {
       setLoading(false);
     }
   };
-
   const handleDelete = async (e, id) => {
     if (e) e.stopPropagation();
     if (!confirm("¿Eliminar?")) return;

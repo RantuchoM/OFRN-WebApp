@@ -27,7 +27,7 @@ import LocationMultiSelect from "../../components/filters/LocationMultiSelect";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import MusicianForm from "../Musicians/MusicianForm";
-import SearchableSelect from "../../components/ui/SearchableSelect"; // Asegúrate de importar esto
+import SearchableSelect from "../../components/ui/SearchableSelect";
 
 // --- COMPONENTE INTERNO: Modal de Edición de Concierto ---
 const ConcertFormModal = ({
@@ -51,12 +51,14 @@ const ConcertFormModal = ({
     if (!formData.fecha) return alert("Falta la fecha");
     setLoading(true);
     try {
-      // Saneamiento de datos: id_locacion debe ser NULL si está vacío
       const payload = {
         fecha: formData.fecha,
         hora_inicio: formData.hora_inicio,
         hora_fin: formData.hora_fin,
-        id_locacion: formData.id_locacion && formData.id_locacion !== "" ? formData.id_locacion : null,
+        id_locacion:
+          formData.id_locacion && formData.id_locacion !== ""
+            ? formData.id_locacion
+            : null,
         id_gira: giraId,
         id_tipo_evento: 1, // ID FIJO PARA CONCIERTO
         descripcion: formData.descripcion || "Concierto",
@@ -65,15 +67,15 @@ const ConcertFormModal = ({
       let result;
 
       if (initialData?.id) {
-        result = await supabase.from("eventos").update(payload).eq("id", initialData.id);
+        result = await supabase
+          .from("eventos")
+          .update(payload)
+          .eq("id", initialData.id);
       } else {
         result = await supabase.from("eventos").insert([payload]);
       }
 
-      // --- CORRECCIÓN IMPORTANTE: VERIFICAR ERRORES ---
-      if (result.error) {
-        throw result.error;
-      }
+      if (result.error) throw result.error;
 
       onSuccess();
     } catch (err) {
@@ -88,7 +90,10 @@ const ConcertFormModal = ({
     if (!confirm("¿Eliminar este concierto?")) return;
     setLoading(true);
     try {
-      const { error } = await supabase.from("eventos").delete().eq("id", initialData.id);
+      const { error } = await supabase
+        .from("eventos")
+        .delete()
+        .eq("id", initialData.id);
       if (error) throw error;
       onSuccess();
     } catch (err) {
@@ -204,7 +209,7 @@ const ConcertFormModal = ({
                 <IconLoader className="animate-spin" />
               ) : (
                 <IconCheck size={14} />
-              )}
+              )}{" "}
               Guardar
             </button>
           </div>
@@ -214,7 +219,7 @@ const ConcertFormModal = ({
   );
 };
 
-// --- COMPONENTE INTERNO: MultiSelect Dropdown (Existente) ---
+// --- COMPONENTE INTERNO: MultiSelect Dropdown ---
 const SourceMultiSelect = ({
   title,
   options,
@@ -242,14 +247,7 @@ const SourceMultiSelect = ({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full flex justify-between items-center px-3 py-2 text-xs font-bold uppercase border rounded-lg transition-all 
-                    ${
-                      isOpen
-                        ? `border-${color}-400 ring-1 ring-${color}-400 bg-${color}-50 text-${color}-900`
-                        : count > 0
-                        ? `bg-${color}-50 text-${color}-800 border-${color}-200 hover:border-${color}-300`
-                        : "bg-white text-slate-500 border-slate-300 hover:border-slate-400"
-                    }`}
+        className={`w-full flex justify-between items-center px-3 py-2 text-xs font-bold uppercase border rounded-lg transition-all ${isOpen ? `border-${color}-400 ring-1 ring-${color}-400 bg-${color}-50 text-${color}-900` : count > 0 ? `bg-${color}-50 text-${color}-800 border-${color}-200 hover:border-${color}-300` : "bg-white text-slate-500 border-slate-300 hover:border-slate-400"}`}
       >
         <div className="flex items-center gap-2 truncate">
           {Icon && (
@@ -270,9 +268,7 @@ const SourceMultiSelect = ({
           )}
           <IconChevronDown
             size={14}
-            className={`transition-transform ${
-              isOpen ? "rotate-180" : ""
-            } opacity-50`}
+            className={`transition-transform ${isOpen ? "rotate-180" : ""} opacity-50`}
           />
         </div>
       </button>
@@ -293,18 +289,10 @@ const SourceMultiSelect = ({
                       e.stopPropagation();
                       onToggle(opt.value, opt.label);
                     }}
-                    className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs select-none transition-colors ${
-                      isSelected
-                        ? `bg-${color}-50 text-${color}-900 font-medium`
-                        : "hover:bg-slate-50 text-slate-600"
-                    }`}
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs select-none transition-colors ${isSelected ? `bg-${color}-50 text-${color}-900 font-medium` : "hover:bg-slate-50 text-slate-600"}`}
                   >
                     <div
-                      className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                        isSelected
-                          ? `bg-${color}-500 border-${color}-500`
-                          : "border-slate-300 bg-white"
-                      }`}
+                      className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? `bg-${color}-500 border-${color}-500` : "border-slate-300 bg-white"}`}
                     >
                       {isSelected && (
                         <IconCheck size={12} className="text-white" />
@@ -322,14 +310,14 @@ const SourceMultiSelect = ({
   );
 };
 
-// --- COMPONENTE INTERNO: Buscador de Staff (Existente) ---
+// --- COMPONENTE INTERNO: Buscador de Staff ---
 const StaffSearchInput = ({ options, onSelect, onCreateNew }) => {
   const [search, setSearch] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef(null);
 
   const filtered = options.filter((o) =>
-    o.label.toLowerCase().includes(search.toLowerCase())
+    o.label.toLowerCase().includes(search.toLowerCase()),
   );
 
   useEffect(() => {
@@ -417,7 +405,7 @@ export default function GiraForm({
   setSelectedStaff,
   enableAutoSave = false,
   isCoordinator = false,
-  coordinatedEnsembles = null, // Set de IDs
+  coordinatedEnsembles = null, // Puede ser Set o Array
 }) {
   const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
   const [tempName, setTempName] = useState({ nombre: "", apellido: "" });
@@ -427,35 +415,37 @@ export default function GiraForm({
   const [shiftNewDate, setShiftNewDate] = useState("");
   const [shiftLoading, setShiftLoading] = useState(false);
   const [staffRole, setStaffRole] = useState("director");
-  
+
   // Estados para Conciertos
   const [concerts, setConcerts] = useState([]);
   const [showConcertModal, setShowConcertModal] = useState(false);
   const [editingConcert, setEditingConcert] = useState(null);
-  
-  // Cargar locaciones disponibles para conciertos (de la tabla locaciones completa)
+
+  // Cargar locaciones disponibles para conciertos
   const [allLocationsForConcerts, setAllLocationsForConcerts] = useState([]);
 
   useEffect(() => {
     const fetchLocs = async () => {
-        const { data } = await supabase
-            .from("locaciones")
-            .select("id, nombre, localidades(localidad)")
-            .order("nombre");
-        setAllLocationsForConcerts(data || []);
+      const { data } = await supabase
+        .from("locaciones")
+        .select("id, nombre, localidades(localidad)")
+        .order("nombre");
+      setAllLocationsForConcerts(data || []);
     };
     fetchLocs();
   }, [supabase]);
 
-  // Cargar Conciertos de la Gira (solo si no es nueva)
+  // Cargar Conciertos de la Gira
   const fetchConcerts = async () => {
     if (!giraId || isNew) return;
     const { data } = await supabase
-        .from("eventos")
-        .select("id, fecha, hora_inicio, hora_fin, descripcion, id_locacion, locaciones(nombre)")
-        .eq("id_gira", giraId)
-        .eq("id_tipo_evento", 1) // Solo conciertos
-        .order("fecha", { ascending: true });
+      .from("eventos")
+      .select(
+        "id, fecha, hora_inicio, hora_fin, descripcion, id_locacion, locaciones(nombre)",
+      )
+      .eq("id_gira", giraId)
+      .eq("id_tipo_evento", 1)
+      .order("fecha", { ascending: true });
     setConcerts(data || []);
   };
 
@@ -467,79 +457,94 @@ export default function GiraForm({
 
   const StatusIndicator = ({ field }) => {
     if (savingField === field)
-      return <IconLoader size={14} className="animate-spin text-fixed-indigo-600" />;
+      return (
+        <IconLoader size={14} className="animate-spin text-fixed-indigo-600" />
+      );
     return null;
   };
 
+  // --- LÓGICA DE VALIDACIÓN COORDINADOR ---
+  // Normalizamos IDs a String para comparaciones seguras
+  const myEnsembleIds = useMemo(() => {
+    if (!coordinatedEnsembles) return new Set();
+    const set = new Set();
+    // Maneja tanto Set como Array
+    coordinatedEnsembles.forEach((id) => set.add(String(id)));
+    return set;
+  }, [coordinatedEnsembles]);
+
   const processedEnsembles = useMemo(() => {
     if (!ensemblesList) return [];
-    if (!isCoordinator || !coordinatedEnsembles) return ensemblesList;
+    if (!isCoordinator || myEnsembleIds.size === 0) return ensemblesList;
 
     return [...ensemblesList]
       .sort((a, b) => {
-        const aMine = coordinatedEnsembles.has(a.value);
-        const bMine = coordinatedEnsembles.has(b.value);
+        const aMine = myEnsembleIds.has(String(a.value));
+        const bMine = myEnsembleIds.has(String(b.value));
         if (aMine && !bMine) return -1;
         if (!aMine && bMine) return 1;
         return a.label.localeCompare(b.label);
       })
       .map((e) => ({
         ...e,
-        label: coordinatedEnsembles.has(e.value) ? `★ ${e.label}` : e.label,
+        label: myEnsembleIds.has(String(e.value)) ? `★ ${e.label}` : e.label,
       }));
-  }, [ensemblesList, isCoordinator, coordinatedEnsembles]);
+  }, [ensemblesList, isCoordinator, myEnsembleIds]);
 
-  const myEnsembleIds = useMemo(() => {
-    if (!coordinatedEnsembles) return new Set();
-    const set = new Set();
-    coordinatedEnsembles.forEach(id => set.add(String(id)));
-    return set;
-  }, [coordinatedEnsembles]);
-
+  // Auto-seleccionar si el coordinador tiene solo 1 ensamble
   useEffect(() => {
     if (isNew && isCoordinator && myEnsembleIds.size === 1) {
       const myEnsembleIdStr = Array.from(myEnsembleIds)[0];
       const isAlreadySelected = selectedSources.some(
-        s => s.tipo === 'ENSAMBLE' && String(s.valor_id) === myEnsembleIdStr
+        (s) => s.tipo === "ENSAMBLE" && String(s.valor_id) === myEnsembleIdStr,
       );
 
       if (!isAlreadySelected) {
-        const ensembleObj = ensemblesList.find(e => String(e.value) === myEnsembleIdStr);
+        const ensembleObj = ensemblesList.find(
+          (e) => String(e.value) === myEnsembleIdStr,
+        );
         if (ensembleObj) {
-            setSelectedSources(prev => [
-                ...prev, 
-                { tipo: 'ENSAMBLE', valor_id: ensembleObj.value, label: ensembleObj.label }
-            ]);
+          setSelectedSources((prev) => [
+            ...prev,
+            {
+              tipo: "ENSAMBLE",
+              valor_id: ensembleObj.value,
+              label: ensembleObj.label,
+            },
+          ]);
         }
       }
     }
-  }, [isNew, isCoordinator, myEnsembleIds, ensemblesList]); 
+  }, [isNew, isCoordinator, myEnsembleIds, ensemblesList]);
 
+  // --- VALIDACIÓN DE GUARDADO ---
   const isSaveDisabled = useMemo(() => {
     if (loading) return true;
-    if (isCoordinator && myEnsembleIds.size > 0) {
-        if (formData.tipo !== 'Ensamble') return true;
-        const hasMyEnsemble = selectedSources.some(s => 
-            s.tipo === 'ENSAMBLE' && myEnsembleIds.has(String(s.valor_id))
-        );
-        if (!hasMyEnsemble) return true;
-    }
-    return false;
+
+    // Si no es coordinador o no tiene ensambles asignados, no aplicamos restricción
+    if (!isCoordinator || myEnsembleIds.size === 0) return false;
+
+    // 1. Validar Tipo
+    if (formData.tipo !== "Ensamble") return true;
+
+    // 2. Validar que seleccionó al menos UNO de SUS ensambles
+    const hasMyEnsemble = selectedSources.some(
+      (s) => s.tipo === "ENSAMBLE" && myEnsembleIds.has(String(s.valor_id)),
+    );
+
+    return !hasMyEnsemble;
   }, [loading, isCoordinator, myEnsembleIds, formData.tipo, selectedSources]);
 
   const handleAutoSave = async (fieldName, valueOverride = null) => {
     if (isNew || !enableAutoSave || !giraId) return;
-
     const value = valueOverride !== null ? valueOverride : formData[fieldName];
     setSavingField(fieldName);
     setGlobalSaving(true);
-
     try {
       const { error } = await supabase
         .from("programas")
         .update({ [fieldName]: value })
         .eq("id", giraId);
-
       if (error) throw error;
       if (onRefresh) onRefresh();
     } catch (err) {
@@ -557,7 +562,7 @@ export default function GiraForm({
     const exists = selectedSources.some(
       (s) =>
         s.tipo === tipo &&
-        (isId ? s.valor_id === value : s.valor_texto === value)
+        (isId ? s.valor_id === value : s.valor_texto === value),
     );
 
     if (exists) {
@@ -567,18 +572,20 @@ export default function GiraForm({
             !(
               s.tipo === tipo &&
               (isId ? s.valor_id === value : s.valor_texto === value)
-            )
-        )
+            ),
+        ),
       );
     } else {
       const cleanLabel = label.replace("★ ", "");
-      const newItem = {
-        tipo,
-        label: cleanLabel,
-        valor_id: isId ? value : null,
-        valor_texto: !isId ? value : null,
-      };
-      setSelectedSources((prev) => [...prev, newItem]);
+      setSelectedSources((prev) => [
+        ...prev,
+        {
+          tipo,
+          label: cleanLabel,
+          valor_id: isId ? value : null,
+          valor_texto: !isId ? value : null,
+        },
+      ]);
     }
 
     if (!isNew && enableAutoSave) {
@@ -594,14 +601,16 @@ export default function GiraForm({
           else query = query.eq("valor_texto", value);
           await query;
         } else {
-          await supabase.from("giras_fuentes").insert([
-            {
-              id_gira: giraId,
-              tipo,
-              valor_id: isId ? value : null,
-              valor_texto: !isId ? value : null,
-            },
-          ]);
+          await supabase
+            .from("giras_fuentes")
+            .insert([
+              {
+                id_gira: giraId,
+                tipo,
+                valor_id: isId ? value : null,
+                valor_texto: !isId ? value : null,
+              },
+            ]);
         }
       } catch (error) {
         console.error("Error guardando fuente:", error);
@@ -615,14 +624,26 @@ export default function GiraForm({
     const person = allIntegrantes.find((i) => i.value === idInt);
     if (!person) return;
     const exists = selectedStaff.some(
-      (s) => s.id_integrante === idInt && s.rol === staffRole
+      (s) => s.id_integrante === idInt && s.rol === staffRole,
     );
     if (exists) return;
-    setSelectedStaff([...selectedStaff, { id_integrante: idInt, rol: staffRole, label: person.label }]);
+    setSelectedStaff([
+      ...selectedStaff,
+      { id_integrante: idInt, rol: staffRole, label: person.label },
+    ]);
     if (!isNew && enableAutoSave) {
-        setGlobalSaving(true);
-        await supabase.from("giras_integrantes").insert([{ id_gira: giraId, id_integrante: idInt, rol: staffRole, estado: "confirmado" }]);
-        setGlobalSaving(false);
+      setGlobalSaving(true);
+      await supabase
+        .from("giras_integrantes")
+        .insert([
+          {
+            id_gira: giraId,
+            id_integrante: idInt,
+            rol: staffRole,
+            estado: "confirmado",
+          },
+        ]);
+      setGlobalSaving(false);
     }
   };
 
@@ -632,9 +653,14 @@ export default function GiraForm({
     newStaff.splice(index, 1);
     setSelectedStaff(newStaff);
     if (!isNew && enableAutoSave && staffToRemove) {
-        setGlobalSaving(true);
-        await supabase.from("giras_integrantes").delete().eq("id_gira", giraId).eq("id_integrante", staffToRemove.id_integrante).eq("rol", staffToRemove.rol);
-        setGlobalSaving(false);
+      setGlobalSaving(true);
+      await supabase
+        .from("giras_integrantes")
+        .delete()
+        .eq("id_gira", giraId)
+        .eq("id_integrante", staffToRemove.id_integrante)
+        .eq("rol", staffToRemove.rol);
+      setGlobalSaving(false);
     }
   };
 
@@ -643,10 +669,18 @@ export default function GiraForm({
     const removed = [...selectedLocations].filter((x) => !newSet.has(x));
     setSelectedLocations(newSet);
     if (!isNew && enableAutoSave) {
-        setGlobalSaving(true);
-        if (added.length) await supabase.from("giras_localidades").insert(added.map(lid => ({ id_gira: giraId, id_localidad: lid })));
-        if (removed.length) await supabase.from("giras_localidades").delete().eq("id_gira", giraId).in("id_localidad", removed);
-        setGlobalSaving(false);
+      setGlobalSaving(true);
+      if (added.length)
+        await supabase
+          .from("giras_localidades")
+          .insert(added.map((lid) => ({ id_gira: giraId, id_localidad: lid })));
+      if (removed.length)
+        await supabase
+          .from("giras_localidades")
+          .delete()
+          .eq("id_gira", giraId)
+          .in("id_localidad", removed);
+      setGlobalSaving(false);
     }
   };
 
@@ -655,62 +689,83 @@ export default function GiraForm({
     newLocs.delete(locId);
     setSelectedLocations(newLocs);
     if (!isNew && enableAutoSave) {
-        setGlobalSaving(true);
-        await supabase.from("giras_localidades").delete().eq("id_gira", giraId).eq("id_localidad", locId);
-        setGlobalSaving(false);
+      setGlobalSaving(true);
+      await supabase
+        .from("giras_localidades")
+        .delete()
+        .eq("id_gira", giraId)
+        .eq("id_localidad", locId);
+      setGlobalSaving(false);
     }
   };
 
   const handleCreateGuest = (searchText) => {
     const parts = searchText.trim().split(" ");
-    setTempName({ nombre: parts[0] || "", apellido: parts.slice(1).join(" ") || "" });
+    setTempName({
+      nombre: parts[0] || "",
+      apellido: parts.slice(1).join(" ") || "",
+    });
     setIsCreatingDetailed(true);
   };
 
   const handleDetailedSave = async (newMusician) => {
     if (!isNew && giraId) {
-        setGlobalSaving(true);
-        await supabase.from("giras_integrantes").insert([{ id_gira: giraId, id_integrante: newMusician.id, rol: staffRole, estado: "confirmado" }]);
-        setGlobalSaving(false);
+      setGlobalSaving(true);
+      await supabase
+        .from("giras_integrantes")
+        .insert([
+          {
+            id_gira: giraId,
+            id_integrante: newMusician.id,
+            rol: staffRole,
+            estado: "confirmado",
+          },
+        ]);
+      setGlobalSaving(false);
     }
-    setSelectedStaff(prev => [...prev, { id_integrante: newMusician.id, rol: staffRole, label: `${newMusician.apellido}, ${newMusician.nombre}` }]);
+    setSelectedStaff((prev) => [
+      ...prev,
+      {
+        id_integrante: newMusician.id,
+        rol: staffRole,
+        label: `${newMusician.apellido}, ${newMusician.nombre}`,
+      },
+    ]);
     setIsCreatingDetailed(false);
   };
 
   const togglePublicLink = async () => {
     const newToken = formData.token_publico ? null : self.crypto.randomUUID();
-    setFormData(prev => ({ ...prev, token_publico: newToken }));
+    setFormData((prev) => ({ ...prev, token_publico: newToken }));
     if (enableAutoSave) await handleAutoSave("token_publico", newToken);
   };
   const regenerateLink = async () => {
     if (!confirm("Se invalidará el enlace anterior. ¿Seguir?")) return;
     const newToken = self.crypto.randomUUID();
-    setFormData(prev => ({ ...prev, token_publico: newToken }));
+    setFormData((prev) => ({ ...prev, token_publico: newToken }));
     if (enableAutoSave) await handleAutoSave("token_publico", newToken);
   };
   const copyLink = () => {
-    navigator.clipboard.writeText(`${window.location.origin}/share/${formData.token_publico}`);
+    navigator.clipboard.writeText(
+      `${window.location.origin}/share/${formData.token_publico}`,
+    );
     alert("Copiado");
   };
-  const generateNumericId = () => Math.floor(10000000 + Math.random() * 90000000);
-  const handleShiftProgram = async () => { alert("En desarrollo"); setIsShifting(false); };
+  const generateNumericId = () =>
+    Math.floor(10000000 + Math.random() * 90000000);
+  const handleShiftProgram = async () => {
+    alert("En desarrollo");
+    setIsShifting(false);
+  };
 
   return (
     <div
-      className={`p-4 rounded-xl border shadow-sm animate-in fade-in zoom-in-95 duration-200 relative ${
-        isNew
-          ? "bg-fixed-indigo-50 border-fixed-indigo-200"
-          : "bg-white ring-2 ring-fixed-indigo-500 border-fixed-indigo-500 z-10"
-      }`}
+      className={`p-4 rounded-xl border shadow-sm animate-in fade-in zoom-in-95 duration-200 relative ${isNew ? "bg-fixed-indigo-50 border-fixed-indigo-200" : "bg-white ring-2 ring-fixed-indigo-500 border-fixed-indigo-500 z-10"}`}
     >
       {/* INDICADOR GLOBAL DE GUARDADO */}
       {!isNew && enableAutoSave && (
         <div
-          className={`absolute top-2 right-14 flex items-center gap-2 text-[10px] font-bold uppercase transition-opacity duration-300 ${
-            globalSaving
-              ? "opacity-100 text-fixed-indigo-600"
-              : "opacity-0 text-slate-400"
-          }`}
+          className={`absolute top-2 right-14 flex items-center gap-2 text-[10px] font-bold uppercase transition-opacity duration-300 ${globalSaving ? "opacity-100 text-fixed-indigo-600" : "opacity-0 text-slate-400"}`}
         >
           <IconCloud size={12} /> {globalSaving ? "Guardando..." : "Guardado"}
         </div>
@@ -721,7 +776,10 @@ export default function GiraForm({
           {isNew ? (
             <>
               {" "}
-              <IconPlus size={18} /> {isCoordinator ? "Nuevo Programa de Ensamble" : "Nuevo Programa"}{" "}
+              <IconPlus size={18} />{" "}
+              {isCoordinator
+                ? "Nuevo Programa de Ensamble"
+                : "Nuevo Programa"}{" "}
             </>
           ) : (
             <>
@@ -814,7 +872,7 @@ export default function GiraForm({
             Tipo de Programa
           </label>
           <select
-            className={`w-full border border-slate-300 p-2 rounded bg-white h-[46px] ${isCoordinator ? 'opacity-80 bg-slate-100 cursor-not-allowed font-medium text-slate-600' : ''}`}
+            className={`w-full border border-slate-300 p-2 rounded bg-white h-[46px] ${isCoordinator ? "opacity-80 bg-slate-100 cursor-not-allowed font-medium text-slate-600" : ""}`}
             value={formData.tipo || "Sinfónico"}
             disabled={isCoordinator}
             onChange={(e) => {
@@ -867,13 +925,7 @@ export default function GiraForm({
                 setFormData({ ...formData, estado: newVal });
                 handleAutoSave("estado", newVal);
               }}
-              className={`w-full p-2 pl-9 rounded-lg border appearance-none outline-none font-medium focus:ring-2 focus:ring-fixed-indigo-500 ${
-                formData.estado === "Vigente"
-                  ? "bg-green-50 border-green-200 text-green-700"
-                  : formData.estado === "Pausada"
-                  ? "bg-amber-50 border-amber-200 text-amber-700"
-                  : "bg-slate-50 border-slate-200 text-slate-600"
-              }`}
+              className={`w-full p-2 pl-9 rounded-lg border appearance-none outline-none font-medium focus:ring-2 focus:ring-fixed-indigo-500 ${formData.estado === "Vigente" ? "bg-green-50 border-green-200 text-green-700" : formData.estado === "Pausada" ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-slate-50 border-slate-200 text-slate-600"}`}
             >
               <option value="Borrador">📝 Borrador</option>
               <option value="Vigente">✅ Vigente</option>
@@ -912,7 +964,7 @@ export default function GiraForm({
           <div className="flex flex-wrap gap-2 mt-2">
             {Array.from(selectedLocations).map((locId) => {
               const locName = locationsList.find(
-                (l) => l.id === locId
+                (l) => l.id === locId,
               )?.localidad;
               if (!locName) return null;
               return (
@@ -934,53 +986,69 @@ export default function GiraForm({
         </div>
       </div>
 
-      {/* SECCIÓN DE CONCIERTOS (SOLO VISIBLE SI NO ES NUEVO) */}
+      {/* SECCIÓN DE CONCIERTOS */}
       {!isNew && (
         <div className="mt-6 pt-4 border-t border-fixed-indigo-100">
-            <div className="flex justify-between items-center mb-3">
-                <h4 className="text-sm font-bold text-pink-700 flex items-center gap-2">
-                    <IconMusic size={16} /> Conciertos y Funciones
-                </h4>
-                <button
-                    onClick={() => { setEditingConcert(null); setShowConcertModal(true); }}
-                    className="text-xs bg-pink-50 text-pink-700 px-3 py-1 rounded-full border border-pink-100 hover:bg-pink-100 flex items-center gap-1 transition-colors"
-                >
-                    <IconPlus size={14} /> Agregar Concierto
-                </button>
+          <div className="flex justify-between items-center mb-3">
+            <h4 className="text-sm font-bold text-pink-700 flex items-center gap-2">
+              <IconMusic size={16} /> Conciertos y Funciones
+            </h4>
+            <button
+              onClick={() => {
+                setEditingConcert(null);
+                setShowConcertModal(true);
+              }}
+              className="text-xs bg-pink-50 text-pink-700 px-3 py-1 rounded-full border border-pink-100 hover:bg-pink-100 flex items-center gap-1 transition-colors"
+            >
+              <IconPlus size={14} /> Agregar Concierto
+            </button>
+          </div>
+          {concerts.length === 0 ? (
+            <div className="text-center p-4 border border-dashed border-slate-200 rounded-lg bg-slate-50 text-xs text-slate-400 italic">
+              No hay conciertos cargados para este programa.
             </div>
-            
-            {concerts.length === 0 ? (
-                <div className="text-center p-4 border border-dashed border-slate-200 rounded-lg bg-slate-50 text-xs text-slate-400 italic">
-                    No hay conciertos cargados para este programa.
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {concerts.map((c) => (
+                <div
+                  key={c.id}
+                  onClick={() => {
+                    setEditingConcert(c);
+                    setShowConcertModal(true);
+                  }}
+                  className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg hover:border-pink-300 hover:shadow-sm cursor-pointer transition-all group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="bg-pink-50 text-pink-700 w-10 h-10 rounded flex flex-col items-center justify-center border border-pink-100 shrink-0">
+                      <span className="text-[10px] font-bold uppercase leading-none">
+                        {new Date(c.fecha + "T00:00:00").toLocaleDateString(
+                          "es-AR",
+                          { weekday: "short" },
+                        )}
+                      </span>
+                      <span className="text-lg font-bold leading-none">
+                        {new Date(c.fecha + "T00:00:00").getDate()}
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-700">
+                        {c.descripcion}
+                      </div>
+                      <div className="text-[10px] text-slate-500 flex items-center gap-1">
+                        <IconClock size={10} /> {c.hora_inicio?.slice(0, 5)} hs{" "}
+                        <span className="text-slate-300">|</span>{" "}
+                        <IconMapPin size={10} />{" "}
+                        {c.locaciones?.nombre || "Sin Sala"}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400">
+                    <IconEdit size={14} />
+                  </div>
                 </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {concerts.map(c => (
-                        <div key={c.id} 
-                             onClick={() => { setEditingConcert(c); setShowConcertModal(true); }}
-                             className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg hover:border-pink-300 hover:shadow-sm cursor-pointer transition-all group"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="bg-pink-50 text-pink-700 w-10 h-10 rounded flex flex-col items-center justify-center border border-pink-100 shrink-0">
-                                    <span className="text-[10px] font-bold uppercase leading-none">{new Date(c.fecha + 'T00:00:00').toLocaleDateString('es-AR', {weekday: 'short'})}</span>
-                                    <span className="text-lg font-bold leading-none">{new Date(c.fecha + 'T00:00:00').getDate()}</span>
-                                </div>
-                                <div>
-                                    <div className="text-xs font-bold text-slate-700">{c.descripcion}</div>
-                                    <div className="text-[10px] text-slate-500 flex items-center gap-1">
-                                        <IconClock size={10} /> {c.hora_inicio?.slice(0,5)} hs
-                                        <span className="text-slate-300">|</span>
-                                        <IconMapPin size={10} /> {c.locaciones?.nombre || "Sin Sala"}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400">
-                                <IconEdit size={14} />
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -992,27 +1060,22 @@ export default function GiraForm({
           </h4>
           <div className="grid grid-cols-3 gap-2">
             <div className="relative">
-                <SourceMultiSelect
+              <SourceMultiSelect
                 title="Ensambles"
                 color="emerald"
                 icon={IconMusic}
                 options={processedEnsembles}
                 selectedSet={
-                    new Set(
+                  new Set(
                     selectedSources
-                        .filter((s) => s.tipo === "ENSAMBLE")
-                        .map((s) => s.valor_id)
-                    )
+                      .filter((s) => s.tipo === "ENSAMBLE")
+                      .map((s) => s.valor_id),
+                  )
                 }
                 onToggle={(val, lbl) => toggleSource("ENSAMBLE", val, lbl)}
-                />
-                {!isSaveDisabled && isCoordinator && (
-                    <div className="absolute top-full left-0 mt-1 text-[10px] text-red-600 font-bold bg-red-50 px-2 py-1 rounded border border-red-100 animate-pulse hidden">
-                        * Requerido
-                    </div>
-                )}
+              />
             </div>
-            
+
             <SourceMultiSelect
               title="Familias"
               color="fixed-indigo"
@@ -1022,7 +1085,7 @@ export default function GiraForm({
                 new Set(
                   selectedSources
                     .filter((s) => s.tipo === "FAMILIA")
-                    .map((s) => s.valor_texto)
+                    .map((s) => s.valor_texto),
                 )
               }
               onToggle={(val, lbl) => toggleSource("FAMILIA", val, lbl)}
@@ -1036,7 +1099,7 @@ export default function GiraForm({
                 new Set(
                   selectedSources
                     .filter((s) => s.tipo === "EXCL_ENSAMBLE")
-                    .map((s) => s.valor_id)
+                    .map((s) => s.valor_id),
                 )
               }
               onToggle={(val, lbl) => toggleSource("EXCL_ENSAMBLE", val, lbl)}
@@ -1051,13 +1114,7 @@ export default function GiraForm({
               selectedSources.map((s, idx) => (
                 <span
                   key={idx}
-                  className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold uppercase border animate-in zoom-in-95 shadow-sm bg-white ${
-                    s.tipo === "EXCL_ENSAMBLE"
-                      ? "border-red-200 text-red-700"
-                      : s.tipo === "FAMILIA"
-                      ? "border-fixed-indigo-200 text-fixed-indigo-700"
-                      : "border-emerald-200 text-emerald-700"
-                  }`}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold uppercase border animate-in zoom-in-95 shadow-sm bg-white ${s.tipo === "EXCL_ENSAMBLE" ? "border-red-200 text-red-700" : s.tipo === "FAMILIA" ? "border-fixed-indigo-200 text-fixed-indigo-700" : "border-emerald-200 text-emerald-700"}`}
                 >
                   {s.tipo === "EXCL_ENSAMBLE" && "🚫 "}
                   {s.label.replace("★ ", "")}
@@ -1099,11 +1156,7 @@ export default function GiraForm({
               {selectedStaff.map((s, idx) => (
                 <span
                   key={idx}
-                  className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border shadow-sm animate-in zoom-in-95 bg-white ${
-                    s.rol === "Director"
-                      ? "text-purple-700 border-purple-200"
-                      : "text-fuchsia-700 border-fuchsia-200"
-                  }`}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold border shadow-sm animate-in zoom-in-95 bg-white ${s.rol === "Director" ? "text-purple-700 border-purple-200" : "text-fuchsia-700 border-fuchsia-200"}`}
                 >
                   <span className="opacity-50 uppercase mr-0.5 text-[9px]">
                     {s.rol.slice(0, 3)}:
@@ -1125,11 +1178,7 @@ export default function GiraForm({
       {/* --- SECCIÓN: LINK PÚBLICO --- */}
       {!isNew && enableAutoSave && (
         <div
-          className={`mt-6 p-6 rounded-xl shadow-sm border transition-colors ${
-            formData.token_publico
-              ? "bg-fixed-indigo-50/50 border-fixed-indigo-200"
-              : "bg-slate-50 border-slate-200"
-          }`}
+          className={`mt-6 p-6 rounded-xl shadow-sm border transition-colors ${formData.token_publico ? "bg-fixed-indigo-50/50 border-fixed-indigo-200" : "bg-slate-50 border-slate-200"}`}
         >
           <div className="flex justify-between items-start mb-4">
             <div>
@@ -1140,7 +1189,7 @@ export default function GiraForm({
                       ? "text-fixed-indigo-600"
                       : "text-slate-400"
                   }
-                />
+                />{" "}
                 Enlace de Invitado General
               </h3>
               <p className="text-sm text-slate-500 mt-1">
@@ -1150,18 +1199,13 @@ export default function GiraForm({
             </div>
             <button
               onClick={togglePublicLink}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                formData.token_publico ? "bg-fixed-indigo-600" : "bg-slate-300"
-              }`}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${formData.token_publico ? "bg-fixed-indigo-600" : "bg-slate-300"}`}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  formData.token_publico ? "translate-x-6" : "translate-x-1"
-                }`}
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${formData.token_publico ? "translate-x-6" : "translate-x-1"}`}
               />
             </button>
           </div>
-
           {formData.token_publico && (
             <div className="mt-4 animate-in fade-in slide-in-from-top-2">
               <div className="flex gap-2">
@@ -1188,48 +1232,56 @@ export default function GiraForm({
 
       {/* FOOTER */}
       <div className="flex flex-col items-end gap-2 mt-8 pt-3 border-t border-fixed-indigo-100/50">
-        
         {isSaveDisabled && (
-            <div className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded font-bold animate-pulse">
-                ⚠️ Debes seleccionar un tipo 'Ensamble' y al menos uno de tus ensambles coordinados
-            </div>
+          <div className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded font-bold animate-pulse">
+            ⚠️ Debes seleccionar un tipo 'Ensamble' y al menos uno de tus
+            ensambles coordinados
+          </div>
         )}
 
         <div className="flex gap-2">
-            <button
+          <button
             onClick={onCancel}
             disabled={loading}
             className="flex items-center gap-1 px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100 text-sm font-medium disabled:opacity-50"
-            >
+          >
             <IconX size={16} /> Cerrar
-            </button>
+          </button>
 
-            {(!enableAutoSave || isNew) && (
+          {(!enableAutoSave || isNew) && (
             <button
-                onClick={(e) => {
-                    if (isSaveDisabled) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        alert("No se puede guardar: Debes seleccionar un tipo 'Ensamble' y al menos uno de tus ensambles coordinados");
-                        return;
-                    }
-                    onSave(e);
-                }}
-                disabled={isSaveDisabled}
-                className={`flex items-center gap-2 px-4 py-1.5 rounded text-white text-sm font-bold shadow-sm transition-all ${
-                    isSaveDisabled
-                    ? "bg-slate-400 opacity-70 cursor-not-allowed"
-                    : "bg-fixed-indigo-600 hover:bg-fixed-indigo-700"
-                }`}
+              onClick={(e) => {
+                // VALIDACIÓN EXPLÍCITA AL CLICK
+                if (isSaveDisabled) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  alert(
+                    "No se puede guardar: Debes seleccionar un tipo 'Ensamble' y al menos uno de tus ensambles coordinados",
+                  );
+                  return;
+                }
+                onSave(e);
+              }}
+              // NO USAMOS 'disabled' AQUÍ PARA QUE EL CLICK SE DISPARE Y MUESTRE LA ALERTA
+              // SOLO LO ESTILIZAMOS COMO DESHABILITADO
+              className={`flex items-center gap-2 px-4 py-1.5 rounded text-white text-sm font-bold shadow-sm transition-all ${
+                isSaveDisabled
+                  ? "bg-slate-400 opacity-70 cursor-not-allowed"
+                  : "bg-fixed-indigo-600 hover:bg-fixed-indigo-700"
+              }`}
             >
-                {loading ? (
+              {loading ? (
                 <IconLoader className="animate-spin" size={16} />
-                ) : (
+              ) : (
                 <IconCheck size={16} />
-                )}
-                {loading ? "Procesando..." : isNew ? "Crear Programa" : "Guardar Todo"}
+              )}
+              {loading
+                ? "Procesando..."
+                : isNew
+                  ? "Crear Programa"
+                  : "Guardar Todo"}
             </button>
-            )}
+          )}
         </div>
       </div>
 
@@ -1258,12 +1310,15 @@ export default function GiraForm({
       {/* MODAL CONCIERTO */}
       {showConcertModal && (
         <ConcertFormModal
-            supabase={supabase}
-            giraId={giraId}
-            initialData={editingConcert}
-            onClose={() => setShowConcertModal(false)}
-            onSuccess={() => { setShowConcertModal(false); fetchConcerts(); }}
-            locationsList={allLocationsForConcerts}
+          supabase={supabase}
+          giraId={giraId}
+          initialData={editingConcert}
+          onClose={() => setShowConcertModal(false)}
+          onSuccess={() => {
+            setShowConcertModal(false);
+            fetchConcerts();
+          }}
+          locationsList={allLocationsForConcerts}
         />
       )}
     </div>

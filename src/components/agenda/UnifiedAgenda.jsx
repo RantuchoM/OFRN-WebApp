@@ -629,7 +629,7 @@ export default function UnifiedAgenda({
         ];
 
         // Verificamos si el rol de la persona está en esa lista
-        return rolesProduccion.includes(person.rol_gira);
+        return rolesProduccion.includes(userProfile.rol_gira);
       }
       if (tag === "GRP:SOLISTAS") return tourRole === "solista";
       if (tag === "GRP:DIRECTORES") return tourRole === "director";
@@ -921,6 +921,7 @@ export default function UnifiedAgenda({
 
       // 8. FILTRADO
       const visibleEvents = (eventsData || []).filter((item) => {
+        if (!item.fecha) return false;
         if (giraId) return true;
         const isManagementProfile = [
           "admin",
@@ -1361,9 +1362,19 @@ export default function UnifiedAgenda({
   };
 
   const groupedByMonth = filteredItems.reduce((acc, item) => {
-    const monthKey = format(parseISO(item.fecha), "yyyy-MM");
-    if (!acc[monthKey]) acc[monthKey] = [];
-    acc[monthKey].push(item);
+    try {
+      // Validamos antes de formatear
+      if (!item.fecha) return acc;
+
+      const parsedDate = parseISO(item.fecha);
+      if (isNaN(parsedDate.getTime())) return acc;
+
+      const monthKey = format(parsedDate, "yyyy-MM");
+      if (!acc[monthKey]) acc[monthKey] = [];
+      acc[monthKey].push(item);
+    } catch (err) {
+      console.warn("Evento omitido por error de fecha:", item, err);
+    }
     return acc;
   }, {});
 

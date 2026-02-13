@@ -23,7 +23,7 @@ import {
   IconSettings,
   IconUserPlus,
   IconUserX,
-  IconMenu, // Usado para el menú de herramientas móvil
+  IconMenu,
 } from "../../components/ui/Icons";
 
 import IndependentRehearsalForm from "./IndependentRehearsalForm";
@@ -341,7 +341,12 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [showOverlapOptions, setShowOverlapOptions] = useState(false);
   const [overlapCategories, setOverlapCategories] = useState([]);
   const [categoryOptions, setCategoryOptions] = useState([]);
-  const [monthsLimit, setMonthsLimit] = useState(3);
+  
+  // FILTRO DE FECHAS (LISTA PRINCIPAL)
+  const [dateFilter, setDateFilter] = useState({
+      start: new Date().toISOString().split("T")[0], // Default: Hoy
+      end: "" // Default: Indefinido
+  });
   
   // Estado para Menú de Herramientas Móvil
   const [showMobileTools, setShowMobileTools] = useState(false);
@@ -536,20 +541,16 @@ export default function EnsembleCoordinatorView({ supabase }) {
     queryKey: [
       "rehearsals",
       activeEnsembles.map((e) => e.id),
-      monthsLimit,
+      dateFilter, // Dependencia clave: rango de fechas
       overlapCategories,
     ],
     enabled: activeEnsembles.length > 0,
     keepPreviousData: true,
     queryFn: async () => {
       const ensembleIds = activeEnsembles.map((e) => e.id);
-      const todayISO = new Date().toISOString().split("T")[0];
-      const endDateLimit = addMonths(new Date(), monthsLimit)
-        .toISOString()
-        .split("T")[0];
-
-      // 1. Fetch de MIS ENSAYOS
-      const { data: myRehearsals } = await supabase
+      
+      // CONFIGURACIÓN DE FECHAS
+      let queryMyRehearsals = supabase
         .from("eventos_ensambles")
         .select(
           `
@@ -565,9 +566,17 @@ export default function EnsembleCoordinatorView({ supabase }) {
           `,
         )
         .in("id_ensamble", ensembleIds)
-        .gte("eventos.fecha", todayISO)
-        .lte("eventos.fecha", endDateLimit)
         .eq("eventos.tecnica", false);
+
+      // APLICAR FILTROS DE FECHA
+      if (dateFilter.start) {
+          queryMyRehearsals = queryMyRehearsals.gte("eventos.fecha", dateFilter.start);
+      }
+      if (dateFilter.end) {
+          queryMyRehearsals = queryMyRehearsals.lte("eventos.fecha", dateFilter.end);
+      }
+      
+      const { data: myRehearsals } = await queryMyRehearsals;
 
       let allEvents = [];
       const seenEventIds = new Set();
@@ -600,8 +609,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
       if (targetTypeIds.size > 0) {
         const typeIdsArray = Array.from(targetTypeIds);
-
-        const { data: extraEvents } = await supabase
+        
+        let queryExtra = supabase
           .from("eventos")
           .select(
             `
@@ -612,9 +621,16 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 `,
           )
           .in("id_tipo_evento", typeIdsArray)
-          .gte("fecha", todayISO)
-          .lte("fecha", endDateLimit)
           .eq("tecnica", false);
+          
+        if (dateFilter.start) {
+            queryExtra = queryExtra.gte("fecha", dateFilter.start);
+        }
+        if (dateFilter.end) {
+            queryExtra = queryExtra.lte("fecha", dateFilter.end);
+        }
+
+        const { data: extraEvents } = await queryExtra;
 
         if (extraEvents) {
           extraEvents.forEach((e) => {
@@ -639,10 +655,12 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   // --- QUERY: PROGRAMAS ---
   const { data: programs = [], isLoading: programsLoading } = useQuery({
-    queryKey: ["programs", activeEnsembles.map((e) => e.id), monthsLimit],
+    queryKey: ["programs", activeEnsembles.map((e) => e.id), dateFilter.start],
     enabled: activeTab === "programas" && activeEnsembles.length > 0,
     queryFn: async () => {
-      const todayISO = new Date().toISOString().split("T")[0];
+      // Usamos la fecha de inicio del filtro o hoy como fallback
+      const filterDate = dateFilter.start || new Date().toISOString().split("T")[0];
+      
       const myEnsembleIds = activeEnsembles.map((e) => e.id);
       const myFamilies = new Set();
 
@@ -690,7 +708,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
           "id, nombre_gira, fecha_desde, fecha_hasta, tipo, zona, mes_letra, nomenclador",
         )
         .in("id", allIds)
-        .gte("fecha_hasta", todayISO)
+        .gte("fecha_hasta", filterDate)
         .order("fecha_desde", { ascending: true });
 
       return candidates || [];
@@ -1278,9 +1296,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
           <div className="h-full overflow-y-auto p-4">
             {activeTab === "ensayos" && (
               <>
-                {rehearsals.length > 0 ? (
-                  <>
-                    <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-100 pl-1">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-2 pb-2 border-b border-slate-100 pl-1">
+                    {/* Checkbox "Select All" */}
+                    <div className="flex items-center gap-2">
                         <input 
                             type="checkbox" 
                             checked={isAllSelected}
@@ -1290,34 +1308,48 @@ export default function EnsembleCoordinatorView({ supabase }) {
                         <span className="text-xs font-bold text-slate-500">Seleccionar todo lo visible</span>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-2">
-                        {rehearsals.map((evt) => (
-                        <RehearsalCardItem
-                            key={evt.id}
-                            evt={evt}
-                            activeMembersSet={activeMembersSet}
-                            supabase={supabase}
-                            onEdit={handleEditRehearsal}
-                            onDelete={handleDeleteRehearsal}
-                            isSelected={selectedIds.includes(evt.id)}
-                            onSelect={handleSelect}
-                        />
-                        ))}
+                    {/* FILTRO DE FECHAS EN LÍNEA */}
+                    <div className="flex items-center gap-2">
+                         <div className="flex items-center gap-1">
+                             <span className="text-[10px] font-bold text-slate-400 uppercase">Desde:</span>
+                             <DateInput 
+                                value={dateFilter.start} 
+                                onChange={v => setDateFilter(prev => ({...prev, start: v}))} 
+                                className="h-6 text-xs w-28 bg-slate-50 border-slate-200" 
+                             />
+                         </div>
+                         <div className="flex items-center gap-1">
+                             <span className="text-[10px] font-bold text-slate-400 uppercase">Hasta:</span>
+                             <DateInput 
+                                value={dateFilter.end} 
+                                onChange={v => setDateFilter(prev => ({...prev, end: v}))} 
+                                className="h-6 text-xs w-28 bg-slate-50 border-slate-200" 
+                                placeholder="Indefinido"
+                             />
+                         </div>
                     </div>
-                  </>
+                </div>
+
+                {rehearsals.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-2">
+                      {rehearsals.map((evt) => (
+                      <RehearsalCardItem
+                          key={evt.id}
+                          evt={evt}
+                          activeMembersSet={activeMembersSet}
+                          supabase={supabase}
+                          onEdit={handleEditRehearsal}
+                          onDelete={handleDeleteRehearsal}
+                          isSelected={selectedIds.includes(evt.id)}
+                          onSelect={handleSelect}
+                      />
+                      ))}
+                  </div>
                 ) : (
                   <div className="text-center py-10 text-slate-400">
                     No hay eventos visibles.
                   </div>
                 )}
-                <div className="py-6 flex justify-center">
-                  <button
-                    onClick={() => setMonthsLimit((prev) => prev + 3)}
-                    className="flex items-center gap-2 text-xs font-bold text-indigo-600 bg-indigo-50 px-4 py-2 rounded-full hover:bg-indigo-100 transition-colors"
-                  >
-                    <IconChevronDown size={14} /> Cargar 3 meses más
-                  </button>
-                </div>
               </>
             )}
             {activeTab === "calendario" && (
@@ -1361,7 +1393,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
       {isBulkEditModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Contenido del modal masivo (sin cambios mayores) */}
             <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
               <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
                 <IconSettings className="text-indigo-600" /> Edición Masiva
@@ -1371,7 +1402,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
               </button>
             </div>
             <div className="p-6 space-y-5 overflow-y-auto">
-              {/* Formulario de edición masiva (sin cambios) */}
               <div className="text-sm text-slate-500 bg-blue-50 p-3 rounded-lg border border-blue-100 flex gap-2 items-start">
                 <IconAlertTriangle
                   className="text-blue-500 shrink-0 mt-0.5"
