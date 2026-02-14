@@ -18,7 +18,7 @@ import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { toast } from "sonner"; // Aseguramos tener toast para feedback
+import { toast } from "sonner"; 
 
 // --- CONSTANTES ---
 const SERVICE_IDS = { Desayuno: 7, Almuerzo: 8, Merienda: 9, Cena: 10 };
@@ -150,6 +150,7 @@ const GridLocationSelect = ({
   onChange,
   options,
   disabled,
+  isDirty,
   placeholder = "- Lugar -",
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -178,7 +179,9 @@ const GridLocationSelect = ({
     <div className="relative w-full" ref={containerRef}>
       <div
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`w-full text-xs border border-slate-300 rounded p-1 bg-white truncate min-h-[26px] cursor-pointer hover:border-indigo-400 ${isOpen ? "border-indigo-500 ring-1 ring-indigo-200" : ""}`}
+        className={`w-full text-xs border rounded p-1 truncate min-h-[26px] cursor-pointer hover:border-indigo-400 transition-all ${
+          isOpen ? "border-indigo-500 ring-1 ring-indigo-200" : "border-slate-300"
+        } ${isDirty ? "bg-amber-50 border-amber-300" : "bg-white"}`}
       >
         {selectedOption ? (
           <span className="text-slate-700">{selectedOption.label}</span>
@@ -231,7 +234,8 @@ const MultiGroupSelect = ({
   catalogs,
   disabled,
   showAlert,
-  darkMode = false, // Prop nueva para modo oscuro (BulkEdit)
+  isDirty,
+  darkMode = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
@@ -273,11 +277,11 @@ const MultiGroupSelect = ({
     <div className="relative w-full" ref={containerRef}>
       <div
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`min-h-[28px] border rounded px-2 py-1 cursor-pointer flex flex-wrap gap-1 items-center ${
+        className={`min-h-[28px] border rounded px-2 py-1 cursor-pointer flex flex-wrap gap-1 items-center transition-all ${
           darkMode
             ? "bg-indigo-800 border-indigo-600 text-white hover:border-indigo-400"
-            : "bg-white border-slate-300 hover:border-indigo-400"
-        } ${showAlert ? "border-orange-400 ring-1 ring-orange-200" : ""}`}
+            : isDirty ? "bg-amber-50 border-amber-300" : "bg-white border-slate-300"
+        } ${showAlert ? "border-orange-400 ring-1 ring-orange-200" : "hover:border-indigo-400"}`}
       >
         {!value.length && (
           <span
@@ -378,7 +382,7 @@ const BulkEditPanel = ({ selectedCount, onApply, onCancel, catalogs }) => {
               value={values.convocados}
               onChange={(v) => setValues({ ...values, convocados: v })}
               catalogs={catalogs}
-              darkMode={false} // <--- Cambiar a false o borrar la línea
+              darkMode={false}
             />
           </div>
         </div>
@@ -392,7 +396,7 @@ const BulkEditPanel = ({ selectedCount, onApply, onCancel, catalogs }) => {
         </button>
         <button
           onClick={() => onApply(values)}
-          className="bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black px-4 py-1.5 rounded shadow-md active:scale-95 transition-all flex items-center gap-1"
+          className="bg-emerald-300 hover:bg-emerald-800 text-white text-xs font-black px-4 py-1.5 rounded shadow-md active:scale-95 transition-all flex items-center gap-1"
         >
           <IconCheck size={14} strokeWidth={3} /> Aplicar
         </button>
@@ -410,6 +414,7 @@ export default function MealsManager({ supabase, gira, roster }) {
     familias: [],
   });
   const [savingRows, setSavingRows] = useState(new Set());
+  const [justSavedRows, setJustSavedRows] = useState(new Set()); // Para el destello verde
   const [expandedStats, setExpandedStats] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [searchTerm, setSearchTerm] = useState("");
@@ -468,6 +473,7 @@ export default function MealsManager({ supabase, gira, roster }) {
       servicio: ID_TO_SERVICE[m.id_tipo_evento],
       hora_inicio: m.hora_inicio?.slice(0, 5),
       hora_fin: m.hora_fin?.slice(0, 5),
+      dirty: false,
     }));
     const toIntKey = (d, s) =>
       d ? parseInt(`${d.replaceAll("-", "")}${SERVICE_VALS[s]}`) : null;
@@ -520,7 +526,7 @@ export default function MealsManager({ supabase, gira, roster }) {
           );
           newGrid.push(
             existing
-              ? { ...existing, isTemp: false }
+              ? { ...existing, isTemp: false, dirty: false }
               : {
                   id: `temp-${dStr}-${svc}`,
                   fecha: dStr,
@@ -533,6 +539,7 @@ export default function MealsManager({ supabase, gira, roster }) {
                   visible_agenda: true,
                   tecnica: false,
                   isTemp: true,
+                  dirty: false,
                 },
           );
         }
@@ -551,17 +558,9 @@ export default function MealsManager({ supabase, gira, roster }) {
         if (tag === "GRP:LOCALES") return p.is_local;
         if (tag === "GRP:NO_LOCALES") return !p.is_local;
         if (tag === "GRP:PRODUCCION") {
-          // Lista de roles que "comen" con el grupo de Producción
           const rolesProduccion = [
-            "produccion",
-            "chofer",
-            "acompañante",
-            "staff",
-            "mus_prod",
-            "técnico",
+            "produccion", "chofer", "acompañante", "staff", "mus_prod", "técnico",
           ];
-
-          // Verificamos si el rol de la persona está en esa lista
           return rolesProduccion.includes(p.rol_gira);
         }
         if (tag === "GRP:SOLISTAS") return p.rol_gira === "solista";
@@ -589,55 +588,33 @@ export default function MealsManager({ supabase, gira, roster }) {
       if (field === "convocados") {
         const labels = val.map((id) => getGroupLabelShort(id, catalogs));
         const autoDesc = `${row.servicio} ${labels.join(" + ")}`;
-        if (
-          !row.descripcion ||
-          row.descripcion.startsWith(row.servicio) ||
-          row.descripcion === ""
-        )
+        if (!row.descripcion || row.descripcion.startsWith(row.servicio) || row.descripcion === "")
           row.descripcion = autoDesc;
       }
-      if (
-        field === "id_locacion" &&
-        (!row.descripcion ||
-          row.descripcion === "" ||
-          row.descripcion.startsWith(row.servicio))
-      ) {
-        const locName = catalogs.locaciones
-          .find((l) => String(l.id) === String(val))
-          ?.label?.split("(")[0]
-          .trim();
+      if (field === "id_locacion" && (!row.descripcion || row.descripcion === "" || row.descripcion.startsWith(row.servicio))) {
+        const locName = catalogs.locaciones.find((l) => String(l.id) === String(val))?.label?.split("(")[0].trim();
         if (locName) row.descripcion = `${row.servicio} en ${locName}`;
       }
       copy[idx] = row;
-      if (debounceRef.current[row.id])
-        clearTimeout(debounceRef.current[row.id]);
-
-      // Solo guardar si hay datos mínimos
+      if (debounceRef.current[row.id]) clearTimeout(debounceRef.current[row.id]);
       if (row.hora_inicio && row.fecha) {
         debounceRef.current[row.id] = setTimeout(() => saveRow(row), 1000);
       }
-
       return copy;
     });
   };
 
   const handleBulkApply = async (changes) => {
     const selectedIds = Array.from(selectedRows);
-    const rowsToSave = grid
-      .filter((r) => selectedIds.includes(r.id))
-      .map((r) => {
-        let newRow = { ...r, ...changes };
-        if (changes.convocados)
-          newRow.descripcion = `${newRow.servicio} ${changes.convocados.map((id) => getGroupLabelShort(id, catalogs)).join(" + ")}`;
-        return newRow;
-      });
+    const rowsToSave = grid.filter((r) => selectedIds.includes(r.id)).map((r) => {
+      let newRow = { ...r, ...changes, dirty: true };
+      if (changes.convocados)
+        newRow.descripcion = `${newRow.servicio} ${changes.convocados.map((id) => getGroupLabelShort(id, catalogs)).join(" + ")}`;
+      return newRow;
+    });
     setSelectedRows(new Set());
     for (const row of rowsToSave) {
-      // Solo aplicar si es válido (para filas nuevas)
-      if (
-        row.fecha &&
-        (row.hora_inicio || row.hora_inicio === changes.hora_inicio)
-      ) {
+      if (row.fecha && (row.hora_inicio || row.hora_inicio === changes.hora_inicio)) {
         await saveRow(row);
       }
     }
@@ -645,12 +622,9 @@ export default function MealsManager({ supabase, gira, roster }) {
   };
 
   const saveRow = async (row) => {
-    // 2. Validación de seguridad al guardar
-    if (!row.fecha || !row.hora_inicio) {
-      return; // No guardamos si no hay hora, evitamos errores
-    }
-
+    if (!row.fecha || !row.hora_inicio) return;
     setSavingRows((prev) => new Set(prev).add(row.id));
+    
     const payload = {
       id_gira: gira.id,
       fecha: row.fecha,
@@ -663,26 +637,26 @@ export default function MealsManager({ supabase, gira, roster }) {
       visible_agenda: row.visible_agenda,
       tecnica: !!row.tecnica,
     };
+
     try {
       const { data } = row.isTemp
         ? await supabase.from("eventos").insert([payload]).select().single()
-        : await supabase
-            .from("eventos")
-            .update(payload)
-            .eq("id", row.id)
-            .select()
-            .single();
+        : await supabase.from("eventos").update(payload).eq("id", row.id).select().single();
+      
       setGrid((prev) =>
-        prev.map((r) =>
-          r.id === row.id
-            ? {
-                ...data,
-                servicio: ID_TO_SERVICE[data.id_tipo_evento],
-                isTemp: false,
-              }
-            : r,
-        ),
+        prev.map((r) => r.id === row.id ? { ...data, servicio: ID_TO_SERVICE[data.id_tipo_evento], isTemp: false, dirty: false } : r)
       );
+
+      // --- DESTELLO VERDE ---
+      setJustSavedRows((prev) => new Set(prev).add(row.id));
+      setTimeout(() => {
+        setJustSavedRows((prev) => {
+          const n = new Set(prev);
+          n.delete(row.id);
+          return n;
+        });
+      }, 1500); // 1.5 segundos de destello
+
     } catch (e) {
       console.error(e);
       toast.error("Error al guardar fila");
@@ -706,23 +680,12 @@ export default function MealsManager({ supabase, gira, roster }) {
   const filteredGrid = useMemo(() => {
     if (!searchTerm) return grid;
     const low = searchTerm.toLowerCase();
-    return grid.filter(
-      (r) =>
-        r.fecha.includes(low) ||
-        r.servicio.toLowerCase().includes(low) ||
-        (r.descripcion || "").toLowerCase().includes(low),
-    );
+    return grid.filter((r) => r.fecha.includes(low) || r.servicio.toLowerCase().includes(low) || (r.descripcion || "").toLowerCase().includes(low));
   }, [grid, searchTerm]);
 
-  const realEventIds = useMemo(
-    () => grid.filter((r) => !r.isTemp).map((r) => r.id),
-    [grid],
-  );
+  const realEventIds = useMemo(() => grid.filter((r) => !r.isTemp).map((r) => r.id), [grid]);
   const isMasterChecked = selectedRows.size === grid.length && grid.length > 0;
-  const isOnlyRealSelected =
-    selectedRows.size === realEventIds.length &&
-    realEventIds.every((id) => selectedRows.has(id)) &&
-    realEventIds.length > 0;
+  const isOnlyRealSelected = selectedRows.size === realEventIds.length && realEventIds.every((id) => selectedRows.has(id)) && realEventIds.length > 0;
 
   return (
     <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
@@ -730,87 +693,41 @@ export default function MealsManager({ supabase, gira, roster }) {
         <div className="flex items-center">
           <div className="flex items-center gap-2">
             <IconUtensils className="text-orange-500" />
-            <h2 className="text-lg font-bold text-slate-800">
-              Matriz de Comidas
-            </h2>
+            <h2 className="text-lg font-bold text-slate-800">Matriz de Comidas</h2>
           </div>
           <GroupInspectorHeader roster={roster} catalogs={catalogs} />
         </div>
         <div className="flex items-center gap-4">
           <div className="relative">
-            <IconSearch
-              className="absolute left-2 top-2.5 text-slate-400"
-              size={14}
-            />
-            <input
-              type="text"
-              placeholder="Filtrar comidas..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 pr-4 py-1.5 text-xs border rounded-lg outline-none w-48 focus:ring-2 focus:ring-indigo-500"
-            />
+            <IconSearch className="absolute left-2 top-2.5 text-slate-400" size={14} />
+            <input type="text" placeholder="Filtrar comidas..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-8 pr-4 py-1.5 text-xs border rounded-lg outline-none w-48 focus:ring-2 focus:ring-indigo-500" />
           </div>
           <FoodMatrix roster={roster} />
           {loading && <IconLoader className="animate-spin text-orange-500" />}
         </div>
       </div>
 
-      {selectedRows.size > 0 && (
-        <BulkEditPanel
-          selectedCount={selectedRows.size}
-          onCancel={() => setSelectedRows(new Set())}
-          onApply={handleBulkApply}
-          catalogs={catalogs}
-        />
-      )}
+      {selectedRows.size > 0 && <BulkEditPanel selectedCount={selectedRows.size} onCancel={() => setSelectedRows(new Set())} onApply={handleBulkApply} catalogs={catalogs} />}
 
       <div className="flex-1 p-4 overflow-auto">
         <div className="bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden flex flex-col relative">
           <table className="w-full text-left text-sm min-w-[1300px] border-separate border-spacing-0">
-            <thead className="bg-slate-100 text-slate-500 uppercase font-bold text-[10px] sticky top-0 z-0 shadow-sm">
+            <thead className="bg-slate-100 text-slate-500 uppercase font-bold text-[10px] sticky top-0 z-30 shadow-sm">
               <tr>
+                <th className="w-1 border-b border-slate-200"></th>
                 <th className="px-2 py-3 w-10 text-center border-b border-slate-200">
-                  <div
-                    onClick={() =>
-                      isMasterChecked
-                        ? setSelectedRows(new Set())
-                        : isOnlyRealSelected
-                          ? setSelectedRows(new Set(grid.map((r) => r.id)))
-                          : setSelectedRows(new Set(realEventIds))
-                    }
-                    className={`w-4 h-4 mx-auto rounded border flex items-center justify-center cursor-pointer transition-colors ${isMasterChecked || isOnlyRealSelected ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-300"}`}
-                  >
-                    {isMasterChecked ? (
-                      <IconCheck size={10} strokeWidth={4} />
-                    ) : isOnlyRealSelected ? (
-                      <div className="w-2 h-0.5 bg-white"></div>
-                    ) : null}
+                  <div onClick={() => isMasterChecked ? setSelectedRows(new Set()) : isOnlyRealSelected ? setSelectedRows(new Set(grid.map((r) => r.id))) : setSelectedRows(new Set(realEventIds))} className={`w-4 h-4 mx-auto rounded border flex items-center justify-center cursor-pointer transition-colors ${isMasterChecked || isOnlyRealSelected ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-300"}`}>
+                    {isMasterChecked ? <IconCheck size={10} strokeWidth={4} /> : isOnlyRealSelected ? <div className="w-2 h-0.5 bg-white"></div> : null}
                   </div>
                 </th>
-                <th className="px-3 py-3 w-28 border-r border-b border-slate-200">
-                  Día
-                </th>
-                <th className="px-3 py-3 w-24 border-b border-slate-200">
-                  Servicio
-                </th>
-                <th className="px-3 py-3 w-20 border-b border-slate-200">
-                  Horario
-                </th>
-                <th className="px-3 py-3 w-44 border-b border-slate-200">
-                  Lugar
-                </th>
-                <th className="px-3 py-3 w-64 border-b border-slate-200">
-                  Descripción
-                </th>
-                <th className="px-3 py-3 min-w-[150px] border-b border-slate-200">
-                  Convocados
-                </th>
-                <th className="px-3 py-3 w-24 text-center border-b border-slate-200">
-                  Comensales
-                </th>
-                <th className="px-3 py-3 w-12 text-center border-b border-slate-200">
-                  Téc
-                </th>
+                <th className="px-3 py-3 w-28 border-r border-b border-slate-200">Día</th>
+                <th className="px-3 py-3 w-24 border-b border-slate-200">Servicio</th>
+                <th className="px-3 py-3 w-20 border-b border-slate-200">Horario</th>
+                <th className="px-3 py-3 w-44 border-b border-slate-200">Lugar</th>
+                <th className="px-3 py-3 w-64 border-b border-slate-200">Descripción</th>
+                <th className="px-3 py-3 min-w-[150px] border-b border-slate-200">Convocados</th>
+                <th className="px-3 py-3 w-24 text-center border-b border-slate-200">Comensales</th>
+                <th className="px-3 py-3 w-12 text-center border-b border-slate-200">Téc</th>
                 <th className="px-3 py-3 w-10 sticky right-0 bg-slate-100 border-b border-slate-200"></th>
               </tr>
             </thead>
@@ -820,121 +737,61 @@ export default function MealsManager({ supabase, gira, roster }) {
                 const eligible = getEligiblePeople(row);
                 const isSelected = selectedRows.has(row.id);
                 const isSaving = savingRows.has(row.id);
+                const isJustSaved = justSavedRows.has(row.id);
+                const isDirty = row.dirty;
+                const isTemp = row.isTemp;
+
+                // --- LOGICA DE COLORES ---
+                const statusIndicatorClass = isSaving 
+                  ? "bg-blue-500 animate-pulse" 
+                  : isJustSaved 
+                    ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]" 
+                    : isDirty 
+                      ? "bg-amber-500" 
+                      : isTemp ? "bg-slate-300" : "bg-emerald-400 opacity-90";
+
+                const rowBgClass = isSelected
+                  ? "bg-indigo-50"
+                  : isSaving ? "bg-blue-50/50"
+                  : isJustSaved ? "bg-emerald-300"
+                  : isDirty ? "bg-amber-50/40"
+                  : isTemp ? "bg-slate-50/80 grayscale opacity-60 italic"
+                  : "hover:bg-indigo-50/30";
+
                 return (
-                  <tr
-                    key={row.id}
-                    className={`${row.isTemp ? "bg-slate-50 text-slate-400 italic grayscale" : "hover:bg-indigo-50/30"} ${isSelected ? "bg-indigo-50" : ""} group`}
-                  >
+                  <tr key={row.id} className={`${rowBgClass} group transition-all duration-700 ease-in-out`}>
+                    <td className={`w-1 p-0 transition-all duration-300 ${statusIndicatorClass}`} title={isDirty ? "Pendiente de guardado" : "Sincronizado"}></td>
                     <td className="px-2 py-1 text-center">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => {
-                          const n = new Set(selectedRows);
-                          n.has(row.id) ? n.delete(row.id) : n.add(row.id);
-                          setSelectedRows(n);
-                        }}
-                        className="rounded text-indigo-600 focus:ring-0"
-                      />
+                      <input type="checkbox" checked={isSelected} onChange={() => { const n = new Set(selectedRows); n.has(row.id) ? n.delete(row.id) : n.add(row.id); setSelectedRows(n); }} className="rounded text-indigo-600 focus:ring-0" />
                     </td>
-                    <td className="px-3 py-3 font-bold border-r border-slate-200">
-                      {format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}
-                    </td>
+                    <td className="px-3 py-3 font-bold border-r border-slate-200 text-slate-700">{format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}</td>
                     <td className="px-3">
-                      <span
-                        className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${row.servicio === "Almuerzo" ? "bg-amber-50 text-amber-700 border-amber-200" : row.servicio === "Cena" ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-slate-100 text-slate-400"}`}
-                      >
-                        {row.servicio}
-                      </span>
+                      <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${row.servicio === "Almuerzo" ? "bg-amber-50 text-amber-700 border-amber-200" : row.servicio === "Cena" ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-slate-100 text-slate-400"}`}>{row.servicio}</span>
                     </td>
                     <td className="px-1">
-                      <TimeInput
-                        value={row.hora_inicio || ""}
-                        onChange={(v) =>
-                          handleGridChange(idx, "hora_inicio", v)
-                        }
-                        disabled={isSaving}
-                      />
+                      <TimeInput value={row.hora_inicio || ""} onChange={(v) => handleGridChange(idx, "hora_inicio", v)} disabled={isSaving} isDirty={isDirty} />
                     </td>
                     <td className="px-1 relative z-20">
-                      {" "}
-                      {/* 3. Aumentado z-index */}
-                      <GridLocationSelect
-                        value={row.id_locacion || ""}
-                        onChange={(v) =>
-                          handleGridChange(idx, "id_locacion", v)
-                        }
-                        options={catalogs.locaciones}
-                        disabled={isSaving}
-                      />
+                      <GridLocationSelect value={row.id_locacion || ""} onChange={(v) => handleGridChange(idx, "id_locacion", v)} options={catalogs.locaciones} disabled={isSaving} isDirty={isDirty} />
                     </td>
                     <td className="px-1">
-                      <input
-                        type="text"
-                        value={row.descripcion || ""}
-                        onChange={(e) =>
-                          handleGridChange(idx, "descripcion", e.target.value)
-                        }
-                        className="w-full text-xs border border-slate-300 rounded p-1 outline-none focus:border-indigo-500"
-                        placeholder="Descripción..."
-                        disabled={isSaving}
-                      />
+                      <input type="text" value={row.descripcion || ""} onChange={(e) => handleGridChange(idx, "descripcion", e.target.value)} className={`w-full text-xs border rounded p-1 outline-none focus:border-indigo-500 transition-all ${isDirty ? "border-amber-300 bg-amber-50/50" : "border-slate-300 bg-white"}`} placeholder="Descripción..." disabled={isSaving} />
                     </td>
                     <td className="px-1">
-                      <MultiGroupSelect
-                        value={row.convocados}
-                        onChange={(v) => handleGridChange(idx, "convocados", v)}
-                        catalogs={catalogs}
-                        disabled={isSaving}
-                        showAlert={
-                          !row.isTemp &&
-                          (!row.convocados || row.convocados.length === 0)
-                        }
-                      />
+                      <MultiGroupSelect value={row.convocados} onChange={(v) => handleGridChange(idx, "convocados", v)} catalogs={catalogs} disabled={isSaving} isDirty={isDirty} showAlert={!isTemp && (!row.convocados || row.convocados.length === 0)} />
                     </td>
                     <td className="px-3 text-center relative">
-                      <style>{`.tooltip-bridge::after { content: ""; position: absolute; top: 100%; left: 0; width: 100%; height: 12px; background: transparent; }`}</style>
-                      <div
-                        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-black cursor-pointer transition-all relative tooltip-bridge ${eligible.length > 0 ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-slate-100 text-slate-400"}`}
-                        onMouseEnter={() => setExpandedStats(row.id)}
-                        onMouseLeave={() => setExpandedStats(null)}
-                      >
+                      <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-black cursor-pointer transition-all relative tooltip-bridge ${eligible.length > 0 ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-slate-100 text-slate-400"}`} onMouseEnter={() => setExpandedStats(row.id)} onMouseLeave={() => setExpandedStats(null)}>
                         <IconUsers size={12} /> {eligible.length}
                         {expandedStats === row.id && eligible.length > 0 && (
-                          <div
-                            className="absolute top-[calc(100%+6px)] left-1/2 -translate-x-1/2 w-64 bg-slate-800 text-white rounded-lg shadow-2xl z-[100] p-3 text-[10px] animate-in zoom-in-95 origin-top border border-white/10"
-                            onMouseEnter={() => setExpandedStats(row.id)}
-                            onMouseLeave={() => setExpandedStats(null)}
-                          >
+                          <div className="absolute top-[calc(100%+6px)] left-1/2 -translate-x-1/2 w-64 bg-slate-800 text-white rounded-lg shadow-2xl z-[100] p-3 text-[10px] animate-in zoom-in-95 origin-top border border-white/10 text-left">
                             <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45 border-l border-t border-white/10"></div>
                             <div className="relative z-10">
-                              <div className="font-bold border-b border-white/10 pb-1 mb-2 uppercase tracking-tighter flex justify-between">
-                                <span>Comensales</span>
-                                <span className="bg-white/20 px-1 rounded">
-                                  {eligible.length}
-                                </span>
-                              </div>
+                              <div className="font-bold border-b border-white/10 pb-1 mb-2 uppercase tracking-tighter flex justify-between"><span>Comensales</span><span className="bg-white/20 px-1 rounded">{eligible.length}</span></div>
                               <div className="max-h-48 overflow-y-auto custom-scrollbar pr-1">
-                                {eligible
-                                  .sort((a, b) =>
-                                    a.apellido.localeCompare(b.apellido),
-                                  )
-                                  .map((p) => (
-                                    <div
-                                      key={p.id}
-                                      className="flex justify-between border-b border-white/5 py-1 last:border-0 hover:bg-white/5 px-1 rounded"
-                                    >
-                                      <span className="truncate pr-2">
-                                        {p.apellido}, {p.nombre[0]}.
-                                      </span>
-                                      <span className="opacity-50 text-[8px] uppercase shrink-0 italic">
-                                        {p.instrumentos?.instrumento?.substring(
-                                          0,
-                                          10,
-                                        )}
-                                      </span>
-                                    </div>
-                                  ))}
+                                {eligible.sort((a, b) => a.apellido.localeCompare(b.apellido)).map((p) => (
+                                  <div key={p.id} className="flex justify-between border-b border-white/5 py-1 last:border-0 hover:bg-white/5 px-1 rounded"><span className="truncate pr-2">{p.apellido}, {p.nombre[0]}.</span><span className="opacity-50 text-[8px] uppercase shrink-0 italic">{p.instrumentos?.instrumento?.substring(0, 10)}</span></div>
+                                ))}
                               </div>
                             </div>
                           </div>
@@ -942,36 +799,9 @@ export default function MealsManager({ supabase, gira, roster }) {
                       </div>
                     </td>
                     <td className="px-3 text-center">
-                      <button
-                        onClick={() =>
-                          handleGridChange(idx, "tecnica", !row.tecnica)
-                        }
-                        className={`transition-colors p-1 rounded-full hover:bg-slate-100 ${row.tecnica ? "text-indigo-600 bg-indigo-50" : "text-slate-300"}`}
-                      >
-                        {row.tecnica ? (
-                          <IconEyeOff size={18} />
-                        ) : (
-                          <IconEye size={18} />
-                        )}
-                      </button>
+                      <button onClick={() => handleGridChange(idx, "tecnica", !row.tecnica)} className={`transition-colors p-1 rounded-full hover:bg-slate-100 ${row.tecnica ? "text-indigo-600 bg-indigo-50" : "text-slate-300"}`}>{row.tecnica ? <IconEyeOff size={18} /> : <IconEye size={18} />}</button>
                     </td>
-                    <td className="px-2 text-center sticky right-0 bg-white shadow-[-4px_0_10px_-4px_rgba(0,0,0,0.1)]">
-                      {isSaving ? (
-                        <IconLoader
-                          className="animate-spin text-indigo-500 mx-auto"
-                          size={14}
-                        />
-                      ) : (
-                        !row.isTemp && (
-                          <button
-                            onClick={() => deleteRow(row)}
-                            className="text-slate-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                          >
-                            <IconTrash size={14} />
-                          </button>
-                        )
-                      )}
-                    </td>
+                    <td className="px-2 text-center sticky right-0 bg-white shadow-[-4px_0_10_px_-4px_rgba(0,0,0,0.1)] group-hover:bg-slate-50">{isSaving ? <IconLoader className="animate-spin text-indigo-500 mx-auto" size={14} /> : !isTemp && <button onClick={() => deleteRow(row)} className="text-slate-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><IconTrash size={14} /></button>}</td>
                   </tr>
                 );
               })}
