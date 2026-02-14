@@ -18,6 +18,7 @@ import {
   IconCalendar,
   IconFileText,
   IconMessageSquare,
+  IconUserPlus,
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { useAuth } from "../../context/AuthContext";
@@ -26,6 +27,7 @@ import DriveMatcherModal from "../../components/repertoire/DriveMatcherModal";
 import LinksManagerModal from "../../components/repertoire/LinksManagerModal";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
+import { toast } from "sonner";
 
 // --- COMPONENTE EDITOR WYSIWYG ---
 const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
@@ -69,7 +71,7 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
 
   return (
     <div
-      className={`border rounded-lg overflow-hidden transition-shadow bg-white flex flex-col ${isFocused ? "ring-2 ring-indigo-500 border-indigo-500" : "border-slate-300"} ${className}`}
+      className={`border rounded-lg overflow-hidden transition-shadow bg-white flex flex-col relative ${isFocused ? "ring-2 ring-indigo-500 border-indigo-500" : "border-slate-300"} ${className}`}
     >
       <div className="flex items-center gap-1 bg-slate-50 border-b border-slate-200 p-1.5 select-none shrink-0">
         <button
@@ -147,7 +149,6 @@ export default function WorkForm({
   onSave,
   catalogoInstrumentos,
 }) {
-  // CORRECCIÓN: Extraemos 'user' del contexto, no 'userId' directo
   const { user } = useAuth();
 
   const [formData, setFormData] = useState({
@@ -163,7 +164,8 @@ export default function WorkForm({
     comentarios: "",
     observaciones: "",
   });
-
+  const [isQuickCompOpen, setIsQuickCompOpen] = useState(false);
+  const [quickCompType, setQuickCompType] = useState("compositor"); // o "arreglador"
   const [selectedComposers, setSelectedComposers] = useState([]);
   const [selectedArrangers, setSelectedArrangers] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -182,7 +184,29 @@ export default function WorkForm({
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [editingLinksId, setEditingLinksId] = useState(null);
   const instrumentInputRef = useRef(null);
+  const handleQuickCompCreated = (newComp) => {
+    const newOption = {
+      id: newComp.id,
+      label: `${newComp.apellido}, ${newComp.nombre}`,
+    };
 
+    // 1. Actualizar la lista de opciones para que aparezca en los Selects
+    setComposersOptions((prev) =>
+      [...prev, newOption].sort((a, b) => a.label.localeCompare(b.label)),
+    );
+
+    // 2. Vincularlo automáticamente según el tipo que abrió el modal
+    if (quickCompType === "compositor") {
+      const next = [...selectedComposers, newComp.id];
+      setSelectedComposers(next);
+      if (formData.id) updateComposerRelations("compositor", next);
+    } else {
+      const next = [...selectedArrangers, newComp.id];
+      setSelectedArrangers(next);
+      if (formData.id) updateComposerRelations("arreglador", next);
+    }
+    toast.success("Compositor creado y vinculado");
+  };
   useEffect(() => {
     if (instrumentList.length === 0) fetchInstruments();
     fetchComposers();
@@ -241,6 +265,123 @@ export default function WorkForm({
       setComposersOptions(
         data.map((c) => ({ id: c.id, label: `${c.apellido}, ${c.nombre}` })),
       );
+  };
+  const QuickComposerModal = ({ isOpen, onClose, onCreated, supabase }) => {
+    const [data, setData] = useState({ nombre: "", apellido: "" });
+    const [loading, setLoading] = useState(false);
+
+    if (!isOpen) return null;
+
+    const handleSave = async () => {
+      if (!data.apellido) return alert("El apellido es obligatorio");
+      setLoading(true);
+      const { data: newComp, error } = await supabase
+        .from("compositores")
+        .insert([data])
+        .select()
+        .single();
+
+      setLoading(false);
+      if (!error && newComp) {
+        onCreated(newComp);
+        setData({ nombre: "", apellido: "" });
+        onClose();
+      }
+    };
+
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="bg-white w-full max-w-xs rounded-xl shadow-2xl p-6 border border-slate-200">
+          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <IconUserPlus size={18} className="text-indigo-600" /> Nuevo
+            Compositor
+          </h3>
+          <div className="space-y-3">
+            <input
+              className="input text-sm"
+              placeholder="Apellido (Obligatorio)"
+              value={data.apellido}
+              onChange={(e) => setData({ ...data, apellido: e.target.value })}
+              autoFocus
+            />
+            <input
+              className="input text-sm"
+              placeholder="Nombre"
+              value={data.nombre}
+              onChange={(e) => setData({ ...data, nombre: e.target.value })}
+            />
+          </div>
+          <div className="flex gap-2 mt-6">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={loading || !data.apellido}
+              className="flex-1 py-2 text-xs font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {loading ? "..." : "Crear y Vincular"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+  // --- FUNCIÓN PARA CREACIÓN RÁPIDA DE COMPOSITORES ---
+  const handleQuickCreateComposer = async (inputValue, type) => {
+    // Esperamos formato "Apellido, Nombre"
+    let apellido = inputValue.trim();
+    let nombre = "";
+
+    if (inputValue.includes(",")) {
+      const parts = inputValue.split(",");
+      apellido = parts[0].trim();
+      nombre = parts[1].trim();
+    }
+
+    if (!apellido) return;
+
+    try {
+      setSaveStatus("saving");
+      const { data, error } = await supabase
+        .from("compositores")
+        .insert([{ apellido, nombre }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Actualizar opciones locales
+      const newOption = {
+        id: data.id,
+        label: `${data.apellido}, ${data.nombre}`,
+      };
+      setComposersOptions((prev) =>
+        [...prev, newOption].sort((a, b) => a.label.localeCompare(b.label)),
+      );
+
+      // Vincular al formulario
+      if (type === "compositor") {
+        const nextIds = [...selectedComposers, data.id];
+        setSelectedComposers(nextIds);
+        if (formData.id) updateComposerRelations("compositor", nextIds);
+      } else {
+        const nextIds = [...selectedArrangers, data.id];
+        setSelectedArrangers(nextIds);
+        if (formData.id) updateComposerRelations("arreglador", nextIds);
+      }
+
+      toast.success(`Creado: ${data.apellido}`);
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch (err) {
+      console.error(err);
+      toast.error("Error al crear compositor");
+      setSaveStatus("error");
+    }
   };
 
   const fetchParticellas = async (workId) => {
@@ -421,7 +562,6 @@ export default function WorkForm({
   };
 
   const handleCreateInitial = async () => {
-    // 1. Validaciones básicas
     if (!formData.titulo) {
       alert("El título de la obra es obligatorio.");
       return;
@@ -434,7 +574,6 @@ export default function WorkForm({
     setIsSaving(true);
 
     try {
-      // A. Insertar la Obra en la BD
       const payload = {
         titulo: formData.titulo,
         duracion_segundos: inputToSeconds(formData.duracion),
@@ -444,12 +583,12 @@ export default function WorkForm({
         fecha_esperada:
           formData.estado === "Solicitud"
             ? formData.fecha_esperada || null
-            : null, // <--- Corrección de fecha vacía
+            : null,
         comentarios: formData.comentarios,
         observaciones: formData.observaciones,
         link_drive: formData.link_drive,
         link_youtube: formData.link_youtube,
-        id_usuario_carga: user.id, // Seguimos guardando esto por seguridad/auditoría
+        id_usuario_carga: user.id,
       };
 
       const { data, error } = await supabase
@@ -463,7 +602,6 @@ export default function WorkForm({
       if (data) {
         const newId = data.id;
 
-        // B. Guardar Relaciones (Compositores/Arregladores)
         const relations = [
           ...selectedComposers.map((id) => ({
             id_obra: newId,
@@ -481,28 +619,23 @@ export default function WorkForm({
           await supabase.from("obras_compositores").insert(relations);
         }
 
-        // C. Guardar Particellas
         if (particellas.length > 0) {
           await handlePartsChange(particellas, newId);
         }
 
         setFormData((prev) => ({ ...prev, id: newId }));
 
-        // --- D. ENVIAR NOTIFICACIÓN (Desde el Cliente) ---
-        // Esto no bloquea la UI si falla, y no consume RAM de la BD
         supabase.functions
           .invoke("mails_produccion", {
             body: {
-              
               action: "enviar_mail",
               templateId: "nueva_obra",
-              email: "ofrn.archivo@gmail.com", // <--- ESTA ES LA LÍNEA QUE FALTABA
-              // email: "TU_EMAIL_ADMIN", // Ya está hardcodeado en el Backend o puedes pasarlo aquí si quieres override
-              nombre: `${user.nombre} ${user.apellido}`, // Tenemos el nombre directo del AuthContext
+              email: "ofrn.archivo@gmail.com",
+              nombre: `${user.nombre} ${user.apellido}`,
               gira: null,
               detalle: {
                 titulo: formData.titulo,
-                compositor: "Ver en sistema", // Opcional: podrías buscar los nombres de los compositores seleccionados en `composersOptions` si quisieras enviarlos
+                compositor: "Ver en sistema",
                 duracion: formData.duracion,
                 instrumentacion: payload.instrumentacion,
                 link_drive: formData.link_drive,
@@ -513,7 +646,6 @@ export default function WorkForm({
             if (error) console.error("Error enviando alerta de obra:", error);
           });
 
-        // Finalizar
         if (onSave) onSave(newId, true);
       }
     } catch (err) {
@@ -637,12 +769,7 @@ export default function WorkForm({
           />
         </div>
 
-        {/* LOGICA DE ESTADO Y FECHA */}
-        <div
-          className={
-            formData.estado === "Solicitud" ? "flex flex-col gap-2" : ""
-          }
-        >
+        <div>
           <div className="w-full">
             <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
               Estado
@@ -658,46 +785,65 @@ export default function WorkForm({
           </div>
 
           {formData.estado === "Solicitud" && (
-            <div className="w-full animate-in slide-in-from-top-2 fade-in">
+            <div className="w-full animate-in slide-in-from-top-2 fade-in mt-2">
               <label className="text-[10px] font-bold uppercase text-amber-600 mb-1 flex items-center gap-1 truncate">
                 <IconCalendar size={10} /> F. Esperada
               </label>
               <input
                 type="date"
-                className="w-full border border-amber-200 bg-amber-50 text-amber-800 p-2 rounded-lg text-xs h-[58px] outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full border border-amber-200 bg-amber-50 text-amber-800 p-2 rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-500"
                 value={formData.fecha_esperada || ""}
                 onChange={(e) => updateField("fecha_esperada", e.target.value)}
               />
             </div>
           )}
         </div>
-        <div className="md:col-span-2">
-          <label className="text-[10px] font-bold uppercase text-indigo-600 mb-1 flex items-center gap-1">
-            <IconUser size={12} /> Compositores
-          </label>
-          <SearchableSelect
-            options={composersOptions}
-            value={selectedComposers}
-            isMulti
-            onChange={(ids) => {
-              setSelectedComposers(ids);
-              updateComposerRelations("compositor", ids);
-            }}
-          />
-        </div>
-        <div className="md:col-span-2">
-          <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-1">
-            <IconUser size={12} /> Arregladores
-          </label>
-          <SearchableSelect
-            options={composersOptions}
-            value={selectedArrangers}
-            isMulti
-            onChange={(ids) => {
-              setSelectedArrangers(ids);
-              updateComposerRelations("arreglador", ids);
-            }}
-          />
+
+        {/* SECCIÓN COMPOSITORES Y ARREGLADORES CON BOTÓN DE CREACIÓN RÁPIDA */}
+        <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-9 gap-4 items-end">
+          <div className="md:col-span-4">
+            <label className="text-[10px] font-bold uppercase text-indigo-600 mb-1 flex items-center gap-1">
+              <IconUser size={12} /> Compositores
+            </label>
+            <SearchableSelect
+              options={composersOptions}
+              value={selectedComposers}
+              isMulti
+              onChange={(ids) => {
+                setSelectedComposers(ids);
+                updateComposerRelations("compositor", ids);
+              }}
+            />
+          </div>
+
+          <div className="md:col-span-4">
+            <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-1">
+              <IconUser size={12} /> Arregladores
+            </label>
+            <SearchableSelect
+              options={composersOptions}
+              value={selectedArrangers}
+              isMulti
+              onChange={(ids) => {
+                setSelectedArrangers(ids);
+                updateComposerRelations("arreglador", ids);
+              }}
+            />
+          </div>
+
+          <div className="md:col-span-1">
+            <button
+              type="button"
+              onClick={() => {
+                setQuickCompType("compositor"); // Por defecto vincula a compositor, pero el modal lo crea globalmente
+                setIsQuickCompOpen(true);
+              }}
+              className="w-full h-[32px] flex items-center justify-center bg-white text-indigo-600 rounded border border-slate-300 hover:border-indigo-500 hover:bg-indigo-50 transition-all shadow-sm"
+              title="Crear nuevo Compositor/Arreglador al vuelo"
+            >
+              <IconUserPlus size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4 md:col-span-2">
@@ -774,7 +920,7 @@ export default function WorkForm({
         </div>
       </div>
 
-      {/* --- SECCIÓN NUEVA: OBSERVACIONES Y COMENTARIOS --- */}
+      {/* OBSERVACIONES Y COMENTARIOS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
         <div>
           <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-1">
@@ -878,7 +1024,7 @@ export default function WorkForm({
         </div>
       </div>
 
-      {/* PARTICELLAS - LISTA TABULADA */}
+      {/* PARTICELLAS */}
       <div className="border-t pt-6">
         <h3 className="text-sm font-bold uppercase text-slate-500 mb-3">
           Gestión de Particellas
@@ -945,7 +1091,6 @@ export default function WorkForm({
 
         {/* TABLA DE PARTICELLAS */}
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
-          {/* ENCABEZADO */}
           <div className="grid grid-cols-12 gap-2 bg-slate-50 border-b border-slate-200 px-4 py-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
             <div className="col-span-1 text-center">ID</div>
             <div className="col-span-5">Nombre de Particella</div>
@@ -954,21 +1099,17 @@ export default function WorkForm({
             <div className="col-span-2 text-right">Acciones</div>
           </div>
 
-          {/* FILAS */}
           <div className="divide-y divide-slate-100">
             {particellas.map((p) => (
               <div
                 key={p.tempId}
                 className="grid grid-cols-12 gap-2 px-4 py-2 items-center hover:bg-slate-50 transition-colors group text-sm"
               >
-                {/* 1. ID INSTRUMENTO */}
                 <div className="col-span-1 flex justify-center">
                   <span className="w-8 h-6 rounded bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 uppercase">
                     {p.id_instrumento}
                   </span>
                 </div>
-
-                {/* 2. NOMBRE */}
                 <div className="col-span-5">
                   <input
                     className="w-full bg-transparent border-none p-0 text-slate-700 font-bold focus:ring-0 placeholder:text-slate-300 focus:bg-white focus:shadow-sm rounded px-1 transition-all"
@@ -985,8 +1126,6 @@ export default function WorkForm({
                     onBlur={() => handlePartsChange(particellas)}
                   />
                 </div>
-
-                {/* 3. NOTA ORGANICO */}
                 <div className="col-span-2 flex justify-center">
                   <input
                     className="w-12 text-center bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:bg-white text-xs text-slate-500 outline-none transition-all"
@@ -1004,8 +1143,6 @@ export default function WorkForm({
                     onBlur={() => handlePartsChange(particellas)}
                   />
                 </div>
-
-                {/* 4. ENLACES */}
                 <div className="col-span-2 flex justify-center">
                   <button
                     onClick={() => {
@@ -1020,8 +1157,6 @@ export default function WorkForm({
                       : "Sin Links"}
                   </button>
                 </div>
-
-                {/* 5. ACCIONES */}
                 <div className="col-span-2 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() =>
@@ -1040,8 +1175,7 @@ export default function WorkForm({
 
             {particellas.length === 0 && (
               <div className="p-8 text-center text-slate-400 text-xs italic bg-slate-50">
-                No hay particellas cargadas. Usa el buscador arriba para agregar
-                instrumentos.
+                No hay particellas cargadas.
               </div>
             )}
           </div>
@@ -1101,6 +1235,12 @@ export default function WorkForm({
           );
           handlePartsChange(updated);
         }}
+      />
+      <QuickComposerModal 
+        isOpen={isQuickCompOpen}
+        onClose={() => setIsQuickCompOpen(false)}
+        onCreated={handleQuickCompCreated}
+        supabase={supabase}
       />
     </div>
   );

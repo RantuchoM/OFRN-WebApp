@@ -1957,7 +1957,7 @@ export default function UnifiedAgenda({
 
                             <div className="flex flex-col md:flex-row md:items-center md:gap-4 flex-1 min-w-0">
                               <h4
-                                className={`text-sm font-bold leading-tight truncate ${shouldDim ? "text-slate-400" : "text-slate-800"}`}
+                                className={`text-[12px] sm:text-sm font-bold leading-[1.1] break-words line-clamp-8 ${shouldDim ? "text-slate-400" : "text-slate-800"}`}
                               >
                                 {evt.descripcion || evt.tipos_evento?.nombre}
                               </h4>

@@ -15,6 +15,7 @@ import {
   IconYoutube,
   IconDrive,
   IconEyeOff,
+  IconSettings
 } from "../ui/Icons";
 import { formatSecondsToTime } from "../../utils/time";
 import {
@@ -199,6 +200,8 @@ export default function RepertoireManager({
     titulo: "",
     arreglador: "",
   });
+  const [selectedInstruments, setSelectedInstruments] = useState([]);
+  const [limitToSelected, setLimitToSelected] = useState(false);
   const [workFormData, setWorkFormData] = useState({});
   // --- CALCULAR MAPA DE ARCOS DISPONIBLES ---
   const arcosByWork = useMemo(() => {
