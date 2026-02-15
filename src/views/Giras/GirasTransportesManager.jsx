@@ -1445,7 +1445,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       tInfo.detalle || tInfo.transportes?.nombre || "Transporte",
       events,
       startId,
-      endId
+      endId,
     );
 
     setStopsExportModal({ isOpen: false, transportId: null });
@@ -1541,13 +1541,17 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
     try {
       const targetEventType = editFormData.es_tipo_alternativo ? 12 : 11;
-      const typeName = editFormData.es_tipo_alternativo ? "Solo Logístico" : "de Pasajeros";
+      const typeName = editFormData.es_tipo_alternativo
+        ? "Solo Logístico"
+        : "de Pasajeros";
 
       const { error: transportError } = await supabase
         .from("giras_transportes")
         .update({
           detalle: editFormData.detalle,
-          capacidad_maxima: editFormData.capacidad ? parseInt(editFormData.capacidad, 10) : null,
+          capacidad_maxima: editFormData.capacidad
+            ? parseInt(editFormData.capacidad, 10)
+            : null,
           costo: parseFloat(editFormData.costo) || 0,
           es_tipo_alternativo: editFormData.es_tipo_alternativo,
         })
@@ -1660,7 +1664,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
             <IconDownload size={14} /> Excel General
           </button>
           <button
-            onClick={() => setItineraryModal({ isOpen: true, transportId: null })}
+            onClick={() =>
+              setItineraryModal({ isOpen: true, transportId: null })
+            }
             className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded text-xs font-bold hover:bg-indigo-100"
           >
             <IconMapPin size={14} /> Gestor de Itinerarios
@@ -1674,7 +1680,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
           <select
             className="w-full text-xs border p-2 rounded"
             value={newTransp.id_transporte}
-            onChange={(e) => setNewTransp({ ...newTransp, id_transporte: e.target.value })}
+            onChange={(e) =>
+              setNewTransp({ ...newTransp, id_transporte: e.target.value })
+            }
           >
             <option value="">Seleccionar...</option>
             {catalog.map((c) => (
@@ -1685,24 +1693,32 @@ export default function GirasTransportesManager({ supabase, gira }) {
           </select>
         </div>
         <div className="flex-1">
-          <label className="text-[10px] font-bold text-slate-500">DETALLE</label>
+          <label className="text-[10px] font-bold text-slate-500">
+            DETALLE
+          </label>
           <input
             type="text"
             className="w-full text-xs border p-2 rounded"
             placeholder="Ej: Interno 404"
             value={newTransp.detalle}
-            onChange={(e) => setNewTransp({ ...newTransp, detalle: e.target.value })}
+            onChange={(e) =>
+              setNewTransp({ ...newTransp, detalle: e.target.value })
+            }
           />
         </div>
         <div className="w-24">
-          <label className="text-[10px] font-bold text-slate-500">CAPACIDAD</label>
+          <label className="text-[10px] font-bold text-slate-500">
+            CAPACIDAD
+          </label>
           <input
             type="number"
             min="0"
             className="w-full text-xs border p-2 rounded"
             placeholder="Opcional"
             value={newTransp.capacidad}
-            onChange={(e) => setNewTransp({ ...newTransp, capacidad: e.target.value })}
+            onChange={(e) =>
+              setNewTransp({ ...newTransp, capacidad: e.target.value })
+            }
           />
         </div>
         <button
@@ -1720,10 +1736,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
           const isMediosPropios = String(t.id_transporte) === "9";
 
           const tPax = passengerList.filter((p) =>
-            p.logistics?.transports?.some((tr) => String(tr.id) === String(t.id))
+            p.logistics?.transports?.some(
+              (tr) => String(tr.id) === String(t.id),
+            ),
           );
           const tPassengerCount = tPax.length;
-          const tInstrumentSeats = tPax.filter((p) => p.instrumentos?.plaza_extra).length;
+          const tInstrumentSeats = tPax.filter(
+            (p) => p.instrumentos?.plaza_extra,
+          ).length;
           const totalOccupied = tPassengerCount + tInstrumentSeats;
           const maxCap = t.capacidad_maxima || 0;
 
@@ -1733,7 +1753,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
             : "text-indigo-600 bg-indigo-50 border-indigo-100";
 
           const incompletePax = tPax.filter((p) => {
-            const tr = p.logistics?.transports?.find((x) => String(x.id) === String(t.id));
+            const tr = p.logistics?.transports?.find(
+              (x) => String(x.id) === String(t.id),
+            );
             return tr && (!tr.subidaId || !tr.bajadaId);
           });
 
@@ -1746,58 +1768,126 @@ export default function GirasTransportesManager({ supabase, gira }) {
             >
               <div
                 className="p-2 md:p-3 flex flex-col md:flex-row justify-between md:items-center gap-2 cursor-pointer"
-                onClick={() => !isEditing && setActiveTransportId(isExpanded ? null : t.id)}
+                onClick={() =>
+                  !isEditing && setActiveTransportId(isExpanded ? null : t.id)
+                }
               >
                 <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <div className={`p-2 rounded-xl shrink-0 transition-colors ${isExpanded ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-indigo-100"}`}>
+                  <div
+                    className={`p-2 rounded-xl shrink-0 transition-colors ${isExpanded ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-indigo-100"}`}
+                  >
                     <IconTruck size={20} />
                   </div>
 
                   <div className="min-w-0 flex-1">
                     {isEditing ? (
-                      <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      <div
+                        className="flex flex-wrap items-center gap-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <select
                           className="border border-indigo-300 rounded px-2 py-1 text-xs bg-white w-24"
                           value={editFormData.id_transporte || t.id_transporte}
-                          onChange={(e) => setEditFormData({ ...editFormData, id_transporte: e.target.value })}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              id_transporte: e.target.value,
+                            })
+                          }
                         >
                           {catalog.map((c) => (
-                            <option key={c.id} value={c.id}>{c.nombre}</option>
+                            <option key={c.id} value={c.id}>
+                              {c.nombre}
+                            </option>
                           ))}
                         </select>
                         <input
                           type="text"
                           value={editFormData.detalle}
-                          onChange={(e) => setEditFormData({ ...editFormData, detalle: e.target.value })}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              detalle: e.target.value,
+                            })
+                          }
                           className="border border-indigo-300 rounded px-2 py-1 text-xs font-bold w-32"
                         />
-                        <label className={`flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer select-none ${editFormData.es_tipo_alternativo ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-slate-50 border-slate-200 text-slate-400"}`}>
-                          <input type="checkbox" className="hidden" checked={editFormData.es_tipo_alternativo} onChange={(e) => setEditFormData({ ...editFormData, es_tipo_alternativo: e.target.checked })} />
-                          {editFormData.es_tipo_alternativo ? <IconAlertTriangle size={14} /> : <IconBus size={14} />}
-                          <span className="text-[9px] font-bold uppercase">{editFormData.es_tipo_alternativo ? "Solo logístico" : "De pasajeros"}</span>
+                        <label
+                          className={`flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer select-none ${editFormData.es_tipo_alternativo ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-slate-50 border-slate-200 text-slate-400"}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="hidden"
+                            checked={editFormData.es_tipo_alternativo}
+                            onChange={(e) =>
+                              setEditFormData({
+                                ...editFormData,
+                                es_tipo_alternativo: e.target.checked,
+                              })
+                            }
+                          />
+                          {editFormData.es_tipo_alternativo ? (
+                            <IconAlertTriangle size={14} />
+                          ) : (
+                            <IconBus size={14} />
+                          )}
+                          <span className="text-[9px] font-bold uppercase">
+                            {editFormData.es_tipo_alternativo
+                              ? "Solo logístico"
+                              : "De pasajeros"}
+                          </span>
                         </label>
                         <div className="flex gap-1">
-                          <button onClick={saveTransportChanges} className="bg-emerald-500 text-white p-1 rounded"><IconCheck size={14} /></button>
-                          <button onClick={cancelEditingTransport} className="bg-slate-200 text-slate-600 p-1 rounded"><IconX size={14} /></button>
+                          <button
+                            onClick={saveTransportChanges}
+                            className="bg-emerald-500 text-white p-1 rounded"
+                          >
+                            <IconCheck size={14} />
+                          </button>
+                          <button
+                            onClick={cancelEditingTransport}
+                            className="bg-slate-200 text-slate-600 p-1 rounded"
+                          >
+                            <IconX size={14} />
+                          </button>
                         </div>
                       </div>
                     ) : (
                       <>
                         <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden">
-                          <h4 className="font-black text-slate-800 uppercase tracking-tighter text-sm truncate shrink">{t.detalle || "Sin detalle"}</h4>
+                          <h4 className="font-black text-slate-800 uppercase tracking-tighter text-sm truncate shrink">
+                            {t.detalle || "Sin detalle"}
+                          </h4>
                           {t.transportes?.patente && (
-                            <span className="bg-slate-800 text-white px-1.5 py-0.5 rounded text-[9px] font-mono tracking-tighter shrink-0">{t.transportes.patente}</span>
+                            <span className="bg-slate-800 text-white px-1.5 py-0.5 rounded text-[9px] font-mono tracking-tighter shrink-0">
+                              {t.transportes.patente}
+                            </span>
                           )}
-                          <button onClick={(e) => startEditingTransport(e, t)} className="text-slate-300 hover:text-indigo-600 p-1 rounded-full"><IconEdit size={12} /></button>
+                          <button
+                            onClick={(e) => startEditingTransport(e, t)}
+                            className="text-slate-300 hover:text-indigo-600 p-1 rounded-full"
+                          >
+                            <IconEdit size={12} />
+                          </button>
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">{t.transportes?.nombre || "Bus"}</span>
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">
+                            {t.transportes?.nombre || "Bus"}
+                          </span>
                           <span className="text-slate-200 shrink-0">|</span>
-                          <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${occupancyColor}`}>
-                            {tPassengerCount} {tInstrumentSeats > 0 ? ` + ${tInstrumentSeats} inst` : ""} butacas {maxCap > 0 ? ` / ${maxCap}` : ""}
+                          <span
+                            className={`text-[12px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${occupancyColor}`}
+                          >
+                            {tPassengerCount}{" "}
+                            {tInstrumentSeats > 0
+                              ? ` + ${tInstrumentSeats} inst`
+                              : ""}{" "}
+                            butacas {maxCap > 0 ? ` / ${maxCap}` : ""}
                           </span>
                           {t.es_tipo_alternativo && (
-                            <span className="ml-1 text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold border border-amber-200">Solo logístico</span>
+                            <span className="ml-1 text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold border border-amber-200">
+                              Solo logístico
+                            </span>
                           )}
                         </div>
                       </>
@@ -1806,38 +1896,114 @@ export default function GirasTransportesManager({ supabase, gira }) {
                 </div>
 
                 {!isEditing && (
-                  <div className="flex items-center gap-1 shrink-0 ml-auto md:ml-0" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    className="flex items-center gap-1 shrink-0 ml-auto md:ml-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     {incompletePax.length > 0 && !isMediosPropios && (
                       <button
-                        onClick={() => setInfoListModal({ isOpen: true, title: `Incompletos: ${t.detalle}`, list: incompletePax, transportId: t.id })}
+                        onClick={() =>
+                          setInfoListModal({
+                            isOpen: true,
+                            title: `Incompletos: ${t.detalle}`,
+                            list: incompletePax,
+                            transportId: t.id,
+                          })
+                        }
                         className="flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[9px] font-black animate-pulse mr-1"
                       >
-                        <IconAlertTriangle size={10} /> {incompletePax.length} PEND.
+                        <IconAlertTriangle size={10} /> {incompletePax.length}{" "}
+                        PEND.
                       </button>
                     )}
 
                     <div className="flex items-center bg-slate-100/80 p-0.5 rounded-xl border border-slate-200 gap-0.5">
-                      <button onClick={() => setAdmissionModal({ isOpen: true, transportId: t.id })} className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all" title="Admisión"><IconUsers size={16} /></button>
-                      <button onClick={() => setBoardingModal({ isOpen: true, transportId: t.id })} className="p-1.5 bg-white text-amber-600 rounded-lg hover:bg-amber-600 hover:text-white transition-all" title="Abordaje"><IconCheckCircle size={16} /></button>
-                      <button onClick={() => setItineraryModal({ isOpen: true, transportId: t.id })} className="p-1.5 bg-white text-fuchsia-600 rounded-lg hover:bg-fuchsia-600 hover:text-white transition-all" title="Paradas"><IconMapPin size={16} /></button>
-                      
+                      <button
+                        onClick={() =>
+                          setAdmissionModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all"
+                        title="Admisión"
+                      >
+                        <IconUsers size={16} />
+                      </button>
+                      <button
+                        onClick={() =>
+                          setBoardingModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="p-1.5 bg-white text-amber-600 rounded-lg hover:bg-amber-600 hover:text-white transition-all"
+                        title="Abordaje"
+                      >
+                        <IconCheckCircle size={16} />
+                      </button>
+                      <button
+                        onClick={() =>
+                          setItineraryModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="p-1.5 bg-white text-fuchsia-600 rounded-lg hover:bg-fuchsia-600 hover:text-white transition-all"
+                        title="Paradas"
+                      >
+                        <IconMapPin size={16} />
+                      </button>
+
                       {/* NUEVO BOTÓN: CRONOGRAMA */}
                       <button
-                        onClick={() => setStopsExportModal({ isOpen: true, transportId: t.id })}
+                        onClick={() =>
+                          setStopsExportModal({
+                            isOpen: true,
+                            transportId: t.id,
+                          })
+                        }
                         className="p-1.5 bg-white text-emerald-600 rounded-lg hover:bg-emerald-600 hover:text-white transition-all border border-emerald-100 shadow-sm"
                         title="Cronograma de Paradas (Solo paradas)"
                       >
                         <IconList size={16} />
                       </button>
 
-                      <button onClick={() => setShiftModal({ isOpen: true, transportId: t.id, transportName: t.detalle })} className="p-1.5 bg-white text-slate-500 rounded-lg hover:bg-slate-800 hover:text-white transition-all" title="Mover Horarios"><IconClock size={16} /></button>
+                      <button
+                        onClick={() =>
+                          setShiftModal({
+                            isOpen: true,
+                            transportId: t.id,
+                            transportName: t.detalle,
+                          })
+                        }
+                        className="p-1.5 bg-white text-slate-500 rounded-lg hover:bg-slate-800 hover:text-white transition-all"
+                        title="Mover Horarios"
+                      >
+                        <IconClock size={16} />
+                      </button>
                       <div className="w-px h-4 bg-slate-200 mx-0.5"></div>
-                      <button onClick={() => setRoadmapModal({ isOpen: true, transportId: t.id })} className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all" title="Hoja de Ruta"><IconFileText size={16} /></button>
-                      <button onClick={() => setCnrtModal({ isOpen: true, transportId: t.id })} className="px-2 py-1.5 bg-white text-indigo-700 text-[9px] font-black rounded-lg hover:bg-indigo-700 hover:text-white transition-all">CNRT</button>
+                      <button
+                        onClick={() =>
+                          setRoadmapModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="p-1.5 bg-white text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all"
+                        title="Hoja de Ruta"
+                      >
+                        <IconFileText size={16} />
+                      </button>
+                      <button
+                        onClick={() =>
+                          setCnrtModal({ isOpen: true, transportId: t.id })
+                        }
+                        className="px-2 py-1.5 bg-white text-indigo-700 text-[9px] font-black rounded-lg hover:bg-indigo-700 hover:text-white transition-all"
+                      >
+                        CNRT
+                      </button>
                     </div>
 
-                    <button onClick={() => handleDeleteTransport(t.id)} className="p-1.5 text-slate-300 hover:text-rose-600 ml-1"><IconTrash size={16} /></button>
-                    <div className={`ml-1 text-slate-300 transition-transform ${isExpanded ? "rotate-180" : ""}`}><IconChevronDown size={16} /></div>
+                    <button
+                      onClick={() => handleDeleteTransport(t.id)}
+                      className="p-1.5 text-slate-300 hover:text-rose-600 ml-1"
+                    >
+                      <IconTrash size={16} />
+                    </button>
+                    <div
+                      className={`ml-1 text-slate-300 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                    >
+                      <IconChevronDown size={16} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -1845,75 +2011,314 @@ export default function GirasTransportesManager({ supabase, gira }) {
               {isExpanded && (
                 <div className="border-t border-slate-100 overflow-hidden rounded-b-2xl bg-slate-50/30">
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left border-separate border-spacing-0" style={{ tableLayout: "fixed" }}>
+                    <table
+                      className="w-full text-sm text-left border-separate border-spacing-0"
+                      style={{ tableLayout: "fixed" }}
+                    >
                       <thead className="bg-slate-100/50 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b">
                         <tr>
                           <th className="p-3 w-10 text-center">
-                            <input type="checkbox" className="rounded border-slate-300 text-indigo-600" checked={myEvents.length > 0 && myEvents.every((e) => selectedEventIds.has(e.id))} onChange={(e) => {
+                            <input
+                              type="checkbox"
+                              className="rounded border-slate-300 text-indigo-600"
+                              checked={
+                                myEvents.length > 0 &&
+                                myEvents.every((e) =>
+                                  selectedEventIds.has(e.id),
+                                )
+                              }
+                              onChange={(e) => {
                                 const next = new Set(selectedEventIds);
-                                myEvents.forEach((ev) => e.target.checked ? next.add(ev.id) : next.delete(ev.id));
+                                myEvents.forEach((ev) =>
+                                  e.target.checked
+                                    ? next.add(ev.id)
+                                    : next.delete(ev.id),
+                                );
                                 setSelectedEventIds(next);
                               }}
                             />
                           </th>
-                          <th className="p-3 w-32">Horario / Fecha</th>
+                          <th className="p-3 w-40">Horario / Fecha</th>
                           <th className="p-3 w-44">Locación (Destino)</th>
                           <th className="p-3">Nota</th>
-                          <th className="p-3 w-20 text-center bg-emerald-50/50 text-emerald-600 border-l border-emerald-100">Suben</th>
-                          <th className="p-3 w-20 text-center bg-rose-50/50 text-rose-600 border-l border-rose-100">Bajan</th>
+                          <th className="p-3 w-20 text-center bg-emerald-50/50 text-emerald-600 border-l border-emerald-100">
+                            Suben
+                          </th>
+                          <th className="p-3 w-20 text-center bg-rose-50/50 text-rose-600 border-l border-rose-100">
+                            Bajan
+                          </th>
                           <th className="p-3 w-10"></th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white">
                         {myEvents.map((evt) => {
-                          const upsSummary = getEventRulesSummary(evt.id, "up", t.id);
-                          const downsSummary = getEventRulesSummary(evt.id, "down", t.id);
-                          const totalUps = upsSummary.reduce((acc, curr) => acc + curr.count, 0);
-                          const totalDowns = downsSummary.reduce((acc, curr) => acc + curr.count, 0);
-                          const upAlert = upsSummary.some((s) => s.count === 0) && !isMediosPropios;
-                          const downAlert = downsSummary.some((s) => s.count === 0) && !isMediosPropios;
+                          const upsSummary = getEventRulesSummary(
+                            evt.id,
+                            "up",
+                            t.id,
+                          );
+                          const downsSummary = getEventRulesSummary(
+                            evt.id,
+                            "down",
+                            t.id,
+                          );
+                          const totalUps = upsSummary.reduce(
+                            (acc, curr) => acc + curr.count,
+                            0,
+                          );
+                          const totalDowns = downsSummary.reduce(
+                            (acc, curr) => acc + curr.count,
+                            0,
+                          );
+                          const upAlert =
+                            upsSummary.some((s) => s.count === 0) &&
+                            !isMediosPropios;
+                          const downAlert =
+                            downsSummary.some((s) => s.count === 0) &&
+                            !isMediosPropios;
 
                           return (
-                            <tr key={evt.id} className="hover:bg-slate-50 group transition-colors">
+                            <tr
+                              key={evt.id}
+                              className="hover:bg-slate-50 group transition-colors"
+                            >
                               <td className="p-2 text-center align-middle">
-                                <input type="checkbox" className="rounded border-slate-300 text-indigo-600" checked={selectedEventIds.has(evt.id)}
+                                <input
+                                  type="checkbox"
+                                  className="rounded border-slate-300 text-indigo-600"
+                                  checked={selectedEventIds.has(evt.id)}
                                   onChange={() => {
                                     const next = new Set(selectedEventIds);
-                                    next.has(evt.id) ? next.delete(evt.id) : next.add(evt.id);
+                                    next.has(evt.id)
+                                      ? next.delete(evt.id)
+                                      : next.add(evt.id);
                                     setSelectedEventIds(next);
                                   }}
                                 />
                               </td>
                               <td className="p-2 align-middle">
                                 <div className="flex items-center gap-1">
-                                  <DateInput value={evt.fecha} onChange={(v) => handleUpdateEvent(evt.id, "fecha", v)} className={`h-7 w-20 text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "fecha")}`} />
-                                  <TimeInput value={evt.hora_inicio} onChange={(v) => handleUpdateEvent(evt.id, "hora_inicio", v)} className={`h-7 w-16 text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "hora_inicio")}`} />
+                                  <DateInput
+                                    value={evt.fecha}
+                                    onChange={(v) =>
+                                      handleUpdateEvent(evt.id, "fecha", v)
+                                    }
+                                    className={`h-7 w-20 text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "fecha")}`}
+                                  />
+                                  <TimeInput
+                                    value={evt.hora_inicio}
+                                    onChange={(v) =>
+                                      handleUpdateEvent(
+                                        evt.id,
+                                        "hora_inicio",
+                                        v,
+                                      )
+                                    }
+                                    className={`h-7 w-16 text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "hora_inicio")}`}
+                                  />
                                 </div>
                               </td>
-                              <td className="p-2 align-middle overflow-hidden" style={{ width: '176px', maxWidth: '176px' }}>
-                                <SearchableSelect options={locationOptions} value={evt.id_locacion} onChange={(v) => handleUpdateEvent(evt.id, "id_locacion", v)} className={`h-8 text-[11px] w-full rounded ${getInputClass(evt.id, "id_locacion")}`} />
+                              <td
+                                className="p-2 align-middle overflow-hidden"
+                                style={{ width: "176px", maxWidth: "176px" }}
+                              >
+                                <SearchableSelect
+                                  options={locationOptions}
+                                  value={evt.id_locacion}
+                                  onChange={(v) =>
+                                    handleUpdateEvent(evt.id, "id_locacion", v)
+                                  }
+                                  className={`h-8 text-[11px] w-full rounded ${getInputClass(evt.id, "id_locacion")}`}
+                                />
                               </td>
                               <td className="p-2 align-middle">
-                                <textarea value={evt.descripcion || ""} onChange={(e) => handleUpdateEvent(evt.id, "descripcion", e.target.value)} placeholder="Nota..." className={`w-full min-h-[32px] h-auto resize-none rounded px-2 py-1.5 text-xs outline-none border ${getInputClass(evt.id, "descripcion")}`} rows={1} onInput={(e) => { e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; }} />
+                                <textarea
+                                  value={evt.descripcion || ""}
+                                  onChange={(e) =>
+                                    handleUpdateEvent(
+                                      evt.id,
+                                      "descripcion",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="Nota..."
+                                  className={`w-full min-h-[32px] h-auto resize-none rounded px-2 py-1.5 text-xs outline-none border ${getInputClass(evt.id, "descripcion")}`}
+                                  rows={1}
+                                  onInput={(e) => {
+                                    e.target.style.height = "auto";
+                                    e.target.style.height =
+                                      e.target.scrollHeight + "px";
+                                  }}
+                                />
                               </td>
-                              <td className={`p-2 border-l border-emerald-50/50 align-middle ${totalUps > 0 ? "bg-emerald-50/20" : ""}`}>
-                                <button onClick={() => setRulesModal({ isOpen: true, event: evt, type: "up", transportId: t.id })} className={`w-full py-1 rounded-xl border text-[10px] font-black flex flex-col items-center gap-0.5 ${totalUps > 0 ? "bg-emerald-100 text-emerald-700 border-emerald-200" : upAlert ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse" : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"}`}>
-                                  <div className="flex items-center gap-1 w-full justify-center"><IconUpload size={10} /> {totalUps > 0 ? totalUps : upAlert ? "0 ⚠️" : "+"}</div>
-                                  {upsSummary.map((s, i) => <span key={i} className="px-1 truncate w-full text-[9px] opacity-60">{s.label} ({s.count})</span>)}
+                              <td
+                                className={`p-2 border-l border-emerald-50/50 align-middle ${totalUps > 0 ? "bg-emerald-50/20" : ""}`}
+                              >
+                                <button
+                                  onClick={() =>
+                                    setRulesModal({
+                                      isOpen: true,
+                                      event: evt,
+                                      type: "up",
+                                      transportId: t.id,
+                                    })
+                                  }
+                                  className={`w-full py-1 rounded-xl border text-[10px] font-black flex flex-col items-center gap-0.5 ${totalUps > 0 ? "bg-emerald-100 text-emerald-700 border-emerald-200" : upAlert ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse" : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"}`}
+                                >
+                                  <div className="flex items-center gap-1 w-full justify-center">
+                                    <IconUpload size={10} />{" "}
+                                    {totalUps > 0
+                                      ? totalUps
+                                      : upAlert
+                                        ? "0 ⚠️"
+                                        : "+"}
+                                  </div>
+                                  {upsSummary.map((s, i) => (
+                                    <span
+                                      key={i}
+                                      className="px-1 truncate w-full text-[9px] opacity-60"
+                                    >
+                                      {s.label} ({s.count})
+                                    </span>
+                                  ))}
                                 </button>
                               </td>
-                              <td className={`p-2 border-l border-rose-50/50 align-middle ${totalDowns > 0 ? "bg-rose-50/30" : ""}`}>
-                                <button onClick={() => setRulesModal({ isOpen: true, event: evt, type: "down", transportId: t.id })} className={`w-full py-1 rounded-xl border text-[10px] font-black flex flex-col items-center gap-0.5 ${totalDowns > 0 ? "bg-rose-100 text-rose-700 border-rose-200" : downAlert ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse" : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"}`}>
-                                  <div className="flex items-center gap-1 w-full justify-center"><IconDownload size={10} /> {totalDowns > 0 ? totalDowns : downAlert ? "0 ⚠️" : "+"}</div>
-                                  {downsSummary.map((s, i) => <span key={i} className="px-1 truncate w-full text-[9px] opacity-60">{s.label} ({s.count})</span>)}
+                              <td
+                                className={`p-2 border-l border-rose-50/50 align-middle ${totalDowns > 0 ? "bg-rose-50/30" : ""}`}
+                              >
+                                <button
+                                  onClick={() =>
+                                    setRulesModal({
+                                      isOpen: true,
+                                      event: evt,
+                                      type: "down",
+                                      transportId: t.id,
+                                    })
+                                  }
+                                  className={`w-full py-1 rounded-xl border text-[10px] font-black flex flex-col items-center gap-0.5 ${totalDowns > 0 ? "bg-rose-100 text-rose-700 border-rose-200" : downAlert ? "bg-orange-100 text-orange-700 border-orange-300 animate-pulse" : "bg-white text-slate-300 border-slate-100 hover:border-slate-300"}`}
+                                >
+                                  <div className="flex items-center gap-1 w-full justify-center">
+                                    <IconDownload size={10} />{" "}
+                                    {totalDowns > 0
+                                      ? totalDowns
+                                      : downAlert
+                                        ? "0 ⚠️"
+                                        : "+"}
+                                  </div>
+                                  {downsSummary.map((s, i) => (
+                                    <span
+                                      key={i}
+                                      className="px-1 truncate w-full text-[9px] opacity-60"
+                                    >
+                                      {s.label} ({s.count})
+                                    </span>
+                                  ))}
                                 </button>
                               </td>
-                              <td className="p-2 text-right align-middle"><button onClick={() => handleDeleteEvent(evt.id)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><IconTrash size={14} /></button></td>
+                              <td className="p-2 text-right align-middle">
+                                <button
+                                  onClick={() => handleDeleteEvent(evt.id)}
+                                  className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
+                                >
+                                  <IconTrash size={14} />
+                                </button>
+                              </td>
                             </tr>
                           );
                         })}
-                        {editingEventId !== `new-${t.id}` && (
-                          <tr><td colSpan="7" className="p-2 bg-slate-50/50"><button onClick={() => { setEditingEventId(`new-${t.id}`); setNewEvent({ fecha: gira.fecha_inicio, hora: "08:00:00", id_locacion: null, descripcion: "", id_tipo_evento: t.es_tipo_alternativo ? String(TIPO_EVENTO_ALT) : String(TIPO_EVENTO_DEFAULT) }); }} className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all uppercase tracking-[0.2em] bg-white">+ Agregar parada</button></td></tr>
+                        {/* --- BLOQUE CORREGIDO PARA AGREGAR PARADA --- */}
+                        {editingEventId === `new-${t.id}` ? (
+                          <tr className="bg-indigo-50/50 animate-in slide-in-from-top-1">
+                            <td className="p-2 text-center align-middle">
+                              <div className="w-4 h-4 mx-auto rounded border-2 border-indigo-300 border-t-transparent animate-spin" />
+                            </td>
+                            <td className="p-2 align-middle">
+                              <div className="flex items-center gap-1">
+                                <DateInput
+                                  value={newEvent.fecha}
+                                  onChange={(v) =>
+                                    setNewEvent({ ...newEvent, fecha: v })
+                                  }
+                                  className="h-7 w-20 text-[11px] font-bold text-center border-indigo-300 rounded"
+                                />
+                                <TimeInput
+                                  value={newEvent.hora}
+                                  onChange={(v) =>
+                                    setNewEvent({ ...newEvent, hora: v })
+                                  }
+                                  className="h-7 w-16 text-[11px] font-bold text-center border-indigo-300 rounded"
+                                />
+                              </div>
+                            </td>
+                            <td className="p-2 align-middle">
+                              <SearchableSelect
+                                options={locationOptions}
+                                value={newEvent.id_locacion}
+                                onChange={(v) =>
+                                  setNewEvent({ ...newEvent, id_locacion: v })
+                                }
+                                className="h-8 text-[11px] w-full rounded border-indigo-300"
+                              />
+                            </td>
+                            <td className="p-2 align-middle">
+                              <input
+                                type="text"
+                                value={newEvent.descripcion}
+                                onChange={(e) =>
+                                  setNewEvent({
+                                    ...newEvent,
+                                    descripcion: e.target.value,
+                                  })
+                                }
+                                placeholder="Nota de la parada..."
+                                className="w-full h-8 rounded px-2 text-xs border border-indigo-300 outline-none focus:ring-2 focus:ring-indigo-200"
+                              />
+                            </td>
+                            <td
+                              colSpan="2"
+                              className="p-2 align-middle text-center"
+                            >
+                              <div className="flex gap-1 justify-center">
+                                <button
+                                  onClick={() => handleSaveEvent(t.id)}
+                                  className="flex-1 bg-indigo-600 text-white py-1.5 rounded-lg text-[10px] font-black uppercase hover:bg-indigo-700 shadow-sm"
+                                >
+                                  Guardar
+                                </button>
+                                <button
+                                  onClick={cancelEdit}
+                                  className="px-3 bg-slate-200 text-slate-600 py-1.5 rounded-lg text-[10px] font-black uppercase hover:bg-slate-300"
+                                >
+                                  <IconX size={14} />
+                                </button>
+                              </div>
+                            </td>
+                            <td></td>
+                          </tr>
+                        ) : (
+                          <tr>
+                            <td colSpan="7" className="p-2 bg-slate-50/50">
+                              <button
+                                onClick={() => {
+                                  setEditingEventId(`new-${t.id}`);
+                                  setNewEvent({
+                                    fecha:
+                                      gira.fecha_inicio ||
+                                      format(new Date(), "yyyy-MM-dd"),
+                                    hora: "08:00:00",
+                                    id_locacion: null,
+                                    descripcion: "",
+                                    id_tipo_evento: t.es_tipo_alternativo
+                                      ? String(TIPO_EVENTO_ALT)
+                                      : String(TIPO_EVENTO_DEFAULT),
+                                  });
+                                }}
+                                className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all uppercase tracking-[0.2em] bg-white"
+                              >
+                                + Agregar parada
+                              </button>
+                            </td>
+                          </tr>
                         )}
                       </tbody>
                     </table>
@@ -1926,12 +2331,16 @@ export default function GirasTransportesManager({ supabase, gira }) {
       </div>
 
       <InfoListModal />
-      
+
       {admissionModal.isOpen && (
         <TransportAdmissionModal
           isOpen={admissionModal.isOpen}
-          onClose={() => setAdmissionModal({ isOpen: false, transportId: null })}
-          transporte={transports.find((t) => t.id === admissionModal.transportId)}
+          onClose={() =>
+            setAdmissionModal({ isOpen: false, transportId: null })
+          }
+          transporte={transports.find(
+            (t) => t.id === admissionModal.transportId,
+          )}
           roster={roster}
           regions={regionsList}
           localities={localitiesList}
@@ -1954,9 +2363,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
       {stopsExportModal.isOpen && (
         <CnrtExportModal
           title="Exportar Solo Paradas"
-          transport={transports.find((t) => t.id === stopsExportModal.transportId)}
+          transport={transports.find(
+            (t) => t.id === stopsExportModal.transportId,
+          )}
           events={transportEvents[stopsExportModal.transportId] || []}
-          onClose={() => setStopsExportModal({ isOpen: false, transportId: null })}
+          onClose={() =>
+            setStopsExportModal({ isOpen: false, transportId: null })
+          }
           onExport={(sid, eid) => handleExportOnlyStops(sid, eid)}
         />
       )}
@@ -1975,10 +2388,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
         <ItineraryManagerModal
           supabase={supabase}
           isOpen={itineraryModal.isOpen}
-          onClose={() => setItineraryModal({ isOpen: false, transportId: null })}
+          onClose={() =>
+            setItineraryModal({ isOpen: false, transportId: null })
+          }
           giraId={giraId}
           transportId={itineraryModal.transportId}
-          transportName={transports.find((t) => t.id === itineraryModal.transportId)?.detalle || "Transporte"}
+          transportName={
+            transports.find((t) => t.id === itineraryModal.transportId)
+              ?.detalle || "Transporte"
+          }
           locations={locationsList}
           localities={localitiesList}
           roster={roster}
@@ -2001,7 +2419,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
       {rulesModal.isOpen && (
         <StopRulesManager
           isOpen={rulesModal.isOpen}
-          onClose={() => setRulesModal({ isOpen: false, event: null, type: null, transportId: null })}
+          onClose={() =>
+            setRulesModal({
+              isOpen: false,
+              event: null,
+              type: null,
+              transportId: null,
+            })
+          }
           event={rulesModal.event}
           type={rulesModal.type}
           transportId={rulesModal.transportId}
@@ -2020,7 +2445,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
         events={(transportEvents[shiftModal.transportId] || []).filter((e) =>
           selectedEventIds.size > 0 ? selectedEventIds.has(e.id) : true,
         )}
-        onClose={() => setShiftModal({ isOpen: false, transportId: null, transportName: "" })}
+        onClose={() =>
+          setShiftModal({ isOpen: false, transportId: null, transportName: "" })
+        }
         onApply={(offset) => {
           handleApplyShiftSchedule(offset);
           clearSelection();
