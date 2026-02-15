@@ -1880,7 +1880,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           >
                             {tPassengerCount}{" "}
                             {tInstrumentSeats > 0
-                              ? ` + ${tInstrumentSeats} inst`
+                              ? ` + ${tInstrumentSeats} ins = ${totalOccupied}`
                               : ""}{" "}
                             butacas {maxCap > 0 ? ` / ${maxCap}` : ""}
                           </span>
