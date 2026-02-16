@@ -280,7 +280,8 @@ export default function UnifiedAgenda({
   useEffect(() => {
     if (!isManagement) setTechFilter("no_tech");
   }, [isManagement]);
-
+  // Estado para el modal de comida en móvil
+  const [mealActionTarget, setMealActionTarget] = useState(null);
   const toggleEventTechnica = async (e, eventId, currentValue) => {
     e.stopPropagation();
     if (!isEditor && !isManagement) return;
@@ -1146,10 +1147,33 @@ export default function UnifiedAgenda({
 
   const toggleMealAttendance = async (eventId, newStatus) => {
     if (effectiveUserId === "guest-general") return;
-    // En asistencias usamos el loading "local" del botón o global si prefieres,
-    // pero para simplicidad usamos setIsRefreshing para no desmontar la lista.
+
+    // 1. BUSCAR EL EVENTO ACTUAL EN EL ESTADO PARA VALIDAR
+    const currentEvent = items.find((i) => i.id === eventId);
+    if (!currentEvent) return;
+
+    // 2. VALIDAR CONVOCATORIA
+    if (!currentEvent.is_convoked) {
+      toast.error("No estás convocado a esta comida.");
+      return;
+    }
+
+    // 3. VALIDAR FECHA LÍMITE
+    // Si quiere cancelar (newStatus === null) y ya cerró, a veces se permite avisar,
+    // pero si es estricto, bloqueamos todo. Asumamos bloqueo estricto si cerró.
+    const deadline = getDeadlineStatus(
+      currentEvent.programas?.fecha_confirmacion_limite,
+    );
+
+    // Si ya está cerrado, solo permitimos si es un admin/gestor, sino error
+    if (deadline.status === "CLOSED" && !isManagement && !isEditor) {
+      toast.error("La votación para esta comida ya cerró.");
+      return;
+    }
+
     setIsRefreshing(true);
     try {
+      // ... (Lógica de base de datos igual que antes) ...
       const { error } = await supabase.from("eventos_asistencia").upsert(
         {
           id_evento: eventId,
@@ -1159,22 +1183,29 @@ export default function UnifiedAgenda({
         { onConflict: "id_evento, id_integrante" },
       );
       if (error) throw error;
-      // Actualización optimista local
+
       const newItems = items.map((item) =>
         item.id === eventId ? { ...item, mi_asistencia: newStatus } : item,
       );
       setItems(newItems);
-      const CACHE_KEY = `agenda_cache_${effectiveUserId}_${
-        giraId || "general"
-      }_v5`;
+      const CACHE_KEY = `agenda_cache_${effectiveUserId}_${giraId || "general"}_v5`;
       localStorage.setItem(CACHE_KEY, JSON.stringify(newItems));
+
+      // Cerrar modal si estaba abierto
+      setMealActionTarget(null);
+      toast.success(
+        newStatus === "P"
+          ? "Asistencia confirmada"
+          : newStatus === "A"
+            ? "Asistencia rechazada"
+            : "Selección eliminada",
+      );
     } catch (error) {
-      alert("Error: " + error.message);
+      toast.error("Error: " + error.message);
     } finally {
       setIsRefreshing(false);
     }
   };
-
   const handleExportPDF = () => {
     if (filteredItems.length === 0)
       return alert("No hay eventos para exportar con los filtros actuales.");
@@ -1889,22 +1920,21 @@ export default function UnifiedAgenda({
                     return (
                       <React.Fragment key={evt.id}>
                         {showDay && (
-                          <div className="bg-slate-50/80 px-4 py-1.5 text-xs font-bold text-slate-500 uppercase border-b border-slate-100 flex items-center gap-2 sticky top-[45px] z-10">
-                            <IconCalendar size={12} />{" "}
+                          <div className="bg-slate-50/95 backdrop-blur px-4 py-1.5 text-xs font-bold text-slate-500 uppercase border-b border-slate-100 flex items-center gap-2 sticky top-[45px] z-10 shadow-sm">
+                            <IconCalendar size={12} />
                             {format(parseISO(evt.fecha), "EEEE d", {
                               locale: es,
                             })}
                           </div>
                         )}
 
+                        {/* --- CONTENEDOR MÓVIL (VISIBLE SOLO EN < md) --- */}
                         <div
-                          className={`relative flex flex-row items-stretch px-4 py-2 border-b border-slate-100 transition-colors hover:bg-slate-50 group gap-2 ${
-                            shouldDim ? "opacity-50 grayscale" : ""
-                          } ${evt.is_guest ? "bg-emerald-50/30" : ""} ${
-                            isMyTransport
-                              ? "bg-indigo-50/30 border-l-4 border-l-indigo-400"
-                              : ""
-                          }`}
+                          className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-100 transition-colors hover:bg-slate-50 group gap-2
+                            ${shouldDim ? "opacity-50 grayscale" : ""}
+                            ${evt.is_guest ? "bg-emerald-50/30" : ""}
+                            ${isMyTransport ? "bg-indigo-50/30 border-l-4 border-l-indigo-400" : ""}
+                          `}
                           style={
                             !shouldDim && !evt.is_guest && !isMyTransport
                               ? cardStyle
@@ -1922,7 +1952,7 @@ export default function UnifiedAgenda({
                             }}
                           ></div>
 
-                          <div className="w-10 md:w-14 font-mono text-xs md:text-sm text-slate-600 font-bold shrink-0 flex flex-col items-center md:items-end justify-center md:pr-4 md:border-r border-slate-100 pt-1 md:pt-0">
+                          <div className="w-10 font-mono text-s text-slate-600 font-bold shrink-0 flex flex-col items-center pt-1">
                             <span>{evt.hora_inicio?.slice(0, 5)}</span>
                             {evt.hora_fin &&
                               evt.hora_fin !== evt.hora_inicio && (
@@ -1932,8 +1962,8 @@ export default function UnifiedAgenda({
                               )}
                           </div>
 
-                          <div className="flex-1 min-w-0 flex flex-col md:flex-row md:items-center md:gap-4 py-1">
-                            <div className="flex items-center gap-2 shrink-0 md:w-48 mb-0.5 md:mb-0">
+                          <div className="flex-1 min-w-0 flex flex-col gap-1 py-1">
+                            <div className="flex items-center gap-2 mb-0.5">
                               <span
                                 className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-[120px]"
                                 style={{
@@ -1954,12 +1984,7 @@ export default function UnifiedAgenda({
                                   onClick={(e) =>
                                     toggleEventTechnica(e, evt.id, evt.tecnica)
                                   }
-                                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded border transition-all text-[9px] font-bold uppercase ${evt.tecnica ? "bg-slate-700 text-white border-slate-700 hover:bg-slate-600" : "bg-transparent text-slate-300 border-transparent hover:border-slate-200 hover:bg-white"}`}
-                                  title={
-                                    evt.tecnica
-                                      ? "Evento Técnico (Click para quitar)"
-                                      : "Marcar como Técnico"
-                                  }
+                                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded border transition-all text-[9px] font-bold uppercase ${evt.tecnica ? "bg-slate-700 text-white border-slate-700" : "bg-transparent text-slate-300 border-transparent"}`}
                                 >
                                   {evt.tecnica ? (
                                     <>
@@ -1973,209 +1998,416 @@ export default function UnifiedAgenda({
                               )}
                             </div>
 
-                            <div className="flex flex-col md:flex-row md:items-center md:gap-4 flex-1 min-w-0">
-                              {/* Título / Descripción con soporte HTML */}
-                              <div
-                                className={`text-sm leading-tight break-words ${shouldDim ? "text-slate-400" : "text-slate-800"}`}
-                              >
-                                {evt.descripcion ? (
-                                  <div
-                                    className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold"
-                                    // 'font-medium' base para que no sea todo negrita, 'whitespace-pre-wrap' para saltos de línea
-                                    dangerouslySetInnerHTML={{
-                                      __html: evt.descripcion,
-                                    }}
+                            <div
+                              className={`text-sm leading-tight break-words ${shouldDim ? "text-slate-400" : "text-slate-800"}`}
+                            >
+                              {evt.descripcion ? (
+                                <div
+                                  className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold"
+                                  dangerouslySetInnerHTML={{
+                                    __html: evt.descripcion,
+                                  }}
+                                />
+                              ) : (
+                                <span>{evt.tipos_evento?.nombre}</span>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap gap-1">
+                              {isTransportEvent && transportName && (
+                                <span
+                                  className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border"
+                                  style={{
+                                    backgroundColor: isMyTransport
+                                      ? `${transportColor}30`
+                                      : `${transportColor}15`,
+                                    color: isMyTransport
+                                      ? "#1e293b"
+                                      : "#64748b",
+                                    borderColor: `${transportColor}60`,
+                                  }}
+                                >
+                                  <IconBus
+                                    size={10}
+                                    style={{ color: transportColor }}
                                   />
-                                ) : (
-                                  <span>
-                                    {evt.tipos_evento?.nombre}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {isTransportEvent && transportName && (
-                                  <span
-                                    className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border`}
-                                    style={{
-                                      backgroundColor: isMyTransport
-                                        ? `${transportColor}30`
-                                        : `${transportColor}15`,
-                                      color: isMyTransport
-                                        ? "#1e293b"
-                                        : "#64748b",
-                                      borderColor: `${transportColor}60`,
-                                    }}
-                                  >
-                                    <IconBus
-                                      size={10}
-                                      style={{ color: transportColor }}
-                                    />
-                                    {transportName}{" "}
-                                    {transportDetail && (
-                                      <span className="font-normal opacity-80">
-                                        ({transportDetail})
-                                      </span>
-                                    )}
-                                  </span>
-                                )}
-                                {isMyUp && (
-                                  <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 animate-pulse">
-                                    <IconUpload size={12} /> Mi Subida
-                                  </span>
-                                )}
-                                {isMyDown && (
-                                  <span className="flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 animate-pulse">
-                                    <IconDownload size={12} /> Mi Bajada
-                                  </span>
-                                )}
-                                {isTransportEvent &&
-                                  !isMyTransport &&
-                                  !showNoGray && (
-                                    <span
-                                      className="text-[8px] text-red-300 font-mono select-none"
-                                      title="El sistema no te asignó este transporte."
-                                    >
-                                      [{debugReason}]
+                                  {transportName}{" "}
+                                  {transportDetail && (
+                                    <span className="font-normal opacity-80">
+                                      ({transportDetail})
                                     </span>
                                   )}
-                              </div>
-                              {/* BLOQUE DE UBICACIÓN ACTUALIZADO */}
-                              {locName && (
-                                <div className="flex items-start gap-1 text-xs text-slate-500 md:border-l md:border-slate-200 md:pl-3 mt-0.5 md:mt-0 min-w-0">
-                                  <IconMapPin
-                                    size={14}
-                                    className="text-slate-400 shrink-0 mt-0.5"
-                                  />
-                                  <div className="flex flex-col min-w-0">
-                                    {/* Nombre del lugar y Ciudad */}
-                                    <span className="font-semibold text-slate-700 truncate">
-                                      {locName} {locCity ? `(${locCity})` : ""}
-                                    </span>
+                                </span>
+                              )}
+                              {isMyUp && (
+                                <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                  <IconUpload size={12} /> Mi Subida
+                                </span>
+                              )}
+                              {isMyDown && (
+                                <span className="flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                                  <IconDownload size={12} /> Mi Bajada
+                                </span>
+                              )}
+                            </div>
 
-                                    {/* Dirección con enlace a Maps */}
-                                    {evt.locaciones?.direccion && (
-                                      <a
-                                        href={getGoogleMapsUrl(evt.locaciones)}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-[10px] text-blue-600 hover:underline hover:text-blue-800 truncate block w-full"
-                                        title="Ver en Google Maps"
-                                        onClick={(e) => e.stopPropagation()} // Evita abrir el detalle del evento si haces click en el mapa
-                                      >
-                                        {evt.locaciones.direccion} ↗
-                                      </a>
-                                    )}
-                                  </div>
+                            {locName && (
+                              <div className="flex items-start gap-1 text-xs text-slate-500 mt-0.5">
+                                <IconMapPin
+                                  size={14}
+                                  className="text-slate-400 shrink-0 mt-0.5"
+                                />
+                                <div className="flex flex-col min-w-0">
+                                  <span className="font-semibold text-slate-700 truncate">
+                                    {locName} {locCity ? `(${locCity})` : ""}
+                                  </span>
+                                  {evt.locaciones?.direccion && (
+                                    <a
+                                      href={getGoogleMapsUrl(evt.locaciones)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[10px] text-blue-600 hover:underline truncate block w-full"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {evt.locaciones.direccion} ↗
+                                    </a>
+                                  )}
                                 </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="shrink-0 flex items-start gap-1 pl-2 pt-1 border-l border-slate-100 flex-col justify-between min-w-[40px]">
+                            {/* ACCIONES APILADAS EN MÓVIL (Como pediste en el primer prompt, o legacy si prefieres legacy estricto) */}
+                            {/* Nota: En tu legacy original los botones estaban abajo en una fila. 
+                                 Pero aquí estamos replicando la estructura FLEX ROW del legacy que me pasaste. 
+                                 Si quieres botones apilados en el lateral derecho como el código legacy que pegaste: */}
+
+                            <div className="flex flex-col items-end gap-2 w-full">
+                              {/* BOTÓN ÚNICO DE COMIDA */}
+                              {/* BOTÓN ÚNICO DE COMIDA (MÓVIL) */}
+                              {isMeal &&
+                                evt.is_convoked &&
+                                user.id !== "guest-general" && (
+                                  <button
+                                    onClick={() => setMealActionTarget(evt)}
+                                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm transition-all
+                                        ${
+                                          evt.mi_asistencia === "P"
+                                            ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                            : evt.mi_asistencia === "A"
+                                              ? "bg-rose-100 text-rose-700 border border-rose-200"
+                                              : "bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200"
+                                        }
+                                      `}
+                                  >
+                                    {/* Icono según estado o candado si cerró y no votó */}
+                                    {(() => {
+                                      const dl = getDeadlineStatus(
+                                        evt.programas
+                                          ?.fecha_confirmacion_limite,
+                                      );
+                                      const isLocked =
+                                        dl.status === "CLOSED" &&
+                                        !isManagement &&
+                                        !isEditor;
+
+                                      if (evt.mi_asistencia === "P")
+                                        return <IconCheck size={14} />;
+                                      if (evt.mi_asistencia === "A")
+                                        return <IconX size={14} />;
+                                      if (isLocked)
+                                        return (
+                                          <span className="text-[10px]">
+                                            🔒
+                                          </span>
+                                        ); // Icono candado si cerró
+                                      return <IconUtensils size={14} />;
+                                    })()}
+
+                                    <span>
+                                      {evt.mi_asistencia === "P"
+                                        ? "Voy"
+                                        : evt.mi_asistencia === "A"
+                                          ? "No voy"
+                                          : getDeadlineStatus(
+                                                evt.programas
+                                                  ?.fecha_confirmacion_limite,
+                                              ).status === "CLOSED" &&
+                                              !isManagement &&
+                                              !isEditor
+                                            ? "Cerrado"
+                                            : "¿?"}
+                                    </span>
+                                  </button>
+                                )}
+                              <DriveSmartButton evt={evt} />
+
+                              <div className="flex flex-col gap-1 items-end">
+                                <CommentButton
+                                  supabase={supabase}
+                                  entityType="EVENTO"
+                                  entityId={evt.id}
+                                  onClick={() =>
+                                    setCommentsState({
+                                      type: "EVENTO",
+                                      id: evt.id,
+                                    })
+                                  }
+                                  className="text-slate-300 p-1"
+                                />
+                                {!isOfflineMode &&
+                                  (isGlobalEditor || canUserEditEvent(evt)) && (
+                                    <button
+                                      onClick={() => openEditModal(evt)}
+                                      className="p-1 text-slate-300 bg-white rounded-full border border-slate-100"
+                                    >
+                                      <IconEdit size={14} />
+                                    </button>
+                                  )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* ======================================================== */}
+                        {/* VISTA ESCRITORIO (Grid Columnar) - Visible solo en md+ */}
+                        {/* ======================================================== */}
+                        <div
+                          className={`hidden md:grid md:grid-cols-12 gap-2 p-3 pl-4 items-start border-b border-slate-100 transition-colors hover:bg-slate-50 group relative
+                            ${shouldDim ? "opacity-60 grayscale" : ""}
+                            ${evt.is_guest ? "bg-emerald-50/30" : ""}
+                            ${isMyTransport ? "bg-indigo-50/30" : ""}
+                          `}
+                          style={
+                            !shouldDim && !evt.is_guest && !isMyTransport
+                              ? cardStyle
+                              : {}
+                          }
+                        >
+                          <div
+                            className="absolute left-0 top-0 bottom-0 w-[4px]"
+                            style={{
+                              backgroundColor: evt.is_absent
+                                ? "#94a3b8"
+                                : isMyTransport
+                                  ? "transparent"
+                                  : eventColor,
+                            }}
+                          ></div>
+
+                          {/* COLUMNA 1: HORA */}
+                          <div className="col-span-1">
+                            <div className="font-mono text-sm text-slate-700 font-bold">
+                              {evt.hora_inicio?.slice(0, 5)}
+                            </div>
+                            {evt.hora_fin &&
+                              evt.hora_fin !== evt.hora_inicio && (
+                                <div className="font-mono text-[10px] text-slate-400">
+                                  {evt.hora_fin.slice(0, 5)}
+                                </div>
+                              )}
+                          </div>
+
+                          {/* COLUMNA 2: TIPO */}
+                          <div className="col-span-2 flex flex-col items-start gap-1.5 min-w-0">
+                            <div className="flex flex-wrap gap-1 items-center">
+                              <span
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full"
+                                style={{
+                                  color: eventColor,
+                                  borderColor: `${eventColor}40`,
+                                  backgroundColor: `${eventColor}10`,
+                                }}
+                              >
+                                {evt.tipos_evento?.nombre}
+                              </span>
+                              {(isManagement || isEditor) && (
+                                <button
+                                  onClick={(e) =>
+                                    toggleEventTechnica(e, evt.id, evt.tecnica)
+                                  }
+                                  className={`flex items-center gap-1 px-1 py-0.5 rounded border transition-all text-[9px] font-bold uppercase ${evt.tecnica ? "bg-slate-700 text-white" : "text-slate-300"}`}
+                                >
+                                  {evt.tecnica ? "TÉC" : <IconEye size={10} />}
+                                </button>
+                              )}
+                            </div>
+                            {evt.programas?.nomenclador && (
+                              <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 border border-indigo-100">
+                                {evt.programas.nomenclador}
+                              </span>
+                            )}
+                            {/* Chips Transporte */}
+                            <div className="flex flex-col gap-1 w-full">
+                              {isTransportEvent && transportName && (
+                                <span
+                                  className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded border w-fit max-w-full truncate"
+                                  style={{
+                                    backgroundColor: isMyTransport
+                                      ? `${transportColor}20`
+                                      : "transparent",
+                                    color: isMyTransport
+                                      ? "#1e293b"
+                                      : "#64748b",
+                                    borderColor: `${transportColor}40`,
+                                  }}
+                                >
+                                  <IconBus
+                                    size={10}
+                                    style={{ color: transportColor }}
+                                  />
+                                  <span className="truncate">
+                                    {transportName}
+                                  </span>
+                                </span>
                               )}
                             </div>
                           </div>
 
-                          <div className="shrink-0 flex items-start md:items-center gap-1 pl-2 md:pl-4 md:border-l border-slate-100 pt-1 md:pt-0">
-                            <DriveSmartButton evt={evt} />
-                            {evt.programas?.id &&
-                              onOpenRepertoire &&
-                              !isNonConvokedMeal && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenRepertoire(evt.programas.id);
+                          {/* COLUMNA 3: DESCRIPCIÓN */}
+                          <div className="col-span-4 min-w-0">
+                            <div
+                              className={`text-sm leading-tight break-words ${shouldDim ? "text-slate-400" : "text-slate-800"}`}
+                            >
+                              {evt.descripcion ? (
+                                <div
+                                  className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold text-sm"
+                                  dangerouslySetInnerHTML={{
+                                    __html: evt.descripcion,
                                   }}
-                                  className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-white border border-transparent hover:border-slate-100"
-                                  title="Ver Repertorio"
-                                >
-                                  <IconList size={16} />
-                                </button>
+                                />
+                              ) : (
+                                <span className="font-bold text-slate-800">
+                                  {evt.tipos_evento?.nombre}
+                                </span>
                               )}
-                            <div className="flex flex-col items-end gap-1 relative">
-                              {!isOfflineMode &&
-                                (isGlobalEditor || canUserEditEvent(evt)) && (
-                                  <button
-                                    onClick={() => openEditModal(evt)}
-                                    className="p-1 text-slate-300 hover:text-indigo-600 bg-white rounded-full shadow-sm border border-slate-100 mb-1"
-                                  >
-                                    <IconEdit size={14} />
-                                  </button>
-                                )}
-                              <CommentButton
-                                supabase={supabase}
-                                entityType="EVENTO"
-                                entityId={evt.id}
-                                onClick={() =>
-                                  setCommentsState({
-                                    type: "EVENTO",
-                                    id: evt.id,
-                                    title: evt.descripcion,
-                                  })
-                                }
-                                className="text-slate-300 hover:text-indigo-500 p-1"
-                              />
                             </div>
+                          </div>
+
+                          {/* COLUMNA 4: LOCACIÓN */}
+                          <div className="col-span-3 min-w-0">
+                            {locName && (
+                              <div className="flex items-start gap-1.5">
+                                <IconMapPin
+                                  size={14}
+                                  className="text-slate-400 shrink-0 mt-0.5"
+                                />
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-xs font-semibold text-slate-700 truncate block">
+                                    {locName} {locCity ? `(${locCity})` : ""}
+                                  </span>
+                                  {evt.locaciones?.direccion && (
+                                    <a
+                                      href={getGoogleMapsUrl(evt.locaciones)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[10px] text-blue-600 hover:underline truncate block w-full mt-0.5"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {evt.locaciones.direccion} ↗
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* COLUMNA 5: ACCIONES */}
+                          <div className="col-span-2 flex flex-col items-end gap-2 pl-2 border-l border-slate-100 h-full">
                             {isMeal &&
                               evt.is_convoked &&
                               user.id !== "guest-general" && (
-                                <div className="flex flex-col items-center gap-1 ml-2 justify-center min-w-[40px]">
-                                  <div className="text-slate-300 mb-0.5">
-                                    <IconUtensils size={14} />
-                                  </div>
-                                  {evt.mi_asistencia === "P" && (
-                                    <button
-                                      onClick={() =>
-                                        !isOfflineMode &&
-                                        deadlineStatus?.status === "OPEN" &&
-                                        toggleMealAttendance(evt.id, null)
-                                      }
-                                      className={`flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 shadow-sm transition-all hover:bg-emerald-200 hover:scale-105 ${isOfflineMode ? "opacity-50" : ""}`}
-                                      title="Asistencia Confirmada (Click para cancelar)"
-                                    >
-                                      <IconCheck size={16} strokeWidth={3} />
-                                    </button>
-                                  )}
-                                  {evt.mi_asistencia === "A" && (
-                                    <button
-                                      onClick={() =>
-                                        !isOfflineMode &&
-                                        deadlineStatus?.status === "OPEN" &&
-                                        toggleMealAttendance(evt.id, null)
-                                      }
-                                      className={`flex items-center justify-center w-7 h-7 rounded-full bg-rose-100 text-rose-700 border border-rose-200 shadow-sm transition-all hover:bg-rose-200 hover:scale-105 ${isOfflineMode ? "opacity-50" : ""}`}
-                                      title="No Asistiré (Click para cambiar)"
-                                    >
-                                      <IconX size={16} strokeWidth={3} />
-                                    </button>
-                                  )}
-                                  {!evt.mi_asistencia &&
-                                    deadlineStatus?.status === "OPEN" && (
-                                      <div className="flex items-center gap-1">
-                                        <button
-                                          onClick={() =>
-                                            !isOfflineMode &&
-                                            toggleMealAttendance(evt.id, "P")
-                                          }
-                                          className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all shadow-sm"
-                                          disabled={isOfflineMode}
-                                          title="Confirmar"
-                                        >
-                                          <IconCheck
-                                            size={12}
-                                            strokeWidth={3}
-                                          />
-                                        </button>
-                                        <button
-                                          onClick={() =>
-                                            !isOfflineMode &&
-                                            toggleMealAttendance(evt.id, "A")
-                                          }
-                                          className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-400 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm"
-                                          disabled={isOfflineMode}
-                                          title="Rechazar"
-                                        >
-                                          <IconX size={12} strokeWidth={3} />
-                                        </button>
-                                      </div>
-                                    )}
-                                </div>
+                                <button
+                                  onClick={() => setMealActionTarget(evt)}
+                                  className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm transition-all
+                                        ${
+                                          evt.mi_asistencia === "P"
+                                            ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                            : evt.mi_asistencia === "A"
+                                              ? "bg-rose-100 text-rose-700 border border-rose-200"
+                                              : "bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200"
+                                        }
+                                      `}
+                                >
+                                  {/* Icono según estado o candado si cerró y no votó */}
+                                  {(() => {
+                                    const dl = getDeadlineStatus(
+                                      evt.programas?.fecha_confirmacion_limite,
+                                    );
+                                    const isLocked =
+                                      dl.status === "CLOSED" &&
+                                      !isManagement &&
+                                      !isEditor;
+
+                                    if (evt.mi_asistencia === "P")
+                                      return <IconCheck size={14} />;
+                                    if (evt.mi_asistencia === "A")
+                                      return <IconX size={14} />;
+                                    if (isLocked)
+                                      return (
+                                        <span className="text-[10px]">🔒</span>
+                                      ); // Icono candado si cerró
+                                    return <IconUtensils size={14} />;
+                                  })()}
+
+                                  <span>
+                                    {evt.mi_asistencia === "P"
+                                      ? "Voy"
+                                      : evt.mi_asistencia === "A"
+                                        ? "No voy"
+                                        : getDeadlineStatus(
+                                              evt.programas
+                                                ?.fecha_confirmacion_limite,
+                                            ).status === "CLOSED" &&
+                                            !isManagement &&
+                                            !isEditor
+                                          ? "Cerrado"
+                                          : "¿?"}
+                                  </span>
+                                </button>
                               )}
+                            <div className="flex flex-col items-end gap-1 mt-auto">
+                              <div className="flex gap-1">
+                                <DriveSmartButton evt={evt} />
+                                {evt.programas?.id &&
+                                  onOpenRepertoire &&
+                                  !isNonConvokedMeal && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onOpenRepertoire(evt.programas.id);
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50"
+                                    >
+                                      <IconList size={16} />
+                                    </button>
+                                  )}
+                              </div>
+                              <div className="flex gap-1">
+                                <CommentButton
+                                  supabase={supabase}
+                                  entityType="EVENTO"
+                                  entityId={evt.id}
+                                  onClick={() =>
+                                    setCommentsState({
+                                      type: "EVENTO",
+                                      id: evt.id,
+                                    })
+                                  }
+                                  className="p-1.5 text-slate-300 hover:text-indigo-500"
+                                />
+                                {!isOfflineMode &&
+                                  (isGlobalEditor || canUserEditEvent(evt)) && (
+                                    <button
+                                      onClick={() => openEditModal(evt)}
+                                      className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-slate-100 rounded-full"
+                                    >
+                                      <IconEdit size={14} />
+                                    </button>
+                                  )}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </React.Fragment>
@@ -2237,6 +2469,139 @@ export default function UnifiedAgenda({
               }}
               onCancel={() => setIsRehearsalEditOpen(false)}
             />
+          </div>
+        </div>
+      )}
+      {/* MODAL DE ACCIÓN DE COMIDA (MÓVIL) */}
+      {/* MODAL DE ACCIÓN DE COMIDA (MÓVIL) */}
+      {/* MODAL DE ACCIÓN DE COMIDA (MÓVIL) */}
+      {mealActionTarget && (
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4">
+            <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <IconUtensils className="text-indigo-600" />
+                {mealActionTarget.tipos_evento?.nombre}
+              </h3>
+              <button onClick={() => setMealActionTarget(null)}>
+                <IconX className="text-slate-400" />
+              </button>
+            </div>
+
+            <div className="p-5 flex flex-col gap-3">
+              <p className="text-sm text-slate-600 text-center mb-2">
+                {mealActionTarget.descripcion ? (
+                  <span
+                    dangerouslySetInnerHTML={{
+                      __html: mealActionTarget.descripcion,
+                    }}
+                  />
+                ) : (
+                  "¿Vas a asistir a esta comida?"
+                )}
+              </p>
+
+              {/* LÓGICA DE ESTADO Y BLOQUEO */}
+              {(() => {
+                const dl = getDeadlineStatus(
+                  mealActionTarget.programas?.fecha_confirmacion_limite,
+                );
+
+                // 1. Chequeo de Convocatoria
+                const isConvoked = mealActionTarget.is_convoked;
+
+                // 2. Chequeo de Cierre
+                const isClosed = dl.status === "CLOSED";
+
+                // 3. Permiso de Admin para saltar el cierre (opcional, si quieres bloqueo total quita esta parte)
+                const isAdmin = isManagement || isEditor;
+                const canOverride = isAdmin && isClosed;
+
+                // 4. Bloqueo Final (UI)
+                // Está bloqueado si: NO está convocado O (está cerrado Y no es admin)
+                const isLocked = !isConvoked || (isClosed && !isAdmin);
+
+                return (
+                  <>
+                    {/* MENSAJES DE ESTADO */}
+                    {!isConvoked && (
+                      <div className="text-xs text-center text-slate-500 font-bold bg-slate-100 p-2 rounded border border-slate-200 mb-2">
+                        🚫 No estás convocado a esta comida
+                      </div>
+                    )}
+
+                    {isConvoked && isClosed && !canOverride && (
+                      <div className="text-xs text-center text-red-600 font-bold bg-red-50 p-2 rounded border border-red-100 mb-2">
+                        🔒 Votación Cerrada
+                      </div>
+                    )}
+
+                    {isConvoked && canOverride && (
+                      <div className="text-xs text-center text-amber-700 font-bold bg-amber-50 p-2 rounded border border-amber-100 mb-2">
+                        🔓 Votación Cerrada (Acceso Admin)
+                      </div>
+                    )}
+
+                    {isConvoked && !isClosed && (
+                      <div className="text-xs text-center text-indigo-600 font-bold bg-indigo-50 p-2 rounded border border-indigo-100 mb-2">
+                        ⏳ Cierra en: {dl.message}
+                      </div>
+                    )}
+
+                    {/* BOTONES DE ACCIÓN */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() =>
+                          toggleMealAttendance(mealActionTarget.id, "P")
+                        }
+                        disabled={isLocked}
+                        className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all 
+                              ${
+                                mealActionTarget.mi_asistencia === "P"
+                                  ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                                  : "bg-white border-slate-100 text-slate-600"
+                              }
+                              ${isLocked ? "opacity-40 cursor-not-allowed grayscale pointer-events-none" : "hover:border-emerald-200"}
+                            `}
+                      >
+                        <IconCheck size={24} />
+                        <span className="text-xs font-bold">Asistiré</span>
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          toggleMealAttendance(mealActionTarget.id, "A")
+                        }
+                        disabled={isLocked}
+                        className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all 
+                              ${
+                                mealActionTarget.mi_asistencia === "A"
+                                  ? "bg-rose-50 border-rose-500 text-rose-700"
+                                  : "bg-white border-slate-100 text-slate-600"
+                              }
+                              ${isLocked ? "opacity-40 cursor-not-allowed grayscale pointer-events-none" : "hover:border-rose-200"}
+                            `}
+                      >
+                        <IconX size={24} />
+                        <span className="text-xs font-bold">No iré</span>
+                      </button>
+                    </div>
+
+                    {/* BOTÓN BORRAR (Solo si no está bloqueado) */}
+                    {mealActionTarget.mi_asistencia && !isLocked && (
+                      <button
+                        onClick={() =>
+                          toggleMealAttendance(mealActionTarget.id, null)
+                        }
+                        className="text-xs text-slate-400 underline mt-4 hover:text-slate-600 w-full text-center"
+                      >
+                        Borrar mi selección
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
           </div>
         </div>
       )}
