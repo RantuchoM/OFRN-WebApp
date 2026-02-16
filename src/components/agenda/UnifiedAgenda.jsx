@@ -247,7 +247,7 @@ const ConnectionBadge = ({ status, lastUpdate, onRefresh, isRefreshing }) => {
 };
 const getGoogleMapsUrl = (locacion) => {
   if (!locacion) return null;
-  
+
   // 1. Si ya tienes un link guardado en BD, úsalo (opcional)
   if (locacion.link_mapa) return locacion.link_mapa;
 
@@ -255,10 +255,11 @@ const getGoogleMapsUrl = (locacion) => {
   const partes = [];
   if (locacion.nombre) partes.push(locacion.nombre);
   if (locacion.direccion) partes.push(locacion.direccion);
-  if (locacion.localidades?.localidad) partes.push(locacion.localidades.localidad);
-  
+  if (locacion.localidades?.localidad)
+    partes.push(locacion.localidades.localidad);
+
   // "Rio Negro, Argentina" ayuda a la precisión si hay ciudades homónimas
-  partes.push("Rio Negro, Argentina"); 
+  partes.push("Rio Negro, Argentina");
 
   const query = encodeURIComponent(partes.join(", "));
   return `https://www.google.com/maps/search/?api=1&query=${query}`;
@@ -1973,11 +1974,24 @@ export default function UnifiedAgenda({
                             </div>
 
                             <div className="flex flex-col md:flex-row md:items-center md:gap-4 flex-1 min-w-0">
-                              <h4
-                                className={`text-[12px] sm:text-sm font-bold leading-[1.1] break-words line-clamp-8 ${shouldDim ? "text-slate-400" : "text-slate-800"}`}
+                              {/* Título / Descripción con soporte HTML */}
+                              <div
+                                className={`text-sm leading-tight break-words ${shouldDim ? "text-slate-400" : "text-slate-800"}`}
                               >
-                                {evt.descripcion || evt.tipos_evento?.nombre}
-                              </h4>
+                                {evt.descripcion ? (
+                                  <div
+                                    className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold"
+                                    // 'font-medium' base para que no sea todo negrita, 'whitespace-pre-wrap' para saltos de línea
+                                    dangerouslySetInnerHTML={{
+                                      __html: evt.descripcion,
+                                    }}
+                                  />
+                                ) : (
+                                  <span>
+                                    {evt.tipos_evento?.nombre}
+                                  </span>
+                                )}
+                              </div>
                               <div className="flex flex-wrap gap-1">
                                 {isTransportEvent && transportName && (
                                   <span
