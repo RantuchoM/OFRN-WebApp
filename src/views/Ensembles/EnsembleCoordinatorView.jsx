@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -141,7 +147,7 @@ const RehearsalCardItem = ({
             className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
           />
         )}
-        
+
         <div className="flex flex-col items-center justify-center rounded-md p-1 w-12 bg-slate-50 border border-slate-100">
           <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-0.5">
             {day}
@@ -206,8 +212,8 @@ const RehearsalCardItem = ({
               >
                 <IconMusic size={10} className="text-slate-400 shrink-0" />{" "}
                 <span className="truncate">
-                    {prog.nomenclador ? `${prog.nomenclador} ` : ""}
-                    {prog.nombre_gira}
+                  {prog.nomenclador ? `${prog.nomenclador} ` : ""}
+                  {prog.nombre_gira}
                 </span>
               </span>
             ))}
@@ -215,7 +221,8 @@ const RehearsalCardItem = ({
         )}
         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1">
           <span className="flex items-center gap-1 truncate max-w-[150px]">
-            <IconMapPin size={12} className="text-slate-400 shrink-0" /> {locationStr}
+            <IconMapPin size={12} className="text-slate-400 shrink-0" />{" "}
+            {locationStr}
           </span>
           {isMyEvent && (
             <span
@@ -341,18 +348,17 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [showOverlapOptions, setShowOverlapOptions] = useState(false);
   const [overlapCategories, setOverlapCategories] = useState([]);
   const [categoryOptions, setCategoryOptions] = useState([]);
-  
+
   // FILTRO DE FECHAS (LISTA PRINCIPAL)
   const [dateFilter, setDateFilter] = useState({
-      start: new Date().toISOString().split("T")[0], // Default: Hoy
-      end: "" // Default: Indefinido
+    start: new Date().toISOString().split("T")[0], // Default: Hoy
+    end: "", // Default: Indefinido
   });
-  
+
   // Estado para Menú de Herramientas Móvil
   const [showMobileTools, setShowMobileTools] = useState(false);
   const mobileToolsRef = useRef(null);
   useOutsideAlerter(mobileToolsRef, () => setShowMobileTools(false));
-
 
   // --- ESTADOS PARA PERSISTENCIA DEL CALENDARIO ---
   const [viewDate, setViewDate] = useState(new Date());
@@ -370,7 +376,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [showSmartSelect, setShowSmartSelect] = useState(false);
   const [smartFilter, setSmartFilter] = useState({
-    days: [], 
+    days: [],
     start: "",
     end: "",
   });
@@ -548,7 +554,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
     keepPreviousData: true,
     queryFn: async () => {
       const ensembleIds = activeEnsembles.map((e) => e.id);
-      
+
       // CONFIGURACIÓN DE FECHAS
       let queryMyRehearsals = supabase
         .from("eventos_ensambles")
@@ -570,12 +576,18 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
       // APLICAR FILTROS DE FECHA
       if (dateFilter.start) {
-          queryMyRehearsals = queryMyRehearsals.gte("eventos.fecha", dateFilter.start);
+        queryMyRehearsals = queryMyRehearsals.gte(
+          "eventos.fecha",
+          dateFilter.start,
+        );
       }
       if (dateFilter.end) {
-          queryMyRehearsals = queryMyRehearsals.lte("eventos.fecha", dateFilter.end);
+        queryMyRehearsals = queryMyRehearsals.lte(
+          "eventos.fecha",
+          dateFilter.end,
+        );
       }
-      
+
       const { data: myRehearsals } = await queryMyRehearsals;
 
       let allEvents = [];
@@ -609,25 +621,26 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
       if (targetTypeIds.size > 0) {
         const typeIdsArray = Array.from(targetTypeIds);
-        
+
         let queryExtra = supabase
           .from("eventos")
           .select(
             `
-                    id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion,
-                    locaciones ( nombre, localidades(localidad) ),
-                    tipos_evento!inner ( nombre, color, id_categoria ),
-                    programas ( id, nombre_gira, mes_letra, nomenclador )
-                `,
-          )
+                id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion,
+                locaciones ( nombre, localidades(localidad) ),
+                tipos_evento!inner ( nombre, color, id_categoria ),
+                programas ( id, nombre_gira, mes_letra, nomenclador ),
+                eventos_ensambles ( id_ensamble ) 
+            `,
+          ) // ^^^ AGREGAMOS eventos_ensambles AQUI PARA PODER FILTRAR
           .in("id_tipo_evento", typeIdsArray)
           .eq("tecnica", false);
-          
+
         if (dateFilter.start) {
-            queryExtra = queryExtra.gte("fecha", dateFilter.start);
+          queryExtra = queryExtra.gte("fecha", dateFilter.start);
         }
         if (dateFilter.end) {
-            queryExtra = queryExtra.lte("fecha", dateFilter.end);
+          queryExtra = queryExtra.lte("fecha", dateFilter.end);
         }
 
         const { data: extraEvents } = await queryExtra;
@@ -635,6 +648,20 @@ export default function EnsembleCoordinatorView({ supabase }) {
         if (extraEvents) {
           extraEvents.forEach((e) => {
             if (!seenEventIds.has(e.id)) {
+              // --- FILTRO DE SEGURIDAD: OCULTAR ENSAMBLES AJENOS ---
+              const linkedEnsembles = e.eventos_ensambles || [];
+              if (linkedEnsembles.length > 0) {
+                // Si el evento está vinculado a ensambles, verificamos si ALGUNO es mío.
+                const isRelevant = linkedEnsembles.some((le) =>
+                  ensembleIds.includes(le.id_ensamble),
+                );
+
+                // Si está vinculado a ensambles y NINGUNO es mío, lo ocultamos.
+                // (Esto oculta los ensayos de otros ensambles, pero mantiene eventos generales/giras que no tienen vínculo específico de ensamble)
+                if (!isRelevant) return;
+              }
+              // -----------------------------------------------------
+
               seenEventIds.add(e.id);
               allEvents.push({
                 ...e,
@@ -659,8 +686,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
     enabled: activeTab === "programas" && activeEnsembles.length > 0,
     queryFn: async () => {
       // Usamos la fecha de inicio del filtro o hoy como fallback
-      const filterDate = dateFilter.start || new Date().toISOString().split("T")[0];
-      
+      const filterDate =
+        dateFilter.start || new Date().toISOString().split("T")[0];
+
       const myEnsembleIds = activeEnsembles.map((e) => e.id);
       const myFamilies = new Set();
 
@@ -747,9 +775,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   const handleSelectAllVisible = (checked) => {
     if (checked) {
-      const allIds = rehearsals
-        .filter((r) => r.isMyRehearsal)
-        .map((r) => r.id);
+      const allIds = rehearsals.filter((r) => r.isMyRehearsal).map((r) => r.id);
       setSelectedIds(allIds);
     } else {
       setSelectedIds([]);
@@ -758,7 +784,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   const isAllSelected =
     rehearsals.length > 0 &&
-    rehearsals.filter(r => r.isMyRehearsal).every((r) => selectedIds.includes(r.id));
+    rehearsals
+      .filter((r) => r.isMyRehearsal)
+      .every((r) => selectedIds.includes(r.id));
 
   const applySmartSelect = () => {
     const { days, start, end } = smartFilter;
@@ -768,7 +796,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
         const date = parseISO(evt.fecha);
         const dayStr = String(getDay(date));
         const matchDay = days.length === 0 || days.includes(dayStr);
-        
+
         const matchStart = start === "" || evt.fecha >= start;
         const matchEnd = end === "" || evt.fecha <= end;
         return matchDay && matchStart && matchEnd;
@@ -779,13 +807,13 @@ export default function EnsembleCoordinatorView({ supabase }) {
   };
 
   const toggleSmartDay = (dayValue) => {
-      setSmartFilter(prev => {
-          const exists = prev.days.includes(dayValue);
-          const newDays = exists 
-             ? prev.days.filter(d => d !== dayValue) 
-             : [...prev.days, dayValue];
-          return { ...prev, days: newDays };
-      });
+    setSmartFilter((prev) => {
+      const exists = prev.days.includes(dayValue);
+      const newDays = exists
+        ? prev.days.filter((d) => d !== dayValue)
+        : [...prev.days, dayValue];
+      return { ...prev, days: newDays };
+    });
   };
 
   const handleAddBulkMember = (tipo) => {
@@ -997,15 +1025,15 @@ export default function EnsembleCoordinatorView({ supabase }) {
     id: e.id,
     label: e.ensamble,
   }));
-  
+
   const weekDays = [
-      { val: "1", label: "Lu" },
-      { val: "2", label: "Ma" },
-      { val: "3", label: "Mi" },
-      { val: "4", label: "Ju" },
-      { val: "5", label: "Vi" },
-      { val: "6", label: "Sa" },
-      { val: "0", label: "Do" },
+    { val: "1", label: "Lu" },
+    { val: "2", label: "Ma" },
+    { val: "3", label: "Mi" },
+    { val: "4", label: "Ju" },
+    { val: "5", label: "Vi" },
+    { val: "6", label: "Sa" },
+    { val: "0", label: "Do" },
   ];
 
   return (
@@ -1038,44 +1066,50 @@ export default function EnsembleCoordinatorView({ supabase }) {
           <div className="flex gap-2">
             {/* BOTONES MÓVIL: SOLO ICONOS */}
             <div className="md:hidden relative" ref={mobileToolsRef}>
-                <button
-                    onClick={() => setShowMobileTools(!showMobileTools)}
-                    className="bg-white border px-2 py-1.5 rounded shadow-sm text-slate-700 hover:bg-slate-50"
-                >
-                    <IconSettings size={18} />
-                </button>
-                {showMobileTools && (
-                    <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-xl border border-slate-200 z-50 overflow-hidden animate-in fade-in zoom-in-95">
-                        <button
-                            onClick={() => { setShowMobileTools(false); setShowSmartSelect(!showSmartSelect); }}
-                            className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 border-b border-slate-50 flex items-center gap-2"
-                        >
-                            <IconFilter size={14} /> Selección Inteligente
-                        </button>
-                        <button
-                            onClick={() => { setShowMobileTools(false); setIsMassiveModalOpen(true); }}
-                            className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                        >
-                            <IconCalendar size={14} /> Generación Múltiple
-                        </button>
-                    </div>
-                )}
+              <button
+                onClick={() => setShowMobileTools(!showMobileTools)}
+                className="bg-white border px-2 py-1.5 rounded shadow-sm text-slate-700 hover:bg-slate-50"
+              >
+                <IconSettings size={18} />
+              </button>
+              {showMobileTools && (
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-xl border border-slate-200 z-50 overflow-hidden animate-in fade-in zoom-in-95">
+                  <button
+                    onClick={() => {
+                      setShowMobileTools(false);
+                      setShowSmartSelect(!showSmartSelect);
+                    }}
+                    className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 border-b border-slate-50 flex items-center gap-2"
+                  >
+                    <IconFilter size={14} /> Selección Inteligente
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowMobileTools(false);
+                      setIsMassiveModalOpen(true);
+                    }}
+                    className="w-full text-left px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <IconCalendar size={14} /> Generación Múltiple
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* BOTONES ESCRITORIO: TEXTO COMPLETO */}
             <div className="hidden md:flex gap-2">
-                <button
+              <button
                 onClick={() => setShowSmartSelect(!showSmartSelect)}
                 className="bg-white border px-3 py-1.5 rounded shadow-sm text-xs font-bold flex gap-2 text-slate-700 hover:bg-slate-50"
-                >
+              >
                 <IconFilter size={14} /> Selección Inteligente
-                </button>
-                <button
+              </button>
+              <button
                 onClick={() => setIsMassiveModalOpen(true)}
                 className="bg-white border px-3 py-1.5 rounded shadow-sm text-xs font-bold flex gap-2 text-slate-700 hover:bg-slate-50"
-                >
+              >
                 <IconCalendar size={14} /> Generación Múltiple
-                </button>
+              </button>
             </div>
 
             <button
@@ -1085,7 +1119,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
               }}
               className="bg-indigo-600 text-white px-3 py-1.5 rounded shadow-md text-xs font-bold flex gap-2 hover:bg-indigo-700 items-center"
             >
-              <IconPlus size={14} /> <span className="hidden sm:inline">Nuevo</span>
+              <IconPlus size={14} />{" "}
+              <span className="hidden sm:inline">Nuevo</span>
             </button>
           </div>
         </div>
@@ -1122,20 +1157,22 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   Días (Selección Múltiple)
                 </label>
                 <div className="flex flex-wrap gap-1">
-                    {weekDays.map(d => (
-                        <button
-                            key={d.val}
-                            onClick={() => toggleSmartDay(d.val)}
-                            className={`
+                  {weekDays.map((d) => (
+                    <button
+                      key={d.val}
+                      onClick={() => toggleSmartDay(d.val)}
+                      className={`
                                 w-7 h-7 rounded text-[10px] font-bold border transition-colors
-                                ${smartFilter.days.includes(d.val) 
-                                    ? "bg-indigo-600 text-white border-indigo-600" 
-                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}
+                                ${
+                                  smartFilter.days.includes(d.val)
+                                    ? "bg-indigo-600 text-white border-indigo-600"
+                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                }
                             `}
-                        >
-                            {d.label}
-                        </button>
-                    ))}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
                 </div>
               </div>
               <div>
@@ -1160,12 +1197,12 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 </div>
               </div>
               <div className="flex items-end h-full">
-                  <button
-                    onClick={applySmartSelect}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-3 rounded text-xs flex items-center justify-center gap-2 w-full"
-                  >
-                    <IconCheck size={14} /> Seleccionar
-                  </button>
+                <button
+                  onClick={applySmartSelect}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-3 rounded text-xs flex items-center justify-center gap-2 w-full"
+                >
+                  <IconCheck size={14} /> Seleccionar
+                </button>
               </div>
             </div>
           </div>
@@ -1190,13 +1227,15 @@ export default function EnsembleCoordinatorView({ supabase }) {
               onClick={handleBulkDelete}
               className="bg-red-500 text-white hover:bg-red-600 font-bold px-3 py-1 rounded text-xs transition-colors flex items-center gap-2 shadow-sm"
             >
-              <IconTrash size={14} /> <span className="hidden sm:inline">Eliminar</span>
+              <IconTrash size={14} />{" "}
+              <span className="hidden sm:inline">Eliminar</span>
             </button>
             <button
               onClick={() => setIsBulkEditModalOpen(true)}
               className="bg-white text-indigo-700 hover:bg-indigo-50 font-bold px-3 py-1 rounded text-xs transition-colors flex items-center gap-2 shadow-sm"
             >
-              <IconSettings size={14} /> <span className="hidden sm:inline">Editar</span>
+              <IconSettings size={14} />{" "}
+              <span className="hidden sm:inline">Editar</span>
             </button>
           </div>
         </div>
@@ -1297,53 +1336,63 @@ export default function EnsembleCoordinatorView({ supabase }) {
             {activeTab === "ensayos" && (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-2 pb-2 border-b border-slate-100 pl-1">
-                    {/* Checkbox "Select All" */}
-                    <div className="flex items-center gap-2">
-                        <input 
-                            type="checkbox" 
-                            checked={isAllSelected}
-                            onChange={(e) => handleSelectAllVisible(e.target.checked)}
-                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                        />
-                        <span className="text-xs font-bold text-slate-500">Seleccionar todo lo visible</span>
-                    </div>
+                  {/* Checkbox "Select All" */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={(e) => handleSelectAllVisible(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold text-slate-500">
+                      Seleccionar todo lo visible
+                    </span>
+                  </div>
 
-                    {/* FILTRO DE FECHAS EN LÍNEA */}
-                    <div className="flex items-center gap-2">
-                         <div className="flex items-center gap-1">
-                             <span className="text-[10px] font-bold text-slate-400 uppercase">Desde:</span>
-                             <DateInput 
-                                value={dateFilter.start} 
-                                onChange={v => setDateFilter(prev => ({...prev, start: v}))} 
-                                className="h-6 text-xs w-28 bg-slate-50 border-slate-200" 
-                             />
-                         </div>
-                         <div className="flex items-center gap-1">
-                             <span className="text-[10px] font-bold text-slate-400 uppercase">Hasta:</span>
-                             <DateInput 
-                                value={dateFilter.end} 
-                                onChange={v => setDateFilter(prev => ({...prev, end: v}))} 
-                                className="h-6 text-xs w-28 bg-slate-50 border-slate-200" 
-                                placeholder="Indefinido"
-                             />
-                         </div>
+                  {/* FILTRO DE FECHAS EN LÍNEA */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">
+                        Desde:
+                      </span>
+                      <DateInput
+                        value={dateFilter.start}
+                        onChange={(v) =>
+                          setDateFilter((prev) => ({ ...prev, start: v }))
+                        }
+                        className="h-6 text-xs w-28 bg-slate-50 border-slate-200"
+                      />
                     </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">
+                        Hasta:
+                      </span>
+                      <DateInput
+                        value={dateFilter.end}
+                        onChange={(v) =>
+                          setDateFilter((prev) => ({ ...prev, end: v }))
+                        }
+                        className="h-6 text-xs w-28 bg-slate-50 border-slate-200"
+                        placeholder="Indefinido"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 {rehearsals.length > 0 ? (
                   <div className="grid grid-cols-1 gap-2">
-                      {rehearsals.map((evt) => (
+                    {rehearsals.map((evt) => (
                       <RehearsalCardItem
-                          key={evt.id}
-                          evt={evt}
-                          activeMembersSet={activeMembersSet}
-                          supabase={supabase}
-                          onEdit={handleEditRehearsal}
-                          onDelete={handleDeleteRehearsal}
-                          isSelected={selectedIds.includes(evt.id)}
-                          onSelect={handleSelect}
+                        key={evt.id}
+                        evt={evt}
+                        activeMembersSet={activeMembersSet}
+                        supabase={supabase}
+                        onEdit={handleEditRehearsal}
+                        onDelete={handleDeleteRehearsal}
+                        isSelected={selectedIds.includes(evt.id)}
+                        onSelect={handleSelect}
                       />
-                      ))}
+                    ))}
                   </div>
                 ) : (
                   <div className="text-center py-10 text-slate-400">
@@ -1415,77 +1464,233 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   </span>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 {/* Columna 1 */}
-                 <div className="space-y-4">
-                     <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Mover a Día</label>
-                        <select className="w-full border rounded p-2 text-sm bg-slate-50 outline-none" value={bulkFormData.day} onChange={e => setBulkFormData({...bulkFormData, day: e.target.value})}>
-                            <option value="">- Sin cambios -</option>
-                            <option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miércoles</option><option value="4">Jueves</option><option value="5">Viernes</option><option value="6">Sábado</option><option value="0">Domingo</option>
-                        </select>
-                     </div>
-                     <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Tipo de Evento</label>
-                        <select className="w-full border rounded p-2 text-sm bg-slate-50 outline-none" value={bulkFormData.eventTypeId} onChange={e => setBulkFormData({...bulkFormData, eventTypeId: e.target.value})}>
-                            <option value="">- Sin cambios -</option>
-                            {eventTypesList.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
-                        </select>
-                     </div>
-                     <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Nueva Ubicación</label>
-                        <SearchableSelect options={locationsList.map(l => ({id: l.id, label: `${l.nombre} ${l.localidades?.localidad ? `(${l.localidades.localidad})` : ""}`}))} value={bulkFormData.locationId} onChange={val => setBulkFormData({...bulkFormData, locationId: val})} placeholder="- Sin cambios -" />
-                     </div>
-                 </div>
-                 {/* Columna 2 */}
-                 <div className="space-y-4">
-                     <div className="grid grid-cols-2 gap-2">
-                        <div><label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Hora Inicio</label><input type="time" className="w-full border rounded p-2 text-sm bg-slate-50 outline-none" value={bulkFormData.startTime} onChange={e => setBulkFormData({...bulkFormData, startTime: e.target.value})} /></div>
-                        <div><label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Hora Fin</label><input type="time" className="w-full border rounded p-2 text-sm bg-slate-50 outline-none" value={bulkFormData.endTime} onChange={e => setBulkFormData({...bulkFormData, endTime: e.target.value})} /></div>
-                     </div>
-                     <div className="pt-2"><label className="block text-xs font-bold text-slate-700 mb-1 uppercase">Nuevo Título</label><input type="text" className="w-full border rounded p-2 text-sm bg-slate-50 outline-none" placeholder="Ej: Ensayo General..." value={bulkFormData.description} onChange={e => setBulkFormData({...bulkFormData, description: e.target.value})} /></div>
-                 </div>
+                {/* Columna 1 */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">
+                      Mover a Día
+                    </label>
+                    <select
+                      className="w-full border rounded p-2 text-sm bg-slate-50 outline-none"
+                      value={bulkFormData.day}
+                      onChange={(e) =>
+                        setBulkFormData({
+                          ...bulkFormData,
+                          day: e.target.value,
+                        })
+                      }
+                    >
+                      <option value="">- Sin cambios -</option>
+                      <option value="1">Lunes</option>
+                      <option value="2">Martes</option>
+                      <option value="3">Miércoles</option>
+                      <option value="4">Jueves</option>
+                      <option value="5">Viernes</option>
+                      <option value="6">Sábado</option>
+                      <option value="0">Domingo</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">
+                      Tipo de Evento
+                    </label>
+                    <select
+                      className="w-full border rounded p-2 text-sm bg-slate-50 outline-none"
+                      value={bulkFormData.eventTypeId}
+                      onChange={(e) =>
+                        setBulkFormData({
+                          ...bulkFormData,
+                          eventTypeId: e.target.value,
+                        })
+                      }
+                    >
+                      <option value="">- Sin cambios -</option>
+                      {eventTypesList.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">
+                      Nueva Ubicación
+                    </label>
+                    <SearchableSelect
+                      options={locationsList.map((l) => ({
+                        id: l.id,
+                        label: `${l.nombre} ${l.localidades?.localidad ? `(${l.localidades.localidad})` : ""}`,
+                      }))}
+                      value={bulkFormData.locationId}
+                      onChange={(val) =>
+                        setBulkFormData({ ...bulkFormData, locationId: val })
+                      }
+                      placeholder="- Sin cambios -"
+                    />
+                  </div>
+                </div>
+                {/* Columna 2 */}
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">
+                        Hora Inicio
+                      </label>
+                      <input
+                        type="time"
+                        className="w-full border rounded p-2 text-sm bg-slate-50 outline-none"
+                        value={bulkFormData.startTime}
+                        onChange={(e) =>
+                          setBulkFormData({
+                            ...bulkFormData,
+                            startTime: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">
+                        Hora Fin
+                      </label>
+                      <input
+                        type="time"
+                        className="w-full border rounded p-2 text-sm bg-slate-50 outline-none"
+                        value={bulkFormData.endTime}
+                        onChange={(e) =>
+                          setBulkFormData({
+                            ...bulkFormData,
+                            endTime: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="pt-2">
+                    <label className="block text-xs font-bold text-slate-700 mb-1 uppercase">
+                      Nuevo Título
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full border rounded p-2 text-sm bg-slate-50 outline-none"
+                      placeholder="Ej: Ensayo General..."
+                      value={bulkFormData.description}
+                      onChange={(e) =>
+                        setBulkFormData({
+                          ...bulkFormData,
+                          description: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
-                  <div className="space-y-4">
-                      <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2"><IconMusic size={14} /> Reemplazar Ensambles</h3>
-                          <MultiSelect placeholder="Seleccionar..." options={ensamblesOptions} selectedIds={bulkFormData.ensambles} onChange={ids => setBulkFormData({...bulkFormData, ensambles: ids})} />
-                      </div>
-                      <div className="bg-emerald-50 p-3 rounded border border-emerald-100">
-                          <h3 className="text-xs font-bold text-emerald-800 mb-2 flex items-center gap-2"><IconLayers size={14} /> Reemplazar Repertorio</h3>
-                          <MultiSelect placeholder="Seleccionar..." options={programasOptions} selectedIds={bulkFormData.programas} onChange={ids => setBulkFormData({...bulkFormData, programas: ids})} />
-                      </div>
+                <div className="space-y-4">
+                  <div className="bg-slate-50 p-3 rounded border border-slate-200">
+                    <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2">
+                      <IconMusic size={14} /> Reemplazar Ensambles
+                    </h3>
+                    <MultiSelect
+                      placeholder="Seleccionar..."
+                      options={ensamblesOptions}
+                      selectedIds={bulkFormData.ensambles}
+                      onChange={(ids) =>
+                        setBulkFormData({ ...bulkFormData, ensambles: ids })
+                      }
+                    />
                   </div>
-                  <div className="bg-white p-3 rounded border border-slate-200 shadow-sm flex flex-col h-full">
-                      <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2"><IconUsers size={14} /> Asistencia Particular</h3>
-                      <div className="flex gap-2 items-end mb-3">
-                          <div className="flex-1">
-                              <label className="text-[9px] text-slate-400 uppercase mb-1 block">Buscar Integrante</label>
-                              <SearchableSelect options={membersOptions} value={selectedMemberToAdd} onChange={setSelectedMemberToAdd} placeholder="Buscar..." className="w-full" />
-                          </div>
-                          <button onClick={() => handleAddBulkMember("invitado")} disabled={!selectedMemberToAdd} className="h-[38px] px-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-100 flex items-center gap-1 text-xs font-bold disabled:opacity-50"><IconUserPlus size={14}/></button>
-                          <button onClick={() => handleAddBulkMember("ausente")} disabled={!selectedMemberToAdd} className="h-[38px] px-2 bg-red-50 text-red-700 border border-red-200 rounded hover:bg-red-100 flex items-center gap-1 text-xs font-bold disabled:opacity-50"><IconUserX size={14}/></button>
-                      </div>
-                      <div className="space-y-1 overflow-y-auto flex-1 max-h-40 pr-1">
-                          {bulkFormData.customAttendance.map((item, idx) => (
-                              <div key={idx} className="flex items-center justify-between text-xs p-1.5 bg-slate-50 rounded border border-slate-100">
-                                  <div className="flex items-center gap-2">
-                                      <span className={`px-1 py-0.5 rounded text-[9px] font-bold ${item.tipo === 'invitado' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{item.tipo.toUpperCase()}</span>
-                                      <span className="font-medium text-slate-700 truncate max-w-[120px]">{item.label}</span>
-                                  </div>
-                                  <button onClick={() => handleRemoveBulkMember(item.id_integrante)} className="text-slate-400 hover:text-red-600"><IconTrash size={12} /></button>
-                              </div>
-                          ))}
-                      </div>
+                  <div className="bg-emerald-50 p-3 rounded border border-emerald-100">
+                    <h3 className="text-xs font-bold text-emerald-800 mb-2 flex items-center gap-2">
+                      <IconLayers size={14} /> Reemplazar Repertorio
+                    </h3>
+                    <MultiSelect
+                      placeholder="Seleccionar..."
+                      options={programasOptions}
+                      selectedIds={bulkFormData.programas}
+                      onChange={(ids) =>
+                        setBulkFormData({ ...bulkFormData, programas: ids })
+                      }
+                    />
                   </div>
+                </div>
+                <div className="bg-white p-3 rounded border border-slate-200 shadow-sm flex flex-col h-full">
+                  <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2">
+                    <IconUsers size={14} /> Asistencia Particular
+                  </h3>
+                  <div className="flex gap-2 items-end mb-3">
+                    <div className="flex-1">
+                      <label className="text-[9px] text-slate-400 uppercase mb-1 block">
+                        Buscar Integrante
+                      </label>
+                      <SearchableSelect
+                        options={membersOptions}
+                        value={selectedMemberToAdd}
+                        onChange={setSelectedMemberToAdd}
+                        placeholder="Buscar..."
+                        className="w-full"
+                      />
+                    </div>
+                    <button
+                      onClick={() => handleAddBulkMember("invitado")}
+                      disabled={!selectedMemberToAdd}
+                      className="h-[38px] px-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-100 flex items-center gap-1 text-xs font-bold disabled:opacity-50"
+                    >
+                      <IconUserPlus size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleAddBulkMember("ausente")}
+                      disabled={!selectedMemberToAdd}
+                      className="h-[38px] px-2 bg-red-50 text-red-700 border border-red-200 rounded hover:bg-red-100 flex items-center gap-1 text-xs font-bold disabled:opacity-50"
+                    >
+                      <IconUserX size={14} />
+                    </button>
+                  </div>
+                  <div className="space-y-1 overflow-y-auto flex-1 max-h-40 pr-1">
+                    {bulkFormData.customAttendance.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between text-xs p-1.5 bg-slate-50 rounded border border-slate-100"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-1 py-0.5 rounded text-[9px] font-bold ${item.tipo === "invitado" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}
+                          >
+                            {item.tipo.toUpperCase()}
+                          </span>
+                          <span className="font-medium text-slate-700 truncate max-w-[120px]">
+                            {item.label}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() =>
+                            handleRemoveBulkMember(item.id_integrante)
+                          }
+                          className="text-slate-400 hover:text-red-600"
+                        >
+                          <IconTrash size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
             <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex justify-end gap-3 shrink-0">
-              <button onClick={() => setIsBulkEditModalOpen(false)} className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700">Cancelar</button>
-              <button onClick={handleAdvancedBulkUpdate} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md flex items-center gap-2"><IconCheck size={16} /> Confirmar Cambios</button>
+              <button
+                onClick={() => setIsBulkEditModalOpen(false)}
+                className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleAdvancedBulkUpdate}
+                className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-md flex items-center gap-2"
+              >
+                <IconCheck size={16} /> Confirmar Cambios
+              </button>
             </div>
           </div>
         </div>
