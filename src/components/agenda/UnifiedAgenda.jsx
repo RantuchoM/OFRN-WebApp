@@ -245,7 +245,24 @@ const ConnectionBadge = ({ status, lastUpdate, onRefresh, isRefreshing }) => {
     </button>
   );
 };
+const getGoogleMapsUrl = (locacion) => {
+  if (!locacion) return null;
+  
+  // 1. Si ya tienes un link guardado en BD, úsalo (opcional)
+  if (locacion.link_mapa) return locacion.link_mapa;
 
+  // 2. Construcción dinámica
+  const partes = [];
+  if (locacion.nombre) partes.push(locacion.nombre);
+  if (locacion.direccion) partes.push(locacion.direccion);
+  if (locacion.localidades?.localidad) partes.push(locacion.localidades.localidad);
+  
+  // "Rio Negro, Argentina" ayuda a la precisión si hay ciudades homónimas
+  partes.push("Rio Negro, Argentina"); 
+
+  const query = encodeURIComponent(partes.join(", "));
+  return `https://www.google.com/maps/search/?api=1&query=${query}`;
+};
 export default function UnifiedAgenda({
   supabase,
   giraId = null,
@@ -730,7 +747,7 @@ export default function UnifiedAgenda({
                 categorias_tipos_eventos (id, nombre)
             ), 
             locaciones (
-                id, nombre, direccion,
+                id, nombre, direccion, link_mapa,
                 localidades (localidad)
             ),
             programas (
@@ -2008,15 +2025,33 @@ export default function UnifiedAgenda({
                                     </span>
                                   )}
                               </div>
+                              {/* BLOQUE DE UBICACIÓN ACTUALIZADO */}
                               {locName && (
-                                <div className="flex items-center gap-1 text-xs text-slate-500 md:border-l md:border-slate-200 md:pl-3 truncate mt-0.5 md:mt-0">
+                                <div className="flex items-start gap-1 text-xs text-slate-500 md:border-l md:border-slate-200 md:pl-3 mt-0.5 md:mt-0 min-w-0">
                                   <IconMapPin
-                                    size={10}
-                                    className="text-slate-400 shrink-0"
+                                    size={14}
+                                    className="text-slate-400 shrink-0 mt-0.5"
                                   />
-                                  <span className="truncate">
-                                    {locName} {locCity ? `(${locCity})` : ""}
-                                  </span>
+                                  <div className="flex flex-col min-w-0">
+                                    {/* Nombre del lugar y Ciudad */}
+                                    <span className="font-semibold text-slate-700 truncate">
+                                      {locName} {locCity ? `(${locCity})` : ""}
+                                    </span>
+
+                                    {/* Dirección con enlace a Maps */}
+                                    {evt.locaciones?.direccion && (
+                                      <a
+                                        href={getGoogleMapsUrl(evt.locaciones)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[10px] text-blue-600 hover:underline hover:text-blue-800 truncate block w-full"
+                                        title="Ver en Google Maps"
+                                        onClick={(e) => e.stopPropagation()} // Evita abrir el detalle del evento si haces click en el mapa
+                                      >
+                                        {evt.locaciones.direccion} ↗
+                                      </a>
+                                    )}
+                                  </div>
                                 </div>
                               )}
                             </div>

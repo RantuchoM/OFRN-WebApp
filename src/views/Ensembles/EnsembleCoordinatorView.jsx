@@ -31,6 +31,7 @@ import {
   IconUserX,
   IconMenu,
 } from "../../components/ui/Icons";
+import ManualTrigger from "../../components/manual/ManualTrigger";
 
 import IndependentRehearsalForm from "./IndependentRehearsalForm";
 import MassiveRehearsalGenerator from "./MassiveRehearsalGenerator";
@@ -1043,7 +1044,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-              Coordinación
+              Coordinación       
+              <ManualTrigger section="coordinacion" size="sm" />
+              
               {isSuperUser && (
                 <span className="text-[10px] bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded uppercase tracking-wide">
                   Admin
