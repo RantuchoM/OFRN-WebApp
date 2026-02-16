@@ -1336,8 +1336,9 @@ export default function RoomingManager({
       // 4. Mapear ocupantes a habitaciones
       const roomsWithDetails = roomsData.map((room) => {
         const occupants = (room.id_integrantes_asignados || [])
-          .map((id) => allMusiciansMap.get(id)) // Obtenemos el músico enriquecido del summary
-          .filter(Boolean);
+          .map((id) => allMusiciansMap.get(id))
+          .filter((p) => p && p.estado_gira === "confirmado"); // <--- FILTRO CRÍTICO AQUÍ
+
         return {
           ...room,
           occupants,
@@ -1352,12 +1353,13 @@ export default function RoomingManager({
       );
 
       const unassigned = Array.from(allMusiciansMap.values())
-        .filter((m) => !assignedIds.has(m.id) && m.estado_gira !== "ausente")
+        .filter(
+          (m) => !assignedIds.has(m.id) && m.estado_gira === "confirmado", // <--- CAMBIO: Solo permitimos confirmados
+        )
         .sort((a, b) => {
           if (a.is_local !== b.is_local) return a.is_local ? 1 : -1;
           return (a.apellido || "").localeCompare(b.apellido || "");
         });
-
       setMusicians(unassigned);
       setRooms(roomsWithDetails);
     } catch (error) {
