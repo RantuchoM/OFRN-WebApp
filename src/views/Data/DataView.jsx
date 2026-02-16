@@ -172,6 +172,8 @@ export default function DataView({ supabase }) {
           options: catalogos.localidades,
         },
         { key: "link_mapa", label: "Google Maps", type: "text" },
+        { key: "telefono", label: "Teléfono", type: "int8"},
+        { key: "mail", label: "E-mail", type: "text" },
       ],
       // --- AVISO ---
       warning:
