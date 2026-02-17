@@ -35,6 +35,9 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
   const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
+    // Establecer formato neutro por defecto al montar
+    document.execCommand("defaultParagraphSeparator", false, "div");
+    
     if (editorRef.current && value !== editorRef.current.innerHTML) {
       if (!editorRef.current.innerHTML || value === "" || value === null) {
         editorRef.current.innerHTML = value || "";
@@ -51,58 +54,37 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
     editorRef.current.focus();
   };
 
+  // Limpiar formato al pegar para evitar tamaños gigantes o fuentes extrañas
+  const handlePaste = (e) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text/plain");
+    document.execCommand("insertText", false, text);
+  };
+
   const handleKeyDown = (e) => {
     if (e.ctrlKey || e.metaKey) {
       const key = e.key.toLowerCase();
-      if (key === "b") {
-        e.preventDefault();
-        execCmd("bold");
-      }
-      if (key === "i") {
-        e.preventDefault();
-        execCmd("italic");
-      }
-      if (key === "u") {
-        e.preventDefault();
-        execCmd("underline");
-      }
+      if (key === "b") { e.preventDefault(); execCmd("bold"); }
+      if (key === "i") { e.preventDefault(); execCmd("italic"); }
+      if (key === "u") { e.preventDefault(); execCmd("underline"); }
     }
   };
 
   return (
-    <div
-      className={`border rounded-lg overflow-hidden transition-shadow bg-white flex flex-col relative ${isFocused ? "ring-2 ring-indigo-500 border-indigo-500" : "border-slate-300"} ${className}`}
-    >
+    <div className={`border rounded-lg overflow-hidden transition-shadow bg-white flex flex-col relative ${isFocused ? "ring-2 ring-indigo-500 border-indigo-500" : "border-slate-300"} ${className}`}>
       <div className="flex items-center gap-1 bg-slate-50 border-b border-slate-200 p-1.5 select-none shrink-0">
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            execCmd("bold");
-          }}
-          className="p-1.5 hover:bg-slate-200 rounded text-slate-600"
-        >
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); execCmd("bold"); }} className="p-1.5 hover:bg-slate-200 rounded text-slate-600">
           <IconBold size={14} />
         </button>
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            execCmd("italic");
-          }}
-          className="p-1.5 hover:bg-slate-200 rounded text-slate-600"
-        >
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); execCmd("italic"); }} className="p-1.5 hover:bg-slate-200 rounded text-slate-600">
           <IconItalic size={14} />
         </button>
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            execCmd("insertUnorderedList");
-          }}
-          className="p-1.5 hover:bg-slate-200 rounded text-slate-600"
-        >
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); execCmd("insertUnorderedList"); }} className="p-1.5 hover:bg-slate-200 rounded text-slate-600">
           <IconList size={14} />
+        </button>
+        {/* Botón para resetear formato si algo queda raro */}
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); execCmd("removeFormat"); }} className="p-1.5 hover:bg-slate-200 rounded text-slate-400 ml-auto" title="Limpiar formato">
+          <IconX size={14} />
         </button>
       </div>
       <div
@@ -110,13 +92,13 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
         contentEditable
         onInput={handleInput}
         onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
-        className="flex-1 p-3 text-sm outline-none overflow-y-auto min-h-[80px] max-h-[300px] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline"
-        style={{ whiteSpace: "pre-wrap" }}
+        className="flex-1 p-3 text-sm outline-none overflow-y-auto min-h-[80px] max-h-[300px] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline leading-relaxed"
       />
       {!value && !isFocused && (
-        <div className="absolute top-[46px] left-3 text-slate-400 text-sm pointer-events-none">
+        <div className="absolute top-[46px] left-3 text-slate-400 text-sm pointer-events-none italic">
           {placeholder}
         </div>
       )}

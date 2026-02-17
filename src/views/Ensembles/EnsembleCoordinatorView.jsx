@@ -32,7 +32,7 @@ import {
   IconMenu,
 } from "../../components/ui/Icons";
 import ManualTrigger from "../../components/manual/ManualTrigger";
-
+import GiraForm from "../Giras/GiraForm";
 import IndependentRehearsalForm from "./IndependentRehearsalForm";
 import MassiveRehearsalGenerator from "./MassiveRehearsalGenerator";
 import EnsembleCalendar from "./EnsembleCalendar";
@@ -654,7 +654,72 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [programasOptions, setProgramasOptions] = useState([]);
   const [ensamblesOptions, setEnsamblesOptions] = useState([]);
   const [membersOptions, setMembersOptions] = useState([]);
+  const [isGiraModalOpen, setIsGiraModalOpen] = useState(false);
+  const [giraFormData, setGiraFormData] = useState({
+    nombre_gira: "",
+    subtitulo: "",
+    tipo: "Ensamble",
+    fecha_desde: "",
+    fecha_hasta: "",
+    estado: "Borrador",
+    zona: "",
+    token_publico: null,
+  });
 
+  // Necesitamos este estado adicional para que GiraForm gestione los ensambles seleccionados
+  const [selectedSources, setSelectedSources] = useState([]);
+
+  // Efecto para preseleccionar tu ensamble cuando se abre el modal
+  useEffect(() => {
+    if (
+      isGiraModalOpen &&
+      myEnsembles.length > 0 &&
+      selectedSources.length === 0
+    ) {
+      // Preseleccionamos los ensambles que el usuario coordina
+      const initialSources = myEnsembles.map((e) => ({
+        tipo: "ENSAMBLE",
+        valor_id: e.id.toString(),
+        label: e.ensamble,
+      }));
+      setSelectedSources(initialSources);
+    }
+  }, [isGiraModalOpen, myEnsembles]);
+  const handleSaveGira = async () => {
+    try {
+      // 1. Insertar la Gira/Programa
+      const { data: newGira, error: giraError } = await supabase
+        .from("programas")
+        .insert([giraFormData])
+        .select()
+        .single();
+
+      if (giraError) throw giraError;
+
+      // 2. Insertar las fuentes (Ensambles seleccionados)
+      if (selectedSources.length > 0) {
+        const sourcesPayload = selectedSources.map((s) => ({
+          id_gira: newGira.id,
+          tipo: s.tipo,
+          valor_id: s.valor_id,
+          valor_texto: s.label,
+        }));
+
+        const { error: sourcesError } = await supabase
+          .from("giras_fuentes")
+          .insert(sourcesPayload);
+
+        if (sourcesError) throw sourcesError;
+      }
+
+      toast.success("Programa creado correctamente");
+      setIsGiraModalOpen(false);
+      refreshData();
+      setSelectedSources([]); // Limpiamos para la próxima
+    } catch (error) {
+      toast.error("Error al crear: " + error.message);
+    }
+  };
   // UI States
   const [activeTab, setActiveTab] = useState("ensayos");
   const [showOverlapOptions, setShowOverlapOptions] = useState(false);
@@ -773,15 +838,19 @@ export default function EnsembleCoordinatorView({ supabase }) {
           })),
         );
 
+        const { data: globalEnsembles } = await supabase
+          .from("ensambles")
+          .select("id, ensamble, descripcion")
+          .order("ensamble");
+
+        setAllEnsembles(globalEnsembles || []);
+
         let ensemblesToManage = [];
         if (isSuperUser) {
-          const { data } = await supabase
-            .from("ensambles")
-            .select("id, ensamble, descripcion")
-            .order("ensamble");
-          setAllEnsembles(data || []);
-          ensemblesToManage = data || [];
+          // Si es superusuario, puede gestionar todos los que acabamos de bajar
+          ensemblesToManage = globalEnsembles || [];
         } else {
+          // Si es coordinador, buscamos solo los que tiene asignados
           const { data: coordData } = await supabase
             .from("ensambles_coordinadores")
             .select(`id_ensamble, ensambles ( id, ensamble, descripcion )`)
@@ -1402,6 +1471,15 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   >
                     <IconFilter size={14} /> Selección Inteligente
                   </button>
+                  {/* BOTÓN CREAR PROGRAMA DE ENSAMBLE */}
+                  <button
+                    onClick={() => setIsGiraModalOpen(true)}
+                    className="bg-white border border-indigo-200 text-indigo-700 px-3 py-1.5 rounded shadow-sm text-xs font-bold flex gap-2 hover:bg-indigo-50 items-center transition-colors"
+                    title="Crear un nuevo programa o ciclo para el ensamble"
+                  >
+                    <IconMusic size={14} />
+                    <span className="hidden sm:inline">Nuevo Programa</span>
+                  </button>
                   <button
                     onClick={() => {
                       setShowMobileTools(false);
@@ -1425,7 +1503,16 @@ export default function EnsembleCoordinatorView({ supabase }) {
             </div>
 
             {/* BOTONES ESCRITORIO: TEXTO COMPLETO */}
+
             <div className="hidden md:flex gap-2">
+              <button
+                onClick={() => setIsGiraModalOpen(true)}
+                className="bg-white border border-indigo-200 text-indigo-700 px-3 py-1.5 rounded shadow-sm text-xs font-bold flex gap-2 hover:bg-indigo-50 items-center transition-colors"
+                title="Crear un nuevo programa o ciclo para el ensamble"
+              >
+                <IconMusic size={14} />
+                <span className="hidden sm:inline">Nuevo Programa</span>
+              </button>
               <button
                 onClick={() => setIsLocationModalOpen(true)}
                 className="bg-white border px-3 py-1.5 rounded shadow-sm text-xs font-bold flex gap-2 text-slate-700 hover:bg-slate-50"
@@ -2031,7 +2118,37 @@ export default function EnsembleCoordinatorView({ supabase }) {
           </div>
         </div>
       )}
-
+      {isGiraModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl p-4">
+            <GiraForm
+              supabase={supabase}
+              isNew={true}
+              formData={giraFormData}
+              setFormData={setGiraFormData}
+              onCancel={() => {
+                setIsGiraModalOpen(false);
+                setSelectedSources([]);
+              }}
+              onSave={handleSaveGira}
+              // PASAMOS LA LISTA COMPLETA DE ENSAMBLES
+              ensemblesList={allEnsembles.map((e) => ({
+                value: e.id,
+                label: e.ensamble,
+              }))}
+              allIntegrantes={membersOptions}
+              // PASAMOS EL ESTADO DE FUENTES PARA QUE SE PUEDAN SELECCIONAR VARIOS
+              selectedSources={selectedSources}
+              setSelectedSources={setSelectedSources}
+              // Props de seguridad para evitar errores
+              selectedStaff={[]}
+              setSelectedStaff={() => {}}
+              selectedLocations={new Set()}
+              setSelectedLocations={() => {}}
+            />
+          </div>
+        </div>
+      )}
       {/* MODAL VISTA RÁPIDA */}
       {viewingEvent && (
         <EventQuickView
