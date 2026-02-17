@@ -33,7 +33,7 @@ const EXCLUDED_ROLES = [
   "asistente",
   "iluminador",
   "sonido",
-  "acompañante"
+  "acompañante",
 ];
 
 // --- COMPONENTE MÓVIL OPTIMIZADO ---
@@ -187,10 +187,16 @@ const MobileSeatingTable = ({
                       const isMe = String(item.id_musico) === String(user.id);
                       const deskNum = Math.floor(idx / 2) + 1;
 
+                      // Lógica del separador: Cada índice impar es el segundo músico del atril
+                      const isEndOfDesk =
+                        idx % 2 === 1 && idx !== c.items.length - 1;
+
                       return (
                         <tr
                           key={item.id}
-                          className={isMe ? "bg-amber-50" : "bg-white"}
+                          className={`${isMe ? "bg-amber-50" : "bg-white"} ${
+                            isEndOfDesk ? "border-b-2 border-slate-300" : ""
+                          }`}
                         >
                           <td
                             className={`p-1 pl-4 sticky left-0 z-20 border-r border-slate-200 border-b border-slate-50 align-middle ${isMe ? "bg-amber-50" : "bg-white"}`}
@@ -199,8 +205,8 @@ const MobileSeatingTable = ({
                               <span
                                 className={`text-[10px] font-medium truncate ${isMe ? "text-amber-900 font-bold" : "text-slate-600"}`}
                               >
-                                {item.integrantes.apellido},{" "}
-                                {item.integrantes.nombre?.charAt(0)}.
+                                {item.integrantes?.apellido},{" "}
+                                {item.integrantes?.nombre?.charAt(0)}.
                               </span>
                               <span className="text-[8px] text-slate-400 mt-0.5">
                                 Atril {deskNum}
@@ -351,13 +357,21 @@ const ContainerInfoCell = ({ container, myStandInfo }) => {
             )}
             {container.items.map((item, idx) => {
               const standNum = Math.floor(idx / 2) + 1;
+
+              // Definimos si es el final del atril para poner el separador
+              const isEndOfDesk =
+                idx % 2 === 1 && idx !== container.items.length - 1;
+
               return (
                 <div
                   key={item.id}
-                  className="text-[9px] text-slate-700 truncate leading-tight py-0.5 flex justify-between"
+                  className={`text-[9px] text-slate-700 truncate leading-tight py-1 flex justify-between px-1 ${
+                    isEndOfDesk ? "border-b border-slate-300 mb-2" : ""
+                  }`}
                 >
                   <span>
-                    {item.integrantes?.apellido}, {item.integrantes?.nombre}
+                    {item.integrantes?.apellido},{" "}
+                    {item.integrantes?.nombre?.charAt(0)}.
                   </span>
                   <span className="text-slate-400 text-[8px] ml-1">
                     Atril {standNum}
@@ -576,11 +590,29 @@ export default function ProgramSeating({
           conts.map((c) => c.id),
         )
         .order("orden");
+
+      // --- FILTRADO DE AUSENTES EN CONTENEDORES ---
+      // Obtenemos los IDs de músicos que están ausentes en el rawRoster actual
+      const absentIds = new Set(
+        rawRoster
+          .filter((m) => m.estado_gira === "ausente")
+          .map((m) => String(m.id)),
+      );
+
       setContainers(
-        conts.map((c) => ({
-          ...c,
-          items: items?.filter((i) => i.id_contenedor === c.id) || [],
-        })),
+        conts.map((c) => {
+          const containerItems =
+            items?.filter((i) => i.id_contenedor === c.id) || [];
+          // Solo dejamos los ítems de músicos que NO están ausentes
+          const presentItems = containerItems.filter(
+            (item) => !absentIds.has(String(item.id_musico)),
+          );
+
+          return {
+            ...c,
+            items: presentItems,
+          };
+        }),
       );
     }
   };
@@ -739,24 +771,19 @@ export default function ProgramSeating({
 
     // DB Sync
     if (targetType === "C") {
-      await supabase
-        .from("seating_asignaciones")
-        .delete()
-        .match({
-          id_programa: program.id,
-          id_contenedor: targetId,
-          id_obra: obraId,
-        });
+      await supabase.from("seating_asignaciones").delete().match({
+        id_programa: program.id,
+        id_contenedor: targetId,
+        id_obra: obraId,
+      });
       if (particellaId)
-        await supabase
-          .from("seating_asignaciones")
-          .insert({
-            id_programa: program.id,
-            id_obra: obraId,
-            id_particella: particellaId,
-            id_contenedor: targetId,
-            id_musicos_asignados: null,
-          });
+        await supabase.from("seating_asignaciones").insert({
+          id_programa: program.id,
+          id_obra: obraId,
+          id_particella: particellaId,
+          id_contenedor: targetId,
+          id_musicos_asignados: null,
+        });
     } else {
       const { data: existing } = await supabase
         .from("seating_asignaciones")
@@ -798,14 +825,12 @@ export default function ProgramSeating({
           );
         } else {
           updates.push(
-            supabase
-              .from("seating_asignaciones")
-              .insert({
-                id_programa: program.id,
-                id_obra: obraId,
-                id_particella: particellaId,
-                id_musicos_asignados: [targetId],
-              }),
+            supabase.from("seating_asignaciones").insert({
+              id_programa: program.id,
+              id_obra: obraId,
+              id_particella: particellaId,
+              id_musicos_asignados: [targetId],
+            }),
           );
         }
       }

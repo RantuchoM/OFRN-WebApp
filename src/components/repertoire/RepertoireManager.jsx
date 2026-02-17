@@ -15,7 +15,7 @@ import {
   IconYoutube,
   IconDrive,
   IconEyeOff,
-  IconSettings
+  IconSettings,
 } from "../ui/Icons";
 import { formatSecondsToTime } from "../../utils/time";
 import {
@@ -277,10 +277,17 @@ export default function RepertoireManager({
     items?.forEach((item) => {
       if (item.id_musico) {
         const container = containers.find((c) => c.id === item.id_contenedor);
+
+        // Cálculo de la parte numérica: 0 y 1 -> 1, 2 y 3 -> 2, etc.
+        const deskNumber = Math.floor((item.orden || 0) / 2) + 1;
+
+        // Identificador de asiento: Par -> 'a', Impar -> 'b'
+        const deskSuffix = (item.orden || 0) % 2 === 0 ? "a" : "b";
+
         newMap[String(item.id_musico)] = {
           containerId: item.id_contenedor,
           containerName: container?.nombre,
-          desk: Math.floor(item.orden || 0) + 1,
+          desk: `${deskNumber}${deskSuffix}`, // Resultado: "1a", "1b", etc.
         };
       }
     });
