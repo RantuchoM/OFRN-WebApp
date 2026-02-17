@@ -3,6 +3,12 @@ import autoTable from 'jspdf-autotable';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 
+// Función para eliminar etiquetas HTML (b, i, u, etc.)
+const stripHtml = (html) => {
+    if (!html) return '';
+    return html.replace(/<[^>]*>?/gm, '');
+};
+
 export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = "", hideGiraColumn = false) => {
   const doc = new jsPDF();
   let cursorY = 15; 
@@ -106,8 +112,9 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
         tipo: typeName,
         transportChip: transportName, 
         transportColor: transportColor,
-        desc: evt.descripcion || evt.tipos_evento?.nombre || '',
+        desc: stripHtml(evt.descripcion || evt.tipos_evento?.nombre || ''),
         locacion: evt.locaciones?.nombre || '-',
+        direccion: evt.locaciones?.direccion || '', // Guardamos la dirección
         localidad: evt.locaciones?.localidades?.localidad || '-',
         raw: evt 
     };
@@ -154,7 +161,7 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
       hasta: { cellWidth: 14, halign: 'center', fontSize: 7, textColor: 80 },
       tipo: { cellWidth: 20, fontSize: 7, halign: 'center' }, 
       desc: { cellWidth: 'auto' }, 
-      locacion: { cellWidth: 35 }, 
+      locacion: { cellWidth: 35, fontSize: 7 }, // Reducimos un punto el tamaño para dar espacio a la dirección
       localidad: { cellWidth: 25 },
       gira: { cellWidth: 20, fontSize: 7, textColor: 100 }
     },
@@ -180,6 +187,11 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
             data.cell.styles.cellPadding = { top: 2.5, right: 1, bottom: 2.5, left: 3 };
         }
 
+        // Si la locación tiene dirección, aumentamos la altura de la celda para que quepa todo
+        if (data.section === 'body' && data.column.dataKey === 'locacion' && data.row.raw.direccion) {
+            data.cell.styles.minCellHeight = 12; 
+        }
+
         // CALCULO DE ALTURA DINÁMICA (Para asegurar que el chip quepa)
         if (data.section === 'body' && data.column.dataKey === 'tipo' && data.row.raw.transportChip) {
              const text = data.row.raw.transportChip;
@@ -198,7 +210,7 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
         }
     },
     
-    // 2. DIBUJO MANUAL (CHIP & BARRA COLOR)
+    // 2. DIBUJO MANUAL (CHIP, BARRA COLOR Y DIRECCIÓN)
     didDrawCell: function(data) {
         if (data.section !== 'body' || !data.row.raw.raw) return;
 
@@ -221,18 +233,14 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
             doc.setFontSize(chipConfig.fontSize);
             doc.setFont(undefined, 'bold');
             
-            // Dividir texto
             const textLines = doc.splitTextToSize(chipText, chipConfig.maxWidth);
             
-            // Calcular ancho máximo
             let maxLineWidth = 0;
             textLines.forEach(line => {
                 const w = doc.getTextWidth(line);
                 if (w > maxLineWidth) maxLineWidth = w;
             });
 
-            // Alturas reales en mm
-            // 1 punto = 0.3527 mm. Usamos esto para el cálculo de baseline preciso.
             const ptToMm = 0.3527; 
             const fontHeightMm = chipConfig.fontSize * ptToMm; 
 
@@ -240,48 +248,44 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
             const rectWidth = maxLineWidth + (chipConfig.hPadding * 2);
             const rectHeight = textBlockHeight + (chipConfig.vPadding * 2);
 
-            // Coordenadas del Rectángulo (Centrado)
-            // +1.5 en X es para no tapar la barra de color lateral
             const xPos = data.cell.x + 1.5 + (data.cell.width - 1.5 - rectWidth) / 2;
             const yPos = data.cell.y + (data.cell.height - rectHeight) / 2;
 
-            // 1. Dibujar Borde
             doc.setDrawColor(chipColor);
             doc.setLineWidth(0.25); 
             doc.roundedRect(xPos, yPos, rectWidth, rectHeight, 1.5, 1.5, 'D'); 
 
-            // 2. Dibujar Texto
             doc.setTextColor(0, 0, 0);
             
-            // CÁLCULO DE ALINEACIÓN VERTICAL CORREGIDO
-            // Para centrar visualmente, el 'top' de la primera línea debe estar separado del 'top' del rect
-            // por la misma distancia que el 'bottom' de la última línea del 'bottom' del rect.
-            
-            // El espacio total vertical disponible es rectHeight.
-            // El espacio ocupado por el texto es textBlockHeight.
-            // Margen superior interno = (rectHeight - textBlockHeight) / 2.
-            
-            // La función doc.text(x, y) dibuja sobre la BASELINE.
-            // La baseline está aproximadamente a (FontSize * 0.75) hacia abajo desde el Top de la letra.
-            
             const internalTopMargin = (rectHeight - textBlockHeight) / 2;
-            
-            // Queremos que el TOP de la primera línea esté en yPos + internalTopMargin.
-            // Por lo tanto, su BASELINE debe estar en:
-            // yPos + internalTopMargin + (fontHeightMm * 0.75)
-            // Agregamos un pequeño offset para compensar el interlineado visual
-            
             const baselineOffset = fontHeightMm * 0.75; 
             
-            // Cálculo de la Y inicial (para la primera línea)
-            let currentTextY = yPos + internalTopMargin + baselineOffset + 0.3; // +0.3mm ajuste visual hacia abajo
+            let currentTextY = yPos + internalTopMargin + baselineOffset + 0.3;
 
             textLines.forEach(line => {
                 const lineWidth = doc.getTextWidth(line);
-                const lineX = xPos + (rectWidth - lineWidth) / 2; // Centrado Horizontal
+                const lineX = xPos + (rectWidth - lineWidth) / 2; 
                 
                 doc.text(line, lineX, currentTextY);
                 currentTextY += chipConfig.lineHeight;
+            });
+        }
+
+        // C. Dirección de la Locación (Insertada debajo del nombre con cálculo dinámico)
+        if (data.column.dataKey === 'locacion' && rowRaw.direccion) {
+            doc.setFontSize(5.5);    // Tamaño más pequeño
+            doc.setTextColor(130);   // Color atenuado (gris)
+            doc.setFont(undefined, 'italic');
+            
+            // Calculamos cuántas líneas ocupa el nombre para determinar la posición Y de la dirección
+            const nameText = rowRaw.locacion || '';
+            const wrappedName = doc.splitTextToSize(nameText, data.cell.width - 5);
+            
+            // Si el nombre ocupa más de una línea, bajamos más la dirección
+            const lineOffset = wrappedName.length > 1 ? 9.5 : 8.5;
+
+            doc.text(rowRaw.direccion, data.cell.x + 2.5, data.cell.y + lineOffset, {
+                maxWidth: data.cell.width - 4
             });
         }
     }

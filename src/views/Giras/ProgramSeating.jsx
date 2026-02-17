@@ -366,7 +366,7 @@ const ContainerInfoCell = ({ container, myStandInfo }) => {
                 <div
                   key={item.id}
                   className={`text-[9px] text-slate-700 truncate leading-tight py-1 flex justify-between px-1 ${
-                    isEndOfDesk ? "border-b border-slate-300 mb-2" : ""
+                    isEndOfDesk ? "border-b border-slate-200 mb-2" : ""
                   }`}
                 >
                   <span>
