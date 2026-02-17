@@ -240,7 +240,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
         );
 
         sortedWorks.forEach((item) => {
-          if (item.excluir || !item.obras) return;
+          if (!item.obras) return;
           const obra = item.obras;
 
           // Triangulación
