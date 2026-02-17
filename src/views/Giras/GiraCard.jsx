@@ -9,12 +9,17 @@ import {
   IconUtensils,
   IconMusic,
   IconChevronDown,
+  IconHotel,
+  IconX,
+  IconUsers,
+  IconClock,
 } from "../../components/ui/Icons";
 import CommentButton from "../../components/comments/CommentButton";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import GiraActionMenu from "./GiraActionMenu";
 import { getProgramStyle, checkIsConvoked } from "../../utils/giraUtils";
-
+import { getMyRoomingStatus } from "../../services/giraService";
+import { createPortal } from "react-dom";
 const formatDateRangeBig = (start, end) => {
   if (!start) return null;
   try {
@@ -62,12 +67,37 @@ export default function GiraCard({
   const [currentSlide, setCurrentSlide] = useState(0);
   const scrollRef = useRef(null);
 
+  // --- ESTADOS PARA MI ROOMING ---
+  const [myRooming, setMyRooming] = useState(null);
+  const [showRoomingModal, setShowRoomingModal] = useState(false);
+  const [loadingRooming, setLoadingRooming] = useState(false);
+
   // --- LÓGICA DE ROLES PARA UI ---
   const normalizedRole = userRole?.toLowerCase().trim();
   const isDifusionRole = normalizedRole === "difusion";
-
-  // Ocultamos accesos rápidos si es Difusión o si es Editor
   const showQuickAccessSidebar = !isEditor && !isDifusionRole;
+
+  const handleOpenMyRooming = async () => {
+    // 1. Usamos el objeto 'user' que viene de useAuth()
+    // Este objeto ya tiene el ID numérico de la tabla 'integrantes'
+    if (!user?.id) {
+      console.error("No hay un usuario identificado en el contexto");
+      return;
+    }
+
+    setLoadingRooming(true);
+    setShowRoomingModal(true);
+
+    try {
+      // 2. Pasamos user.id (el número) al servicio
+      const data = await getMyRoomingStatus(supabase, gira.id, user.id);
+      setMyRooming(data);
+    } catch (error) {
+      console.error("Error al obtener rooming:", error);
+    } finally {
+      setLoadingRooming(false);
+    }
+  };
 
   const handleViewChange = (mode, tab) => {
     setActiveMenuId(null);
@@ -293,7 +323,9 @@ export default function GiraCard({
         </div>
         <div
           className="text-[10px] text-center opacity-60 mt-1 pt-1 border-t border-black/5 cursor-pointer"
-          onClick={() => updateView(isDifusion? "DIFUSION": "AGENDA", gira.id)}
+          onClick={() =>
+            updateView(isDifusion ? "DIFUSION" : "AGENDA", gira.id)
+          }
         >
           Ver Agenda Completa
         </div>
@@ -437,13 +469,13 @@ export default function GiraCard({
               onClick={() => updateView("AGENDA", gira.id)}
               className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-fixed-indigo-600 transition-colors"
             >
-              <IconCalendar size={18} />
+              <IconCalendar size={14} />
             </button>
             <button
               onClick={() => updateView("REPERTOIRE", gira.id, "my_parts")}
               className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-fuchsia-600 transition-colors"
             >
-              <IconMusic size={18} />
+              <IconMusic size={14} />
             </button>
             <button
               onClick={() =>
@@ -455,13 +487,24 @@ export default function GiraCard({
               }
               className={`p-2 rounded-full transition-colors ${gira.google_drive_folder_id ? "text-slate-500 hover:bg-white hover:text-green-600" : "text-slate-300 cursor-not-allowed"}`}
             >
-              <IconDrive size={18} />
+              <IconDrive size={14} />
             </button>
             <button
               onClick={() => updateView("MEALS_PERSONAL", gira.id)}
               className={`p-2 rounded-full transition-colors hover:bg-white ${mealConfig.color} ${mealConfig.animate ? "animate-pulse" : ""}`}
             >
-              <IconUtensils size={18} />
+              <IconUtensils size={14} />
+            </button>
+            {/* NUEVO BOTÓN DE HOTEL EN MÓVIL */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleOpenMyRooming();
+              }}
+              className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-indigo-600 transition-colors"
+              title="Mi Rooming"
+            >
+              <IconHotel size={14} />
             </button>
           </div>
         ) : (
@@ -469,7 +512,6 @@ export default function GiraCard({
             <div
               className="order-1 relative z-[100] pointer-events-auto"
               onClick={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
             >
               <GiraActionMenu
                 gira={gira}
@@ -485,6 +527,7 @@ export default function GiraCard({
                 onClose={() => setActiveMenuId(null)}
                 onMove={() => onMove(gira)}
                 onDuplicate={() => onDuplicate(gira)}
+                onMyRooming={handleOpenMyRooming}
               />
             </div>
           </div>
@@ -601,7 +644,6 @@ export default function GiraCard({
             ))}
           </div>
 
-          {/* BOTÓN COMENTARIOS MÓVIL: Oculto si es Difusión */}
           {!showQuickAccessSidebar && !isDifusionRole && (
             <div className="absolute bottom-2 right-2 z-30">
               <CommentButton
@@ -621,7 +663,6 @@ export default function GiraCard({
           )}
         </div>
       </div>
-
       {/* VISTA ESCRITORIO */}
       <div className="hidden md:block p-3 pl-4 relative">
         <div className="flex gap-4 items-start pr-10">
@@ -644,7 +685,9 @@ export default function GiraCard({
           </div>
           <div
             className="cursor-pointer flex-1 min-w-0 pt-0.5"
-            onClick={() => updateView(isDifusion? "DIFUSION": "AGENDA", gira.id)}
+            onClick={() =>
+              updateView(isDifusion ? "DIFUSION" : "AGENDA", gira.id)
+            }
           >
             <div className="flex flex-wrap items-center gap-2 text-xs opacity-70 mb-1">
               <span className="font-black uppercase tracking-wide text-[10px]">
@@ -711,10 +754,10 @@ export default function GiraCard({
               onClose={() => setActiveMenuId(null)}
               onMove={() => onMove(gira)}
               onDuplicate={() => onDuplicate(gira)}
+              onMyRooming={handleOpenMyRooming}
             />
           </div>
 
-          {/* ACCESOS RÁPIDOS ESCRITORIO: Ocultos si es Difusión */}
           {!isDifusionRole && (
             <>
               {showQuickAccessSidebar ? (
@@ -823,6 +866,111 @@ export default function GiraCard({
           )}
         </div>
       </div>
+      {/* MODAL MI ROOMING */}
+      {showRoomingModal &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={() => setShowRoomingModal(false)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-fixed-indigo-600 p-4 text-white flex justify-between items-center">
+                <h3 className="font-bold flex items-center gap-2">
+                  <IconHotel size={18} /> Mi Alojamiento
+                </h3>
+                <button
+                  onClick={() => setShowRoomingModal(false)}
+                  className="hover:rotate-90 transition-transform"
+                >
+                  <IconX size={20} />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {loadingRooming ? (
+                  <div className="py-10 text-center text-slate-400 animate-pulse">
+                    Consultando asignación...
+                  </div>
+                ) : myRooming ? (
+                  <>
+                    <div>
+                      <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider">
+                        Hotel
+                      </label>
+                      <div className="text-lg font-bold text-slate-800">
+                        {myRooming.hotel}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 py-3 border-y border-slate-100">
+                      <div>
+                        <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1">
+                          <IconClock size={10} /> Check-In
+                        </label>
+                        <div className="font-semibold text-slate-700 font-mono">
+                          14:00 hs
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1">
+                          <IconClock size={10} /> Check-Out
+                        </label>
+                        <div className="font-semibold text-slate-700 font-mono">
+                          10:00 hs
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1 mb-2">
+                        <IconUsers size={12} /> Compañeros/as en habitación
+                      </label>
+                      <div className="space-y-1.5">
+                        {myRooming.mates.length > 0 ? (
+                          myRooming.mates.map((m, i) => (
+                            <div
+                              key={i}
+                              className="bg-slate-50 px-3 py-2.5 rounded-xl text-sm text-slate-700 border border-slate-100 flex items-center gap-2"
+                            >
+                              <div className="w-1.5 h-1.5 rounded-full bg-fixed-indigo-400"></div>
+                              <span className="font-medium">{m.apellido}</span>,{" "}
+                              {m.nombre}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-sm italic text-slate-400 bg-slate-50 p-3 rounded-xl border border-dashed text-center">
+                            Habitación individual
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="py-8 text-center px-4">
+                    <div className="text-slate-300 mb-2">
+                      <IconHotel size={40} className="mx-auto" />
+                    </div>
+                    <p className="text-slate-500 text-sm italic">
+                      No tienes una habitación asignada en este programa
+                      todavía.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() => setShowRoomingModal(false)}
+                className="w-full py-4 bg-slate-50 text-slate-500 font-bold text-sm hover:bg-slate-100 transition-colors border-t border-slate-100"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
       {showRepertoireInCards && (
         <div className="border-t border-black/5 bg-white/40 p-2 relative z-20">
           <div className="animate-in slide-in-from-top-2">

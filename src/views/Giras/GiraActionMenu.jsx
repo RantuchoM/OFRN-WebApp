@@ -34,6 +34,7 @@ const GiraActionMenu = ({
   isOpen,
   onToggle,
   onClose,
+  onMyRooming,
 }) => {
   const [expandedCategory, setExpandedCategory] = useState(null);
   const menuRef = useRef(null);
@@ -170,6 +171,13 @@ const GiraActionMenu = ({
                 icon={IconCalendar}
                 label="Agenda Detallada"
                 onClick={() => onViewChange("AGENDA")}
+              />
+              {/* INSERTAR AQUÍ */}
+              <SubMenuItem
+                icon={IconHotel}
+                label="Mi Rooming"
+                onClick={onMyRooming}
+                className="text-indigo-600 font-medium"
               />
             </CategoryItem>
 

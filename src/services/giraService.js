@@ -12,51 +12,54 @@ const resolveGiraRosterIds = async (supabase, giraId) => {
   try {
     // A. Traemos configuración de fuentes y overrides
     const [fuentesRes, overridesRes] = await Promise.all([
-      supabase.from('giras_fuentes').select('*').eq('id_gira', giraId),
-      supabase.from('giras_integrantes').select('id_integrante, estado').eq('id_gira', giraId)
+      supabase.from("giras_fuentes").select("*").eq("id_gira", giraId),
+      supabase
+        .from("giras_integrantes")
+        .select("id_integrante, estado")
+        .eq("id_gira", giraId),
     ]);
 
     const fuentes = fuentesRes.data || [];
     const overrides = overridesRes.data || [];
-    
+
     let integrantesIds = new Set();
 
     // B. Resolver fuentes dinámicas
     // Por Ensamble
     const ensambleIds = fuentes
-      .filter(f => f.tipo === 'ENSAMBLE')
-      .map(f => f.valor_id);
-      
+      .filter((f) => f.tipo === "ENSAMBLE")
+      .map((f) => f.valor_id);
+
     if (ensambleIds.length > 0) {
       const { data: ensambleMembers } = await supabase
-        .from('integrantes_ensambles')
-        .select('id_integrante')
-        .in('id_ensamble', ensambleIds);
-      
-      ensambleMembers?.forEach(i => integrantesIds.add(i.id_integrante));
+        .from("integrantes_ensambles")
+        .select("id_integrante")
+        .in("id_ensamble", ensambleIds);
+
+      ensambleMembers?.forEach((i) => integrantesIds.add(i.id_integrante));
     }
 
     // Por Familia de Instrumento
     const familias = fuentes
-      .filter(f => f.tipo === 'FAMILIA')
-      .map(f => f.valor_texto);
-      
+      .filter((f) => f.tipo === "FAMILIA")
+      .map((f) => f.valor_texto);
+
     if (familias.length > 0) {
       // Nota: Ajusta 'instrumento_familia' si tu columna se llama diferente en la DB
       // o si requieres un join con la tabla instrumentos.
       // Asumimos que en la tabla integrantes existe esa columna o similar.
       const { data: familiaMembers } = await supabase
-        .from('integrantes')
-        .select('id')
-        .in('instrumento_familia', familias); 
-        
-      familiaMembers?.forEach(i => integrantesIds.add(i.id));
+        .from("integrantes")
+        .select("id")
+        .in("instrumento_familia", familias);
+
+      familiaMembers?.forEach((i) => integrantesIds.add(i.id));
     }
 
     // C. Procesar Overrides (giras_integrantes)
     // Agregamos a los que están forzados manualmente (Staff, invitados, o correcciones)
-    overrides.forEach(o => {
-      if (o.estado !== 'ausente') {
+    overrides.forEach((o) => {
+      if (o.estado !== "ausente") {
         integrantesIds.add(o.id_integrante);
       }
     });
@@ -64,12 +67,13 @@ const resolveGiraRosterIds = async (supabase, giraId) => {
     // D. Aplicar Bajas/Ausentes
     // Si alguien está marcado como 'ausente' en giras_integrantes, lo sacamos.
     const ausentesIds = new Set(
-      overrides.filter(o => o.estado === 'ausente').map(o => o.id_integrante)
+      overrides
+        .filter((o) => o.estado === "ausente")
+        .map((o) => o.id_integrante),
     );
 
     // Convertimos a array filtrando los ausentes
-    return Array.from(integrantesIds).filter(id => !ausentesIds.has(id));
-
+    return Array.from(integrantesIds).filter((id) => !ausentesIds.has(id));
   } catch (error) {
     console.error("[GiraService] Error resolviendo roster IDs:", error);
     return [];
@@ -85,7 +89,7 @@ export const getEnrichedRosterOnDemand = async (supabase, giraId) => {
   try {
     // 1. Obtener la lista limpia de IDs de personas que viajan
     const finalRosterIds = await resolveGiraRosterIds(supabase, giraId);
-    
+
     if (!finalRosterIds || finalRosterIds.length === 0) return [];
 
     // 2. Traer datos en paralelo:
@@ -94,66 +98,153 @@ export const getEnrichedRosterOnDemand = async (supabase, giraId) => {
     //    - Transportes asignados en esta gira
     const [paxRes, hospedajesRes, transportesRes] = await Promise.all([
       supabase
-        .from('integrantes')
-        .select('*, localidades(localidad)')
-        .in('id', finalRosterIds),
-      
+        .from("integrantes")
+        .select("*, localidades(localidad)")
+        .in("id", finalRosterIds),
+
       supabase
-        .from('programas_hospedajes')
-        .select('id, hospedaje_habitaciones(*)')
-        .eq('id_programa', giraId),
-        
+        .from("programas_hospedajes")
+        .select("id, hospedaje_habitaciones(*)")
+        .eq("id_programa", giraId),
+
       supabase
-        .from('giras_transportes')
-        .select('id, pasajeros_ids')
-        .eq('id_gira', giraId)
+        .from("giras_transportes")
+        .select("id, pasajeros_ids")
+        .eq("id_gira", giraId),
     ]);
 
     const fullRoster = paxRes.data || [];
-    
+
     // Aplanamos todas las habitaciones de todos los hoteles de la gira
     // (hospedaje_habitaciones viene anidado dentro de cada hospedaje)
-    const allRooms = hospedajesRes.data?.flatMap(h => h.hospedaje_habitaciones || []) || [];
+    const allRooms =
+      hospedajesRes.data?.flatMap((h) => h.hospedaje_habitaciones || []) || [];
     const allTransports = transportesRes.data || [];
 
     // 3. Cruzar datos (Enriquecer)
-    return fullRoster.map(pax => {
+    return fullRoster.map((pax) => {
       // Buscar si tiene habitación (el ID del integrante está en el array de asignados)
-      const habitacion = allRooms.find(r => 
-        r.id_integrantes_asignados?.includes(pax.id)
-      ) || null;
+      const habitacion =
+        allRooms.find((r) => r.id_integrantes_asignados?.includes(pax.id)) ||
+        null;
 
       // Buscar si tiene transporte
-      const transporte = allTransports.find(t => 
-        t.pasajeros_ids?.includes(pax.id)
-      ) || null;
+      const transporte =
+        allTransports.find((t) => t.pasajeros_ids?.includes(pax.id)) || null;
 
       return {
         ...pax,
         habitacion,
         transporte,
         // Inyectamos estado 'confirmado' para que el filtro del calculator lo tome como activo
-        estado_gira: 'confirmado' 
+        estado_gira: "confirmado",
       };
     });
-
   } catch (error) {
     console.error("[GiraService] Error en enrichedRoster on demand:", error);
     return [];
   }
 };
-export const syncBowingToProgram = async (supabase, { programId, obraId, obraTitulo, nombreSet, targetDriveId }) => {
-  const { data, error } = await supabase.functions.invoke('manage-drive', {
+export const syncBowingToProgram = async (
+  supabase,
+  { programId, obraId, obraTitulo, nombreSet, targetDriveId },
+) => {
+  const { data, error } = await supabase.functions.invoke("manage-drive", {
     body: {
       action: "sync_bowing_to_program",
       programId,
       obraId, // <--- AÑADIR ESTO
       obraTitulo,
       nombreSet,
-      targetDriveId
-    }
+      targetDriveId,
+    },
   });
 
   if (error) throw error;
   return data;
+};
+/**
+ * Obtiene la información de habitación de un integrante específico para una gira.
+ */
+// src/services/giraService.js
+
+// src/services/giraService.js
+
+/**
+ * Obtiene la información de habitación de un integrante específico para una gira.
+ * Resuelve nombres de integrantes generales y filtra ausentes.
+ */
+export const getMyRoomingStatus = async (supabase, giraId, userId) => {
+  try {
+    const numericUserId = parseInt(userId);
+
+    // 1. Obtener todos los alojamientos de la gira
+    const { data: bookings, error } = await supabase
+      .from('programas_hospedajes')
+      .select(`
+        id,
+        hoteles (nombre),
+        hospedaje_habitaciones (
+          id,
+          id_integrantes_asignados,
+          tipo,
+          es_matrimonial
+        )
+      `)
+      .eq('id_programa', giraId);
+
+    if (error) throw error;
+    if (!bookings) return null;
+
+    let myBooking = null;
+    let myRoom = null;
+
+    // 2. Encontrar la habitación del usuario
+    for (const b of bookings) {
+      const foundRoom = b.hospedaje_habitaciones?.find(r => 
+        r.id_integrantes_asignados?.includes(numericUserId)
+      );
+      if (foundRoom) {
+        myBooking = b;
+        myRoom = foundRoom;
+        break;
+      }
+    }
+
+    if (!myRoom) return null;
+
+    // 3. Obtener nombres de los compañeros y filtrar ausentes
+    const mateIds = myRoom.id_integrantes_asignados.filter(id => id !== numericUserId);
+    
+    let mates = [];
+    if (mateIds.length > 0) {
+      // Traemos los nombres de la tabla maestra de integrantes
+      const { data: matesData } = await supabase
+        .from('integrantes')
+        .select('id, nombre, apellido')
+        .in('id', mateIds);
+
+      // Consultamos quiénes están marcados como ausentes en esta gira puntual
+      const { data: ausentes } = await supabase
+        .from('giras_integrantes')
+        .select('id_integrante')
+        .eq('id_gira', giraId)
+        .in('id_integrante', mateIds)
+        .eq('estado', 'ausente');
+
+      const ausentesSet = new Set(ausentes?.map(a => a.id_integrante) || []);
+      
+      // Filtramos la lista final
+      mates = (matesData || []).filter(m => !ausentesSet.has(m.id));
+    }
+
+    return {
+      hotel: myBooking.hoteles?.nombre || "Sin nombre asignado",
+      room: myRoom,
+      mates: mates
+    };
+  } catch (error) {
+    console.error("[GiraService] Error en getMyRoomingStatus:", error);
+    return null;
+  }
 };
