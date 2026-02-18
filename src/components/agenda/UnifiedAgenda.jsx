@@ -71,54 +71,20 @@ function useOutsideAlerter(ref, callback) {
 
 // --- COMPONENTE: Badge de Feriado Interactivo ---
 const FeriadoBadge = ({ feriado }) => {
-  const [showTooltip, setShowTooltip] = useState(false);
-  const badgeRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (badgeRef.current && !badgeRef.current.contains(event.target)) {
-        setShowTooltip(false);
-      }
-    };
-    if (showTooltip) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showTooltip]);
-
   if (!feriado) return null;
 
   const isFeriado = feriado.es_feriado;
   const colorClass = isFeriado ? "text-red-600" : "text-yellow-600";
-  const bgClass = isFeriado ? "bg-red-50 border-red-200" : "bg-yellow-50 border-yellow-200";
-  const textColor = isFeriado ? "text-red-700" : "text-yellow-700";
 
   return (
-    <div className="relative" ref={badgeRef}>
+    <div className="ml-1">
       <button
         type="button"
-        onClick={() => setShowTooltip(!showTooltip)}
-        onMouseEnter={() => setShowTooltip(true)}
-        className={`ml-1 cursor-pointer hover:scale-110 transition-transform ${colorClass}`}
+        className={`cursor-pointer hover:scale-110 transition-transform ${colorClass}`}
         title={`⚠️ ${isFeriado ? "Feriado" : "Día no laborable"}: ${feriado.detalle}`}
       >
         <IconAlertTriangle size={14} />
       </button>
-      {showTooltip && (
-        <div
-          className={`absolute top-full left-0 mt-1 z-50 px-2 py-1.5 rounded-lg border shadow-lg text-xs font-medium whitespace-nowrap ${bgClass} ${textColor} animate-in fade-in zoom-in-95 duration-150`}
-          style={{ minWidth: "180px" }}
-          onMouseLeave={() => setShowTooltip(false)}
-        >
-          <div className="flex items-center gap-1.5">
-            <IconAlertTriangle size={12} />
-            <span className="font-bold uppercase text-[10px]">
-              {isFeriado ? "Feriado" : "No Laborable"}
-            </span>
-          </div>
-          <div className="mt-1 text-[11px] font-normal">{feriado.detalle}</div>
-        </div>
-      )}
     </div>
   );
 };
