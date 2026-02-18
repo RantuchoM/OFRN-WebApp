@@ -77,6 +77,66 @@ function useOutsideAlerter(ref, callback) {
   }, [ref, callback]);
 }
 
+// --- HELPER: Buscar feriado por fecha ---
+const findFeriado = (fechaStr, feriadosList) => {
+  if (!fechaStr || !feriadosList?.length) return null;
+  return feriadosList.find((f) => f.fecha === fechaStr) || null;
+};
+
+// --- COMPONENTE: Badge de Feriado Interactivo ---
+const FeriadoBadge = ({ feriado }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const badgeRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (badgeRef.current && !badgeRef.current.contains(event.target)) {
+        setShowTooltip(false);
+      }
+    };
+    if (showTooltip) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showTooltip]);
+
+  if (!feriado) return null;
+
+  const isFeriado = feriado.es_feriado;
+  const colorClass = isFeriado ? "text-red-600" : "text-yellow-600";
+  const bgClass = isFeriado ? "bg-red-50 border-red-200" : "bg-yellow-50 border-yellow-200";
+  const textColor = isFeriado ? "text-red-700" : "text-yellow-700";
+
+  return (
+    <div className="relative" ref={badgeRef}>
+      <button
+        type="button"
+        onClick={() => setShowTooltip(!showTooltip)}
+        onMouseEnter={() => setShowTooltip(true)}
+        className={`cursor-pointer hover:scale-110 transition-transform ${colorClass}`}
+        title={`⚠️ ${isFeriado ? "Feriado" : "Día no laborable"}: ${feriado.detalle}`}
+      >
+        <IconAlertTriangle size={14} />
+      </button>
+      {showTooltip && (
+        <div
+          className={`absolute top-full right-0 mt-1 z-50 px-2 py-1.5 rounded-lg border shadow-lg text-xs font-medium whitespace-nowrap ${bgClass} ${textColor} animate-in fade-in zoom-in-95 duration-150`}
+          style={{ minWidth: "180px" }}
+          onMouseLeave={() => setShowTooltip(false)}
+        >
+          <div className="flex items-center gap-1.5">
+            <IconAlertTriangle size={12} />
+            <span className="font-bold uppercase text-[10px]">
+              {isFeriado ? "Feriado" : "No Laborable"}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] font-normal">{feriado.detalle}</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // --- COMPONENTE TARJETA (LISTA) ---
 const RehearsalCardItem = ({
   evt,
@@ -86,8 +146,10 @@ const RehearsalCardItem = ({
   onDelete,
   isSelected,
   onSelect,
+  feriados = [],
 }) => {
   const { day, num, month } = formatDateBox(evt.fecha);
+  const feriado = findFeriado(evt.fecha, feriados);
 
   const isMyEvent = evt.isMyRehearsal;
   const isEditable = isMyEvent;
@@ -139,7 +201,7 @@ const RehearsalCardItem = ({
       className={`flex items-start p-2.5 border rounded-lg shadow-sm transition-all bg-white ${isSelected ? "border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/40" : "border-slate-200"} ${!isMyEvent ? "opacity-60 grayscale-[0.5] border-dashed" : ""}`}
     >
       {/* COLUMNA IZQUIERDA: CHECKBOX + FECHA */}
-      <div className="flex flex-col items-center gap-2 mr-3 shrink-0">
+      <div className="flex flex-col items-center gap-2 mr-3 shrink-0 relative">
         {isEditable && (
           <input
             type="checkbox"
@@ -160,6 +222,11 @@ const RehearsalCardItem = ({
             {month}
           </span>
         </div>
+        {feriado && (
+          <div className="absolute -top-1 -right-1">
+            <FeriadoBadge feriado={feriado} />
+          </div>
+        )}
       </div>
 
       <div
@@ -648,6 +715,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [memberMetadata, setMemberMetadata] = useState({});
   const [adminFilterIds, setAdminFilterIds] = useState([]);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [feriados, setFeriados] = useState([]);
   // Listas para Selectores
   const [locationsList, setLocationsList] = useState([]);
   const [eventTypesList, setEventTypesList] = useState([]);
@@ -793,7 +861,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
       try {
         const today = new Date().toISOString().split("T")[0];
 
-        const [cats, locs, types, mems, progsData] = await Promise.all([
+        const [cats, locs, types, mems, progsData, feriadosData] = await Promise.all([
           supabase
             .from("categorias_tipos_eventos")
             .select("id, nombre")
@@ -815,6 +883,10 @@ export default function EnsembleCoordinatorView({ supabase }) {
             .select("id, nombre_gira, fecha_desde, mes_letra, nomenclador")
             .gte("fecha_hasta", today)
             .order("fecha_desde", { ascending: true }),
+          supabase
+            .from("feriados")
+            .select("*")
+            .order("fecha", { ascending: true }),
         ]);
 
         setCategoryOptions(
@@ -837,6 +909,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
               : "",
           })),
         );
+        setFeriados(feriadosData.data || []);
 
         const { data: globalEnsembles } = await supabase
           .from("ensambles")
@@ -1438,17 +1511,19 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 </span>
               )}
             </h1>
-            <div className="flex gap-1 overflow-x-auto max-w-[200px] md:max-w-none no-scrollbar">
-              {activeEnsembles.map((e) => (
-                <span
-                  key={e.id}
-                  className="text-[10px] font-bold px-2 py-0.5 bg-white text-slate-600 rounded border border-slate-200 shadow-sm flex items-center gap-1 whitespace-nowrap"
-                >
-                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>{" "}
-                  {e.ensamble}
-                </span>
-              ))}
-            </div>
+            {!isSuperUser && (
+              <div className="flex gap-1 overflow-x-auto max-w-[200px] md:max-w-none no-scrollbar">
+                {activeEnsembles.map((e) => (
+                  <span
+                    key={e.id}
+                    className="text-[10px] font-bold px-2 py-0.5 bg-white text-slate-600 rounded border border-slate-200 shadow-sm flex items-center gap-1 whitespace-nowrap"
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>{" "}
+                    {e.ensamble}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2">
@@ -1811,6 +1886,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                         activeMembersSet={activeMembersSet}
                         supabase={supabase}
                         onEdit={handleEditRehearsal}
+                        feriados={feriados}
                         onDelete={handleDeleteRehearsal}
                         isSelected={selectedIds.includes(evt.id)}
                         onSelect={handleSelect}

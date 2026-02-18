@@ -13,6 +13,7 @@ import {
   IconLayout,
   IconTag,
   IconBuilding,
+  IconAlertTriangle,
 } from "../../components/ui/Icons";
 import SheetEditor from "./SheetEditor";
 
@@ -310,6 +311,24 @@ export default function DataView({ supabase }) {
         },
       ],
     },
+    feriados: {
+      label: "Feriados",
+      icon: IconAlertTriangle,
+      table: "feriados",
+      primaryKey: "fecha",
+      defaultSort: "fecha",
+      columns: [
+        { key: "fecha", label: "Fecha", type: "date" },
+        { key: "detalle", label: "Detalle", type: "text" },
+        {
+          key: "es_feriado",
+          label: "Es Feriado",
+          type: "checkbox",
+        },
+      ],
+      warning:
+        "📅 Nota: Los feriados aparecen como advertencia en la agenda. Si 'Es Feriado' está marcado, se muestra en rojo; si no, en amarillo (día no laborable).",
+    },
   };
 
   const currentConfig = tableConfigs[activeTab];
@@ -378,9 +397,10 @@ export default function DataView({ supabase }) {
             supabase={supabase}
             tableName={currentConfig.table}
             columns={currentConfig.columns}
+            primaryKey={currentConfig.primaryKey}
+            defaultSort={currentConfig.defaultSort}
             onDataChange={fetchCatalogos}
             onDirtyChange={setIsDirty}
-            // --- PASAMOS EL WARNING AQUÍ ---
             warningMessage={currentConfig.warning}
           />
         )}

@@ -134,7 +134,7 @@ const SearchableSelect = ({ value, options, onChange, onBlur, className }) => {
 };
 
 // --- SUB-COMPONENTE: CELDA EDITABLE ---
-const EditableCell = ({ row, col, onSave }) => {
+const EditableCell = ({ row, col, rowId, onSave }) => {
   const isDraft = String(row.id).startsWith("temp-");
   const initialValue = (col.key === 'id' && isDraft) ? (row._manual_id || "") : row[col.key];
 
@@ -156,7 +156,7 @@ const EditableCell = ({ row, col, onSave }) => {
     
     if (isDraft) {
         const targetKey = col.key === 'id' ? '_manual_id' : col.key;
-        onSave(row.id, targetKey, valToSave);
+        onSave(rowId, targetKey, valToSave);
         return;
     }
 
@@ -167,7 +167,7 @@ const EditableCell = ({ row, col, onSave }) => {
 
     // --- CAMBIO: Estado SAVING (Amarillo) ---
     setStatus("saving");
-    const success = await onSave(row.id, col.key, valToSave);
+    const success = await onSave(rowId, col.key, valToSave);
     if (success) {
       // --- CAMBIO: Estado SUCCESS (Verde) ---
       setStatus("success");
@@ -262,7 +262,7 @@ const EditableCell = ({ row, col, onSave }) => {
           setValue(e.target.value);
           if(isDraft) {
              const targetKey = col.key === 'id' ? '_manual_id' : col.key;
-             onSave(row.id, targetKey, e.target.value); 
+             onSave(rowId, targetKey, e.target.value); 
           }
       }}
       onFocus={() => setStatus("editing")}
@@ -279,20 +279,25 @@ export default function UniversalTable({
   supabase,
   tableName,
   columns,
-  defaultSort = "id",
+  defaultSort,
+  primaryKey = "id",
   onDataChange,
   onDirtyChange,
   warningMessage // <--- NUEVA PROP RECIBIDA
 }) {
+  const sortDefault = defaultSort ?? primaryKey;
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [sortConfig, setSortConfig] = useState({ key: defaultSort, direction: "asc" });
+  const [sortConfig, setSortConfig] = useState({ key: sortDefault, direction: "asc" });
   const [filters, setFilters] = useState({});
   const [isSavingNew, setIsSavingNew] = useState(false);
 
+  const getRowId = (row) =>
+    (row?.id != null && String(row.id).startsWith("temp-")) ? row.id : (row?.[primaryKey] ?? row?.id);
+
   const fetchData = async () => {
     setLoading(true);
-    const { data: rows, error } = await supabase.from(tableName).select("*").order('id', { ascending: true });
+    const { data: rows, error } = await supabase.from(tableName).select("*").order(primaryKey, { ascending: true });
     if (!error) setData(rows || []);
     setLoading(false);
   };
@@ -300,7 +305,8 @@ export default function UniversalTable({
   useEffect(() => {
     fetchData();
     setFilters({});
-  }, [tableName]);
+    setSortConfig((prev) => ({ ...prev, key: sortDefault }));
+  }, [tableName, primaryKey]);
 
   useEffect(() => {
     const hasDrafts = data.some(row => String(row.id).startsWith("temp-"));
@@ -337,12 +343,12 @@ export default function UniversalTable({
       const { error } = await supabase
         .from(tableName)
         .update({ [key]: cleanValue })
-        .eq("id", id);
+        .eq(primaryKey, id);
 
       if (error) throw error;
 
       setData((prev) =>
-        prev.map((row) => (row.id === id ? { ...row, [key]: cleanValue } : row))
+        prev.map((row) => (getRowId(row) === id ? { ...row, [key]: cleanValue } : row))
       );
       if (onDataChange) onDataChange();
       return true;
@@ -354,16 +360,19 @@ export default function UniversalTable({
 
   const handleCreate = () => {
     const tempId = `temp-${Date.now()}`;
-    const newRow = { id: tempId, _manual_id: "" }; 
-    
+    const newRow = { id: tempId, _manual_id: "" };
+    if (primaryKey !== "id") {
+      newRow[primaryKey] = null;
+    }
+
     columns.forEach((col) => {
-      if (col.key !== 'id') {
+      if (col.key !== "id" && col.key !== primaryKey) {
         if (col.defaultValue !== undefined) {
-            newRow[col.key] = col.defaultValue;
+          newRow[col.key] = col.defaultValue;
         } else if (col.type === "checkbox") {
-            newRow[col.key] = false; 
+          newRow[col.key] = false;
         } else {
-            newRow[col.key] = null;
+          newRow[col.key] = null;
         }
       }
     });
@@ -378,19 +387,20 @@ export default function UniversalTable({
         if(!rowToSave) return;
 
         const payload = {};
-        const hasIdCol = columns.some(c => c.key === 'id');
+        const hasIdCol = columns.some(c => c.key === "id");
 
         columns.forEach(col => {
-            if (col.key === 'id') {
-                payload['id'] = rowToSave._manual_id || null;
+            if (col.key === "id") {
+                payload.id = rowToSave._manual_id || null;
             } else {
                 const val = rowToSave[col.key];
                 payload[col.key] = val === "" ? null : val;
             }
         });
 
-        if (hasIdCol && !payload.id) {
-            alert("El campo ID es obligatorio.");
+        const pkRequired = primaryKey !== "id" ? payload[primaryKey] : (hasIdCol ? payload.id : true);
+        if (!pkRequired) {
+            alert(`El campo ${primaryKey} es obligatorio.`);
             setIsSavingNew(false);
             return;
         }
@@ -420,9 +430,9 @@ export default function UniversalTable({
     }
     if (!confirm("¿Eliminar este registro permanentemente?")) return;
     try {
-      const { error } = await supabase.from(tableName).delete().eq("id", id);
+      const { error } = await supabase.from(tableName).delete().eq(primaryKey, id);
       if (error) throw error;
-      setData((prev) => prev.filter((r) => r.id !== id));
+      setData((prev) => prev.filter((r) => getRowId(r) !== id));
       if (onDataChange) onDataChange();
     } catch (err) {
       alert("Error al eliminar: " + err.message);
@@ -450,8 +460,8 @@ export default function UniversalTable({
 
     if (sortConfig.key) {
       result.sort((a, b) => {
-        const isDraftA = String(a.id).startsWith("temp-");
-        const isDraftB = String(b.id).startsWith("temp-");
+        const isDraftA = String(a?.id).startsWith("temp-");
+        const isDraftB = String(b?.id).startsWith("temp-");
         if (isDraftA && !isDraftB) return -1;
         if (!isDraftA && isDraftB) return 1;
 
@@ -567,23 +577,24 @@ export default function UniversalTable({
 
           <tbody className="divide-y divide-slate-100 bg-white">
             {processedData.map((row) => {
-                const isDraft = String(row.id).startsWith("temp-");
+                const isDraft = String(row?.id).startsWith("temp-");
+                const rowId = getRowId(row);
                 const rowClass = isDraft 
                     ? "bg-amber-50 hover:bg-amber-100 border-l-4 border-l-amber-400 transition-colors" 
                     : "hover:bg-slate-50 group transition-colors border-l-4 border-l-transparent";
 
                 return (
-                  <tr key={row.id} className={rowClass}>
+                  <tr key={rowId} className={rowClass}>
                     {/* ID Auto-generado visual (solo si no es explícito) */}
                     {!hasExplicitId && (
                         <td className="px-2 py-1 text-center text-[10px] text-slate-300 font-mono">
-                            {isDraft ? <span className="text-amber-600 font-bold">*</span> : row.id}
+                            {isDraft ? <span className="text-amber-600 font-bold">*</span> : String(rowId ?? "")}
                         </td>
                     )}
                     
                     {columns.map((col) => (
-                      <td key={`${row.id}-${col.key}`} className="px-1 py-1 align-top h-10">
-                        <EditableCell row={row} col={col} onSave={handleAutoSave} />
+                      <td key={`${rowId}-${col.key}`} className="px-1 py-1 align-top h-10">
+                        <EditableCell row={row} col={col} rowId={rowId} onSave={handleAutoSave} />
                       </td>
                     ))}
                     
@@ -609,7 +620,7 @@ export default function UniversalTable({
                               </>
                           ) : (
                               <button 
-                                onClick={() => handleDelete(row.id)} 
+                                onClick={() => handleDelete(rowId)} 
                                 className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100" 
                                 title="Eliminar"
                               >

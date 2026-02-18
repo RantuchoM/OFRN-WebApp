@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+import { DEFAULT_CARGO } from './giraUtils';
 
 // --- CONFIGURACIÓN DE CELDAS (Mapeo Actualizado) ---
 const CELL_MAP = {
@@ -182,7 +183,7 @@ export const exportViaticosToExcel = async (giraData, viaticosData, configData) 
     const localidad = data.ciudad_origen || 'Viedma';
     
     setVal(CELL_MAP.nombre, nombreCompleto);
-    setVal(CELL_MAP.cargo, data.cargo || 'Músico');
+    setVal(CELL_MAP.cargo, data.cargo || DEFAULT_CARGO);
     setVal(CELL_MAP.jornada, data.jornada_laboral);
     setVal(CELL_MAP.ciudad_origen, localidad);
     setVal(CELL_MAP.asiento_habitual, localidad);

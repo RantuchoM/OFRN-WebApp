@@ -69,6 +69,60 @@ function useOutsideAlerter(ref, callback) {
   }, [ref, callback]);
 }
 
+// --- COMPONENTE: Badge de Feriado Interactivo ---
+const FeriadoBadge = ({ feriado }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const badgeRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (badgeRef.current && !badgeRef.current.contains(event.target)) {
+        setShowTooltip(false);
+      }
+    };
+    if (showTooltip) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showTooltip]);
+
+  if (!feriado) return null;
+
+  const isFeriado = feriado.es_feriado;
+  const colorClass = isFeriado ? "text-red-600" : "text-yellow-600";
+  const bgClass = isFeriado ? "bg-red-50 border-red-200" : "bg-yellow-50 border-yellow-200";
+  const textColor = isFeriado ? "text-red-700" : "text-yellow-700";
+
+  return (
+    <div className="relative" ref={badgeRef}>
+      <button
+        type="button"
+        onClick={() => setShowTooltip(!showTooltip)}
+        onMouseEnter={() => setShowTooltip(true)}
+        className={`ml-1 cursor-pointer hover:scale-110 transition-transform ${colorClass}`}
+        title={`⚠️ ${isFeriado ? "Feriado" : "Día no laborable"}: ${feriado.detalle}`}
+      >
+        <IconAlertTriangle size={14} />
+      </button>
+      {showTooltip && (
+        <div
+          className={`absolute top-full left-0 mt-1 z-50 px-2 py-1.5 rounded-lg border shadow-lg text-xs font-medium whitespace-nowrap ${bgClass} ${textColor} animate-in fade-in zoom-in-95 duration-150`}
+          style={{ minWidth: "180px" }}
+          onMouseLeave={() => setShowTooltip(false)}
+        >
+          <div className="flex items-center gap-1.5">
+            <IconAlertTriangle size={12} />
+            <span className="font-bold uppercase text-[10px]">
+              {isFeriado ? "Feriado" : "No Laborable"}
+            </span>
+          </div>
+          <div className="mt-1 text-[11px] font-normal">{feriado.detalle}</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // COMPONENTE: BOTÓN DRIVE INTELIGENTE
 const DriveSmartButton = ({ evt }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -474,6 +528,7 @@ export default function UnifiedAgenda({
   const [formEventTypes, setFormEventTypes] = useState([]);
   const [formLocations, setFormLocations] = useState([]);
   const [userProfile, setUserProfile] = useState(null);
+  const [feriados, setFeriados] = useState([]);
 
   useEffect(() => {
     const fetchMusicians = async () => {
@@ -726,7 +781,7 @@ export default function UnifiedAgenda({
       }
 
       // 5. FETCH DATOS AUXILIARES
-      const [customAttendance, ensembleEvents] = await Promise.all([
+      const [customAttendance, ensembleEvents, feriadosData] = await Promise.all([
         supabase
           .from("eventos_asistencia_custom")
           .select("id_evento, tipo, nota")
@@ -737,6 +792,10 @@ export default function UnifiedAgenda({
               .select("id_evento")
               .in("id_ensamble", Array.from(myEnsembles))
           : Promise.resolve({ data: [] }),
+        supabase
+          .from("feriados")
+          .select("*")
+          .order("fecha", { ascending: true }),
       ]);
 
       if (signal.aborted) return;
@@ -1064,6 +1123,7 @@ export default function UnifiedAgenda({
       if (signal.aborted) return;
 
       setItems(allItems);
+      setFeriados(feriadosData.data || []);
       // 🟢 AHORA (Solución segura)
       saveToCache(CACHE_KEY, allItems);
       setIsOfflineMode(false);
@@ -1930,6 +1990,8 @@ export default function UnifiedAgenda({
 
                     const cardStyle = { backgroundColor: `${eventColor}10` };
 
+                    const feriado = feriados.find((f) => f.fecha === evt.fecha);
+
                     return (
                       <React.Fragment key={evt.id}>
                         {showDay && (
@@ -1938,6 +2000,9 @@ export default function UnifiedAgenda({
                             {format(parseISO(evt.fecha), "EEEE d", {
                               locale: es,
                             })}
+                            {feriado && (
+                              <FeriadoBadge feriado={feriado} />
+                            )}
                           </div>
                         )}
 
@@ -2025,6 +2090,32 @@ export default function UnifiedAgenda({
                                 <span>{evt.tipos_evento?.nombre}</span>
                               )}
                             </div>
+
+                            {evt.id_tipo_evento === 13 && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {(evt.eventos_ensambles?.length > 0
+                                  ? evt.eventos_ensambles
+                                      .map((ee) => ee.ensambles?.ensamble)
+                                      .filter(Boolean)
+                                  : []
+                                ).length > 0 ? (
+                                  (evt.eventos_ensambles || [])
+                                    .filter((ee) => ee.ensambles?.ensamble)
+                                    .map((ee) => (
+                                      <span
+                                        key={ee.ensambles?.id}
+                                        className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-100 uppercase tracking-tight"
+                                      >
+                                        {ee.ensambles.ensamble}
+                                      </span>
+                                    ))
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-tight">
+                                    S/E
+                                  </span>
+                                )}
+                              </div>
+                            )}
 
                             <div className="flex flex-wrap gap-1">
                               {isTransportEvent && transportName && (
@@ -2296,6 +2387,31 @@ export default function UnifiedAgenda({
                                 </span>
                               )}
                             </div>
+                            {evt.id_tipo_evento === 13 && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {(evt.eventos_ensambles?.length > 0
+                                  ? evt.eventos_ensambles
+                                      .map((ee) => ee.ensambles?.ensamble)
+                                      .filter(Boolean)
+                                  : []
+                                ).length > 0 ? (
+                                  (evt.eventos_ensambles || [])
+                                    .filter((ee) => ee.ensambles?.ensamble)
+                                    .map((ee) => (
+                                      <span
+                                        key={ee.ensambles?.id}
+                                        className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-100 uppercase tracking-tight"
+                                      >
+                                        {ee.ensambles.ensamble}
+                                      </span>
+                                    ))
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-tight">
+                                    S/E
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
 
                           {/* COLUMNA 4: LOCACIÓN */}

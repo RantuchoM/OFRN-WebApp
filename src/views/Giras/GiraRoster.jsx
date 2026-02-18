@@ -27,6 +27,7 @@ import {
   IconPhone,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { DEFAULT_ROL_ID } from "../../utils/giraUtils";
 import MusicianForm from "../Musicians/MusicianForm";
 import {
   AddVacancyModal,
@@ -796,7 +797,7 @@ export default function GiraRoster({
       return baseStyle;
     }
 
-    if (m.es_adicional && m.rol_gira === "musico") {
+    if (m.es_adicional && m.rol_gira === DEFAULT_ROL_ID) {
       // Adicional (manual) sin rol jerárquico
       baseStyle.className +=
         " bg-orange-50/50 hover:bg-orange-100/50 border-l-orange-300";
@@ -1207,7 +1208,7 @@ export default function GiraRoster({
                       {isEditor && !m.es_simulacion ? (
                         <select
                           className={`text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full -ml-1 text-slate-700`}
-                          value={m.rol_gira || "musico"}
+                          value={m.rol_gira || DEFAULT_ROL_ID}
                           onChange={(e) => changeRole(m, e.target.value)}
                         >
                           {rolesList.map((r) => (
@@ -1218,7 +1219,7 @@ export default function GiraRoster({
                         </select>
                       ) : (
                         <span className="text-[11px] font-bold uppercase text-slate-600 block">
-                          {m.rol_gira || "musico"}
+                          {m.rol_gira || DEFAULT_ROL_ID}
                         </span>
                       )}
                       <span className="text-[10px] text-slate-400 block font-medium mt-0.5">

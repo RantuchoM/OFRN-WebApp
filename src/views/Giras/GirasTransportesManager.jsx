@@ -2038,7 +2038,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                               }}
                             />
                           </th>
-                          <th className="p-3 w-40">Horario / Fecha</th>
+                          <th className="p-3 w-46">Horario / Fecha</th>
                           <th className="p-3 w-44">Locación (Destino)</th>
                           <th className="p-3">Nota</th>
                           <th className="p-3 w-20 text-center bg-emerald-50/50 text-emerald-600 border-l border-emerald-100">
@@ -2103,7 +2103,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     onChange={(v) =>
                                       handleUpdateEvent(evt.id, "fecha", v)
                                     }
-                                    className={`h-7 w-20 text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "fecha")}`}
+                                    showDayName={false}
+                                    className={`h-7 w-24 text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "fecha")}`}
                                   />
                                   <TimeInput
                                     value={evt.hora_inicio}
@@ -2114,7 +2115,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                         v,
                                       )
                                     }
-                                    className={`h-7 w-16 text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "hora_inicio")}`}
+                                    className={`h-7 w-14 text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "hora_inicio")}`}
                                   />
                                 </div>
                               </td>
@@ -2239,14 +2240,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                   onChange={(v) =>
                                     setNewEvent({ ...newEvent, fecha: v })
                                   }
-                                  className="h-7 w-20 text-[11px] font-bold text-center border-indigo-300 rounded"
+                                  showDayName={false}
+                                  className="h-7 w-24 text-[11px] font-bold text-center border-indigo-300 rounded"
                                 />
                                 <TimeInput
                                   value={newEvent.hora}
                                   onChange={(v) =>
                                     setNewEvent({ ...newEvent, hora: v })
                                   }
-                                  className="h-7 w-16 text-[11px] font-bold text-center border-indigo-300 rounded"
+                                  className="h-7 w-14 text-[11px] font-bold text-center border-indigo-300 rounded"
                                 />
                               </div>
                             </td>

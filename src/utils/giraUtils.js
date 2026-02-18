@@ -1,5 +1,34 @@
 // src/utils/giraUtils.js
 
+/* --- ÚNICA FUENTE DE VERDAD: CATEGORÍAS Y ROLES (GRP) --- */
+
+/** Categorías estándar para convocatoria y roster. No inventar nuevos. */
+export const ROSTER_CATEGORIES = {
+  TUTTI: "GRP:TUTTI",
+  SOLISTAS: "GRP:SOLISTAS",
+  DIRECTORES: "GRP:DIRECTORES",
+  PRODUCCION: "GRP:PRODUCCION",
+  STAFF: "GRP:STAFF",
+  LOCALES: "GRP:LOCALES",
+  NO_LOCALES: "GRP:NO_LOCALES",
+};
+
+/** Roles de la tabla `roles` que pertenecen al grupo Producción (convocatoria GRP:PRODUCCION). */
+export const ROLES_PRODUCCION = [
+  "produccion",
+  "chofer",
+  "acompañante",
+  "staff",
+  "mus_prod",
+  "técnico",
+];
+
+/** Rol por defecto cuando no está asignado (ID de tabla roles). */
+export const DEFAULT_ROL_ID = "musico";
+
+/** Cargo por defecto para exportaciones (label de visualización). */
+export const DEFAULT_CARGO = "Músico";
+
 /**
  * Determines if a member is convoked to an event based on tags.
  * @param {Array<string>} convocadosList - Array of event tags (e.g., ["GRP:TUTTI", "LOC:1"])
@@ -9,29 +38,17 @@ export const isUserConvoked = (convocadosList, person) => {
   if (!convocadosList || convocadosList.length === 0) return false;
 
   return convocadosList.some((tag) => {
-    if (tag === "GRP:TUTTI") return true;
+    if (tag === ROSTER_CATEGORIES.TUTTI) return true;
 
-    // Check property calculated by the hook
-    if (tag === "GRP:LOCALES") return person.is_local;
-    if (tag === "GRP:NO_LOCALES") return !person.is_local;
+    if (tag === ROSTER_CATEGORIES.LOCALES) return person.is_local;
+    if (tag === ROSTER_CATEGORIES.NO_LOCALES) return !person.is_local;
 
-    // Check standardized roles
-    if (tag === "GRP:PRODUCCION") {
-      // Lista de roles que "comen" con el grupo de Producción
-      const rolesProduccion = [
-        "produccion",
-        "chofer",
-        "acompañante",
-        "staff",
-        "mus_prod",
-        "técnico",
-      ];
-
-      // Verificamos si el rol de la persona está en esa lista
-      return rolesProduccion.includes(person.rol_gira);
-    }
-    if (tag === "GRP:SOLISTAS") return person.rol_gira === "solista";
-    if (tag === "GRP:DIRECTORES") return person.rol_gira === "director";
+    if (tag === ROSTER_CATEGORIES.PRODUCCION)
+      return ROLES_PRODUCCION.includes(person.rol_gira);
+    if (tag === ROSTER_CATEGORIES.SOLISTAS) return person.rol_gira === "solista";
+    if (tag === ROSTER_CATEGORIES.DIRECTORES)
+      return person.rol_gira === "director";
+    if (tag === ROSTER_CATEGORIES.STAFF) return person.rol_gira === "staff";
 
     // Specific checks
     if (tag.startsWith("LOC:"))
@@ -139,22 +156,20 @@ export const checkIsConvoked = (convocadosList, userProfile, tourRole) => {
   const userFamily = userProfile.instrumentos?.familia?.toLowerCase() || "";
 
   return convocadosList.some((tag) => {
-    // 1. Coincidencia directa por ID
     if (tag === String(userProfile.id)) return true;
 
-    // 2. Etiquetas de Grupo
-    if (tag === "GRP:TUTTI") return true;
-    if (tag === "GRP:LOCALES") return !!userProfile.is_local;
-    if (tag === "GRP:NO_LOCALES") return !userProfile.is_local;
+    if (tag === ROSTER_CATEGORIES.TUTTI) return true;
+    if (tag === ROSTER_CATEGORIES.LOCALES) return !!userProfile.is_local;
+    if (tag === ROSTER_CATEGORIES.NO_LOCALES) return !userProfile.is_local;
 
-    // 3. Etiquetas de Rol en Gira
-    if (tag === "GRP:PRODUCCION")
+    if (tag === ROSTER_CATEGORIES.PRODUCCION)
       return (
         normalizedRole === "produccion" || normalizedRole === "coordinacion"
       );
-    if (tag === "GRP:STAFF") return normalizedRole === "staff";
-    if (tag === "GRP:SOLISTAS") return normalizedRole === "solista";
-    if (tag === "GRP:DIRECTORES") return normalizedRole === "director";
+    if (tag === ROSTER_CATEGORIES.STAFF) return normalizedRole === "staff";
+    if (tag === ROSTER_CATEGORIES.SOLISTAS) return normalizedRole === "solista";
+    if (tag === ROSTER_CATEGORIES.DIRECTORES)
+      return normalizedRole === "director";
 
     // 4. Etiquetas de Localidad (LOC:123)
     if (tag.startsWith("LOC:")) {

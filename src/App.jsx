@@ -865,43 +865,45 @@ const ProtectedApp = () => {
             </button>
             {isActuallyAdmin && (
               <div className="hidden lg:flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
-                {isImpersonating && (
-                  <div className="bg-amber-500 text-white px-4 py-2 flex items-center justify-between text-xs font-bold animate-in slide-in-from-top duration-300 z-[100] fixed top-16 left-0 right-0 justify-center">
-                    <div className="flex items-center gap-2">
-                      <IconEye size={16} />
-                      VIENDO COMO:{" "}
-                      <span className="uppercase">
-                        {user.nombre} {user.apellido}
-                      </span>
-                    </div>
+                {isImpersonating ? (
+                  <div className="flex items-center gap-2 bg-orange-500 text-black px-3 py-1.5 rounded-lg -mx-0.5 -my-0.5">
+                    <span className="text-[10px] font-black uppercase tracking-tighter shrink-0">
+                      Ver como…
+                    </span>
+                    <span className="text-xs font-bold truncate max-w-[140px]">
+                      {user.apellido}, {user.nombre}
+                    </span>
                     <button
                       onClick={stopImpersonating}
-                      className="ml-4 bg-white text-amber-600 px-2 py-0.5 rounded-full text-[10px] hover:bg-amber-50"
+                      className="text-black hover:bg-black/10 font-bold text-[10px] uppercase shrink-0 px-1.5 py-0.5 rounded"
                     >
-                      SALIR
+                      Salir
                     </button>
                   </div>
+                ) : (
+                  <>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter shrink-0">
+                      Ver como:
+                    </span>
+                    <SearchableSelect
+                      className="min-w-[200px] !border-0 !bg-transparent !py-0"
+                      placeholder="Buscar integrante..."
+                      options={orchestraList.map((u) => ({
+                        id: u.id,
+                        label: `${u.apellido}, ${u.nombre}`,
+                        subLabel: u.rol_sistema,
+                      }))}
+                      value=""
+                      onChange={(id) => {
+                        if (!id) stopImpersonating();
+                        else {
+                          const target = orchestraList.find((u) => u.id === id);
+                          if (target) impersonate(target);
+                        }
+                      }}
+                    />
+                  </>
                 )}
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter shrink-0">
-                  Ver como:
-                </span>
-                <SearchableSelect
-                  className="min-w-[200px] !border-0 !bg-transparent !py-0"
-                  placeholder="Buscar integrante..."
-                  options={orchestraList.map((u) => ({
-                    id: u.id,
-                    label: `${u.apellido}, ${u.nombre}`,
-                    subLabel: u.rol_sistema,
-                  }))}
-                  value={isImpersonating ? user.id : ""}
-                  onChange={(id) => {
-                    if (!id) stopImpersonating();
-                    else {
-                      const target = orchestraList.find((u) => u.id === id);
-                      if (target) impersonate(target);
-                    }
-                  }}
-                />
               </div>
             )}
             <h2 className="text-xl font-bold text-slate-800 hidden md:block whitespace-nowrap">

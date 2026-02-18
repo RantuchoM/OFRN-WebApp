@@ -1,32 +1,74 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { google } from "npm:googleapis@126.0.1";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { PDFDocument } from "https://esm.sh/pdf-lib@1.17.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// IDs de Carpetas Madre (Asegúrate de que estas carpetas existan en TU Drive personal)
-const ROOT_FOLDER_ID = "1QkvJSUm9u6n9tsPGW2s_-L_e_1ENkBhD"; // Programas
-const VIATICOS_ROOT_FOLDER_ID = "1PRWEbGKUBxfhF9HIf2DgpOWKDRwslsCc"; // Viáticos
+// --- CONFIGURACIÓN DE CONSTANTES ---
+const PROGRAMAS_ARCOS_ROOT_ID = "1te6NHhnYbEJmZNyYFI4_qz2qK0axqqtJ"; // <--- AGREGAR
+const OBRAS_REAL_STORAGE_ID = "1p2mIZhko_BGDKwxJUwzhb9pl8JXChFvO";
+const ROOT_FOLDER_ID = "1vlIkMhbc61ZPHRuXwbwVYi2E42rGok9z";
+const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const GIRAS_ROOT_ID = "1PRWEbGKUBxfhF9HIf2DgpOWKDRwslsCc";
+// =================================================================================
+// HELPERS GENERALES
+// =================================================================================
 
-// --- UTILS ---
-const MONTHS = [
-  "Ene",
-  "Feb",
-  "Mar",
-  "Abr",
-  "May",
-  "Jun",
-  "Jul",
-  "Ago",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dic",
-];
+const extractFileId = (url: string) => {
+  if (!url) return null;
+  const match = url.match(/[-\w]{25,}/);
+  return match ? match[0] : null;
+};
+
+// Saneamiento de rutas: Álvarez -> alvarez (Evita errores en Storage)
+const sanitizePath = (str: string) => {
+  if (!str) return "archivo";
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ñ/g, "n")
+    .replace(/Ñ/g, "N")
+    .replace(/[^a-zA-Z0-9.-]/g, "_")
+    .toLowerCase();
+};
+
+// Extrae el path relativo para borrar archivos del Bucket
+const extractStoragePath = (url: string, bucket: string) => {
+  if (!url || !url.includes(bucket)) return null;
+  const parts = url.split(`${bucket}/`);
+  return parts.length > 1 ? parts[1] : null;
+};
+
+const getAuthClient = () => {
+  const clientId = Deno.env.get("G_CLIENT_ID");
+  const clientSecret = Deno.env.get("G_CLIENT_SECRET");
+  const refreshToken = Deno.env.get("G_REFRESH_TOKEN");
+  if (!clientId || !clientSecret || !refreshToken) throw new Error("Credenciales faltantes");
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+  return oauth2Client;
+};
+
+async function downloadDriveFile(fileId: string, token: string) {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) return null;
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+const getTypeAbbreviation = (type: string) => {
+  if (!type) return "Sinf";
+  const t = type.toLowerCase();
+  if (t.includes("camerata") || t.includes("filarmónica")) return "CF";
+  if (t.includes("ensamble")) return "Ens";
+  if (t.includes("jazz")) return "JB";
+  return "Sinf";
+};
 
 const getFormattedDateString = (startStr: string, endStr: string) => {
   if (!startStr) return "SinFecha";
@@ -38,536 +80,879 @@ const getFormattedDateString = (startStr: string, endStr: string) => {
     dateEnd = new Date(Date.UTC(y2, m2 - 1, d2));
   }
   const monthName = MONTHS[dateStart.getUTCMonth()];
-  const dayStartStr = dateStart.getUTCDate().toString().padStart(2, "0");
-  const dayEndStr = dateEnd.getUTCDate().toString().padStart(2, "0");
-  if (dateStart.getUTCMonth() !== dateEnd.getUTCMonth()) {
-    const monthEnd = MONTHS[dateEnd.getUTCMonth()];
-    return `${monthName} ${dayStartStr}-${monthEnd} ${dayEndStr}`;
+  return `${monthName} ${dateStart.getUTCDate().toString().padStart(2, "0")}-${dateEnd.getUTCDate().toString().padStart(2, "0")}`;
+};
+
+// =================================================================================
+// SYNC UN PROGRAMA (carpeta Drive + repertorio) — reutilizable para uno o todos
+// =================================================================================
+async function syncOneProgram(supabase: any, drive: any, prog: any) {
+  const dateStart = prog.fecha_desde;
+  const [y, m] = (dateStart || "").split("-").map(Number);
+  const monthPrefix = prog.mes_letra || (m ? m.toString().padStart(2, "0") : "00");
+  const dateRangeStr = getFormattedDateString(prog.fecha_desde, prog.fecha_hasta);
+  const fName = `${monthPrefix} - ${dateRangeStr}${prog.zona ? ` ${prog.zona}` : ""} - ${prog.nomenclador || "SinNombre"}`;
+
+  let fId = prog.google_drive_folder_id;
+  try {
+    if (fId) {
+      await drive.files.update({ fileId: fId, requestBody: { name: fName } });
+    } else {
+      const f = await drive.files.create({
+        requestBody: { name: fName, mimeType: "application/vnd.google-apps.folder", parents: [ROOT_FOLDER_ID] },
+        fields: "id"
+      });
+      fId = f.data.id;
+      await supabase.from("programas").update({ google_drive_folder_id: fId }).eq("id", prog.id);
+    }
+  } catch (e) {
+    console.error(`[Drive Error] Carpeta Principal programa ${prog.id}:`, (e as Error).message);
+    return;
   }
-  return `${monthName} ${dayStartStr}-${dayEndStr}`;
-};
 
-const getTypeAbbreviation = (type: string) => {
-  if (!type) return "Sinf";
-  const t = type.toLowerCase();
-  if (t.includes("camerata") || t.includes("filarmónica")) return "CF";
-  if (t.includes("ensamble")) return "Ens";
-  if (t.includes("jazz")) return "JB";
-  return "Sinf";
-};
-
-// --- AUTH CLIENT HELPER ---
-const getAuthClient = () => {
-  const clientId = Deno.env.get("G_CLIENT_ID");
-  const clientSecret = Deno.env.get("G_CLIENT_SECRET");
-  const refreshToken = Deno.env.get("G_REFRESH_TOKEN");
-
-  if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error(
-      "Faltan credenciales OAuth en Supabase Secrets (G_CLIENT_ID, G_CLIENT_SECRET, G_REFRESH_TOKEN)"
-    );
+  for (const [rI, rep] of (prog.programas_repertorios || []).entries()) {
+    const rName = `${(rI + 1).toString().padStart(2, "0")}. ${rep.nombre}`;
+    let rId = rep.google_drive_folder_id;
+    if (!rId) {
+      const resR = await drive.files.create({
+        requestBody: { name: rName, mimeType: "application/vnd.google-apps.folder", parents: [fId] },
+        fields: "id"
+      });
+      rId = resR.data.id;
+      await supabase.from("programas_repertorios").update({ google_drive_folder_id: rId }).eq("id", rep.id);
+    } else {
+      try {
+        await drive.files.update({ fileId: rId, requestBody: { name: rName } });
+      } catch (e) {
+        const resR = await drive.files.create({ requestBody: { name: rName, mimeType: "application/vnd.google-apps.folder", parents: [fId] }, fields: "id" });
+        rId = resR.data.id;
+        await supabase.from("programas_repertorios").update({ google_drive_folder_id: rId }).eq("id", rep.id);
+      }
+    }
+    const driveContent = await drive.files.list({ q: `'${rId}' in parents and trashed = false`, fields: "files(id, name)" });
+    const existingDriveFiles = driveContent.data.files || [];
+    const validShortcutsInDb = new Set<string>();
+    const obrasSorted = (rep.repertorio_obras || []).sort((a: any, b: any) => (a.orden || 0) - (b.orden || 0));
+    for (const [oI, oW] of obrasSorted.entries()) {
+      const posNumber = (oI + 1).toString().padStart(2, "0");
+      const targetId = extractFileId(oW.obras?.link_drive);
+      if (!targetId || oW.excluir) continue;
+      let originalFolderName = oW.obras.titulo;
+      try {
+        const metaObra = await drive.files.get({ fileId: targetId, fields: "name" });
+        originalFolderName = metaObra.data.name || originalFolderName;
+      } catch (e) {
+        console.error(`Acceso denegado a obra original ${targetId}`);
+      }
+      const sName = `${posNumber} - ${originalFolderName}`;
+      let currentShortcutId = oW.google_drive_shortcut_id;
+      let shortcutExists = false;
+      if (currentShortcutId) {
+        const found = existingDriveFiles.find((f: any) => f.id === currentShortcutId);
+        if (found) {
+          try {
+            await drive.files.update({ fileId: currentShortcutId, requestBody: { name: sName } });
+            shortcutExists = true;
+            validShortcutsInDb.add(currentShortcutId);
+          } catch (e) {
+            shortcutExists = false;
+          }
+        }
+      }
+      if (!shortcutExists) {
+        try {
+          const s = await drive.files.create({
+            requestBody: { name: sName, mimeType: "application/vnd.google-apps.shortcut", parents: [rId], shortcutDetails: { targetId: targetId } },
+            fields: "id"
+          });
+          currentShortcutId = s.data.id;
+          await supabase.from("repertorio_obras").update({ google_drive_shortcut_id: currentShortcutId }).eq("id", oW.id);
+          validShortcutsInDb.add(currentShortcutId);
+        } catch (e) {
+          console.error("Error creando shortcut:", (e as Error).message);
+        }
+      }
+    }
+    for (const file of existingDriveFiles) {
+      if (!validShortcutsInDb.has(file.id)) {
+        try {
+          await drive.files.delete({ fileId: file.id });
+        } catch (e) {}
+      }
+    }
   }
+}
 
-  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-  oauth2Client.setCredentials({ refresh_token: refreshToken });
-  return oauth2Client;
-};
+// =================================================================================
+// MOTORES DE PDF REUTILIZABLES (UNIFICACIÓN)
+// =================================================================================
+
+async function generateDJInternal(m: any, templateRes: ArrayBuffer, firmaRes: ArrayBuffer | null) {
+  const pdfDoc = await PDFDocument.load(templateRes);
+  const form = pdfDoc.getForm();
+  const hoy = new Date();
+  const meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+  const safeSet = (f: string, v: string) => { try { form.getTextField(f).setText(v || ""); } catch (e) { } };
+
+  safeSet("dia", hoy.getDate().toString());
+  safeSet("mes", meses[hoy.getMonth()]);
+  safeSet("anio", hoy.getFullYear().toString());
+  safeSet("nombre_apellido", `${m.nombre} ${m.apellido}`);
+  safeSet("cuit", m.cuil || m.dni || "");
+  safeSet("domicilio", m.domicilio || "");
+  safeSet("ciudad", m.residencia?.localidad || "");
+  safeSet("provincia", "Río Negro");
+  safeSet("email", m.mail || "");
+  safeSet("telefono", m.telefono || "");
+
+  if (firmaRes) {
+    try {
+      const firmaImg = await pdfDoc.embedPng(firmaRes);
+      const field = form.getField("firma_inserta");
+      const widget = field.acroField.getWidgets()[0];
+      const rect = widget.getRectangle();
+      pdfDoc.getPages()[0].drawImage(firmaImg, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+    } catch (e) { console.error("Error firma:", e.message); }
+  }
+  form.flatten();
+  return await pdfDoc.save();
+}
+
+async function assemblePDFInternal(sources: string[], layout: "full" | "mosaic") {
+  const pdfDoc = await PDFDocument.create();
+  if (layout === "full") {
+    for (const url of sources) {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (url.toLowerCase().includes('.pdf')) {
+        const extDoc = await PDFDocument.load(bytes);
+        const pages = await pdfDoc.copyPages(extDoc, extDoc.getPageIndices());
+        pages.forEach(p => pdfDoc.addPage(p));
+      } else {
+        const img = await pdfDoc.embedJpg(bytes).catch(() => pdfDoc.embedPng(bytes));
+        const page = pdfDoc.addPage([img.width, img.height]);
+        page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+      }
+    }
+  } else {
+    // --- MOSAICO CON PROPORCIÓN CONSERVADA Y CENTRADO ---
+    const page = pdfDoc.addPage([595.28, 841.89]); // A4
+    const pos = [{ x: 40, y: 440 }, { x: 305, y: 440 }, { x: 40, y: 40 }, { x: 305, y: 40 }];
+    const boxW = 250;
+    const boxH = 350;
+
+    for (const [i, url] of sources.entries()) {
+      if (i >= 4) break;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      try {
+        if (url.toLowerCase().includes('.pdf')) {
+          const extDoc = await PDFDocument.load(bytes);
+          const [embeddedPage] = await pdfDoc.embedPdf(extDoc, [0]);
+          const { width: pW, height: pH } = embeddedPage.size();
+
+          const scale = Math.min(boxW / pW, boxH / pH);
+          const dW = pW * scale;
+          const dH = pH * scale;
+          const offX = (boxW - dW) / 2;
+          const offY = (boxH - dH) / 2;
+
+          page.drawPage(embeddedPage, {
+            x: pos[i].x + offX,
+            y: pos[i].y + offY,
+            width: dW,
+            height: dH
+          });
+        } else {
+          const img = await pdfDoc.embedJpg(bytes).catch(() => pdfDoc.embedPng(bytes));
+          const { width: iW, height: iH } = img;
+
+          const scale = Math.min(boxW / iW, boxH / iH);
+          const dW = iW * scale;
+          const dH = iH * scale;
+          const offX = (boxW - dW) / 2;
+          const offY = (boxH - dH) / 2;
+
+          page.drawImage(img, {
+            x: pos[i].x + offX,
+            y: pos[i].y + offY,
+            width: dW,
+            height: dH
+          });
+        }
+      } catch (e) { console.error("Mosaico err", e); }
+    }
+  }
+  return await pdfDoc.save();
+}
+
+// =================================================================================
+// SERVER PRINCIPAL
+// =================================================================================
 
 serve(async (req) => {
-  if (req.method === "OPTIONS")
-    return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
     const body = await req.json();
     const {
-      action,
-      programId,
-      folderUrl,
-      folderName,
-      parentId,
-      fileName,
-      fileBase64,
-      mimeType,
-      sourceUrl,
-      targetParentId,
-      newName,
+      action, musicianId, layout, sources, fileName, programId, folderUrl,
+      folderName, parentId, fileBase64, mimeType, sourceUrl, targetParentId,
+      newName, nombreSet, obraTitulo, targetDriveId, fileId, targetEmail, role,
+      giraId // <--- ADDED giraId HERE
     } = body;
 
-    // 1. Init Supabase
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // 2. Init Drive con OAuth2 (Tu cuenta personal)
+    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const authClient = getAuthClient();
+    const tokenResponse = await authClient.getAccessToken();
+    const token = tokenResponse.token;
     const drive = google.drive({ version: "v3", auth: authClient });
 
-    // Helper Drive ID
-    const extractFileId = (url: string) => {
-      if (!url) return null;
-      const match = url.match(/[-\w]{25,}/);
-      return match ? match[0] : null;
-    };
+    // --- ACCIÓN: CREAR CARPETA DE VIÁTICOS/GIRA (Insertar esto) ---
+    if (action === "create_viaticos_folder") {
+      if (!giraId) throw new Error("ID de gira no proporcionado");
 
-    // =================================================================================
-    // ACCIÓN: LISTAR ARCHIVOS
-    // =================================================================================
-    if (action === "list_folder_files") {
-      const folderId = extractFileId(folderUrl);
-      if (!folderId) throw new Error("URL inválida");
-      const res = await drive.files.list({
-        q: `'${folderId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
-        fields: "files(id, name, webViewLink, webContentLink, mimeType)",
-        pageSize: 100,
-        orderBy: "name",
+      // 1. Obtener datos de la gira desde la BD para armar el nombre
+      const { data: giraData, error: gError } = await supabase
+        .from("programas")
+        .select("mes_letra, nomenclador, zona, nombre_gira") // Seleccionamos los campos necesarios
+        .eq("id", giraId)
+        .single();
+
+      if (gError || !giraData) {
+        throw new Error("No se pudo obtener información de la gira para nombrar la carpeta.");
+      }
+
+      // 2. Construir el nombre: "mes_letra nomenclador | zona | nombre_gira"
+      // Ejemplo: "03a Sinf 01/24 | Valle Medio | Concierto Apertura"
+      const parte1 = `${giraData.mes_letra || ''} ${giraData.nomenclador || ''}`.trim();
+      const parte2 = giraData.zona || '';
+      const parte3 = giraData.nombre_gira || 'Gira sin nombre';
+
+      // Usamos filter(Boolean) para que no queden separadores " | " sueltos si falta algún dato (ej: si no hay zona)
+      const folderName = [parte1, parte2, parte3].filter(Boolean).join(" | ");
+
+      // 3. Crear carpeta en Drive en la NUEVA ubicación
+      const file = await drive.files.create({
+        requestBody: {
+          name: folderName,
+          mimeType: "application/vnd.google-apps.folder",
+          parents: [GIRAS_ROOT_ID] // <--- ID ESPECÍFICO SOLICITADO
+        },
+        fields: "id, webViewLink",
       });
+
+      const folderId = file.data.id;
+      const folderUrl = file.data.webViewLink;
+
+      // 4. Permisos (Opcional)
+      if (targetEmail) {
+        try {
+          await drive.permissions.create({
+            fileId: folderId,
+            requestBody: { role: "writer", type: "user", emailAddress: targetEmail },
+          });
+        } catch (e) { console.error("Error permisos:", e); }
+      }
+
+      // 5. Guardar SOLO EL ID en la base de datos
+      const { error: dbError } = await supabase
+        .from("giras_viaticos_config")
+        .upsert({
+          id_gira: giraId,
+          link_drive: folderId,
+        }, { onConflict: 'id_gira' });
+
+      if (dbError) throw new Error(`Error BD: ${dbError.message}`);
+
       return new Response(
-        JSON.stringify({ success: true, files: res.data.files || [] }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        JSON.stringify({ success: true, folderId, folderUrl }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // =================================================================================
-    // ACCIÓN: CREAR CARPETA (Viáticos)
-    // =================================================================================
-    if (action === "create_folder") {
-      if (!folderName) throw new Error("Falta folderName");
-      const targetParentId = parentId || VIATICOS_ROOT_FOLDER_ID;
+    // --- ACCIÓN: COMBO EXPEDIENTE COMPLETO ---
+    if (action === "assemble_full_pack") {
+      const { data: m } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad)`).eq("id", musicianId).single();
+      if (!m) throw new Error("Músico no encontrado");
 
-      // Verificar existencia
-      const q = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and '${targetParentId}' in parents and trashed=false`;
-      const listRes = await drive.files.list({ q, fields: "files(id, name)" });
+      // LIMPIEZA PREVIA DEL BUCKET
+      const oldFiles = [
+        extractStoragePath(m.link_declaracion, "musician-docs"),
+        extractStoragePath(m.documentacion, "musician-docs"),
+        extractStoragePath(m.docred, "musician-docs")
+      ].filter(Boolean) as string[];
 
-      if (listRes.data.files && listRes.data.files.length > 0) {
-        return new Response(
-          JSON.stringify({ folderId: listRes.data.files[0].id }),
-          {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
-        );
-      } else {
-        const createRes = await drive.files.create({
-          requestBody: {
-            name: folderName,
-            mimeType: "application/vnd.google-apps.folder",
-            parents: [targetParentId],
-          },
-          fields: "id",
-        });
-        return new Response(JSON.stringify({ folderId: createRes.data.id }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      if (oldFiles.length > 0) {
+        await supabase.storage.from("musician-docs").remove(oldFiles);
       }
+
+      const TEMPLATE_URL = "https://raw.githubusercontent.com/rantuchom/OFRN-webapp/main/public/plantillas/plantilla_dj.pdf";
+      const [pdfRes, firmaRes] = await Promise.all([
+        fetch(TEMPLATE_URL).then(r => r.arrayBuffer()),
+        m.firma ? fetch(m.firma).then(r => r.arrayBuffer()) : null
+      ]);
+
+      const djBytes = await generateDJInternal(m, pdfRes, firmaRes);
+      const cleanSurname = sanitizePath(m.apellido);
+      const djPath = `docs/dj_${cleanSurname}_${Date.now()}.pdf`;
+
+      await supabase.storage.from("musician-docs").upload(djPath, djBytes, { contentType: 'application/pdf', upsert: true });
+      const { data: { publicUrl: djUrl } } = supabase.storage.from("musician-docs").getPublicUrl(djPath);
+
+      const packSources = [m.link_dni_img, m.link_cuil, m.link_cbu_img, djUrl].filter(u => !!u);
+      const [fullBytes, mosaicBytes] = await Promise.all([
+        assemblePDFInternal(packSources, "full"),
+        assemblePDFInternal(packSources, "mosaic")
+      ]);
+
+      const fullPath = `docs/full_${cleanSurname}_${Date.now()}.pdf`;
+      const mosPath = `docs/mos_${cleanSurname}_${Date.now()}.pdf`;
+
+      await Promise.all([
+        supabase.storage.from("musician-docs").upload(fullPath, fullBytes, { contentType: 'application/pdf', upsert: true }),
+        supabase.storage.from("musician-docs").upload(mosPath, mosaicBytes, { contentType: 'application/pdf', upsert: true })
+      ]);
+
+      const { data: { publicUrl: fullUrl } } = supabase.storage.from("musician-docs").getPublicUrl(fullPath);
+      const { data: { publicUrl: mosUrl } } = supabase.storage.from("musician-docs").getPublicUrl(mosPath);
+
+      await supabase.from("integrantes").update({ link_declaracion: djUrl, documentacion: fullUrl, docred: mosUrl, last_modified_at: new Date().toISOString() }).eq("id", m.id);
+
+      return new Response(JSON.stringify({ success: true, urls: { dj: djUrl, full: fullUrl, mosaic: mosUrl } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // --- ACCIÓN: DESCARGAR CONTENIDO DE ARCHIVO (Para Fusionar PDFs) ---
+    if (action === "get_file_content") {
+      const fileId = extractFileId(sourceUrl);
+      if (!fileId) throw new Error("ID de archivo inválido");
+
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!response.ok) throw new Error("Error descargando desde Drive");
+
+      const arrayBuffer = await response.arrayBuffer();
+      // Convertimos a Base64 para enviar al frontend de forma segura
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+
+      return new Response(JSON.stringify({ success: true, fileBase64: base64 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+    // --- ACCIÓN: CREAR CARPETA DE ARCOS (BOWINGS) ---
+    if (action === "create_bowing_set") {
+      // 1. Obtener o crear carpeta del Programa dentro de la raíz de Arcos
+      const { data: prog } = await supabase.from("programas").select("nomenclador").eq("id", programId).single();
+      const programFolderName = prog?.nomenclador || `Prog_${programId}`;
+
+      const parentSearch = await drive.files.list({
+        q: `name = '${programFolderName}' and '${PROGRAMAS_ARCOS_ROOT_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        fields: "files(id)"
+      });
+
+      let programFolderId;
+      if (parentSearch.data.files?.length) {
+        programFolderId = parentSearch.data.files[0].id;
+      } else {
+        const pf = await drive.files.create({
+          requestBody: { name: programFolderName, mimeType: "application/vnd.google-apps.folder", parents: [PROGRAMAS_ARCOS_ROOT_ID] },
+          fields: "id"
+        });
+        programFolderId = pf.data.id;
+      }
+
+      // 2. Crear la carpeta específica del Set (ej: Arcos 2024 - Titulo Obra)
+      const setFolderName = `${nombreSet} - ${obraTitulo}`;
+      const res = await drive.files.create({
+        requestBody: { name: setFolderName, mimeType: "application/vnd.google-apps.folder", parents: [programFolderId] },
+        fields: "id, webViewLink"
+      });
+
+      return new Response(JSON.stringify({ success: true, folderId: res.data.id, webViewLink: res.data.webViewLink }), { headers: corsHeaders });
     }
 
-    // =================================================================================
-    // ACCIÓN: SUBIR ARCHIVO (Viáticos)
-    // =================================================================================
-    if (action === "upload_file") {
-      if (!fileBase64 || !fileName || !parentId)
-        throw new Error("Faltan datos");
+    // --- ACCIÓN: VINCULAR ARCO EXISTENTE (SHORTCUT) ---
+    if (action === "link_existing_arco") {
+      // 1. Obtener o crear carpeta del Programa en Arcos
+      const { data: prog } = await supabase.from("programas").select("nomenclador").eq("id", programId).single();
+      const programFolderName = prog?.nomenclador || `Prog_${programId}`;
 
+      const parentSearch = await drive.files.list({
+        q: `name = '${programFolderName}' and '${PROGRAMAS_ARCOS_ROOT_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        fields: "files(id)"
+      });
+
+      let programFolderId;
+      if (parentSearch.data.files?.length) {
+        programFolderId = parentSearch.data.files[0].id;
+      } else {
+        const pf = await drive.files.create({
+          requestBody: { name: programFolderName, mimeType: "application/vnd.google-apps.folder", parents: [PROGRAMAS_ARCOS_ROOT_ID] },
+          fields: "id"
+        });
+        programFolderId = pf.data.id;
+      }
+
+      // 2. Crear acceso directo (Shortcut) al arco original
+      const shortcutName = `${nombreSet} - ${obraTitulo}`;
+      const res = await drive.files.create({
+        requestBody: {
+          name: shortcutName,
+          mimeType: "application/vnd.google-apps.shortcut",
+          parents: [programFolderId],
+          shortcutDetails: { targetId: targetDriveId }
+        },
+        fields: "id, webViewLink"
+      });
+
+      return new Response(JSON.stringify({ success: true, shortcutId: res.data.id }), { headers: corsHeaders });
+    }
+
+    // --- ACCIÓN: LIMPIAR SHORTCUTS AL ELIMINAR OBRA ---
+    if (action === "delete_work_shortcuts") {
+      const { data: prog } = await supabase.from("programas").select("nomenclador").eq("id", programId).single();
+      const programFolderName = prog?.nomenclador || `Prog_${programId}`;
+
+      const parentSearch = await drive.files.list({
+        q: `name = '${programFolderName}' and '${PROGRAMAS_ARCOS_ROOT_ID}' in parents and trashed = false`,
+        fields: "files(id)"
+      });
+
+      if (parentSearch.data.files?.length) {
+        const pId = parentSearch.data.files[0].id;
+        // Buscar archivos que contengan el título de la obra
+        const toDelete = await drive.files.list({
+          q: `'${pId}' in parents and name contains '${obraTitulo}' and trashed = false`,
+          fields: "files(id)"
+        });
+        for (const file of (toDelete.data.files || [])) {
+          await drive.files.delete({ fileId: file.id });
+        }
+      }
+      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+    }
+    // --- ACCIÓN: GENERAR DJ INDIVIDUAL ---
+    if (action === "generate_dj_bucket") {
+      const { data: m } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad)`).eq("id", musicianId).single();
+      if (!m) throw new Error("Músico no encontrado");
+
+      const oldDj = extractStoragePath(m.link_declaracion, "musician-docs");
+      if (oldDj) await supabase.storage.from("musician-docs").remove([oldDj]);
+
+      const TEMPLATE_URL = "https://raw.githubusercontent.com/rantuchom/OFRN-webapp/main/public/plantillas/plantilla_dj.pdf";
+      const [pdfRes, firmaRes] = await Promise.all([
+        fetch(TEMPLATE_URL).then(r => r.arrayBuffer()),
+        m.firma ? fetch(m.firma).then(r => r.arrayBuffer()) : null
+      ]);
+      const djBytes = await generateDJInternal(m, pdfRes, firmaRes);
+      const djFileName = `docs/dj_${sanitizePath(m.apellido)}_${Date.now()}.pdf`;
+      await supabase.storage.from("musician-docs").upload(djFileName, djBytes, { contentType: 'application/pdf', upsert: true });
+      const { data: { publicUrl } } = supabase.storage.from("musician-docs").getPublicUrl(djFileName);
+      await supabase.from("integrantes").update({ link_declaracion: publicUrl }).eq("id", m.id);
+      return new Response(JSON.stringify({ success: true, url: publicUrl }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // --- ACCIÓN: ENSAMBLAR INDIVIDUAL (BUCKET) ---
+    if (action === "assemble_docs_bucket") {
+      const pdfBytes = await assemblePDFInternal(sources, layout);
+      const finalPath = `results/${sanitizePath(fileName)}_${Date.now()}.pdf`;
+      await supabase.storage.from("musician-docs").upload(finalPath, pdfBytes, { contentType: 'application/pdf', upsert: true });
+      const { data: { publicUrl } } = supabase.storage.from("musician-docs").getPublicUrl(finalPath);
+      return new Response(JSON.stringify({ success: true, url: publicUrl }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // --- ACCIÓN: MIGRAR DRIVE A BUCKET ---
+    if (action === "migrate_docs_drive_to_bucket") {
+      const { count: totalPendientes } = await supabase.from("integrantes").select("*", { count: 'exact', head: true })
+        .or("documentacion.ilike.%drive.google.com%,docred.ilike.%drive.google.com%");
+
+      const { data: musicians } = await supabase.from("integrantes").select("id, apellido, nombre, documentacion, docred")
+        .or("documentacion.ilike.%drive.google.com%,docred.ilike.%drive.google.com%").limit(10);
+
+      let procesados = 0;
+      for (const m of (musicians || [])) {
+        for (const field of ["documentacion", "docred"]) {
+          const driveUrl = m[field];
+          if (driveUrl?.includes("drive.google.com")) {
+            const fId = extractFileId(driveUrl);
+            if (!fId) continue;
+            try {
+              const meta = await drive.files.get({ fileId: fId, fields: "name, mimeType" });
+              const bytes = await downloadDriveFile(fId, token!);
+              if (bytes) {
+                const cleanName = sanitizePath(meta.data.name || "archivo");
+                const filePath = `docs/${m.id}_${field}_${cleanName}`;
+                await supabase.storage.from("musician-docs").upload(filePath, bytes, { contentType: meta.data.mimeType, upsert: true });
+                const { data: { publicUrl } } = supabase.storage.from("musician-docs").getPublicUrl(filePath);
+                await supabase.from("integrantes").update({ [field]: publicUrl }).eq("id", m.id);
+                procesados++;
+              }
+            } catch (e) { console.error(`Err migración ${m.apellido}:`, e.message); }
+          }
+        }
+      }
+      return new Response(JSON.stringify({ success: true, procesados, restantes: (totalPendientes || 0) - procesados }), { headers: corsHeaders });
+    }
+
+    // --- ACCIÓN: SUBIR A DRIVE DESDE UNA URL (Exportación Viáticos) ---
+    if (action === "upload_from_url") {
+      const response = await fetch(sourceUrl);
+      if (!response.ok) throw new Error(`No se pudo descargar el archivo`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const form = new FormData();
+      form.append("metadata", new Blob([JSON.stringify({ name: newName, parents: [targetParentId] })], { type: "application/json" }));
+      form.append("file", new Blob([bytes], { type: "application/pdf" }));
+
+      const upRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", {
+        method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form
+      });
+      const upData = await upRes.json();
+      if (upData.error) throw new Error(upData.error.message);
+      return new Response(JSON.stringify({ success: true, fileId: upData.id, webViewLink: upData.webViewLink }), { headers: corsHeaders });
+    }
+
+    // --- ACCIÓN: DRIVE - UPLOAD FILE (General) ---
+    if (action === "upload_file") {
+      const finalParentId = parentId || extractFileId(folderUrl);
       const binaryString = atob(fileBase64);
       const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      const fileBlob = new Blob([bytes], {
-        type: mimeType || "application/pdf",
-      });
-
-      // IMPORTANTE: Con OAuth, la librería maneja el token refresh automáticamente.
-      // Pero para 'fetch' manual necesitamos obtener un access token válido.
-      const tokenResponse = await authClient.getAccessToken();
-      const accessToken = tokenResponse.token;
-
-      const metadata = { name: fileName, parents: [parentId] };
+      for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
       const form = new FormData();
-      form.append(
-        "metadata",
-        new Blob([JSON.stringify(metadata)], { type: "application/json" })
-      );
-      form.append("file", fileBlob);
-
-      const uploadRes = await fetch(
-        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}` },
-          body: form,
-        }
-      );
-
-      if (!uploadRes.ok)
-        throw new Error("Error subiendo: " + (await uploadRes.text()));
-      const fileData = await uploadRes.json();
-
-      return new Response(JSON.stringify({ fileId: fileData.id }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      form.append("metadata", new Blob([JSON.stringify({ name: fileName, parents: [finalParentId] })], { type: "application/json" }));
+      form.append("file", new Blob([bytes], { type: mimeType }));
+      const upRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", {
+        method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form
       });
+      const upData = await upRes.json();
+      return new Response(JSON.stringify({ success: true, webViewLink: upData.webViewLink, fileId: upData.id }), { headers: corsHeaders });
     }
-    // =================================================================================
-    // ACCIÓN: COPIAR ARCHIVO (Para Documentación)
-    // =================================================================================
-    if (action === "copy_file") {
-      const fileId = extractFileId(sourceUrl);
-      if (!fileId) {
-        // No lanzamos error para no romper el loop masivo, devolvemos success:false
-        return new Response(
-          JSON.stringify({ success: false, message: "URL inválida o vacía" }),
-          {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
-        );
+
+    // --- BUSCA ESTE BLOQUE EN TU EDGE FUNCTION ---
+    if (action === "list_folder_files") {
+      console.log("DEBUG [Edge]: Iniciando list_folder_files.");
+      console.log("DEBUG [Edge]: URL recibida:", folderUrl);
+
+      const folderId = extractFileId(folderUrl);
+      console.log("DEBUG [Edge]: ID de carpeta extraído:", folderId);
+
+      if (!folderId) {
+        console.error("DEBUG [Edge]: No se pudo extraer el ID de la URL provista.");
       }
 
       try {
-        const copyRes = await drive.files.copy({
-          fileId: fileId,
-          requestBody: {
-            name: newName || undefined,
-            parents: [targetParentId],
-          },
-          fields: "id, name, webViewLink",
+        const res = await drive.files.list({
+          q: `'${folderId}' in parents and trashed = false`,
+          fields: "files(id, name, webViewLink, mimeType)",
+          pageSize: 100,
+          orderBy: "name",
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
         });
 
-        return new Response(
-          JSON.stringify({ success: true, file: copyRes.data }),
+        console.log(`DEBUG [Edge]: Google API respondió. Archivos encontrados: ${res.data.files?.length || 0}`);
+
+        return new Response(JSON.stringify({ success: true, files: res.data.files || [] }),
           {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
-        );
-      } catch (err: any) {
-        console.error("Error copiando archivo:", err);
-        // Retornamos success false pero con info
-        return new Response(
-          JSON.stringify({ success: false, error: err.message }),
-          {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
-        );
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json" // <--- ESTO ES LO QUE FALTA
+            }
+          });
+      } catch (error) {
+        console.error("DEBUG [Edge]: Error al llamar a Google Drive API:", error.message);
+        throw error;
       }
     }
     // =================================================================================
-    // ACCIÓN: SYNC PROGRAMAS
+    // ACCIÓN: SINCRONIZAR ARCOS (V4 - DRIVE AS SOURCE OF TRUTH)
     // =================================================================================
-    if (action === "sync_program" || action === "delete_program") {
-      let targetYear = new Date().getFullYear();
-      let currentProgramData = null;
+    if (action === "sync_bowing_to_program") {
+      const { programId, obraTitulo, nombreSet, targetDriveId, obraId } = body;
 
-      if (programId) {
-        const { data } = await supabase
-          .from("programas")
-          .select("*")
-          .eq("id", programId)
-          .maybeSingle();
-        if (data) {
-          currentProgramData = data;
-          if (data.fecha_desde)
-            targetYear = parseInt(data.fecha_desde.split("-")[0]);
-        }
-      }
+      if (!programId || !obraId) throw new Error("Faltan parámetros (programId, obraId)");
 
-      if (
-        action === "delete_program" &&
-        currentProgramData?.google_drive_folder_id
-      ) {
+      // --- 0. OBTENER DATOS DE BD ---
+      const { data: prog } = await supabase.from("programas").select("*").eq("id", programId).single();
+      const { data: obra } = await supabase.from("obras").select("*").eq("id", obraId).single();
+
+      if (!prog || !obra) throw new Error("No se encontraron registros de Programa u Obra");
+
+      const tourRootId = prog.google_drive_folder_id;
+      if (!tourRootId) throw new Error("La gira no tiene carpeta principal (D1). Sincroniza la gira primero.");
+
+      // -----------------------------------------------------------------------
+      // NIVEL OBRAS (Biblioteca Central)
+      // -----------------------------------------------------------------------
+
+      // --- 1. GESTIONAR CARPETA MAESTRA DE LA OBRA (O2) ---
+      let workMasterId = obra.id_folder_arcos;
+      // Nombre por defecto (solo si hay que crearla), saneado
+      let workDriveName = obra.titulo.replace(/<[^>]*>?/gm, '').trim();
+
+      let workMasterExists = false;
+
+      if (workMasterId) {
         try {
-          await drive.files.delete({
-            fileId: currentProgramData.google_drive_folder_id,
-          });
-        } catch (e) {}
+          // IMPORTANTE: Leemos el nombre REAL de Drive
+          const f = await drive.files.get({ fileId: workMasterId, fields: "id, name, trashed" });
+          if (!f.data.trashed) {
+            workMasterExists = true;
+            workDriveName = f.data.name; // <--- TOMAMOS EL NOMBRE DE DRIVE
+          }
+        } catch (e) { }
       }
 
-      const startOfYear = `${targetYear}-01-01`;
-      const endOfYear = `${targetYear}-12-31`;
-      const { data: allPrograms } = await supabase
-        .from("programas")
-        .select("*, programas_repertorios(*, repertorio_obras(*, obras(*)))")
-        .gte("fecha_desde", startOfYear)
-        .lte("fecha_desde", endOfYear)
-        .order("fecha_desde", { ascending: true });
+      if (!workMasterExists) {
+        // Buscar por nombre (fallback)
+        const q = `name = '${workDriveName}' and '${OBRAS_REAL_STORAGE_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+        const search = await drive.files.list({ q, fields: "files(id, name)" });
 
-      if (!allPrograms)
-        return new Response(
-          JSON.stringify({ success: true, message: "No programs" })
-        );
-
-      const typeCounters = { Sinf: 0, CF: 0, Ens: 0 };
-      const monthCounters = {};
-
-      for (const prog of allPrograms) {
-        if (!prog.fecha_desde) continue;
-        const [y, m, d] = prog.fecha_desde.split("-").map(Number);
-        const monthIndex = m - 1;
-        const monthNum = m.toString().padStart(2, "0");
-        if (monthCounters[monthIndex] === undefined)
-          monthCounters[monthIndex] = 0;
-        const monthLetter = String.fromCharCode(97 + monthCounters[monthIndex]);
-        monthCounters[monthIndex]++;
-
-        const typeAbbr = getTypeAbbreviation(prog.tipo);
-        typeCounters[typeAbbr] = (typeCounters[typeAbbr] || 0) + 1;
-        const typeCountStr = typeCounters[typeAbbr].toString().padStart(2, "0");
-        const shortYear = targetYear.toString().slice(-2);
-        const nomencladorStr = `${typeAbbr} ${typeCountStr}/${shortYear}`;
-
-        if (prog.nomenclador !== nomencladorStr)
-          await supabase
-            .from("programas")
-            .update({ nomenclador: nomencladorStr })
-            .eq("id", prog.id);
-        if (prog.mes_letra !== `${monthNum}${monthLetter}`)
-          await supabase
-            .from("programas")
-            .update({ mes_letra: `${monthNum}${monthLetter}` })
-            .eq("id", prog.id);
-
-        const datePart = getFormattedDateString(
-          prog.fecha_desde,
-          prog.fecha_hasta
-        );
-        const zonePart = prog.zona ? ` ${prog.zona}` : "";
-        const folderName = `${monthNum}${monthLetter} - ${datePart}${zonePart} - ${nomencladorStr}`;
-
-        let folderId = prog.google_drive_folder_id;
-        let folderExists = false;
-
-        if (folderId) {
-          try {
-            const currentFile = await drive.files.get({
-              fileId: folderId,
-              fields: "id, name, trashed",
-            });
-            if (!currentFile.data.trashed) {
-              folderExists = true;
-              if (currentFile.data.name !== folderName)
-                await drive.files.update({
-                  fileId: folderId,
-                  requestBody: { name: folderName },
-                });
-            }
-          } catch (e) {
-            if (e.code === 404) console.log(`Carpeta ${folderId} 404.`);
-          }
-        }
-
-        if (!folderExists) {
-          const file = await drive.files.create({
+        if (search.data.files && search.data.files.length > 0) {
+          workMasterId = search.data.files[0].id;
+          workDriveName = search.data.files[0].name; // <--- TOMAMOS EL NOMBRE DE DRIVE
+        } else {
+          // Crear
+          const newMaster = await drive.files.create({
             requestBody: {
-              name: folderName,
+              name: workDriveName,
               mimeType: "application/vnd.google-apps.folder",
-              parents: [ROOT_FOLDER_ID],
+              parents: [OBRAS_REAL_STORAGE_ID]
             },
-            fields: "id",
+            fields: "id, name"
           });
-          folderId = file.data.id;
-          await supabase
-            .from("programas")
-            .update({ google_drive_folder_id: folderId })
-            .eq("id", prog.id);
+          workMasterId = newMaster.data.id;
+          workDriveName = newMaster.data.name;
         }
+        await supabase.from("obras").update({ id_folder_arcos: workMasterId }).eq("id", obraId);
+      }
 
-        if (prog.id === programId && action === "sync_program") {
-          const repertorios =
-            prog.programas_repertorios?.sort((a, b) => a.orden - b.orden) || [];
+      // --- 2. GESTIONAR EL SET REAL DE ARCOS (O3) ---
+      let finalSetId = targetDriveId;
+      let setDriveName = nombreSet || "Set Arcos";
 
-          for (const [rIdx, rep] of repertorios.entries()) {
-            const repPrefix = (rIdx + 1).toString().padStart(2, "0");
-            const repName = `${repPrefix}. ${rep.nombre}`;
-            let repId = rep.google_drive_folder_id;
-            let repExists = false;
+      if (finalSetId) {
+        // CASO A: VINCULAR EXISTENTE -> Leemos el nombre REAL de Drive
+        try {
+          const originalFile = await drive.files.get({ fileId: finalSetId, fields: "name" });
+          setDriveName = originalFile.data.name; // <--- TOMAMOS EL NOMBRE DE DRIVE
+        } catch (e) { console.error("Error leyendo set original:", e); }
+      } else {
+        // CASO B: CREAR NUEVO -> Usamos el nombre propuesto (que será el de Drive)
+        const newSet = await drive.files.create({
+          requestBody: {
+            name: setDriveName,
+            mimeType: "application/vnd.google-apps.folder",
+            parents: [workMasterId]
+          },
+          fields: "id, webViewLink, name"
+        });
+        finalSetId = newSet.data.id;
+        setDriveName = newSet.data.name;
+      }
 
-            if (repId) {
-              try {
-                const rf = await drive.files.get({
-                  fileId: repId,
-                  fields: "id, name, trashed",
-                });
-                if (!rf.data.trashed) {
-                  repExists = true;
-                  if (rf.data.name !== repName)
-                    await drive.files.update({
-                      fileId: repId,
-                      requestBody: { name: repName },
-                    });
-                }
-              } catch (e) {}
+      // -----------------------------------------------------------------------
+      // NIVEL GIRA (Estructura Operativa)
+      // -----------------------------------------------------------------------
+
+      // --- 3. GESTIONAR CARPETA DE ARCOS DE LA GIRA (G1) ---
+      const tourArcosName = `Arcos ${prog.nomenclador || 'Gira'}`;
+      let tourArcosId = prog.id_folder_arcos;
+      let tourArcosExists = false;
+
+      if (tourArcosId) {
+        try {
+          const f = await drive.files.get({ fileId: tourArcosId, fields: "id, name, trashed" });
+          if (!f.data.trashed) {
+            tourArcosExists = true;
+            if (f.data.name !== tourArcosName) {
+              await drive.files.update({ fileId: tourArcosId, requestBody: { name: tourArcosName } });
             }
+          }
+        } catch (e) { }
+      }
 
-            if (!repExists) {
-              const f = await drive.files.create({
-                requestBody: {
-                  name: repName,
-                  mimeType: "application/vnd.google-apps.folder",
-                  parents: [folderId],
-                },
-                fields: "id",
-              });
-              repId = f.data.id;
-              await supabase
-                .from("programas_repertorios")
-                .update({ google_drive_folder_id: repId })
-                .eq("id", rep.id);
-            }
+      if (!tourArcosExists) {
+        const newFolder = await drive.files.create({
+          requestBody: {
+            name: tourArcosName,
+            mimeType: "application/vnd.google-apps.folder",
+            parents: [PROGRAMAS_ARCOS_ROOT_ID]
+          },
+          fields: "id"
+        });
+        tourArcosId = newFolder.data.id;
+        await supabase.from("programas").update({ id_folder_arcos: tourArcosId }).eq("id", programId);
+      }
 
-            // === LÓGICA DE ACCESOS DIRECTOS (OBRAS) ===
-            const works =
-              rep.repertorio_obras?.sort((a, b) => a.orden - b.orden) || [];
+      // --- 4. GESTIONAR ACCESO DIRECTO A G1 (S1) ---
+      let shortcutG1Id = prog.id_shortcut_arcos_drive;
+      let shortcutG1Exists = false;
 
-            // Set para rastrear IDs válidos y NO borrarlos al final
-            const processedShortcutIds = new Set();
+      if (shortcutG1Id) {
+        try {
+          const s = await drive.files.get({ fileId: shortcutG1Id, fields: "trashed" });
+          if (!s.data.trashed) shortcutG1Exists = true;
+        } catch (e) { }
+      }
 
-            for (const [index, workItem] of works.entries()) {
-              const obra = workItem.obras;
-              // Verificar que tenga link de drive y que NO esté marcada para excluir
-              if (!obra || !obra.link_drive || workItem.excluir) continue;
+      if (!shortcutG1Exists) {
+        const qS1 = `'${tourRootId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' and name = '${tourArcosName}' and trashed = false`;
+        const searchS1 = await drive.files.list({ q: qS1, fields: "files(id)" });
 
-              const targetId = extractFileId(obra.link_drive);
-              if (!targetId) continue;
+        if (searchS1.data.files && searchS1.data.files.length > 0) {
+          shortcutG1Id = searchS1.data.files[0].id;
+        } else {
+          const s1 = await drive.files.create({
+            requestBody: {
+              name: tourArcosName,
+              mimeType: "application/vnd.google-apps.shortcut",
+              parents: [tourRootId],
+              shortcutDetails: { targetId: tourArcosId }
+            },
+            fields: "id"
+          });
+          shortcutG1Id = s1.data.id;
+        }
+        await supabase.from("programas").update({ id_shortcut_arcos_drive: shortcutG1Id }).eq("id", programId);
+      }
 
-              // 1. OBTENER NOMBRE REAL DE LA CARPETA ORIGINAL
-              let targetName = obra.titulo; // Fallback
-              try {
-                const targetFile = await drive.files.get({
-                  fileId: targetId,
-                  fields: "name, trashed",
-                });
+      // --- 5. GESTIONAR SHORTCUT DEL SET (S2) ---
 
-                // Si la carpeta original fue borrada, saltamos
-                if (targetFile.data.trashed) continue;
-                targetName = targetFile.data.name;
-              } catch (e) {
-                // Si no tenemos permiso de ver la original, saltamos
-                console.log(`No se pudo leer original ${targetId}`);
-                continue;
-              }
+      // CONSTRUCCIÓN DEL NOMBRE ESTANDARIZADO
+      // Lógica: Si el nombre del set ya empieza con "Arcos", no lo duplicamos.
+      let prefix = "Arcos ";
+      if (setDriveName.toLowerCase().startsWith("arcos")) prefix = "";
 
-              // Construir el nombre deseado: "01 - Nombre Original"
-              const prefix = (index + 1).toString().padStart(2, "0");
-              const shortcutName = `${prefix} - ${targetName}`;
+      const standardizedName = `${prefix}${setDriveName} - ${workDriveName}`;
 
-              let shortcutId = workItem.google_drive_shortcut_id;
-              let shortcutValid = false;
+      // LIMPIEZA: Borrar shortcuts previos que contengan el nombre de la OBRA
+      // (Porque la obra es lo único constante si cambias de set)
+      const safeWorkName = workDriveName.replace(/'/g, "\\'");
+      const qCleanup = `'${tourArcosId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' and name contains '${safeWorkName}' and trashed = false`;
 
-              // 2. VALIDAR Y CORREGIR SHORTCUT EXISTENTE
-              if (shortcutId) {
-                try {
-                  const sFile = await drive.files.get({
-                    fileId: shortcutId,
-                    fields: "id, name, trashed, shortcutDetails, parents",
-                  });
-
-                  if (
-                    !sFile.data.trashed &&
-                    sFile.data.shortcutDetails?.targetId === targetId
-                  ) {
-                    shortcutValid = true;
-
-                    // A. Corregir Nombre
-                    if (sFile.data.name !== shortcutName) {
-                      await drive.files.update({
-                        fileId: shortcutId,
-                        requestBody: { name: shortcutName },
-                      });
-                    }
-
-                    // B. Corregir Ubicación (Mover si está mal ubicado)
-                    if (
-                      !sFile.data.parents ||
-                      !sFile.data.parents.includes(repId)
-                    ) {
-                      const previousParents = sFile.data.parents
-                        ? sFile.data.parents.join(",")
-                        : "";
-                      await drive.files.update({
-                        fileId: shortcutId,
-                        addParents: repId,
-                        removeParents: previousParents,
-                        fields: "id, parents",
-                      });
-                    }
-
-                    // IMPORTANTE: Marcar como procesado para no borrarlo luego
-                    processedShortcutIds.add(shortcutId);
-                  } else {
-                    // Borrar si es inválido (apunta a otro lado o está en papelera)
-                    if (!sFile.data.trashed) {
-                      await drive.files.delete({ fileId: shortcutId });
-                    }
-                    shortcutValid = false;
-                  }
-                } catch (e) {
-                  shortcutValid = false;
-                }
-              }
-
-              // 3. CREAR SI NO EXISTE O NO ES VÁLIDO
-              if (!shortcutValid) {
-                try {
-                  const newShortcut = await drive.files.create({
-                    requestBody: {
-                      name: shortcutName,
-                      mimeType: "application/vnd.google-apps.shortcut",
-                      parents: [repId], // Asegura creación en la carpeta correcta
-                      shortcutDetails: { targetId: targetId },
-                    },
-                    fields: "id",
-                  });
-
-                  if (newShortcut.data.id) {
-                    await supabase
-                      .from("repertorio_obras")
-                      .update({ google_drive_shortcut_id: newShortcut.data.id })
-                      .eq("id", workItem.id);
-
-                    // IMPORTANTE: Agregar el NUEVO ID a la lista de procesados
-                    processedShortcutIds.add(newShortcut.data.id);
-                  }
-                } catch (e) {
-                  console.error(`Error creando shortcut ${shortcutName}`, e);
-                }
-              }
-            }
-
-            // 4. LIMPIEZA DE HUÉRFANOS
-            // Comparamos lo que hay en Drive contra nuestra lista procesada (viejos válidos + nuevos)
-            try {
-              const q = `'${repId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' and trashed = false`;
-              const childrenRes = await drive.files.list({
-                q,
-                fields: "files(id)",
-              });
-
-              for (const file of childrenRes.data.files || []) {
-                if (file.id && !processedShortcutIds.has(file.id)) {
-                  console.log(`Borrando shortcut huérfano: ${file.id}`);
-                  try {
-                    await drive.files.delete({ fileId: file.id });
-                  } catch (e) {
-                    console.error("Error borrando huérfano:", e);
-                  }
-                }
-              }
-            } catch (e) {
-              console.error("Error en limpieza:", e);
+      try {
+        const candidates = await drive.files.list({ q: qCleanup, fields: "files(id, name)" });
+        if (candidates.data.files && candidates.data.files.length > 0) {
+          for (const file of candidates.data.files) {
+            // Verificamos que sea realmente de esta obra
+            if (file.name.toLowerCase().includes(workDriveName.toLowerCase())) {
+              console.log(`[Clean] Reemplazando: ${file.name}`);
+              await drive.files.delete({ fileId: file.id });
             }
           }
         }
+      } catch (e) { console.error("Error limpieza S2:", e); }
+
+      // CREAR NUEVO
+      const s2 = await drive.files.create({
+        requestBody: {
+          name: standardizedName,
+          mimeType: "application/vnd.google-apps.shortcut",
+          parents: [tourArcosId],
+          shortcutDetails: { targetId: finalSetId }
+        },
+        fields: "id"
+      });
+      const shortcutS2Id = s2.data.id;
+
+      return new Response(JSON.stringify({
+        success: true,
+        realFolderId: finalSetId,
+        shortcutId: shortcutS2Id
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+    // --- ACCIÓN: SYNC / DELETE PROGRAM ---
+    if (action === "sync_program" || action === "delete_program") {
+      const targetProgramId = programId || body.id || body.id_gira;
+      console.log(`[SYNC] Acción: ${action}, ID: ${targetProgramId ?? "TODOS (vigentes)"}`);
+
+      // delete_program siempre requiere ID
+      if (action === "delete_program") {
+        if (!targetProgramId) throw new Error("ID de programa no proporcionado para eliminar.");
+        const { data: prog, error: progError } = await supabase
+          .from("programas")
+          .select("id, google_drive_folder_id")
+          .eq("id", targetProgramId)
+          .single();
+        if (progError || !prog) throw new Error("No se encontró el programa especificado.");
+        if (prog.google_drive_folder_id) {
+          try {
+            await drive.files.delete({ fileId: prog.google_drive_folder_id });
+          } catch (e) {
+            console.error("Error borrando carpeta:", (e as Error).message);
+          }
+        }
+        return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
       }
+
+      // sync_program: sin ID = actualizar TODAS las giras vigentes
+      const selectProgramas = `
+        *,
+        programas_repertorios(*, repertorio_obras(*, obras(*))),
+        giras_fuentes(*)
+      `;
+      if (!targetProgramId) {
+        const today = new Date().toISOString().slice(0, 10);
+        const { data: programas, error: listError } = await supabase
+          .from("programas")
+          .select(selectProgramas)
+          .eq("estado", "Vigente")
+          .gte("fecha_hasta", today);
+        if (listError) {
+          console.error("[SYNC] Error listando programas:", listError);
+          throw new Error("No se pudieron listar las giras vigentes.");
+        }
+        const list = programas || [];
+        console.log(`[SYNC] Sincronizando ${list.length} programa(s) vigente(s).`);
+        for (const prog of list) {
+          try {
+            await syncOneProgram(supabase, drive, prog);
+          } catch (e) {
+            console.error(`[SYNC] Error en programa ${prog.id}:`, (e as Error).message);
+          }
+        }
+        return new Response(JSON.stringify({ success: true, synced: list.length }), { headers: corsHeaders });
+      }
+
+      // sync_program con ID: un solo programa
+      const { data: prog, error: progError } = await supabase
+        .from("programas")
+        .select(selectProgramas)
+        .eq("id", targetProgramId)
+        .single();
+      if (progError || !prog) {
+        console.error("[SYNC] Error DB:", progError);
+        throw new Error("No se encontró el programa especificado.");
+      }
+      await syncOneProgram(supabase, drive, prog);
+      console.log("[SYNC] Programa individual finalizado con éxito.");
+      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+    }
+    // --- ACCIÓN: COPY / DELETE / PERMISSIONS ---
+    if (action === "copy_file") {
+      const res = await drive.files.copy({ fileId: extractFileId(sourceUrl), requestBody: { name: newName, parents: [targetParentId] }, fields: "id, webViewLink" });
+      return new Response(JSON.stringify({ success: true, file: res.data }), { headers: corsHeaders });
+    }
+    if (action === "delete_file") {
+      try { await drive.files.delete({ fileId }); } catch (e) { }
+      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+    }
+    if (action === "fix_permissions") {
+      const tIds = [PROGRAMAS_ARCOS_ROOT_ID, OBRAS_REAL_STORAGE_ID, ROOT_FOLDER_ID];
+      for (const id of tIds) try { await drive.permissions.create({ fileId: id, requestBody: { role: role || 'writer', type: 'user', emailAddress: targetEmail } }); } catch (e) { }
+      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
     }
 
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
-    });
+    return new Response(JSON.stringify({ message: "Action not found" }), { headers: corsHeaders, status: 404 });
+
   } catch (error: any) {
-    console.error("ERROR:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 400,
-    });
+    console.error("CRITICAL ERROR:", error.message);
+    return new Response(JSON.stringify({ error: error.message }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 });
   }
 });
