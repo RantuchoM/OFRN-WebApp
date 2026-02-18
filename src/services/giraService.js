@@ -36,44 +36,40 @@ const resolveGiraRosterIds = async (supabase, giraId) => {
         .select("id_integrante")
         .in("id_ensamble", ensambleIds);
 
-      ensambleMembers?.forEach((i) => integrantesIds.add(i.id_integrante));
+      ensambleMembers?.forEach((i) => integrantesIds.add(Number(i.id_integrante)));
     }
 
-    // Por Familia de Instrumento
+    // Por Familia de Instrumento (via id_instr -> instrumentos.familia)
     const familias = fuentes
       .filter((f) => f.tipo === "FAMILIA")
       .map((f) => f.valor_texto);
 
     if (familias.length > 0) {
-      // Nota: Ajusta 'instrumento_familia' si tu columna se llama diferente en la DB
-      // o si requieres un join con la tabla instrumentos.
-      // Asumimos que en la tabla integrantes existe esa columna o similar.
       const { data: familiaMembers } = await supabase
         .from("integrantes")
-        .select("id")
-        .in("instrumento_familia", familias);
+        .select("id, instrumentos!inner(familia)")
+        .in("instrumentos.familia", familias);
 
-      familiaMembers?.forEach((i) => integrantesIds.add(i.id));
+      familiaMembers?.forEach((i) => integrantesIds.add(Number(i.id)));
     }
 
     // C. Procesar Overrides (giras_integrantes)
     // Agregamos a los que están forzados manualmente (Staff, invitados, o correcciones)
     overrides.forEach((o) => {
       if (o.estado !== "ausente") {
-        integrantesIds.add(o.id_integrante);
+        integrantesIds.add(Number(o.id_integrante));
       }
     });
 
-    // D. Aplicar Bajas/Ausentes
-    // Si alguien está marcado como 'ausente' en giras_integrantes, lo sacamos.
+    // D. Filtro final ineludible: Aplicar Bajas/Ausentes
+    // Si alguien está marcado como 'ausente' en giras_integrantes, lo excluimos.
     const ausentesIds = new Set(
       overrides
         .filter((o) => o.estado === "ausente")
-        .map((o) => o.id_integrante),
+        .map((o) => Number(o.id_integrante)),
     );
 
-    // Convertimos a array filtrando los ausentes
-    return Array.from(integrantesIds).filter((id) => !ausentesIds.has(id));
+    return Array.from(integrantesIds).filter((id) => !ausentesIds.has(Number(id)));
   } catch (error) {
     console.error("[GiraService] Error resolviendo roster IDs:", error);
     return [];
@@ -122,15 +118,20 @@ export const getEnrichedRosterOnDemand = async (supabase, giraId) => {
     const allTransports = transportesRes.data || [];
 
     // 3. Cruzar datos (Enriquecer)
+    const paxIdNum = (id) => Number(id);
     return fullRoster.map((pax) => {
-      // Buscar si tiene habitación (el ID del integrante está en el array de asignados)
+      const pid = paxIdNum(pax.id);
       const habitacion =
-        allRooms.find((r) => r.id_integrantes_asignados?.includes(pax.id)) ||
-        null;
+        allRooms.find((r) =>
+          (r.id_integrantes_asignados || []).some(
+            (aid) => Number(aid) === pid,
+          ),
+        ) || null;
 
-      // Buscar si tiene transporte
       const transporte =
-        allTransports.find((t) => t.pasajeros_ids?.includes(pax.id)) || null;
+        allTransports.find((t) =>
+          (t.pasajeros_ids || []).some((paid) => Number(paid) === pid),
+        ) || null;
 
       return {
         ...pax,

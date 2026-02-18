@@ -1,9 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useGiraRoster } from "./useGiraRoster";
+import {
+  normalize,
+  getMatchStrength,
+  matchesRule,
+  getCategoriaLogistica,
+} from "../utils/giraUtils";
 
-// --- 1. HELPERS (Manteniendo tu lógica Base/Legacy) ---
-
-export const normalize = (str) => (str || "").toLowerCase().trim();
+// --- 1. RE-EXPORTS PARA COMPATIBILIDAD ---
+export { normalize, getMatchStrength, matchesRule, getCategoriaLogistica };
 
 export const getPriorityValue = (scope) => {
   const s = normalize(scope);
@@ -12,113 +17,6 @@ export const getPriorityValue = (scope) => {
   if (s === "localidad" || s === "l") return 3;
   if (s === "region" || s === "r") return 2;
   return 1;
-};
-/**
- * Calcula la "fuerza" del match para una persona específica.
- * Una misma regla puede ser muy fuerte para uno (ID) y débil para otro (Localidad).
- */
-export const getMatchStrength = (rule, person, allLocalities = []) => {
-  if (!rule || !person) return 0;
-
-  const pId = String(person.id || person.id_integrante);
-  const pLoc = person.id_localidad ? String(person.id_localidad) : "";
-  const pCat = getCategoriaLogistica(person);
-
-  const locInfo = allLocalities.find((l) => String(l.id) === pLoc);
-  const pReg = String(
-    person.id_region ||
-      person.localidades?.id_region ||
-      locInfo?.id_region ||
-      "",
-  );
-
-  // 1. Prioridad Máxima: Match por ID de Persona
-  if ((rule.target_ids || []).map(String).includes(pId)) return 5;
-  if (
-    normalize(rule.alcance) === "persona" &&
-    String(rule.id_integrante) === pId
-  )
-    return 5;
-
-  // 2. Prioridad 4: Match por Categoría
-  if ((rule.target_categories || []).includes(pCat)) return 4;
-  if (
-    normalize(rule.alcance) === "categoria" ||
-    normalize(rule.alcance) === "instrumento"
-  ) {
-    if (
-      normalize(rule.instrumento_familia) ===
-      normalize(person.instrumentos?.familia)
-    )
-      return 4;
-  }
-
-  // 3. Prioridad 3: Match por Localidad
-  if ((rule.target_localities || []).map(String).includes(pLoc)) return 3;
-  if (
-    normalize(rule.alcance) === "localidad" &&
-    String(rule.id_localidad) === pLoc
-  )
-    return 3;
-
-  // 4. Prioridad 2: Match por Región
-  if ((rule.target_regions || []).map(String).includes(pReg)) return 2;
-  if (normalize(rule.alcance) === "region" && String(rule.id_region) === pReg)
-    return 2;
-
-  // 5. Prioridad 1: General
-  if (normalize(rule.alcance) === "general") return 1;
-
-  return 0; // No hay match
-};
-export const getCategoriaLogistica = (person) => {
-  const rol = normalize(person?.rol_gira || person?.rol || "musico");
-  if (rol === "solista") return "SOLISTAS";
-  if (rol === "director") return "DIRECTORES";
-  if (rol === "produccion") return "PRODUCCION";
-  if (rol === "staff") return "STAFF";
-  return person?.is_local ? "LOCALES" : "NO_LOCALES";
-};
-
-export const matchesRule = (rule, person, allLocalities = []) => {
-  if (!rule || !person) return false;
-  const scope = normalize(rule.alcance);
-  const pId = String(person.id || person.id_integrante);
-  const pLoc = person.id_localidad ? String(person.id_localidad) : "";
-  const pRole = normalize(person.rol_gira || person.rol || "musico");
-  const pCondicion = normalize(person.condicion || "");
-
-  const locInfo = allLocalities.find((l) => String(l.id) === pLoc);
-  const pReg = String(
-    person.id_region ||
-      person.localidades?.id_region ||
-      locInfo?.id_region ||
-      "",
-  );
-
-  const isTransportRule = "id_transporte_fisico" in rule;
-  if (isTransportRule && ["general", "region", "localidad"].includes(scope)) {
-    const isStaff = ["produccion", "staff", "director", "chofer"].includes(
-      pRole,
-    );
-    if (isStaff || pCondicion !== "estable") return false;
-  }
-
-  if ((rule.target_ids || []).map(String).includes(pId)) return true;
-  if ((rule.target_regions || []).map(String).includes(pReg)) return true;
-  if ((rule.target_localities || []).map(String).includes(pLoc)) return true;
-  if ((rule.target_categories || []).includes(getCategoriaLogistica(person)))
-    return true;
-
-  if (scope === "general") return true;
-  if (scope === "persona" && String(rule.id_integrante) === pId) return true;
-  if (scope === "region" && String(rule.id_region) === pReg) return true;
-  if (scope === "localidad" && String(rule.id_localidad) === pLoc) return true;
-  if (scope === "categoria" || scope === "instrumento") {
-    const family = person.instrumentos?.familia;
-    return normalize(rule.instrumento_familia) === normalize(family);
-  }
-  return false;
 };
 
 // --- 2. CALCULADOR CORE (Integración Quirúrgica) ---

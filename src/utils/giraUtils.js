@@ -1,5 +1,7 @@
 // src/utils/giraUtils.js
 
+export const normalize = (str) => (str || "").toLowerCase().trim();
+
 /* --- ÚNICA FUENTE DE VERDAD: CATEGORÍAS Y ROLES (GRP) --- */
 
 /** Categorías estándar para convocatoria y roster. No inventar nuevos. */
@@ -100,9 +102,115 @@ export const calculateLogisticsForMusician = (person, rules) => {
   return final;
 };
 
-// src/utils/giraUtils.js
+/* --- MOTOR DE REGLAS DE LOGÍSTICA --- */
 
-// ... (mantén tus funciones existentes como getGiraDates, etc.)
+/** Categoría logística según rol (usa p.rol de giras_integrantes o rol_gira). */
+export const getCategoriaLogistica = (person) => {
+  const rol = normalize(person?.rol ?? person?.rol_gira ?? "musico");
+  if (rol === "solista") return "SOLISTAS";
+  if (rol === "director") return "DIRECTORES";
+  if (rol === "produccion") return "PRODUCCION";
+  if (rol === "staff") return "STAFF";
+  return person?.is_local ? "LOCALES" : "NO_LOCALES";
+};
+
+/** Fuerza del match para ordenar reglas. Si estado_gira === 'ausente', siempre 0. */
+export const getMatchStrength = (rule, person, allLocalities = []) => {
+  if (!rule || !person) return 0;
+  if (normalize(person.estado_gira) === "ausente") return 0;
+
+  const pId = String(person.id ?? person.id_integrante);
+  const pLoc = person.id_localidad ? String(person.id_localidad) : "";
+  const pCat = getCategoriaLogistica(person);
+
+  const locInfo = allLocalities.find((l) => String(l.id) === pLoc);
+  const pReg = String(
+    person.id_region ??
+      person.localidades?.id_region ??
+      locInfo?.id_region ??
+      "",
+  );
+
+  if ((rule.target_ids || []).map(String).includes(pId)) return 5;
+  if (
+    normalize(rule.alcance) === "persona" &&
+    String(rule.id_integrante) === pId
+  )
+    return 5;
+
+  if ((rule.target_categories || []).includes(pCat)) return 4;
+  if (
+    normalize(rule.alcance) === "categoria" ||
+    normalize(rule.alcance) === "instrumento"
+  ) {
+    if (
+      normalize(rule.instrumento_familia) ===
+      normalize(person.instrumentos?.familia)
+    )
+      return 4;
+  }
+
+  if ((rule.target_localities || []).map(String).includes(pLoc)) return 3;
+  if (
+    normalize(rule.alcance) === "localidad" &&
+    String(rule.id_localidad) === pLoc
+  )
+    return 3;
+
+  if ((rule.target_regions || []).map(String).includes(pReg)) return 2;
+  if (normalize(rule.alcance) === "region" && String(rule.id_region) === pReg)
+    return 2;
+
+  if (normalize(rule.alcance) === "general") return 1;
+  return 0;
+};
+
+/**
+ * Verifica si una regla aplica a la persona.
+ * Si regla es General/Localidad/Region Y transporte físico Y person.condicion !== 'estable', retorna false.
+ */
+export const matchesRule = (rule, person, allLocalities = []) => {
+  if (!rule || !person) return false;
+  if (normalize(person.estado_gira) === "ausente") return false;
+
+  const scope = normalize(rule.alcance);
+  const pId = String(person.id ?? person.id_integrante);
+  const pLoc = person.id_localidad ? String(person.id_localidad) : "";
+  const pRole = normalize(person.rol ?? person.rol_gira ?? "musico");
+  const pCondicion = normalize(person.condicion ?? "");
+
+  const locInfo = allLocalities.find((l) => String(l.id) === pLoc);
+  const pReg = String(
+    person.id_region ??
+      person.localidades?.id_region ??
+      locInfo?.id_region ??
+      "",
+  );
+
+  const isTransportRule = "id_transporte_fisico" in rule;
+  if (isTransportRule && ["general", "region", "localidad"].includes(scope)) {
+    const isStaff = ["produccion", "staff", "director", "chofer"].includes(
+      pRole,
+    );
+    if (isStaff || pCondicion !== "estable") return false;
+  }
+
+  if ((rule.target_ids || []).map(String).includes(pId)) return true;
+  if ((rule.target_regions || []).map(String).includes(pReg)) return true;
+  if ((rule.target_localities || []).map(String).includes(pLoc)) return true;
+  if ((rule.target_categories || []).includes(getCategoriaLogistica(person)))
+    return true;
+
+  if (scope === "general") return true;
+  if (scope === "persona" && String(rule.id_integrante) === pId) return true;
+  if (scope === "region" && String(rule.id_region) === pReg) return true;
+  if (scope === "localidad" && String(rule.id_localidad) === pLoc) return true;
+  if (scope === "categoria" || scope === "instrumento") {
+    const family = person.instrumentos?.familia;
+    return normalize(rule.instrumento_familia) === normalize(family);
+  }
+  return false;
+};
 
 /* --- CONFIGURACIÓN DE TIPOS DE PROGRAMA --- */
 export const PROGRAM_TYPES = {

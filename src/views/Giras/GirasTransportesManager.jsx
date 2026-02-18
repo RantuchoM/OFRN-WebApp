@@ -39,6 +39,7 @@ import ItineraryManagerModal from "./ItineraryManagerModal";
 import BoardingManagerModal from "./BoardingManagerModal";
 import StopRulesManager from "./StopRulesManager";
 import TransportAdmissionModal from "./TransportAdmissionModal";
+import DataIntegrityIndicator from "../../components/DataIntegrityIndicator";
 import { useLogistics, matchesRule } from "../../hooks/useLogistics";
 
 import { toast } from "sonner";
@@ -379,68 +380,6 @@ const generateRoadmapExcel = async (
   anchor.href = url;
   anchor.download = `Hoja_Ruta_${transportName}.xlsx`;
   anchor.click();
-};
-
-const DataIntegrityIndicator = ({ passengers }) => {
-  const issues = useMemo(() => {
-    const list = [];
-    passengers?.forEach((p) => {
-      const missing = [];
-      if (!p.dni) missing.push("DNI");
-      if (!p.fecha_nac) missing.push("Fecha Nac.");
-      if (!p.genero) missing.push("Género");
-
-      if (missing.length > 0) {
-        list.push({ id: p.id, name: `${p.apellido}, ${p.nombre}`, missing });
-      }
-    });
-    return list;
-  }, [passengers]);
-
-  if (issues.length === 0) {
-    return (
-      <div className="flex items-center gap-1.5 text-emerald-600 px-3 py-1.5 bg-emerald-50 rounded border border-emerald-100 transition-all select-none">
-        <IconCheckCircle size={14} />
-        <span className="text-xs font-bold">Datos completos</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="group relative flex items-center gap-2 cursor-help select-none mr-2">
-      <span className="flex h-3 w-3 relative">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-      </span>
-      <span className="text-xs font-bold text-red-600 animate-pulse">
-        Faltan datos ({issues.length})
-      </span>
-      <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-red-200 shadow-xl rounded-lg p-0 z-50 hidden group-hover:flex flex-col max-h-60">
-        <div className="bg-red-50 p-2 border-b border-red-100 rounded-t-lg">
-          <p className="text-[10px] font-bold text-red-800 uppercase tracking-wider">
-            Datos Personales Faltantes
-          </p>
-        </div>
-        <div className="overflow-y-auto p-2">
-          <ul className="space-y-2">
-            {issues.map((issue) => (
-              <li
-                key={issue.id}
-                className="flex flex-col border-b border-slate-50 last:border-0 pb-1"
-              >
-                <span className="text-xs font-semibold text-slate-700">
-                  {issue.name}
-                </span>
-                <span className="text-[10px] text-red-500 flex gap-1 items-center">
-                  <IconAlertTriangle size={8} /> {issue.missing.join(", ")}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
 };
 
 const ShiftScheduleModal = ({

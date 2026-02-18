@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import {
   IconUsers,
   IconLoader,
@@ -6,6 +6,9 @@ import {
   IconLayers,
   IconExternalLink,
   IconAlertCircle,
+  IconAlertTriangle,
+  IconCheckCircle,
+  IconFolder,
   IconHistory,
   IconChevronDown,
   IconEdit,
@@ -18,10 +21,86 @@ import {
   ParticellaSelect,
   CreateParticellaModal,
 } from "../../components/seating/SeatingControls";
+import { createPortal } from "react-dom";
 
 // Librerías para reporte PDF
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+
+/** Tooltip por obra: lista las particellas sin asignar (Flauta 1, Oboe 2, etc.) */
+function ObraUnassignedTooltip({ parts }) {
+  const [pos, setPos] = useState(null);
+  const ref = useRef(null);
+
+  const show = () => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setPos({ top: rect.top - 8, left: rect.left + rect.width / 2 });
+    }
+  };
+  const hide = () => setPos(null);
+
+  useEffect(() => {
+    if (!pos) return;
+    const update = () => {
+      if (ref.current) {
+        const rect = ref.current.getBoundingClientRect();
+        setPos({ top: rect.top - 8, left: rect.left + rect.width / 2 });
+      }
+    };
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [pos]);
+
+  const labels = parts.map((p) =>
+    (p.nombre_archivo || p.instrumentos?.instrumento || "Particella").replace(
+      /\.(pdf|docx?)$/i,
+      ""
+    )
+  );
+
+  return (
+    <>
+      <span
+        ref={ref}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        className="absolute top-1 right-1 cursor-help"
+        role="status"
+        aria-label={`Falta asignar: ${labels.join(", ")}`}
+      >
+        <IconAlertTriangle size={16} className="text-amber-400" />
+      </span>
+      {pos &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed z-[9999] -translate-x-1/2 -translate-y-full px-3 py-2 min-w-[140px] max-w-[220px] bg-slate-800 text-white text-xs font-medium rounded-lg shadow-lg border border-slate-700 animate-in fade-in duration-150"
+            style={{ top: pos.top, left: pos.left }}
+            role="tooltip"
+          >
+            <div className="font-bold text-amber-300 text-[10px] uppercase tracking-wider mb-1">
+              Falta asignar:
+            </div>
+            <ul className="space-y-0.5">
+              {labels.map((l, i) => (
+                <li key={i}>{l}</li>
+              ))}
+            </ul>
+            <div
+              className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-slate-800"
+              aria-hidden
+            />
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
 
 const EXCLUDED_ROLES = [
   "staff",
@@ -1018,12 +1097,13 @@ export default function ProgramSeating({
                   Contenedor / Músico
                 </th>
                 {obras.map((obra) => {
-                  // Pre-cálculo para el header (Unassigned Warning)
+                  // Pre-cálculo para el header (Unassigned Warning / Complete)
                   const obraParts = availablePartsByWork[obra.obra_id] || [];
                   const unassignedParts = obraParts.filter(
                     (p) => !particellaCounts[p.id],
                   );
                   const hasUnassigned = unassignedParts.length > 0;
+                  const hasParts = obraParts.length > 0;
 
                   return (
                     <th
@@ -1031,11 +1111,34 @@ export default function ProgramSeating({
                       className="p-1 w-32 border-l border-slate-600 align-bottom relative group"
                     >
                       <div className="flex flex-col gap-0.5 items-center w-full pb-1 overflow-hidden">
+                        {/* Carpeta (solo edición) */}
+                        {isEditor && (
+                          <div className="mb-0.5">
+                            {obra.link ? (
+                              <a
+                                href={obra.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-slate-400 hover:text-white transition-colors"
+                                title="Abrir carpeta de la obra"
+                              >
+                                <IconFolder size={14} />
+                              </a>
+                            ) : (
+                              <span
+                                className="text-slate-500/60"
+                                title="Sin carpeta asignada"
+                              >
+                                <IconFolder size={14} />
+                              </span>
+                            )}
+                          </div>
+                        )}
                         <div className="flex items-center gap-1 opacity-70 hover:opacity-100">
                           <span className="text-[9px] uppercase tracking-wide truncate">
                             {obra.composer}
                           </span>
-                          {obra.link && (
+                          {obra.link && !isEditor && (
                             <a
                               href={obra.link}
                               target="_blank"
@@ -1051,12 +1154,20 @@ export default function ProgramSeating({
                           title={obra.title}
                           dangerouslySetInnerHTML={{ __html: obra.title }}
                         />
-                        {hasUnassigned && (
+                        {/* Indicador integridad (solo edición): check verde si completo, triángulo si falta asignar */}
+                        {isEditor && (
                           <div className="absolute top-1 right-1">
-                            <IconAlertCircle
-                              size={10}
-                              className="text-amber-400"
-                            />
+                            {hasUnassigned ? (
+                              <ObraUnassignedTooltip parts={unassignedParts} />
+                            ) : hasParts ? (
+                              <span
+                                className="text-emerald-400"
+                                title="Particellas asignadas"
+                                aria-label="Particellas asignadas"
+                              >
+                                <IconCheckCircle size={16} />
+                              </span>
+                            ) : null}
                           </div>
                         )}
                       </div>
