@@ -1002,6 +1002,8 @@ const MassEditModal = ({
 export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [resultados, setResultados] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
   const [searchText, setSearchText] = useState("");
   const [selectedInstruments, setSelectedInstruments] = useState(new Set());
@@ -1036,6 +1038,15 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
   const [selectedMusicians, setSelectedMusicians] = useState(new Set());
   const [isMassEditOpen, setIsMassEditOpen] = useState(false);
+  const [columnFilters, setColumnFilters] = useState({});
+  const [debouncedNameTerm, setDebouncedNameTerm] = useState("");
+  const debounceRef = React.useRef(null);
+
+  const rawNameTerm = (
+    searchText ||
+    (columnFilters && columnFilters.apellido_nombre) ||
+    ""
+  ).trim();
 
   useEffect(() => {
     const allIds = new Set(catalogoInstrumentos.map((i) => i.id));
@@ -1045,20 +1056,49 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   }, [catalogoInstrumentos]);
 
   useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedNameTerm(rawNameTerm);
+    }, 1500);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [rawNameTerm]);
+
+  // Reset a página 1 cuando cambian los filtros (o el orden) para que la paginación sea coherente
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    debouncedNameTerm,
+    conditionFilters,
+    selectedInstruments,
+    selectedEnsembles,
+    missingFieldsFilters,
+    onlyVigente,
+    sortConfig.key,
+    sortConfig.direction,
+  ]);
+
+  useEffect(() => {
     fetchData();
   }, [
-    searchText,
+    currentPage,
+    debouncedNameTerm,
     conditionFilters,
     selectedInstruments,
     missingFieldsFilters,
     onlyVigente,
+    sortConfig.key,
+    sortConfig.direction,
   ]);
 
   const fetchData = () =>
     fetchEnsemblesAndData(
+      currentPage,
       selectedInstruments,
       conditionFilters,
       missingFieldsFilters,
+      debouncedNameTerm,
     );
 
   const fetchLocations = async () => {
@@ -1070,9 +1110,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   };
 
   const fetchEnsemblesAndData = async (
+    page,
     instruments,
     conditions,
     missingFields,
+    nameTerm,
   ) => {
     setLoading(true);
     try {
@@ -1083,14 +1125,17 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           .order("ensamble");
         if (ens) setEnsemblesList(ens);
       }
+      const from = (page - 1) * 100;
+      const to = from + 99;
       let query = supabase
         .from("integrantes")
         .select(
           `*, instrumentos(instrumento), residencia:localidades!id_localidad(localidad), viaticos:localidades!id_loc_viaticos(localidad), integrantes_ensambles(ensambles(id, ensamble))`,
+          { count: "exact" },
         );
-      if (searchText.trim())
+      if (nameTerm)
         query = query.or(
-          `nombre.ilike.%${searchText.trim()}%,apellido.ilike.%${searchText.trim()}%`,
+          `nombre.ilike.%${nameTerm}%,apellido.ilike.%${nameTerm}%`,
         );
       const realIds = Array.from(instruments).filter((id) => id !== "null");
       if (realIds.length > 0 || instruments.has("null")) {
@@ -1115,8 +1160,20 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         query = query.or(`fecha_alta.lte.${hoy},fecha_alta.is.null`);
         query = query.or(`fecha_baja.gte.${hoy},fecha_baja.is.null`);
       }
-      const { data: musicians, error } = await query;
+      const orderKey =
+        sortConfig.key === "apellido_nombre" || sortConfig.key === "apellido"
+          ? "apellido"
+          : sortConfig.key;
+      const isNestedOrder = orderKey.includes(".");
+      const serverOrderKey = isNestedOrder ? "apellido" : orderKey;
+      const ascending = sortConfig.direction === "asc";
+      query = query.order(serverOrderKey, { ascending });
+      if (serverOrderKey === "apellido")
+        query = query.order("nombre", { ascending });
+      query = query.range(from, to);
+      const { data: musicians, error, count } = await query;
       if (error) throw error;
+      setTotalCount(count ?? 0);
       const formatted = (musicians || []).map((m) => ({
         ...m,
         integrantes_ensambles:
@@ -1183,7 +1240,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     setEditFormData({ ...item });
   };
 
-  const [columnFilters, setColumnFilters] = useState({});
   const processedResultados = useMemo(() => {
     let filtered = [...resultados];
     if (selectedEnsembles.size > 0)
@@ -1610,6 +1666,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             <tbody className="divide-y divide-slate-100 text-xs">
               {processedResultados.map((item, idx) => {
                 const conditionClass = getConditionStyles(item.condicion);
+                const rowNumber = (currentPage - 1) * 100 + idx + 1;
                 return (
                   <tr key={item.id} className={`${conditionClass} group`}>
                     <td
@@ -1625,7 +1682,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                     <td
                       className={`p-1 text-center sticky left-10 z-10 border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
                     >
-                      {idx + 1}
+                      {rowNumber}
                     </td>
                     <td
                       className={`p-1 sticky left-[calc(2.5rem+2.5rem)] z-10 border-r font-bold shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${conditionClass.split(" ")[0]}`}
@@ -1723,6 +1780,44 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             </tbody>
           </table>
         </div>
+
+        {/* Paginación de servidor (100 por página) */}
+        <div className="shrink-0 border-t border-slate-200 bg-slate-50/80 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-slate-600 font-medium">
+            Total: <span className="font-bold text-slate-800">{totalCount}</span> músicos
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-600 font-medium">
+              Página{" "}
+              <span className="font-bold text-slate-800">{currentPage}</span> de{" "}
+              <span className="font-bold text-slate-800">
+                {Math.max(1, Math.ceil(totalCount / 100))}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1 || loading}
+              className="px-3 py-1.5 text-xs font-bold rounded bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Anterior
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setCurrentPage((p) =>
+                  Math.min(Math.ceil(totalCount / 100) || 1, p + 1),
+                )
+              }
+              disabled={
+                currentPage >= Math.ceil(totalCount / 100) || loading || totalCount === 0
+              }
+              className="px-3 py-1.5 text-xs font-bold rounded bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
       </div>
 
       {(isAdding || editingId) &&
@@ -1743,6 +1838,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               onCancel={() => {
                 setIsAdding(false);
                 setEditingId(null);
+                fetchData();
               }}
             />
           </div>,

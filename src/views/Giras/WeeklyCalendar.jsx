@@ -1,5 +1,5 @@
 // src/views/Giras/WeeklyCalendar.jsx
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   processEventsForLayout,
   getTopPercent,
@@ -249,6 +249,14 @@ export default function WeeklyCalendar({
     fetchCatalogs();
   }, []);
 
+  const fetchFormLocations = useCallback(async () => {
+    const { data: locs } = await supabase
+      .from("locaciones")
+      .select("id, nombre, localidades(localidad)")
+      .order("nombre");
+    if (locs) setLocations(locs);
+  }, [supabase]);
+
   const fetchCatalogs = async () => {
     const { data: types } = await supabase
       .from("tipos_evento")
@@ -256,7 +264,7 @@ export default function WeeklyCalendar({
       .order("nombre");
     const { data: locs } = await supabase
       .from("locaciones")
-      .select("id, nombre")
+      .select("id, nombre, localidades(localidad)")
       .order("nombre");
 
     if (types) setEventTypes(types);
@@ -691,6 +699,8 @@ export default function WeeklyCalendar({
             eventTypes={eventTypes}
             locations={locations}
             isNew={false}
+            supabase={supabase}
+            onRefreshLocations={fetchFormLocations}
           />
         </div>
       )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   IconDrive,
@@ -17,6 +17,13 @@ import { calculateInstrumentation } from "../../utils/instrumentation";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups"; // <--- IMPORTAR
 
 const capitalize = (s) => s && s[0].toUpperCase() + s.slice(1);
+
+const sortByNameEs = (a, b) =>
+  (a?.nombre_archivo ?? a?.name ?? "").localeCompare(
+    b?.nombre_archivo ?? b?.name ?? "",
+    "es",
+    { numeric: true, sensitivity: "base" },
+  );
 
 const ModalPortal = ({ children }) => {
   return createPortal(
@@ -57,6 +64,14 @@ export default function DriveMatcherModal({
   const editInputRef = useRef(null);
 
   const currentInstrumentation = calculateInstrumentation(parts);
+
+  const sortedDriveFiles = useMemo(
+    () =>
+      [...(driveFiles || [])].sort((a, b) =>
+        sortByNameEs({ name: a.name }, { name: b.name }),
+      ),
+    [driveFiles],
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -116,10 +131,10 @@ export default function DriveMatcherModal({
     let newSelection = [];
 
     if (e.shiftKey && lastFileIndex !== -1) {
-      // Rango
+      // Rango (índices sobre lista ordenada)
       const start = Math.min(lastFileIndex, index);
       const end = Math.max(lastFileIndex, index);
-      newSelection = driveFiles.slice(start, end + 1);
+      newSelection = sortedDriveFiles.slice(start, end + 1);
     } else if (e.ctrlKey || e.metaKey) {
       // Multi-select toggle
       const exists = selectedFiles.some((f) => f.id === file.id);
@@ -140,7 +155,7 @@ export default function DriveMatcherModal({
 
     // 1. ORDENAR PARTES VISUALMENTE (Crucial para la cascada)
     const sortedParts = [...parts].sort((a, b) =>
-      a.nombre_archivo.localeCompare(b.nombre_archivo, undefined, {
+      (a.nombre_archivo ?? "").localeCompare(b.nombre_archivo ?? "", "es", {
         numeric: true,
         sensitivity: "base",
       }),
@@ -263,6 +278,7 @@ export default function DriveMatcherModal({
           links: [],
           nota_organico: "",
           instrumento_nombre: def.instrumento_base,
+          es_solista: false,
         });
       });
     } else {
@@ -270,14 +286,19 @@ export default function DriveMatcherModal({
       const instrObj = (catalogoInstrumentos || []).find(
         (i) => i.id === finalInstrId,
       );
-      // Fallback por si acaso
-      const baseName = instrObj
-        ? capitalize(instrObj.instrumento)
-        : "Instrumento";
+      const isDirector =
+        instrObj &&
+        (instrObj.instrumento?.toLowerCase().includes("director") ||
+          instrObj.instrumento?.toLowerCase().includes("conductor"));
+      const baseName = isDirector
+        ? "SCORE"
+        : instrObj
+          ? capitalize(instrObj.instrumento)
+          : "Instrumento";
       const realId = instrObj ? instrObj.id : finalInstrId;
 
       for (let i = 1; i <= genQuantity; i++) {
-        const name = genQuantity > 1 ? `${baseName} ${i}` : baseName;
+        const name = isDirector ? "SCORE" : genQuantity > 1 ? `${baseName} ${i}` : baseName;
         newParts.push({
           tempId: Date.now() + i + Math.random(),
           id: undefined,
@@ -286,6 +307,7 @@ export default function DriveMatcherModal({
           links: [],
           nota_organico: "",
           instrumento_nombre: instrObj?.instrumento,
+          es_solista: false,
         });
       }
     }
@@ -336,6 +358,14 @@ export default function DriveMatcherModal({
         ),
       );
   };
+  const togglePartSolista = (tempId) => {
+    if (onPartsChange)
+      onPartsChange(
+        parts.map((p) =>
+          p.tempId === tempId ? { ...p, es_solista: !p.es_solista } : p,
+        ),
+      );
+  };
   const getFileAssignmentCount = (fileUrl) => {
     let count = 0;
     Object.values(assignments).forEach((links) => {
@@ -346,12 +376,7 @@ export default function DriveMatcherModal({
 
   if (!isOpen) return null;
 
-  const sortedParts = [...parts].sort((a, b) =>
-    a.nombre_archivo.localeCompare(b.nombre_archivo, undefined, {
-      numeric: true,
-      sensitivity: "base",
-    }),
-  );
+  const sortedParts = [...parts].sort(sortByNameEs);
 
   return (
     <ModalPortal>
@@ -470,7 +495,9 @@ export default function DriveMatcherModal({
                     className={`p-2 rounded border transition-all relative group ${
                       selectedFiles.length > 0 && !isEditing
                         ? "cursor-pointer hover:border-blue-500 hover:shadow-md hover:bg-blue-50 border-dashed border-blue-300"
-                        : "bg-white border-slate-200 hover:border-indigo-300"
+                        : part.es_solista
+                          ? "bg-sky-50 border-sky-200 hover:border-sky-400 hover:bg-sky-100"
+                          : "bg-white border-slate-200 hover:border-indigo-300"
                     }`}
                   >
                     <div className="flex justify-between items-center h-7 gap-2">
@@ -492,13 +519,26 @@ export default function DriveMatcherModal({
                             onClick={(e) => e.stopPropagation()}
                           />
                         ) : (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span
                               className="font-bold text-sm text-slate-700 truncate cursor-text hover:text-indigo-600"
                               onClick={(e) => startEditing(e, part)}
                             >
                               {part.nombre_archivo}
                             </span>
+                            <label
+                              className="flex items-center gap-1 shrink-0 cursor-pointer"
+                              onClick={(e) => e.stopPropagation()}
+                              title="Solista"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={!!part.es_solista}
+                                onChange={() => togglePartSolista(part.tempId)}
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                              />
+                              <span className="text-[9px] font-semibold uppercase text-slate-500">Solista</span>
+                            </label>
                             <input
                               type="text"
                               className="w-12 text-[10px] border-b border-transparent hover:border-slate-300 focus:border-indigo-500 bg-transparent text-slate-500 text-center outline-none placeholder:text-slate-300"
@@ -604,7 +644,7 @@ export default function DriveMatcherModal({
               </div>
             )}
             <div className="overflow-y-auto p-2 space-y-1 flex-1 bg-slate-50 select-none">
-              {driveFiles.map((file, idx) => {
+              {sortedDriveFiles.map((file, idx) => {
                 const isSelected = selectedFiles.some((f) => f.id === file.id);
                 let assignCount = 0;
                 Object.values(assignments).forEach((links) => {

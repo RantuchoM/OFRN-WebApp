@@ -2,6 +2,7 @@
 | ---------------------------------- | ---------------------------------- | ------------------------ |
 | categorias_tipos_eventos           | id                                 | bigint                   |
 | programas_repertorios              | id_programa                        | bigint                   |
+| vista_vacantes_pendientes          | id_gira                            | bigint                   |
 | vista_vacantes_pendientes          | id_placeholder                     | bigint                   |
 | vista_vacantes_pendientes          | genero                             | USER-DEFINED             |
 | vista_vacantes_pendientes          | id_localidad                       | bigint                   |
@@ -99,4 +100,3 @@
 | obras                              | id                                 | bigint                   |
 | obras                              | id_arreglador                      | bigint                   |
 | obras                              | anio_composicion                   | integer                  |
-| obras                              | duracion_segundos                  | integer                  |

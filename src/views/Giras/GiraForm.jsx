@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   IconPlus,
   IconX,
@@ -28,6 +28,7 @@ import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import MusicianForm from "../Musicians/MusicianForm";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 
 // --- COMPONENTE INTERNO: Modal de Edición de Concierto ---
 const ConcertFormModal = ({
@@ -37,6 +38,7 @@ const ConcertFormModal = ({
   onClose,
   onSuccess,
   locationsList,
+  onRefreshLocations,
 }) => {
   const [formData, setFormData] = useState({
     fecha: initialData?.fecha || "",
@@ -160,12 +162,23 @@ const ConcertFormModal = ({
             <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
               Lugar / Sala
             </label>
-            <SearchableSelect
-              options={locOptions}
-              value={formData.id_locacion}
-              onChange={(v) => setFormData({ ...formData, id_locacion: v })}
-              placeholder="Buscar sala..."
-            />
+            {onRefreshLocations ? (
+              <LocationSelectWithCreate
+                supabase={supabase}
+                options={locOptions}
+                value={formData.id_locacion}
+                onChange={(v) => setFormData({ ...formData, id_locacion: v })}
+                onRefresh={onRefreshLocations}
+                placeholder="Buscar sala..."
+              />
+            ) : (
+              <SearchableSelect
+                options={locOptions}
+                value={formData.id_locacion}
+                onChange={(v) => setFormData({ ...formData, id_locacion: v })}
+                placeholder="Buscar sala..."
+              />
+            )}
           </div>
           <div>
             <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
@@ -424,16 +437,17 @@ export default function GiraForm({
   // Cargar locaciones disponibles para conciertos
   const [allLocationsForConcerts, setAllLocationsForConcerts] = useState([]);
 
-  useEffect(() => {
-    const fetchLocs = async () => {
-      const { data } = await supabase
-        .from("locaciones")
-        .select("id, nombre, localidades(localidad)")
-        .order("nombre");
-      setAllLocationsForConcerts(data || []);
-    };
-    fetchLocs();
+  const fetchConcertLocations = useCallback(async () => {
+    const { data } = await supabase
+      .from("locaciones")
+      .select("id, nombre, localidades(localidad)")
+      .order("nombre");
+    setAllLocationsForConcerts(data || []);
   }, [supabase]);
+
+  useEffect(() => {
+    fetchConcertLocations();
+  }, [fetchConcertLocations]);
 
   // Cargar Conciertos de la Gira
   const fetchConcerts = async () => {
@@ -1322,6 +1336,7 @@ export default function GiraForm({
           giraId={giraId}
           initialData={editingConcert}
           onClose={() => setShowConcertModal(false)}
+          onRefreshLocations={fetchConcertLocations}
           onSuccess={() => {
             setShowConcertModal(false);
             fetchConcerts();

@@ -11,6 +11,7 @@ import {
 import DateInput from "../ui/DateInput";
 import TimeInput from "../ui/TimeInput";
 import SearchableSelect from "../ui/SearchableSelect";
+import LocationSelectWithCreate from "./LocationSelectWithCreate";
 import ConfirmModal from "../ui/ConfirmModal";
 import { useAuth } from "../../context/AuthContext";
 
@@ -25,6 +26,8 @@ export default function EventForm({
   eventTypes = [],
   locations = [],
   isNew = false,
+  supabase,
+  onRefreshLocations,
 }) {
   const { isEditor, isManagement } = useAuth();
   const [showExitConfirm, setShowExitConfirm] = useState(false);
@@ -254,13 +257,24 @@ export default function EventForm({
           <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
             Ubicación / Sala
           </label>
-          <SearchableSelect
-            options={locationOptions}
-            value={formData.id_locacion}
-            onChange={(val) => handleChange("id_locacion", val)}
-            placeholder="Buscar ubicación..."
-            className="w-full"
-          />
+          {supabase && onRefreshLocations ? (
+            <LocationSelectWithCreate
+              supabase={supabase}
+              options={locationOptions}
+              value={formData.id_locacion}
+              onChange={(val) => handleChange("id_locacion", val)}
+              onRefresh={onRefreshLocations}
+              placeholder="Buscar ubicación..."
+            />
+          ) : (
+            <SearchableSelect
+              options={locationOptions}
+              value={formData.id_locacion}
+              onChange={(val) => handleChange("id_locacion", val)}
+              placeholder="Buscar ubicación..."
+              className="w-full"
+            />
+          )}
         </div>
 
         {(isEditor || isManagement) && (

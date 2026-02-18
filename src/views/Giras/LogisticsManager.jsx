@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   IconPlus,
@@ -20,7 +20,7 @@ import {
   IconCalendarPlus,
   IconSearch,
   IconLinkOff,
-  IconExchange, // Usaremos este icono para la nueva opción
+  IconExchange,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
@@ -46,6 +46,61 @@ const PROVEEDORES_COMIDA = [
   "Refrigerio",
   "Vianda",
 ];
+
+const MILESTONES = [
+  { key: "check-in", label: "Check-in", icon: IconHotel, colorType: "inicio" },
+  { key: "check-out", label: "Check-out", icon: IconHotel, colorType: "fin" },
+  { key: "subida", label: "Subida", icon: IconBus, colorType: "inicio" },
+  { key: "bajada", label: "Bajada", icon: IconBus, colorType: "fin" },
+  { key: "inicio_comida", label: "Inicio Comida", icon: IconUtensils, colorType: "inicio" },
+  { key: "fin_comida", label: "Fin Comida", icon: IconUtensils, colorType: "fin" },
+];
+
+const MILESTONE_BLOCKS = [
+  {
+    label: "Hotel",
+    keys: ["check-in", "check-out"],
+    activeClass:
+      "border-orange-400 bg-orange-50",
+  },
+  {
+    label: "Bus",
+    keys: ["subida", "bajada"],
+    activeClass:
+      "border-blue-400 bg-blue-50",
+  },
+  {
+    label: "Comidas",
+    keys: ["inicio_comida", "fin_comida"],
+    activeClass:
+      "border-emerald-400 bg-emerald-50",
+  },
+];
+
+const isPersonMissingMilestone = (m, milestoneKey) => {
+  const l = m.logistics;
+  const isLocal = m.is_local;
+  switch (milestoneKey) {
+    case "check-in":
+    case "check-out":
+      if (isLocal) return false;
+      return milestoneKey === "check-in"
+        ? !l.checkin?.date
+        : !l.checkout?.date;
+    case "subida":
+    case "bajada":
+      if (isLocal) return false;
+      return milestoneKey === "subida"
+        ? !l.transports[0]?.subidaData?.date
+        : !l.transports[0]?.bajadaData?.date;
+    case "inicio_comida":
+      return !l.comida_inicio?.date;
+    case "fin_comida":
+      return !l.comida_fin?.date;
+    default:
+      return false;
+  }
+};
 
 // --- UTILIDADES ---
 const getDayLong = (dateStr) => {
@@ -480,6 +535,7 @@ export default function LogisticsManager({ supabase, gira }) {
   const [collapsedLocalities, setCollapsedLocalities] = useState(new Set());
   const [showOnlyMissing, setShowOnlyMissing] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [activeMilestones, setActiveMilestones] = useState(() => new Set());
   const [criteriaCollapsed, setCriteriaCollapsed] = useState(true);
   const [catalogs, setCatalogs] = useState({ locations: [], regions: [] });
   const [managingHito, setManagingHito] = useState(null);
@@ -497,6 +553,13 @@ export default function LogisticsManager({ supabase, gira }) {
         ),
       );
   }, [logisticsRules]);
+
+  const fetchVenues = useCallback(async () => {
+    const { data } = await supabase
+      .from("locaciones")
+      .select("id, nombre, id_localidad, localidades(localidad)");
+    setCatalogs((prev) => ({ ...prev, venues: data || [] }));
+  }, [supabase]);
 
   useEffect(() => {
     const fetchC = async () => {
@@ -530,7 +593,7 @@ export default function LogisticsManager({ supabase, gira }) {
     [roster],
   );
 
-  const groupedSummary = useMemo(() => {
+  const listBeforeMilestoneFilter = useMemo(() => {
     let list = summary || [];
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
@@ -544,25 +607,52 @@ export default function LogisticsManager({ supabase, gira }) {
       list = list.filter((m) => {
         const l = m.logistics;
         const isLocal = m.is_local;
-
         const missingCheckIn = !isLocal && !l.checkin?.date;
         const missingCheckOut = !isLocal && !l.checkout?.date;
         const missingSubida = !l.transports[0]?.subidaData?.date;
         const missingBajada = !l.transports[0]?.bajadaData?.date;
-
         return (
           missingCheckIn || missingCheckOut || missingSubida || missingBajada
         );
       });
     }
+    return list;
+  }, [summary, searchTerm, showOnlyMissing]);
 
+  const missingCountsByMilestone = useMemo(() => {
+    const counts = {};
+    MILESTONES.forEach((m) => {
+      counts[m.key] = listBeforeMilestoneFilter.filter((p) =>
+        isPersonMissingMilestone(p, m.key),
+      ).length;
+    });
+    return counts;
+  }, [listBeforeMilestoneFilter]);
+
+  const groupedSummary = useMemo(() => {
+    let list = listBeforeMilestoneFilter;
+    if (activeMilestones.size > 0) {
+      list = list.filter((m) =>
+        Array.from(activeMilestones).some((key) =>
+          isPersonMissingMilestone(m, key),
+        ),
+      );
+    }
     return list.reduce((acc, p) => {
       const city = p.localidades?.localidad || "Sin Localidad";
       if (!acc[city]) acc[city] = [];
       acc[city].push(p);
       return acc;
     }, {});
-  }, [summary, showOnlyMissing, searchTerm]);
+  }, [listBeforeMilestoneFilter, activeMilestones]);
+
+  const filteredCount =
+    activeMilestones.size > 0
+      ? Object.values(groupedSummary).reduce(
+          (acc, members) => acc + members.length,
+          0,
+        )
+      : null;
 
   const handleRowChange = (idx, field, val) => {
     setLocalRules((prev) => {
@@ -1153,6 +1243,12 @@ export default function LogisticsManager({ supabase, gira }) {
 
             {/* CONTENEDOR DE FILTROS */}
             <div className="flex gap-2 items-center">
+              {/* CANTIDAD FILTRADOS (izquierda del buscador) */}
+              {filteredCount !== null && (
+                <span className="text-[10px] font-black text-slate-600 bg-slate-100 px-2 py-1 rounded-lg shrink-0">
+                  {filteredCount} filtrados
+                </span>
+              )}
               {/* BUSCADOR DE NOMBRE */}
               <div className="relative">
                 <input
@@ -1183,6 +1279,72 @@ export default function LogisticsManager({ supabase, gira }) {
               >
                 {showOnlyMissing ? "Viendo Faltantes" : "Filtrar Faltantes"}
               </button>
+
+              {/* FILTRO POR HITOS: mostrar a quiénes les falta alguno seleccionado */}
+              <div className="flex items-center gap-2 border-l border-slate-200 pl-3 ml-1">
+                <span className="text-[8px] font-black text-slate-400 uppercase mr-1 shrink-0">
+                  Falta:
+                </span>
+                <div className="flex gap-2 flex-wrap">
+                  {MILESTONE_BLOCKS.map(({ label, keys, activeClass }) => {
+                    const hasAnySelected = keys.some((k) =>
+                      activeMilestones.has(k),
+                    );
+                    const containerClass = hasAnySelected
+                      ? activeClass
+                      : "border-slate-200 bg-slate-50";
+                    return (
+                      <div
+                        key={label}
+                        className={`flex items-center gap-1 p-1.5 rounded-xl border-2 transition-colors ${containerClass}`}
+                      >
+                        <div className="flex gap-0.5">
+                          {keys.map((key) => {
+                            const m = MILESTONES.find((x) => x.key === key);
+                            const Icon = m?.icon;
+                            const isActive = activeMilestones.has(key);
+                            const count = missingCountsByMilestone[key] ?? 0;
+                            const buttonActiveClass =
+                              m?.colorType === "inicio"
+                                ? "bg-emerald-600 text-white border-emerald-600"
+                                : "bg-red-600 text-white border-red-600";
+                            const buttonInactiveClass =
+                              "bg-slate-200 text-slate-500 border-slate-300 hover:bg-slate-300";
+                            return (
+                              <div
+                                key={key}
+                                className="flex flex-col items-center gap-0.5"
+                              >
+                                <span className="text-[9px] font-black text-slate-500">
+                                  {count}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveMilestones((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(key)) next.delete(key);
+                                      else next.add(key);
+                                      return next;
+                                    });
+                                  }}
+                                  title={`Filtrar: sin ${m?.label}`}
+                                  className={`p-1.5 rounded-lg border-2 transition-all ${
+                                    isActive ? buttonActiveClass : buttonInactiveClass
+                                  }`}
+                                >
+                                  <Icon size={14} />
+                                  <span className="sr-only">{m?.label}</span>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1513,6 +1675,8 @@ export default function LogisticsManager({ supabase, gira }) {
               onClose={() => setEditingFormData(null)}
               locations={catalogs.venues}
               eventTypes={catalogs.eventTypes}
+              supabase={supabase}
+              onRefreshLocations={fetchVenues}
             />
           </div>
         </div>

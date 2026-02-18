@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   format,
   startOfDay,
@@ -541,6 +541,19 @@ export default function UnifiedAgenda({
     };
     fetchProfile();
   }, [effectiveUserId, supabase]);
+
+  const fetchFormLocations = useCallback(async () => {
+    if (!canEdit || !navigator.onLine) return;
+    try {
+      const { data: locs } = await supabase
+        .from("locaciones")
+        .select("id, nombre, localidades(localidad)")
+        .order("nombre");
+      if (locs) setFormLocations(locs);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [canEdit, supabase]);
 
   useEffect(() => {
     const fetchCatalogs = async () => {
@@ -2453,6 +2466,8 @@ export default function UnifiedAgenda({
             eventTypes={formEventTypes}
             locations={formLocations}
             isNew={false}
+            supabase={supabase}
+            onRefreshLocations={fetchFormLocations}
           />
         </div>
       )}
@@ -2616,6 +2631,8 @@ export default function UnifiedAgenda({
             eventTypes={formEventTypes}
             locations={formLocations}
             isNew={true}
+            supabase={supabase}
+            onRefreshLocations={fetchFormLocations}
           />
         </div>
       )}

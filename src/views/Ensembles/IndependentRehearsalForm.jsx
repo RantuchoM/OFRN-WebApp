@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import MultiSelect from "../../components/ui/MultiSelect";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import {
@@ -66,6 +67,20 @@ export default function IndependentRehearsalForm({
       onCancel();
     }
   };
+
+  const fetchLocations = useCallback(async () => {
+    const { data } = await supabase
+      .from("locaciones")
+      .select("id, nombre, localidades(localidad)")
+      .order("nombre");
+    setLocationsOptions(
+      (data || []).map((l) => ({
+        id: l.id,
+        label: `${l.nombre} (${l.localidades?.localidad || "Sin localidad"})`,
+        originalName: l.nombre,
+      })),
+    );
+  }, [supabase]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -432,12 +447,13 @@ export default function IndependentRehearsalForm({
             <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
               Lugar / Sala (Opcional)
             </label>
-            <SearchableSelect
+            <LocationSelectWithCreate
+              supabase={supabase}
               options={locationsOptions}
               value={formData.id_locacion}
               onChange={(v) => setFormData({ ...formData, id_locacion: v })}
+              onRefresh={fetchLocations}
               placeholder="Sin lugar asignado"
-              className="w-full border-slate-300"
             />
           </div>
 

@@ -525,7 +525,7 @@ export default function RepertoireManager({
               obras_arcos (id, nombre, link, descripcion, id_drive_folder),
               compositores (id, apellido, nombre), 
               obras_compositores (rol, compositores(id, apellido, nombre)),
-              obras_particellas (id, nombre_archivo, nota_organico, id_instrumento, url_archivo, instrumentos (instrumento))
+              obras_particellas (id, nombre_archivo, nota_organico, id_instrumento, url_archivo, es_solista, instrumentos (instrumento))
           )
       )`,
       )
@@ -553,7 +553,7 @@ export default function RepertoireManager({
     const { data, error } = await supabase
       .from("obras")
       .select(
-        `*, obras_compositores (rol, compositores (apellido, nombre)), obras_palabras_clave (palabras_clave (tag)), obras_particellas (nombre_archivo, nota_organico, instrumentos (instrumento))`,
+        `*, obras_compositores (rol, compositores (apellido, nombre)), obras_palabras_clave (palabras_clave (tag)), obras_particellas (nombre_archivo, nota_organico, es_solista, instrumentos (instrumento))`,
       )
       .order("titulo");
     if (!error && data)
@@ -1278,19 +1278,19 @@ export default function RepertoireManager({
               <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1100px]">
                 {/* --- NUEVO: DEFINICIÓN DE ANCHOS INDEPENDIENTE DE HEADER --- */}
                 <colgroup>
-                  <col className="w-8" /> {/* # */}
-                  <col className="w-8" /> {/* GD */}
-                  <col className="w-[80px]" /> {/* Compositor */}
-                  <col className="w-[160px]" /> {/* Obra */}
-                  <col className="w-[110px]" /> {/* Instr */}
-                  <col className="w-12" /> {/* Dur */}
-                  <col className="w-[100px]" /> {/* Solista */}
-                  <col className="w-[70px]" /> {/* Arr */}
-                  <col className="w-[70px]" /> {/* Notas */}
-                  <col className="w-24" /> {/* Arcos */}
-                  <col className="w-8" /> {/* YT */}
-                  <col className="w-16" /> {/* Actions */}
-                  <col className="w-8" /> {/* Excl */}
+                  <col className="w-8" />
+                  <col className="w-8" />
+                  <col className="w-[80px]" />
+                  <col className="w-[160px]" />
+                  <col className="w-[110px]" />
+                  <col className="w-12" />
+                  <col className="w-[100px]" />
+                  <col className="w-[70px]" />
+                  <col className="w-[70px]" />
+                  <col className="w-24" />
+                  <col className="w-8" />
+                  <col className="w-16" />
+                  <col className="w-8" />
                 </colgroup>
 
                 <thead className={tableHeaderClasses(isCompact)}>

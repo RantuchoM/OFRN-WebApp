@@ -37,6 +37,24 @@ export const getInstrumentValue = (workString, instrumentKey) => {
   return Number.isNaN(val) ? 0 : val;
 };
 
+/** Devuelve la etiqueta corta del instrumento para la lista de solistas (ej: Fl, Vn). */
+function getSolistaLabel(baseName, rawBaseName) {
+  if (baseName.includes("flaut") || baseName.includes("picc")) return "Fl";
+  if (baseName.includes("oboe") || baseName.includes("corno ing")) return "Ob";
+  if (baseName.includes("clarin") || baseName.includes("requinto") || baseName.includes("basset")) return "Cl";
+  if (baseName.includes("fagot") || baseName.includes("contraf")) return "Fg";
+  if (baseName.includes("corno") || baseName.includes("trompa")) return "Cor";
+  if (baseName.includes("trompet") || baseName.includes("fliscorno")) return "Tpt";
+  if (baseName.includes("trombon") || baseName.includes("trombón")) return "Tbn";
+  if (baseName.includes("tuba") || baseName.includes("bombard")) return "Tba";
+  if (baseName.includes("timbal") || baseName.includes("perc timb") || baseName.includes("perc timp")) return "Timp";
+  if (baseName.includes("perc") || baseName.includes("bombo") || baseName.includes("platillo") || baseName.includes("caja")) return "Perc";
+  if (baseName.includes("arpa")) return "Hp";
+  if (baseName.includes("piano") || baseName.includes("celesta") || baseName.includes("clavec") || baseName.includes("órgano")) return "Key";
+  if (baseName.includes("viol") || baseName.includes("contrab")) return "Vn";
+  return rawBaseName.charAt(0).toUpperCase() + rawBaseName.slice(1);
+}
+
 export const calculateInstrumentation = (parts) => {
   if (!parts || parts.length === 0) return "";
 
@@ -56,8 +74,8 @@ export const calculateInstrumentation = (parts) => {
     harp: { count: 0, notes: [] },
   };
 
-  // Mapa para contar instrumentos no estándar (ej: Saxo, Guitarra)
   const others = {};
+  const solistas = [];
 
   parts.forEach((p) => {
     const name = (p.nombre_archivo || "").toLowerCase();
@@ -66,14 +84,18 @@ export const calculateInstrumentation = (parts) => {
     const baseName = rawBaseName.toLowerCase();
     const note = p.nota_organico ? p.nota_organico.trim() : null;
 
-    // --- 1. EXCLUIR DIRECTOR Y PARTITURAS GENERALES ---
     if (
       baseName.includes("director") ||
       baseName.includes("conductor") ||
       baseName.includes("score") ||
       baseName.includes("partitura")
     ) {
-      return; // Saltamos esta iteración, no se cuenta
+      return;
+    }
+
+    if (p.es_solista) {
+      solistas.push(getSolistaLabel(baseName, rawBaseName));
+      return;
     }
 
     const add = (famKey) => {
@@ -81,9 +103,6 @@ export const calculateInstrumentation = (parts) => {
       if (note) families[famKey].notes.push(note);
     };
 
-    // --- LÓGICA DE DETECCIÓN ---
-
-    // Percusión y Timbales
     if (
       name.includes("perc timb") ||
       name.includes("perc timp") ||
@@ -99,8 +118,6 @@ export const calculateInstrumentation = (parts) => {
       baseName.includes("caja")
     ) {
       add("perc");
-
-      // Maderas
     } else if (baseName.includes("flaut") || baseName.includes("picc"))
       add("fl");
     else if (baseName.includes("oboe") || baseName.includes("corno ing"))
@@ -113,17 +130,14 @@ export const calculateInstrumentation = (parts) => {
       add("cl");
     else if (baseName.includes("fagot") || baseName.includes("contraf"))
       add("bn");
-    // Metales
     else if (baseName.includes("corno") || baseName.includes("trompa"))
       add("hn");
     else if (baseName.includes("trompet") || baseName.includes("fliscorno"))
       add("tpt");
     else if (baseName.includes("trombon") || baseName.includes("trombón"))
       add("tbn");
-    // --- 2. TUBA DESCOMENTADA Y CORREGIDA ---
     else if (baseName.includes("tuba") || baseName.includes("bombard"))
       add("tba");
-    // Cuerdas, Arpa y Teclados
     else if (baseName.includes("arpa")) add("harp");
     else if (
       baseName.includes("piano") ||
@@ -134,9 +148,7 @@ export const calculateInstrumentation = (parts) => {
       add("key");
     else if (baseName.includes("viol") || baseName.includes("contrab"))
       families.str = true;
-    // Otros (No estándar)
     else {
-      // Si no es estándar, lo sumamos a "others" usando el nombre original capitalizado
       const cleanName =
         rawBaseName.charAt(0).toUpperCase() + rawBaseName.slice(1);
       if (!others[cleanName]) others[cleanName] = 0;
@@ -191,20 +203,31 @@ export const calculateInstrumentation = (parts) => {
       .join(", ");
   }
 
-  // Lógica final de retorno
+  let finalStr = "";
   if (isStandardEmpty) {
-    return othersStr;
+    finalStr = othersStr;
+  } else {
+    finalStr = standardStr
+      .replace("0.0.0.0 - 0.0.0.0 - ", "")
+      .replace("0.0.0.0 - 0.0.0.0", "");
+    if (othersStr) finalStr += ` + ${othersStr}`;
   }
 
-  // Si hay mezcla, devolvemos estándar + otros
-  let finalStr = standardStr
-    .replace("0.0.0.0 - 0.0.0.0 - ", "")
-    .replace("0.0.0.0 - 0.0.0.0", "");
-
-  if (othersStr) {
-    finalStr += ` + ${othersStr}`;
+  // Agrupar solistas por etiqueta: "Fl, Fl" -> "2xFl"
+  const solistaCounts = {};
+  solistas.forEach((label) => {
+    solistaCounts[label] = (solistaCounts[label] || 0) + 1;
+  });
+  const solistasStr =
+    Object.keys(solistaCounts).length > 0
+      ? Object.entries(solistaCounts)
+          .map(([label, n]) => (n > 1 ? `${n}x${label}` : label))
+          .join(", ")
+      : "";
+  if (solistasStr) {
+    const rest = (finalStr || "").trim().replace(/^\s*-\s*|\s*-\s*$/g, "").trim();
+    return rest ? `${solistasStr} - ${rest}` : solistasStr;
   }
-
   return finalStr || "";
 };
 

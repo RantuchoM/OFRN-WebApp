@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import ReactCrop from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
 import * as pdfjsLib from "pdfjs-dist";
-import { createPortal } from "react-dom";
 import MusicianTourManager from "./MusicianTourManager";
+import { musicianSchema } from "../../schemas/musicianSchema";
 // Configuración del worker de PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -237,6 +239,53 @@ function useDebouncedCallback(callback, delay) {
   );
 }
 
+const getDefaultValues = (musician = {}) => ({
+  id: undefined,
+  nombre: "",
+  apellido: "",
+  domicilio: "",
+  id_instr: "",
+  dni: "",
+  cuil: "",
+  mail: "",
+  telefono: "",
+  condicion: "Estable",
+  genero: "-",
+  alimentacion: "",
+  nacionalidad: "Argentina",
+  fecha_nac: "",
+  fecha_alta: "",
+  fecha_baja: "",
+  email_google: "",
+  id_localidad: null,
+  id_loc_viaticos: null,
+  link_bio: "",
+  link_foto_popup: "",
+  documentacion: "",
+  docred: "",
+  firma: "",
+  email_acceso: "",
+  rol_sistema: "user",
+  clave_acceso: "",
+  es_simulacion: false,
+  link_dni_img: "",
+  link_cbu_img: "",
+  link_declaracion: "",
+  link_cuil: "",
+  nota_interna: "",
+  avatar_url: "",
+  avatar_color: "#4f46e5",
+  cargo: "",
+  jornada: "",
+  motivo: "",
+  ...musician,
+  fecha_alta: musician?.fecha_alta || "",
+  fecha_baja: musician?.fecha_baja || "",
+  id_localidad: musician?.id_localidad ?? null,
+  id_loc_viaticos: musician?.id_loc_viaticos ?? null,
+  id_instr: musician?.id_instr ? String(musician.id_instr) : "",
+});
+
 export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const [loading, setLoading] = useState(false);
   const [assemblingType, setAssemblingType] = useState(null);
@@ -267,48 +316,23 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const labelClass =
     "text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block ml-1";
 
-  const [formData, setFormData] = useState({
-    id: undefined,
-    nombre: "",
-    apellido: "",
-    domicilio: "",
-    id_instr: "",
-    dni: "",
-    cuil: "",
-    mail: "",
-    telefono: "",
-    condicion: "Estable",
-    genero: "-",
-    alimentacion: "",
-    nacionalidad: "Argentina",
-    fecha_nac: "",
-    fecha_alta: "",
-    fecha_baja: "",
-    email_google: "",
-    id_localidad: null,
-    id_loc_viaticos: null,
-    link_bio: "",
-    link_foto_popup: "",
-    documentacion: "",
-    docred: "",
-    firma: "",
-    email_acceso: "",
-    rol_sistema: "user",
-    clave_acceso: "",
-    es_simulacion: false,
-    link_dni_img: "",
-    link_cbu_img: "",
-    link_declaracion: "",
-    link_cuil: "",
-    nota_interna: "",
-    avatar_url: "",
-    avatar_color: "#4f46e5",
-    // --- CAMPOS NUEVOS ---
-    cargo: "",
-    jornada: "",
-    motivo: "",
-    ...musician,
+  const {
+    control,
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    getValues,
+    reset,
+    formState: { errors, isValid },
+  } = useForm({
+    resolver: zodResolver(musicianSchema),
+    mode: "onChange",
+    defaultValues: getDefaultValues(musician),
   });
+
+  const formData = watch();
+
   const musicianForGiras = {
     ...formData,
     // Reconstruimos la estructura de instrumentos para sacar la familia
@@ -370,18 +394,10 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   }, [musician?.id, supabase]);
 
   useEffect(() => {
-    if (musician && musician.id !== formData.id) {
-      setFormData((prev) => ({
-        ...prev,
-        ...musician,
-        fecha_alta: musician.fecha_alta || "",
-        fecha_baja: musician.fecha_baja || "",
-        id_localidad: musician.id_localidad || null,
-        id_loc_viaticos: musician.id_loc_viaticos || null,
-        id_instr: musician.id_instr ? String(musician.id_instr) : "",
-      }));
+    if (musician?.id) {
+      reset(getDefaultValues(musician));
     }
-  }, [musician?.id, formData.id]);
+  }, [musician?.id, reset]);
 
   const getInputStatusClass = (fieldName) => {
     const status = fieldStatuses[fieldName];
@@ -411,13 +427,14 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   };
 
   const saveFieldToDb = async (field, value) => {
-    if (!formData.id) return;
+    const id = getValues("id");
+    if (!id) return;
     setFieldStatuses((prev) => ({ ...prev, [field]: "saving" }));
     try {
       const { error } = await supabase
         .from("integrantes")
         .update({ [field]: value === "" ? null : value })
-        .eq("id", formData.id);
+        .eq("id", id);
       if (error) throw error;
       setFieldStatuses((prev) => ({ ...prev, [field]: "saved" }));
       setTimeout(
@@ -432,14 +449,14 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const debouncedSave = useDebouncedCallback(saveFieldToDb, 800);
 
   const updateField = (field, val) => {
-    setFormData((prev) => ({ ...prev, [field]: val }));
-    if (formData.id) debouncedSave(field, val);
+    setValue(field, val, { shouldValidate: true });
+    if (getValues("id")) debouncedSave(field, val);
   };
 
   // Handler para actualizar ensambles
   const handleEnsemblesChange = async (newSet) => {
     setSelectedEnsembles(newSet);
-    if (!formData.id) return;
+    if (!getValues("id")) return;
 
     // Actualizar en BD
     const currentIds = Array.from(selectedEnsembles);
@@ -448,10 +465,11 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     const toAdd = newIds.filter((id) => !currentIds.includes(id));
     const toRemove = currentIds.filter((id) => !newIds.includes(id));
 
+    const idIntegrante = getValues("id");
     if (toAdd.length > 0) {
       await supabase.from("integrantes_ensambles").insert(
         toAdd.map((idEns) => ({
-          id_integrante: formData.id,
+          id_integrante: idIntegrante,
           id_ensamble: idEns,
         })),
       );
@@ -460,7 +478,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       await supabase
         .from("integrantes_ensambles")
         .delete()
-        .eq("id_integrante", formData.id)
+        .eq("id_integrante", idIntegrante)
         .in("id_ensamble", toRemove);
     }
   };
@@ -484,7 +502,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       }
 
       const fileExt = file.type === "image/png" ? "png" : "jpg";
-      const cleanSurname = sanitizeFilename(formData.apellido || "musician");
+      const cleanSurname = sanitizeFilename(getValues("apellido") || "musician");
       const fileName = `${cleanSurname}_${field}_${Date.now()}.${fileExt}`;
       const filePath = field === "firma" ? fileName : `docs/${fileName}`;
 
@@ -503,11 +521,10 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
           [field]: publicUrl,
           last_modified_at: new Date().toISOString(),
         })
-        .eq("id", formData.id);
+        .eq("id", getValues("id"));
 
-      const updatedState = { ...formData, [field]: publicUrl };
-      setFormData(updatedState);
-      if (onSave) onSave(updatedState, false);
+      setValue(field, publicUrl);
+      if (onSave) onSave({ ...getValues(), [field]: publicUrl }, false);
 
       setFieldStatuses((prev) => ({ ...prev, [field]: "saved" }));
       setTimeout(
@@ -581,12 +598,13 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   };
 
   const handleAssemble = async (layout) => {
-    if (!formData.id) return alert("Guarda la ficha primero.");
+    const vals = getValues();
+    if (!vals.id) return alert("Guarda la ficha primero.");
     const sources = [
-      formData.link_dni_img,
-      formData.link_cuil,
-      formData.link_cbu_img,
-      formData.link_declaracion,
+      vals.link_dni_img,
+      vals.link_cuil,
+      vals.link_cbu_img,
+      vals.link_declaracion,
     ].filter(Boolean);
     if (sources.length === 0) return alert("No hay archivos para unir.");
 
@@ -595,14 +613,13 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     setFieldStatuses((p) => ({ ...p, [targetField]: "saving" }));
 
     try {
-      const fileName = `${formData.apellido}_${formData.nombre}_${layout === "full" ? "DOC" : "MOS"}`;
+      const fileName = `${vals.apellido}_${vals.nombre}_${layout === "full" ? "DOC" : "MOS"}`;
       const { data, error } = await supabase.functions.invoke("manage-drive", {
         body: { action: "assemble_docs_bucket", layout, sources, fileName },
       });
       if (error) throw error;
-      const updated = { ...formData, [targetField]: data.url };
-      setFormData(updated);
-      if (onSave) onSave(updated, false);
+      setValue(targetField, data.url);
+      if (onSave) onSave({ ...getValues(), [targetField]: data.url }, false);
       setFieldStatuses((p) => ({ ...p, [targetField]: "saved" }));
       setTimeout(
         () => setFieldStatuses((p) => ({ ...p, [targetField]: "idle" })),
@@ -617,17 +634,17 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   };
 
   const handleGenerateDJ = async () => {
-    if (!formData.id || !formData.firma) return alert("Faltan datos o firma.");
+    const vals = getValues();
+    if (!vals.id || !vals.firma) return alert("Faltan datos o firma.");
     setAssemblingType("dj");
     setFieldStatuses((p) => ({ ...p, link_declaracion: "saving" }));
     try {
       const { data, error } = await supabase.functions.invoke("manage-drive", {
-        body: { action: "generate_dj_bucket", musicianId: formData.id },
+        body: { action: "generate_dj_bucket", musicianId: vals.id },
       });
       if (error) throw error;
-      const updated = { ...formData, link_declaracion: data.url };
-      setFormData(updated);
-      if (onSave) onSave(updated, false);
+      setValue("link_declaracion", data.url);
+      if (onSave) onSave({ ...getValues(), link_declaracion: data.url }, false);
       setFieldStatuses((p) => ({ ...p, link_declaracion: "saved" }));
       setTimeout(
         () => setFieldStatuses((p) => ({ ...p, link_declaracion: "idle" })),
@@ -642,7 +659,8 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   };
 
   const handleFullPack = async () => {
-    if (!formData.id || !formData.firma) return alert("Faltan datos o firma.");
+    const vals = getValues();
+    if (!vals.id || !vals.firma) return alert("Faltan datos o firma.");
     setAssemblingType("all");
     setFieldStatuses((p) => ({
       ...p,
@@ -652,17 +670,13 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     }));
     try {
       const { data, error } = await supabase.functions.invoke("manage-drive", {
-        body: { action: "assemble_full_pack", musicianId: formData.id },
+        body: { action: "assemble_full_pack", musicianId: vals.id },
       });
       if (error) throw error;
-      const updated = {
-        ...formData,
-        link_declaracion: data.urls.dj,
-        documentacion: data.urls.full,
-        docred: data.urls.mosaic,
-      };
-      setFormData(updated);
-      if (onSave) onSave(updated, false);
+      setValue("link_declaracion", data.urls.dj);
+      setValue("documentacion", data.urls.full);
+      setValue("docred", data.urls.mosaic);
+      if (onSave) onSave(getValues(), false);
       setFieldStatuses((p) => ({
         ...p,
         link_declaracion: "saved",
@@ -691,44 +705,35 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     }
   };
 
-  const handleCreateInitial = async (e) => {
-    e.preventDefault();
-    if (!formData.apellido || !formData.nombre)
-      return alert("Apellido y Nombre son obligatorios.");
-
+  const handleCreateInitial = async (formValues) => {
     setLoading(true);
     try {
-      // AQUÍ ESTABA EL ERROR: Faltaban agregar los campos al payload
       const payload = {
-        nombre: formData.nombre,
-        apellido: formData.apellido,
-        domicilio: formData.domicilio || null,
-        condicion: formData.condicion || "Invitado",
-        genero: formData.genero || "-",
+        nombre: formValues.nombre,
+        apellido: formValues.apellido,
+        domicilio: formValues.domicilio || null,
+        condicion: formValues.condicion || "Invitado",
+        genero: formValues.genero || "-",
         rol_sistema: "user",
-        nacionalidad: formData.nacionalidad || "Argentina", // Usar el del form, no hardcodeado
-        id_instr: formData.id_instr || null,
-
-        // --- CAMPOS FALTANTES AGREGADOS ---
-        mail: formData.mail || null,
-        telefono: formData.telefono || null,
-        dni: formData.dni || null,
-        cuil: formData.cuil || null,
-        fecha_nac: formData.fecha_nac || null,
-        alimentacion: formData.alimentacion || null,
-        id_localidad: formData.id_localidad || null,
-        id_loc_viaticos: formData.id_loc_viaticos || null,
-        fecha_alta: formData.fecha_alta || null,
-        fecha_baja: formData.fecha_baja || null,
-        email_acceso: formData.email_acceso || null,
-        clave_acceso: formData.clave_acceso || null,
-        nota_interna: formData.nota_interna || null,
-        avatar_color: formData.avatar_color || "#4f46e5",
-
-        // --- CAMPOS NUEVOS ---
-        cargo: formData.cargo || null,
-        jornada: formData.jornada || null,
-        motivo: formData.motivo || null,
+        nacionalidad: formValues.nacionalidad || "Argentina",
+        id_instr: formValues.id_instr || null,
+        mail: formValues.mail || null,
+        telefono: formValues.telefono || null,
+        dni: formValues.dni || null,
+        cuil: formValues.cuil || null,
+        fecha_nac: formValues.fecha_nac || null,
+        alimentacion: formValues.alimentacion || null,
+        id_localidad: formValues.id_localidad || null,
+        id_loc_viaticos: formValues.id_loc_viaticos || null,
+        fecha_alta: formValues.fecha_alta || null,
+        fecha_baja: formValues.fecha_baja || null,
+        email_acceso: formValues.email_acceso || null,
+        clave_acceso: formValues.clave_acceso || null,
+        nota_interna: formValues.nota_interna || null,
+        avatar_color: formValues.avatar_color || "#4f46e5",
+        cargo: formValues.cargo || null,
+        jornada: formValues.jornada || null,
+        motivo: formValues.motivo || null,
       };
 
       const { data, error } = await supabase
@@ -749,7 +754,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         );
       }
 
-      setFormData((prev) => ({ ...prev, id: data.id }));
+      reset({ ...getValues(), id: data.id });
       if (onSave) onSave(data, false);
     } catch (error) {
       console.error("Error al crear:", error.message);
@@ -1049,6 +1054,9 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                             updateField("apellido", e.target.value)
                           }
                         />
+                        {errors.apellido && (
+                          <span className="text-red-500 text-[10px]">{errors.apellido.message}</span>
+                        )}
                       </div>
                       <div>
                         <label className={labelClass}>Nombre</label>
@@ -1060,6 +1068,9 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                             updateField("nombre", e.target.value)
                           }
                         />
+                        {errors.nombre && (
+                          <span className="text-red-500 text-[10px]">{errors.nombre.message}</span>
+                        )}
                       </div>
                     </div>
 
@@ -1080,6 +1091,9 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                             }
                           />
                         </div>
+                        {errors.mail && (
+                          <span className="text-red-500 text-[10px]">{errors.mail.message}</span>
+                        )}
                       </div>
                       <div>
                         <label className={labelClass}>Teléfono Móvil</label>
@@ -1115,6 +1129,9 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       onChange={(val) => updateField("id_instr", val)}
                       placeholder="Seleccionar instrumento..."
                     />
+                    {errors.id_instr && (
+                      <span className="text-red-500 text-[10px]">{errors.id_instr.message}</span>
+                    )}
                   </div>
                   {/* ENSAMBLES */}
                   <div>
@@ -1179,6 +1196,9 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       value={formData.dni || ""}
                       onChange={(e) => updateField("dni", e.target.value)}
                     />
+                    {errors.dni && (
+                      <span className="text-red-500 text-[10px]">{errors.dni.message}</span>
+                    )}
                   </div>
                   <div>
                     <label className={labelClass}>CUIL</label>
@@ -1188,6 +1208,9 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       value={formData.cuil || ""}
                       onChange={(e) => updateField("cuil", e.target.value)}
                     />
+                    {errors.cuil && (
+                      <span className="text-red-500 text-[10px]">{errors.cuil.message}</span>
+                    )}
                   </div>
                   <div>
                     <label className={labelClass}>Nacionalidad</label>
@@ -1503,9 +1526,10 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
               </button>
               {!formData.id && (
                 <button
-                  onClick={handleCreateInitial}
-                  disabled={loading}
-                  className="bg-indigo-600 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center gap-3"
+                  type="button"
+                  onClick={handleSubmit(handleCreateInitial)}
+                  disabled={loading || !isValid}
+                  className="bg-indigo-600 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
                     <IconLoader className="animate-spin" size={18} />

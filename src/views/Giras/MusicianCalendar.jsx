@@ -1,5 +1,5 @@
 // src/views/Giras/MusicianCalendar.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   format,
   addMonths,
@@ -56,9 +56,17 @@ export default function MusicianCalendar({ supabase }) {
     fetchCatalogs();
   }, []);
 
+  const fetchFormLocations = useCallback(async () => {
+    const { data: locs } = await supabase
+      .from("locaciones")
+      .select("id, nombre, localidades(localidad)")
+      .order("nombre");
+    if (locs) setLocations(locs);
+  }, [supabase]);
+
   const fetchCatalogs = async () => {
       const { data: types } = await supabase.from('tipos_evento').select('id, nombre').order('nombre');
-      const { data: locs } = await supabase.from('locaciones').select('id, nombre').order('nombre');
+      const { data: locs } = await supabase.from('locaciones').select('id, nombre, localidades(localidad)').order('nombre');
       
       if(types) setEventTypes(types);
       if(locs) setLocations(locs);
@@ -555,6 +563,8 @@ export default function MusicianCalendar({ supabase }) {
               eventTypes={eventTypes}
               locations={locations}
               isNew={false}
+              supabase={supabase}
+              onRefreshLocations={fetchFormLocations}
           />
         </div>
       )}

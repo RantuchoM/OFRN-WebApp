@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import MultiSelect from "../../components/ui/MultiSelect";
 import { IconCalendar, IconCheck, IconLoader } from "../../components/ui/Icons";
 import { eachDayOfInterval, getDay, format } from "date-fns";
@@ -26,6 +27,19 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
   });
 
   const [previewDates, setPreviewDates] = useState([]);
+
+  const fetchLocations = useCallback(async () => {
+    const { data } = await supabase
+      .from("locaciones")
+      .select("id, nombre, localidades(localidad)")
+      .order("nombre");
+    setLocationsOptions(
+      (data || []).map((l) => ({
+        id: l.id,
+        label: `${l.nombre} (${l.localidades?.localidad || "Sin localidad"})`,
+      }))
+    );
+  }, [supabase]);
 
   // 1. Cargar Datos y Aplicar Lógica de Ensamble
   useEffect(() => {
@@ -60,18 +74,10 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
         setFormData(prev => ({ ...prev, selectedEnsambles: initialSelection }));
         
         // Cargar Locaciones
-        const { data: loc } = await supabase
-            .from("locaciones")
-            .select("id, nombre, localidades(localidad)")
-            .order("nombre");
-        
-        setLocationsOptions(loc?.map(l => ({ 
-            id: l.id, 
-            label: `${l.nombre} (${l.localidades?.localidad || "Sin localidad"})` 
-        })) || []);
+        await fetchLocations();
     };
     loadData();
-  }, [supabase, myEnsembles]); // Dependencia myEnsembles importante
+  }, [supabase, myEnsembles, fetchLocations]); // Dependencia myEnsembles importante
 
   // 2. Calcular Fechas Previas (Igual que antes)
   useEffect(() => {
@@ -237,10 +243,12 @@ export default function MassiveRehearsalGenerator({ supabase, onSuccess, onCance
 
               <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Lugar (Opcional)</label>
-                  <SearchableSelect 
-                      options={locationsOptions} 
-                      value={formData.id_locacion} 
-                      onChange={v => setFormData({...formData, id_locacion: v})} 
+                  <LocationSelectWithCreate
+                      supabase={supabase}
+                      options={locationsOptions}
+                      value={formData.id_locacion}
+                      onChange={v => setFormData({...formData, id_locacion: v})}
+                      onRefresh={fetchLocations}
                       placeholder="Sin lugar asignado"
                   />
               </div>

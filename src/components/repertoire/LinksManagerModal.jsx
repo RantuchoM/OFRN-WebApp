@@ -11,7 +11,7 @@ const ModalPortal = ({ children }) => {
   );
 };
 
-export default function LinksManagerModal({ isOpen, onClose, links, onSave, partName }) {
+export default function LinksManagerModal({ isOpen, onClose, links, onSave, partName, isSolista }) {
   const [localLinks, setLocalLinks] = useState([]);
 
   useEffect(() => {
@@ -40,8 +40,13 @@ export default function LinksManagerModal({ isOpen, onClose, links, onSave, part
     <ModalPortal>
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-4 animate-in zoom-in-95">
         <div className="flex justify-between items-center mb-4 border-b pb-2">
-          <h3 className="font-bold text-slate-700 flex items-center gap-2">
+          <h3 className="font-bold text-slate-700 flex items-center gap-2 flex-wrap">
             <IconLink size={18} /> Enlaces: <span className="text-indigo-600">{partName}</span>
+            {isSolista && (
+              <span className="text-[10px] font-semibold uppercase bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200">
+                Solista
+              </span>
+            )}
           </h3>
           <button onClick={onClose}><IconX size={20} className="text-slate-400" /></button>
         </div>

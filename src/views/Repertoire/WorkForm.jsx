@@ -38,10 +38,11 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
   useEffect(() => {
     // Establecer formato neutro por defecto al montar
     document.execCommand("defaultParagraphSeparator", false, "div");
-    
-    if (editorRef.current && value !== editorRef.current.innerHTML) {
-      if (!editorRef.current.innerHTML || value === "" || value === null) {
-        editorRef.current.innerHTML = value || "";
+    // Sincronizar siempre que cambie value (p. ej. al aplicar sugerencia de título) para que la vista se actualice
+    if (editorRef.current && value !== undefined) {
+      const next = value ?? "";
+      if (editorRef.current.innerHTML !== next) {
+        editorRef.current.innerHTML = next;
       }
     }
   }, [value]);
@@ -177,8 +178,9 @@ export default function WorkForm({
   const [youtubeSuggestions, setYoutubeSuggestions] = useState([]);
   const [loadingYouTube, setLoadingYouTube] = useState(false);
   const [loadingYear, setLoadingYear] = useState(false);
-  const [loadingIMSLP, setLoadingIMSLP] = useState(false);
   const [suggestedYear, setSuggestedYear] = useState(null);
+  const [loadingTitleSuggestions, setLoadingTitleSuggestions] = useState(false);
+  const [suggestedTitleWithMovements, setSuggestedTitleWithMovements] = useState(null);
   const [showYoutubePopover, setShowYoutubePopover] = useState(false);
   const enrichmentTriggerRef = useRef(null);
   const fieldStatusResetRef = useRef(null);
@@ -334,11 +336,10 @@ export default function WorkForm({
     [supabase],
   );
 
-  const fetchYearAndIMSLPSuggestion = useCallback(
-    async (titulo, compositorApellido, linkDriveEmpty, workId, currentObservaciones) => {
+  const fetchYearSuggestion = useCallback(
+    async (titulo, compositorApellido) => {
       if (!titulo || !compositorApellido) return;
       setLoadingYear(true);
-      if (linkDriveEmpty) setLoadingIMSLP(true);
       setSuggestedYear(null);
       try {
         const { data, error } = await supabase.functions.invoke("ask-ai", {
@@ -346,7 +347,6 @@ export default function WorkForm({
             type: "FIND_WORK_METADATA",
             titulo: stripHtml(titulo),
             compositorApellido,
-            linkDriveEmpty: !!linkDriveEmpty,
           },
         });
         if (error) {
@@ -364,27 +364,53 @@ export default function WorkForm({
           setSuggestedYear(y);
           toast.success("Año de composición sugerido");
         }
-        const imslpUrl = data?.imslpUrl ?? data?.imslp_url;
-        if (linkDriveEmpty && imslpUrl && (imslpUrl.startsWith("http://") || imslpUrl.startsWith("https://"))) {
-          const link = `<p><a href='${imslpUrl}'>Música en IMSLP</a></p>`;
-          const existing = (currentObservaciones || "").trim();
-          const newObs = existing ? `${existing}${link}` : link;
-          setFormData((prev) => ({ ...prev, observaciones: newObs }));
-          if (workId) saveFieldToDb("observaciones", newObs);
-          toast.success("Enlace IMSLP añadido a observaciones");
-        }
-        if (data?.error) {
-          console.warn("FIND_WORK_METADATA:", data.error);
-        }
+        if (data?.error) console.warn("FIND_WORK_METADATA:", data.error);
       } catch (e) {
         console.warn("FIND_WORK_METADATA:", e);
       } finally {
         setLoadingYear(false);
-        if (linkDriveEmpty) setLoadingIMSLP(false);
       }
     },
     [supabase],
   );
+
+  const fetchTitleWithMovementsSuggestion = useCallback(async () => {
+    const titulo = stripHtml(formData.titulo);
+    const firstId = selectedComposers?.[0];
+    const opt = composersOptions.find((c) => c.id === firstId);
+    const compositorApellido = opt?.label?.split(",")[0]?.trim() ?? "";
+    if (!titulo || !compositorApellido) {
+      toast.error("Indica título y al menos un compositor para buscar sugerencias");
+      return;
+    }
+    setLoadingTitleSuggestions(true);
+    setSuggestedTitleWithMovements(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("ask-ai", {
+        body: {
+          type: "FIND_TITLE_WITH_MOVEMENTS",
+          titulo,
+          compositorApellido,
+        },
+      });
+      if (error) {
+        toast.error("Error al buscar sugerencias");
+        return;
+      }
+      const text = data?.titleWithMovements ?? data?.title_with_movements;
+      if (text && typeof text === "string") {
+        setSuggestedTitleWithMovements(text);
+        toast.success("Sugerencia de título con movimientos");
+      } else if (data?.error) {
+        toast.error(data.error || "Sin sugerencia");
+      }
+    } catch (e) {
+      console.warn("FIND_TITLE_WITH_MOVEMENTS:", e);
+      toast.error("Error al buscar sugerencias");
+    } finally {
+      setLoadingTitleSuggestions(false);
+    }
+  }, [supabase, formData.titulo, selectedComposers, composersOptions]);
 
   useEffect(() => {
     const titulo = stripHtml(formData.titulo);
@@ -401,12 +427,12 @@ export default function WorkForm({
       const composerOption = composersOptions.find((c) => c.id === firstComposerId);
       const composerLabel = composerOption?.label ?? "";
       const compositorApellido = composerLabel.split(",")[0]?.trim() ?? "";
-      if (anioEmpty) fetchYearAndIMSLPSuggestion(titulo, compositorApellido, linkDriveEmpty, formData.id, formData.observaciones);
+      if (anioEmpty) fetchYearSuggestion(titulo, compositorApellido);
     }, 800);
     return () => {
       if (enrichmentTriggerRef.current) clearTimeout(enrichmentTriggerRef.current);
     };
-  }, [formData.titulo, formData.anio, formData.link_drive, formData.id, formData.observaciones, selectedComposers, composersOptions, fetchYearAndIMSLPSuggestion]);
+  }, [formData.titulo, formData.anio, formData.id, selectedComposers, composersOptions, fetchYearSuggestion]);
 
   useEffect(() => {
     if ((formData.link_youtube || "").trim()) {
@@ -461,18 +487,6 @@ export default function WorkForm({
       return;
     }
     await fetchYoutubeSuggestions(titulo, composerLabel);
-  };
-
-  const searchIMSLPOnDemand = async () => {
-    const titulo = stripHtml(formData.titulo);
-    const firstId = selectedComposers?.[0];
-    const opt = composersOptions.find((c) => c.id === firstId);
-    const compositorApellido = opt?.label?.split(",")[0]?.trim() ?? "";
-    if (!titulo || !compositorApellido) {
-      toast.error("Indica título y al menos un compositor para buscar en IMSLP");
-      return;
-    }
-    await fetchYearAndIMSLPSuggestion(titulo, compositorApellido, true, formData.id, formData.observaciones);
   };
 
   const QuickComposerModal = ({ isOpen, onClose, onCreated, supabase }) => {
@@ -614,6 +628,7 @@ export default function WorkForm({
               ...p,
               links,
               instrumento_nombre: p.instrumentos?.instrumento,
+              es_solista: !!p.es_solista,
             };
           })
           .sort((a, b) => a.id_instrumento.localeCompare(b.id_instrumento)),
@@ -742,6 +757,7 @@ export default function WorkForm({
           nombre_archivo: p.nombre_archivo,
           nota_organico: p.nota_organico,
           url_archivo: JSON.stringify(p.links || []),
+          es_solista: !!p.es_solista,
         };
         if (p.id) {
           row.id = p.id;
@@ -859,6 +875,12 @@ export default function WorkForm({
 
         setFormData((prev) => ({ ...prev, id: newId }));
 
+        const composerLabels = (selectedComposers || [])
+          .map((id) => composersOptions.find((c) => c.id === id)?.label)
+          .filter(Boolean);
+        const arrangerLabels = (selectedArrangers || [])
+          .map((id) => composersOptions.find((c) => c.id === id)?.label)
+          .filter(Boolean);
         supabase.functions
           .invoke("mails_produccion", {
             body: {
@@ -868,11 +890,17 @@ export default function WorkForm({
               nombre: `${user.nombre} ${user.apellido}`,
               gira: null,
               detalle: {
-                titulo: formData.titulo,
-                compositor: "Ver en sistema",
+                titulo: stripHtml(formData.titulo),
+                compositores: composerLabels.join("; ") || null,
+                arregladores: arrangerLabels.length ? arrangerLabels.join("; ") : null,
                 duracion: formData.duracion,
+                anio: formData.anio || null,
+                estado: formData.estado || null,
                 instrumentacion: payload.instrumentacion,
-                link_drive: formData.link_drive,
+                link_drive: formData.link_drive || null,
+                link_youtube: (formData.link_youtube || "").trim() || null,
+                observaciones: (formData.observaciones || "").trim() || null,
+                comentarios: (formData.comentarios || "").trim() || null,
               },
             },
           })
@@ -910,6 +938,7 @@ export default function WorkForm({
         links: [],
         nota_organico: "",
         instrumento_nombre: def.instrumento_base,
+        es_solista: false,
       }));
     } else {
       const instr = instrumentList.find((i) => i.id === selectedId);
@@ -925,6 +954,7 @@ export default function WorkForm({
           links: [],
           nota_organico: "",
           instrumento_nombre: instr.instrumento,
+          es_solista: false,
         });
       }
     }
@@ -992,15 +1022,63 @@ export default function WorkForm({
       {/* FORMULARIO */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="md:col-span-3">
-          <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
-            Título
-          </label>
+          <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+            <label className="text-[10px] font-bold uppercase text-slate-400">
+              Título
+            </label>
+            <button
+              type="button"
+              onClick={fetchTitleWithMovementsSuggestion}
+              disabled={loadingTitleSuggestions || !stripHtml(formData.titulo) || !selectedComposers?.length}
+              className="text-[10px] font-medium text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              {loadingTitleSuggestions ? <IconLoader size={10} className="animate-spin" /> : null}
+              Buscar sugerencias
+            </button>
+          </div>
           <WysiwygEditor
-            value={formData.titulo}
+            value={formData.titulo ?? ""}
             onChange={(v) => updateField("titulo", v)}
             placeholder="Ej: Sinfonía n.5"
             className="min-h-[58px]"
           />
+          {suggestedTitleWithMovements && (
+            <div className="mt-2 p-3 bg-sky-50 border border-sky-200 rounded-lg text-sm">
+              <pre className="whitespace-pre-wrap font-sans text-slate-700 mb-2">{suggestedTitleWithMovements}</pre>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const escape = (s) => s.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    const isMovementLine = (line) => /^\s*[IVXLCDM]+\./i.test(line.trim());
+                    const html = suggestedTitleWithMovements
+                      .split("\n")
+                      .map((line, i) => {
+                        const escaped = escape(line);
+                        if (i > 0 && isMovementLine(line)) {
+                          return `<p>&nbsp;&nbsp;${escaped.trim()}</p>`;
+                        }
+                        return `<p>${escaped}</p>`;
+                      })
+                      .join("");
+                    updateField("titulo", html);
+                    setSuggestedTitleWithMovements(null);
+                    toast.success("Título aplicado");
+                  }}
+                  className="text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 px-2 py-1 rounded"
+                >
+                  Aplicar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSuggestedTitleWithMovements(null)}
+                  className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                >
+                  Descartar
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div>
@@ -1010,7 +1088,7 @@ export default function WorkForm({
             </label>
             <select
               className="w-full border p-2 rounded-lg font-bold text-sm h-[58px] bg-white outline-none focus:ring-2 focus:ring-indigo-500"
-              value={formData.estado}
+              value={formData.estado ?? ""}
               onChange={(e) => updateField("estado", e.target.value)}
             >
               <option value="Oficial">Oficial</option>
@@ -1086,7 +1164,7 @@ export default function WorkForm({
             <input
               type="text"
               className={getInputClass("duracion", "text-center")}
-              value={formData.duracion}
+              value={formData.duracion ?? ""}
               onChange={(e) => updateField("duracion", e.target.value)}
               placeholder="00:00"
             />
@@ -1099,7 +1177,7 @@ export default function WorkForm({
             <input
               type="number"
               className={getInputClass("anio", "text-center")}
-              value={formData.anio}
+              value={formData.anio ?? ""}
               onChange={(e) => updateField("anio", e.target.value)}
               placeholder=""
             />
@@ -1124,7 +1202,7 @@ export default function WorkForm({
           <input
             type="text"
             className={getInputClass("instrumentacion", "text-[13px] font-mono bg-slate-50 w-full")}
-            value={formData.instrumentacion}
+            value={formData.instrumentacion ?? ""}
             onChange={(e) => updateField("instrumentacion", e.target.value)}
           />
         </div>
@@ -1137,7 +1215,7 @@ export default function WorkForm({
             <input
               type="text"
               className={getInputClass("link_drive", "text-xs text-blue-600")}
-              value={formData.link_drive}
+              value={formData.link_drive ?? ""}
               onChange={(e) => updateField("link_drive", e.target.value)}
               placeholder="URL carpeta..."
             />
@@ -1170,7 +1248,7 @@ export default function WorkForm({
           <input
             type="text"
             className={getInputClass("link_youtube", "text-xs")}
-            value={formData.link_youtube}
+            value={formData.link_youtube ?? ""}
             onChange={(e) => updateField("link_youtube", e.target.value)}
             onFocus={() => youtubeSuggestions.length > 0 && setShowYoutubePopover(true)}
             placeholder="Spotify / Youtube..."
@@ -1243,15 +1321,6 @@ export default function WorkForm({
               <IconFileText size={12} /> Observaciones (Públicas)
             </label>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={searchIMSLPOnDemand}
-                disabled={loadingIMSLP || !stripHtml(formData.titulo) || !selectedComposers?.length}
-                className="text-[10px] font-medium text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-              >
-                {loadingIMSLP ? <IconLoader size={10} className="animate-spin" /> : <IconLink size={10} />}
-                Buscar en IMSLP
-              </button>
               {stripHtml(formData.titulo) && selectedComposers?.length > 0 && (() => {
                 const titulo = stripHtml(formData.titulo);
                 const opt = composersOptions.find((c) => c.id === selectedComposers[0]);
@@ -1264,18 +1333,18 @@ export default function WorkForm({
                     href={imslpSearchUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[10px] font-medium text-slate-500 hover:text-slate-700 flex items-center gap-1"
-                    title="Abrir búsqueda en IMSLP (compositor y obra)"
+                    className="text-[10px] font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                    title="Abrir búsqueda en IMSLP (compositor y obra, no consume tokens)"
                   >
                     <IconLink size={10} />
-                    Abrir IMSLP
+                    Abrir en IMSLP
                   </a>
                 );
               })()}
             </div>
           </div>
           <WysiwygEditor
-            value={formData.observaciones}
+            value={formData.observaciones ?? ""}
             onChange={(v) => updateField("observaciones", v)}
             placeholder="Notas sobre ediciones, versiones, etc..."
             className="min-h-[100px] border-slate-200"
@@ -1441,7 +1510,8 @@ export default function WorkForm({
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
           <div className="grid grid-cols-12 gap-2 bg-slate-50 border-b border-slate-200 px-4 py-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
             <div className="col-span-1 text-center">ID</div>
-            <div className="col-span-5">Nombre de Particella</div>
+            <div className="col-span-4">Nombre de Particella</div>
+            <div className="col-span-1 text-center text-[10px] font-bold text-slate-500">Solista</div>
             <div className="col-span-2 text-center">Nota Org.</div>
             <div className="col-span-2 text-center">Enlaces</div>
             <div className="col-span-2 text-right">Acciones</div>
@@ -1451,17 +1521,17 @@ export default function WorkForm({
             {particellas.map((p) => (
               <div
                 key={p.tempId}
-                className="grid grid-cols-12 gap-2 px-4 py-2 items-center hover:bg-slate-50 transition-colors group text-sm"
+                className={`grid grid-cols-12 gap-2 px-4 py-2 items-center transition-colors group text-sm ${p.es_solista ? "bg-sky-50 hover:bg-sky-100" : "hover:bg-slate-50"}`}
               >
                 <div className="col-span-1 flex justify-center">
                   <span className="w-8 h-6 rounded bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 uppercase">
                     {p.id_instrumento}
                   </span>
                 </div>
-                <div className="col-span-5">
+                <div className="col-span-4">
                   <input
                     className="w-full bg-transparent border-none p-0 text-slate-700 font-bold focus:ring-0 placeholder:text-slate-300 focus:bg-white focus:shadow-sm rounded px-1 transition-all"
-                    value={p.nombre_archivo}
+                    value={p.nombre_archivo ?? ""}
                     onChange={(e) =>
                       setParticellas((prev) =>
                         prev.map((x) =>
@@ -1473,6 +1543,23 @@ export default function WorkForm({
                     }
                     onBlur={() => handlePartsChange(particellas)}
                   />
+                </div>
+                <div className="col-span-1 flex justify-center">
+                  <label className="flex items-center gap-1 cursor-pointer" title="Solista">
+                    <input
+                      type="checkbox"
+                      checked={!!p.es_solista}
+                      onChange={(e) => {
+                        const next = particellas.map((x) =>
+                          x.tempId === p.tempId ? { ...x, es_solista: e.target.checked } : x,
+                        );
+                        setParticellas(next);
+                        handlePartsChange(next);
+                      }}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className="text-[10px] text-slate-500">Solista</span>
+                  </label>
                 </div>
                 <div className="col-span-2 flex justify-center">
                   <input
@@ -1577,6 +1664,7 @@ export default function WorkForm({
         partName={
           particellas.find((p) => p.tempId === editingLinksId)?.nombre_archivo
         }
+        isSolista={!!particellas.find((p) => p.tempId === editingLinksId)?.es_solista}
         onSave={(links) => {
           const updated = particellas.map((p) =>
             p.tempId === editingLinksId ? { ...p, links } : p,
