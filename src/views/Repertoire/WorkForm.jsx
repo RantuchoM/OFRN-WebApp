@@ -28,6 +28,7 @@ import LinksManagerModal from "../../components/repertoire/LinksManagerModal";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
 import { toast } from "sonner";
+import DateInput from "../../components/ui/DateInput";
 
 // --- COMPONENTE EDITOR WYSIWYG ---
 const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
@@ -110,6 +111,12 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
 const capitalizeWords = (str) =>
   !str ? "" : str.toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase());
 
+const getYoutubeVideoId = (url) => {
+  if (!url || typeof url !== "string") return null;
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^#&?]+)/);
+  return m ? m[1] : null;
+};
+
 function useDebouncedCallback(callback, delay) {
   const handler = useRef(null);
   return useCallback(
@@ -166,6 +173,24 @@ export default function WorkForm({
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [editingLinksId, setEditingLinksId] = useState(null);
   const instrumentInputRef = useRef(null);
+  // Auto-enrichment: YouTube suggestions and year
+  const [youtubeSuggestions, setYoutubeSuggestions] = useState([]);
+  const [loadingYouTube, setLoadingYouTube] = useState(false);
+  const [loadingYear, setLoadingYear] = useState(false);
+  const [loadingIMSLP, setLoadingIMSLP] = useState(false);
+  const [suggestedYear, setSuggestedYear] = useState(null);
+  const [showYoutubePopover, setShowYoutubePopover] = useState(false);
+  const enrichmentTriggerRef = useRef(null);
+  const fieldStatusResetRef = useRef(null);
+  const [fieldStatus, setFieldStatus] = useState({
+    titulo: "idle",
+    anio: "idle",
+    duracion: "idle",
+    link_youtube: "idle",
+    link_drive: "idle",
+    instrumentacion: "idle",
+    observaciones: "idle",
+  });
   const handleQuickCompCreated = (newComp) => {
     const newOption = {
       id: newComp.id,
@@ -248,6 +273,208 @@ export default function WorkForm({
         data.map((c) => ({ id: c.id, label: `${c.apellido}, ${c.nombre}` })),
       );
   };
+
+  // --- Auto-enrichment: título + compositor → YouTube suggestions + year ---
+  const stripHtml = (html) =>
+    (html || "")
+      .replace(/<[^>]*>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .trim();
+  const parseDurationToSeconds = (value) => {
+    if (value == null) return null;
+    if (typeof value === "number" && !Number.isNaN(value)) return value;
+    const str = String(value).trim();
+    if (/^\d+$/.test(str)) return parseInt(str, 10);
+    // ISO 8601 (e.g. PT5M30S, PT1H2M10S)
+    const iso = str.toUpperCase().match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+    if (iso) {
+      const h = parseInt(iso[1] || "0", 10);
+      const m = parseInt(iso[2] || "0", 10);
+      const s = parseInt(iso[3] || "0", 10);
+      return h * 3600 + m * 60 + s;
+    }
+    return null;
+  };
+
+  const fetchYoutubeSuggestions = useCallback(
+    async (titulo, compositorLabel) => {
+      const query = `${titulo} - ${compositorLabel} Score-Video`.trim();
+      if (!query) return [];
+      setLoadingYouTube(true);
+      setYoutubeSuggestions([]);
+      try {
+        const { data, error } = await supabase.functions.invoke("youtube-search", {
+          body: { query },
+        });
+        if (error) throw error;
+        const list = (data?.results ?? []).slice(0, 5).map((r) => ({
+          id: r.id || r.link?.split("v=")[1] || "",
+          title: r.title ?? "",
+          link: r.link || (r.id ? `https://www.youtube.com/watch?v=${r.id}` : ""),
+          thumbnailUrl: r.thumbnailUrl ?? r.snippet?.thumbnails?.default?.url ?? null,
+          duration: r.duration ?? r.contentDetails?.duration ?? null,
+          durationSeconds: r.durationSeconds ?? null,
+        }));
+        setYoutubeSuggestions(list);
+        if (list.length) {
+          setShowYoutubePopover(true);
+          toast.success("Sugerencias de video disponibles");
+        } else if (data?.error) {
+          toast.error(data.error || "Sin resultados");
+        }
+        return list;
+      } catch (e) {
+        console.warn("youtube-search:", e);
+        toast.error("Error al buscar en YouTube. Comprueba que YOUTUBE_API_KEY esté configurada.");
+        return [];
+      } finally {
+        setLoadingYouTube(false);
+      }
+    },
+    [supabase],
+  );
+
+  const fetchYearAndIMSLPSuggestion = useCallback(
+    async (titulo, compositorApellido, linkDriveEmpty, workId, currentObservaciones) => {
+      if (!titulo || !compositorApellido) return;
+      setLoadingYear(true);
+      if (linkDriveEmpty) setLoadingIMSLP(true);
+      setSuggestedYear(null);
+      try {
+        const { data, error } = await supabase.functions.invoke("ask-ai", {
+          body: {
+            type: "FIND_WORK_METADATA",
+            titulo: stripHtml(titulo),
+            compositorApellido,
+            linkDriveEmpty: !!linkDriveEmpty,
+          },
+        });
+        if (error) {
+          console.warn("FIND_WORK_METADATA error:", error);
+          return;
+        }
+        const rawYear = data?.year;
+        const y =
+          typeof rawYear === "number"
+            ? Math.floor(rawYear)
+            : typeof rawYear === "string"
+              ? parseInt(rawYear, 10)
+              : null;
+        if (y != null && !Number.isNaN(y) && y >= 1000 && y <= 2100) {
+          setSuggestedYear(y);
+          toast.success("Año de composición sugerido");
+        }
+        const imslpUrl = data?.imslpUrl ?? data?.imslp_url;
+        if (linkDriveEmpty && imslpUrl && (imslpUrl.startsWith("http://") || imslpUrl.startsWith("https://"))) {
+          const link = `<p><a href='${imslpUrl}'>Música en IMSLP</a></p>`;
+          const existing = (currentObservaciones || "").trim();
+          const newObs = existing ? `${existing}${link}` : link;
+          setFormData((prev) => ({ ...prev, observaciones: newObs }));
+          if (workId) saveFieldToDb("observaciones", newObs);
+          toast.success("Enlace IMSLP añadido a observaciones");
+        }
+        if (data?.error) {
+          console.warn("FIND_WORK_METADATA:", data.error);
+        }
+      } catch (e) {
+        console.warn("FIND_WORK_METADATA:", e);
+      } finally {
+        setLoadingYear(false);
+        if (linkDriveEmpty) setLoadingIMSLP(false);
+      }
+    },
+    [supabase],
+  );
+
+  useEffect(() => {
+    const titulo = stripHtml(formData.titulo);
+    const hasComposer = selectedComposers?.length > 0;
+    const anioEmpty = !(formData.anio || "").toString().trim();
+    const linkDriveEmpty = !(formData.link_drive || "").trim();
+    if (!titulo || !hasComposer) {
+      setSuggestedYear(null);
+      return;
+    }
+    if (enrichmentTriggerRef.current) clearTimeout(enrichmentTriggerRef.current);
+    enrichmentTriggerRef.current = setTimeout(() => {
+      const firstComposerId = selectedComposers[0];
+      const composerOption = composersOptions.find((c) => c.id === firstComposerId);
+      const composerLabel = composerOption?.label ?? "";
+      const compositorApellido = composerLabel.split(",")[0]?.trim() ?? "";
+      if (anioEmpty) fetchYearAndIMSLPSuggestion(titulo, compositorApellido, linkDriveEmpty, formData.id, formData.observaciones);
+    }, 800);
+    return () => {
+      if (enrichmentTriggerRef.current) clearTimeout(enrichmentTriggerRef.current);
+    };
+  }, [formData.titulo, formData.anio, formData.link_drive, formData.id, formData.observaciones, selectedComposers, composersOptions, fetchYearAndIMSLPSuggestion]);
+
+  useEffect(() => {
+    if ((formData.link_youtube || "").trim()) {
+      setShowYoutubePopover(false);
+      setYoutubeSuggestions([]);
+    }
+  }, [formData.link_youtube]);
+
+  useEffect(() => () => {
+    if (fieldStatusResetRef.current) clearTimeout(fieldStatusResetRef.current);
+  }, []);
+
+  const applyYoutubeSuggestion = (item) => {
+    const link = (item.link || (item.id ? `https://www.youtube.com/watch?v=${item.id}` : "")).trim();
+    if (!link) {
+      setYoutubeSuggestions([]);
+      setShowYoutubePopover(false);
+      toast.info("Sin enlace en este resultado. Pega la URL del video manualmente.");
+      return;
+    }
+    const sec =
+      parseDurationToSeconds(item.durationSeconds) ??
+      parseDurationToSeconds(item.duration);
+    const durStr = sec != null ? formatSecondsToTime(sec) : formData.duracion;
+    setYoutubeSuggestions([]);
+    setShowYoutubePopover(false);
+    updateField("link_youtube", link);
+    if (sec != null) updateField("duracion", durStr);
+    if (formData.id) {
+      saveFieldToDb("link_youtube", link);
+      if (sec != null) saveFieldToDb("duracion", durStr);
+    }
+    toast.success("Video y duración aplicados");
+  };
+
+  const applyYearSuggestion = () => {
+    if (suggestedYear == null) return;
+    const val = String(suggestedYear);
+    setFormData((prev) => ({ ...prev, anio: val }));
+    if (formData.id) saveFieldToDb("anio", val);
+    setSuggestedYear(null);
+    toast.success("Año aplicado");
+  };
+
+  const searchYoutubeOnDemand = async () => {
+    const titulo = stripHtml(formData.titulo);
+    const firstId = selectedComposers?.[0];
+    const opt = composersOptions.find((c) => c.id === firstId);
+    const composerLabel = opt?.label ?? "";
+    if (!titulo || !composerLabel) {
+      toast.error("Indica título y al menos un compositor para buscar en YouTube.");
+      return;
+    }
+    await fetchYoutubeSuggestions(titulo, composerLabel);
+  };
+
+  const searchIMSLPOnDemand = async () => {
+    const titulo = stripHtml(formData.titulo);
+    const firstId = selectedComposers?.[0];
+    const opt = composersOptions.find((c) => c.id === firstId);
+    const compositorApellido = opt?.label?.split(",")[0]?.trim() ?? "";
+    if (!titulo || !compositorApellido) {
+      toast.error("Indica título y al menos un compositor para buscar en IMSLP");
+      return;
+    }
+    await fetchYearAndIMSLPSuggestion(titulo, compositorApellido, true, formData.id, formData.observaciones);
+  };
+
   const QuickComposerModal = ({ isOpen, onClose, onCreated, supabase }) => {
     const [data, setData] = useState({ nombre: "", apellido: "" });
     const [loading, setLoading] = useState(false);
@@ -403,9 +630,32 @@ export default function WorkForm({
     if (data) setArcos(data);
   };
 
+  const setFieldStatusWithReset = (field, status) => {
+    if (fieldStatusResetRef.current) clearTimeout(fieldStatusResetRef.current);
+    setFieldStatus((prev) => ({ ...prev, [field]: status }));
+    if (status === "success") {
+      fieldStatusResetRef.current = setTimeout(() => {
+        setFieldStatus((prev) => ({ ...prev, [field]: "idle" }));
+        fieldStatusResetRef.current = null;
+      }, 2000);
+    }
+  };
+
+  const getInputClass = (field, baseClass = "") => {
+    const s = fieldStatus[field] || "idle";
+    const statusClass =
+      s === "success"
+        ? "bg-emerald-50 border-emerald-500"
+        : s === "error"
+          ? "bg-red-50 border-red-500"
+          : "";
+    return ["input", statusClass, baseClass].filter(Boolean).join(" ");
+  };
+
   const saveFieldToDb = async (field, value) => {
     if (!formData.id) return;
     setSaveStatus("saving");
+    setFieldStatus((prev) => ({ ...prev, [field]: "saving" }));
     try {
       const payload = {};
       if (field === "duracion")
@@ -418,10 +668,12 @@ export default function WorkForm({
 
       await supabase.from("obras").update(payload).eq("id", formData.id);
       setSaveStatus("saved");
+      setFieldStatusWithReset(field, "success");
       setTimeout(() => setSaveStatus("idle"), 2000);
       if (onSave) onSave(formData.id, false);
     } catch (e) {
       setSaveStatus("error");
+      setFieldStatus((prev) => ({ ...prev, [field]: "error" }));
     }
   };
 
@@ -768,14 +1020,11 @@ export default function WorkForm({
 
           {formData.estado === "Solicitud" && (
             <div className="w-full animate-in slide-in-from-top-2 fade-in mt-2">
-              <label className="text-[10px] font-bold uppercase text-amber-600 mb-1 flex items-center gap-1 truncate">
-                <IconCalendar size={10} /> F. Esperada
-              </label>
-              <input
-                type="date"
-                className="w-full border border-amber-200 bg-amber-50 text-amber-800 p-2 rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-500"
+              <DateInput
+                label="F. Esperada (dd/mm/aaaa)"
                 value={formData.fecha_esperada || ""}
-                onChange={(e) => updateField("fecha_esperada", e.target.value)}
+                onChange={(v) => updateField("fecha_esperada", v)}
+                className="border border-amber-200 bg-amber-50 text-amber-800 rounded-lg text-xs focus:ring-2 focus:ring-amber-500"
               />
             </div>
           )}
@@ -830,28 +1079,42 @@ export default function WorkForm({
 
         <div className="grid grid-cols-2 gap-4 md:col-span-2">
           <div>
-            <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
+            <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex items-center gap-1">
               Duración
+              {loadingYouTube && <IconLoader size={12} className="animate-spin text-indigo-500" />}
             </label>
             <input
               type="text"
-              className="input text-center"
+              className={getInputClass("duracion", "text-center")}
               value={formData.duracion}
               onChange={(e) => updateField("duracion", e.target.value)}
               placeholder="00:00"
             />
           </div>
           <div>
-            <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
+            <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex items-center gap-1">
               Año
+              {loadingYear && <IconLoader size={12} className="animate-spin text-indigo-500" />}
             </label>
             <input
               type="number"
-              className="input text-center"
+              className={getInputClass("anio", "text-center")}
               value={formData.anio}
               onChange={(e) => updateField("anio", e.target.value)}
               placeholder=""
             />
+            {suggestedYear != null && (
+              <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-slate-600">Año Sugerido: {suggestedYear}.</span>
+                <button
+                  type="button"
+                  onClick={applyYearSuggestion}
+                  className="text-xs font-medium text-indigo-600 hover:text-indigo-800 underline"
+                >
+                  Cargar
+                </button>
+              </div>
+            )}
           </div>
         </div>
         <div className="md:col-span-2">
@@ -860,7 +1123,7 @@ export default function WorkForm({
           </label>
           <input
             type="text"
-            className="input text-[13px] font-mono bg-slate-50 w-full"
+            className={getInputClass("instrumentacion", "text-[13px] font-mono bg-slate-50 w-full")}
             value={formData.instrumentacion}
             onChange={(e) => updateField("instrumentacion", e.target.value)}
           />
@@ -873,7 +1136,7 @@ export default function WorkForm({
           <div className="flex gap-2">
             <input
               type="text"
-              className="input text-xs text-blue-600"
+              className={getInputClass("link_drive", "text-xs text-blue-600")}
               value={formData.link_drive}
               onChange={(e) => updateField("link_drive", e.target.value)}
               placeholder="URL carpeta..."
@@ -888,26 +1151,129 @@ export default function WorkForm({
             )}
           </div>
         </div>
-        <div className="md:col-span-2">
-          <label className="text-[10px] font-bold uppercase text-red-600 mb-1 flex items-center gap-1">
-            <IconYoutube size={12} /> Link Audio / Video
-          </label>
+        <div className="md:col-span-2 relative">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label className="text-[10px] font-bold uppercase text-red-600 flex items-center gap-1">
+              <IconYoutube size={12} /> Link Audio / Video
+              {loadingYouTube && <IconLoader size={12} className="animate-spin text-red-500" />}
+            </label>
+            <button
+              type="button"
+              onClick={searchYoutubeOnDemand}
+              disabled={loadingYouTube || !stripHtml(formData.titulo) || !selectedComposers?.length}
+              className="text-[10px] font-medium text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              <IconYoutube size={10} />
+              Sugerencias de YouTube
+            </button>
+          </div>
           <input
             type="text"
-            className="input text-xs"
+            className={getInputClass("link_youtube", "text-xs")}
             value={formData.link_youtube}
             onChange={(e) => updateField("link_youtube", e.target.value)}
+            onFocus={() => youtubeSuggestions.length > 0 && setShowYoutubePopover(true)}
             placeholder="Spotify / Youtube..."
           />
+          {showYoutubePopover && youtubeSuggestions.length > 0 && !formData.link_youtube?.trim() && (
+            <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+              <div className="p-1.5 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500">
+                Sugerencias (5)
+              </div>
+              <ul className="max-h-64 overflow-y-auto">
+                {youtubeSuggestions.slice(0, 5).map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => applyYoutubeSuggestion(item)}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2"
+                    >
+                      {(item.thumbnailUrl ?? item.snippet?.thumbnails?.default?.url) ? (
+                        <img
+                          src={item.thumbnailUrl ?? item.snippet?.thumbnails?.default?.url}
+                          alt=""
+                          className="w-12 h-9 object-cover rounded shrink-0"
+                        />
+                      ) : (
+                        <IconYoutube size={14} className="text-red-500 shrink-0" />
+                      )}
+                      <span className="truncate flex-1" title={item.title ?? item.snippet?.title}>
+                        {item.title ?? item.snippet?.title}
+                      </span>
+                      {(item.durationSeconds ?? item.contentDetails?.duration) != null && (
+                        <span className="text-slate-400 shrink-0">
+                          {formatSecondsToTime(
+                            item.durationSeconds ??
+                              parseDurationToSeconds(item.contentDetails?.duration) ?? 0,
+                          )}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                onClick={() => setShowYoutubePopover(false)}
+                className="w-full py-1.5 text-[10px] text-slate-500 hover:bg-slate-100 border-t border-slate-100"
+              >
+                Cerrar
+              </button>
+            </div>
+          )}
+          {formData.link_youtube?.trim() && getYoutubeVideoId(formData.link_youtube) && (
+            <div className="mt-2 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 aspect-video max-w-md">
+              <iframe
+                title="Vista previa del video"
+                src={`https://www.youtube.com/embed/${getYoutubeVideoId(formData.link_youtube)}`}
+                className="w-full h-full"
+                allowFullScreen
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              />
+            </div>
+          )}
         </div>
       </div>
 
       {/* OBSERVACIONES Y COMENTARIOS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
         <div>
-          <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-1">
-            <IconFileText size={12} /> Observaciones (Públicas)
-          </label>
+          <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+            <label className="text-[10px] font-bold uppercase text-slate-500 flex items-center gap-1">
+              <IconFileText size={12} /> Observaciones (Públicas)
+            </label>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={searchIMSLPOnDemand}
+                disabled={loadingIMSLP || !stripHtml(formData.titulo) || !selectedComposers?.length}
+                className="text-[10px] font-medium text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                {loadingIMSLP ? <IconLoader size={10} className="animate-spin" /> : <IconLink size={10} />}
+                Buscar en IMSLP
+              </button>
+              {stripHtml(formData.titulo) && selectedComposers?.length > 0 && (() => {
+                const titulo = stripHtml(formData.titulo);
+                const opt = composersOptions.find((c) => c.id === selectedComposers[0]);
+                const compositorLabel = opt?.label ?? "";
+                const query = [compositorLabel.replace(/,/g, " ").trim(), titulo].filter(Boolean).join(" ");
+                if (!query) return null;
+                const imslpSearchUrl = `https://www.google.com/search?q=site:imslp.org+${encodeURIComponent(query).replace(/%20/g, '+')}`;
+                return (
+                  <a
+                    href={imslpSearchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] font-medium text-slate-500 hover:text-slate-700 flex items-center gap-1"
+                    title="Abrir búsqueda en IMSLP (compositor y obra)"
+                  >
+                    <IconLink size={10} />
+                    Abrir IMSLP
+                  </a>
+                );
+              })()}
+            </div>
+          </div>
           <WysiwygEditor
             value={formData.observaciones}
             onChange={(v) => updateField("observaciones", v)}

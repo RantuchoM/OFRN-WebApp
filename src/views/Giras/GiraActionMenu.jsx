@@ -172,13 +172,6 @@ const GiraActionMenu = ({
                 label="Agenda Detallada"
                 onClick={() => onViewChange("AGENDA")}
               />
-              {/* INSERTAR AQUÍ */}
-              <SubMenuItem
-                icon={IconHotel}
-                label="Mi Rooming"
-                onClick={onMyRooming}
-                className="text-indigo-600 font-medium"
-              />
             </CategoryItem>
 
             {isEditor && (

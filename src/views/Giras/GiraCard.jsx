@@ -806,6 +806,16 @@ export default function GiraCard({
                   >
                     <IconUtensils size={14} />
                   </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenMyRooming();
+                    }}
+                    className={`${desktopBtnClass} hover:text-indigo-600`}
+                    title="Mi Rooming"
+                  >
+                    <IconHotel size={14} />
+                  </button>
                   <CommentButton
                     supabase={supabase}
                     entityType="GIRA"
@@ -845,6 +855,16 @@ export default function GiraCard({
                     className={`${desktopBtnClass} hover:text-amber-600`}
                   >
                     <IconUtensils size={14} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenMyRooming();
+                    }}
+                    className={`${desktopBtnClass} hover:text-indigo-600`}
+                    title="Mi Rooming"
+                  >
+                    <IconHotel size={14} />
                   </button>
                   <CommentButton
                     supabase={supabase}
@@ -911,7 +931,14 @@ export default function GiraCard({
                           <IconClock size={10} /> Check-In
                         </label>
                         <div className="font-semibold text-slate-700 font-mono">
-                          14:00 hs
+                          {gira.fecha_desde ? (
+                            <>
+                              <div>{format(parseISO(gira.fecha_desde), "EEEE dd/MM", { locale: es })}</div>
+                              <div>14:00 hs</div>
+                            </>
+                          ) : (
+                            "14:00 hs"
+                          )}
                         </div>
                       </div>
                       <div>
@@ -919,7 +946,14 @@ export default function GiraCard({
                           <IconClock size={10} /> Check-Out
                         </label>
                         <div className="font-semibold text-slate-700 font-mono">
-                          10:00 hs
+                          {gira.fecha_hasta ? (
+                            <>
+                              <div>{format(parseISO(gira.fecha_hasta), "EEEE dd/MM", { locale: es })}</div>
+                              <div>10:00 hs</div>
+                            </>
+                          ) : (
+                            "10:00 hs"
+                          )}
                         </div>
                       </div>
                     </div>
@@ -936,8 +970,7 @@ export default function GiraCard({
                               className="bg-slate-50 px-3 py-2.5 rounded-xl text-sm text-slate-700 border border-slate-100 flex items-center gap-2"
                             >
                               <div className="w-1.5 h-1.5 rounded-full bg-fixed-indigo-400"></div>
-                              <span className="font-medium">{m.apellido}</span>,{" "}
-                              {m.nombre}
+                              <span className="font-medium">{`${m.apellido}, ${m.nombre}`}</span>
                             </div>
                           ))
                         ) : (

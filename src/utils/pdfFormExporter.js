@@ -237,7 +237,12 @@ export const exportViaticosToPDFForm = async (
         f("jornada", data.jornada_laboral);
         f("ciudad_origen", data.ciudad_origen || "Viedma");
         f("lugar_comision", configData.lugar_comision);
-        f("motivo", data.motivo || configData.motivo);
+        const motivoParaDoc =
+          data.motivo ||
+          (mode === "destaque" && configData.motivo_destaques_exportacion
+            ? configData.motivo_destaques_exportacion
+            : configData.motivo);
+        f("motivo", motivoParaDoc || "");
         f("asiento_habitual", data.ciudad_origen || "Viedma");
 
         f("dia_salida", fmtDate(data.fecha_salida));

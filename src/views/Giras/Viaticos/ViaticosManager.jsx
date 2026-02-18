@@ -157,6 +157,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     valor_diario_base: 0,
     factor_temporada: 0,
     motivo: "",
+    motivo_destaques_exportacion: "",
     lugar_comision: "",
     link_drive: "",
     porcentaje_destaques: 100,
@@ -846,8 +847,10 @@ export default function ViaticosManager({ supabase, giraId }) {
         rich.documentacion = p.documentacion || p.documentacion;
         rich.docred = p.docred || p.docred;
         rich.cargo = p.cargo || p.rol || "";
+        const motivoDestaques =
+          config.motivo_destaques_exportacion?.trim() || config.motivo || "";
         rich.motivo =
-          p.motivo && p.motivo.trim() !== "" ? p.motivo : config.motivo || "";
+          p.motivo && p.motivo.trim() !== "" ? p.motivo : motivoDestaques;
         rich.jornada = p.jornada_laboral || p.jornada || "";
         rich.jornada_laboral = rich.jornada;
 

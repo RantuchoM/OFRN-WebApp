@@ -1,5 +1,42 @@
 import { formatSecondsToTime } from "./time";
 
+/** Indica si el string de instrumentación incluye cuerdas. */
+export const hasStrings = (text) => {
+  if (!text) return false;
+  return /str|cuerd|viol|vln|vla|vlc|cb|arco|contrab/i.test(text);
+};
+
+/** Obtiene el valor numérico de un instrumento desde el string de instrumentación (para filtros analíticos). */
+export const getInstrumentValue = (workString, instrumentKey) => {
+  if (!workString) return 0;
+  const key = String(instrumentKey).toLowerCase();
+
+  if (key === "timp") return /timp/i.test(workString) ? 1 : 0;
+  if (key === "perc") {
+    const match = workString.match(/perc(?:\.x|x|\+)?(\d+)?/i);
+    return match ? (match[1] ? parseInt(match[1], 10) : 1) : 0;
+  }
+  if (key === "harp") return /hp|arp|harp/i.test(workString) ? 1 : 0;
+  if (key === "key") return /key|pno|pf|cel/i.test(workString) ? 1 : 0;
+  if (key === "str") return hasStrings(workString) ? 1 : 0;
+
+  const cleanStr = workString.replace(/\([^)]*\)/g, "");
+  const allParts = cleanStr
+    .replace(/-/g, ".")
+    .split(".")
+    .map((p) => p.trim())
+    .filter((p) => p !== "" && !Number.isNaN(Number(p)));
+
+  const indexMap = {
+    fl: 0, ob: 1, cl: 2, bn: 3, fg: 3, hn: 4, tpt: 5, tp: 5, tbn: 6, tb: 6, tba: 7, tu: 7,
+  };
+
+  const index = indexMap[key];
+  if (index === undefined || index >= allParts.length) return 0;
+  const val = parseInt(allParts[index], 10);
+  return Number.isNaN(val) ? 0 : val;
+};
+
 export const calculateInstrumentation = (parts) => {
   if (!parts || parts.length === 0) return "";
 

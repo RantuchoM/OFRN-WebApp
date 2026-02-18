@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   IconFolderMusic,
   IconPlus,
@@ -24,6 +25,7 @@ import {
   IconEyeOff,
   IconChevronLeft,
   IconChevronRight,
+  IconExternalLink,
 } from "../../components/ui/Icons";
 import { format, isBefore, isToday, parseISO, addDays } from "date-fns";
 import { es } from "date-fns/locale";
@@ -134,6 +136,7 @@ const hasStrings = (text) => {
 // --- 2. MODALES ---
 
 const HistoryModal = ({ work, onClose, supabase }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [history, setHistory] = useState([]);
 
@@ -147,7 +150,7 @@ const HistoryModal = ({ work, onClose, supabase }) => {
           .select(`
             programas_repertorios (
               nombre,
-              programas (id, nombre_gira, fecha_desde, mes_letra, nomenclador)
+              programas (id, nombre_gira, fecha_desde, mes_letra, nomenclador, tipo)
             )
           `)
           .eq("id_obra", work.id);
@@ -166,6 +169,11 @@ const HistoryModal = ({ work, onClose, supabase }) => {
     };
     fetchHistory();
   }, [work, supabase]);
+
+  const goToGiraRepertoire = (giraId) => {
+    setSearchParams({ tab: "giras", view: "REPERTOIRE", giraId: String(giraId) });
+    onClose();
+  };
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
@@ -191,17 +199,33 @@ const HistoryModal = ({ work, onClose, supabase }) => {
           ) : (
             <div className="space-y-3">
               {history.map((item, idx) => (
-                <div key={idx} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center">
-                  <div>
-                    <div className="text-[10px] font-bold text-indigo-700 uppercase mb-0.5">{item.gira.mes_letra} | {item.gira.nomenclador}</div>
+                <div
+                  key={idx}
+                  className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center gap-3 hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors group"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[10px] font-bold text-indigo-700 uppercase mb-0.5">
+                      {item.gira.nomenclador} · {item.gira.mes_letra}
+                      {item.gira.tipo && <span className="text-slate-500 font-medium ml-1">· {item.gira.tipo}</span>}
+                    </div>
                     <div className="text-sm font-bold text-slate-800">{item.gira.nombre_gira}</div>
                     {item.bloque && <div className="text-[10px] text-slate-500 mt-1 bg-slate-50 inline-block px-1.5 rounded border border-slate-100">Bloque: {item.bloque}</div>}
                   </div>
-                  {item.gira.fecha_desde && (
-                    <div className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded flex items-center gap-1">
-                      <IconCalendar size={12} /> {format(new Date(item.gira.fecha_desde), "MMM yy", { locale: es })}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {item.gira.fecha_desde && (
+                      <div className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded flex items-center gap-1">
+                        <IconCalendar size={12} /> {format(new Date(item.gira.fecha_desde), "MMM yy", { locale: es })}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => goToGiraRepertoire(item.gira.id)}
+                      className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 opacity-80 group-hover:opacity-100 transition-opacity"
+                      title="Ir al repertorio de esta gira"
+                    >
+                      <IconExternalLink size={12} /> Ir
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -456,7 +480,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     try {
       const { data, error: dbError } = await supabase
         .from("obras")
-        .select(`*, obras_compositores (rol, compositores (apellido, nombre, paises (nombre))), obras_palabras_clave (palabras_clave (id, tag))`)
+        .select(`*, obras_compositores (rol, compositores (apellido, nombre, paises (nombre))), obras_palabras_clave (palabras_clave (id, tag)), usuario_carga:integrantes!id_usuario_carga(apellido, nombre)`)
         .order("titulo");
 
       if (dbError) throw dbError;
@@ -668,11 +692,40 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                   ) : paginatedWorks.map((work) => (
                     <div key={work.id} className="grid gap-4 px-4 py-3 items-center hover:bg-slate-50 transition-colors group text-sm" style={{ gridTemplateColumns: getGridTemplate() }}>
                       {visibleColumns.compositor && <div className="truncate font-medium text-slate-700">{work.compositor_full || <span className="text-slate-300 italic">-</span>}</div>}
-                      {visibleColumns.obra && <div className="min-w-0 flex flex-col justify-center"><div className="text-slate-800 leading-tight line-clamp-2"><RichTextPreview content={work.titulo} /></div><div className="flex gap-2 mt-1">{work.link_audio && <a href={work.link_audio} target="_blank" className="text-green-600 bg-green-50 p-0.5 rounded hover:scale-110"><IconMusic size={10} /></a>}{work.link_partitura && <a href={work.link_partitura} target="_blank" className="text-blue-600 bg-blue-50 p-0.5 rounded hover:scale-110"><IconLink size={10} /></a>}</div></div>}
+                      {visibleColumns.obra && (
+                        <div className="min-w-0 flex flex-col justify-center gap-1 w-full">
+                          <div className="text-slate-800 leading-tight line-clamp-2"><RichTextPreview content={work.titulo} /></div>
+                          {work.comentarios?.trim() && (
+                            <div
+                              className="w-full p-1 rounded shadow-sm border border-amber-200/80 bg-amber-50/90 text-amber-900 text-[9px] leading-tight line-clamp-1 hover:line-clamp-2 transition-[line-clamp] cursor-default"
+                              title={work.comentarios.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 300)}
+                            >
+                              <span className="whitespace-pre-wrap break-words">{work.comentarios.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()}</span>
+                            </div>
+                          )}
+                          <div className="flex gap-2">{work.link_audio && <a href={work.link_audio} target="_blank" className="text-green-600 bg-green-50 p-0.5 rounded hover:scale-110"><IconMusic size={10} /></a>}{work.link_partitura && <a href={work.link_partitura} target="_blank" className="text-blue-600 bg-blue-50 p-0.5 rounded hover:scale-110"><IconLink size={10} /></a>}</div>
+                        </div>
+                      )}
                       {visibleColumns.arreglador && <div className="truncate text-slate-500 text-xs">{work.arreglador_full || "-"}</div>}
                       {visibleColumns.organico && <div className="flex justify-center"><span className={`bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded font-mono text-xs w-full text-center leading-tight ${instrFilters.length > 0 || stringsFilter !== "all" ? "bg-yellow-50 text-yellow-700 border-yellow-200 font-bold" : ""}`}>{work.instrumentacion || "-"}</span></div>}
                       {visibleColumns.duracion && <div className="text-center font-mono text-slate-500 text-xs">{formatDuration(work.duracion_segundos)}</div>}
-                      {visibleColumns.estado && <div className="text-center">{work.estado === "Solicitud" ? <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-amber-200">Pendiente</span> : <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full border border-slate-200">Oficial</span>}</div>}
+                      {visibleColumns.estado && (
+                        <div className="text-center">
+                          {work.estado === "Solicitud" ? (
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-amber-200">Pendiente</span>
+                              {work.usuario_carga && (work.usuario_carga.apellido || work.usuario_carga.nombre) && (
+                                <span className="text-[10px] text-slate-600 leading-tight" title="Solicitante">{[work.usuario_carga.apellido, work.usuario_carga.nombre].filter(Boolean).join(", ")}</span>
+                              )}
+                              {work.fecha_esperada && (
+                                <span className="text-[10px] text-slate-500 leading-tight" title="F. finalización esperada">{format(parseISO(work.fecha_esperada), "dd/MM/yy", { locale: es })}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full border border-slate-200">Oficial</span>
+                          )}
+                        </div>
+                      )}
                       {visibleColumns.fecha && <div className="text-center">{work.fecha_esperada ? <span className={`text-xs ${getDateStatusClass(work.fecha_esperada)}`}>{format(parseISO(work.fecha_esperada), "dd/MM/yy")}</span> : <span className="text-slate-300">-</span>}</div>}
                       {visibleColumns.observaciones && <div className="text-xs text-slate-500 line-clamp-2 bg-slate-50 p-1 rounded border border-slate-100"><RichTextPreview content={work.observaciones || "-"} /></div>}
                       {visibleColumns.tags && <div className="flex flex-wrap gap-1">{work.tags_objects.length > 0 ? work.tags_objects.map((t) => <span key={t.id} className="text-[9px] bg-indigo-50 text-indigo-600 px-1 rounded border border-indigo-100 truncate max-w-[80px]">{t.tag}</span>) : <span className="text-slate-300 text-[10px]">-</span>}</div>}

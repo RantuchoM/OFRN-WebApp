@@ -11,7 +11,66 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const { messages, userId, currentPath } = await req.json();
+    const body = await req.json();
+
+    // --- MODO: FIND_WORK_METADATA (año de composición + IMSLP) ---
+    if (body?.type === 'FIND_WORK_METADATA') {
+      const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? '';
+      const wantsIMSLP = !!body.linkDriveEmpty;
+      if (!openaiKey) {
+        return new Response(JSON.stringify({ year: null, imslpUrl: null, error: 'OPENAI_API_KEY no configurada' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const openai = new OpenAI({ apiKey: openaiKey });
+      const titulo = (body.titulo || '').trim();
+      const compositorApellido = (body.compositorApellido || '').trim();
+      if (!titulo || !compositorApellido) {
+        return new Response(JSON.stringify({ year: null, imslpUrl: null }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const systemContent = wantsIMSLP
+        ? 'Eres un experto en música clásica. Responde ÚNICAMENTE con un objeto JSON válido. Ejemplo: {"year": 1896, "imslpUrl": "https://imslp.org/wiki/..."}. Incluye "year" (número entero positivo entre 1000 y 2100, o null si no lo sabes) e "imslpUrl" (URL de IMSLP para la obra si existe, o null). No incluyas texto adicional.'
+        : 'Eres un experto en música clásica. Responde ÚNICAMENTE con un objeto JSON válido: {"year": número} con el año de composición (1000-2100, o null). No incluyas texto adicional.';
+      let rawContent = '{}';
+      try {
+        const comp = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemContent },
+            {
+              role: 'user',
+              content: wantsIMSLP
+                ? `Obra "${titulo}" de ${compositorApellido}. Dame año de composición y URL de IMSLP si existe. Respuesta JSON.`
+                : `¿En qué año se compuso la obra "${titulo}" de ${compositorApellido}? Responde solo el JSON.`,
+            },
+          ],
+          response_format: { type: 'json_object' },
+        });
+        rawContent = comp.choices[0]?.message?.content || '{}';
+      } catch (openaiErr) {
+        console.error('FIND_WORK_METADATA OpenAI:', openaiErr);
+        return new Response(JSON.stringify({ year: null, imslpUrl: null, error: 'Error al llamar a OpenAI' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const content = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      let year: number | null = null;
+      let imslpUrl: string | null = null;
+      try {
+        const parsed = JSON.parse(content);
+        const rawYear = parsed?.year;
+        const y = typeof rawYear === 'number'
+          ? Math.floor(rawYear)
+          : (typeof rawYear === 'string' ? parseInt(rawYear, 10) : null);
+        if (!Number.isNaN(y) && y >= 1000 && y <= 2100) year = y;
+        const urlRaw = parsed?.imslpUrl ?? parsed?.imslp_url;
+        if (wantsIMSLP && typeof urlRaw === 'string') {
+          const u = urlRaw.trim();
+          if (u.startsWith('http://') || u.startsWith('https://')) imslpUrl = u;
+        }
+      } catch (e) {
+        console.error('FIND_WORK_METADATA parse:', e);
+      }
+      return new Response(JSON.stringify({ year, imslpUrl }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    const { messages, userId, currentPath } = body;
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''; 

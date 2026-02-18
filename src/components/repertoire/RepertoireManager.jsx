@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   IconMusic,
@@ -10,17 +10,21 @@ import {
   IconX,
   IconLink,
   IconChevronDown,
+  IconChevronUp,
   IconAlertCircle,
   IconEdit,
   IconYoutube,
   IconDrive,
   IconEyeOff,
   IconSettings,
+  IconFilter,
 } from "../ui/Icons";
 import { formatSecondsToTime } from "../../utils/time";
 import {
   calculateInstrumentation,
   calculateTotalDuration,
+  getInstrumentValue,
+  hasStrings,
 } from "../../utils/instrumentation";
 import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
@@ -79,6 +83,106 @@ const MultiLineTitle = ({ content }) => {
       )}
     </div>
   );
+};
+
+// --- FILTRO POR ORGÁNICO (misma estructura que RepertoireView) ---
+const InstrumentationFilterModal = ({
+  onClose,
+  onApply,
+  currentFilters,
+  stringsFilter,
+  setStringsFilter,
+  strictMode,
+  setStrictMode,
+  anchorRef,
+}) => {
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+
+  const updatePosition = () => {
+    if (anchorRef?.current) {
+      const rect = anchorRef.current.getBoundingClientRect();
+      setPosition({ top: rect.bottom + 8, left: rect.left });
+    }
+  };
+
+  useLayoutEffect(() => {
+    if (!anchorRef?.current) return;
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [anchorRef]);
+
+  const BASE_INSTRUMENTS = [
+    { id: "fl", label: "Flautas" }, { id: "ob", label: "Oboes" }, { id: "cl", label: "Clarinetes" }, { id: "bn", label: "Fagotes" },
+    { id: "hn", label: "Cornos" }, { id: "tpt", label: "Trompetas" }, { id: "tbn", label: "Trombones" }, { id: "tba", label: "Tubas" },
+  ];
+  const [rules, setRules] = useState(() => {
+    const existingMap = {};
+    currentFilters.forEach((r) => { existingMap[r.instrument] = r; });
+    return BASE_INSTRUMENTS.map((base) => {
+      if (existingMap[base.id]) return { ...existingMap[base.id], isBase: true, label: base.label };
+      return { id: base.id, instrument: base.id, operator: "eq", value: "", isBase: true, label: base.label };
+    }).concat(currentFilters.filter((r) => !BASE_INSTRUMENTS.some((b) => b.id === r.instrument)));
+  });
+  const addRule = () => setRules([...rules, { id: Date.now(), instrument: "perc", operator: "eq", value: 0, isBase: false }]);
+  const removeRule = (id) => setRules(rules.filter((r) => r.id !== id));
+  const updateRule = (id, field, val) => setRules(rules.map((r) => (r.id === id ? { ...r, [field]: val } : r)));
+  const handleApply = () => onApply(rules.filter((r) => r.value !== "" && r.value !== null));
+  const INSTRUMENTS_OPTS = [{ label: "Percusión", value: "perc" }, { label: "Timbal", value: "timp" }, { label: "Arpa", value: "harp" }, { label: "Piano/Cel", value: "key" }, { label: "Cuerdas", value: "str" }];
+
+  const content = (
+    <div
+      className={`w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-[10000] p-4 animate-in fade-in zoom-in-95 ${!anchorRef ? "absolute top-full left-0 mt-2" : ""}`}
+      style={anchorRef ? { position: "fixed", top: position.top, left: position.left } : undefined}
+    >
+      <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 flex justify-between">Filtro por Orgánico <button type="button" onClick={onClose}><IconX size={14} /></button></h4>
+      <div className="mb-3">
+        <label className={`flex items-center justify-between p-2 rounded-lg cursor-pointer border transition-colors ${strictMode ? "bg-indigo-50 border-indigo-200 text-indigo-800" : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"}`}>
+          <div className="flex items-center gap-2"><div className={`w-3 h-3 rounded-full ${strictMode ? "bg-indigo-500" : "bg-slate-300"}`} /><span className="text-xs font-bold">Modo Estricto</span></div>
+          <span className="text-[9px] uppercase tracking-wider font-bold">{strictMode ? "Solo Selección" : "Admitir Otros"}</span>
+          <input type="checkbox" className="hidden" checked={strictMode} onChange={(e) => setStrictMode(e.target.checked)} />
+        </label>
+      </div>
+      <div className="mb-4 bg-slate-50 p-2 rounded-lg border border-slate-100">
+        <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">Sección Cuerdas</label>
+        <div className="flex gap-1">
+          {["all", "with", "without"].map((m) => (
+            <button key={m} type="button" onClick={() => setStringsFilter(m)} className={`flex-1 text-[10px] font-bold py-1 px-2 rounded border ${stringsFilter === m ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}`}>
+              {m === "all" ? "Indif." : m === "with" ? "Con" : "Sin"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-1 max-h-[300px] overflow-y-auto mb-3 pr-1 custom-scrollbar">
+        {rules.map((rule) => {
+          const isActive = rule.value !== "" && rule.value !== null;
+          return (
+            <div key={rule.id} className={`flex gap-2 items-center text-xs p-1 rounded transition-colors ${isActive ? "bg-indigo-50 border border-indigo-100" : ""}`}>
+              <div className="w-24 font-bold text-slate-600 truncate flex items-center">{rule.isBase ? <span className="capitalize">{rule.label}</span> : <select className="w-full bg-transparent border-none outline-none p-0 cursor-pointer" value={rule.instrument} onChange={(e) => updateRule(rule.id, "instrument", e.target.value)}>{INSTRUMENTS_OPTS.map((i) => <option key={i.value} value={i.value}>{i.label}</option>)}</select>}</div>
+              <select className={`border rounded p-1 outline-none text-center w-14 ${isActive ? "border-indigo-300 bg-white" : "border-slate-200 bg-slate-50"}`} value={rule.operator} onChange={(e) => updateRule(rule.id, "operator", e.target.value)}><option value="eq">=</option><option value="gte">≥</option><option value="lte">≤</option></select>
+              <input type="number" min={0} className={`border rounded p-1 w-12 text-center outline-none focus:border-indigo-500 ${isActive ? "border-indigo-300 bg-white font-bold text-indigo-700" : "border-slate-200"}`} placeholder="-" value={rule.value} onChange={(e) => updateRule(rule.id, "value", e.target.value)} />
+              {!rule.isBase && <button type="button" onClick={() => removeRule(rule.id)} className="text-slate-300 hover:text-red-500"><IconTrash size={12} /></button>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex justify-between items-center border-t border-slate-100 pt-3">
+        <button type="button" onClick={addRule} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><IconPlus size={10} /> Extra</button>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => { setRules((prev) => prev.map((r) => r.isBase ? { ...r, value: "" } : r).filter((r) => r.isBase)); setStringsFilter("all"); setStrictMode(false); onApply([]); }} className="text-[10px] text-slate-400 hover:text-slate-600 font-bold px-2">Limpiar</button>
+          <button type="button" onClick={handleApply} className="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-indigo-700 font-bold">Filtrar</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return anchorRef
+    ? createPortal(content, document.body)
+    : content;
 };
 
 // --- COMPONENTE INTERNO: SELECTOR DE SOLISTA ---
@@ -203,6 +307,11 @@ export default function RepertoireManager({
   const [selectedInstruments, setSelectedInstruments] = useState([]);
   const [limitToSelected, setLimitToSelected] = useState(false);
   const [workFormData, setWorkFormData] = useState({});
+  const [showAddModalInstrFilter, setShowAddModalInstrFilter] = useState(false);
+  const [addModalInstrFilters, setAddModalInstrFilters] = useState([]);
+  const [addModalStringsFilter, setAddModalStringsFilter] = useState("all");
+  const [addModalStrictMode, setAddModalStrictMode] = useState(false);
+  const addModalInstrFilterAnchorRef = useRef(null);
   // --- CALCULAR MAPA DE ARCOS DISPONIBLES ---
   const arcosByWork = useMemo(() => {
     const map = {};
@@ -803,19 +912,42 @@ export default function RepertoireManager({
       </a>
     );
   };
-  const filteredLibrary = worksLibrary.filter(
-    (w) =>
-      (!filters.titulo ||
-        w.titulo.toLowerCase().includes(filters.titulo.toLowerCase())) &&
-      (!filters.compositor ||
-        w.compositor_full
-          ?.toLowerCase()
-          .includes(filters.compositor.toLowerCase())) &&
-      (!filters.arreglador ||
-        w.arreglador_full
-          ?.toLowerCase()
-          .includes(filters.arreglador.toLowerCase())),
-  );
+  const filteredLibrary = worksLibrary.filter((w) => {
+    if (filters.titulo && !w.titulo?.toLowerCase().includes(filters.titulo.toLowerCase())) return false;
+    if (filters.compositor && !w.compositor_full?.toLowerCase().includes(filters.compositor.toLowerCase())) return false;
+    if (filters.arreglador && !w.arreglador_full?.toLowerCase().includes(filters.arreglador.toLowerCase())) return false;
+
+    const instr = w.instrumentacion || calculateInstrumentation(w.obras_particellas) || "";
+    const hasStr = hasStrings(instr);
+
+    if (addModalStringsFilter !== "all") {
+      if (addModalStringsFilter === "with" && !hasStr) return false;
+      if (addModalStringsFilter === "without" && hasStr) return false;
+    }
+
+    if (addModalInstrFilters.length > 0 || addModalStringsFilter !== "all" || addModalStrictMode) {
+      const passActiveRules = addModalInstrFilters.every((rule) => {
+        const countInWork = getInstrumentValue(instr, rule.instrument);
+        const targetVal = parseInt(rule.value, 10) || 0;
+        if (rule.operator === "eq") return countInWork === targetVal;
+        if (rule.operator === "gte") return countInWork >= targetVal;
+        if (rule.operator === "lte") return countInWork <= targetVal;
+        return true;
+      });
+      if (!passActiveRules) return false;
+
+      if (addModalStrictMode) {
+        const activeKeys = new Set(addModalInstrFilters.map((r) => r.instrument));
+        const masterList = ["fl", "ob", "cl", "bn", "hn", "tpt", "tbn", "tba", "timp", "perc", "harp", "key"];
+        for (const key of masterList) {
+          if (!activeKeys.has(key) && (getInstrumentValue(instr, key) || 0) > 0) return false;
+        }
+        if (addModalStringsFilter === "all" && hasStr) return false;
+        if (instr.includes("+")) return false;
+      }
+    }
+    return true;
+  });
   // --- MANEJADOR CAMBIO DE ARCO (BD + DRIVE VIA PADRE) ---
   const handleArcoSelectionChange = async (item, newArcoId) => {
     // 1. Actualización optimista en BD (Repertorio)
@@ -1180,7 +1312,10 @@ export default function RepertoireManager({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {rep.repertorio_obras.map((item, idx) => (
-                    <tr key={item.id} className="hover:bg-yellow-50 group">
+                    <tr
+                      key={item.id}
+                      className={`group ${item.obras.estado !== "Oficial" ? "bg-amber-50 hover:bg-amber-100" : "hover:bg-yellow-50"}`}
+                    >
                       <td className="p-1 text-center font-bold text-slate-500">
                         <div className="flex flex-col items-center">
                           {isEditor && !isCompact && (
@@ -1535,50 +1670,85 @@ export default function RepertoireManager({
                 <IconX size={20} />
               </button>
             </div>
-            <div className="p-2 border-b grid grid-cols-1 md:grid-cols-5 gap-2 bg-white">
-              <input
-                type="text"
-                placeholder="Compositor..."
-                autoFocus
-                className="w-full p-1.5 border rounded text-xs outline-none focus:border-fixed-indigo-500"
-                value={filters.compositor}
-                onChange={(e) =>
-                  setFilters({ ...filters, compositor: e.target.value })
-                }
-              />
-              <input
-                type="text"
-                placeholder="Arreglador..."
-                className="w-full p-1.5 border rounded text-xs outline-none focus:border-fixed-indigo-500"
-                value={filters.arreglador}
-                onChange={(e) =>
-                  setFilters({ ...filters, arreglador: e.target.value })
-                }
-              />
-              <div className="relative col-span-2">
-                <IconSearch
-                  className="absolute left-2 top-2.5 text-slate-400"
-                  size={14}
-                />
+            <div className="p-2 border-b grid grid-cols-1 md:grid-cols-5 gap-4 bg-white items-end">
+              <div className="space-y-2">
+                <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Compositor</div>
                 <input
                   type="text"
-                  placeholder="Título..."
-                  className="w-full pl-7 p-1.5 border rounded text-xs outline-none focus:border-fixed-indigo-500"
+                  placeholder="Buscar..."
+                  autoFocus
+                  className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500"
+                  value={filters.compositor}
+                  onChange={(e) =>
+                    setFilters({ ...filters, compositor: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Arreglador</div>
+                <input
+                  type="text"
+                  placeholder="Buscar..."
+                  className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500"
+                  value={filters.arreglador}
+                  onChange={(e) =>
+                    setFilters({ ...filters, arreglador: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Obra</div>
+                <input
+                  type="text"
+                  placeholder="Buscar..."
+                  className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500"
                   value={filters.titulo}
                   onChange={(e) =>
                     setFilters({ ...filters, titulo: e.target.value })
                   }
                 />
               </div>
-              <button
-                onClick={() => {
-                  setIsAddModalOpen(false);
-                  openCreateModal();
-                }}
-                className="bg-fixed-indigo-600 text-white px-3 rounded text-xs font-bold hover:bg-fixed-indigo-700 flex justify-center items-center gap-1"
-              >
-                <IconPlus size={12} /> Crear Solicitud
-              </button>
+              <div className="space-y-2 relative">
+                <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Orgánico</div>
+                <button
+                  ref={addModalInstrFilterAnchorRef}
+                  type="button"
+                  onClick={() => setShowAddModalInstrFilter(!showAddModalInstrFilter)}
+                  className={`w-full text-xs p-1.5 border rounded flex items-center justify-between ${addModalInstrFilters.length > 0 || addModalStringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}
+                >
+                  <span>
+                    {addModalInstrFilters.length > 0 ? `${addModalInstrFilters.length} reglas` : addModalStringsFilter !== "all" ? (addModalStringsFilter === "with" ? "Con Cuerdas" : "Sin Cuerdas") : "Filtrar"}
+                  </span>
+                  <IconFilter size={10} />
+                </button>
+                {showAddModalInstrFilter && (
+                  <InstrumentationFilterModal
+                    anchorRef={addModalInstrFilterAnchorRef}
+                    onClose={() => setShowAddModalInstrFilter(false)}
+                    currentFilters={addModalInstrFilters}
+                    stringsFilter={addModalStringsFilter}
+                    setStringsFilter={setAddModalStringsFilter}
+                    strictMode={addModalStrictMode}
+                    setStrictMode={setAddModalStrictMode}
+                    onApply={(newRules) => {
+                      setAddModalInstrFilters(newRules);
+                      setShowAddModalInstrFilter(false);
+                    }}
+                  />
+                )}
+              </div>
+              <div className="flex justify-end pb-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddModalOpen(false);
+                    openCreateModal();
+                  }}
+                  className="bg-fixed-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-fixed-indigo-700 flex items-center gap-1"
+                >
+                  <IconPlus size={12} /> Crear Solicitud
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto">
               {loadingLibrary ? (

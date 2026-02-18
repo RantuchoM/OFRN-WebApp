@@ -1,0 +1,14 @@
+# Reglas de Proyecto - OFRN WebApp
+
+## Identidad y Datos
+- La tabla `integrantes` usa IDs numéricos (INT4). 
+- El `AuthContext` provee `user.id` como ese entero.
+- NUNCA confundir con el UUID de Supabase Auth para lógica de logística.
+
+## Estándares de UI
+- Todos los modales DEBEN usar `React Portals` hacia `document.body`.
+- Z-Index para modales: `z-[9999]`.
+- Iconos: Importar de `@/components/ui/Icons`.
+
+## Lógica de Giras
+- Al listar compañeros de habitación o transporte, filtrar siempre a los `ausentes` consultando `giras_integrantes.estado`.

@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { 
     IconBus, IconClock, IconAlertTriangle, IconChevronDown, IconChevronUp, 
     IconUsers, IconHistory, IconEye, IconEyeOff, IconCheck, IconSettings, 
-    IconX, IconCalculator, IconCar
+    IconX, IconCalculator, IconCar, IconDrive
 } from "../../../components/ui/Icons";
 import LocationBulkPanel from "./LocationBulkPanel"; 
 
@@ -692,23 +692,45 @@ export default function DestaquesLocationPanel({
                     Mostrando <b>{groupedData.length}</b> localidades. 
                 </div>
                 
-                <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">Porcentaje Global:</span>
-                    <div className="flex bg-slate-100 rounded p-1 gap-1">
-                        {[100, 80, 0].map(pct => (
-                            <button
-                                key={pct}
-                                onClick={() => onUpdateGlobalConfig('porcentaje_destaques', pct)}
-                                className={`px-3 py-1 rounded text-xs font-bold transition-all ${
-                                    currentGlobalPct === pct 
-                                    ? 'bg-indigo-600 text-white shadow-sm' 
-                                    : 'text-slate-500 hover:bg-white hover:text-slate-700'
-                                }`}
-                            >
-                                {pct}%
-                            </button>
-                        ))}
+                <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-3">
+                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">Porcentaje Global:</span>
+                        <div className="flex bg-slate-100 rounded p-1 gap-1">
+                            {[100, 80, 0].map(pct => (
+                                <button
+                                    key={pct}
+                                    onClick={() => onUpdateGlobalConfig('porcentaje_destaques', pct)}
+                                    className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                                        currentGlobalPct === pct 
+                                        ? 'bg-indigo-600 text-white shadow-sm' 
+                                        : 'text-slate-500 hover:bg-white hover:text-slate-700'
+                                    }`}
+                                >
+                                    {pct}%
+                                </button>
+                            ))}
+                        </div>
                     </div>
+                    <div className="flex items-center gap-2 min-w-0 flex-1 max-w-md">
+                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wide shrink-0">Motivo:</span>
+                        <input
+                            type="text"
+                            className="flex-1 min-w-0 bg-white border border-slate-200 rounded px-2 py-1 text-xs"
+                            placeholder="Para el PDF (fallback: motivo general)"
+                            value={globalConfig?.motivo_destaques_exportacion || ""}
+                            onChange={(e) => onUpdateGlobalConfig('motivo_destaques_exportacion', e.target.value)}
+                        />
+                    </div>
+                    {globalConfig?.link_drive ? (
+                        <a
+                            href={`https://drive.google.com/drive/folders/${globalConfig.link_drive}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-100 shrink-0"
+                        >
+                            <IconDrive size={14} /> Carpeta Viáticos
+                        </a>
+                    ) : null}
                 </div>
 
                 <div className="flex items-center gap-3">
