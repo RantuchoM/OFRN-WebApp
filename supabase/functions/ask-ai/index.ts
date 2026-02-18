@@ -13,36 +13,45 @@ serve(async (req) => {
   try {
     const body = await req.json();
 
-    // --- MODO: FIND_WORK_METADATA (solo año de composición; IMSLP se abre por enlace, sin tokens) ---
+    // --- MODO: FIND_WORK_METADATA (año de composición + IMSLP) ---
     if (body?.type === 'FIND_WORK_METADATA') {
       const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? '';
+      const wantsIMSLP = !!body.linkDriveEmpty;
       if (!openaiKey) {
-        return new Response(JSON.stringify({ year: null, error: 'OPENAI_API_KEY no configurada' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ year: null, imslpUrl: null, error: 'OPENAI_API_KEY no configurada' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
       const openai = new OpenAI({ apiKey: openaiKey });
       const titulo = (body.titulo || '').trim();
       const compositorApellido = (body.compositorApellido || '').trim();
       if (!titulo || !compositorApellido) {
-        return new Response(JSON.stringify({ year: null }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ year: null, imslpUrl: null }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
-      const systemContent = 'Eres un experto en música clásica. Responde ÚNICAMENTE con un objeto JSON válido: {"year": número} con el año de composición (1000-2100, o null si no lo sabes). No incluyas texto adicional. Cada lÃ­nea de movimiento debe empezar con exactamente dos espacios.';
+      const systemContent = wantsIMSLP
+        ? 'Eres un experto en música clásica. Responde ÚNICAMENTE con un objeto JSON válido. Ejemplo: {"year": 1896, "imslpUrl": "https://imslp.org/wiki/..."}. Incluye "year" (número entero positivo entre 1000 y 2100, o null si no lo sabes) e "imslpUrl" (URL de IMSLP para la obra si existe, o null). No incluyas texto adicional.'
+        : 'Eres un experto en música clásica. Responde ÚNICAMENTE con un objeto JSON válido: {"year": número} con el año de composición (1000-2100, o null). No incluyas texto adicional.';
       let rawContent = '{}';
       try {
         const comp = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: [
             { role: 'system', content: systemContent },
-            { role: 'user', content: `¿En qué año se compuso la obra "${titulo}" de ${compositorApellido}? Responde solo el JSON.` },
+            {
+              role: 'user',
+              content: wantsIMSLP
+                ? `Obra "${titulo}" de ${compositorApellido}. Dame año de composición y URL de IMSLP si existe. Respuesta JSON.`
+                : `¿En qué año se compuso la obra "${titulo}" de ${compositorApellido}? Responde solo el JSON.`,
+            },
           ],
           response_format: { type: 'json_object' },
         });
         rawContent = comp.choices[0]?.message?.content || '{}';
       } catch (openaiErr) {
         console.error('FIND_WORK_METADATA OpenAI:', openaiErr);
-        return new Response(JSON.stringify({ year: null, error: 'Error al llamar a OpenAI' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ year: null, imslpUrl: null, error: 'Error al llamar a OpenAI' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
       const content = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
       let year: number | null = null;
+      let imslpUrl: string | null = null;
       try {
         const parsed = JSON.parse(content);
         const rawYear = parsed?.year;
@@ -50,60 +59,15 @@ serve(async (req) => {
           ? Math.floor(rawYear)
           : (typeof rawYear === 'string' ? parseInt(rawYear, 10) : null);
         if (!Number.isNaN(y) && y >= 1000 && y <= 2100) year = y;
+        const urlRaw = parsed?.imslpUrl ?? parsed?.imslp_url;
+        if (wantsIMSLP && typeof urlRaw === 'string') {
+          const u = urlRaw.trim();
+          if (u.startsWith('http://') || u.startsWith('https://')) imslpUrl = u;
+        }
       } catch (e) {
         console.error('FIND_WORK_METADATA parse:', e);
       }
-      return new Response(JSON.stringify({ year }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-
-    // --- MODO: FIND_TITLE_WITH_MOVEMENTS (título con movimientos, on demand) ---
-    if (body?.type === 'FIND_TITLE_WITH_MOVEMENTS') {
-      const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? '';
-      if (!openaiKey) {
-        return new Response(JSON.stringify({ titleWithMovements: null, error: 'OPENAI_API_KEY no configurada' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
-      const openai = new OpenAI({ apiKey: openaiKey });
-      const titulo = (body.titulo || '').trim();
-      const compositorApellido = (body.compositorApellido || '').trim();
-      if (!titulo || !compositorApellido) {
-        return new Response(JSON.stringify({ titleWithMovements: null }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
-      const systemContent = `Eres un experto en música clásica. Dada una obra, devuelves el título oficial y sus movimientos con este formato exacto:
-- Primera línea: el título de la obra. Si la obra tiene número de Opus (y opcionalmente número dentro del opus), inclúyelo en esta línea, por ejemplo: "St. Paul's Suite, Op. 29, Nro. 2".
-- Líneas siguientes: cada movimiento en una línea, con dos espacios de indentación, luego número romano en mayúsculas (I., II., III., IV., etc.), un espacio, nombre del movimiento y tempo si se conoce (ej: "Jig. Vivace").
-Ejemplo:
-St. Paul's Suite, Op. 29, Nro. 2
-  I. Jig. Vivace
-  II. Ostinato. Presto
-  III. Intermezzo. Andante con moto
-  IV. Finale (The Dargason). Allegro
-
-Responde ÚNICAMENTE con un objeto JSON: {"titleWithMovements": "string"} donde el string es el bloque de texto con saltos de línea (\\n). No incluyas texto adicional. Cada lÃ­nea de movimiento debe empezar con exactamente dos espacios.`;
-      let rawContent = '{}';
-      try {
-        const comp = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemContent },
-            { role: 'user', content: `Obra: "${titulo}" de ${compositorApellido}. Devuelve título con movimientos en el formato indicado. Respuesta JSON con clave titleWithMovements.` },
-          ],
-          response_format: { type: 'json_object' },
-        });
-        rawContent = comp.choices[0]?.message?.content || '{}';
-      } catch (openaiErr) {
-        console.error('FIND_TITLE_WITH_MOVEMENTS OpenAI:', openaiErr);
-        return new Response(JSON.stringify({ titleWithMovements: null, error: 'Error al llamar a OpenAI' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
-      const content = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-      let titleWithMovements: string | null = null;
-      try {
-        const parsed = JSON.parse(content);
-        const raw = parsed?.titleWithMovements ?? parsed?.title_with_movements;
-        if (typeof raw === 'string' && raw.trim()) titleWithMovements = raw.trim();
-      } catch (e) {
-        console.error('FIND_TITLE_WITH_MOVEMENTS parse:', e);
-      }
-      return new Response(JSON.stringify({ titleWithMovements }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ year, imslpUrl }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     const { messages, userId, currentPath } = body;

@@ -18,11 +18,13 @@ import {
   IconChevronDown,
   IconUsers,
   IconUser,
+  IconMapPin,
 } from "../../components/ui/Icons";
 import { toast } from "sonner";
 import InstrumentFilter from "../../components/filters/InstrumentFilter";
 import MusicianForm from "./MusicianForm";
 import HorasCatedraDashboard from "./HorasCatedraDashboard";
+import SearchableSelect from "../../components/ui/SearchableSelect";
 
 // --- CONFIGURACIÓN ---
 const MISSING_DATA_OPTIONS = [
@@ -67,10 +69,18 @@ const MASS_EDIT_FIELDS = [
   { key: "jornada", label: "Jornada", type: "text" },
   { key: "motivo", label: "Motivo", type: "text" },
   { key: "nacionalidad", label: "Nacionalidad", type: "text" },
+  { key: "domicilio", label: "Domicilio", type: "text" },
+  { key: "dni", label: "DNI", type: "text" },
+  { key: "cuil", label: "CUIL", type: "text" },
   {
     key: "id_localidad",
     label: "Localidad (Residencia)",
     type: "location_select",
+  },
+  {
+    key: "id_domicilio_laboral",
+    label: "Domicilio Laboral (Sede)",
+    type: "locacion_select",
   },
   { key: "id_instr", label: "Instrumento", type: "instrument_select" },
 ];
@@ -882,6 +892,7 @@ const MassEditModal = ({
   onSave,
   instrumentOptions,
   locationOptions,
+  locacionOptions = [],
 }) => {
   const [selectedField, setSelectedField] = useState(MASS_EDIT_FIELDS[0].key);
   const [newValue, setNewValue] = useState("");
@@ -967,6 +978,19 @@ const MassEditModal = ({
                   </option>
                 ))}
               </select>
+            ) : fieldConfig.type === "locacion_select" ? (
+              <select
+                className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+              >
+                <option value="">Seleccionar Sede Laboral...</option>
+                {(locacionOptions || []).map((l) => (
+                  <option key={l.id ?? l.value} value={l.id ?? l.value}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
             ) : (
               <input
                 type="text"
@@ -1023,8 +1047,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [isAdding, setIsAdding] = useState(false);
   const [ensemblesList, setEnsemblesList] = useState([]);
   const [locationsList, setLocationsList] = useState([]);
+  const [locacionesOptions, setLocacionesOptions] = useState([]);
   const [editFormData, setEditFormData] = useState({});
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
+  const [isBulkLocationModalOpen, setIsBulkLocationModalOpen] = useState(false);
+  const [selectedBulkLocationId, setSelectedBulkLocationId] = useState(null);
 
   const totalInstrumentosPosibles = catalogoInstrumentos.length + 1;
   const estanTodosLosInstrumentos =
@@ -1077,6 +1104,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     onlyVigente,
     sortConfig.key,
     sortConfig.direction,
+    columnFilters,
   ]);
 
   useEffect(() => {
@@ -1090,6 +1118,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     onlyVigente,
     sortConfig.key,
     sortConfig.direction,
+    selectedEnsembles,
   ]);
 
   const fetchData = () =>
@@ -1099,6 +1128,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       conditionFilters,
       missingFieldsFilters,
       debouncedNameTerm,
+      selectedEnsembles,
     );
 
   const fetchLocations = async () => {
@@ -1107,6 +1137,21 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       .select("id, localidad")
       .order("localidad");
     if (data) setLocationsList(data);
+    
+    // Cargar locaciones para domicilio laboral
+    const { data: locacionesData } = await supabase
+      .from("locaciones")
+      .select("id, nombre, direccion, localidades(localidad)")
+      .order("nombre");
+    if (locacionesData) {
+      setLocacionesOptions(
+        locacionesData.map((l) => ({
+          id: l.id,
+          value: l.id,
+          label: `${l.nombre}${l.localidades?.localidad ? ` (${l.localidades.localidad})` : ""}`,
+        })),
+      );
+    }
   };
 
   const fetchEnsemblesAndData = async (
@@ -1115,6 +1160,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     conditions,
     missingFields,
     nameTerm,
+    selectedEnsembles,
   ) => {
     setLoading(true);
     try {
@@ -1125,6 +1171,21 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           .order("ensamble");
         if (ens) setEnsemblesList(ens);
       }
+      
+      // Si hay filtro de ensambles, obtener primero los IDs de integrantes que tienen esos ensambles
+      let musicianIdsWithEnsembles = null;
+      if (selectedEnsembles && selectedEnsembles.size > 0) {
+        const { data: integrantesEnsambles } = await supabase
+          .from("integrantes_ensambles")
+          .select("id_integrante")
+          .in("id_ensamble", Array.from(selectedEnsembles));
+        if (integrantesEnsambles) {
+          musicianIdsWithEnsembles = new Set(
+            integrantesEnsambles.map((ie) => ie.id_integrante)
+          );
+        }
+      }
+      
       const from = (page - 1) * 100;
       const to = from + 99;
       let query = supabase
@@ -1133,6 +1194,15 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           `*, instrumentos(instrumento), residencia:localidades!id_localidad(localidad), viaticos:localidades!id_loc_viaticos(localidad), integrantes_ensambles(ensambles(id, ensamble))`,
           { count: "exact" },
         );
+      
+      // Aplicar filtro de ensambles ANTES de otros filtros
+      if (musicianIdsWithEnsembles && musicianIdsWithEnsembles.size > 0) {
+        query = query.in("id", Array.from(musicianIdsWithEnsembles));
+      } else if (selectedEnsembles && selectedEnsembles.size > 0) {
+        // Si no hay resultados, establecer un filtro imposible para que no devuelva nada
+        query = query.eq("id", -1);
+      }
+      
       if (nameTerm)
         query = query.or(
           `nombre.ilike.%${nameTerm}%,apellido.ilike.%${nameTerm}%`,
@@ -1198,11 +1268,24 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           updatePayload = { id_localidad: value ? parseInt(value) : null };
         if (field === "id_loc_viaticos")
           updatePayload = { id_loc_viaticos: value ? parseInt(value) : null };
+        if (field === "id_domicilio_laboral")
+          updatePayload = { id_domicilio_laboral: value ? parseInt(value) : null };
         const { error } = await supabase
           .from("integrantes")
           .update(updatePayload)
           .eq("id", id);
         if (error) throw error;
+        
+        // Si cambió un campo crítico, regenerar expediente completo
+        const camposCriticos = ['domicilio', 'id_domicilio_laboral', 'link_cbu_img', 'link_dni_img', 'link_cuil', 'dni', 'cuil'];
+        if (camposCriticos.includes(field)) {
+          supabase.functions.invoke("manage-drive", {
+            body: { action: "assemble_full_pack", musicianId: id },
+          }).catch((err) => {
+            console.warn(`[MusiciansView] Error al regenerar expediente para músico ${id}:`, err);
+          });
+        }
+        
         fetchData();
       })(),
       {
@@ -1218,14 +1301,33 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     try {
       const ids = Array.from(selectedMusicians);
       let finalValue = value === "" ? null : value;
-      if (field === "id_localidad" || field === "id_instr")
+      if (field === "id_localidad" || field === "id_instr" || field === "id_domicilio_laboral")
         finalValue = value ? parseInt(value) : null;
       const { error } = await supabase
         .from("integrantes")
         .update({ [field]: finalValue })
         .in("id", ids);
       if (error) throw error;
-      toast.success(`Se actualizaron ${ids.length} registros`, { id: toastId });
+      
+      // Si cambió un campo crítico, regenerar expediente completo para cada músico
+      const camposCriticos = ['domicilio', 'id_domicilio_laboral', 'link_cbu_img', 'link_dni_img', 'link_cuil', 'dni', 'cuil'];
+      if (camposCriticos.includes(field)) {
+        toast.loading(`Regenerando expedientes para ${ids.length} músico(s)...`, { id: toastId });
+        // Ejecutar en paralelo pero con límite para no sobrecargar
+        const batchSize = 5;
+        for (let i = 0; i < ids.length; i += batchSize) {
+          const batch = ids.slice(i, i + batchSize);
+          await Promise.allSettled(
+            batch.map((musicianId) =>
+              supabase.functions.invoke("manage-drive", {
+                body: { action: "assemble_full_pack", musicianId },
+              })
+            )
+          );
+        }
+      }
+      
+      toast.success(`Se actualizaron ${ids.length} registros${camposCriticos.includes(field) ? ' y se regeneraron los expedientes' : ''}`, { id: toastId });
       fetchData();
       setIsMassEditOpen(false);
       setSelectedMusicians(new Set());
@@ -1242,12 +1344,8 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
   const processedResultados = useMemo(() => {
     let filtered = [...resultados];
-    if (selectedEnsembles.size > 0)
-      filtered = filtered.filter((item) =>
-        item.integrantes_ensambles?.some((ens) =>
-          selectedEnsembles.has(ens.id),
-        ),
-      );
+    // El filtro de ensambles ya se aplica en la consulta SQL, no es necesario aquí
+    // pero lo mantenemos por si acaso hay algún caso edge
     Object.keys(columnFilters).forEach((key) => {
       const term = columnFilters[key].toLowerCase().trim();
       if (term) {
@@ -1331,6 +1429,50 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       );
     } else {
       toast.error("No hay correos válidos en la selección.");
+    }
+  };
+
+  const handleBulkLocationUpdate = async (selectedLocationId) => {
+    if (!selectedLocationId) {
+      toast.error("Debes seleccionar una sede laboral");
+      return;
+    }
+    const toastId = toast.loading("Actualizando sede laboral...");
+    try {
+      const ids = Array.from(selectedMusicians);
+      const { error } = await supabase
+        .from("integrantes")
+        .update({ id_domicilio_laboral: selectedLocationId })
+        .in("id", ids);
+      if (error) throw error;
+      
+      // Regenerar expedientes completos para cada músico afectado
+      toast.loading(`Regenerando expedientes para ${ids.length} músico(s)...`, { id: toastId });
+      const batchSize = 5;
+      for (let i = 0; i < ids.length; i += batchSize) {
+        const batch = ids.slice(i, i + batchSize);
+        await Promise.allSettled(
+          batch.map((musicianId) =>
+            supabase.functions.invoke("manage-drive", {
+              body: { action: "assemble_full_pack", musicianId },
+            })
+          )
+        );
+      }
+      
+      toast.success(
+        `Se actualizó la sede laboral y se regeneraron los expedientes de ${ids.length} músico(s)`,
+        { id: toastId },
+      );
+      fetchData();
+      setIsBulkLocationModalOpen(false);
+      setSelectedBulkLocationId(null);
+      setSelectedMusicians(new Set());
+    } catch (error) {
+      console.error(error);
+      toast.error("Error al actualizar sede laboral: " + error.message, {
+        id: toastId,
+      });
     }
   };
 
@@ -1459,6 +1601,17 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               >
                 <IconEdit size={14} />{" "}
                 <span className="hidden sm:inline">Editar Lote</span>
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedBulkLocationId(null);
+                  setIsBulkLocationModalOpen(true);
+                }}
+                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-md text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm"
+                title="Cambiar Sede Laboral"
+              >
+                <IconMapPin size={14} />{" "}
+                <span className="hidden sm:inline">Sede</span>
               </button>
             </div>
           )}
@@ -1852,7 +2005,63 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         onSave={handleMassUpdate}
         instrumentOptions={instrumentOptions}
         locationOptions={locationOptions}
+        locacionOptions={locacionesOptions}
       />
+
+      {/* Modal de Cambio de Sede Laboral */}
+      {isBulkLocationModalOpen && (
+        <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+            <div className="p-4 bg-emerald-50 border-b border-emerald-100">
+              <h3 className="text-emerald-800 font-bold flex items-center gap-2">
+                <IconMapPin size={20} /> Cambiar Sede Laboral
+              </h3>
+              <p className="text-xs text-emerald-600 mt-1">
+                Se actualizará la sede laboral de <b>{selectedMusicians.size}</b> músico(s).
+              </p>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                  Seleccionar Sede Laboral
+                </label>
+                <SearchableSelect
+                  options={locacionesOptions}
+                  value={selectedBulkLocationId !== null ? selectedBulkLocationId : undefined}
+                  onChange={(val) => {
+                    setSelectedBulkLocationId(val !== undefined && val !== null ? val : null);
+                  }}
+                  placeholder="Buscar sede..."
+                />
+              </div>
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => {
+                    setIsBulkLocationModalOpen(false);
+                    setSelectedBulkLocationId(null);
+                  }}
+                  className="flex-1 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    if (selectedBulkLocationId) {
+                      handleBulkLocationUpdate(selectedBulkLocationId);
+                    } else {
+                      toast.error("Debes seleccionar una sede laboral");
+                    }
+                  }}
+                  disabled={!selectedBulkLocationId}
+                  className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

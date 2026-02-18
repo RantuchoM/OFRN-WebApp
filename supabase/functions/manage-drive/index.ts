@@ -177,7 +177,7 @@ async function syncOneProgram(supabase: any, drive: any, prog: any) {
       if (!validShortcutsInDb.has(file.id)) {
         try {
           await drive.files.delete({ fileId: file.id });
-        } catch (e) {}
+        } catch (e) { }
       }
     }
   }
@@ -205,6 +205,27 @@ async function generateDJInternal(m: any, templateRes: ArrayBuffer, firmaRes: Ar
   safeSet("provincia", "Río Negro");
   safeSet("email", m.mail || "");
   safeSet("telefono", m.telefono || "");
+  let domicilioLaboralTexto = "Zatti 287, de la localidad de Viedma"; // Valor por defecto
+  if (m.laboral) {
+    const direccionSede = m.laboral.direccion || "";
+    // La relación localidades puede venir como objeto o array, manejamos ambos casos
+    const localidadObj = Array.isArray(m.laboral.localidades) 
+      ? m.laboral.localidades[0] 
+      : m.laboral.localidades;
+    const nombreCiudad = localidadObj?.localidad || "";
+    
+    console.log("[generateDJInternal] laboral:", JSON.stringify(m.laboral));
+    console.log("[generateDJInternal] localidadObj:", JSON.stringify(localidadObj));
+    console.log("[generateDJInternal] nombreCiudad:", nombreCiudad);
+
+    if (direccionSede && nombreCiudad) {
+      domicilioLaboralTexto = `${direccionSede}, de la localidad de ${nombreCiudad}`;
+    } else if (nombreCiudad) {
+      domicilioLaboralTexto = `de la localidad de ${nombreCiudad}`;
+    }
+  }
+  safeSet("domicilio_laboral", domicilioLaboralTexto);
+
 
   if (firmaRes) {
     try {
@@ -298,11 +319,29 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
+    
+    // Detectar si es un webhook de Supabase (contiene 'record')
+    let action = body.action;
+    let musicianId = body.musicianId;
+    
+    if (body.record && body.record.id) {
+      // Es un webhook automático: procesar como assemble_full_pack
+      // Solo procesar INSERT o UPDATE, ignorar DELETE
+      const webhookType = body.type || body.eventType;
+      if (webhookType === 'DELETE') {
+        console.log(`[WEBHOOK] Ignorando DELETE para integrante ID: ${body.record.id}`);
+        return new Response(JSON.stringify({ message: "DELETE event ignored" }), { headers: corsHeaders });
+      }
+      action = 'assemble_full_pack';
+      musicianId = body.record.id;
+      console.log(`[WEBHOOK] Detectado webhook ${webhookType || 'INSERT/UPDATE'} para integrante ID: ${musicianId}`);
+    }
+    
     const {
-      action, musicianId, layout, sources, fileName, programId, folderUrl,
+      layout, sources, fileName, programId, folderUrl,
       folderName, parentId, fileBase64, mimeType, sourceUrl, targetParentId,
       newName, nombreSet, obraTitulo, targetDriveId, fileId, targetEmail, role,
-      giraId // <--- ADDED giraId HERE
+      giraId
     } = body;
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -376,8 +415,21 @@ serve(async (req) => {
 
     // --- ACCIÓN: COMBO EXPEDIENTE COMPLETO ---
     if (action === "assemble_full_pack") {
-      const { data: m } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad)`).eq("id", musicianId).single();
+      let { data: m, error: mError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad), laboral:locaciones!id_domicilio_laboral(nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad))`).eq("id", musicianId).single();
+      if (mError) {
+        console.error("[assemble_full_pack] Error consultando integrante:", mError);
+        // Intentar sin la relación laboral si falla
+        const { data: mBasic, error: basicError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad)`).eq("id", musicianId).single();
+        if (basicError || !mBasic) throw new Error(`Error al obtener datos del músico: ${mError.message}`);
+        m = mBasic;
+      }
       if (!m) throw new Error("Músico no encontrado");
+
+      // Si hay id_domicilio_laboral, obtener la locación y su localidad por separado
+      if (m.id_domicilio_laboral && !m.laboral) {
+        const { data: locacion } = await supabase.from("locaciones").select("nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad)").eq("id", m.id_domicilio_laboral).single();
+        if (locacion) m.laboral = locacion;
+      }
 
       // LIMPIEZA PREVIA DEL BUCKET
       const oldFiles = [
@@ -537,8 +589,21 @@ serve(async (req) => {
     }
     // --- ACCIÓN: GENERAR DJ INDIVIDUAL ---
     if (action === "generate_dj_bucket") {
-      const { data: m } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad)`).eq("id", musicianId).single();
+      let { data: m, error: mError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad), laboral:locaciones!id_domicilio_laboral(nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad))`).eq("id", musicianId).single();
+      if (mError) {
+        console.error("[generate_dj_bucket] Error consultando integrante:", mError);
+        // Intentar sin la relación laboral si falla
+        const { data: mBasic, error: basicError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad)`).eq("id", musicianId).single();
+        if (basicError || !mBasic) throw new Error(`Error al obtener datos del músico: ${mError.message}`);
+        m = mBasic;
+      }
       if (!m) throw new Error("Músico no encontrado");
+
+      // Si hay id_domicilio_laboral, obtener la locación y su localidad por separado
+      if (m.id_domicilio_laboral && !m.laboral) {
+        const { data: locacion } = await supabase.from("locaciones").select("nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad)").eq("id", m.id_domicilio_laboral).single();
+        if (locacion) m.laboral = locacion;
+      }
 
       const oldDj = extractStoragePath(m.link_declaracion, "musician-docs");
       if (oldDj) await supabase.storage.from("musician-docs").remove([oldDj]);
@@ -956,3 +1021,4 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: error.message }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 });
   }
 });
+

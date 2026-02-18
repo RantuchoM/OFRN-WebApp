@@ -32,6 +32,7 @@ const EXCLUDED_ROLES = [
   "utilero",
   "asistente",
   "iluminador",
+  "Iluminacion",
   "sonido",
   "acompañante",
 ];
@@ -44,6 +45,8 @@ const MobileSeatingTable = ({
   filteredRoster,
   containers,
   particellas,
+  isEditor = false,
+  musiciansWithoutParts = new Set(),
 }) => {
   // Estado para acordeón
   const [expandedIds, setExpandedIds] = useState(() => {
@@ -186,6 +189,9 @@ const MobileSeatingTable = ({
                     c.items.map((item, idx) => {
                       const isMe = String(item.id_musico) === String(user.id);
                       const deskNum = Math.floor(idx / 2) + 1;
+                      const hasNoParts = musiciansWithoutParts.has(
+                        String(item.id_musico),
+                      );
 
                       // Lógica del separador: Cada índice impar es el segundo músico del atril
                       const isEndOfDesk =
@@ -194,9 +200,13 @@ const MobileSeatingTable = ({
                       return (
                         <tr
                           key={item.id}
-                          className={`${isMe ? "bg-amber-50" : "bg-white"} ${
-                            isEndOfDesk ? "border-b-2 border-slate-300" : ""
-                          }`}
+                          className={`transition-colors ${
+                            isEditor && hasNoParts
+                              ? "bg-orange-50 hover:bg-orange-100/80"
+                              : isMe
+                                ? "bg-amber-50"
+                                : "bg-white"
+                          } ${isEndOfDesk ? "border-b-2 border-slate-300" : ""}`}
                         >
                           <td
                             className={`p-1 pl-4 sticky left-0 z-20 border-r border-slate-200 border-b border-slate-50 align-middle ${isMe ? "bg-amber-50" : "bg-white"}`}
@@ -263,10 +273,17 @@ const MobileSeatingTable = ({
 
             {windsAndPerc.map((m) => {
               const isMe = String(m.id) === String(user.id);
+              const hasNoParts = musiciansWithoutParts.has(String(m.id));
               return (
                 <tr
                   key={m.id}
-                  className={isMe ? "bg-amber-50" : "even:bg-slate-50/50"}
+                  className={
+                    isEditor && hasNoParts
+                      ? "bg-orange-50 hover:bg-orange-100/80"
+                      : isMe
+                        ? "bg-amber-50"
+                        : "even:bg-slate-50/50"
+                  }
                 >
                   <td
                     className={`p-1 pl-2 sticky left-0 z-20 border-r border-slate-200 align-middle ${isMe ? "bg-amber-50 border-l-4 border-l-amber-400" : "bg-white"}`}
@@ -840,6 +857,39 @@ export default function ProgramSeating({
 
   const otherMusicians = filteredRoster.filter((m) => !isString(m.id_instr));
 
+  // Músicos sin ninguna partitura asignada en el programa (solo aplicable en modo edición)
+  const musiciansWithoutParts = useMemo(() => {
+    const without = new Set();
+    const allMusicians = [];
+    containers.forEach((c) =>
+      c.items.forEach((item) =>
+        allMusicians.push({ id: item.id_musico, container: c }),
+      ),
+    );
+    otherMusicians.forEach((m) => allMusicians.push({ id: m.id, container: null }));
+
+    allMusicians.forEach(({ id, container }) => {
+      const sid = String(id);
+      let hasAnyPart = false;
+      for (const obra of obras) {
+        const individualKey = `M-${id}-${obra.obra_id}`;
+        if (assignments[individualKey]) {
+          hasAnyPart = true;
+          break;
+        }
+        if (container) {
+          const containerKey = `C-${container.id}-${obra.obra_id}`;
+          if (assignments[containerKey]) {
+            hasAnyPart = true;
+            break;
+          }
+        }
+      }
+      if (!hasAnyPart) without.add(sid);
+    });
+    return without;
+  }, [containers, otherMusicians, obras, assignments]);
+
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
       <CreateParticellaModal
@@ -954,6 +1004,8 @@ export default function ProgramSeating({
             filteredRoster={filteredRoster}
             containers={containers}
             particellas={particellas}
+            isEditor={isEditor}
+            musiciansWithoutParts={musiciansWithoutParts}
           />
         </div>
 
@@ -1030,18 +1082,37 @@ export default function ProgramSeating({
                       (i) => i.id_musico === user.id,
                     );
                     const myStandText = isMyContainer ? "Tu lugar" : null;
+                    const hasNoParts = c.items.some((i) =>
+                      musiciansWithoutParts.has(String(i.id_musico)),
+                    );
                     return (
                       <tr
                         key={c.id}
-                        className={`transition-colors group ${isMyContainer ? "bg-amber-50" : "hover:bg-indigo-50/30"}`}
+                        className={`transition-colors group ${
+                          isEditor && hasNoParts
+                            ? "bg-orange-50 hover:bg-orange-100/80"
+                            : isMyContainer
+                              ? "bg-amber-50"
+                              : "hover:bg-indigo-50/30"
+                        }`}
                       >
                         <td
-                          className={`p-2 sticky left-0 border-r border-slate-200 z-20 pl-4 align-top ${isMyContainer ? "bg-amber-50 border-l-4 border-l-amber-400" : "bg-white group-hover:bg-indigo-50/30"}`}
+                          className={`p-2 sticky left-0 border-r border-slate-200 z-20 pl-4 align-top ${isEditor && hasNoParts ? "bg-orange-50" : isMyContainer ? "bg-amber-50 border-l-4 border-l-amber-400" : "bg-white group-hover:bg-indigo-50/30"}`}
                         >
-                          <ContainerInfoCell
-                            container={c}
-                            myStandInfo={myStandText}
-                          />
+                          <div className="flex items-start gap-2">
+                            {isEditor && hasNoParts && (
+                              <span
+                                title="Sin partitura asignada"
+                                className="shrink-0 text-orange-500 mt-0.5"
+                              >
+                                <IconAlertCircle size={14} />
+                              </span>
+                            )}
+                            <ContainerInfoCell
+                              container={c}
+                              myStandInfo={myStandText}
+                            />
+                          </div>
                         </td>
                         {obras.map((obra) => {
                           const currentVal =
@@ -1117,28 +1188,45 @@ export default function ProgramSeating({
                   </tr>
                   {otherMusicians.map((m) => {
                     const isMe = String(m.id) === String(user.id);
+                    const hasNoParts = musiciansWithoutParts.has(String(m.id));
                     return (
                       <tr
                         key={m.id}
-                        className={`transition-colors group ${isMe ? "bg-amber-50" : "hover:bg-slate-50"}`}
+                        className={`transition-colors group ${
+                          isEditor && hasNoParts
+                            ? "bg-orange-50 hover:bg-orange-100/80"
+                            : isMe
+                              ? "bg-amber-50"
+                              : "hover:bg-slate-50"
+                        }`}
                       >
                         <td
-                          className={`p-2 sticky left-0 border-r border-slate-200 z-20 pl-4 align-top ${isMe ? "bg-amber-50 border-l-4 border-l-amber-400" : "bg-white group-hover:bg-slate-50"}`}
+                          className={`p-2 sticky left-0 border-r border-slate-200 z-20 pl-4 align-top ${isEditor && hasNoParts ? "bg-orange-50" : isMe ? "bg-amber-50 border-l-4 border-l-amber-400" : "bg-white group-hover:bg-slate-50"}`}
                         >
-                          <div className="flex flex-col">
-                            <span
-                              className={`font-bold truncate text-xs ${isMe ? "text-amber-900" : "text-slate-700"}`}
-                            >
-                              {m.apellido}, {m.nombre}
-                            </span>
-                            <span className="text-[9px] text-slate-400 truncate">
-                              {m.instrumentos?.instrumento}{" "}
-                              {m.rol_gira && m.rol_gira !== "musico" && (
-                                <span className="text-amber-600">
-                                  ({m.rol_gira})
-                                </span>
-                              )}
-                            </span>
+                          <div className="flex items-start gap-2">
+                            {isEditor && hasNoParts && (
+                              <span
+                                title="Sin partitura asignada"
+                                className="shrink-0 text-orange-500 mt-0.5"
+                              >
+                                <IconAlertCircle size={14} />
+                              </span>
+                            )}
+                            <div className="flex flex-col min-w-0 flex-1">
+                              <span
+                                className={`font-bold truncate text-xs ${isMe ? "text-amber-900" : "text-slate-700"}`}
+                              >
+                                {m.apellido}, {m.nombre}
+                              </span>
+                              <span className="text-[9px] text-slate-400 truncate">
+                                {m.instrumentos?.instrumento}{" "}
+                                {m.rol_gira && m.rol_gira !== "musico" && (
+                                  <span className="text-amber-600">
+                                    ({m.rol_gira})
+                                  </span>
+                                )}
+                              </span>
+                            </div>
                           </div>
                         </td>
                         {obras.map((obra) => {

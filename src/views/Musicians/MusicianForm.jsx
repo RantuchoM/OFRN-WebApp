@@ -259,6 +259,7 @@ const getDefaultValues = (musician = {}) => ({
   email_google: "",
   id_localidad: null,
   id_loc_viaticos: null,
+  id_domicilio_laboral: null,
   link_bio: "",
   link_foto_popup: "",
   documentacion: "",
@@ -283,6 +284,7 @@ const getDefaultValues = (musician = {}) => ({
   fecha_baja: musician?.fecha_baja || "",
   id_localidad: musician?.id_localidad ?? null,
   id_loc_viaticos: musician?.id_loc_viaticos ?? null,
+  id_domicilio_laboral: musician?.id_domicilio_laboral ?? null,
   id_instr: musician?.id_instr ? String(musician.id_instr) : "",
 });
 
@@ -306,6 +308,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
 
   const [catalogoInstrumentos, setCatalogoInstrumentos] = useState([]);
   const [locationsOptions, setLocationsOptions] = useState([]);
+  const [locacionesOptions, setLocacionesOptions] = useState([]);
 
   // Nuevo: Lista y selección de ensambles
   const [ensemblesOptions, setEnsemblesOptions] = useState([]);
@@ -362,6 +365,20 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
       if (locData)
         setLocationsOptions(
           locData.map((l) => ({ id: l.id, label: l.localidad, value: l.id })),
+        );
+
+      // Locaciones (para domicilio laboral)
+      const { data: locacionesData } = await supabase
+        .from("locaciones")
+        .select("id, nombre, direccion, localidades(localidad)")
+        .order("nombre");
+      if (locacionesData)
+        setLocacionesOptions(
+          locacionesData.map((l) => ({
+            id: l.id,
+            label: `${l.nombre}${l.localidades?.localidad ? ` (${l.localidades.localidad})` : ""}`,
+            value: l.id,
+          })),
         );
 
       // Ensambles
@@ -441,6 +458,17 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         () => setFieldStatuses((prev) => ({ ...prev, [field]: "idle" })),
         2000,
       );
+      
+      // Si cambió un campo crítico, regenerar expediente completo en background
+      const camposCriticos = ['domicilio', 'id_domicilio_laboral', 'link_cbu_img', 'link_dni_img', 'link_cuil', 'dni', 'cuil'];
+      if (camposCriticos.includes(field)) {
+        // Ejecutar en background sin bloquear la UI
+        supabase.functions.invoke("manage-drive", {
+          body: { action: "assemble_full_pack", musicianId: id },
+        }).catch((err) => {
+          console.warn(`[MusicianForm] Error al regenerar expediente para campo ${field}:`, err);
+        });
+      }
     } catch (e) {
       setFieldStatuses((prev) => ({ ...prev, [field]: "error" }));
     }
@@ -531,6 +559,19 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         () => setFieldStatuses((prev) => ({ ...prev, [field]: "idle" })),
         2000,
       );
+      
+      // Si es un campo crítico de documentos, regenerar expediente completo
+      const camposCriticosDocs = ['link_cbu_img', 'link_dni_img', 'link_cuil'];
+      if (camposCriticosDocs.includes(field)) {
+        const musicianId = getValues("id");
+        if (musicianId) {
+          supabase.functions.invoke("manage-drive", {
+            body: { action: "assemble_full_pack", musicianId },
+          }).catch((err) => {
+            console.warn(`[MusicianForm] Error al regenerar expediente tras subir ${field}:`, err);
+          });
+        }
+      }
     } catch (error) {
       console.error("DEBUG - Upload Error:", error);
       setFieldStatuses((prev) => ({ ...prev, [field]: "error" }));
@@ -725,6 +766,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
         alimentacion: formValues.alimentacion || null,
         id_localidad: formValues.id_localidad || null,
         id_loc_viaticos: formValues.id_loc_viaticos || null,
+        id_domicilio_laboral: formValues.id_domicilio_laboral || null,
         fecha_alta: formValues.fecha_alta || null,
         fecha_baja: formValues.fecha_baja || null,
         email_acceso: formValues.email_acceso || null,
@@ -1247,6 +1289,14 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                       options={locationsOptions}
                       value={formData.id_loc_viaticos}
                       onChange={(val) => updateField("id_loc_viaticos", val)}
+                    />
+                  </div>
+                  <div className="relative z-30">
+                    <label className={labelClass}>Domicilio Laboral (Sede)</label>
+                    <SearchableSelect
+                      options={locacionesOptions}
+                      value={formData.id_domicilio_laboral}
+                      onChange={(val) => updateField("id_domicilio_laboral", val)}
                     />
                   </div>
                 </div>
