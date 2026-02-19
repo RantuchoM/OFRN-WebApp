@@ -3,11 +3,176 @@ import autoTable from 'jspdf-autotable';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 
-// Función para eliminar etiquetas HTML (b, i, u, etc.)
+// Elimina etiquetas HTML (solo texto plano)
 const stripHtml = (html) => {
     if (!html) return '';
     return html.replace(/<[^>]*>?/gm, '');
 };
+
+const DESC_FONT_SIZE = 8;
+const DESC_LINE_HEIGHT_MM = 4;
+
+/**
+ * Normaliza HTML de descripción para PDF: quita spans con estilos largos (Tailwind etc.),
+ * convierte <span style="...font-weight: bolder..."> en <b>, mantiene <u>, <i>, <b>.
+ * Respeta saltos de línea: <br> → \n, <div> y </div> → \n.
+ */
+function normalizeDescForPdf(html) {
+    if (!html || typeof html !== 'string') return '';
+    const stack = [];
+    let out = '';
+    let i = 0;
+    const s = html;
+    const len = s.length;
+    while (i < len) {
+        if (s.substring(i, i + 6) === '</div>') {
+            out += '\n';
+            i += 6;
+            continue;
+        }
+        if (s.substring(i, i + 4) === '<div') {
+            const end = s.indexOf('>', i);
+            if (end !== -1) {
+                if (out.slice(-1) !== '\n') out += '\n';
+                i = end + 1;
+                continue;
+            }
+        }
+        if (s.substring(i, i + 4) === '<br ') {
+            const end = s.indexOf('>', i);
+            if (end !== -1) { out += '\n'; i = end + 1; continue; }
+        }
+        if (s.substring(i, i + 4) === '<br>') { out += '\n'; i += 4; continue; }
+        if (s.substring(i, i + 5) === '<br/>') { out += '\n'; i += 5; continue; }
+        if (s.substring(i, i + 6) === '<br />') { out += '\n'; i += 6; continue; }
+        if (s.substring(i, i + 5) === '<span') {
+            const end = s.indexOf('>', i);
+            if (end === -1) { i++; continue; }
+            const tag = s.substring(i, end + 1);
+            const isBold = /font-weight:\s*(?:bolder|bold)\b/i.test(tag);
+            stack.push(isBold ? 'b' : 's');
+            out += isBold ? '<b>' : '';
+            i = end + 1;
+            continue;
+        }
+        if (s.substring(i, i + 7) === '</span>') {
+            if (stack.length) {
+                const t = stack.pop();
+                if (t === 'b') out += '</b>';
+            }
+            i += 7;
+            continue;
+        }
+        if (s.substring(i, i + 3) === '<b>' || s.substring(i, i + 4) === '</b>') {
+            out += s.substring(i, s.substring(i, i + 4) === '</b>' ? i + 4 : i + 3);
+            i += s.substring(i, i + 4) === '</b>' ? 4 : 3;
+            continue;
+        }
+        if (s.substring(i, i + 3) === '<i>' || s.substring(i, i + 4) === '</i>') {
+            out += s.substring(i, s.substring(i, i + 4) === '</i>' ? i + 4 : i + 3);
+            i += s.substring(i, i + 4) === '</i>' ? 4 : 3;
+            continue;
+        }
+        if (s.substring(i, i + 3) === '<u>' || s.substring(i, i + 4) === '</u>') {
+            out += s.substring(i, s.substring(i, i + 4) === '</u>' ? i + 4 : i + 3);
+            i += s.substring(i, i + 4) === '</u>' ? 4 : 3;
+            continue;
+        }
+        if (s[i] === '<') {
+            const end = s.indexOf('>', i);
+            if (end !== -1) { i = end + 1; continue; }
+        }
+        out += s[i];
+        i++;
+    }
+    return out.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Parsea HTML con <b>, <i>, <u> en segmentos { text, bold, italic, underline }.
+ */
+function parseRichText(html) {
+    if (!html || typeof html !== 'string') return [{ text: '', bold: false, italic: false, underline: false }];
+    const segments = [];
+    let bold = false, italic = false, underline = false;
+    const re = /<(?:b|i|u)>|<\/(?:b|i|u)>|([^<]+)/gi;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+        if (m[1] !== undefined) {
+            segments.push({ text: m[1], bold, italic, underline });
+        } else {
+            const tag = m[0].toLowerCase();
+            if (tag === '<b>') bold = true;
+            else if (tag === '</b>') bold = false;
+            else if (tag === '<i>') italic = true;
+            else if (tag === '</i>') italic = false;
+            else if (tag === '<u>') underline = true;
+            else if (tag === '</u>') underline = false;
+        }
+    }
+    return segments.length ? segments : [{ text: '', bold: false, italic: false, underline: false }];
+}
+
+/**
+ * Calcula altura en mm del bloque de rich text con wrap a maxWidth.
+ */
+function getRichTextHeight(doc, html, maxWidthMm, fontSize, lineHeightMm) {
+    const segments = parseRichText(html);
+    doc.setFontSize(fontSize);
+    let y = 0;
+    let lineW = 0;
+    segments.forEach(({ text, bold, italic, underline }) => {
+        const style = (bold ? 'bold' : '') + (italic ? 'italic' : '');
+        doc.setFont(undefined, style || 'normal');
+        const parts = text.split('\n');
+        parts.forEach((part, idx) => {
+            if (idx) { lineW = 0; y += lineHeightMm; }
+            const words = part.split(/(\s+)/).filter(Boolean);
+            words.forEach((word) => {
+                const w = doc.getTextWidth(word);
+                if (lineW + w > maxWidthMm && lineW > 0) { lineW = 0; y += lineHeightMm; }
+                lineW += w;
+            });
+        });
+    });
+    if (lineW > 0) y += lineHeightMm;
+    return Math.max(y, lineHeightMm);
+}
+
+/**
+ * Dibuja rich text en (x, y) con wrap; devuelve la Y final en mm.
+ */
+function drawRichText(doc, html, x, y, maxWidthMm, fontSize, lineHeightMm) {
+    const segments = parseRichText(html);
+    doc.setFontSize(fontSize);
+    doc.setTextColor(0, 0, 0);
+    let currentY = y;
+    let lineW = 0;
+    const lineStartX = x;
+    segments.forEach(({ text, bold, italic, underline }) => {
+        const style = (bold ? 'bold' : '') + (italic ? 'italic' : '');
+        doc.setFont(undefined, style || 'normal');
+        const parts = text.split('\n');
+        parts.forEach((part, idx) => {
+            if (idx) { lineW = 0; currentY += lineHeightMm; }
+            const words = part.split(/(\s+)/).filter(Boolean);
+            words.forEach((word) => {
+                const w = doc.getTextWidth(word);
+                if (lineW + w > maxWidthMm && lineW > 0) { lineW = 0; currentY += lineHeightMm; }
+                doc.text(word, lineStartX + lineW, currentY);
+                if (underline) {
+                    const baseline = currentY + 0.3;
+                    doc.setDrawColor(0, 0, 0);
+                    doc.setLineWidth(0.1);
+                    doc.line(lineStartX + lineW, baseline, lineStartX + lineW + w, baseline);
+                }
+                lineW += w;
+            });
+        });
+    });
+    doc.setFont(undefined, 'normal');
+    return currentY + lineHeightMm;
+}
 
 export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = "", hideGiraColumn = false) => {
   const doc = new jsPDF();
@@ -106,17 +271,22 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
         typeName = ''; // Ocultamos texto si hay chip
     }
 
+    const rawDesc = evt.descripcion || evt.tipos_evento?.nombre || '';
+    const normalizedDesc = normalizeDescForPdf(rawDesc);
+    const hasRichDesc = /<b>|<\/b>|<i>|<\/i>|<u>|<\/u>/i.test(normalizedDesc);
+
     const rowData = {
         desde: start,
         hasta: end,
         tipo: typeName,
         transportChip: transportName, 
         transportColor: transportColor,
-        desc: stripHtml(evt.descripcion || evt.tipos_evento?.nombre || ''),
+        desc: hasRichDesc ? '' : stripHtml(normalizedDesc),
         locacion: evt.locaciones?.nombre || '-',
-        direccion: evt.locaciones?.direccion || '', // Guardamos la dirección
+        direccion: evt.locaciones?.direccion || '',
         localidad: evt.locaciones?.localidades?.localidad || '-',
-        raw: evt 
+        raw: evt,
+        descRaw: hasRichDesc ? normalizedDesc : null,
     };
 
     if (!hideGiraColumn) {
@@ -208,6 +378,16 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
                  data.cell.styles.minCellHeight = requiredCellHeight;
              }
         }
+
+        // Altura dinámica para descripción con formato enriquecido
+        if (data.section === 'body' && data.column.dataKey === 'desc' && data.row.raw.descRaw) {
+            const maxW = (data.cell.width && data.cell.width > 0) ? data.cell.width - 5 : 55;
+            const requiredHeight = getRichTextHeight(doc, data.row.raw.descRaw, maxW, DESC_FONT_SIZE, DESC_LINE_HEIGHT_MM);
+            const withPadding = requiredHeight + 5;
+            if (withPadding > (data.cell.styles.minCellHeight || 0)) {
+                data.cell.styles.minCellHeight = withPadding;
+            }
+        }
     },
     
     // 2. DIBUJO MANUAL (CHIP, BARRA COLOR Y DIRECCIÓN)
@@ -271,7 +451,15 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
             });
         }
 
-        // C. Dirección de la Locación (Insertada debajo del nombre con cálculo dinámico)
+        // C. Descripción con formato enriquecido (bold, italic, underline)
+        if (data.column.dataKey === 'desc' && rowRaw.descRaw) {
+            const contentX = data.cell.x + 2.5;
+            const contentY = data.cell.y + 2.5 + (DESC_LINE_HEIGHT_MM * 0.25);
+            const maxWidth = Math.max(data.cell.width - 5, 10);
+            drawRichText(doc, rowRaw.descRaw, contentX, contentY, maxWidth, DESC_FONT_SIZE, DESC_LINE_HEIGHT_MM);
+        }
+
+        // D. Dirección de la Locación (Insertada debajo del nombre con cálculo dinámico)
         if (data.column.dataKey === 'locacion' && rowRaw.direccion) {
             doc.setFontSize(5.5);    // Tamaño más pequeño
             doc.setTextColor(130);   // Color atenuado (gris)
