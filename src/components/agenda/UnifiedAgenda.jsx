@@ -338,6 +338,11 @@ export default function UnifiedAgenda({
   const [loading, setLoading] = useState(false); // Carga inicial (pantalla vacía)
   const [isRefreshing, setIsRefreshing] = useState(false); // Recarga silenciosa (datos visibles)
 
+  // IDs de eventos actualizados en esta sesión (indicador titilante; se limpia al refrescar)
+  const [recentlyUpdatedEventIds, setRecentlyUpdatedEventIds] = useState(
+    () => new Set(),
+  );
+
   // --- FETCH COORDINACIÓN ---
   useEffect(() => {
     const fetchCoordination = async () => {
@@ -694,12 +699,20 @@ export default function UnifiedAgenda({
     });
   };
   // --- REALTIME SUBSCRIPTION (DEBOUNCE + SAFETY) ---
-  // Control para cancelar peticiones viejas si llegan nuevas rápido
   const abortControllerRef = useRef(null);
   const refreshTimeoutRef = useRef(null);
-  // --- FUNCIÓN FETCH BLINDADA ---
-  // --- FUNCIÓN FETCH BLINDADA Y COMPLETA ---
-  // --- FUNCIÓN FETCH BLINDADA Y COMPLETA ---
+  const mergeSingleEventFromRealtimeRef = useRef(null);
+
+  const EVENT_SELECT = `
+    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte,
+    giras_transportes ( id, detalle, transportes ( nombre, color ) ),
+    tipos_evento ( id, nombre, color, categorias_tipos_eventos (id, nombre) ),
+    locaciones ( id, nombre, direccion, link_mapa, localidades (localidad) ),
+    programas ( id, nombre_gira, nomenclador, google_drive_folder_id, mes_letra, fecha_desde, fecha_hasta, tipo, zona, estado, fecha_confirmacion_limite, giras_fuentes(tipo, valor_id, valor_texto), giras_integrantes(id_integrante, estado, rol) ),
+    eventos_programas_asociados ( programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador, estado ) ),
+    eventos_ensambles ( ensambles ( id, ensamble ) )
+  `;
+
   const fetchAgenda = async (isBackground = false) => {
     // 1. GESTIÓN DE ABORT CONTROLLER
     if (abortControllerRef.current) {
@@ -775,36 +788,7 @@ export default function UnifiedAgenda({
       // 6. QUERY PRINCIPAL
       let query = supabase
         .from("eventos")
-        .select(
-          `
-            id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte,
-            giras_transportes (
-                id, detalle,
-                transportes ( nombre, color ) 
-            ),
-            tipos_evento (
-                id, nombre, color,
-                categorias_tipos_eventos (id, nombre)
-            ), 
-            locaciones (
-                id, nombre, direccion, link_mapa,
-                localidades (localidad)
-            ),
-            programas (
-                id, nombre_gira, nomenclador, google_drive_folder_id, mes_letra, 
-                fecha_desde, fecha_hasta, tipo, zona, estado,
-                fecha_confirmacion_limite,
-                giras_fuentes(tipo, valor_id, valor_texto), 
-                giras_integrantes(id_integrante, estado, rol)
-            ),
-            eventos_programas_asociados (
-                programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador, estado )
-            ),
-            eventos_ensambles (
-                ensambles ( id, ensamble )
-            )
-        `,
-        )
+        .select(EVENT_SELECT)
         .order("fecha", { ascending: true })
         .order("hora_inicio", { ascending: true })
         .abortSignal(signal);
@@ -1090,7 +1074,7 @@ export default function UnifiedAgenda({
 
       setItems(allItems);
       setFeriados(feriadosData.data || []);
-      // 🟢 AHORA (Solución segura)
+      setRecentlyUpdatedEventIds(new Set()); // al refrescar completo se quitan los indicadores
       saveToCache(CACHE_KEY, allItems);
       setIsOfflineMode(false);
       setLastUpdate(new Date());
@@ -1121,6 +1105,96 @@ export default function UnifiedAgenda({
     }
   };
 
+  // Actualiza solo el evento tocado por realtime y muestra indicador; sin refetch completo
+  const mergeSingleEventFromRealtime = useCallback(
+    async (payload) => {
+      const eventType = payload.eventType;
+      const id = eventType === "DELETE" ? payload.old?.id : payload.new?.id;
+      if (!id) return;
+
+      if (eventType === "DELETE") {
+        setItems((prev) => prev.filter((item) => item.id !== id));
+        setRecentlyUpdatedEventIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        return;
+      }
+
+      // INSERT o UPDATE: traer el evento completo (misma forma que la lista)
+      try {
+        let query = supabase
+          .from("eventos")
+          .select(EVENT_SELECT)
+          .eq("id", id)
+          .single();
+        if (giraId) query = query.eq("id_gira", giraId);
+        const { data: evt, error } = await query;
+        if (error || !evt) return;
+
+        const [customRes, attendanceRes] = await Promise.all([
+          supabase
+            .from("eventos_asistencia_custom")
+            .select("id_evento, tipo, nota")
+            .eq("id_evento", id)
+            .eq("id_integrante", effectiveUserId)
+            .maybeSingle(),
+          effectiveUserId !== "guest-general"
+            ? supabase
+                .from("eventos_asistencia")
+                .select("id_evento, estado")
+                .eq("id_evento", id)
+                .eq("id_integrante", effectiveUserId)
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
+        ]);
+
+        const custom = customRes.data;
+        if (custom) {
+          if (custom.tipo === "invitado" || custom.tipo === "adicional") {
+            evt.is_guest = true;
+            evt.guest_note = custom.nota;
+          } else if (custom.tipo === "ausente") evt.is_absent = true;
+        }
+        if (attendanceRes.data) evt.mi_asistencia = attendanceRes.data.estado;
+        const myTourRecord = evt.programas?.giras_integrantes?.find(
+          (i) => i.id_integrante === effectiveUserId,
+        );
+        evt.is_convoked = checkIsConvoked(
+          evt.convocados,
+          myTourRecord?.rol || "musico",
+        );
+
+        setItems((prev) => {
+          const without = prev.filter((item) => item.id !== id);
+          const merged = [...without, evt].sort((a, b) => {
+            const dateA = new Date(
+              `${a.fecha}T${a.hora_inicio || "00:00:00"}`,
+            );
+            const dateB = new Date(
+              `${b.fecha}T${b.hora_inicio || "00:00:00"}`,
+            );
+            if (dateA < dateB) return -1;
+            if (dateA > dateB) return 1;
+            if (a.isProgramMarker && !b.isProgramMarker) return -1;
+            if (!a.isProgramMarker && b.isProgramMarker) return 1;
+            return 0;
+          });
+          return merged;
+        });
+        setRecentlyUpdatedEventIds((prev) => new Set(prev).add(id));
+        toast.success("Evento actualizado", { id: "event-updated", duration: 2000 });
+      } catch (err) {
+        console.warn("Error al fusionar evento en tiempo real:", err);
+        toast.error("Error al actualizar evento");
+      }
+    },
+    [supabase, giraId, effectiveUserId, checkIsConvoked],
+  );
+
+  mergeSingleEventFromRealtimeRef.current = mergeSingleEventFromRealtime;
+
   useEffect(() => {
     if (!user) return;
 
@@ -1130,22 +1204,13 @@ export default function UnifiedAgenda({
         "postgres_changes",
         { event: "*", schema: "public", table: "eventos" },
         (payload) => {
-          console.log("Cambio detectado:", payload.eventType);
-
-          // ESTRATEGIA: "CALMA, LUEGO ACTUALIZA"
-          // Si hay una ráfaga de cambios, cancelamos el timer anterior y reiniciamos.
           if (refreshTimeoutRef.current)
             clearTimeout(refreshTimeoutRef.current);
 
-          // Feedback visual inmediato (pero no tocamos la lista todavía)
-          toast.info("Detectando cambios...", {
-            id: "sync-toast",
-            duration: 2000,
-          });
-
           refreshTimeoutRef.current = setTimeout(() => {
-            fetchAgenda(true); // <--- Esto llamará al fetch blindado con AbortController
-          }, 1500); // Esperamos 1.5 segundos de silencio total antes de recargar
+            refreshTimeoutRef.current = null;
+            mergeSingleEventFromRealtimeRef.current?.(payload);
+          }, 500);
         },
       )
       .subscribe((status) => {
@@ -1155,7 +1220,7 @@ export default function UnifiedAgenda({
     return () => {
       supabase.removeChannel(channel);
       if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
-      if (abortControllerRef.current) abortControllerRef.current.abort(); // Limpieza al desmontar
+      if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, [user, giraId]);
 
@@ -1449,24 +1514,23 @@ export default function UnifiedAgenda({
     }
   };
 
-  const groupedByMonth = filteredItems.reduce((acc, item) => {
-    try {
-      // Validamos antes de formatear
-      if (!item.fecha) return acc;
+  const groupedByMonth = useMemo(() => {
+    return filteredItems.reduce((acc, item) => {
+      try {
+        if (!item.fecha) return acc;
+        const parsedDate = parseISO(item.fecha);
+        if (isNaN(parsedDate.getTime())) return acc;
+        const monthKey = format(parsedDate, "yyyy-MM");
+        if (!acc[monthKey]) acc[monthKey] = [];
+        acc[monthKey].push(item);
+      } catch (err) {
+        console.warn("Evento omitido por error de fecha:", item, err);
+      }
+      return acc;
+    }, {});
+  }, [filteredItems]);
 
-      const parsedDate = parseISO(item.fecha);
-      if (isNaN(parsedDate.getTime())) return acc;
-
-      const monthKey = format(parsedDate, "yyyy-MM");
-      if (!acc[monthKey]) acc[monthKey] = [];
-      acc[monthKey].push(item);
-    } catch (err) {
-      console.warn("Evento omitido por error de fecha:", item, err);
-    }
-    return acc;
-  }, {});
-
-  const TourDivider = ({ gira }) => {
+  const TourDivider = React.memo(({ gira }) => {
     const fechaDesde = gira.fecha_desde
       ? format(parseISO(gira.fecha_desde), "d MMM", { locale: es })
       : "";
@@ -1551,7 +1615,7 @@ export default function UnifiedAgenda({
         </div>
       </div>
     );
-  };
+  });
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in relative">
@@ -1842,6 +1906,16 @@ export default function UnifiedAgenda({
       </div>
 
       <div className="flex-1 overflow-y-auto bg-slate-50/50 relative">
+        {/* Indicador sutil cuando hay datos y se está actualizando (evita layout shift en móvil) */}
+        {loading && items.length > 0 && (
+          <div className="sticky top-0 left-0 right-0 z-50 flex justify-center py-1.5 bg-indigo-600/90 backdrop-blur">
+            <span className="text-xs font-bold text-white flex items-center gap-2">
+              <IconLoader size={12} className="animate-spin" />
+              Actualizando...
+            </span>
+          </div>
+        )}
+
         {/* SPINNER INICIAL (SOLO SI NO HAY DATOS) */}
         {loading && items.length === 0 && (
           <div className="text-center py-10">
@@ -1978,6 +2052,7 @@ export default function UnifiedAgenda({
                             ${shouldDim ? "opacity-50 grayscale" : ""}
                             ${evt.is_guest ? "bg-emerald-50/30" : ""}
                             ${isMyTransport ? "bg-indigo-50/30 border-l-4 border-l-indigo-400" : ""}
+                            ${recentlyUpdatedEventIds.has(evt.id) ? "ring-2 ring-inset ring-indigo-400/70 animate-pulse" : ""}
                           `}
                           style={
                             !shouldDim && !evt.is_guest && !isMyTransport
@@ -2248,6 +2323,7 @@ export default function UnifiedAgenda({
                             ${shouldDim ? "opacity-60 grayscale" : ""}
                             ${evt.is_guest ? "bg-emerald-50/30" : ""}
                             ${isMyTransport ? "bg-indigo-50/30" : ""}
+                            ${recentlyUpdatedEventIds.has(evt.id) ? "ring-2 ring-inset ring-indigo-400/70 animate-pulse" : ""}
                           `}
                           style={
                             !shouldDim && !evt.is_guest && !isMyTransport

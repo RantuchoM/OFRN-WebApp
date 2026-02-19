@@ -12,6 +12,9 @@ const getDayBrief = (val) => {
     const day = new Intl.DateTimeFormat('es-AR', { weekday: 'short' }).format(date);
     return day.substring(0, 2).toUpperCase();
 };
+// Alias por si se referencian con otros nombres (evitar ReferenceError)
+const dayNameFromIso = getDayBrief;
+const getWeekdayShort = getDayBrief;
 
 function toIso(y, m, d) {
     return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
