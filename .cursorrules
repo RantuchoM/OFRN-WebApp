@@ -1,14 +1,35 @@
-# Reglas de Proyecto - OFRN WebApp
+# Reglas de Proyecto - OFRN WebApp (V2 Consolidada)
 
-## Identidad y Datos
-- La tabla `integrantes` usa IDs numéricos (INT4). 
-- El `AuthContext` provee `user.id` como ese entero.
-- NUNCA confundir con el UUID de Supabase Auth para lógica de logística.
+## 1. Identidad y Datos (Cero Alucinaciones)
+- **IDs de Integrantes**: Son numéricos (`INT4`/`BigInt`). NUNCA usar UUIDs para lógica de logística o seating.
+- **Esquema de Instrumentos**: La relación es `integrantes.id_instr` -> `instrumentos.id`.
+- **Familia de Instrumento**: Se obtiene de la tabla `instrumentos` (columna `familia`). No existe directamente en `integrantes`.
+- **Roles en Gira**: La columna real en `giras_integrantes` es `rol`. Mapearla siempre a `rol_gira` en el frontend para consistencia.
 
-## Estándares de UI
-- Todos los modales DEBEN usar `React Portals` hacia `document.body`.
-- Z-Index para modales: `z-[9999]`.
-- Iconos: Importar de `@/components/ui/Icons`.
+## 2. Estándares de Documentación (Flujo de Verdad)
+- **Spec-Driven Development**: Antes de codear, lee la spec correspondiente en `docs/specs/`.
+- **Prohibido crear Reportes**: No generes archivos `.txt`, `.log` o reportes individuales por cambio.
+- **Actualización Viva**: Al terminar una tarea, actualiza la Spec original en `/docs/specs/` reflejando los cambios y marca los puntos completados.
+- **Resumen de Chat**: Finaliza cada intervención con un resumen en el chat: 1) Archivos modificados, 2) Lógica crítica aplicada, 3) Deuda técnica detectada.
 
-## Lógica de Giras
-- Al listar compañeros de habitación o transporte, filtrar siempre a los `ausentes` consultando `giras_integrantes.estado`.
+## 3. Lógica de Giras y Roster (El Motor Central)
+- **Filtro Maestro de Ausencia**: Si `giras_integrantes.estado === 'ausente'`, el músico NO debe tener servicios de logística (cero habitaciones, cero transporte, grisado en roster).
+- **Prioridad de Convocatoria**: Las exclusiones manuales y el estado 'ausente' tienen prioridad absoluta sobre los filtros de Ensamble o Familia.
+- **Seating Estricto**: El Seating debe usar el roster filtrado de `useGiraRoster`. Si un ensamble está excluido, sus miembros NO deben aparecer en el seating aunque su familia esté convocada.
+
+## 4. Reglas de Logística (Fuerza de Match)
+- **Jerarquía (Strength)**: 
+  - Nivel 5: ID Personal.
+  - Nivel 4: Categoría/Rol.
+  - Nivel 3-1 (Localidad/Región/General): SOLO aplica si `integrante.condicion === 'estable'`.
+- **Transporte Físico**: Los refuerzos (no estables) solo suben al bus por regla de ID personal, nunca por regla general de localidad.
+
+## 5. Estándares de UI y Componentes
+- **Modales**: Usar siempre `React Portals` hacia `document.body`.
+- **Z-Index**: Modales en `z-[100]`, Tooltips de integridad en `z-[110]`, Pantallas de carga en `z-[9999]`.
+- **Iconos**: Usar exclusivamente componentes de `src/components/ui/Icons.jsx`.
+- **Tipos de Programa**: Usar `PROGRAM_TYPES` de `giraUtils.js` para colores y etiquetas.
+
+## 6. Manejo de Tiempos y Duraciones
+- **Segundos a Texto**: Usar `formatSecondsToTime` (ej: 305 -> "5:05").
+- **Inputs**: Usar `inputToSeconds`. Si el usuario ingresa un entero (ej: "5"), interpretarlo siempre como MINUTOS (300s).

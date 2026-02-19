@@ -52,9 +52,10 @@ export function useGiraRoster(supabase, gira) {
       if (errOverrides) throw errOverrides;
 
       const overrideMap = {};
-      overrides?.forEach(
-        (o) => (overrideMap[o.id_integrante] = { estado: o.estado, rol: o.rol })
-      );
+      overrides?.forEach((o) => {
+        const kid = Number(o.id_integrante);
+        overrideMap[kid] = { estado: o.estado, rol: o.rol };
+      });
 
       // 3. RESOLVER IDS DE INTEGRANTES
       const [membersEns, membersFam, membersExcl] = await Promise.all([
@@ -82,12 +83,13 @@ export function useGiraRoster(supabase, gira) {
           : Promise.resolve([]),
       ]);
 
+      const num = (id) => Number(id);
       const baseIncludedIds = new Set([
-        ...membersEns.map((m) => m.id_integrante),
-        ...membersFam.map((m) => m.id),
+        ...membersEns.map((m) => num(m.id_integrante)),
+        ...membersFam.map((m) => num(m.id)),
       ]);
-      const excludedIds = new Set(membersExcl.map((m) => m.id_integrante));
-      const manualIds = new Set(overrides.map((o) => o.id_integrante));
+      const excludedIds = new Set(membersExcl.map((m) => num(m.id_integrante)));
+      const manualIds = new Set(overrides.map((o) => num(o.id_integrante)));
 
       const allPotentialIds = new Set([
         ...baseIncludedIds,
@@ -157,7 +159,7 @@ export function useGiraRoster(supabase, gira) {
       const finalRoster = [];
 
       musicians.forEach((m) => {
-        const id = m.id;
+        const id = num(m.id);
         const manualData = overrideMap[id];
         const isManual = manualIds.has(id);
         const isExcluded = excludedIds.has(id);
@@ -200,8 +202,10 @@ export function useGiraRoster(supabase, gira) {
           rolReal = "produccion";
         }
 
-        // Aplicar lógica de inclusión
-        if (isManual) {
+        // La exclusión de ensamble manda: miembros de EXCL_ENSAMBLE no entran aunque tengan override
+        if (isExcluded) {
+          keep = false;
+        } else if (isManual) {
           estadoReal = manualData.estado;
           rolReal = manualData.rol || rolReal;
           keep = true;

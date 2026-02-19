@@ -2,16 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { IconCalendar } from './Icons';
 
-const DIA_SEMANA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-function dayNameFromIso(isoDate) {
-    if (!isoDate || isoDate.length < 10) return null;
-    const [y, m, d] = isoDate.split('-').map(Number);
+/** Día de la semana abreviado a 2 letras en mayúsculas (LU, MA, etc.). */
+const getDayBrief = (val) => {
+    if (!val) return '';
+    const [y, m, d] = val.split('-');
     const date = new Date(y, m - 1, d);
-    if (isNaN(date.getTime())) return null;
-    return DIA_SEMANA[date.getDay()];
-}
+    const day = new Intl.DateTimeFormat('es-AR', { weekday: 'short' }).format(date);
+    return day.substring(0, 2).toUpperCase();
+};
 
 function toIso(y, m, d) {
     return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -144,61 +144,62 @@ export default function DateInput({ value, onChange, label, className, showCalen
         setCalendarOpen(false);
     };
 
-    const dayName = dayNameFromIso(value);
+    const dayBrief = showDayName ? getDayBrief(value) : '';
 
     return (
         <div className="w-full" ref={containerRef}>
             {label && <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{label}</label>}
 
-            <div className="relative group flex items-center gap-2">
-                <div className="relative flex-1 min-w-0">
-                    <input
-                        type="text"
-                        placeholder="dd/mm/aaaa"
-                        className={`w-full outline-none transition-colors p-1 ${showCalendarPicker ? 'pr-8' : ''} ${className || "border border-slate-300 rounded text-sm bg-white focus:ring-2 focus:ring-indigo-500"}`}
-                        value={displayValue}
-                        onChange={handleChange}
-                        maxLength={10}
-                    />
-                    {showCalendarPicker && (
-                        <>
-                            <button
-                                type="button"
-                                onClick={() => setCalendarOpen((o) => !o)}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded transition-all duration-200 pointer-events-none group-hover:pointer-events-auto invisible group-hover:visible bg-transparent"
-                                title="Abrir calendario"
-                            >
-                                <IconCalendar size={14} className="text-slate-400 group-hover:text-indigo-600" />
-                            </button>
-                            {calendarOpen && createPortal(
-                                <div
-                                    className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-                                    role="dialog"
-                                    aria-modal="true"
-                                    aria-label="Seleccionar fecha"
-                                >
-                                    <div
-                                        className="absolute inset-0 bg-black/20"
-                                        onClick={() => setCalendarOpen(false)}
-                                        aria-hidden
-                                    />
-                                    <div
-                                        className="relative z-10 bg-white border border-slate-200 rounded-xl shadow-xl p-3"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <MiniCalendar value={value} onSelect={handleCalendarSelect} />
-                                    </div>
-                                </div>,
-                                document.body
-                            )}
-                        </>
-                    )}
-                </div>
-                {showDayName && dayName && (
-                    <span className="text-slate-400 text-sm shrink-0 whitespace-nowrap" aria-hidden>
-                        ({dayName})
+            <div className="relative group">
+                {showDayName && (
+                    <span
+                        className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 group-hover:opacity-0 transition-opacity pointer-events-none"
+                        aria-hidden
+                    >
+                        {dayBrief}
                     </span>
                 )}
+                {showCalendarPicker && (
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => setCalendarOpen((o) => !o)}
+                            className="absolute left-2 top-1/2 -translate-y-1/2 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 text-slate-400 hover:text-indigo-600"
+                            title="Abrir calendario"
+                        >
+                            <IconCalendar size={14} />
+                        </button>
+                        {calendarOpen && createPortal(
+                            <div
+                                className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                                role="dialog"
+                                aria-modal="true"
+                                aria-label="Seleccionar fecha"
+                            >
+                                <div
+                                    className="absolute inset-0 bg-black/20"
+                                    onClick={() => setCalendarOpen(false)}
+                                    aria-hidden
+                                />
+                                <div
+                                    className="relative z-10 bg-white border border-slate-200 rounded-xl shadow-xl p-3"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <MiniCalendar value={value} onSelect={handleCalendarSelect} />
+                                </div>
+                            </div>,
+                            document.body
+                        )}
+                    </>
+                )}
+                <input
+                    type="text"
+                    placeholder="dd/mm/aaaa"
+                    className={`w-full outline-none transition-colors p-1 pl-8 ${className || "border border-slate-300 rounded text-sm bg-white focus:ring-2 focus:ring-indigo-500"}`}
+                    value={displayValue}
+                    onChange={handleChange}
+                    maxLength={10}
+                />
             </div>
         </div>
     );

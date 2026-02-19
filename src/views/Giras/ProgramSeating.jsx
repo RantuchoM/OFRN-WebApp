@@ -635,9 +635,10 @@ export default function ProgramSeating({
         .select("id, instrumento")
         .order("instrumento");
       setInstrumentList(instruments || []);
+      // Solo músicos confirmados del roster de la gira (exclusiones de ensamble ya aplicadas en useGiraRoster)
       const musicians = rawRoster.filter(
         (m) =>
-          m.estado_gira !== "ausente" &&
+          m.estado_gira === "confirmado" &&
           !EXCLUDED_ROLES.includes((m.rol_gira || "musico").toLowerCase()),
       );
       musicians.sort((a, b) => {
@@ -687,21 +688,20 @@ export default function ProgramSeating({
         )
         .order("orden");
 
-      // --- FILTRADO DE AUSENTES EN CONTENEDORES ---
-      // Obtenemos los IDs de músicos que están ausentes en el rawRoster actual
-      const absentIds = new Set(
+      // IDs de integrantes confirmados en esta gira (roster ya filtrado por exclusiones de ensamble)
+      const confirmedRosterIds = new Set(
         rawRoster
-          .filter((m) => m.estado_gira === "ausente")
-          .map((m) => String(m.id)),
+          .filter((m) => m.estado_gira === "confirmado")
+          .map((m) => Number(m.id)),
       );
 
       setContainers(
         conts.map((c) => {
           const containerItems =
-            items?.filter((i) => i.id_contenedor === c.id) || [];
-          // Solo dejamos los ítems de músicos que NO están ausentes
-          const presentItems = containerItems.filter(
-            (item) => !absentIds.has(String(item.id_musico)),
+            items?.filter((i) => Number(i.id_contenedor) === Number(c.id)) || [];
+          // Solo ítems cuyo músico está en el roster confirmado de la gira (no ausentes ni excluidos)
+          const presentItems = containerItems.filter((item) =>
+            confirmedRosterIds.has(Number(item.id_musico)),
           );
 
           return {

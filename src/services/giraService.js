@@ -5,11 +5,14 @@
 
 /**
  * 1. FUNCIÓN INTERNA (NO EXPORTADA)
- * Resuelve los IDs de los integrantes de una gira basándose en las fuentes (Ensambles, Familias)
- * y las excepciones manuales (giras_integrantes).
+ * Resuelve los IDs de los integrantes de una gira:
+ * (Miembros de Ensambles Convocados + Familias Convocadas + Overrides) MINUS (Miembros de Ensambles Excluidos) MINUS (Ausentes).
+ * La exclusión de ensamble manda: si un ensamble está en EXCL_ENSAMBLE, sus miembros no entran aunque su familia esté convocada.
  */
 const resolveGiraRosterIds = async (supabase, giraId) => {
   try {
+    const num = (id) => Number(id);
+
     // A. Traemos configuración de fuentes y overrides
     const [fuentesRes, overridesRes] = await Promise.all([
       supabase.from("giras_fuentes").select("*").eq("id_gira", giraId),
@@ -22,10 +25,9 @@ const resolveGiraRosterIds = async (supabase, giraId) => {
     const fuentes = fuentesRes.data || [];
     const overrides = overridesRes.data || [];
 
-    let integrantesIds = new Set();
+    const integrantesIds = new Set();
 
-    // B. Resolver fuentes dinámicas
-    // Por Ensamble
+    // B. Ensambles convocados (fuentes activas)
     const ensambleIds = fuentes
       .filter((f) => f.tipo === "ENSAMBLE")
       .map((f) => f.valor_id);
@@ -36,10 +38,10 @@ const resolveGiraRosterIds = async (supabase, giraId) => {
         .select("id_integrante")
         .in("id_ensamble", ensambleIds);
 
-      ensambleMembers?.forEach((i) => integrantesIds.add(Number(i.id_integrante)));
+      ensambleMembers?.forEach((i) => integrantesIds.add(num(i.id_integrante)));
     }
 
-    // Por Familia de Instrumento (via id_instr -> instrumentos.familia)
+    // C. Familias convocadas
     const familias = fuentes
       .filter((f) => f.tipo === "FAMILIA")
       .map((f) => f.valor_texto);
@@ -50,26 +52,43 @@ const resolveGiraRosterIds = async (supabase, giraId) => {
         .select("id, instrumentos!inner(familia)")
         .in("instrumentos.familia", familias);
 
-      familiaMembers?.forEach((i) => integrantesIds.add(Number(i.id)));
+      familiaMembers?.forEach((i) => integrantesIds.add(num(i.id)));
     }
 
-    // C. Procesar Overrides (giras_integrantes)
-    // Agregamos a los que están forzados manualmente (Staff, invitados, o correcciones)
+    // D. Overrides: agregar a los forzados manualmente (estado !== ausente)
     overrides.forEach((o) => {
       if (o.estado !== "ausente") {
-        integrantesIds.add(Number(o.id_integrante));
+        integrantesIds.add(num(o.id_integrante));
       }
     });
 
-    // D. Filtro final ineludible: Aplicar Bajas/Ausentes
-    // Si alguien está marcado como 'ausente' en giras_integrantes, lo excluimos.
+    // E. Excluidos por ensamble: sus miembros se sacan siempre (la exclusión manda)
+    const exclEnsambleIds = fuentes
+      .filter((f) => f.tipo === "EXCL_ENSAMBLE")
+      .map((f) => f.valor_id);
+
+    const excludedByEnsamble = new Set();
+    if (exclEnsambleIds.length > 0) {
+      const { data: exclMembers } = await supabase
+        .from("integrantes_ensambles")
+        .select("id_integrante")
+        .in("id_ensamble", exclEnsambleIds);
+
+      exclMembers?.forEach((i) => excludedByEnsamble.add(num(i.id_integrante)));
+    }
+
+    // F. Ausentes (giras_integrantes.estado === 'ausente')
     const ausentesIds = new Set(
       overrides
         .filter((o) => o.estado === "ausente")
-        .map((o) => Number(o.id_integrante)),
+        .map((o) => num(o.id_integrante)),
     );
 
-    return Array.from(integrantesIds).filter((id) => !ausentesIds.has(Number(id)));
+    // Resultado: convocados MINUS excluidos por ensamble MINUS ausentes
+    return Array.from(integrantesIds).filter(
+      (id) =>
+        !excludedByEnsamble.has(num(id)) && !ausentesIds.has(num(id)),
+    );
   } catch (error) {
     console.error("[GiraService] Error resolviendo roster IDs:", error);
     return [];
