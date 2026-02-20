@@ -12,6 +12,15 @@ body {
   @apply bg-slate-50 text-slate-800 transition-colors duration-300;
 }
 
+/* Línea "ahora" en agenda: titileo lento para indicar que es dinámica */
+@keyframes agenda-now-line-pulse {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+.animate-agenda-now-line {
+  animation: agenda-now-line-pulse 2.5s ease-in-out infinite;
+}
+
 /* ========================================= */
 /* MODO OSCURO "MATEMÁTICO" (Invert + Hue)   */
 /* ========================================= */

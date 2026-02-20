@@ -43,6 +43,76 @@ import SearchableSelect from "../ui/SearchableSelect";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
 import { calculateLogisticsSummary } from "../../hooks/useLogistics";
 
+// --- HORA ACTUAL (local del navegador) para línea "ahora" y evento actual ---
+function getNowLocal() {
+  return new Date();
+}
+function getCurrentTimeLocal() {
+  return format(getNowLocal(), "HH:mm");
+}
+function getTodayDateStringLocal() {
+  return format(getNowLocal(), "yyyy-MM-dd");
+}
+function timeStringToMinutes(s) {
+  if (!s) return 0;
+  const [h, m] = (s.slice(0, 5).split(":")).map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+/**
+ * Determina dónde dibujar la línea "ahora":
+ * - { type: 'inside', eventId, progress } si estamos dentro de un evento (progress 0..1)
+ * - { type: 'between', prevId, nextId } si el último evento ya terminó y estamos entre ese y el siguiente
+ * - null si no hay evento "actual" hoy
+ * Con hora_fin: progress = (now - inicio) / (fin - inicio).
+ * Sin hora_fin: progress = (now - inicio) / (siguiente.inicio - inicio).
+ */
+function getNowLinePlacement(filteredItems) {
+  const today = getTodayDateStringLocal();
+  const nowMin = timeStringToMinutes(getCurrentTimeLocal());
+  const todayEvents = filteredItems
+    .filter((i) => !i.isProgramMarker && i.fecha === today)
+    .sort(
+      (a, b) =>
+        timeStringToMinutes(a.hora_inicio) - timeStringToMinutes(b.hora_inicio),
+    );
+  if (todayEvents.length === 0) return null;
+
+  let lastStarted = null;
+  for (const evt of todayEvents) {
+    const startMin = timeStringToMinutes(evt.hora_inicio);
+    if (nowMin >= startMin) lastStarted = evt;
+  }
+  if (!lastStarted) return null;
+
+  const startMin = timeStringToMinutes(lastStarted.hora_inicio);
+  const endMin = lastStarted.hora_fin
+    ? timeStringToMinutes(lastStarted.hora_fin)
+    : null;
+
+  if (endMin != null && nowMin > endMin) {
+    const nextIdx = todayEvents.findIndex((e) => e.id === lastStarted.id) + 1;
+    const nextEvt = todayEvents[nextIdx];
+    if (nextEvt) {
+      return { type: "between", prevId: lastStarted.id, nextId: nextEvt.id };
+    }
+    return null;
+  }
+
+  let endForProgress = endMin;
+  if (endForProgress == null || endForProgress <= startMin) {
+    const nextIdx = todayEvents.findIndex((e) => e.id === lastStarted.id) + 1;
+    const nextEvt = todayEvents[nextIdx];
+    endForProgress = nextEvt
+      ? timeStringToMinutes(nextEvt.hora_inicio)
+      : startMin + 60;
+    if (endForProgress <= startMin) endForProgress = startMin + 60;
+  }
+  const progress = (nowMin - startMin) / (endForProgress - startMin);
+  const clamped = Math.max(0, Math.min(1, progress));
+  return { type: "inside", eventId: lastStarted.id, progress: clamped };
+}
+
 // --- LÓGICA DE FECHA LÍMITE ---
 const getDeadlineStatus = (deadlineISO) => {
   if (!deadlineISO) return { status: "NO_DEADLINE" };
@@ -1530,6 +1600,55 @@ export default function UnifiedAgenda({
     }, {});
   }, [filteredItems]);
 
+  // Dónde va la línea "ahora" (dentro de un evento o entre dos) y evento "actual" para filtro/scroll
+  const linePlacement = useMemo(
+    () => getNowLinePlacement(filteredItems),
+    [filteredItems],
+  );
+
+  const currentEventId = useMemo(() => {
+    if (!linePlacement) return null;
+    if (linePlacement.type === "inside") return linePlacement.eventId;
+    if (linePlacement.type === "between") return linePlacement.nextId;
+    return null;
+  }, [linePlacement]);
+
+  const currentEvent = useMemo(
+    () => filteredItems.find((i) => i.id === currentEventId) ?? null,
+    [filteredItems, currentEventId],
+  );
+
+  // Eventos de hoy que terminan antes de que empiece el evento actual (para colapsar "anteriores")
+  const earlierTodayEventIds = useMemo(() => {
+    if (!currentEvent) return new Set();
+    const today = getTodayDateStringLocal();
+    const currentStart = timeStringToMinutes(currentEvent.hora_inicio);
+    return new Set(
+      filteredItems
+        .filter(
+          (i) =>
+            !i.isProgramMarker &&
+            i.fecha === today &&
+            i.id !== currentEvent.id &&
+            timeStringToMinutes(i.hora_fin || i.hora_inicio) <= currentStart,
+        )
+        .map((i) => i.id),
+    );
+  }, [filteredItems, currentEvent]);
+
+  const [showEarlierToday, setShowEarlierToday] = useState(false);
+
+  // Auto-scroll al evento actual solo al cargar y cuando no hay "anteriores" (no scroll al pulsar "Ver eventos anteriores")
+  useEffect(() => {
+    if (loading || filteredItems.length === 0 || !currentEventId) return;
+    if (earlierTodayEventIds.size > 0) return;
+    const timer = setTimeout(() => {
+      const el = document.querySelector(`[data-event-id="${currentEventId}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [loading, filteredItems.length, currentEventId, earlierTodayEventIds.size]);
+
   const TourDivider = React.memo(({ gira }) => {
     const fechaDesde = gira.fecha_desde
       ? format(parseISO(gira.fecha_desde), "d MMM", { locale: es })
@@ -2046,6 +2165,57 @@ export default function UnifiedAgenda({
                           </div>
                         )}
 
+                        {showDay &&
+                          evt.fecha === getTodayDateStringLocal() &&
+                          earlierTodayEventIds.size > 0 &&
+                          !showEarlierToday && (
+                            <button
+                              type="button"
+                              onClick={() => setShowEarlierToday(true)}
+                              className="w-full px-4 py-2.5 text-left text-sm font-medium text-emerald-700 bg-emerald-50/80 hover:bg-emerald-100/80 border-b border-emerald-100 transition-colors flex items-center gap-2"
+                            >
+                              <IconChevronDown
+                                size={16}
+                                className="rotate-[-90deg]"
+                                aria-hidden
+                              />
+                              Ver eventos anteriores de hoy
+                            </button>
+                          )}
+
+                        {linePlacement?.type === "between" &&
+                          linePlacement.nextId === evt.id && (
+                            <div
+                              className="relative h-2 flex items-center bg-slate-50/50 border-b border-slate-100"
+                              aria-hidden
+                            >
+                              <div
+                                className="absolute left-0 right-0 h-0.5 z-10 pointer-events-none bg-emerald-500/90 animate-agenda-now-line"
+                                style={{
+                                  boxShadow:
+                                    "0 0 10px rgba(16, 185, 129, 0.35)",
+                                }}
+                              />
+                            </div>
+                          )}
+
+                        {!(earlierTodayEventIds.has(evt.id) && !showEarlierToday) && (
+                        <div
+                          data-event-id={evt.id}
+                          className={`relative ${currentEventId === evt.id ? "scroll-mt-24" : ""}`}
+                        >
+                        {linePlacement?.type === "inside" &&
+                          linePlacement.eventId === evt.id && (
+                            <div
+                              className="absolute left-0 right-0 h-0.5 z-10 pointer-events-none bg-emerald-500/90 animate-agenda-now-line"
+                              style={{
+                                top: `${linePlacement.progress * 100}%`,
+                                boxShadow:
+                                  "0 0 10px rgba(16, 185, 129, 0.35)",
+                              }}
+                              aria-hidden
+                            />
+                          )}
                         {/* --- CONTENEDOR MÓVIL (VISIBLE SOLO EN < md) --- */}
                         <div
                           className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-100 transition-colors hover:bg-slate-50 group gap-2
@@ -2581,6 +2751,8 @@ export default function UnifiedAgenda({
                             </div>
                           </div>
                         </div>
+                        </div>
+                        )}
                       </React.Fragment>
                     );
                   })}
