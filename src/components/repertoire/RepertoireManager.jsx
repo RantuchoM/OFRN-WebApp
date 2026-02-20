@@ -1124,17 +1124,23 @@ export default function RepertoireManager({
                 // Está cargada si existe myPartData y tiene URL
                 const hasUploadedPart = !!myPartData?.url;
 
-                // Verde si está cargada, Gris si no (independiente de exclusión)
-                const borderClass = hasUploadedPart
-                  ? "bg-emerald-500"
-                  : "bg-slate-300";
+                // Informativo: azul; Verde si está cargada, Gris si no (independiente de exclusión)
+                const isInformativo = item.obras.estado === "Informativo";
+                const borderClass = isInformativo
+                  ? "bg-blue-500"
+                  : hasUploadedPart
+                    ? "bg-emerald-500"
+                    : "bg-slate-300";
+                const cardBorderClass = isInformativo
+                  ? "border-blue-400 bg-blue-50/50"
+                  : "border-slate-200";
 
                 return (
                   <div
                     key={item.id}
-                    className="bg-white rounded-lg border border-slate-200 shadow-sm p-2 relative overflow-hidden"
+                    className={`rounded-lg border shadow-sm p-2 relative overflow-hidden ${cardBorderClass}`}
                   >
-                    {/* Barra lateral de estado (Cargada/No Cargada) */}
+                    {/* Barra lateral de estado (Informativo / Cargada / No Cargada) */}
                     <div
                       className={`absolute left-0 top-0 bottom-0 w-1 ${borderClass}`}
                     ></div>
@@ -1162,7 +1168,12 @@ export default function RepertoireManager({
 
                     {/* Fila 2: Título Multi-línea */}
                     <div className="pl-2 mb-1">
-                      <MultiLineTitle content={item.obras.titulo} />
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <MultiLineTitle content={item.obras.titulo} />
+                        {item.obras.estado === "Informativo" && (
+                          <span className="text-[8px] bg-blue-100 text-blue-600 px-1 rounded border border-blue-200 align-text-top">INFO</span>
+                        )}
+                      </div>
                       {canSeeInternalNotes && (item.obras.estado === "Solicitud" || item.obras.estado === "Pendiente") && (item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios) && (
                         <div className="group relative w-fit mt-1">
                           <div className="bg-yellow-100 border border-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded-sm shadow-sm flex items-center gap-1 cursor-help transform -rotate-1 hover:rotate-0 transition-transform origin-left max-w-[160px]">
@@ -1330,7 +1341,13 @@ export default function RepertoireManager({
                   {rep.repertorio_obras.map((item, idx) => (
                     <tr
                       key={item.id}
-                      className={`group ${item.obras.estado !== "Oficial" ? "bg-amber-50 hover:bg-amber-100" : "hover:bg-yellow-50"}`}
+                      className={`group ${
+                        item.obras.estado === "Informativo"
+                          ? "bg-blue-50 hover:bg-blue-100 border-l-2 border-blue-400"
+                          : item.obras.estado !== "Oficial"
+                            ? "bg-amber-50 hover:bg-amber-100"
+                            : "hover:bg-yellow-50"
+                      }`}
                     >
                       <td className="p-1 text-center font-bold text-slate-500">
                         <div className="flex flex-col items-center">
@@ -1359,7 +1376,9 @@ export default function RepertoireManager({
                         </div>
                       </td>
                       <td className="p-1 text-center">
-                        {item.google_drive_shortcut_id ? (
+                        {item.obras.estado === "Informativo" ? (
+                          <span className="text-slate-300 text-[10px]" title="Obra informativa (sin archivo)">—</span>
+                        ) : item.google_drive_shortcut_id ? (
                           <IconDrive className="w-3.5 h-3.5 mx-auto text-slate-600" />
                         ) : item.obras.link_drive ? (
                           <a
@@ -1390,7 +1409,12 @@ export default function RepertoireManager({
                         <div className="flex flex-col gap-1 w-full min-w-0">
                           <div className="flex items-center gap-1 flex-wrap">
                             <RichTextPreview content={item.obras.titulo} />
-                            {item.obras.estado !== "Oficial" && (
+                            {item.obras.estado === "Informativo" && (
+                              <span className="ml-1 text-[8px] bg-blue-100 text-blue-600 px-1 rounded border border-blue-200 align-text-top">
+                                INFO
+                              </span>
+                            )}
+                            {(item.obras.estado === "Solicitud" || item.obras.estado === "Pendiente") && (
                               <span className="ml-1 text-[8px] bg-amber-100 text-amber-700 px-1 rounded border border-amber-200 align-text-top">
                                 PEND
                               </span>

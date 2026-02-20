@@ -239,21 +239,20 @@ export default function GirasView({ supabase, trigger = 0 }) {
     fetchCoordinations();
   }, [user, supabase]);
 
-  // Inicializar filterStatus con borradores visibles para coordinadores, admin y editor
+  // Forzar filterStatus según rol al cargar/recargar (isCoord prima sobre isPersonal)
   useEffect(() => {
-    // Incluir coordinadores: si tiene ensambles coordinados (aunque no sea editor/management)
-    const shouldShowDrafts = (isEditor || isManagement || isCoordinator) && !isPersonal;
-    
-    if (user && shouldShowDrafts) {
-      // Añadir "Borrador" al filtro si no está presente
-      setFilterStatus((prev) => {
-        if (!prev.has("Borrador")) {
-          return new Set(["Vigente", "Borrador", "Pausada"]);
-        }
-        return prev;
-      });
+    if (!user) return;
+
+    const isCoord = !isEditor && coordinatedEnsembles.size > 0;
+
+    if (isCoord) {
+      setFilterStatus(new Set(["Vigente", "Borrador"]));
+    } else if (isPersonal) {
+      setFilterStatus(new Set(["Vigente"]));
+    } else if (isEditor || isManagement) {
+      setFilterStatus(new Set(["Vigente", "Borrador", "Pausada"]));
     }
-  }, [user, isEditor, isManagement, isPersonal, isCoordinator]);
+  }, [user, isEditor, isManagement, isPersonal, coordinatedEnsembles.size]);
 
   useEffect(() => {
     fetchGiras();
@@ -932,13 +931,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
   };
 
   const [filterStatus, setFilterStatus] = useState(() => {
-    // Músicos de fila solo ven programas vigentes
+    // Músico de fila: solo Vigente
     if (isPersonal) return new Set(["Vigente"]);
-    // Admin, editor y management ven borradores por defecto
-    if (isEditor || isManagement) {
-      return new Set(["Vigente", "Borrador", "Pausada"]);
-    }
-    // Caso por defecto: todos los estados
+    // Admin/editor/management: Vigente + Borrador + Pausada. Coordinadores se ajustan en useEffect.
     return new Set(["Vigente", "Borrador", "Pausada"]);
   });
   // -----------------------------------------------

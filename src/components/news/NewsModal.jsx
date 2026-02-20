@@ -2,14 +2,20 @@ import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { IconBell, IconX, IconInfo, IconCalendar, IconCheck, IconEye } from "../ui/Icons"; 
 import { useAuth } from "../../context/AuthContext";
+import VideoPlayer from "../ui/VideoPlayer";
 
 // --- UTILIDADES MULTIMEDIA ---
+const isDriveFileLink = (url) => {
+  if (!url || !url.trim().startsWith("http")) return false;
+  return /drive\.google\.com\/(?:file\/d\/|open\?id=|file\/u\/\d+\/d\/)/.test(url.trim());
+};
+
 const processDriveLink = (url) => {
   if (!url) return null;
-  const regex = /(?:drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)|drive\.google\.com\/file\/u\/[0-9]\/d\/)([-a-zA-Z0-9]+)/;
+  const regex = /(?:drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)|drive\.google\.com\/file\/u\/[0-9]\/d\/)([-a-zA-Z0-9_]+)/;
   const match = url.match(regex);
   if (match && match[1]) {
-    return `https://lh3.googleusercontent.com/d/$${match[1]}`;
+    return `https://lh3.googleusercontent.com/d/${match[1]}`;
   }
   return url;
 };
@@ -47,18 +53,26 @@ const NewsContentFull = ({ content }) => {
           );
         }
 
-        if ((trimmed.startsWith("http") && trimmed.includes("drive.google.com")) || trimmed.match(/\.(jpeg|jpg|gif|png)$/i)) {
-           return (
-             <div key={idx} className="flex justify-center my-4">
-               <img 
-                 src={processDriveLink(trimmed)} 
-                 alt="Adjunto" 
-                 referrerPolicy="no-referrer"
-                 className="max-h-[500px] w-auto rounded-lg shadow-md border border-slate-100 object-contain" 
-                 onError={(e) => e.target.style.display = 'none'}
-               />
-             </div>
-           );
+        if (trimmed.startsWith("http") && isDriveFileLink(trimmed)) {
+          return (
+            <div key={idx} className="my-4">
+              <VideoPlayer url={trimmed} />
+            </div>
+          );
+        }
+
+        if (trimmed.match(/\.(jpeg|jpg|gif|png)(\?|$)/i)) {
+          return (
+            <div key={idx} className="flex justify-center my-4">
+              <img
+                src={trimmed.startsWith("http") && trimmed.includes("drive.google.com") ? processDriveLink(trimmed) : trimmed}
+                alt="Adjunto"
+                referrerPolicy="no-referrer"
+                className="max-h-[500px] w-auto rounded-lg shadow-md border border-slate-100 object-contain"
+                onError={(e) => (e.target.style.display = "none")}
+              />
+            </div>
+          );
         }
 
         return <div key={idx} dangerouslySetInnerHTML={{ __html: line }} />;
@@ -303,6 +317,11 @@ export default function NewsModal({ supabase }) {
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-slate-50/30">
+                        {selectedNews.video_url && (
+                          <div className="mb-6">
+                            <VideoPlayer url={selectedNews.video_url} />
+                          </div>
+                        )}
                         <NewsContentFull content={selectedNews.contenido} />
                     </div>
 

@@ -6,6 +6,7 @@ import {
   IconChevronLeft, IconChevronRight, IconList,
   IconFolderPlus, IconEdit, IconPlus
 } from '../../components/ui/Icons';
+import VideoPlayer from '../ui/VideoPlayer';
 
 export default function ManualModal({ isOpen, onClose, article, currentKey, navigation, onNavigate, loading, error }) {
   const navigate = useNavigate();
@@ -110,9 +111,7 @@ export default function ManualModal({ isOpen, onClose, article, currentKey, navi
             ) : article ? (
               <div className="space-y-8 pb-4">
                 {article.video_url && (
-                  <div className="aspect-video w-full rounded-xl overflow-hidden shadow-lg bg-black ring-1 ring-black/10">
-                     <iframe width="100%" height="100%" src={article.video_url.replace("watch?v=", "embed/")} title="Video" frameBorder="0" allowFullScreen></iframe>
-                  </div>
+                  <VideoPlayer url={article.video_url} />
                 )}
                 <div className="prose prose-slate prose-headings:text-sky-900 prose-a:text-sky-600 max-w-none" dangerouslySetInnerHTML={{ __html: article.content }} />
                 

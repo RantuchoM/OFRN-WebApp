@@ -24,6 +24,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 import { manualService } from "../../services/manualService";
+import VideoPlayer from "../../components/ui/VideoPlayer";
 import {
   IconPlus,
   IconSave,
@@ -753,10 +754,20 @@ export default function ManualAdmin({ supabase }) {
                     onChange={(e) =>
                       setFormData({ ...formData, video_url: e.target.value })
                     }
+                    placeholder="YouTube, Google Drive o Vimeo"
                     className="w-full p-2 border border-slate-300 rounded text-sm"
                   />
                 </div>
               </div>
+
+              {formData.video_url?.trim() && (
+                <div className="col-span-12 mt-2">
+                  <span className="block text-xs font-bold text-slate-500 uppercase mb-2">Vista previa del video</span>
+                  <div className="max-w-2xl">
+                    <VideoPlayer url={formData.video_url.trim()} />
+                  </div>
+                </div>
+              )}
 
               <div className="bg-white rounded-lg border border-slate-300 shadow-sm overflow-hidden flex flex-col h-[600px]">
                 <ReactQuill

@@ -19,6 +19,7 @@ import {
   IconFileText,
   IconMessageSquare,
   IconUserPlus,
+  IconCopy,
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { useAuth } from "../../context/AuthContext";
@@ -918,6 +919,58 @@ export default function WorkForm({
     }
   };
 
+  const handleDuplicateAsArrangement = async () => {
+    if (!formData.id || !user?.id) {
+      toast.error("No se puede duplicar: obra no guardada o sesión inválida.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const payload = {
+        titulo: formData.titulo,
+        duracion_segundos: inputToSeconds(formData.duracion),
+        anio_composicion: formData.anio ? parseInt(formData.anio) : null,
+        estado: formData.estado,
+        fecha_esperada: formData.estado === "Solicitud" ? (formData.fecha_esperada || null) : null,
+        observaciones: formData.observaciones || null,
+        comentarios: formData.comentarios || null,
+        link_youtube: formData.link_youtube || null,
+        link_drive: null,
+        id_usuario_carga: user.id,
+      };
+
+      const { data, error } = await supabase
+        .from("obras")
+        .insert([payload])
+        .select()
+        .single();
+
+      if (error) throw error;
+      const newId = data.id;
+
+      const { data: relations, error: relError } = await supabase
+        .from("obras_compositores")
+        .select("rol, id_compositor")
+        .eq("id_obra", formData.id);
+
+      if (relError) throw relError;
+      if (relations?.length > 0) {
+        await supabase.from("obras_compositores").insert(
+          relations.map((r) => ({ id_obra: newId, id_compositor: r.id_compositor, rol: r.rol })),
+        );
+      }
+
+      await fetchWorkDetails(newId);
+      if (onSave) onSave(newId, true);
+      toast.success("Nuevo arreglo creado. Puedes editar instrumentación y Drive.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Error al crear el nuevo arreglo: " + (err.message || "Error desconocido"));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleAddParts = () => {
     let selectedId = genInstrument;
     const filtered = [...INSTRUMENT_GROUPS, ...instrumentList].filter((i) =>
@@ -1093,6 +1146,7 @@ export default function WorkForm({
             >
               <option value="Oficial">Oficial</option>
               <option value="Solicitud">Solicitud</option>
+              <option value="Informativo">Informativo</option>
             </select>
           </div>
 
@@ -1625,6 +1679,17 @@ export default function WorkForm({
         >
           Cerrar
         </button>
+        {formData.id && (
+          <button
+            type="button"
+            onClick={handleDuplicateAsArrangement}
+            disabled={isSaving}
+            className="flex-1 py-3 border-2 border-indigo-400 rounded-xl text-indigo-600 font-bold hover:bg-indigo-50 transition-colors flex justify-center items-center gap-2 disabled:opacity-50"
+          >
+            {isSaving ? <IconLoader className="animate-spin" size={18} /> : <IconCopy size={18} />}
+            Nuevo Arreglo
+          </button>
+        )}
         {!formData.id ? (
           <button
             onClick={handleCreateInitial}
