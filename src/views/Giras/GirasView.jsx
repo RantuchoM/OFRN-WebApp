@@ -19,6 +19,7 @@ import {
   IconUtensils,
   IconLayoutDashboard,
   IconEdit,
+  IconTrash,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
@@ -43,6 +44,7 @@ import CommentButton from "../../components/comments/CommentButton";
 import GiraDifusion from "./GiraDifusion";
 import SectionStatusControl from "../../components/giras/SectionStatusControl";
 import { deleteGira } from "../../services/giraActions";
+import { toast } from "sonner";
 
 // Componentes Modularizados
 import GirasListControls from "./GirasListControls";
@@ -171,6 +173,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
     token_publico: "",
     nomenclador: "",
     estado: "Borrador",
+    notificaciones_habilitadas: true, // default true
   });
   const [selectedLocations, setSelectedLocations] = useState(new Set());
   const [selectedSources, setSelectedSources] = useState([]);
@@ -235,6 +238,22 @@ export default function GirasView({ supabase, trigger = 0 }) {
     };
     fetchCoordinations();
   }, [user, supabase]);
+
+  // Inicializar filterStatus con borradores visibles para coordinadores, admin y editor
+  useEffect(() => {
+    // Incluir coordinadores: si tiene ensambles coordinados (aunque no sea editor/management)
+    const shouldShowDrafts = (isEditor || isManagement || isCoordinator) && !isPersonal;
+    
+    if (user && shouldShowDrafts) {
+      // Añadir "Borrador" al filtro si no está presente
+      setFilterStatus((prev) => {
+        if (!prev.has("Borrador")) {
+          return new Set(["Vigente", "Borrador", "Pausada"]);
+        }
+        return prev;
+      });
+    }
+  }, [user, isEditor, isManagement, isPersonal, isCoordinator]);
 
   useEffect(() => {
     fetchGiras();
@@ -447,6 +466,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       token_publico: gira.token_publico || "",
       nomenclador: gira.nomenclador || "",
       estado: gira.estado || "Borrador",
+      notificaciones_habilitadas: gira.notificaciones_habilitadas !== false, // default true
     });
     const { data } = await supabase
       .from("giras_localidades")
@@ -585,6 +605,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       token_publico: formData.token_publico || null,
       estado: formData.estado || "Borrador",
       nomenclador: formData.nomenclador || null,
+      notificaciones_habilitadas: formData.notificaciones_habilitadas !== false, // default true
     };
 
     // Ajuste de seguridad para coordinadores
@@ -717,62 +738,168 @@ export default function GirasView({ supabase, trigger = 0 }) {
     setLoading(false);
   };
   const handleDeleteGira = async (gira) => {
-    if (
-      !window.confirm(
-        `¿Estás SEGURO de que quieres eliminar la gira "${gira.nombre_gira}"?`,
-      )
-    )
-      return;
-    setActionLoading(true);
-    try {
-      // 1) Usar la misma lógica que el roster: fetchRosterForGira (fuentes + overrides)
-      const { roster } = await fetchRosterForGira(supabase, gira);
-      const confirmadosConMail = roster.filter(
-        (m) => m.estado_gira === "confirmado" && m.mail,
-      );
-      const emails = confirmadosConMail.map((m) => m.mail);
-      const primerNombre = confirmadosConMail[0]?.nombre_completo || "Participante";
+    // Verificar condiciones para mostrar checkbox
+    const puedeMostrarCheckbox = gira.notificacion_inicial_enviada === true;
+    const puedeNotificar =
+      puedeMostrarCheckbox && gira.notificaciones_habilitadas !== false;
 
-      // 2) Enviar mail de cancelación (si hay destinatarios) ANTES de llamar a deleteGira
-      if (emails.length > 0) {
-        const { data: mailData, error: mailError } = await supabase.functions.invoke(
-          "mails_produccion",
-          {
-            body: {
-              action: "enviar_mail",
-              templateId: "convocatoria_gira",
-              bcc: emails,
-              nombre: primerNombre,
-              gira: gira.nombre_gira,
-              detalle: {
-                variant: "GIRA_ELIMINADA",
-                nomenclador: gira.nomenclador || gira.nombre_gira,
-                fecha_desde: gira.fecha_desde || "",
-                fecha_hasta: gira.fecha_hasta || "",
-                zona: gira.zona || "",
-                reason: "La gira ha sido cancelada definitivamente y eliminada del cronograma.",
-              },
-            },
-          },
-        );
-        if (mailError || mailData?.error) {
-          const msg = mailError?.message || mailData?.error || "Error desconocido";
-          const continuar = window.confirm(
-            `No se pudo enviar el correo de baja a los integrantes: ${msg}. ¿Eliminar la gira de todos modos?`,
-          );
-          if (!continuar) {
-            setActionLoading(false);
-            return;
-          }
-        }
-      }
-      // 3) Solo después eliminar la gira
-      const res = await deleteGira(gira.id);
-      if (res.success) fetchGiras();
-      else alert(`Error al eliminar: ${res.error}`);
-    } finally {
-      setActionLoading(false);
-    }
+    // Componente del toast con estado para el checkbox
+    const DeleteConfirmToast = ({ onConfirm, onCancel }) => {
+      const [shouldNotify, setShouldNotify] = useState(puedeNotificar);
+
+      return (
+        <div className="bg-white border border-slate-200 rounded-lg shadow-xl p-4 min-w-[320px] max-w-md">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="p-2 bg-red-50 rounded-lg">
+              <IconTrash size={20} className="text-red-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-slate-800 mb-1">
+                ¿Confirmas la eliminación?
+              </h3>
+              <p className="text-sm text-slate-600">
+                Se eliminará la gira <strong>"{gira.nombre_gira}"</strong>
+              </p>
+            </div>
+          </div>
+
+          {puedeMostrarCheckbox && (
+            <label
+              className={`flex items-center gap-2 mb-4 p-2 rounded ${
+                puedeNotificar
+                  ? "hover:bg-slate-50 cursor-pointer"
+                  : "opacity-60 cursor-not-allowed"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={shouldNotify}
+                disabled={!puedeNotificar}
+                onChange={(e) => {
+                  if (puedeNotificar) {
+                    setShouldNotify(e.target.checked);
+                  }
+                }}
+                className="rounded text-indigo-600 accent-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+              <span className="text-sm text-slate-700">
+                Notificar esta cancelación a los músicos confirmados
+                {!puedeNotificar && (
+                  <span className="text-xs text-slate-400 ml-1">
+                    (notificaciones desactivadas)
+                  </span>
+                )}
+              </span>
+            </label>
+          )}
+
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={onCancel}
+              className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => onConfirm(shouldNotify)}
+              className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <IconTrash size={16} />
+              Confirmar
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    const toastId = toast.custom(
+      (t) => (
+        <DeleteConfirmToast
+          onConfirm={async (shouldNotify) => {
+            toast.dismiss(t);
+            const loadingToastId = toast.loading(
+              "Procesando eliminación y notificaciones...",
+            );
+            setActionLoading(true);
+
+            try {
+              // 1) Obtener roster de confirmados
+              const { roster } = await fetchRosterForGira(supabase, gira);
+              const confirmadosConMail = roster.filter(
+                (m) => m.estado_gira === "confirmado" && m.mail,
+              );
+              const emails = confirmadosConMail.map((m) => m.mail);
+              const primerNombre =
+                confirmadosConMail[0]?.nombre_completo || "Participante";
+
+              // 2) Enviar mail de cancelación si está marcado y hay destinatarios
+              if (shouldNotify && emails.length > 0) {
+                const { data: mailData, error: mailError } =
+                  await supabase.functions.invoke("mails_produccion", {
+                    body: {
+                      action: "enviar_mail",
+                      templateId: "convocatoria_gira",
+                      bcc: emails,
+                      nombre: primerNombre,
+                      gira: gira.nombre_gira,
+                      detalle: {
+                        variant: "GIRA_ELIMINADA",
+                        nomenclador: gira.nomenclador || gira.nombre_gira,
+                        fecha_desde: gira.fecha_desde || "",
+                        fecha_hasta: gira.fecha_hasta || "",
+                        zona: gira.zona || "",
+                        reason:
+                          "La gira ha sido cancelada definitivamente y eliminada del cronograma.",
+                      },
+                    },
+                  });
+
+                if (mailError || mailData?.error) {
+                  const msg =
+                    mailError?.message || mailData?.error || "Error desconocido";
+                  toast.error(
+                    `No se pudo enviar el correo: ${msg}. La gira no se eliminará.`,
+                    { id: loadingToastId },
+                  );
+                  setActionLoading(false);
+                  return;
+                }
+              }
+
+              // 3) Eliminar la gira
+              const res = await deleteGira(gira.id);
+              if (res.success) {
+                toast.success(
+                  `Gira "${gira.nombre_gira}" eliminada correctamente${
+                    shouldNotify && emails.length > 0
+                      ? ` y ${emails.length} músico(s) notificado(s)`
+                      : ""
+                  }.`,
+                  { id: loadingToastId },
+                );
+                fetchGiras();
+              } else {
+                toast.error(`Error al eliminar: ${res.error}`, {
+                  id: loadingToastId,
+                });
+              }
+            } catch (err) {
+              console.error("Error eliminando gira:", err);
+              toast.error(
+                `Error inesperado: ${err.message || "Error desconocido"}`,
+                { id: loadingToastId },
+              );
+            } finally {
+              setActionLoading(false);
+            }
+          }}
+          onCancel={() => toast.dismiss(t)}
+        />
+      ),
+      {
+        duration: Infinity, // Toast persistente hasta que el usuario interactúe
+      },
+    );
   };
   const startEdit = async (gira) => {
     loadGiraIntoForm(gira);
@@ -805,7 +932,13 @@ export default function GirasView({ supabase, trigger = 0 }) {
   };
 
   const [filterStatus, setFilterStatus] = useState(() => {
+    // Músicos de fila solo ven programas vigentes
     if (isPersonal) return new Set(["Vigente"]);
+    // Admin, editor y management ven borradores por defecto
+    if (isEditor || isManagement) {
+      return new Set(["Vigente", "Borrador", "Pausada"]);
+    }
+    // Caso por defecto: todos los estados
     return new Set(["Vigente", "Borrador", "Pausada"]);
   });
   // -----------------------------------------------

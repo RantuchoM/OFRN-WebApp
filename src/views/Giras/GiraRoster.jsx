@@ -26,6 +26,7 @@ import {
   IconArrowRight,
   IconPhone,
   IconSend,
+  IconBell,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { DEFAULT_ROL_ID } from "../../utils/giraUtils";
@@ -222,6 +223,18 @@ export default function GiraRoster({
   const notificacionInicialEnviada = gira?.notificacion_inicial_enviada === true;
   const [sendingInitial, setSendingInitial] = useState(false);
   const [pendingNotifications, setPendingNotifications] = useState([]);
+  const [notificacionesHabilitadas, setNotificacionesHabilitadas] = useState(
+    gira?.notificaciones_habilitadas !== false, // default true
+  );
+  const [localNotificacionInicialEnviada, setLocalNotificacionInicialEnviada] = useState(
+    gira?.notificacion_inicial_enviada === true,
+  );
+
+  // Sincronizar estado cuando cambia la gira
+  useEffect(() => {
+    setNotificacionesHabilitadas(gira?.notificaciones_habilitadas !== false);
+    setLocalNotificacionInicialEnviada(gira?.notificacion_inicial_enviada === true);
+  }, [gira?.id, gira?.notificaciones_habilitadas, gira?.notificacion_inicial_enviada]);
 
   // UI States
   const [addMode, setAddMode] = useState(null);
@@ -606,7 +619,7 @@ export default function GiraRoster({
   const toggleStatus = async (musician) => {
     const newStatus =
       musician.estado_gira === "confirmado" ? "ausente" : "confirmado";
-    if (notificacionInicialEnviada && musician.mail) {
+    if (notificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
       const variant = newStatus === "ausente" ? "AUSENTE" : "ALTA";
       const nombreCompleto = musician.nombre_completo || `${musician.nombre || ""} ${musician.apellido || ""}`.trim();
       const reason = newStatus === "ausente" ? "Se te marcó como ausente" : undefined;
@@ -676,7 +689,7 @@ export default function GiraRoster({
       await supabase.from("giras_fuentes").insert(inserts);
     setAddMode(null);
     const newRoster = await refreshRoster();
-    if (notificacionInicialEnviada && Array.isArray(newRoster)) {
+    if (notificacionInicialEnviada && notificacionesHabilitadas && Array.isArray(newRoster)) {
       const newIds = new Set(newRoster.map((m) => m.id));
       const added = newRoster.filter(
         (m) =>
@@ -764,7 +777,7 @@ export default function GiraRoster({
       rol: "musico",
     });
     if (!error) {
-      if (notificacionInicialEnviada && musicianData?.mail) {
+      if (notificacionInicialEnviada && notificacionesHabilitadas && musicianData?.mail) {
         const nombreCompleto =
           musicianData.nombre_completo ||
           `${musicianData.apellido || ""}, ${musicianData.nombre || ""}`.trim();
@@ -788,7 +801,7 @@ export default function GiraRoster({
   const removeMemberManual = async (id) => {
     if (!confirm("¿Eliminar registro manual?")) return;
     const member = localRoster.find((m) => m.id === id);
-    if (notificacionInicialEnviada && member?.mail) {
+    if (notificacionInicialEnviada && notificacionesHabilitadas && member?.mail) {
       setPendingNotifications((prev) => [
         ...prev,
         {
@@ -850,6 +863,7 @@ export default function GiraRoster({
         tipo_notificacion: "INITIAL_BROADCAST",
       });
 
+      setLocalNotificacionInicialEnviada(true);
       onNotificacionInicialSent?.();
       toast.success(
         `Notificación inicial enviada a ${bcc.length} integrante(s).`,
@@ -858,10 +872,87 @@ export default function GiraRoster({
       refreshRoster();
     } catch (err) {
       console.error(err);
-      toast.error("Error al enviar la notificación inicial.", { id: toastId });
+      toast.error("Error al enviar notificación inicial: " + err.message, {
+        id: toastId,
+      });
     } finally {
       setSendingInitial(false);
     }
+  };
+
+  const bypassNotificaciones = async () => {
+    const toastConfirmId = toast.custom(
+      (t) => (
+        <div className="bg-white border border-slate-200 rounded-lg shadow-xl p-4 min-w-[320px] max-w-md">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="p-2 bg-amber-50 rounded-lg">
+              <IconBell size={20} className="text-amber-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-slate-800 mb-1">
+                Desactivar notificaciones
+              </h3>
+              <p className="text-sm text-slate-600">
+                ¿Confirmas que esta gira no requiere envío de mails? Se
+                desactivarán las notificaciones automáticas para este programa.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => toast.dismiss(t)}
+              className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={async () => {
+                toast.dismiss(t);
+                setSendingInitial(true);
+                const toastId = toast.loading("Desactivando notificaciones...");
+    try {
+      // Actualizar ambos campos en una sola llamada para consistencia
+      const { error } = await supabase
+        .from("programas")
+        .update({
+          notificacion_inicial_enviada: true,
+          notificaciones_habilitadas: false,
+        })
+        .eq("id", gira.id);
+
+      if (error) throw error;
+
+      // Actualizar estado local inmediatamente
+      setLocalNotificacionInicialEnviada(true);
+      setNotificacionesHabilitadas(false);
+      // Limpiar cualquier notificación pendiente
+      setPendingNotifications([]);
+
+                toast.success("Notificaciones desactivadas para esta gira.", {
+                  id: toastId,
+                });
+                onNotificacionInicialSent?.();
+                refreshRoster();
+              } catch (err) {
+                console.error(err);
+                toast.error("Error al desactivar notificaciones: " + err.message, {
+                  id: toastId,
+                });
+              } finally {
+                setSendingInitial(false);
+              }
+            }}
+              className="px-4 py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors"
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+      ),
+      {
+        duration: Infinity,
+      },
+    );
   };
 
   const handleLiberarPlaza = async (integrante) => {
@@ -1111,24 +1202,36 @@ export default function GiraRoster({
       </div>
 
       {/* BANNER NOTIFICACIÓN INICIAL */}
-      {!notificacionInicialEnviada && (
+      {!localNotificacionInicialEnviada && (
         <div className="mx-4 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-amber-800 font-medium">
+          <p className="text-sm text-amber-800 font-medium flex-1 min-w-0">
             La notificación inicial de esta gira aún no ha sido enviada. Los cambios en la nómina no generarán mails hasta que la envíes.
           </p>
-          <button
-            type="button"
-            onClick={sendNotificacionInicial}
-            disabled={sendingInitial || listaConfirmados.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow-sm transition-colors"
-          >
-            {sendingInitial ? (
-              <IconLoader size={16} className="animate-spin" />
-            ) : (
-              <IconSend size={16} />
-            )}
-            Notificar a todos ahora
-          </button>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={sendNotificacionInicial}
+              disabled={sendingInitial || listaConfirmados.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow-sm transition-colors"
+            >
+              {sendingInitial ? (
+                <IconLoader size={16} className="animate-spin" />
+              ) : (
+                <IconSend size={16} />
+              )}
+              Notificar a todos ahora
+            </button>
+            <button
+              type="button"
+              onClick={bypassNotificaciones}
+              disabled={sendingInitial}
+              className="flex items-center gap-1.5 px-3 py-2 text-amber-700 hover:text-amber-900 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium underline decoration-amber-400 hover:decoration-amber-600 transition-colors"
+              title="Marcar esta gira como que no requiere notificaciones"
+            >
+              <IconX size={14} />
+              No requiere notificaciones
+            </button>
+          </div>
         </div>
       )}
 
@@ -1201,6 +1304,42 @@ export default function GiraRoster({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Toggle Notificaciones Automáticas */}
+          <button
+            type="button"
+            onClick={async () => {
+              const newValue = !notificacionesHabilitadas;
+              setNotificacionesHabilitadas(newValue);
+              // Si se desactiva, limpiar cola de notificaciones pendientes
+              if (!newValue) {
+                setPendingNotifications([]);
+              }
+              // Actualizar en BD
+              await supabase
+                .from("programas")
+                .update({ notificaciones_habilitadas: newValue })
+                .eq("id", gira.id);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded text-xs font-bold transition-all ${
+              notificacionesHabilitadas
+                ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                : "bg-slate-100 border-slate-300 text-slate-500 hover:bg-slate-200"
+            }`}
+            title={
+              notificacionesHabilitadas
+                ? "Notificaciones automáticas activadas"
+                : "Notificaciones automáticas pausadas"
+            }
+          >
+            <IconBell
+              size={14}
+              className={notificacionesHabilitadas ? "" : "opacity-50"}
+            />
+            <span className="hidden sm:inline">
+              {notificacionesHabilitadas ? "Notif. ON" : "Notif. OFF"}
+            </span>
+          </button>
+
           <div className="relative" ref={columnMenuRef}>
             <button
               onClick={() => setShowColumnMenu(!showColumnMenu)}
