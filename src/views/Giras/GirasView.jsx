@@ -22,7 +22,7 @@ import {
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useGiraRoster, fetchRosterForGira } from "../../hooks/useGiraRoster";
 import { useLogistics } from "../../hooks/useLogistics";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
@@ -724,10 +724,55 @@ export default function GirasView({ supabase, trigger = 0 }) {
     )
       return;
     setActionLoading(true);
-    const res = await deleteGira(gira.id);
-    setActionLoading(false);
-    if (res.success) fetchGiras();
-    else alert(`Error al eliminar: ${res.error}`);
+    try {
+      // 1) Usar la misma lógica que el roster: fetchRosterForGira (fuentes + overrides)
+      const { roster } = await fetchRosterForGira(supabase, gira);
+      const confirmadosConMail = roster.filter(
+        (m) => m.estado_gira === "confirmado" && m.mail,
+      );
+      const emails = confirmadosConMail.map((m) => m.mail);
+      const primerNombre = confirmadosConMail[0]?.nombre_completo || "Participante";
+
+      // 2) Enviar mail de cancelación (si hay destinatarios) ANTES de llamar a deleteGira
+      if (emails.length > 0) {
+        const { data: mailData, error: mailError } = await supabase.functions.invoke(
+          "mails_produccion",
+          {
+            body: {
+              action: "enviar_mail",
+              templateId: "convocatoria_gira",
+              bcc: emails,
+              nombre: primerNombre,
+              gira: gira.nombre_gira,
+              detalle: {
+                variant: "GIRA_ELIMINADA",
+                nomenclador: gira.nomenclador || gira.nombre_gira,
+                fecha_desde: gira.fecha_desde || "",
+                fecha_hasta: gira.fecha_hasta || "",
+                zona: gira.zona || "",
+                reason: "La gira ha sido cancelada definitivamente y eliminada del cronograma.",
+              },
+            },
+          },
+        );
+        if (mailError || mailData?.error) {
+          const msg = mailError?.message || mailData?.error || "Error desconocido";
+          const continuar = window.confirm(
+            `No se pudo enviar el correo de baja a los integrantes: ${msg}. ¿Eliminar la gira de todos modos?`,
+          );
+          if (!continuar) {
+            setActionLoading(false);
+            return;
+          }
+        }
+      }
+      // 3) Solo después eliminar la gira
+      const res = await deleteGira(gira.id);
+      if (res.success) fetchGiras();
+      else alert(`Error al eliminar: ${res.error}`);
+    } finally {
+      setActionLoading(false);
+    }
   };
   const startEdit = async (gira) => {
     loadGiraIntoForm(gira);
@@ -1074,6 +1119,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
             gira={selectedGira}
             onBack={() => updateView("LIST")}
             onDataChange={handleChildDataChange}
+            onNotificacionInicialSent={() => fetchGiras()}
           />
         )}
         {mode === "DIFUSION" && selectedGira && (

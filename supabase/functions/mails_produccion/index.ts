@@ -175,7 +175,105 @@ const templates = {
       </body>
       </html>
     `;
-  }
+  },
+
+  // 4. Convocatoria de gira (inicial o individual: Alta, Baja, Ausente, GIRA_ELIMINADA)
+  convocatoria_gira: (nombre: string, gira: string, d: any) => {
+    const variant = (d?.variant || "INITIAL_BROADCAST").toUpperCase();
+    const linkRepertorio = d?.link_repertorio || "";
+    const nomenclador = d?.nomenclador || gira;
+    const reason = d?.reason || "";
+    const rawDesde = d?.fecha_desde || "";
+    const rawHasta = d?.fecha_hasta || "";
+    const zona = d?.zona || "";
+    const fmtDate = (s: string) => {
+      if (!s) return "";
+      const match = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return match ? `${match[3]}/${match[2]}/${match[1]}` : s;
+    };
+    const fechaDesde = fmtDate(rawDesde);
+    const fechaHasta = fmtDate(rawHasta);
+    const fechasZonaBlock =
+      fechaDesde || fechaHasta || zona
+        ? `<p style="margin: 12px 0; padding: 10px; background: #f8fafc; border-radius: 4px; font-size: 13px;"><strong>Fechas:</strong> ${fechaDesde && fechaHasta ? `${fechaDesde} – ${fechaHasta}` : fechaDesde || fechaHasta || "—"}${zona ? ` &nbsp;|&nbsp; <strong>Zona:</strong> ${zona}` : ""}</p>`
+        : "";
+    const reasonBlock = reason
+      ? `<p style="margin: 10px 0; padding: 10px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px; font-size: 13px;"><strong>Motivo:</strong> ${reason}</p>`
+      : "";
+
+    let titulo = "Convocatoria OFRN";
+    let parrafo = "";
+
+    if (variant === "INITIAL_BROADCAST") {
+      titulo = "Convocatoria a gira";
+      parrafo = `
+        <p>Hola ${nombre},</p>
+        <p>Te convocamos a la gira <strong>${gira}</strong> (${nomenclador}).</p>
+        ${fechasZonaBlock}
+        <p>Podés consultar el repertorio y material en el siguiente enlace:</p>
+        <p><a href="${linkRepertorio || "#"}" style="color:#4f46e5; font-weight:bold;">Ver repertorio y material de la gira</a></p>
+        <p>Cualquier consulta, respondé a este correo.</p>
+      `;
+    } else if (variant === "ALTA") {
+      titulo = "Alta en gira";
+      parrafo = `
+        <p>Hola ${nombre},</p>
+        <p>Fuiste dado/a de <strong>alta</strong> en la gira <strong>${gira}</strong> (${nomenclador}).</p>
+        ${reasonBlock}
+        ${fechasZonaBlock}
+        ${linkRepertorio ? `<p><a href="${linkRepertorio}" style="color:#4f46e5; font-weight:bold;">Ver repertorio y material</a></p>` : ""}
+        <p>Saludos.</p>
+      `;
+    } else if (variant === "BAJA") {
+      titulo = "Baja de gira";
+      parrafo = `
+        <p>Hola ${nombre},</p>
+        <p>Se registró tu <strong>baja</strong> de la gira <strong>${gira}</strong> (${nomenclador}).</p>
+        ${reasonBlock}
+        ${fechasZonaBlock}
+        <p>Si tenés dudas, respondé a este correo.</p>
+      `;
+    } else if (variant === "AUSENTE") {
+      titulo = "Ausencia en gira";
+      parrafo = `
+        <p>Hola ${nombre},</p>
+        <p>Se registró tu situación de <strong>ausente</strong> en la gira <strong>${gira}</strong> (${nomenclador}).</p>
+        ${reasonBlock}
+        ${fechasZonaBlock}
+        <p>Para cualquier cambio, contactá a la administración.</p>
+      `;
+    } else if (variant === "GIRA_ELIMINADA") {
+      titulo = "Gira cancelada";
+      const nombreGiraUnico = gira || nomenclador || "esta gira";
+      parrafo = `
+        <p>Hola ${nombre},</p>
+        <p>Te informamos que la gira <strong>${nombreGiraUnico}</strong> ha sido <strong>cancelada definitivamente</strong> y eliminada del cronograma.</p>
+        ${fechasZonaBlock}
+        <p>Si tenés consultas, contactá a la administración.</p>
+      `;
+    } else {
+      parrafo = `<p>Hola ${nombre},</p><p>Actualización sobre la gira <strong>${gira}</strong> (${nomenclador}).</p>${reasonBlock}${fechasZonaBlock}`;
+    }
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; font-size: 14px; }
+          .box { border-left: 4px solid #4f46e5; background-color: #f5f3ff; padding: 15px; margin: 20px 0; border-radius: 4px; }
+        </style>
+      </head>
+      <body>
+        <div class="box">
+          <h2 style="margin-top:0; color: #111;">${titulo}</h2>
+          ${parrafo}
+        </div>
+        <p style="color: #666; font-size: 12px;">Orquesta Filarmónica de Río Negro – Sistema de Gestión</p>
+      </body>
+      </html>
+    `;
+  },
 };
 
 // --- HANDLER PRINCIPAL ---
@@ -208,6 +306,14 @@ serve(async (req) => {
         subject = `Confirmación de Comidas | ${nombreGira}`;
       } else if (tid === 'nueva_obra') {
         subject = `[Repertorio] Nueva Obra: ${detalle?.titulo || 'Sin título'}`;
+      } else if (tid === 'convocatoria_gira') {
+        const v = (detalle?.variant || 'INITIAL_BROADCAST').toUpperCase();
+        if (v === 'INITIAL_BROADCAST') subject = `Convocatoria a gira | ${nombreGira}`;
+        else if (v === 'ALTA') subject = `Alta en gira | ${nombreGira}`;
+        else if (v === 'BAJA') subject = `Baja de gira | ${nombreGira}`;
+        else if (v === 'AUSENTE') subject = `Ausencia en gira | ${nombreGira}`;
+        else if (v === 'GIRA_ELIMINADA') subject = `Gira cancelada | ${nombreGira}`;
+        else subject = `Convocatoria OFRN | ${nombreGira}`;
       }
 
       const transporter = nodemailer.createTransport({

@@ -448,18 +448,41 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [historyWork, setHistoryWork] = useState(null);
   const [assignWork, setAssignWork] = useState(null);
   const [showInstrFilter, setShowInstrFilter] = useState(false);
+  const [showSolicitudes, setShowSolicitudes] = useState(false);
+  const solicitudesRef = useRef(null);
+  useEffect(() => {
+    const handleClickOutside = (e) => { if (solicitudesRef.current && !solicitudesRef.current.contains(e.target)) setShowSolicitudes(false); };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Visibilidad Columnas
   const [visibleColumns, setVisibleColumns] = useState({ compositor: true, obra: true, arreglador: true, organico: true, duracion: true, estado: true, fecha: false, observaciones: false, tags: false, acciones: true });
 
   // Filtros
-  const [filters, setFilters] = useState({ titulo: "", compositor: "", arreglador: "", estado: "Todos", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
+  const [filters, setFilters] = useState({ titulo: "", compositor: "", arreglador: "", estado: "Todos", solicitante: "", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
   const [selectedTags, setSelectedTags] = useState(new Set());
   const [instrFilters, setInstrFilters] = useState([]);
   const [stringsFilter, setStringsFilter] = useState("all");
   const [strictMode, setStrictMode] = useState(false);
 
   const [sortConfig, setSortConfig] = useState({ key: "titulo", direction: "asc" });
+
+  // Lista de solicitantes que tienen al menos una obra en Solicitud o Pendiente (para el filtro)
+  const solicitantesOptions = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    works.forEach((w) => {
+      if ((w.estado === "Solicitud" || w.estado === "Pendiente") && w.id_usuario_carga) {
+        if (seen.has(w.id_usuario_carga)) return;
+        seen.add(w.id_usuario_carga);
+        const u = w.usuario_carga;
+        const label = u ? [u.apellido, u.nombre].filter(Boolean).join(", ") : `Usuario ${w.id_usuario_carga}`;
+        list.push({ value: w.id_usuario_carga, label });
+      }
+    });
+    return list.sort((a, b) => (a.label || "").localeCompare(b.label || ""));
+  }, [works]);
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({});
@@ -468,6 +491,15 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   
   // Resetear página al filtrar
   useEffect(() => { setCurrentPage(1); }, [filters, selectedTags, instrFilters, stringsFilter, strictMode, sortConfig, pageSize]);
+
+  const setSortByFechaEstimada = (direction) => {
+    setSortConfig({ key: "fecha_esperada", direction });
+    setFilters((prev) => ({ ...prev, estado: "Solicitud" }));
+  };
+
+  const setSolicitanteFilter = (value) => {
+    setFilters((prev) => ({ ...prev, solicitante: value, estado: value ? "Solicitud" : prev.estado }));
+  };
 
   const fetchTags = async () => {
     const { data } = await supabase.from("palabras_clave").select("*").order("tag");
@@ -528,7 +560,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   };
 
   const clearAllFilters = () => {
-    setFilters({ titulo: "", compositor: "", arreglador: "", estado: "Todos", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
+    setFilters({ titulo: "", compositor: "", arreglador: "", estado: "Todos", solicitante: "", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
     setSelectedTags(new Set()); setInstrFilters([]); setStringsFilter("all"); setStrictMode(false);
   };
 
@@ -539,6 +571,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       if (filters.compositor && !work.compositor_full?.toLowerCase().includes(filters.compositor.toLowerCase())) return false;
       if (filters.arreglador && !work.arreglador_full?.toLowerCase().includes(filters.arreglador.toLowerCase())) return false;
       if (filters.estado !== "Todos" && work.estado !== filters.estado) return false;
+      if (filters.solicitante && String(work.id_usuario_carga) !== String(filters.solicitante)) return false;
 
       const duration = work.duracion_segundos || 0;
       if (filters.duracionMax && duration > parseInt(filters.duracionMax) * 60) return false;
@@ -582,7 +615,8 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       let valA = a[sortConfig.key];
       let valB = b[sortConfig.key];
       if (sortConfig.key === "fecha_esperada") {
-        valA = valA || "9999-12-31"; valB = valB || "9999-12-31";
+        const fallback = sortConfig.direction === "asc" ? "9999-12-31" : "0000-01-01";
+        valA = valA || fallback; valB = valB || fallback;
       }
       if (typeof valA === "string") valA = valA.toLowerCase();
       if (typeof valB === "string") valB = valB.toLowerCase();
@@ -649,7 +683,36 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
           <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2"><IconFolderMusic className="text-indigo-600" /> Archivo de Obras</h2>
           <div className="text-xs text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{allFilteredWorks.length} resultados</div>
         </div>
-        <div className="flex gap-3 items-center">
+        <div className="flex flex-wrap gap-3 items-center">
+          <div className="relative" ref={solicitudesRef}>
+            <button
+              type="button"
+              onClick={() => setShowSolicitudes((v) => !v)}
+              className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded border transition-colors ${filters.solicitante || (sortConfig.key === "fecha_esperada" && filters.estado === "Solicitud") ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}`}
+            >
+              Solicitudes
+              <IconChevronDown size={14} className={showSolicitudes ? "rotate-180" : ""} />
+            </button>
+            {showSolicitudes && (
+              <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-lg shadow-lg p-3 min-w-[200px] flex flex-col gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Solicitado por</label>
+                  <select className="text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none bg-white w-full" value={filters.solicitante} onChange={(e) => setSolicitanteFilter(e.target.value)}>
+                    <option value="">Todos</option>
+                    {solicitantesOptions.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">Orden fecha</span>
+                  <div className="flex rounded overflow-hidden border border-slate-300">
+                    <button type="button" className={`flex-1 px-2 py-1 text-xs font-medium ${sortConfig.key === "fecha_esperada" && sortConfig.direction === "asc" ? "bg-indigo-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`} onClick={() => setSortByFechaEstimada("asc")} title="Fecha ascendente (sin fecha al final)">Asc</button>
+                    <button type="button" className={`flex-1 px-2 py-1 text-xs font-medium border-l border-slate-300 ${sortConfig.key === "fecha_esperada" && sortConfig.direction === "desc" ? "bg-indigo-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`} onClick={() => setSortByFechaEstimada("desc")} title="Fecha descendente (sin fecha al final)">Desc</button>
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400">Al usar estos filtros se muestra solo estado Solicitud.</p>
+              </div>
+            )}
+          </div>
           <button onClick={clearAllFilters} className="text-xs text-slate-400 hover:text-red-500 font-bold underline px-2">Limpiar Filtros</button>
           <div className="flex gap-1 border-r border-slate-200 pr-3">
             <button onClick={() => setShowComposersManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full" title="Compositores"><IconUsers size={20} /></button>

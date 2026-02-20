@@ -25,6 +25,7 @@ import {
   IconFilter,
   IconArrowRight,
   IconPhone,
+  IconSend,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { DEFAULT_ROL_ID } from "../../utils/giraUtils";
@@ -33,6 +34,7 @@ import {
   AddVacancyModal,
   SwapVacancyModal,
 } from "../../components/giras/VacancyTools";
+import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 import { toast } from "sonner";
 
 // --- CONSTANTES ---
@@ -206,6 +208,7 @@ export default function GiraRoster({
   gira,
   onBack,
   isEditor = true,
+  onNotificacionInicialSent,
 }) {
   const {
     roster: rawRoster,
@@ -215,6 +218,10 @@ export default function GiraRoster({
   } = useGiraRoster(supabase, gira);
   const [localRoster, setLocalRoster] = useState([]);
   const [loadingAction, setLoadingAction] = useState(false);
+
+  const notificacionInicialEnviada = gira?.notificacion_inicial_enviada === true;
+  const [sendingInitial, setSendingInitial] = useState(false);
+  const [pendingNotifications, setPendingNotifications] = useState([]);
 
   // UI States
   const [addMode, setAddMode] = useState(null);
@@ -250,6 +257,10 @@ export default function GiraRoster({
   const [isVacancyModalOpen, setIsVacancyModalOpen] = useState(false);
   const [swapTarget, setSwapTarget] = useState(null);
   const [editingMusician, setEditingMusician] = useState(null);
+  const [showExitConfirmModal, setShowExitConfirmModal] = useState(false);
+
+  const notificationQueueRef = useRef(null);
+  const pendingExitAfterFlushRef = useRef(false);
 
   // Data States
   const [localitiesList, setLocalitiesList] = useState([]);
@@ -407,6 +418,16 @@ export default function GiraRoster({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Bloqueo de navegación: advertir al cerrar pestaña si hay mails pendientes
+  useEffect(() => {
+    if (pendingNotifications.length === 0) return;
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [pendingNotifications.length]);
 
   const fetchDropdownData = async () => {
     const { data: ens } = await supabase
@@ -585,12 +606,27 @@ export default function GiraRoster({
   const toggleStatus = async (musician) => {
     const newStatus =
       musician.estado_gira === "confirmado" ? "ausente" : "confirmado";
-    // Optimistic
+    if (notificacionInicialEnviada && musician.mail) {
+      const variant = newStatus === "ausente" ? "AUSENTE" : "ALTA";
+      const nombreCompleto = musician.nombre_completo || `${musician.nombre || ""} ${musician.apellido || ""}`.trim();
+      const reason = newStatus === "ausente" ? "Se te marcó como ausente" : undefined;
+      setPendingNotifications((prev) => [
+        ...prev,
+        {
+          id: `toggle-${musician.id}-${Date.now()}`,
+          variant,
+          emails: [musician.mail],
+          nombres: [nombreCompleto],
+          reason,
+        },
+      ]);
+    }
     setLocalRoster((prev) =>
       prev.map((m) =>
         m.id === musician.id ? { ...m, estado_gira: newStatus } : m,
       ),
     );
+    // Siempre upsert/update: el registro NUNCA se elimina de giras_integrantes al pasar de Ausente a Presente.
     if (newStatus === "ausente") {
       await supabase.from("giras_integrantes").upsert(
         {
@@ -602,25 +638,29 @@ export default function GiraRoster({
         { onConflict: "id_gira, id_integrante" },
       );
     } else {
-      if (musician.es_adicional) {
-        await supabase
-          .from("giras_integrantes")
-          .update({ estado: "confirmado" })
-          .eq("id_gira", gira.id)
-          .eq("id_integrante", musician.id);
-      } else {
-        await supabase
-          .from("giras_integrantes")
-          .delete()
-          .eq("id_gira", gira.id)
-          .eq("id_integrante", musician.id);
-      }
+      await supabase.from("giras_integrantes").upsert(
+        {
+          id_gira: gira.id,
+          id_integrante: musician.id,
+          estado: "confirmado",
+          rol: musician.rol_gira,
+        },
+        { onConflict: "id_gira, id_integrante" },
+      );
     }
     refreshRoster();
   };
 
   const handleUpdateGroups = async () => {
     setLoadingAction(true);
+    const prevRoster = [...localRoster];
+    const prevIds = new Set(prevRoster.map((m) => m.id));
+    const prevIncludedEnsembles = new Set(
+      (sources || []).filter((s) => s.tipo === "ENSAMBLE").map((s) => s.valor_id),
+    );
+    const prevExclEnsembles = new Set(
+      (sources || []).filter((s) => s.tipo === "EXCL_ENSAMBLE").map((s) => s.valor_id),
+    );
     await supabase.from("giras_fuentes").delete().eq("id_gira", gira.id);
     const inserts = [];
     selectedEnsembles.forEach((id) =>
@@ -635,8 +675,72 @@ export default function GiraRoster({
     if (inserts.length > 0)
       await supabase.from("giras_fuentes").insert(inserts);
     setAddMode(null);
+    const newRoster = await refreshRoster();
+    if (notificacionInicialEnviada && Array.isArray(newRoster)) {
+      const newIds = new Set(newRoster.map((m) => m.id));
+      const added = newRoster.filter(
+        (m) =>
+          !prevIds.has(m.id) &&
+          m.mail &&
+          m.estado_gira === "confirmado",
+      );
+      added.forEach((m) => {
+        let reason = "Se te convoca a la gira";
+        const musicianEnsembleIds =
+          m.integrantes_ensambles?.map((ie) => ie.ensambles?.id).filter(Boolean) || [];
+        const matchedEnsemble = [...selectedEnsembles].find((eid) =>
+          musicianEnsembleIds.includes(eid),
+        );
+        if (matchedEnsemble) {
+          const ensLabel = ensemblesList.find((e) => e.value === matchedEnsemble)?.label;
+          reason = ensLabel ? `Se te convoca con el ensamble ${ensLabel}` : reason;
+        } else if (m.instrumentos?.familia && selectedFamilies.has(m.instrumentos.familia)) {
+          reason = `Se te convoca con la familia de ${m.instrumentos.familia}`;
+        }
+        setPendingNotifications((prev) => [
+          ...prev,
+          {
+            id: `alta-groups-${m.id}-${Date.now()}`,
+            variant: "ALTA",
+            emails: [m.mail],
+            nombres: [m.nombre_completo || `${m.apellido || ""}, ${m.nombre || ""}`.trim()],
+            reason,
+          },
+        ]);
+      });
+      // Notificaciones por exclusión: ensamble destildado (quitado de incluidos) o agregado como EXCL_ENSAMBLE
+      const uncheckedEnsembleIds = new Set(
+        [...prevIncludedEnsembles].filter((id) => !selectedEnsembles.has(id)),
+      );
+      const causeEnsembleIds = new Set([
+        ...uncheckedEnsembleIds,
+        ...selectedExclEnsembles,
+      ]);
+      const removedIds = [...prevIds].filter((id) => !newIds.has(id));
+      removedIds.forEach((removedId) => {
+        const member = prevRoster.find((m) => m.id === removedId);
+        if (!member?.mail) return;
+        const memberEnsembleIds =
+          member.integrantes_ensambles?.map((ie) => ie.ensambles?.id).filter(Boolean) || [];
+        const excludedEnsembleId = [...causeEnsembleIds].find((eid) =>
+          memberEnsembleIds.includes(eid),
+        );
+        if (!excludedEnsembleId) return;
+        const ensLabel = ensemblesList.find((e) => e.value === excludedEnsembleId)?.label;
+        const reason = ensLabel ? `Se excluyó al ensamble ${ensLabel}` : "Se te excluyó de la gira";
+        setPendingNotifications((prev) => [
+          ...prev,
+          {
+            id: `baja-excl-${removedId}-${Date.now()}`,
+            variant: "BAJA",
+            emails: [member.mail],
+            nombres: [member.nombre_completo || `${member.apellido || ""}, ${member.nombre || ""}`.trim()],
+            reason,
+          },
+        ]);
+      });
+    }
     setLoadingAction(false);
-    refreshRoster();
   };
 
   const removeSource = async (id, tipo) => {
@@ -652,7 +756,7 @@ export default function GiraRoster({
     refreshRoster();
   };
 
-  const addManualMusician = async (musicianId) => {
+  const addManualMusician = async (musicianId, musicianData) => {
     const { error } = await supabase.from("giras_integrantes").insert({
       id_gira: gira.id,
       id_integrante: musicianId,
@@ -660,19 +764,104 @@ export default function GiraRoster({
       rol: "musico",
     });
     if (!error) {
+      if (notificacionInicialEnviada && musicianData?.mail) {
+        const nombreCompleto =
+          musicianData.nombre_completo ||
+          `${musicianData.apellido || ""}, ${musicianData.nombre || ""}`.trim();
+        setPendingNotifications((prev) => [
+          ...prev,
+          {
+            id: `alta-manual-${musicianId}-${Date.now()}`,
+            variant: "ALTA",
+            emails: [musicianData.mail],
+            nombres: [nombreCompleto],
+            reason: "Se te convoca individualmente",
+          },
+        ]);
+      }
       setSearchTerm("");
+      setSearchResults([]);
       refreshRoster();
     }
   };
 
   const removeMemberManual = async (id) => {
     if (!confirm("¿Eliminar registro manual?")) return;
+    const member = localRoster.find((m) => m.id === id);
+    if (notificacionInicialEnviada && member?.mail) {
+      setPendingNotifications((prev) => [
+        ...prev,
+        {
+          id: `baja-${id}-${Date.now()}`,
+          variant: "BAJA",
+          emails: [member.mail],
+          nombres: [member.nombre_completo || `${member.nombre || ""} ${member.apellido || ""}`.trim()],
+          reason: "Baja de la gira",
+        },
+      ]);
+    }
     const { error } = await supabase
       .from("giras_integrantes")
       .delete()
       .eq("id_integrante", id)
       .eq("id_gira", gira.id);
     if (!error) refreshRoster();
+  };
+
+  const sendNotificacionInicial = async () => {
+    const confirmados = localRoster.filter(
+      (m) => m.estado_gira === "confirmado" && m.mail,
+    );
+    if (confirmados.length === 0) {
+      toast.warning("No hay integrantes confirmados con email para notificar.");
+      return;
+    }
+    setSendingInitial(true);
+    const toastId = toast.loading("Enviando notificación inicial...");
+    try {
+      const linkRepertorio = `${window.location.origin}${window.location.pathname}?tab=giras&view=REPERTOIRE&giraId=${gira.id}`;
+      const bcc = confirmados.map((m) => m.mail);
+      const { error } = await supabase.functions.invoke("mails_produccion", {
+        body: {
+          action: "enviar_mail",
+          templateId: "convocatoria_gira",
+          bcc,
+          nombre: confirmados[0]?.nombre_completo || "Participante",
+          gira: gira.nombre_gira,
+          detalle: {
+            variant: "INITIAL_BROADCAST",
+            link_repertorio: linkRepertorio,
+            nomenclador: gira.nomenclador || gira.nombre_gira,
+            fecha_desde: gira.fecha_desde || "",
+            fecha_hasta: gira.fecha_hasta || "",
+            zona: gira.zona || "",
+          },
+        },
+      });
+      if (error) throw error;
+
+      await supabase
+        .from("programas")
+        .update({ notificacion_inicial_enviada: true })
+        .eq("id", gira.id);
+
+      await supabase.from("giras_notificaciones_logs").insert({
+        id_gira: gira.id,
+        tipo_notificacion: "INITIAL_BROADCAST",
+      });
+
+      onNotificacionInicialSent?.();
+      toast.success(
+        `Notificación inicial enviada a ${bcc.length} integrante(s).`,
+        { id: toastId },
+      );
+      refreshRoster();
+    } catch (err) {
+      console.error(err);
+      toast.error("Error al enviar la notificación inicial.", { id: toastId });
+    } finally {
+      setSendingInitial(false);
+    }
   };
 
   const handleLiberarPlaza = async (integrante) => {
@@ -700,7 +889,7 @@ export default function GiraRoster({
     const cleanTerm = term.trim();
     let query = supabase
       .from("integrantes")
-      .select("id, nombre, apellido, instrumentos(instrumento), cuil");
+      .select("id, nombre, apellido, mail, instrumentos(instrumento), cuil");
     if (cleanTerm.includes(" ")) {
       const parts = cleanTerm.split(" ");
       query = query
@@ -711,9 +900,13 @@ export default function GiraRoster({
         `nombre.ilike.%${cleanTerm}%,apellido.ilike.%${cleanTerm}%`,
       );
     }
-    const { data } = await query.limit(5);
+    const { data } = await query.limit(30);
     const currentIds = new Set(localRoster.map((r) => r.id));
-    setSearchResults(data ? data.filter((m) => !currentIds.has(m.id)) : []);
+    const withFlag = (data || []).map((m) => ({
+      ...m,
+      isAlreadyInTour: currentIds.has(m.id),
+    }));
+    setSearchResults(withFlag);
   };
 
   const copyGuestLink = async (integrante) => {
@@ -764,6 +957,11 @@ export default function GiraRoster({
       console.error(err);
       alert("Error gestionando enlace: " + err.message);
     }
+  };
+
+  const scrollToIntegranteInTable = (integranteId) => {
+    const el = document.getElementById(`row-integrante-${integranteId}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   };
 
   const toggleColumn = (col) =>
@@ -845,7 +1043,13 @@ export default function GiraRoster({
       <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between shrink-0 gap-4 relative z-50">
         <div className="flex items-center gap-4">
           <button
-            onClick={onBack}
+            onClick={() => {
+              if (pendingNotifications.length > 0) {
+                setShowExitConfirmModal(true);
+                return;
+              }
+              onBack();
+            }}
             className="text-slate-400 hover:text-fixed-indigo-600 font-medium text-sm flex items-center gap-1"
           >
             ← Volver
@@ -905,6 +1109,28 @@ export default function GiraRoster({
           />
         </div>
       </div>
+
+      {/* BANNER NOTIFICACIÓN INICIAL */}
+      {!notificacionInicialEnviada && (
+        <div className="mx-4 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-amber-800 font-medium">
+            La notificación inicial de esta gira aún no ha sido enviada. Los cambios en la nómina no generarán mails hasta que la envíes.
+          </p>
+          <button
+            type="button"
+            onClick={sendNotificacionInicial}
+            disabled={sendingInitial || listaConfirmados.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow-sm transition-colors"
+          >
+            {sendingInitial ? (
+              <IconLoader size={16} className="animate-spin" />
+            ) : (
+              <IconSend size={16} />
+            )}
+            Notificar a todos ahora
+          </button>
+        </div>
+      )}
 
       {/* TOOLBAR */}
       <div className="px-4 py-2 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-4 z-40 relative">
@@ -1091,20 +1317,52 @@ export default function GiraRoster({
             />
             <div className="absolute top-full left-0 w-full bg-white border mt-1 rounded shadow-xl z-50 max-h-60 overflow-y-auto">
               {searchResults.length > 0
-                ? searchResults.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => addManualMusician(m.id)}
-                      className="w-full text-left p-2 hover:bg-slate-50 text-xs border-b"
-                    >
-                      <b>
-                        {m.apellido}, {m.nombre}
-                      </b>{" "}
-                      <span className="text-slate-400">
-                        ({m.instrumentos?.instrumento})
-                      </span>
-                    </button>
-                  ))
+                ? searchResults.map((m) =>
+                    m.isAlreadyInTour ? (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          setSearchTerm("");
+                          setSearchResults([]);
+                          scrollToIntegranteInTable(m.id);
+                        }}
+                        className="w-full text-left p-2 hover:bg-slate-100 text-xs border-b text-slate-500 bg-slate-50/80 flex items-center justify-between"
+                      >
+                        <span>
+                          <b className="font-medium text-slate-600">
+                            {m.apellido}, {m.nombre}
+                          </b>{" "}
+                          <span className="text-slate-400">
+                            ({m.instrumentos?.instrumento})
+                          </span>
+                        </span>
+                        <span className="text-[10px] uppercase text-slate-400 shrink-0 ml-2">
+                          Ya en gira
+                        </span>
+                      </button>
+                    ) : (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => addManualMusician(m.id, m)}
+                        className="w-full text-left p-2 hover:bg-emerald-50 text-xs border-b flex items-center justify-between group"
+                      >
+                        <span>
+                          <b>
+                            {m.apellido}, {m.nombre}
+                          </b>{" "}
+                          <span className="text-slate-400">
+                            ({m.instrumentos?.instrumento})
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-1 text-emerald-600 font-bold text-[10px] uppercase shrink-0 ml-2 group-hover:bg-emerald-100 px-2 py-0.5 rounded">
+                          <IconUserPlus size={12} />
+                          Agregar a gira
+                        </span>
+                      </button>
+                    ),
+                  )
                 : searchTerm.trim().length > 0 && (
                     <button
                       onClick={handleOpenDetailedCreate}
@@ -1183,6 +1441,7 @@ export default function GiraRoster({
 
                 return (
                   <tr
+                    id={`row-integrante-${m.id}`}
                     key={m.id}
                     className={rowClassName}
                     style={rowStyle} // Estilo dinámico DB
@@ -1515,6 +1774,87 @@ export default function GiraRoster({
         supabase={supabase}
         onRefresh={refreshRoster}
       />
+
+      {notificacionInicialEnviada && (
+        <NotificationQueuePanel
+          ref={notificationQueueRef}
+          pendingTasks={pendingNotifications}
+          onFlush={() => {
+            setPendingNotifications([]);
+            if (pendingExitAfterFlushRef.current) {
+              pendingExitAfterFlushRef.current = false;
+              onBack();
+            }
+          }}
+          onCancelAll={() => setPendingNotifications([])}
+          onRemoveTask={(id) =>
+            setPendingNotifications((prev) => prev.filter((t) => t.id !== id))
+          }
+          supabase={supabase}
+          gira={{
+            nombre_gira: gira.nombre_gira,
+            nomenclador: gira.nomenclador,
+            fecha_desde: gira.fecha_desde,
+            fecha_hasta: gira.fecha_hasta,
+            zona: gira.zona,
+          }}
+          linkRepertorio={`${typeof window !== "undefined" ? window.location.origin : ""}${typeof window !== "undefined" ? window.location.pathname : ""}?tab=giras&view=REPERTOIRE&giraId=${gira.id}`}
+        />
+      )}
+
+      {/* Modal de confirmación al salir con notificaciones pendientes */}
+      {showExitConfirmModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 transform transition-all border border-slate-100">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-amber-100 text-amber-600 rounded-full shrink-0">
+                <IconAlertTriangle size={24} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-slate-800">
+                  Notificaciones pendientes
+                </h3>
+                <p className="text-sm text-slate-500 mt-2 leading-relaxed">
+                  Tienes notificaciones de correo pendientes.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  pendingExitAfterFlushRef.current = true;
+                  notificationQueueRef.current?.sendAllNow?.();
+                  setShowExitConfirmModal(false);
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
+              >
+                <IconSend size={18} />
+                Enviar todo ahora
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  notificationQueueRef.current?.cancelAll?.();
+                  setShowExitConfirmModal(false);
+                  onBack();
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                <IconTrash size={16} />
+                Cancelar todos y salir
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowExitConfirmModal(false)}
+                className="w-full px-4 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
+              >
+                Permanecer aquí
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

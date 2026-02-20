@@ -279,9 +279,11 @@ export default function RepertoireManager({
   readOnly = undefined,
   onSyncArco,
 }) {
-  const { user, isEditor: isGlobalEditor } = useAuth();
+  const { user, isEditor: isGlobalEditor, isAdmin } = useAuth();
 
   const isEditor = readOnly !== undefined ? !readOnly : isGlobalEditor;
+  // Notas internas (post-it) visibles para quien puede editar en general, aunque la vista esté en readOnly
+  const canSeeInternalNotes = isGlobalEditor || isAdmin;
 
   const [repertorios, setRepertorios] = useState(initialData);
   const [musicians, setMusicians] = useState([]);
@@ -521,7 +523,7 @@ export default function RepertoireManager({
           excluir, 
           id_arco_seleccionado, 
           obras (
-              id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, 
+              id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, observaciones, comentarios,
               obras_arcos (id, nombre, link, descripcion, id_drive_folder),
               compositores (id, apellido, nombre), 
               obras_compositores (rol, compositores(id, apellido, nombre)),
@@ -1161,6 +1163,20 @@ export default function RepertoireManager({
                     {/* Fila 2: Título Multi-línea */}
                     <div className="pl-2 mb-1">
                       <MultiLineTitle content={item.obras.titulo} />
+                      {canSeeInternalNotes && (item.obras.estado === "Solicitud" || item.obras.estado === "Pendiente") && (item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios) && (
+                        <div className="group relative w-fit mt-1">
+                          <div className="bg-yellow-100 border border-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded-sm shadow-sm flex items-center gap-1 cursor-help transform -rotate-1 hover:rotate-0 transition-transform origin-left max-w-[160px]">
+                            <span className="text-[9px]">📝</span>
+                            <span className="truncate font-normal">
+                              {(item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, "").trim().slice(0, 60)}
+                              {((item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, "").trim().length || 0) > 60 ? "…" : ""}
+                            </span>
+                          </div>
+                          <div className="absolute left-0 top-full mt-1 hidden group-hover:block w-56 bg-yellow-50 border border-yellow-200 shadow-xl p-2 rounded text-xs font-normal text-slate-700 z-[60] whitespace-normal animate-in fade-in zoom-in-95">
+                            {(item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, " ").replace(/\s+/g, " ").trim()}
+                          </div>
+                        </div>
+                      )}
                       {getArranger(item.obras) !== "-" && (
                         <p className="text-[10px] text-slate-400 italic mt-0.5">
                           Arr: {getArranger(item.obras)}
@@ -1371,12 +1387,30 @@ export default function RepertoireManager({
                         className="p-1 text-slate-800"
                         title={item.obras.titulo?.replace(/<[^>]*>?/gm, "")}
                       >
-                        <RichTextPreview content={item.obras.titulo} />
-                        {item.obras.estado !== "Oficial" && (
-                          <span className="ml-1 text-[8px] bg-amber-100 text-amber-700 px-1 rounded border border-amber-200 align-text-top">
-                            PEND
-                          </span>
-                        )}
+                        <div className="flex flex-col gap-1 w-full min-w-0">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <RichTextPreview content={item.obras.titulo} />
+                            {item.obras.estado !== "Oficial" && (
+                              <span className="ml-1 text-[8px] bg-amber-100 text-amber-700 px-1 rounded border border-amber-200 align-text-top">
+                                PEND
+                              </span>
+                            )}
+                          </div>
+                          {canSeeInternalNotes && (item.obras.estado === "Solicitud" || item.obras.estado === "Pendiente") && (item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios) && (
+                            <div className="group relative w-fit">
+                              <div className="bg-yellow-100 border border-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded-sm shadow-sm flex items-center gap-1 cursor-help transform -rotate-1 hover:rotate-0 transition-transform origin-left max-w-[160px]">
+                                <span className="text-[9px]">📝</span>
+                                <span className="truncate font-normal">
+                                  {(item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, "").trim().slice(0, 60)}
+                                  {((item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, "").trim().length || 0) > 60 ? "…" : ""}
+                                </span>
+                              </div>
+                              <div className="absolute left-0 top-full mt-1 hidden group-hover:block w-56 bg-yellow-50 border border-yellow-200 shadow-xl p-2 rounded text-xs font-normal text-slate-700 z-[60] whitespace-normal animate-in fade-in zoom-in-95">
+                                {(item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, " ").replace(/\s+/g, " ").trim()}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="p-1 text-center whitespace-pre-line text-[10px] text-slate-500 font-mono">
                         {item.obras.instrumentacion ||
