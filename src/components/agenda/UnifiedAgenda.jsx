@@ -270,8 +270,15 @@ const saveToCache = (key, data) => {
     }
   }
 };
-const ConnectionBadge = ({ status, lastUpdate, onRefresh, isRefreshing }) => {
+const ConnectionBadge = ({
+  status,
+  lastUpdate,
+  onRefresh,
+  isRefreshing,
+  isUpdating,
+}) => {
   const isOnline = status === "SUBSCRIBED";
+  const updating = isUpdating ?? isRefreshing;
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -294,7 +301,7 @@ const ConnectionBadge = ({ status, lastUpdate, onRefresh, isRefreshing }) => {
   return (
     <button
       onClick={onRefresh}
-      disabled={isRefreshing}
+      disabled={updating}
       className={`
         flex items-center gap-2 rounded-full font-bold shadow-sm border transition-all animate-in fade-in
         px-2 py-1 sm:px-3
@@ -303,30 +310,38 @@ const ConnectionBadge = ({ status, lastUpdate, onRefresh, isRefreshing }) => {
             ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
             : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
         }
-        ${isRefreshing ? "opacity-70 cursor-wait" : ""}
+        ${updating ? "opacity-80 cursor-wait" : ""}
       `}
-      title={`Estado: ${isOnline ? "En línea" : "Conectando"}`}
+      title={updating ? "Actualizando..." : `Estado: ${isOnline ? "En línea" : "Conectando"}`}
     >
-      <span className="relative flex h-2.5 w-2.5 sm:h-2 sm:w-2">
-        {isOnline && !isRefreshing && (
+      <span className="relative flex h-2.5 w-2.5 sm:h-2 sm:w-2 shrink-0">
+        {isOnline && !updating && (
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
         )}
-        <span
-          className={`relative inline-flex rounded-full h-2.5 w-2.5 sm:h-2 sm:w-2 ${
-            isOnline ? "bg-emerald-500" : "bg-amber-500"
-          }`}
-        ></span>
+        {updating ? (
+          <IconLoader
+            size={isOnline ? 10 : 12}
+            className={`animate-spin ${isOnline ? "text-emerald-500" : "text-amber-500"}`}
+            aria-hidden
+          />
+        ) : (
+          <span
+            className={`relative inline-flex rounded-full h-2.5 w-2.5 sm:h-2 sm:w-2 ${
+              isOnline ? "bg-emerald-500" : "bg-amber-500"
+            }`}
+          />
+        )}
       </span>
 
       <div className="hidden sm:flex flex-col items-start leading-tight">
         <span className="uppercase tracking-wider text-[9px]">
-          {isRefreshing
+          {updating
             ? "Actualizando..."
             : isOnline
               ? "En línea"
               : "Conectando..."}
         </span>
-        {!isRefreshing && (
+        {!updating && (
           <span className="font-normal opacity-80 text-[9px] normal-case whitespace-nowrap">
             Act. {timeText}
           </span>
@@ -498,21 +513,36 @@ export default function UnifiedAgenda({
     getInitialFilterState("showAllTransport", false),
   );
 
+  const [filterDateFrom, setFilterDateFrom] = useState(() => {
+    const saved = getInitialFilterState("filterDateFrom", null);
+    const today = getTodayDateStringLocal();
+    return saved || today;
+  });
+  const [filterDateTo, setFilterDateTo] = useState(() =>
+    getInitialFilterState("filterDateTo", null),
+  );
+
   useEffect(() => {
+    if (giraId) return;
     const data = {
       categories: selectedCategoryIds,
       showNonActive,
       showOnlyMyTransport,
       showOnlyMyMeals,
       showAllTransport: showNoGray,
+      filterDateFrom,
+      filterDateTo,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [
+    giraId,
     selectedCategoryIds,
     showNonActive,
     showOnlyMyTransport,
     showOnlyMyMeals,
     showNoGray,
+    filterDateFrom,
+    filterDateTo,
     STORAGE_KEY,
   ]);
 
@@ -533,12 +563,16 @@ export default function UnifiedAgenda({
           setShowOnlyMyTransport(p.showOnlyMyTransport || false);
           setShowOnlyMyMeals(p.showOnlyMyMeals || false);
           setShowNoGray(p.showAllTransport || false);
+          setFilterDateFrom(p.filterDateFrom || getTodayDateStringLocal());
+          setFilterDateTo(p.filterDateTo || null);
         } else {
           setSelectedCategoryIds([]);
           setShowNonActive(false);
           setShowOnlyMyTransport(false);
           setShowOnlyMyMeals(false);
           setShowNoGray(false);
+          setFilterDateFrom(getTodayDateStringLocal());
+          setFilterDateTo(null);
         }
       } catch (e) {
         console.error(e);
@@ -551,6 +585,31 @@ export default function UnifiedAgenda({
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
+
+  const hasAppliedGiraDefaultsRef = useRef(false);
+  useEffect(() => {
+    if (!giraId) {
+      hasAppliedGiraDefaultsRef.current = false;
+      return;
+    }
+    if (hasAppliedGiraDefaultsRef.current || availableCategories.length === 0)
+      return;
+    hasAppliedGiraDefaultsRef.current = true;
+    const allCategoryIds = availableCategories
+      .filter((c) => (isEditor || isManagement ? true : c.id !== 3))
+      .map((c) => c.id);
+    setSelectedCategoryIds(allCategoryIds);
+    setShowOnlyMyTransport(false);
+    setShowOnlyMyMeals(false);
+    setShowNoGray(false);
+    setShowNonActive(false);
+    if (isManagement) setTechFilter("all");
+  }, [
+    giraId,
+    availableCategories,
+    isEditor,
+    isManagement,
+  ]);
 
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const filterMenuRef = useRef(null);
@@ -695,8 +754,14 @@ export default function UnifiedAgenda({
     );
   };
 
+  const effectiveDateFrom = filterDateFrom || getTodayDateStringLocal();
+
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      if (item.fecha) {
+        if (item.fecha < effectiveDateFrom) return false;
+        if (filterDateTo && item.fecha > filterDateTo) return false;
+      }
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
       if (!showNonActive) {
         const estadoGira = item.programas?.estado || "Borrador";
@@ -729,6 +794,8 @@ export default function UnifiedAgenda({
     });
   }, [
     items,
+    effectiveDateFrom,
+    filterDateTo,
     selectedCategoryIds,
     showNonActive,
     showOnlyMyTransport,
@@ -1638,7 +1705,7 @@ export default function UnifiedAgenda({
 
   const [showEarlierToday, setShowEarlierToday] = useState(false);
 
-  // Auto-scroll al evento actual solo al cargar y cuando no hay "anteriores" (no scroll al pulsar "Ver eventos anteriores")
+  // Auto-scroll al evento actual (Agenda General y Agenda de la Gira): al cargar y cuando no hay "anteriores"
   useEffect(() => {
     if (loading || filteredItems.length === 0 || !currentEventId) return;
     if (earlierTodayEventIds.size > 0) return;
@@ -1647,7 +1714,7 @@ export default function UnifiedAgenda({
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 150);
     return () => clearTimeout(timer);
-  }, [loading, filteredItems.length, currentEventId, earlierTodayEventIds.size]);
+  }, [loading, filteredItems.length, currentEventId, earlierTodayEventIds.size, giraId]);
 
   const TourDivider = React.memo(({ gira }) => {
     const fechaDesde = gira.fecha_desde
@@ -1774,23 +1841,26 @@ export default function UnifiedAgenda({
               lastUpdate={lastUpdate}
               onRefresh={() => fetchAgenda(false)}
               isRefreshing={isRefreshing}
+              isUpdating={isRefreshing || (loading && items.length > 0)}
             />
 
             {/* BOTONES DE FILTRO ... (igual que antes) */}
             {availableCategories.length > 0 && (
               <>
                 <div className="relative" ref={filterMenuRef}>
-                  <button
-                    onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-bold shadow-sm hover:shadow-md ${
-                      isFilterMenuOpen ||
-                      selectedCategoryIds.length < availableCategories.length ||
-                      showOnlyMyTransport ||
-                      showOnlyMyMeals ||
-                      showNoGray
-                        ? "bg-slate-800 text-white border-slate-800"
-                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                    }`}
+                        <button
+                          onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-bold shadow-sm hover:shadow-md ${
+                            isFilterMenuOpen ||
+                            selectedCategoryIds.length < availableCategories.length ||
+                            showOnlyMyTransport ||
+                            showOnlyMyMeals ||
+                            showNoGray ||
+                            (filterDateFrom && filterDateFrom !== getTodayDateStringLocal()) ||
+                            filterDateTo
+                              ? "bg-slate-800 text-white border-slate-800"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                          }`}
                   >
                     <IconFilter size={16} />
                     <span className="hidden sm:inline">Filtros</span>
@@ -1832,6 +1902,8 @@ export default function UnifiedAgenda({
                             setShowOnlyMyTransport(false);
                             setShowOnlyMyMeals(false);
                             setShowNoGray(false);
+                            setFilterDateFrom(getTodayDateStringLocal());
+                            setFilterDateTo(null);
                             if (isManagement) setTechFilter("all");
                           }}
                           className="text-[10px] text-indigo-600 hover:underline font-bold"
@@ -1916,6 +1988,40 @@ export default function UnifiedAgenda({
                               }
                             />
                           </label>
+                        </div>
+                        <div className="p-2 border-b border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block px-2 mb-2 flex items-center gap-1">
+                            <IconCalendar size={12} />
+                            Rango de fechas
+                          </span>
+                          <div className="grid grid-cols-2 gap-2 px-2">
+                            <label className="text-xs font-medium text-slate-600">
+                              Desde
+                              <input
+                                type="date"
+                                value={filterDateFrom || getTodayDateStringLocal()}
+                                onChange={(e) =>
+                                  setFilterDateFrom(e.target.value || getTodayDateStringLocal())
+                                }
+                                className="mt-1 w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                              />
+                            </label>
+                            <label className="text-xs font-medium text-slate-600">
+                              Hasta
+                              <input
+                                type="date"
+                                value={filterDateTo || ""}
+                                onChange={(e) =>
+                                  setFilterDateTo(e.target.value || null)
+                                }
+                                className="mt-1 w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                placeholder="Sin límite"
+                              />
+                            </label>
+                          </div>
+                          <p className="text-[10px] text-slate-400 px-2 mt-1">
+                            Por defecto desde hoy. Opcional: hasta para acotar.
+                          </p>
                         </div>
                         <div className="p-2">
                           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block px-2 mb-2">
@@ -2025,16 +2131,6 @@ export default function UnifiedAgenda({
       </div>
 
       <div className="flex-1 overflow-y-auto bg-slate-50/50 relative">
-        {/* Indicador sutil cuando hay datos y se está actualizando (evita layout shift en móvil) */}
-        {loading && items.length > 0 && (
-          <div className="sticky top-0 left-0 right-0 z-50 flex justify-center py-1.5 bg-indigo-600/90 backdrop-blur">
-            <span className="text-xs font-bold text-white flex items-center gap-2">
-              <IconLoader size={12} className="animate-spin" />
-              Actualizando...
-            </span>
-          </div>
-        )}
-
         {/* SPINNER INICIAL (SOLO SI NO HAY DATOS) */}
         {loading && items.length === 0 && (
           <div className="text-center py-10">
@@ -2066,13 +2162,6 @@ export default function UnifiedAgenda({
           <div
             className={`transition-opacity duration-500 ${isRefreshing ? "opacity-60 pointer-events-none" : "opacity-100"}`}
           >
-            {isRefreshing && (
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-indigo-600/90 backdrop-blur rounded-full px-4 py-1.5 text-xs font-bold text-white shadow-lg flex items-center gap-2 animate-in fade-in zoom-in">
-                <IconLoader size={12} className="animate-spin" />{" "}
-                Sincronizando...
-              </div>
-            )}
-
             {Object.entries(groupedByMonth).map(([monthKey, monthEvents]) => {
               const monthDate = parseISO(monthEvents[0].fecha);
               let lastDateRendered = null;
@@ -2186,16 +2275,27 @@ export default function UnifiedAgenda({
                         {linePlacement?.type === "between" &&
                           linePlacement.nextId === evt.id && (
                             <div
-                              className="relative h-2 flex items-center bg-slate-50/50 border-b border-slate-100"
+                              className="relative min-h-[2.75rem] flex items-center bg-slate-50/50 border-b border-slate-100 px-0"
                               aria-hidden
                             >
-                              <div
-                                className="absolute left-0 right-0 h-0.5 z-10 pointer-events-none bg-emerald-500/90 animate-agenda-now-line"
-                                style={{
-                                  boxShadow:
-                                    "0 0 10px rgba(16, 185, 129, 0.35)",
-                                }}
-                              />
+                              <div className="absolute left-0 right-0 flex items-center z-10 pointer-events-none animate-agenda-now-line">
+                                <span
+                                  className="shrink-0 w-0 h-0 border-t-[7px] border-t-transparent border-b-[7px] border-b-transparent border-l-[11px] border-l-emerald-500"
+                                  style={{
+                                    boxShadow:
+                                      "0 0 8px rgba(16, 185, 129, 0.4)",
+                                  }}
+                                  aria-hidden
+                                />
+                                <span
+                                  className="flex-1 h-0.5 bg-emerald-500/90 min-w-0"
+                                  style={{
+                                    boxShadow:
+                                      "0 0 10px rgba(16, 185, 129, 0.35)",
+                                  }}
+                                  aria-hidden
+                                />
+                              </div>
                             </div>
                           )}
 
@@ -2207,14 +2307,27 @@ export default function UnifiedAgenda({
                         {linePlacement?.type === "inside" &&
                           linePlacement.eventId === evt.id && (
                             <div
-                              className="absolute left-0 right-0 h-0.5 z-10 pointer-events-none bg-emerald-500/90 animate-agenda-now-line"
-                              style={{
-                                top: `${linePlacement.progress * 100}%`,
-                                boxShadow:
-                                  "0 0 10px rgba(16, 185, 129, 0.35)",
-                              }}
+                              className="absolute left-0 right-0 flex items-center z-10 pointer-events-none animate-agenda-now-line"
+                              style={{ top: `${linePlacement.progress * 100}%` }}
                               aria-hidden
-                            />
+                            >
+                              <span
+                                className="shrink-0 w-0 h-0 border-t-[7px] border-t-transparent border-b-[7px] border-b-transparent border-l-[11px] border-l-emerald-500"
+                                style={{
+                                  boxShadow:
+                                    "0 0 8px rgba(16, 185, 129, 0.4)",
+                                }}
+                                aria-hidden
+                              />
+                              <span
+                                className="flex-1 h-0.5 bg-emerald-500/90 min-w-0"
+                                style={{
+                                  boxShadow:
+                                    "0 0 10px rgba(16, 185, 129, 0.35)",
+                                }}
+                                aria-hidden
+                              />
+                            </div>
                           )}
                         {/* --- CONTENEDOR MÓVIL (VISIBLE SOLO EN < md) --- */}
                         <div

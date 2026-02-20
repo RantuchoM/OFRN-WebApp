@@ -3,6 +3,16 @@
 ## Objetivo
 Mejorar la UX permitiendo que el usuario vea inmediatamente el evento que está ocurriendo "ahora" al abrir la agenda, con una línea dinámica que indica el instante actual.
 
+**Ámbito**: La funcionalidad aplica tanto a la **Agenda General** (sin filtro de gira) como a la **Agenda General de la gira** (vista con `giraId`). Si la gira está en curso y se abre su agenda, la línea de tiempo y la carga en el evento actual se comportan igual: se muestra la línea verde, se colapsan los "eventos anteriores de hoy" y se hace scroll al evento actual cuando corresponde.
+
+**Días anteriores**: Por defecto no se muestran eventos de días anteriores (ni en agenda general ni en agenda de la gira). El filtro por fecha "Desde" tiene por defecto la fecha de hoy, de modo que la lista empieza desde hoy.
+
+**Filtro por rango de fechas**: En el menú de filtros de UnifiedAgenda, después de las opciones de vista (transporte, comidas, etc.), hay un bloque **"Rango de fechas"** con:
+- **Desde**: por defecto hoy; el usuario puede elegir otra fecha para ver desde ese día.
+- **Hasta**: opcional; si se define, se limita la búsqueda a eventos hasta esa fecha (inclusive).
+
+Los valores se persisten en `localStorage` junto al resto de filtros. "Restablecer" vuelve "Desde" a hoy y "Hasta" a vacío.
+
 ## Zona horaria
 Se utiliza la **hora y fecha local del navegador** (dispositivo del usuario), sin forzar un huso (p. ej. GMT-3). Así la comparación con `hora_inicio` y `hora_fin` coincide con el reloj que ve el usuario. Funciones: `getCurrentTimeLocal()`, `getTodayDateStringLocal()`.
 
