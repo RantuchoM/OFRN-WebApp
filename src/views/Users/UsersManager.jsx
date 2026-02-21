@@ -1,19 +1,21 @@
 import React, { useState, useEffect } from "react";
+import { toast } from "sonner";
 import {
   IconUsers,
   IconSearch,
   IconCheck,
   IconX,
   IconLoader,
-  IconAlertCircle,
   IconMail,
   IconPlus,
   IconLock,
   IconTrash,
   IconEye,
   IconEyeOff,
-  IconMegaphone, // Icono sugerido para Difusión
+  IconCopy,
+  IconEdit,
 } from "../../components/ui/Icons";
+import ConfirmModal from "../../components/ui/ConfirmModal";
 
 export default function UsersManager({ supabase }) {
   const [integrantes, setIntegrantes] = useState([]);
@@ -22,6 +24,13 @@ export default function UsersManager({ supabase }) {
 
   const [visiblePasswords, setVisiblePasswords] = useState(new Set());
   const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // Edición explícita: { userId, field: 'mail' | 'clave_acceso' } o null
+  const [editingField, setEditingField] = useState(null);
+  // Valores originales al abrir edición (para revertir y para confirmar solo si cambió)
+  const [editOriginal, setEditOriginal] = useState(null);
+  // Modal de confirmación antes de guardar cambio
+  const [confirmSave, setConfirmSave] = useState(null);
 
   const [newMember, setNewMember] = useState({
     nombre: "",
@@ -69,46 +78,80 @@ export default function UsersManager({ supabase }) {
     );
   };
 
-  const handleEmailBlur = async (user) => {
-    if (!user.mail || user.mail.trim() === "") return;
-    const confirm = window.confirm(
-      `¿Actualizar el email de ${user.nombre} a "${user.mail}"?`,
+  const copyToClipboard = (text) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(
+      () => toast.success("Copiado al portapapeles"),
+      () => toast.error("No se pudo copiar")
     );
+  };
 
-    if (confirm) {
-      const { error } = await supabase
-        .from("integrantes")
-        .update({ mail: user.mail.trim() })
-        .eq("id", user.id);
-
-      if (error) {
-        alert("Error al actualizar email: " + error.message);
-        fetchData();
-      }
-    } else {
-      fetchData();
+  const startEdit = (user, field) => {
+    setEditingField({ userId: user.id, field });
+    setEditOriginal({ userId: user.id, mail: user.mail || "", clave_acceso: user.clave_acceso || "" });
+    if (field === "clave_acceso") {
+      setVisiblePasswords((prev) => new Set(prev).add(user.id));
     }
   };
 
-  const handlePasswordBlur = async (user) => {
-    if (!user.clave_acceso) return;
-    const confirm = window.confirm(
-      `¿Estás seguro de cambiar la clave para ${user.nombre}?`,
-    );
-
-    if (confirm) {
-      const { error } = await supabase
-        .from("integrantes")
-        .update({ clave_acceso: user.clave_acceso })
-        .eq("id", user.id);
-
-      if (error) {
-        alert("Error al actualizar clave: " + error.message);
-        fetchData();
-      }
-    } else {
-      fetchData();
+  const cancelEdit = (userId) => {
+    if (!editOriginal || editOriginal.userId !== userId) {
+      setEditingField(null);
+      setEditOriginal(null);
+      return;
     }
+    setIntegrantes((prev) =>
+      prev.map((u) =>
+        u.id === userId
+          ? { ...u, mail: editOriginal.mail, clave_acceso: editOriginal.clave_acceso }
+          : u
+      )
+    );
+    setEditingField(null);
+    setEditOriginal(null);
+  };
+
+  const isEditing = (userId, field) =>
+    editingField?.userId === userId && editingField?.field === field;
+
+  const performSave = async (userId, field, value) => {
+    const payload = field === "mail" ? { mail: (value || "").trim() } : { clave_acceso: value || "" };
+    const { error } = await supabase
+      .from("integrantes")
+      .update(payload)
+      .eq("id", userId);
+    if (error) {
+      toast.error("Error al actualizar: " + error.message);
+      fetchData();
+    } else {
+      toast.success(field === "mail" ? "Email actualizado" : "Clave actualizada");
+    }
+    setEditingField(null);
+    setEditOriginal(null);
+    setConfirmSave(null);
+    fetchData();
+  };
+
+  const saveEdit = (user, field) => {
+    const current = field === "mail" ? (user.mail || "").trim() : (user.clave_acceso || "");
+    const original = field === "mail" ? (editOriginal?.mail ?? "") : (editOriginal?.clave_acceso ?? "");
+    if (current === original) {
+      setEditingField(null);
+      setEditOriginal(null);
+      return;
+    }
+    setConfirmSave({
+      userId: user.id,
+      field,
+      value: current,
+      userName: `${user.nombre} ${user.apellido}`,
+      label: field === "mail" ? "email" : "clave",
+    });
+  };
+
+  const handleConfirmSave = () => {
+    if (!confirmSave) return;
+    performSave(confirmSave.userId, confirmSave.field, confirmSave.value);
   };
 
   const handleCreateMember = async (e) => {
@@ -337,13 +380,52 @@ export default function UsersManager({ supabase }) {
                         />
                         <input
                           type="text"
-                          className="bg-transparent border-b border-transparent focus:border-indigo-500 outline-none w-full text-xs text-slate-600"
+                          readOnly={!isEditing(u.id, "mail")}
+                          className="bg-transparent border-b border-transparent focus:border-indigo-500 outline-none w-full text-xs text-slate-600 disabled:bg-transparent"
                           value={u.mail || ""}
                           onChange={(e) =>
                             handleLocalChange(u.id, "mail", e.target.value)
                           }
-                          onBlur={() => handleEmailBlur(u)}
                         />
+                        {!isEditing(u.id, "mail") ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(u.mail)}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 rounded transition-colors"
+                              title="Copiar"
+                            >
+                              <IconCopy size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => startEdit(u, "mail")}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 rounded transition-colors"
+                              title="Editar"
+                            >
+                              <IconEdit size={14} />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => saveEdit(u, "mail")}
+                              className="p-1.5 text-slate-400 hover:text-emerald-600 rounded transition-colors"
+                              title="Guardar"
+                            >
+                              <IconCheck size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => cancelEdit(u.id)}
+                              className="p-1.5 text-slate-400 hover:text-red-600 rounded transition-colors"
+                              title="Cancelar"
+                            >
+                              <IconX size={14} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
 
@@ -379,11 +461,12 @@ export default function UsersManager({ supabase }) {
                     </td>
 
                     <td className="p-4">
-                      <div className="flex items-center gap-2 border-b border-slate-200 pb-1 w-full max-w-[180px]">
-                        <IconLock size={14} className="text-slate-300" />
+                      <div className="flex items-center gap-2 border-b border-slate-200 pb-1 w-full max-w-[220px]">
+                        <IconLock size={14} className="text-slate-300 shrink-0" />
                         <input
                           type={isPasswordVisible ? "text" : "password"}
-                          className="bg-transparent text-xs outline-none w-full text-slate-600 font-mono"
+                          readOnly={!isEditing(u.id, "clave_acceso")}
+                          className="bg-transparent text-xs outline-none w-full text-slate-600 font-mono disabled:bg-transparent"
                           value={u.clave_acceso || ""}
                           onChange={(e) =>
                             handleLocalChange(
@@ -392,18 +475,69 @@ export default function UsersManager({ supabase }) {
                               e.target.value,
                             )
                           }
-                          onBlur={() => handlePasswordBlur(u)}
                         />
-                        <button
-                          onClick={() => togglePasswordVisibility(u.id)}
-                          className="text-slate-400 hover:text-indigo-600"
-                        >
-                          {isPasswordVisible ? (
-                            <IconEyeOff size={14} />
-                          ) : (
-                            <IconEye size={14} />
-                          )}
-                        </button>
+                        {!isEditing(u.id, "clave_acceso") ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(u.clave_acceso)}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                              title="Copiar"
+                            >
+                              <IconCopy size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => startEdit(u, "clave_acceso")}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                              title="Editar"
+                            >
+                              <IconEdit size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => togglePasswordVisibility(u.id)}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                              title={isPasswordVisible ? "Ocultar" : "Ver"}
+                            >
+                              {isPasswordVisible ? (
+                                <IconEyeOff size={14} />
+                              ) : (
+                                <IconEye size={14} />
+                              )}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => saveEdit(u, "clave_acceso")}
+                              className="p-1.5 text-slate-400 hover:text-emerald-600 shrink-0"
+                              title="Guardar"
+                            >
+                              <IconCheck size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => cancelEdit(u.id)}
+                              className="p-1.5 text-slate-400 hover:text-red-600 shrink-0"
+                              title="Cancelar"
+                            >
+                              <IconX size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => togglePasswordVisibility(u.id)}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                            >
+                              {isPasswordVisible ? (
+                                <IconEyeOff size={14} />
+                              ) : (
+                                <IconEye size={14} />
+                              )}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
 
@@ -422,6 +556,38 @@ export default function UsersManager({ supabase }) {
           </table>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={!!confirmSave}
+        onClose={() => {
+          if (confirmSave && editOriginal?.userId === confirmSave.userId) {
+            setIntegrantes((prev) =>
+              prev.map((u) =>
+                u.id === confirmSave.userId
+                  ? {
+                      ...u,
+                      ...(confirmSave.field === "mail"
+                        ? { mail: editOriginal.mail }
+                        : { clave_acceso: editOriginal.clave_acceso }),
+                    }
+                  : u
+              )
+            );
+          }
+          setConfirmSave(null);
+          setEditingField(null);
+          setEditOriginal(null);
+        }}
+        onConfirm={handleConfirmSave}
+        title={confirmSave ? `¿Actualizar ${confirmSave.label}?` : ""}
+        message={
+          confirmSave
+            ? `Se actualizará el ${confirmSave.label} de ${confirmSave.userName}.`
+            : ""
+        }
+        confirmText="Guardar"
+        cancelText="Cancelar"
+      />
 
       <style>{`
         .label-text { display: block; font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px; }
