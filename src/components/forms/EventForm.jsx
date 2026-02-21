@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import {
   IconLoader,
   IconX,
@@ -7,6 +7,7 @@ import {
   IconTrash,
   IconCopy,
   IconSettings,
+  IconBus,
 } from "../ui/Icons";
 import DateInput from "../ui/DateInput";
 import TimeInput from "../ui/TimeInput";
@@ -14,6 +15,10 @@ import SearchableSelect from "../ui/SearchableSelect";
 import LocationSelectWithCreate from "./LocationSelectWithCreate";
 import ConfirmModal from "../ui/ConfirmModal";
 import { useAuth } from "../../context/AuthContext";
+import { getTransportesByGira } from "../../services/giraService";
+
+const TIPO_TRANSPORTE_SALIDA = 11;
+const TIPO_TRANSPORTE_LLEGADA = 12;
 
 export default function EventForm({
   formData,
@@ -28,9 +33,45 @@ export default function EventForm({
   isNew = false,
   supabase,
   onRefreshLocations,
+  giraId = null,
 }) {
   const { isEditor, isManagement } = useAuth();
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [transportesList, setTransportesList] = useState([]);
+
+  // Usar giraId del evento si el padre no pasó giraId (ej. agenda sin gira en URL)
+  const effectiveGiraId = giraId ?? formData?.id_gira ?? null;
+
+  const isTransportEventType =
+    Number(formData.id_tipo_evento) === TIPO_TRANSPORTE_SALIDA ||
+    Number(formData.id_tipo_evento) === TIPO_TRANSPORTE_LLEGADA;
+
+  useEffect(() => {
+    if (!supabase || effectiveGiraId == null || effectiveGiraId === "") {
+      setTransportesList([]);
+      return;
+    }
+    let cancelled = false;
+    getTransportesByGira(supabase, effectiveGiraId).then((list) => {
+      if (!cancelled) setTransportesList(list || []);
+    });
+    return () => { cancelled = true; };
+  }, [supabase, effectiveGiraId]);
+
+  const transportOptions = useMemo(() => {
+    return transportesList.map((t) => {
+      const detalle = t.detalle || "";
+      const nombre = t.transportes?.nombre || "";
+      const label =
+        detalle && nombre
+          ? `${detalle} (${nombre})`
+          : detalle || nombre || "Transporte";
+      return { id: t.id, label };
+    });
+  }, [transportesList]);
+
+  const needsTransport = isTransportEventType && !formData.id_gira_transporte;
+  const canSave = !needsTransport;
 
   // 1. Referencia inicial y detección de cambios
   const initialData = useMemo(() => ({ ...formData }), []);
@@ -277,6 +318,33 @@ export default function EventForm({
           )}
         </div>
 
+        {isTransportEventType && (
+          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-2">
+              <IconBus size={14} className="text-indigo-500" />
+              Vehículo de la gira *
+            </label>
+            {transportOptions.length === 0 ? (
+              <p className="text-xs text-amber-600 py-1">
+                No hay transportes cargados en esta gira. Cargá la flota en Logística.
+              </p>
+            ) : (
+              <SearchableSelect
+                options={transportOptions}
+                value={formData.id_gira_transporte}
+                onChange={(val) => handleChange("id_gira_transporte", val)}
+                placeholder="Elegir transporte..."
+                className="w-full border border-slate-300 rounded-lg"
+              />
+            )}
+            {needsTransport && (
+              <p className="text-xs text-red-600 mt-1 font-medium">
+                Para eventos de Salida/Viaje o Llegada/Traslado es obligatorio elegir un vehículo.
+              </p>
+            )}
+          </div>
+        )}
+
         {(isEditor || isManagement) && (
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
             <label className="flex items-center gap-3 cursor-pointer select-none group">
@@ -344,8 +412,11 @@ export default function EventForm({
             Cancelar
           </button>
           <button
-            onClick={onSave}
-            disabled={loading}
+            onClick={() => {
+              if (!canSave) return;
+              onSave();
+            }}
+            disabled={loading || !canSave}
             className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2 shadow-md hover:shadow-lg transition-all active:scale-95"
           >
             {loading ? (

@@ -523,7 +523,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       setShowMoveModal(false);
       fetchGiras();
     } else {
-      alert("Error al mover la gira");
+      toast.error("Error al mover la gira");
     }
   };
 
@@ -535,11 +535,11 @@ export default function GirasView({ supabase, trigger = 0 }) {
       setShowDupModal(false);
       fetchGiras();
     } else if (res.error === "DUPLICATE_NAME") {
-      alert(
-        `⚠️ Error: El nombre "${newName}" ya existe.\n\nPor favor, modifica el nombre en el formulario (ej: agrega un número o año).`,
+      toast.error(
+        `El nombre "${newName}" ya existe. Modifica el nombre en el formulario (ej: agrega un número o año).`,
       );
     } else {
-      alert("Ocurrió un error inesperado al duplicar la gira.");
+      toast.error("Ocurrió un error inesperado al duplicar la gira.");
     }
   };
 
@@ -574,11 +574,11 @@ export default function GirasView({ supabase, trigger = 0 }) {
         body: { action: "sync_program" },
       });
       if (error) throw error;
-      alert("Sincronización completada.");
+      toast.success("Sincronización completada.");
       await fetchGiras();
     } catch (err) {
       console.error(err);
-      alert("Error al sincronizar: " + err.message);
+      toast.error("Error al sincronizar: " + err.message);
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -588,8 +588,10 @@ export default function GirasView({ supabase, trigger = 0 }) {
   };
 
   const handleSave = async () => {
-    if (!formData.nombre_gira?.trim())
-      return alert("El nombre de la gira es obligatorio");
+    if (!formData.nombre_gira?.trim()) {
+      toast.error("El nombre de la gira es obligatorio");
+      return;
+    }
 
     setLoading(true);
 
@@ -717,10 +719,10 @@ export default function GirasView({ supabase, trigger = 0 }) {
       // Finalización
       await fetchGiras();
       closeForm();
-      alert(editingId ? "Gira actualizada con éxito" : "Gira creada con éxito");
+      toast.success(editingId ? "Gira actualizada con éxito" : "Gira creada con éxito");
     } catch (err) {
       console.error("Error detallado al guardar gira:", err);
-      alert(`Error al guardar: ${err.message || "Error desconocido"}`);
+      toast.error(`Error al guardar: ${err.message || "Error desconocido"}`);
     } finally {
       setLoading(false);
     }
@@ -1020,7 +1022,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       if (error) throw error;
       await fetchGiras();
     } catch (err) {
-      alert("Error al actualizar: " + err.message);
+      toast.error("Error al actualizar: " + err.message);
     } finally {
       setLoading(false);
     }

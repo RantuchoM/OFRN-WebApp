@@ -12,7 +12,6 @@ import {
   IconMusic,
   IconAlertTriangle,
   IconCopy,
-  IconWhatsAppFilled,
   IconMail,
   IconInfo,
   IconChevronDown,
@@ -22,6 +21,7 @@ import {
 } from "../../components/ui/Icons";
 import { toast } from "sonner";
 import InstrumentFilter from "../../components/filters/InstrumentFilter";
+import WhatsAppLink from "../../components/ui/WhatsAppLink";
 import MusicianForm from "./MusicianForm";
 import HorasCatedraDashboard from "./HorasCatedraDashboard";
 import SearchableSelect from "../../components/ui/SearchableSelect";
@@ -115,27 +115,6 @@ const getConditionStyles = (condition) => {
     default:
       return "bg-white hover:bg-slate-50";
   }
-};
-
-const WhatsAppLink = ({ phone }) => {
-  if (!phone) return null;
-  let cleanPhone = phone.replace(/\D/g, "");
-  if (cleanPhone.length === 10) cleanPhone = `549${cleanPhone}`;
-  else if (cleanPhone.startsWith("0"))
-    cleanPhone = `549${cleanPhone.substring(1)}`;
-
-  return (
-    <a
-      href={`https://wa.me/${cleanPhone}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-emerald-500 hover:text-emerald-700 p-1.5 hover:bg-emerald-50 rounded bg-white border border-emerald-100 shadow-sm"
-      title="Enviar WhatsApp"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <IconWhatsAppFilled size={16} />
-    </a>
-  );
 };
 
 const HighlightText = ({ text, highlight }) => {

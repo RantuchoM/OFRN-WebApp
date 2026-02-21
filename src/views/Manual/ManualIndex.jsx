@@ -4,6 +4,7 @@ import {
   IconBookOpen, IconSearch, IconChevronRight, 
   IconChevronDown, IconFileText, IconLoader, IconMenu
 } from '../../components/ui/Icons';
+import VideoPlayer from '../../components/ui/VideoPlayer';
 import 'react-quill/dist/quill.snow.css';
 
 // --- UTILIDAD: GENERAR EXTRACTO CON RESALTADO ---
@@ -311,8 +312,8 @@ export default function ManualIndex() {
                    </h1>
 
                    {selectedItem.video_url && (
-                      <div className="aspect-video w-full rounded-xl overflow-hidden shadow-lg bg-black mb-8 ring-1 ring-slate-900/10">
-                         <iframe width="100%" height="100%" src={selectedItem.video_url.replace("watch?v=", "embed/")} title={selectedItem.title} frameBorder="0" allowFullScreen></iframe>
+                      <div className="mb-8">
+                         <VideoPlayer url={selectedItem.video_url.trim()} />
                       </div>
                    )}
 

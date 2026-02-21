@@ -91,18 +91,46 @@ function MiniCalendar({ value, onSelect }) {
     );
 }
 
+/** Parsea segmentos a yyyy-MM-dd; retorna '' si no es válido. */
+function segmentsToIso(d, m, y) {
+    const dd = String(d).replace(/\D/g, '').padStart(2, '0');
+    const mm = String(m).replace(/\D/g, '').padStart(2, '0');
+    let yy = String(y).replace(/\D/g, '');
+    if (yy.length === 2) yy = '20' + yy;
+    if (yy.length !== 4) return '';
+    const iso = `${yy}-${mm}-${dd}`;
+    const dateObj = new Date(iso);
+    return !isNaN(dateObj.getTime()) ? iso : '';
+}
+
+const inputBaseClass = 'border-0 bg-transparent outline-none p-0 text-center text-slate-800 min-w-0';
+
 export default function DateInput({ value, onChange, label, className, showCalendarPicker = true, showDayName = true }) {
-    const [displayValue, setDisplayValue] = useState('');
+    const [day, setDay] = useState('');
+    const [month, setMonth] = useState('');
+    const [year, setYear] = useState('');
     const [calendarOpen, setCalendarOpen] = useState(false);
     const containerRef = useRef(null);
+    const dayRef = useRef(null);
+    const monthRef = useRef(null);
+    const yearRef = useRef(null);
 
     useEffect(() => {
         if (value) {
             const [y, m, d] = value.split('-');
-            if (y && m && d) setDisplayValue(`${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`);
-            else setDisplayValue('');
+            if (y && m && d) {
+                setDay(d);
+                setMonth(m);
+                setYear(y);
+            } else {
+                setDay('');
+                setMonth('');
+                setYear('');
+            }
         } else {
-            setDisplayValue('');
+            setDay('');
+            setMonth('');
+            setYear('');
         }
     }, [value]);
 
@@ -117,33 +145,121 @@ export default function DateInput({ value, onChange, label, className, showCalen
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [calendarOpen]);
 
-    const handleChange = (e) => {
-        let input = e.target.value.replace(/\D/g, '');
-
-        if (input.length > 2) input = input.slice(0, 2) + '/' + input.slice(2);
-        if (input.length > 5) input = input.slice(0, 5) + '/' + input.slice(5);
-        if (input.length > 10) input = input.slice(0, 10);
-
-        setDisplayValue(input);
-
-        if (input.length === 10) {
-            const parts = input.split('/');
-            const d = parts[0]?.padStart(2, '0') ?? '';
-            const m = parts[1]?.padStart(2, '0') ?? '';
-            const y = parts[2] ?? '';
-            const dateObj = new Date(`${y}-${m}-${d}`);
-            if (!isNaN(dateObj.getTime())) {
-                onChange(`${y}-${m}-${d}`);
+    const selectAll = (ref) => {
+        requestAnimationFrame(() => {
+            if (ref?.current && typeof ref.current.select === 'function') {
+                ref.current.select();
             }
-        } else if (input === '') {
-            onChange('');
+        });
+    };
+
+    const handleDayFocus = () => selectAll(dayRef);
+    const handleMonthFocus = () => selectAll(monthRef);
+    const handleYearFocus = () => selectAll(yearRef);
+
+    const handleDayChange = (e) => {
+        const v = e.target.value.replace(/\D/g, '').slice(0, 2);
+        setDay(v);
+        if (v.length === 2) {
+            const iso = segmentsToIso(v, month, year);
+            if (iso) onChange(iso);
+            monthRef.current?.focus();
+            selectAll(monthRef);
         }
+    };
+
+    const handleMonthChange = (e) => {
+        const v = e.target.value.replace(/\D/g, '').slice(0, 2);
+        setMonth(v);
+        if (v.length === 2) {
+            const iso = segmentsToIso(day, v, year);
+            if (iso) onChange(iso);
+            yearRef.current?.focus();
+            selectAll(yearRef);
+        }
+    };
+
+    const handleYearChange = (e) => {
+        const v = e.target.value.replace(/\D/g, '').slice(0, 4);
+        setYear(v);
+        if (v.length === 4) {
+            const iso = segmentsToIso(day, month, v);
+            if (iso) onChange(iso);
+        }
+    };
+
+    const handleKeyDown = (e, segment) => {
+        const start = e.target.selectionStart ?? 0;
+        if (e.key === 'ArrowLeft' && start === 0) {
+            if (segment === 'month') {
+                e.preventDefault();
+                dayRef.current?.focus();
+                selectAll(dayRef);
+            } else if (segment === 'year') {
+                e.preventDefault();
+                monthRef.current?.focus();
+                selectAll(monthRef);
+            }
+        }
+        if (e.key === 'ArrowRight') {
+            const len = e.target.value.length;
+            if (segment === 'day' && start >= len) {
+                e.preventDefault();
+                monthRef.current?.focus();
+                selectAll(monthRef);
+            } else if (segment === 'month' && start >= len) {
+                e.preventDefault();
+                yearRef.current?.focus();
+                selectAll(yearRef);
+            }
+        }
+        if (e.key === 'Backspace' && segment !== 'day' && start === 0 && e.target.selectionEnd === 0) {
+            e.preventDefault();
+            if (segment === 'month') {
+                dayRef.current?.focus();
+                selectAll(dayRef);
+            } else {
+                monthRef.current?.focus();
+                selectAll(monthRef);
+            }
+        }
+    };
+
+    const handleContainerPaste = (e) => {
+        const pasted = (e.clipboardData?.getData('text') || '').trim();
+        const digits = pasted.replace(/\D/g, '');
+        if (digits.length >= 8) {
+            e.preventDefault();
+            setDay(digits.slice(0, 2));
+            setMonth(digits.slice(2, 4));
+            setYear(digits.slice(4, 8));
+            yearRef.current?.focus();
+            selectAll(yearRef);
+        } else {
+            const parts = pasted.split(/[/\-.]/).map((p) => p.replace(/\D/g, ''));
+            if (parts.length >= 3) {
+                e.preventDefault();
+                setDay(parts[0].slice(0, 2));
+                setMonth(parts[1].slice(0, 2));
+                setYear(parts[2].slice(0, 4));
+                yearRef.current?.focus();
+                selectAll(yearRef);
+            }
+        }
+    };
+
+    const handleBlur = () => {
+        const iso = segmentsToIso(day, month, year);
+        if (iso && iso !== value) onChange(iso);
+        if (!day && !month && !year) onChange('');
     };
 
     const handleCalendarSelect = (iso) => {
         onChange(iso);
         const [y, m, d] = iso.split('-');
-        setDisplayValue(`${d}/${m}/${y}`);
+        setDay(d);
+        setMonth(m);
+        setYear(y);
         setCalendarOpen(false);
     };
 
@@ -195,14 +311,55 @@ export default function DateInput({ value, onChange, label, className, showCalen
                         )}
                     </>
                 )}
-                <input
-                    type="text"
-                    placeholder="dd/mm/aaaa"
-                    className={`w-full outline-none transition-colors p-1 pl-8 ${className || "border border-slate-300 rounded text-sm bg-white focus:ring-2 focus:ring-indigo-500"}`}
-                    value={displayValue}
-                    onChange={handleChange}
-                    maxLength={10}
-                />
+                <div
+                    className={`flex items-center justify-start gap-0 w-full outline-none transition-colors p-1 pl-8 pr-1 rounded border border-slate-300 bg-white focus-within:ring-2 focus-within:ring-indigo-500 ${className || ''}`}
+                    onPaste={handleContainerPaste}
+                >
+                    <input
+                        ref={dayRef}
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="dd"
+                        maxLength={2}
+                        value={day}
+                        onChange={handleDayChange}
+                        onFocus={handleDayFocus}
+                        onKeyDown={(e) => handleKeyDown(e, 'day')}
+                        onBlur={handleBlur}
+                        className={`${inputBaseClass} w-[2ch] shrink-0 text-xs`}
+                        aria-label="Día"
+                    />
+                    <span className="text-slate-400 select-none shrink-0" aria-hidden>/</span>
+                    <input
+                        ref={monthRef}
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="mm"
+                        maxLength={2}
+                        value={month}
+                        onChange={handleMonthChange}
+                        onFocus={handleMonthFocus}
+                        onKeyDown={(e) => handleKeyDown(e, 'month')}
+                        onBlur={handleBlur}
+                        className={`${inputBaseClass} w-[2ch] shrink-0 text-xs`}
+                        aria-label="Mes"
+                    />
+                    <span className="text-slate-400 select-none shrink-0" aria-hidden>/</span>
+                    <input
+                        ref={yearRef}
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="aaaa"
+                        maxLength={4}
+                        value={year}
+                        onChange={handleYearChange}
+                        onFocus={handleYearFocus}
+                        onKeyDown={(e) => handleKeyDown(e, 'year')}
+                        onBlur={handleBlur}
+                        className={`${inputBaseClass} w-[4ch] shrink-0 text-[10px]`}
+                        aria-label="Año"
+                    />
+                </div>
             </div>
         </div>
     );

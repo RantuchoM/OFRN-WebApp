@@ -21,6 +21,15 @@ body {
   animation: agenda-now-line-pulse 2.5s ease-in-out infinite;
 }
 
+/* Deshacer en roster: titilar una vez por segundo, menos opaco */
+@keyframes titilar {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+.animate-titilar {
+  animation: titilar 1s ease-in-out infinite;
+}
+
 /* ========================================= */
 /* MODO OSCURO "MATEMÁTICO" (Invert + Hue)   */
 /* ========================================= */

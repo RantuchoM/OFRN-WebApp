@@ -194,6 +194,48 @@ export const syncBowingToProgram = async (
  * Obtiene la información de habitación de un integrante específico para una gira.
  * Resuelve nombres de integrantes generales y filtra ausentes.
  */
+/**
+ * Obtiene la lista de transportes de una gira (giras_transportes) para selectores en formularios.
+ * id_gira referencia programas(id). La tabla tiene id_transporte -> transportes(id).
+ * @param {object} supabase - Cliente Supabase
+ * @param {number|string} giraId - ID de la gira (programa)
+ * @returns {Promise<Array>} Lista de { id, detalle, transportes?: { nombre, patente } }
+ */
+export const getTransportesByGira = async (supabase, giraId) => {
+  if (!supabase) return [];
+  const idGira = giraId != null && giraId !== "" ? Number(giraId) : NaN;
+  if (Number.isNaN(idGira)) return [];
+
+  try {
+    // Intentar con join a transportes (nombre viene de la tabla maestra transportes)
+    const { data, error } = await supabase
+      .from("giras_transportes")
+      .select("id, detalle, id_transporte, transportes(nombre, patente)")
+      .eq("id_gira", idGira)
+      .order("id");
+
+    if (error) throw error;
+    if (data && data.length > 0) return data;
+
+    // Si no hay filas, devolver [] (gira sin transportes asignados)
+    return [];
+  } catch (err) {
+    console.error("[GiraService] getTransportesByGira:", err);
+    // Fallback sin join: solo columnas de giras_transportes (detalle suele tener el nombre)
+    try {
+      const { data: fallback, error: err2 } = await supabase
+        .from("giras_transportes")
+        .select("id, detalle")
+        .eq("id_gira", idGira)
+        .order("id");
+      if (err2) return [];
+      return fallback || [];
+    } catch {
+      return [];
+    }
+  }
+};
+
 export const getMyRoomingStatus = async (supabase, giraId, userId) => {
   try {
     const numericUserId = parseInt(userId);

@@ -259,7 +259,7 @@ export default function MealsReport({
       </div>
 
       {/* Contenido Reporte */}
-      <div className="flex-1 overflow-auto p-8" ref={reportRef}>
+      <div className="meals-report-export flex-1 overflow-auto p-8" ref={reportRef}>
         <div className="mb-6 hidden print:block">
           <h1 className="text-2xl font-bold">{gira.nombre_gira}</h1>
           <p className="text-slate-500">
@@ -270,17 +270,18 @@ export default function MealsReport({
         <table className="w-full text-left border-collapse text-sm">
           <thead>
             <tr className="border-b-2 border-slate-800">
-              <th className="py-2 px-2">Fecha</th>
-              <th className="py-2 px-2">Hora</th>
-              <th className="py-2 px-2">Servicio</th>
-              <th className="py-2 px-2">Lugar</th>
-              <th className="py-2 px-2 text-right bg-slate-100">TOTAL</th>
+              <th className="py-2 px-1 w-0 whitespace-nowrap" title="Fecha">Fcha</th>
+              <th className="py-2 px-1 w-0 whitespace-nowrap" title="Hora">Hora</th>
+              <th className="py-2 px-1 w-0 whitespace-nowrap" title="Servicio">Serv</th>
+              <th className="py-2 px-2 min-w-0">Lugr</th>
+              <th className="py-2 px-1 w-0 text-right bg-slate-100 whitespace-nowrap" title="Total">Tota</th>
               {allDiets.map((d) => (
                 <th
                   key={d}
-                  className="py-2 px-2 text-right border-l text-xs uppercase text-slate-500 font-bold"
+                  className="py-2 px-1 w-0 text-right border-l text-xs uppercase text-slate-500 font-bold whitespace-nowrap"
+                  title={d}
                 >
-                  {d}
+                  {d.length <= 4 ? d : d.slice(0, 4)}
                 </th>
               ))}
             </tr>

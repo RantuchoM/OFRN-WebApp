@@ -12,6 +12,7 @@ import {
 } from "../../components/ui/Icons";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { toast } from "sonner";
 
 // Configuración de Estados y Colores
 const STATUS_CONFIG = {
@@ -85,7 +86,7 @@ export default function FeedbackAdmin({ supabase }) {
         prev.map((item) => (item.id === id ? { ...item, estado: newStatus } : item))
       );
     } catch (error) {
-      alert("Error al actualizar estado: " + error.message);
+      toast.error("Error al actualizar estado: " + error.message);
     }
   };
 
@@ -115,7 +116,7 @@ export default function FeedbackAdmin({ supabase }) {
       );
       setEditingId(null);
     } catch (error) {
-      alert("Error al guardar comentario: " + error.message);
+      toast.error("Error al guardar comentario: " + error.message);
     }
   };
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   IconLoader, IconFilter, IconPlus, IconCheck, IconX, IconUser, IconTrash, IconEdit, IconChevronDown
 } from "../../components/ui/Icons";
+import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import NovedadModal from "./NovedadModal";
 
 const CONCEPTOS = [
@@ -13,63 +14,6 @@ const CONCEPTOS = [
   { id: "h_desarraigo", label: "Des" },
   { id: "h_otros", label: "Otros" },
 ];
-
-const MultiSelect = ({ options, selected, onChange, placeholder = "Seleccionar..." }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const containerRef = useRef(null);
-
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (containerRef.current && !containerRef.current.contains(event.target)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
-
-    const toggleOption = (id) => {
-        const newSelected = new Set(selected);
-        if (newSelected.has(id)) newSelected.delete(id);
-        else newSelected.add(id);
-        onChange(newSelected);
-    };
-
-    return (
-        <div className="relative" ref={containerRef}>
-            <button 
-                onClick={() => setIsOpen(!isOpen)}
-                className={`flex items-center justify-between w-48 px-3 py-1.5 text-xs font-bold border rounded-lg bg-white transition-colors ${selected.size > 0 ? 'border-indigo-300 text-indigo-700 bg-indigo-50' : 'border-slate-300 text-slate-500'}`}
-            >
-                <span className="truncate">
-                    {selected.size > 0 ? `${selected.size} ensambles` : placeholder}
-                </span>
-                <IconChevronDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}/>
-            </button>
-
-            {isOpen && (
-                <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden max-h-60 overflow-y-auto">
-                    <div className="p-1">
-                        {options.map(opt => (
-                            <div 
-                                key={opt.id} 
-                                onClick={() => toggleOption(opt.id)}
-                                className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 cursor-pointer rounded-lg transition-colors"
-                            >
-                                <div className={`w-4 h-4 rounded border flex items-center justify-center ${selected.has(opt.id) ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
-                                    {selected.has(opt.id) && <IconCheck size={10} className="text-white"/>}
-                                </div>
-                                <span className={`text-xs ${selected.has(opt.id) ? 'font-bold text-slate-800' : 'text-slate-600'}`}>
-                                    {opt.label}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
 
 const getHoursForDate = (records, date, origen) => {
   const year = date.getFullYear();
@@ -282,10 +226,11 @@ export default function HorasCatedraDashboard({ supabase }) {
                     <IconUser size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
                 
-                <MultiSelect 
-                    options={ensemblesList} 
-                    selected={selectedEnsembles} 
-                    onChange={setSelectedEnsembles}
+                <MultiSelectDropdown
+                    options={ensemblesList.map((e) => ({ value: e.id, label: e.label }))}
+                    value={Array.from(selectedEnsembles)}
+                    onChange={(arr) => setSelectedEnsembles(new Set(arr))}
+                    label="Filtrar Ensambles"
                     placeholder="Filtrar Ensambles"
                 />
             </div>

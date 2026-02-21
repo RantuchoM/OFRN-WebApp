@@ -1,14 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import {
-  format,
-  startOfDay,
-  addMonths,
-  parseISO,
-  isPast,
-  differenceInDays,
-  differenceInHours,
-  formatDistanceToNow,
-} from "date-fns";
+import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { es } from "date-fns/locale";
 import {
@@ -18,12 +9,10 @@ import {
   IconEdit,
   IconArrowLeft,
   IconPlus,
-  IconDrive,
   IconList,
   IconChevronDown,
   IconMapPin,
   IconCalendar,
-  IconArrowRight,
   IconEye,
   IconPrinter,
   IconUpload,
@@ -42,333 +31,26 @@ import IndependentRehearsalForm from "../../views/Ensembles/IndependentRehearsal
 import SearchableSelect from "../ui/SearchableSelect";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
 import { calculateLogisticsSummary } from "../../hooks/useLogistics";
+import { useClickOutside } from "../../hooks/useClickOutside";
+import { useAgendaFilters } from "../../hooks/useAgendaFilters";
+import { useAgendaData, getAgendaCacheKey } from "../../hooks/useAgendaData";
+import DateInput from "../ui/DateInput";
+import {
+  getTodayDateStringLocal,
+  getCurrentTimeLocal,
+  timeStringToMinutes,
+} from "../../utils/dates";
+import {
+  getNowLinePlacement,
+  getDeadlineStatus,
+  getGoogleMapsUrl,
+} from "../../utils/agendaHelpers";
+import FeriadoBadge from "./FeriadoBadge";
+import ConnectionBadge from "./ConnectionBadge";
+import DriveSmartButton from "./DriveSmartButton";
+import TourDivider from "./TourDivider";
+import AgendaMealActionModal from "./AgendaMealActionModal";
 
-// --- HORA ACTUAL (local del navegador) para línea "ahora" y evento actual ---
-function getNowLocal() {
-  return new Date();
-}
-function getCurrentTimeLocal() {
-  return format(getNowLocal(), "HH:mm");
-}
-function getTodayDateStringLocal() {
-  return format(getNowLocal(), "yyyy-MM-dd");
-}
-function timeStringToMinutes(s) {
-  if (!s) return 0;
-  const [h, m] = (s.slice(0, 5).split(":")).map(Number);
-  return (h || 0) * 60 + (m || 0);
-}
-
-/**
- * Determina dónde dibujar la línea "ahora":
- * - { type: 'inside', eventId, progress } si estamos dentro de un evento (progress 0..1)
- * - { type: 'between', prevId, nextId } si el último evento ya terminó y estamos entre ese y el siguiente
- * - null si no hay evento "actual" hoy
- * Con hora_fin: progress = (now - inicio) / (fin - inicio).
- * Sin hora_fin: progress = (now - inicio) / (siguiente.inicio - inicio).
- */
-function getNowLinePlacement(filteredItems) {
-  const today = getTodayDateStringLocal();
-  const nowMin = timeStringToMinutes(getCurrentTimeLocal());
-  const todayEvents = filteredItems
-    .filter((i) => !i.isProgramMarker && i.fecha === today)
-    .sort(
-      (a, b) =>
-        timeStringToMinutes(a.hora_inicio) - timeStringToMinutes(b.hora_inicio),
-    );
-  if (todayEvents.length === 0) return null;
-
-  let lastStarted = null;
-  for (const evt of todayEvents) {
-    const startMin = timeStringToMinutes(evt.hora_inicio);
-    if (nowMin >= startMin) lastStarted = evt;
-  }
-  if (!lastStarted) return null;
-
-  const startMin = timeStringToMinutes(lastStarted.hora_inicio);
-  const endMin = lastStarted.hora_fin
-    ? timeStringToMinutes(lastStarted.hora_fin)
-    : null;
-
-  if (endMin != null && nowMin > endMin) {
-    const nextIdx = todayEvents.findIndex((e) => e.id === lastStarted.id) + 1;
-    const nextEvt = todayEvents[nextIdx];
-    if (nextEvt) {
-      return { type: "between", prevId: lastStarted.id, nextId: nextEvt.id };
-    }
-    return null;
-  }
-
-  let endForProgress = endMin;
-  if (endForProgress == null || endForProgress <= startMin) {
-    const nextIdx = todayEvents.findIndex((e) => e.id === lastStarted.id) + 1;
-    const nextEvt = todayEvents[nextIdx];
-    endForProgress = nextEvt
-      ? timeStringToMinutes(nextEvt.hora_inicio)
-      : startMin + 60;
-    if (endForProgress <= startMin) endForProgress = startMin + 60;
-  }
-  const progress = (nowMin - startMin) / (endForProgress - startMin);
-  const clamped = Math.max(0, Math.min(1, progress));
-  return { type: "inside", eventId: lastStarted.id, progress: clamped };
-}
-
-// --- LÓGICA DE FECHA LÍMITE ---
-const getDeadlineStatus = (deadlineISO) => {
-  if (!deadlineISO) return { status: "NO_DEADLINE" };
-  const deadline = parseISO(deadlineISO);
-  const now = new Date();
-  if (isPast(deadline)) return { status: "CLOSED", message: "Cerrado" };
-  const diffDays = differenceInDays(deadline, now);
-  const diffHours = differenceInHours(deadline, now);
-  if (diffDays > 0)
-    return { status: "OPEN", message: `${diffDays}d restantes` };
-  return { status: "OPEN", message: `${diffHours}h restantes` };
-};
-
-// Hook para cerrar al hacer click fuera
-function useOutsideAlerter(ref, callback) {
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (ref.current && !ref.current.contains(event.target)) {
-        callback();
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [ref, callback]);
-}
-
-// --- COMPONENTE: Badge de Feriado Interactivo ---
-const FeriadoBadge = ({ feriado }) => {
-  if (!feriado) return null;
-
-  const isFeriado = feriado.es_feriado;
-  const colorClass = isFeriado ? "text-red-600" : "text-yellow-600";
-
-  return (
-    <div className="ml-1">
-      <button
-        type="button"
-        className={`cursor-pointer hover:scale-110 transition-transform ${colorClass}`}
-        title={`⚠️ ${isFeriado ? "Feriado" : "Día no laborable"}: ${feriado.detalle}`}
-      >
-        <IconAlertTriangle size={14} />
-      </button>
-    </div>
-  );
-};
-
-// COMPONENTE: BOTÓN DRIVE INTELIGENTE
-const DriveSmartButton = ({ evt }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef(null);
-  useOutsideAlerter(containerRef, () => setIsOpen(false));
-
-  const driveLinks = [];
-  if (evt.programas?.google_drive_folder_id) {
-    driveLinks.push({
-      id: evt.programas.id,
-      label: `${evt.programas.mes_letra} | ${evt.programas.nomenclador} - ${evt.programas.nombre_gira}`,
-      url: `https://drive.google.com/drive/folders/${evt.programas.google_drive_folder_id}`,
-    });
-  }
-  if (evt.eventos_programas_asociados?.length > 0) {
-    evt.eventos_programas_asociados.forEach((ep) => {
-      if (
-        ep.programas?.google_drive_folder_id &&
-        ep.programas.id !== evt.programas?.id
-      ) {
-        driveLinks.push({
-          id: ep.programas.id,
-          label: `${ep.programas.mes_letra} | ${ep.programas.nomenclador} - ${ep.programas.nombre_gira}`,
-          url: `https://drive.google.com/drive/folders/${ep.programas.google_drive_folder_id}`,
-        });
-      }
-    });
-  }
-
-  if (driveLinks.length === 0) return null;
-
-  if (driveLinks.length === 1) {
-    return (
-      <a
-        href={driveLinks[0].url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="p-1.5 text-slate-400 hover:text-green-600 rounded hover:bg-green-50 transition-colors flex items-center gap-1"
-        title={`Drive: ${driveLinks[0].label}`}
-      >
-        <IconDrive size={16} />
-      </a>
-    );
-  }
-
-  return (
-    <div className="relative" ref={containerRef}>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setIsOpen(!isOpen);
-        }}
-        className="p-1.5 text-slate-400 hover:text-green-600 rounded hover:bg-green-50 transition-colors flex items-center gap-1 font-bold text-[10px]"
-        title="Múltiples carpetas de Drive"
-      >
-        <IconDrive size={16} />
-        <span>{driveLinks.length}</span>
-      </button>
-
-      {isOpen && (
-        <div className="absolute bottom-full right-0 mb-1 w-64 bg-white rounded-lg shadow-xl border border-slate-200 z-50 overflow-hidden animate-in zoom-in-95 origin-bottom-right">
-          <div className="text-[9px] font-bold text-slate-400 bg-slate-50 px-2 py-1 border-b border-slate-100 uppercase">
-            Carpetas de Drive
-          </div>
-          <div className="max-h-48 overflow-y-auto">
-            {driveLinks.map((link) => (
-              <a
-                key={link.id}
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block px-3 py-2 text-xs text-slate-700 hover:bg-green-50 hover:text-green-700 border-b border-slate-50 last:border-0 leading-tight"
-                onClick={() => setIsOpen(false)}
-              >
-                {link.label}
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-// Función segura para guardar en caché
-const saveToCache = (key, data) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (error) {
-    // Si el error es por falta de espacio (QuotaExceededError)
-    if (error.name === "QuotaExceededError" || error.code === 22) {
-      console.warn("⚠️ LocalStorage lleno. Limpiando caché antigua...");
-
-      // 1. Borrar todas las claves que empiecen con 'agenda_cache_'
-      Object.keys(localStorage).forEach((k) => {
-        if (k.startsWith("agenda_cache_")) {
-          localStorage.removeItem(k);
-        }
-      });
-
-      // 2. Intentar guardar de nuevo ahora que hicimos espacio
-      try {
-        localStorage.setItem(key, JSON.stringify(data));
-        console.log("✅ Caché guardado tras limpieza.");
-      } catch (retryError) {
-        console.error(
-          "❌ Imposible guardar en caché (datos demasiado grandes). La app funcionará sin caché.",
-        );
-      }
-    }
-  }
-};
-const ConnectionBadge = ({
-  status,
-  lastUpdate,
-  onRefresh,
-  isRefreshing,
-  isUpdating,
-}) => {
-  const isOnline = status === "SUBSCRIBED";
-  const updating = isUpdating ?? isRefreshing;
-  const [, setTick] = useState(0);
-
-  useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  let timeText = "recién";
-  try {
-    if (lastUpdate && !isNaN(new Date(lastUpdate).getTime()) && es) {
-      timeText = formatDistanceToNow(new Date(lastUpdate), {
-        addSuffix: true,
-        locale: es,
-      });
-    }
-  } catch (err) {
-    timeText = "hace un momento";
-  }
-
-  return (
-    <button
-      onClick={onRefresh}
-      disabled={updating}
-      className={`
-        flex items-center gap-2 rounded-full font-bold shadow-sm border transition-all animate-in fade-in
-        px-2 py-1 sm:px-3
-        ${
-          isOnline
-            ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-            : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
-        }
-        ${updating ? "opacity-80 cursor-wait" : ""}
-      `}
-      title={updating ? "Actualizando..." : `Estado: ${isOnline ? "En línea" : "Conectando"}`}
-    >
-      <span className="relative flex h-2.5 w-2.5 sm:h-2 sm:w-2 shrink-0">
-        {isOnline && !updating && (
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-        )}
-        {updating ? (
-          <IconLoader
-            size={isOnline ? 10 : 12}
-            className={`animate-spin ${isOnline ? "text-emerald-500" : "text-amber-500"}`}
-            aria-hidden
-          />
-        ) : (
-          <span
-            className={`relative inline-flex rounded-full h-2.5 w-2.5 sm:h-2 sm:w-2 ${
-              isOnline ? "bg-emerald-500" : "bg-amber-500"
-            }`}
-          />
-        )}
-      </span>
-
-      <div className="hidden sm:flex flex-col items-start leading-tight">
-        <span className="uppercase tracking-wider text-[9px]">
-          {updating
-            ? "Actualizando..."
-            : isOnline
-              ? "En línea"
-              : "Conectando..."}
-        </span>
-        {!updating && (
-          <span className="font-normal opacity-80 text-[9px] normal-case whitespace-nowrap">
-            Act. {timeText}
-          </span>
-        )}
-      </div>
-    </button>
-  );
-};
-const getGoogleMapsUrl = (locacion) => {
-  if (!locacion) return null;
-
-  // 1. Si ya tienes un link guardado en BD, úsalo (opcional)
-  if (locacion.link_mapa) return locacion.link_mapa;
-
-  // 2. Construcción dinámica
-  const partes = [];
-  if (locacion.nombre) partes.push(locacion.nombre);
-  if (locacion.direccion) partes.push(locacion.direccion);
-  if (locacion.localidades?.localidad)
-    partes.push(locacion.localidades.localidad);
-
-  // "Rio Negro, Argentina" ayuda a la precisión si hay ciudades homónimas
-  partes.push("Rio Negro, Argentina");
-
-  const query = encodeURIComponent(partes.join(", "));
-  return `https://www.google.com/maps/search/?api=1&query=${query}`;
-};
 export default function UnifiedAgenda({
   supabase,
   giraId = null,
@@ -378,13 +60,6 @@ export default function UnifiedAgenda({
   onViewChange = null,
 }) {
   const { user, isEditor, isManagement } = useAuth();
-  const [techFilter, setTechFilter] = useState(
-    isManagement ? "all" : "no_tech",
-  );
-
-  useEffect(() => {
-    if (!isManagement) setTechFilter("no_tech");
-  }, [isManagement]);
   // Estado para el modal de comida en móvil
   const [mealActionTarget, setMealActionTarget] = useState(null);
   const toggleEventTechnica = async (e, eventId, currentValue) => {
@@ -403,7 +78,7 @@ export default function UnifiedAgenda({
       );
     } catch (err) {
       console.error("Error al cambiar técnica:", err);
-      alert("No se pudo guardar el cambio.");
+      toast.error("No se pudo guardar el cambio.");
     }
   };
 
@@ -411,23 +86,12 @@ export default function UnifiedAgenda({
   const [musicianOptions, setMusicianOptions] = useState([]);
 
   const effectiveUserId = viewAsUserId || user.id;
-  const STORAGE_KEY = `unified_agenda_filters_v4_${effectiveUserId}`;
   const defaultPersonalFilter = !isEditor && !isManagement && !user?.isGeneral;
   // --- ESTADOS ---
   const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
   const [myEnsembleObjects, setMyEnsembleObjects] = useState([]);
-  const [realtimeStatus, setRealtimeStatus] = useState("CONNECTING");
-  const [lastUpdate, setLastUpdate] = useState(new Date());
-
-  // SEPARACIÓN DE ESTADOS DE CARGA (CLAVE PARA MÓVIL)
-  const [loading, setLoading] = useState(false); // Carga inicial (pantalla vacía)
-  const [isRefreshing, setIsRefreshing] = useState(false); // Recarga silenciosa (datos visibles)
-
+  // SEPARACIÓN DE ESTADOS DE CARGA (loading, isRefreshing, lastUpdate, realtimeStatus vienen de useAgendaData) (CLAVE PARA MÓVIL)
   // IDs de eventos actualizados en esta sesión (indicador titilante; se limpia al refrescar)
-  const [recentlyUpdatedEventIds, setRecentlyUpdatedEventIds] = useState(
-    () => new Set(),
-  );
-
   // --- FETCH COORDINACIÓN ---
   useEffect(() => {
     const fetchCoordination = async () => {
@@ -480,143 +144,108 @@ export default function UnifiedAgenda({
     return false;
   };
 
-  const getInitialFilterState = (key, defaultVal) => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const p = JSON.parse(saved);
-        if (p[key] !== undefined) return p[key];
-      }
-    } catch (e) {
-      console.error("Error reading filters", e);
-    }
-    return defaultVal;
-  };
-
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState(() => {
-    const saved = getInitialFilterState("categories", []);
-    if (!isEditor && !isManagement) {
-      return saved.filter((id) => id !== 3);
-    }
-    return saved;
-  });
-  const [showNonActive, setShowNonActive] = useState(() =>
-    getInitialFilterState("showNonActive"),
-  );
-  const [showOnlyMyTransport, setShowOnlyMyTransport] = useState(() =>
-    getInitialFilterState("showOnlyMyTransport", defaultPersonalFilter),
-  );
-  const [showOnlyMyMeals, setShowOnlyMyMeals] = useState(() =>
-    getInitialFilterState("showOnlyMyMeals", defaultPersonalFilter),
-  );
-  const [showNoGray, setShowNoGray] = useState(() =>
-    getInitialFilterState("showAllTransport", false),
-  );
-
-  const [filterDateFrom, setFilterDateFrom] = useState(() => {
-    const saved = getInitialFilterState("filterDateFrom", null);
-    const today = getTodayDateStringLocal();
-    return saved || today;
-  });
-  const [filterDateTo, setFilterDateTo] = useState(() =>
-    getInitialFilterState("filterDateTo", null),
-  );
-
-  useEffect(() => {
-    if (giraId) return;
-    const data = {
-      categories: selectedCategoryIds,
-      showNonActive,
-      showOnlyMyTransport,
-      showOnlyMyMeals,
-      showAllTransport: showNoGray,
-      filterDateFrom,
-      filterDateTo,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [
-    giraId,
-    selectedCategoryIds,
-    showNonActive,
-    showOnlyMyTransport,
-    showOnlyMyMeals,
-    showNoGray,
-    filterDateFrom,
-    filterDateTo,
-    STORAGE_KEY,
-  ]);
-
-  const prevUserIdRef = useRef(effectiveUserId);
-  useEffect(() => {
-    if (prevUserIdRef.current !== effectiveUserId) {
-      // (Lógica de reset de filtros al cambiar usuario)
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          const p = JSON.parse(saved);
-          let loadedCats = p.categories || [];
-          if (!isEditor && !isManagement) {
-            loadedCats = loadedCats.filter((id) => id !== 3);
-          }
-          setSelectedCategoryIds(loadedCats);
-          setShowNonActive(p.showNonActive || false);
-          setShowOnlyMyTransport(p.showOnlyMyTransport || false);
-          setShowOnlyMyMeals(p.showOnlyMyMeals || false);
-          setShowNoGray(p.showAllTransport || false);
-          setFilterDateFrom(p.filterDateFrom || getTodayDateStringLocal());
-          setFilterDateTo(p.filterDateTo || null);
-        } else {
-          setSelectedCategoryIds([]);
-          setShowNonActive(false);
-          setShowOnlyMyTransport(false);
-          setShowOnlyMyMeals(false);
-          setShowNoGray(false);
-          setFilterDateFrom(getTodayDateStringLocal());
-          setFilterDateTo(null);
-        }
-      } catch (e) {
-        console.error(e);
-      }
-      prevUserIdRef.current = effectiveUserId;
-    }
-  }, [effectiveUserId, STORAGE_KEY, isEditor, isManagement]);
-
-  const [items, setItems] = useState([]);
-  const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
 
-  const hasAppliedGiraDefaultsRef = useRef(false);
-  useEffect(() => {
-    if (!giraId) {
-      hasAppliedGiraDefaultsRef.current = false;
-      return;
-    }
-    if (hasAppliedGiraDefaultsRef.current || availableCategories.length === 0)
-      return;
-    hasAppliedGiraDefaultsRef.current = true;
-    const allCategoryIds = availableCategories
-      .filter((c) => (isEditor || isManagement ? true : c.id !== 3))
-      .map((c) => c.id);
-    setSelectedCategoryIds(allCategoryIds);
-    setShowOnlyMyTransport(false);
-    setShowOnlyMyMeals(false);
-    setShowNoGray(false);
-    setShowNonActive(false);
-    if (isManagement) setTechFilter("all");
-  }, [
+  const {
+    selectedCategoryIds,
+    setSelectedCategoryIds,
+    showNonActive,
+    setShowNonActive,
+    showOnlyMyTransport,
+    setShowOnlyMyTransport,
+    showOnlyMyMeals,
+    setShowOnlyMyMeals,
+    showNoGray,
+    setShowNoGray,
+    filterDateFrom,
+    setFilterDateFrom,
+    filterDateTo,
+    setFilterDateTo,
+    techFilter,
+    setTechFilter,
+    effectiveDateFrom,
+    handleCategoryToggle,
+  } = useAgendaFilters({
+    effectiveUserId,
     giraId,
-    availableCategories,
     isEditor,
     isManagement,
-  ]);
+    availableCategories,
+    defaultPersonalFilter,
+  });
+
+  const [userProfile, setUserProfile] = useState(null);
+
+  const checkIsConvoked = useCallback(
+    (convocadosList, tourRole) => {
+      if (!convocadosList || convocadosList.length === 0) return false;
+      if (!userProfile) return false;
+      return convocadosList.some((tag) => {
+        if (tag === "GRP:TUTTI") return true;
+        if (tag === "GRP:LOCALES") return userProfile.is_local;
+        if (tag === "GRP:NO_LOCALES") return !userProfile.is_local;
+        if (tag === "GRP:PRODUCCION") {
+          const rolesProduccion = [
+            "produccion",
+            "chofer",
+            "acompañante",
+            "staff",
+            "mus_prod",
+            "técnico",
+          ];
+          return rolesProduccion.includes(userProfile.rol_gira);
+        }
+        if (tag === "GRP:SOLISTAS") return tourRole === "solista";
+        if (tag === "GRP:DIRECTORES") return tourRole === "director";
+        if (tag.startsWith("LOC:"))
+          return userProfile.id_localidad === parseInt(tag.split(":")[1]);
+        if (tag.startsWith("FAM:"))
+          return userProfile.instrumentos?.familia === tag.split(":")[1];
+        return false;
+      });
+    },
+    [userProfile],
+  );
+
+  const {
+    items,
+    setItems,
+    loading,
+    setLoading,
+    isRefreshing,
+    setIsRefreshing,
+    fetchAgenda,
+    feriados,
+    myTransportLogistics,
+    toursWithRules,
+    recentlyUpdatedEventIds,
+    isOfflineMode,
+    setIsOfflineMode,
+    lastUpdate,
+    setLastUpdate,
+    realtimeStatus,
+    processCategories,
+  } = useAgendaData({
+    supabase,
+    effectiveUserId,
+    giraId,
+    userProfile,
+    monthsLimit,
+    filterDateFrom,
+    filterDateTo,
+    checkIsConvoked,
+    setSelectedCategoryIds,
+    selectedCategoryIds,
+    setAvailableCategories,
+    isEditor,
+    isManagement,
+    user,
+  });
 
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const filterMenuRef = useRef(null);
-  useOutsideAlerter(filterMenuRef, () => setIsFilterMenuOpen(false));
-
-  const [myTransportLogistics, setMyTransportLogistics] = useState({});
-  const [toursWithRules, setToursWithRules] = useState(new Set());
+  useClickOutside(filterMenuRef, () => setIsFilterMenuOpen(false));
 
   const [commentsState, setCommentsState] = useState(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -627,8 +256,6 @@ export default function UnifiedAgenda({
   const [newFormData, setNewFormData] = useState({});
   const [formEventTypes, setFormEventTypes] = useState([]);
   const [formLocations, setFormLocations] = useState([]);
-  const [userProfile, setUserProfile] = useState(null);
-  const [feriados, setFeriados] = useState([]);
 
   useEffect(() => {
     const fetchMusicians = async () => {
@@ -746,15 +373,19 @@ export default function UnifiedAgenda({
     };
   }, [userProfile, giraId, monthsLimit]);
 
-  const handleCategoryToggle = (catId) => {
-    setSelectedCategoryIds((prev) =>
-      prev.includes(catId)
-        ? prev.filter((id) => id !== catId)
-        : [...prev, catId],
-    );
-  };
-
-  const effectiveDateFrom = filterDateFrom || getTodayDateStringLocal();
+  // Re-nutrir desde BD cuando el usuario elige una "Desde" anterior a hoy (solo agenda general)
+  const prevFilterDateFromRef = useRef(undefined);
+  useEffect(() => {
+    if (giraId || !userProfile) return;
+    const todayStr = getTodayDateStringLocal();
+    const prev = prevFilterDateFromRef.current;
+    prevFilterDateFromRef.current = filterDateFrom;
+    if (!filterDateFrom || filterDateFrom >= todayStr) return;
+    // Refetch solo cuando el usuario cambia el filtro (no en carga inicial)
+    if (prev === undefined) return;
+    const wasPast = prev < todayStr;
+    if (!wasPast || prev !== filterDateFrom) fetchAgenda(true);
+  }, [giraId, filterDateFrom, userProfile]);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -806,586 +437,6 @@ export default function UnifiedAgenda({
     isEditor,
   ]);
 
-  const checkIsConvoked = (convocadosList, tourRole) => {
-    if (!convocadosList || convocadosList.length === 0) return false;
-    return convocadosList.some((tag) => {
-      if (tag === "GRP:TUTTI") return true;
-      if (tag === "GRP:LOCALES") return userProfile.is_local;
-      if (tag === "GRP:NO_LOCALES") return !userProfile.is_local;
-      if (tag === "GRP:PRODUCCION") {
-        // Lista de roles que "comen" con el grupo de Producción
-        const rolesProduccion = [
-          "produccion",
-          "chofer",
-          "acompañante",
-          "staff",
-          "mus_prod",
-          "técnico",
-        ];
-
-        // Verificamos si el rol de la persona está en esa lista
-        return rolesProduccion.includes(userProfile.rol_gira);
-      }
-      if (tag === "GRP:SOLISTAS") return tourRole === "solista";
-      if (tag === "GRP:DIRECTORES") return tourRole === "director";
-      if (tag.startsWith("LOC:"))
-        return userProfile.id_localidad === parseInt(tag.split(":")[1]);
-      if (tag.startsWith("FAM:"))
-        return userProfile.instrumentos?.familia === tag.split(":")[1];
-      return false;
-    });
-  };
-  // --- REALTIME SUBSCRIPTION (DEBOUNCE + SAFETY) ---
-  const abortControllerRef = useRef(null);
-  const refreshTimeoutRef = useRef(null);
-  const mergeSingleEventFromRealtimeRef = useRef(null);
-
-  const EVENT_SELECT = `
-    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte,
-    giras_transportes ( id, detalle, transportes ( nombre, color ) ),
-    tipos_evento ( id, nombre, color, categorias_tipos_eventos (id, nombre) ),
-    locaciones ( id, nombre, direccion, link_mapa, localidades (localidad) ),
-    programas ( id, nombre_gira, nomenclador, google_drive_folder_id, mes_letra, fecha_desde, fecha_hasta, tipo, zona, estado, fecha_confirmacion_limite, giras_fuentes(tipo, valor_id, valor_texto), giras_integrantes(id_integrante, estado, rol) ),
-    eventos_programas_asociados ( programas ( id, nombre_gira, google_drive_folder_id, mes_letra, nomenclador, estado ) ),
-    eventos_ensambles ( ensambles ( id, ensamble ) )
-  `;
-
-  const fetchAgenda = async (isBackground = false) => {
-    // 1. GESTIÓN DE ABORT CONTROLLER
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    const signal = controller.signal;
-
-    if (!isBackground) setLoading(true);
-    else setIsRefreshing(true);
-
-    const CACHE_KEY = `agenda_cache_${effectiveUserId}_${giraId || "general"}_v5`;
-
-    try {
-      // 2. CARGA INICIAL DESDE CACHÉ
-      if (!isBackground && items.length === 0) {
-        const cachedData = localStorage.getItem(CACHE_KEY);
-        if (cachedData) {
-          const parsedData = JSON.parse(cachedData);
-          setItems(parsedData);
-          processCategories(parsedData);
-        }
-      }
-
-      // 3. VERIFICACIÓN ONLINE
-      if (!navigator.onLine) {
-        setIsOfflineMode(true);
-        throw new Error("OFFLINE_MODE");
-      }
-
-      // 4. PREPARACIÓN DE VARIABLES
-      const start = startOfDay(new Date()).toISOString();
-      const end = addMonths(new Date(), monthsLimit).toISOString();
-      const profileRole = userProfile?.rol_sistema || "musico";
-
-      let myEnsembles = new Set();
-      let myFamily = null;
-
-      if (userProfile) {
-        userProfile.integrantes_ensambles?.forEach((ie) =>
-          myEnsembles.add(ie.id_ensamble),
-        );
-        myFamily = userProfile.instrumentos?.familia;
-      }
-
-      // 5. FETCH DATOS AUXILIARES
-      const [customAttendance, ensembleEvents, feriadosData] = await Promise.all([
-        supabase
-          .from("eventos_asistencia_custom")
-          .select("id_evento, tipo, nota")
-          .eq("id_integrante", effectiveUserId),
-        myEnsembles.size > 0
-          ? supabase
-              .from("eventos_ensambles")
-              .select("id_evento")
-              .in("id_ensamble", Array.from(myEnsembles))
-          : Promise.resolve({ data: [] }),
-        supabase
-          .from("feriados")
-          .select("*")
-          .order("fecha", { ascending: true }),
-      ]);
-
-      if (signal.aborted) return;
-
-      const customMap = new Map();
-      customAttendance.data?.forEach((c) => customMap.set(c.id_evento, c));
-      const myEnsembleEventIds = new Set(
-        ensembleEvents.data?.map((e) => e.id_evento),
-      );
-
-      // 6. QUERY PRINCIPAL
-      let query = supabase
-        .from("eventos")
-        .select(EVENT_SELECT)
-        .order("fecha", { ascending: true })
-        .order("hora_inicio", { ascending: true })
-        .abortSignal(signal);
-
-      if (giraId) query = query.eq("id_gira", giraId);
-      else query = query.gte("fecha", start).lte("fecha", end);
-
-      const { data: eventsData, error } = await query;
-
-      if (error) {
-        // DETECCIÓN ROBUSTA DE ABORT
-        if (
-          error.code === "AbortError" ||
-          error.message?.includes("AbortError") ||
-          signal.aborted
-        )
-          return;
-        throw error;
-      }
-
-      // 7. LÓGICA DE LOGÍSTICA
-      const activeTourIds = new Set();
-      eventsData?.forEach((e) => {
-        if (e.id_gira) activeTourIds.add(e.id_gira);
-      });
-
-      let logisticsMap = {};
-      const foundRuleTours = new Set();
-
-      if (activeTourIds.size > 0 && userProfile) {
-        const [admRes, routesRes, transRes] = await Promise.all([
-          supabase
-            .from("giras_logistica_admision")
-            .select("*")
-            .in("id_gira", Array.from(activeTourIds)),
-          supabase
-            .from("giras_logistica_rutas")
-            .select(
-              "*, evento_subida:id_evento_subida(id, fecha, hora_inicio), evento_bajada:id_evento_bajada(id, fecha, hora_inicio)",
-            )
-            .in("id_gira", Array.from(activeTourIds)),
-          supabase
-            .from("giras_transportes")
-            .select("id, id_gira, detalle, transportes(nombre)")
-            .in("id_gira", Array.from(activeTourIds)),
-        ]);
-
-        const admissionData = admRes.data || [];
-        const routesData = routesRes.data || [];
-        const transportsData = transRes.data || [];
-
-        if (transportsData.length > 0) {
-          const admissionByGira = {};
-          const routesByGira = {};
-          const transportsByGira = {};
-
-          admissionData.forEach((r) => {
-            if (!admissionByGira[r.id_gira]) admissionByGira[r.id_gira] = [];
-            admissionByGira[r.id_gira].push(r);
-            foundRuleTours.add(r.id_gira);
-          });
-
-          routesData.forEach((r) => {
-            if (!routesByGira[r.id_gira]) routesByGira[r.id_gira] = [];
-            routesByGira[r.id_gira].push(r);
-            foundRuleTours.add(r.id_gira);
-          });
-
-          transportsData.forEach((t) => {
-            if (!transportsByGira[t.id_gira]) transportsByGira[t.id_gira] = [];
-            transportsByGira[t.id_gira].push(t);
-          });
-
-          const userEnsemblesIds = (
-            userProfile.integrantes_ensambles || []
-          ).map((ie) => String(ie.id_ensamble));
-          const cleanLocId = userProfile.id_localidad
-            ? Number(userProfile.id_localidad)
-            : null;
-          const residenciaObj = userProfile.datos_residencia;
-          const cleanRegionId = residenciaObj?.id_region
-            ? Number(residenciaObj.id_region)
-            : null;
-
-          activeTourIds.forEach((gId) => {
-            const sampleEvt = eventsData.find(
-              (e) => String(e.id_gira) === String(gId) && e.programas,
-            );
-
-            const currentTransports = transportsByGira[gId] || [];
-            if (currentTransports.length === 0) return;
-
-            let esAdicional = false;
-            let tourRole = "musico";
-            let estadoGira = null;
-
-            if (sampleEvt && sampleEvt.programas) {
-              const members = sampleEvt.programas.giras_integrantes || [];
-              const myRecord = members.find(
-                (i) => String(i.id_integrante) === String(effectiveUserId),
-              );
-
-              if (myRecord) {
-                tourRole = myRecord.rol;
-                estadoGira = myRecord.estado;
-                if (["baja", "no_convocado", "ausente"].includes(estadoGira))
-                  return;
-              }
-
-              const sources = sampleEvt.programas.giras_fuentes || [];
-              let isBase = false;
-
-              const matchesSource = sources.some((src) => {
-                if (
-                  src.tipo === "ENSAMBLE" &&
-                  userEnsemblesIds.includes(String(src.valor_id))
-                ) {
-                  isBase = true;
-                  return true;
-                }
-                if (src.tipo === "FAMILIA" && src.valor_texto === myFamily) {
-                  isBase = true;
-                  return true;
-                }
-                return false;
-              });
-
-              if (!myRecord && !matchesSource) return;
-              esAdicional = !!myRecord && !isBase;
-            }
-
-            const mockPerson = {
-              ...userProfile,
-              id: userProfile.id,
-              id_localidad: cleanLocId,
-              localidades: {
-                id: cleanLocId,
-                id_region: cleanRegionId,
-              },
-              instrumentos: userProfile.instrumentos || {},
-              rol_gira: tourRole,
-              estado_gira: estadoGira,
-              es_adicional: esAdicional,
-              logistics: {},
-            };
-
-            const result = calculateLogisticsSummary(
-              [mockPerson],
-              [],
-              admissionByGira[gId] || [],
-              routesByGira[gId] || [],
-              currentTransports,
-              [],
-            );
-
-            const myTransports = result[0]?.logistics?.transports || [];
-            myTransports.forEach((t) => {
-              logisticsMap[String(t.id)] = {
-                assigned: true,
-                subidaId: t.subidaId,
-                bajadaId: t.bajadaId,
-                priority: t.priority,
-              };
-            });
-          });
-        }
-      }
-
-      setMyTransportLogistics(logisticsMap);
-      setToursWithRules(foundRuleTours);
-
-      // 8. FILTRADO
-      const visibleEvents = (eventsData || []).filter((item) => {
-        if (!item.fecha) return false;
-        if (giraId) return true;
-        const isManagementProfile = [
-          "admin",
-          "editor",
-          "coord_general",
-          "director",
-        ].includes(profileRole);
-        if (isManagementProfile) return true;
-        if (customMap.has(item.id)) return true;
-        if (myEnsembleEventIds.has(item.id)) return true;
-
-        if (item.programas) {
-          const overrides = item.programas.giras_integrantes || [];
-          const sources = item.programas.giras_fuentes || [];
-          const myOverride = overrides.find(
-            (o) => o.id_integrante === effectiveUserId,
-          );
-          if (myOverride) {
-            if (
-              myOverride.estado === "baja" ||
-              myOverride.estado === "no_convocado" ||
-              myOverride.estado === "ausente"
-            )
-              return false;
-            return true;
-          }
-          return sources.some(
-            (s) =>
-              (s.tipo === "ENSAMBLE" && myEnsembles.has(s.valor_id)) ||
-              (s.tipo === "FAMILIA" && s.valor_texto === myFamily),
-          );
-        }
-        return false;
-      });
-
-      // 9. MARCADORES
-      const programStartMarkers = [];
-      const processedPrograms = new Set();
-      visibleEvents.forEach((evt) => {
-        if (evt.programas && !processedPrograms.has(evt.programas.id)) {
-          processedPrograms.add(evt.programas.id);
-          if (evt.programas.fecha_desde) {
-            programStartMarkers.push({
-              id: `prog-start-${evt.programas.id}`,
-              fecha: evt.programas.fecha_desde,
-              hora_inicio: "00:00:00",
-              isProgramMarker: true,
-              programas: evt.programas,
-              tipos_evento: { categorias_tipos_eventos: { id: -1 } },
-            });
-          }
-        }
-      });
-
-      // 10. UNIÓN
-      const allItems = [...visibleEvents, ...programStartMarkers].sort(
-        (a, b) => {
-          const dateA = new Date(`${a.fecha}T${a.hora_inicio || "00:00:00"}`);
-          const dateB = new Date(`${b.fecha}T${b.hora_inicio || "00:00:00"}`);
-          if (dateA < dateB) return -1;
-          if (dateA > dateB) return 1;
-          if (a.isProgramMarker && !b.isProgramMarker) return -1;
-          if (!a.isProgramMarker && b.isProgramMarker) return 1;
-          return 0;
-        },
-      );
-
-      // 11. CATEGORÍAS
-      processCategories(visibleEvents);
-
-      // 12. FLAGS Y ASISTENCIA
-      visibleEvents.forEach((evt) => {
-        const custom = customMap.get(evt.id);
-        if (custom) {
-          if (custom.tipo === "invitado" || custom.tipo === "adicional") {
-            evt.is_guest = true;
-            evt.guest_note = custom.nota;
-          } else if (custom.tipo === "ausente") {
-            evt.is_absent = true;
-          }
-        }
-      });
-
-      if (visibleEvents.length > 0 && effectiveUserId !== "guest-general") {
-        const eventIds = visibleEvents.map((e) => e.id);
-        const { data: attendanceData } = await supabase
-          .from("eventos_asistencia")
-          .select("id_evento, estado")
-          .in("id_evento", eventIds)
-          .eq("id_integrante", effectiveUserId);
-
-        const attendanceMap = {};
-        attendanceData?.forEach((a) => {
-          attendanceMap[a.id_evento] = a.estado;
-        });
-
-        visibleEvents.forEach((evt) => {
-          evt.mi_asistencia = attendanceMap[evt.id];
-          const myTourRecord = evt.programas?.giras_integrantes?.find(
-            (i) => i.id_integrante === effectiveUserId,
-          );
-          const myTourRole = myTourRecord?.rol || "musico";
-          evt.is_convoked = checkIsConvoked(evt.convocados, myTourRole);
-        });
-      }
-
-      // 13. CHEQUEO FINAL DE ABORT
-      if (signal.aborted) return;
-
-      setItems(allItems);
-      setFeriados(feriadosData.data || []);
-      setRecentlyUpdatedEventIds(new Set()); // al refrescar completo se quitan los indicadores
-      saveToCache(CACHE_KEY, allItems);
-      setIsOfflineMode(false);
-      setLastUpdate(new Date());
-    } catch (err) {
-      // MANEJO DE ERRORES DE CANCELACIÓN (CATCH)
-      if (
-        err.name === "AbortError" ||
-        err.code === 20 ||
-        err.message?.includes("AbortError") ||
-        signal.aborted
-      ) {
-        console.log("Petición cancelada por actualización más reciente");
-        return;
-      }
-
-      if (err.message === "OFFLINE_MODE") {
-        return;
-      }
-
-      console.error("Error fetching agenda:", err);
-      if (!isBackground) setIsOfflineMode(true);
-    } finally {
-      // Solo desactivamos loading si esta es la petición activa
-      if (abortControllerRef.current === controller) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
-  };
-
-  // Actualiza solo el evento tocado por realtime y muestra indicador; sin refetch completo
-  const mergeSingleEventFromRealtime = useCallback(
-    async (payload) => {
-      const eventType = payload.eventType;
-      const id = eventType === "DELETE" ? payload.old?.id : payload.new?.id;
-      if (!id) return;
-
-      if (eventType === "DELETE") {
-        setItems((prev) => prev.filter((item) => item.id !== id));
-        setRecentlyUpdatedEventIds((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-        return;
-      }
-
-      // INSERT o UPDATE: traer el evento completo (misma forma que la lista)
-      try {
-        let query = supabase
-          .from("eventos")
-          .select(EVENT_SELECT)
-          .eq("id", id)
-          .single();
-        if (giraId) query = query.eq("id_gira", giraId);
-        const { data: evt, error } = await query;
-        if (error || !evt) return;
-
-        const [customRes, attendanceRes] = await Promise.all([
-          supabase
-            .from("eventos_asistencia_custom")
-            .select("id_evento, tipo, nota")
-            .eq("id_evento", id)
-            .eq("id_integrante", effectiveUserId)
-            .maybeSingle(),
-          effectiveUserId !== "guest-general"
-            ? supabase
-                .from("eventos_asistencia")
-                .select("id_evento, estado")
-                .eq("id_evento", id)
-                .eq("id_integrante", effectiveUserId)
-                .maybeSingle()
-            : Promise.resolve({ data: null }),
-        ]);
-
-        const custom = customRes.data;
-        if (custom) {
-          if (custom.tipo === "invitado" || custom.tipo === "adicional") {
-            evt.is_guest = true;
-            evt.guest_note = custom.nota;
-          } else if (custom.tipo === "ausente") evt.is_absent = true;
-        }
-        if (attendanceRes.data) evt.mi_asistencia = attendanceRes.data.estado;
-        const myTourRecord = evt.programas?.giras_integrantes?.find(
-          (i) => i.id_integrante === effectiveUserId,
-        );
-        evt.is_convoked = checkIsConvoked(
-          evt.convocados,
-          myTourRecord?.rol || "musico",
-        );
-
-        setItems((prev) => {
-          const without = prev.filter((item) => item.id !== id);
-          const merged = [...without, evt].sort((a, b) => {
-            const dateA = new Date(
-              `${a.fecha}T${a.hora_inicio || "00:00:00"}`,
-            );
-            const dateB = new Date(
-              `${b.fecha}T${b.hora_inicio || "00:00:00"}`,
-            );
-            if (dateA < dateB) return -1;
-            if (dateA > dateB) return 1;
-            if (a.isProgramMarker && !b.isProgramMarker) return -1;
-            if (!a.isProgramMarker && b.isProgramMarker) return 1;
-            return 0;
-          });
-          return merged;
-        });
-        setRecentlyUpdatedEventIds((prev) => new Set(prev).add(id));
-        toast.success("Evento actualizado", { id: "event-updated", duration: 2000 });
-      } catch (err) {
-        console.warn("Error al fusionar evento en tiempo real:", err);
-        toast.error("Error al actualizar evento");
-      }
-    },
-    [supabase, giraId, effectiveUserId, checkIsConvoked],
-  );
-
-  mergeSingleEventFromRealtimeRef.current = mergeSingleEventFromRealtime;
-
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel("agenda-updates")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "eventos" },
-        (payload) => {
-          if (refreshTimeoutRef.current)
-            clearTimeout(refreshTimeoutRef.current);
-
-          refreshTimeoutRef.current = setTimeout(() => {
-            refreshTimeoutRef.current = null;
-            mergeSingleEventFromRealtimeRef.current?.(payload);
-          }, 500);
-        },
-      )
-      .subscribe((status) => {
-        setRealtimeStatus(status);
-      });
-
-    return () => {
-      supabase.removeChannel(channel);
-      if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-    };
-  }, [user, giraId]);
-
-  const processCategories = (eventsList) => {
-    const categoriesMap = {};
-    eventsList.forEach((evt) => {
-      if (evt.isProgramMarker) return;
-      const cat = evt.tipos_evento?.categorias_tipos_eventos;
-      if (cat && !categoriesMap[cat.id]) categoriesMap[cat.id] = cat;
-    });
-
-    const uniqueCats = Object.values(categoriesMap).sort((a, b) =>
-      a.nombre.localeCompare(b.nombre),
-    );
-
-    setAvailableCategories(uniqueCats);
-
-    if (selectedCategoryIds.length === 0 && uniqueCats.length > 0) {
-      const defaultSelection = uniqueCats
-        .filter((cat) => {
-          if (isEditor || isManagement) return true;
-          return cat.id !== 3;
-        })
-        .map((c) => c.id);
-      setSelectedCategoryIds(defaultSelection);
-    }
-  };
-
   const toggleMealAttendance = async (eventId, newStatus) => {
     if (effectiveUserId === "guest-general") return;
 
@@ -1429,8 +480,10 @@ export default function UnifiedAgenda({
         item.id === eventId ? { ...item, mi_asistencia: newStatus } : item,
       );
       setItems(newItems);
-      const CACHE_KEY = `agenda_cache_${effectiveUserId}_${giraId || "general"}_v5`;
-      localStorage.setItem(CACHE_KEY, JSON.stringify(newItems));
+      localStorage.setItem(
+        getAgendaCacheKey(effectiveUserId, giraId),
+        JSON.stringify(newItems),
+      );
 
       // Cerrar modal si estaba abierto
       setMealActionTarget(null);
@@ -1448,8 +501,10 @@ export default function UnifiedAgenda({
     }
   };
   const handleExportPDF = () => {
-    if (filteredItems.length === 0)
-      return alert("No hay eventos para exportar con los filtros actuales.");
+    if (filteredItems.length === 0) {
+      toast.error("No hay eventos para exportar con los filtros actuales.");
+      return;
+    }
     let subTitle = "";
     if (userProfile && userProfile.id !== user.id) {
       subTitle = `Vista simulada: ${userProfile.apellido}, ${userProfile.nombre}`;
@@ -1480,6 +535,7 @@ export default function UnifiedAgenda({
       id_tipo_evento: evt.id_tipo_evento || "",
       id_locacion: evt.id_locacion || "",
       id_gira: evt.id_gira || null,
+      id_gira_transporte: evt.id_gira_transporte ?? null,
       tecnica: evt.tecnica || false,
     });
     setIsEditOpen(true);
@@ -1510,7 +566,7 @@ export default function UnifiedAgenda({
       setIsEditOpen(false);
       fetchAgenda();
     } catch (err) {
-      alert("Error al eliminar: " + err.message);
+      toast.error("Error al eliminar: " + err.message);
       setLoading(false);
     }
   };
@@ -1531,6 +587,7 @@ export default function UnifiedAgenda({
         hora_fin: editFormData.hora_fin,
         id_tipo_evento: editFormData.id_tipo_evento || null,
         id_locacion: editFormData.id_locacion || null,
+        id_gira_transporte: editFormData.id_gira_transporte ?? null,
         tecnica: editFormData.tecnica || false,
         id_gira: editFormData.id_gira || null,
       };
@@ -1581,14 +638,16 @@ export default function UnifiedAgenda({
       });
       fetchAgenda();
     } catch (err) {
-      alert("Error al duplicar: " + err.message);
+      toast.error("Error al duplicar: " + err.message);
       setLoading(false);
     }
   };
 
   const handleEditSave = async () => {
-    if (!editFormData.fecha || !editFormData.hora_inicio)
-      return alert("Faltan datos");
+    if (!editFormData.fecha || !editFormData.hora_inicio) {
+      toast.error("Faltan datos");
+      return;
+    }
     setLoading(true);
     try {
       const payload = {
@@ -1598,6 +657,7 @@ export default function UnifiedAgenda({
         hora_fin: editFormData.hora_fin || editFormData.hora_inicio,
         id_tipo_evento: editFormData.id_tipo_evento || null,
         id_locacion: editFormData.id_locacion || null,
+        id_gira_transporte: editFormData.id_gira_transporte ?? null,
         tecnica: editFormData.tecnica || false,
       };
       const { error } = await supabase
@@ -1609,7 +669,7 @@ export default function UnifiedAgenda({
       setEditFormData({});
       fetchAgenda();
     } catch (err) {
-      alert("Error: " + err.message);
+      toast.error("Error: " + err.message);
       setLoading(false);
     }
   };
@@ -1623,14 +683,17 @@ export default function UnifiedAgenda({
       hora_fin: "12:00",
       id_tipo_evento: "",
       id_locacion: "",
+      id_gira_transporte: null,
       tecnica: false,
     });
     setIsCreating(true);
   };
 
   const handleCreateSave = async () => {
-    if (!newFormData.fecha || !newFormData.hora_inicio)
-      return alert("Faltan datos");
+    if (!newFormData.fecha || !newFormData.hora_inicio) {
+      toast.error("Faltan datos");
+      return;
+    }
     setLoading(true); // Bloqueamos para crear
     const payload = {
       id_gira: giraId,
@@ -1640,6 +703,7 @@ export default function UnifiedAgenda({
       hora_fin: newFormData.hora_fin || newFormData.hora_inicio,
       id_tipo_evento: newFormData.id_tipo_evento || null,
       id_locacion: newFormData.id_locacion || null,
+      id_gira_transporte: newFormData.id_gira_transporte ?? null,
       tecnica: newFormData.tecnica,
     };
     const { error } = await supabase.from("eventos").insert([payload]);
@@ -1715,93 +779,6 @@ export default function UnifiedAgenda({
     }, 150);
     return () => clearTimeout(timer);
   }, [loading, filteredItems.length, currentEventId, earlierTodayEventIds.size, giraId]);
-
-  const TourDivider = React.memo(({ gira }) => {
-    const fechaDesde = gira.fecha_desde
-      ? format(parseISO(gira.fecha_desde), "d MMM", { locale: es })
-      : "";
-    const fechaHasta = gira.fecha_hasta
-      ? format(parseISO(gira.fecha_hasta), "d MMM", { locale: es })
-      : "";
-
-    let bgClass = "bg-fuchsia-50 border-fuchsia-200 text-fuchsia-900";
-    let borderClass = "border-fuchsia-500";
-
-    if (gira.tipo === "Sinfónico") {
-      bgClass = "bg-indigo-50 border-indigo-200 text-indigo-900";
-      borderClass = "border-indigo-500";
-    } else if (gira.tipo === "Ensamble") {
-      bgClass = "bg-emerald-50 border-emerald-200 text-emerald-900";
-      borderClass = "border-emerald-500";
-    } else if (gira.tipo === "Jazz Band") {
-      bgClass = "bg-amber-50 border-amber-200 text-amber-900";
-      borderClass = "border-amber-500";
-    }
-
-    return (
-      <div
-        className={`border-l-4 ${borderClass} px-4 py-2 mt-4 mb-2 flex items-center gap-3 group animate-in fade-in rounded-r-md ${bgClass} overflow-hidden shadow-sm`}
-      >
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="font-bold uppercase tracking-wider text-xs">
-            {gira.tipo}
-          </span>
-          {gira.zona && (
-            <span className="hidden sm:inline border border-current px-1.5 rounded text-[10px] opacity-70">
-              {gira.zona}
-            </span>
-          )}
-          {gira.estado === "Borrador" && (
-            <span className="bg-slate-200 text-slate-600 px-1.5 rounded text-[10px] uppercase font-bold">
-              Borrador
-            </span>
-          )}
-          {gira.estado === "Pausada" && (
-            <span className="bg-amber-200 text-amber-800 px-1.5 rounded text-[10px] uppercase font-bold">
-              Pausada
-            </span>
-          )}
-        </div>
-        <span className="opacity-30">|</span>
-        <div className="font-bold truncate text-sm sm:text-base flex items-center gap-2 min-w-0">
-          <span className="whitespace-nowrap">{gira.mes_letra}</span>
-          <span className="opacity-50">|</span>
-          <span className="truncate">{gira.nomenclador}</span>
-        </div>
-        {fechaDesde && (
-          <span className="hidden md:flex items-center font-normal opacity-70 text-xs whitespace-nowrap ml-auto md:ml-2">
-            <span className="hidden lg:inline mr-1"></span> {fechaDesde} -{" "}
-            {fechaHasta}
-          </span>
-        )}
-        <div className="flex-1"></div>
-        <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100 transition-opacity shrink-0">
-          {gira.google_drive_folder_id && (
-            <button
-              onClick={() =>
-                window.open(
-                  `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
-                  "_blank",
-                )
-              }
-              className="p-1.5 bg-white/60 hover:bg-white text-current rounded transition-colors shadow-sm"
-              title="Carpeta de Drive"
-            >
-              <IconDrive size={16} />
-            </button>
-          )}
-          {onViewChange && (
-            <button
-              onClick={() => onViewChange("AGENDA", gira.id)}
-              className="flex items-center gap-1 px-3 py-1 bg-white/60 hover:bg-white text-current rounded text-xs font-bold transition-colors shadow-sm whitespace-nowrap"
-            >
-              Ver Gira <IconArrowRight size={12} />
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  });
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in relative">
@@ -1995,29 +972,20 @@ export default function UnifiedAgenda({
                             Rango de fechas
                           </span>
                           <div className="grid grid-cols-2 gap-2 px-2">
-                            <label className="text-xs font-medium text-slate-600">
-                              Desde
-                              <input
-                                type="date"
-                                value={filterDateFrom || getTodayDateStringLocal()}
-                                onChange={(e) =>
-                                  setFilterDateFrom(e.target.value || getTodayDateStringLocal())
-                                }
-                                className="mt-1 w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                              />
-                            </label>
-                            <label className="text-xs font-medium text-slate-600">
-                              Hasta
-                              <input
-                                type="date"
-                                value={filterDateTo || ""}
-                                onChange={(e) =>
-                                  setFilterDateTo(e.target.value || null)
-                                }
-                                className="mt-1 w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                placeholder="Sin límite"
-                              />
-                            </label>
+                            <DateInput
+                              label="Desde"
+                              value={filterDateFrom || getTodayDateStringLocal()}
+                              onChange={(v) =>
+                                setFilterDateFrom(v || getTodayDateStringLocal())
+                              }
+                              className="mt-1 w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            />
+                            <DateInput
+                              label="Hasta"
+                              value={filterDateTo || ""}
+                              onChange={(v) => setFilterDateTo(v || null)}
+                              className="mt-1 w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            />
                           </div>
                           <p className="text-[10px] text-slate-400 px-2 mt-1">
                             Por defecto desde hoy. Opcional: hasta para acotar.
@@ -2176,7 +1144,13 @@ export default function UnifiedAgenda({
 
                   {monthEvents.map((evt) => {
                     if (evt.isProgramMarker) {
-                      return <TourDivider key={evt.id} gira={evt.programas} />;
+                      return (
+                        <TourDivider
+                          key={evt.id}
+                          gira={evt.programas}
+                          onViewChange={onViewChange}
+                        />
+                      );
                     }
 
                     // ... Lógica de estilos y props de la tarjeta ...
@@ -2300,6 +1274,7 @@ export default function UnifiedAgenda({
                           )}
 
                         {!(earlierTodayEventIds.has(evt.id) && !showEarlierToday) && (
+                        <>
                         <div
                           data-event-id={evt.id}
                           className={`relative ${currentEventId === evt.id ? "scroll-mt-24" : ""}`}
@@ -2331,7 +1306,7 @@ export default function UnifiedAgenda({
                           )}
                         {/* --- CONTENEDOR MÓVIL (VISIBLE SOLO EN < md) --- */}
                         <div
-                          className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-100 transition-colors hover:bg-slate-50 group gap-2
+                          className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-200 transition-colors hover:bg-slate-50 group gap-2
                             ${shouldDim ? "opacity-50 grayscale" : ""}
                             ${evt.is_guest ? "bg-emerald-50/30" : ""}
                             ${isMyTransport ? "bg-indigo-50/30 border-l-4 border-l-indigo-400" : ""}
@@ -2865,6 +1840,8 @@ export default function UnifiedAgenda({
                           </div>
                         </div>
                         </div>
+                        <div className="h-px bg-slate-300 shrink-0" aria-hidden />
+                        </>
                         )}
                       </React.Fragment>
                     );
@@ -2911,6 +1888,7 @@ export default function UnifiedAgenda({
             isNew={false}
             supabase={supabase}
             onRefreshLocations={fetchFormLocations}
+            giraId={giraId}
           />
         </div>
       )}
@@ -2930,139 +1908,13 @@ export default function UnifiedAgenda({
           </div>
         </div>
       )}
-      {/* MODAL DE ACCIÓN DE COMIDA (MÓVIL) */}
-      {/* MODAL DE ACCIÓN DE COMIDA (MÓVIL) */}
-      {/* MODAL DE ACCIÓN DE COMIDA (MÓVIL) */}
-      {mealActionTarget && (
-        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4">
-            <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                <IconUtensils className="text-indigo-600" />
-                {mealActionTarget.tipos_evento?.nombre}
-              </h3>
-              <button onClick={() => setMealActionTarget(null)}>
-                <IconX className="text-slate-400" />
-              </button>
-            </div>
-
-            <div className="p-5 flex flex-col gap-3">
-              <p className="text-sm text-slate-600 text-center mb-2">
-                {mealActionTarget.descripcion ? (
-                  <span
-                    dangerouslySetInnerHTML={{
-                      __html: mealActionTarget.descripcion,
-                    }}
-                  />
-                ) : (
-                  "¿Vas a asistir a esta comida?"
-                )}
-              </p>
-
-              {/* LÓGICA DE ESTADO Y BLOQUEO */}
-              {(() => {
-                const dl = getDeadlineStatus(
-                  mealActionTarget.programas?.fecha_confirmacion_limite,
-                );
-
-                // 1. Chequeo de Convocatoria
-                const isConvoked = mealActionTarget.is_convoked;
-
-                // 2. Chequeo de Cierre
-                const isClosed = dl.status === "CLOSED";
-
-                // 3. Permiso de Admin para saltar el cierre (opcional, si quieres bloqueo total quita esta parte)
-                const isAdmin = isManagement || isEditor;
-                const canOverride = isAdmin && isClosed;
-
-                // 4. Bloqueo Final (UI)
-                // Está bloqueado si: NO está convocado O (está cerrado Y no es admin)
-                const isLocked = !isConvoked || (isClosed && !isAdmin);
-
-                return (
-                  <>
-                    {/* MENSAJES DE ESTADO */}
-                    {!isConvoked && (
-                      <div className="text-xs text-center text-slate-500 font-bold bg-slate-100 p-2 rounded border border-slate-200 mb-2">
-                        🚫 No estás convocado a esta comida
-                      </div>
-                    )}
-
-                    {isConvoked && isClosed && !canOverride && (
-                      <div className="text-xs text-center text-red-600 font-bold bg-red-50 p-2 rounded border border-red-100 mb-2">
-                        🔒 Votación Cerrada
-                      </div>
-                    )}
-
-                    {isConvoked && canOverride && (
-                      <div className="text-xs text-center text-amber-700 font-bold bg-amber-50 p-2 rounded border border-amber-100 mb-2">
-                        🔓 Votación Cerrada (Acceso Admin)
-                      </div>
-                    )}
-
-                    {isConvoked && !isClosed && (
-                      <div className="text-xs text-center text-indigo-600 font-bold bg-indigo-50 p-2 rounded border border-indigo-100 mb-2">
-                        ⏳ Cierra en: {dl.message}
-                      </div>
-                    )}
-
-                    {/* BOTONES DE ACCIÓN */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() =>
-                          toggleMealAttendance(mealActionTarget.id, "P")
-                        }
-                        disabled={isLocked}
-                        className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all 
-                              ${
-                                mealActionTarget.mi_asistencia === "P"
-                                  ? "bg-emerald-50 border-emerald-500 text-emerald-700"
-                                  : "bg-white border-slate-100 text-slate-600"
-                              }
-                              ${isLocked ? "opacity-40 cursor-not-allowed grayscale pointer-events-none" : "hover:border-emerald-200"}
-                            `}
-                      >
-                        <IconCheck size={24} />
-                        <span className="text-xs font-bold">Asistiré</span>
-                      </button>
-
-                      <button
-                        onClick={() =>
-                          toggleMealAttendance(mealActionTarget.id, "A")
-                        }
-                        disabled={isLocked}
-                        className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all 
-                              ${
-                                mealActionTarget.mi_asistencia === "A"
-                                  ? "bg-rose-50 border-rose-500 text-rose-700"
-                                  : "bg-white border-slate-100 text-slate-600"
-                              }
-                              ${isLocked ? "opacity-40 cursor-not-allowed grayscale pointer-events-none" : "hover:border-rose-200"}
-                            `}
-                      >
-                        <IconX size={24} />
-                        <span className="text-xs font-bold">No iré</span>
-                      </button>
-                    </div>
-
-                    {/* BOTÓN BORRAR (Solo si no está bloqueado) */}
-                    {mealActionTarget.mi_asistencia && !isLocked && (
-                      <button
-                        onClick={() =>
-                          toggleMealAttendance(mealActionTarget.id, null)
-                        }
-                        className="text-xs text-slate-400 underline mt-4 hover:text-slate-600 w-full text-center"
-                      >
-                        Borrar mi selección
-                      </button>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-      )}
+      <AgendaMealActionModal
+        event={mealActionTarget}
+        onClose={() => setMealActionTarget(null)}
+        onToggleAttendance={toggleMealAttendance}
+        isManagement={isManagement}
+        isEditor={isEditor}
+      />
       {isCreating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <EventForm
@@ -3076,6 +1928,7 @@ export default function UnifiedAgenda({
             isNew={true}
             supabase={supabase}
             onRefreshLocations={fetchFormLocations}
+            giraId={giraId}
           />
         </div>
       )}

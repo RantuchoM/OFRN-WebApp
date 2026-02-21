@@ -30,6 +30,7 @@ import SearchableSelect from "../../components/ui/SearchableSelect";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
 import { toast } from "sonner";
 import DateInput from "../../components/ui/DateInput";
+import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 
 // --- COMPONENTE EDITOR WYSIWYG ---
 const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
@@ -118,19 +119,6 @@ const getYoutubeVideoId = (url) => {
   const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^#&?]+)/);
   return m ? m[1] : null;
 };
-
-function useDebouncedCallback(callback, delay) {
-  const handler = useRef(null);
-  return useCallback(
-    (...args) => {
-      if (handler.current) clearTimeout(handler.current);
-      handler.current = setTimeout(() => {
-        callback(...args);
-      }, delay);
-    },
-    [callback, delay],
-  );
-}
 
 // --- COMPONENTE PRINCIPAL ---
 export default function WorkForm({

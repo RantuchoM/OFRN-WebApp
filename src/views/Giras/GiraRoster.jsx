@@ -12,29 +12,25 @@ import {
   IconCheck,
   IconChevronDown,
   IconMusic,
-  IconMail,
   IconSettingsWheel,
-  IconLink,
   IconMap,
   IconUserPlus,
-  IconExchange,
-  IconUserMinus,
   IconPencil,
-  IconWhatsAppFilled,
   IconCopy,
   IconFilter,
   IconArrowRight,
-  IconPhone,
   IconSend,
   IconBell,
 } from "../../components/ui/Icons";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { useRosterDropdownData } from "../../hooks/useRosterDropdownData";
 import { DEFAULT_ROL_ID } from "../../utils/giraUtils";
 import MusicianForm from "../Musicians/MusicianForm";
 import {
   AddVacancyModal,
   SwapVacancyModal,
 } from "../../components/giras/VacancyTools";
+import RosterTableRow from "../../components/giras/RosterTableRow";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 import { toast } from "sonner";
 
@@ -63,28 +59,7 @@ const hexToRgba = (hex, alpha = 0.1) => {
   return hex; // Fallback
 };
 
-// --- HELPER WHATSAPP ---
-const WhatsAppLink = ({ phone }) => {
-  if (!phone) return null;
-  let cleanPhone = phone.replace(/\D/g, "");
-  if (cleanPhone.length === 10) cleanPhone = `549${cleanPhone}`;
-  else if (cleanPhone.startsWith("0"))
-    cleanPhone = `549${cleanPhone.substring(1)}`;
-  const url = `https://wa.me/${cleanPhone}`;
-
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-emerald-600 hover:text-emerald-800 p-1 hover:bg-emerald-100 rounded-full transition-colors ml-1 shrink-0"
-      title="Enviar WhatsApp"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <IconWhatsAppFilled size={14} />
-    </a>
-  );
-};
+import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 
 const MetricBadge = ({ label, items, colorBase, icon }) => {
   const count = items.length;
@@ -123,86 +98,6 @@ const MetricBadge = ({ label, items, colorBase, icon }) => {
   );
 };
 
-const MultiSelectDropdown = ({
-  options,
-  selected,
-  onChange,
-  label,
-  placeholder,
-  compact = false,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef(null);
-  useEffect(() => {
-    const handleClick = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target))
-        setIsOpen(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
-  const toggleOption = (val) => {
-    const newSet = new Set(selected);
-    if (newSet.has(val)) newSet.delete(val);
-    else newSet.add(val);
-    onChange(newSet);
-  };
-  return (
-    <div className={`relative ${compact ? "" : "w-full"}`} ref={dropdownRef}>
-      {!compact && (
-        <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
-          {label}
-        </label>
-      )}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center justify-between bg-white border border-slate-300 rounded text-sm text-left ${compact ? "px-3 py-1.5 text-xs font-bold" : "w-full p-2"}`}
-      >
-        <span
-          className={
-            selected.size
-              ? "text-fixed-indigo-700 font-medium"
-              : "text-slate-500"
-          }
-        >
-          {selected.size > 0
-            ? compact
-              ? `${label}: ${selected.size}`
-              : `${selected.size} seleccionados`
-            : compact
-              ? label
-              : placeholder}
-        </span>
-        <IconChevronDown size={14} className="text-slate-400 ml-2" />
-      </button>
-      {isOpen && (
-        <div className="absolute top-full left-0 min-w-[200px] w-full mt-1 bg-white border border-slate-200 rounded shadow-xl z-50 max-h-48 overflow-y-auto p-1">
-          {options.map((opt) => (
-            <div
-              key={opt.value}
-              onClick={() => toggleOption(opt.value)}
-              className="flex items-center gap-2 p-2 hover:bg-slate-50 cursor-pointer rounded text-sm"
-            >
-              <div
-                className={`w-4 h-4 border rounded flex items-center justify-center ${
-                  selected.has(opt.value)
-                    ? "bg-fixed-indigo-600 border-fixed-indigo-600"
-                    : "border-slate-300"
-                }`}
-              >
-                {selected.has(opt.value) && (
-                  <IconCheck size={10} className="text-white" />
-                )}
-              </div>
-              <span>{opt.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // --- COMPONENTE PRINCIPAL ---
 export default function GiraRoster({
   supabase,
@@ -217,6 +112,13 @@ export default function GiraRoster({
     sources,
     refreshRoster,
   } = useGiraRoster(supabase, gira);
+  const {
+    ensemblesList,
+    instrumentsList,
+    familiesList,
+    localitiesList,
+    rolesList,
+  } = useRosterDropdownData(supabase);
   const [localRoster, setLocalRoster] = useState([]);
   const [loadingAction, setLoadingAction] = useState(false);
 
@@ -272,24 +174,17 @@ export default function GiraRoster({
   const [editingMusician, setEditingMusician] = useState(null);
   const [showExitConfirmModal, setShowExitConfirmModal] = useState(false);
 
+  // Baja con confirmación 5s: ausente o desconvocar. No reordenar ni notificar hasta efectivizar.
+  const [pendingBaja, setPendingBaja] = useState(null);
+  const [bajaCountdownSeconds, setBajaCountdownSeconds] = useState(0);
+  const bajaTimerRef = useRef(null);
+
   const notificationQueueRef = useRef(null);
   const pendingExitAfterFlushRef = useRef(false);
-
-  // Data States
-  const [localitiesList, setLocalitiesList] = useState([]);
-  const [instrumentsList, setInstrumentsList] = useState([]);
-  const [ensemblesList, setEnsemblesList] = useState([]);
-  const [familiesList, setFamiliesList] = useState([]);
-  const [rolesList, setRolesList] = useState([]); // Nuevo State para Roles DB
 
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
   const [selectedFamilies, setSelectedFamilies] = useState(new Set());
   const [selectedExclEnsembles, setSelectedExclEnsembles] = useState(new Set());
-
-  // Init UI Data
-  useEffect(() => {
-    fetchDropdownData();
-  }, []);
 
   // --- FILTRADO Y ORDENAMIENTO COMPLETO ---
   useEffect(() => {
@@ -442,38 +337,6 @@ export default function GiraRoster({
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [pendingNotifications.length]);
 
-  const fetchDropdownData = async () => {
-    const { data: ens } = await supabase
-      .from("ensambles")
-      .select("id, ensamble")
-      .order("ensamble");
-    if (ens)
-      setEnsemblesList(ens.map((e) => ({ value: e.id, label: e.ensamble })));
-
-    const { data: inst } = await supabase
-      .from("instrumentos")
-      .select("id, instrumento, familia")
-      .order("instrumento");
-    if (inst) {
-      setInstrumentsList(inst);
-      const fams = [...new Set(inst.map((i) => i.familia).filter(Boolean))];
-      setFamiliesList(fams.map((f) => ({ value: f, label: f })));
-    }
-
-    const { data: locs } = await supabase
-      .from("localidades")
-      .select("id, localidad")
-      .order("localidad");
-    if (locs) setLocalitiesList(locs);
-
-    // Fetch ROLES from DB
-    const { data: rolesData } = await supabase
-      .from("roles")
-      .select("id, color, orden")
-      .order("orden", { ascending: true });
-    if (rolesData) setRolesList(rolesData);
-  };
-
   const generateNumericId = () =>
     Math.floor(10000000 + Math.random() * 90000000);
 
@@ -541,7 +404,7 @@ export default function GiraRoster({
 
       refreshRoster();
     } catch (err) {
-      alert("Error al eliminar vacante: " + err.message);
+      toast.error("Error al eliminar vacante: " + err.message);
     } finally {
       setLoadingAction(false);
     }
@@ -821,6 +684,102 @@ export default function GiraRoster({
     if (!error) refreshRoster();
   };
 
+  // --- Baja con ventana 5s (ausente o desconvocar): no reordenar ni notificar hasta efectivizar ---
+  const requestBaja = (musician, action) => {
+    if (pendingBaja) return;
+    setPendingBaja({ integranteId: musician.id, action, musician, startedAt: Date.now() });
+    setBajaCountdownSeconds(5);
+  };
+
+  const cancelBaja = () => {
+    if (bajaTimerRef.current) clearInterval(bajaTimerRef.current);
+    bajaTimerRef.current = null;
+    setPendingBaja(null);
+    setBajaCountdownSeconds(0);
+  };
+
+  const efectivizeBaja = async () => {
+    if (!pendingBaja) return;
+    const { musician, action } = pendingBaja;
+    if (action === "ausente") {
+      await supabase.from("giras_integrantes").upsert(
+        {
+          id_gira: gira.id,
+          id_integrante: musician.id,
+          estado: "ausente",
+          rol: musician.rol_gira,
+        },
+        { onConflict: "id_gira, id_integrante" },
+      );
+      if (notificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
+        const nombreCompleto = musician.nombre_completo || `${musician.nombre || ""} ${musician.apellido || ""}`.trim();
+        setPendingNotifications((prev) => [
+          ...prev,
+          {
+            id: `toggle-${musician.id}-${Date.now()}`,
+            variant: "AUSENTE",
+            emails: [musician.mail],
+            nombres: [nombreCompleto],
+            reason: "Se te marcó como ausente",
+          },
+        ]);
+      }
+    } else {
+      if (notificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
+        setPendingNotifications((prev) => [
+          ...prev,
+          {
+            id: `baja-${musician.id}-${Date.now()}`,
+            variant: "BAJA",
+            emails: [musician.mail],
+            nombres: [musician.nombre_completo || `${musician.nombre || ""} ${musician.apellido || ""}`.trim()],
+            reason: "Baja de la gira",
+          },
+        ]);
+      }
+      await supabase
+        .from("giras_integrantes")
+        .delete()
+        .eq("id_integrante", musician.id)
+        .eq("id_gira", gira.id);
+    }
+    if (bajaTimerRef.current) clearInterval(bajaTimerRef.current);
+    bajaTimerRef.current = null;
+    setPendingBaja(null);
+    setBajaCountdownSeconds(0);
+    await refreshRoster();
+  };
+
+  useEffect(() => {
+    if (!pendingBaja) return;
+    const startedAt = pendingBaja.startedAt;
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      const left = Math.max(0, 5 - elapsed);
+      setBajaCountdownSeconds(left);
+      if (left <= 0) {
+        if (bajaTimerRef.current) clearInterval(bajaTimerRef.current);
+        bajaTimerRef.current = null;
+        efectivizeBaja();
+      }
+    };
+    tick();
+    bajaTimerRef.current = setInterval(tick, 1000);
+    return () => {
+      if (bajaTimerRef.current) clearInterval(bajaTimerRef.current);
+    };
+  }, [pendingBaja?.integranteId, pendingBaja?.action]);
+
+  useEffect(() => {
+    if (!pendingBaja) return;
+    const handler = (e) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [pendingBaja]);
+
   const sendNotificacionInicial = async () => {
     const confirmados = localRoster.filter(
       (m) => m.estado_gira === "confirmado" && m.mail,
@@ -967,10 +926,10 @@ export default function GiraRoster({
         p_id_integrante_real: integrante.id,
       });
       if (error) throw error;
-      alert("Plaza liberada.");
+      toast.success("Plaza liberada.");
       refreshRoster();
     } catch (err) {
-      alert("Error: " + err.message);
+      toast.error("Error: " + err.message);
     } finally {
       setLoadingAction(false);
     }
@@ -1046,7 +1005,7 @@ export default function GiraRoster({
         .catch(() => prompt("Copia este enlace:", url));
     } catch (err) {
       console.error(err);
-      alert("Error gestionando enlace: " + err.message);
+      toast.error("Error gestionando enlace: " + err.message);
     }
   };
 
@@ -1082,14 +1041,14 @@ export default function GiraRoster({
     // Si el rol es puramente 'musico', las condiciones pesan más.
     if (m.es_simulacion) {
       // Vacante
-      baseStyle.className += " bg-amber-50 border-l-amber-400 text-slate-800";
+      baseStyle.className += " bg-amber-100 border-l-amber-400 text-slate-800";
       return baseStyle;
     }
 
     if (m.es_adicional && m.rol_gira === DEFAULT_ROL_ID) {
       // Adicional (manual) sin rol jerárquico
       baseStyle.className +=
-        " bg-orange-50/50 hover:bg-orange-100/50 border-l-orange-300";
+        " bg-orange-100 hover:bg-orange-200 border-l-orange-400";
       return baseStyle;
     }
 
@@ -1111,7 +1070,11 @@ export default function GiraRoster({
         break;
       case "Invitado":
         baseStyle.className +=
-          " bg-amber-50/60 hover:bg-amber-100/60 border-l-amber-300";
+          " bg-amber-100 hover:bg-amber-200 border-l-amber-400";
+        break;
+      case "Refuerzo":
+        baseStyle.className +=
+          " bg-amber-100 hover:bg-amber-200 border-l-amber-400";
         break;
       default:
         baseStyle.className +=
@@ -1272,24 +1235,24 @@ export default function GiraRoster({
               value: r.id,
               label: r.id.charAt(0).toUpperCase() + r.id.slice(1),
             }))}
-            selected={selectedFilterRoles}
-            onChange={setSelectedFilterRoles}
+            value={Array.from(selectedFilterRoles)}
+            onChange={(arr) => setSelectedFilterRoles(new Set(arr))}
           />
           <MultiSelectDropdown
             compact
             label="Condición"
             placeholder="Todas"
             options={CONDICIONES.map((c) => ({ value: c, label: c }))}
-            selected={selectedFilterConditions}
-            onChange={setSelectedFilterConditions}
+            value={Array.from(selectedFilterConditions)}
+            onChange={(arr) => setSelectedFilterConditions(new Set(arr))}
           />
           <MultiSelectDropdown
             compact
             label="Ensamble"
             placeholder="Todos"
             options={ensemblesList}
-            selected={selectedFilterEnsemblesList}
-            onChange={setSelectedFilterEnsemblesList}
+            value={Array.from(selectedFilterEnsemblesList)}
+            onChange={(arr) => setSelectedFilterEnsemblesList(new Set(arr))}
           />
 
           {/* BOTÓN COPIAR MAILS */}
@@ -1414,8 +1377,8 @@ export default function GiraRoster({
                 label="Ensambles"
                 placeholder="Seleccionar..."
                 options={ensemblesList}
-                selected={selectedEnsembles}
-                onChange={setSelectedEnsembles}
+                value={Array.from(selectedEnsembles)}
+                onChange={(arr) => setSelectedEnsembles(new Set(arr))}
               />
             </div>
             <div className="w-40">
@@ -1423,8 +1386,8 @@ export default function GiraRoster({
                 label="Familias"
                 placeholder="Seleccionar..."
                 options={familiesList}
-                selected={selectedFamilies}
-                onChange={setSelectedFamilies}
+                value={Array.from(selectedFamilies)}
+                onChange={(arr) => setSelectedFamilies(new Set(arr))}
               />
             </div>
             <div className="w-40">
@@ -1432,8 +1395,8 @@ export default function GiraRoster({
                 label="EXCLUIR Ens."
                 placeholder="Seleccionar..."
                 options={ensemblesList}
-                selected={selectedExclEnsembles}
-                onChange={setSelectedExclEnsembles}
+                value={Array.from(selectedExclEnsembles)}
+                onChange={(arr) => setSelectedExclEnsembles(new Set(arr))}
               />
             </div>
             <button
@@ -1522,7 +1485,7 @@ export default function GiraRoster({
             <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold sticky top-0 z-10">
               <tr>
                 {/* CHECKBOX HEADER */}
-                <th className="p-3 w-10 text-center bg-slate-50 border-r border-slate-100">
+                <th className="py-2 px-3 w-10 text-center bg-slate-50 border-r border-slate-100">
                   <input
                     type="checkbox"
                     className="rounded border-slate-300 text-fixed-indigo-600 focus:ring-fixed-indigo-500 cursor-pointer"
@@ -1545,278 +1508,65 @@ export default function GiraRoster({
                   />
                 </th>
 
-                <th className="p-3 w-48 border-r border-slate-100">
+                <th className="py-2 px-3 w-48 border-r border-slate-100">
                   Rol / Instr.
                 </th>
-                <th className="p-3 bg-slate-50 border-r border-slate-100 w-1/4">
+                <th className="py-2 px-3 bg-slate-50 border-r border-slate-100 w-1/4">
                   Apellido, Nombre
                 </th>
                 {visibleColumns.genero && (
-                  <th className="p-3 border-r border-slate-100 w-10 text-center">
+                  <th className="py-2 px-3 border-r border-slate-100 w-10 text-center">
                     Gén.
                   </th>
                 )}
                 {visibleColumns.ensambles && (
-                  <th className="p-3 border-r border-slate-100">Ensambles</th>
+                  <th className="py-2 px-3 border-r border-slate-100">Ensambles</th>
                 )}
                 {visibleColumns.localidad && (
-                  <th className="p-3 border-r border-slate-100">Ubicación</th>
+                  <th className="py-2 px-3 border-r border-slate-100">Ubicación</th>
                 )}
-                <th className="p-3 border-r border-slate-100">Contacto</th>
+                <th className="py-2 px-3 border-r border-slate-100">Contacto</th>
                 {visibleColumns.alimentacion && (
-                  <th className="p-3 border-r border-slate-100">Alim.</th>
+                  <th className="py-2 px-3 border-r border-slate-100">Alim.</th>
                 )}
-                <th className="p-3 text-center w-16 border-r border-slate-100">
+                <th className="py-2 px-3 text-center w-16 border-r border-slate-100">
                   Estado
                 </th>
-                <th className="p-3 text-right w-10"></th>
+                <th className="py-2 px-3 text-right w-10"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {localRoster.map((m, idx) => {
                 const isSelected = selectedIds.has(m.id);
                 const { className: rowClassName, style: rowStyle } =
                   getRowStyles(m, isSelected);
-
                 return (
-                  <tr
-                    id={`row-integrante-${m.id}`}
+                  <RosterTableRow
                     key={m.id}
-                    className={rowClassName}
-                    style={rowStyle} // Estilo dinámico DB
-                  >
-                    {/* CHECKBOX */}
-                    <td className="p-3 text-center border-r border-slate-100/50">
-                      <div>
-                        {" "}
-                        <span className="text-[10px] text-slate-400 font-mono w-5 text-right inline-block">
-                          {idx + 1}
-                        </span>{" "}
-                        <input
-                          type="checkbox"
-                          className="rounded border-slate-300 text-fixed-indigo-600 focus:ring-fixed-indigo-500 cursor-pointer"
-                          checked={isSelected}
-                          onChange={() => toggleSelection(m.id)}
-                        />
-                      </div>
-                    </td>
-
-                    {/* ROL / INSTR (Vertical) */}
-                    <td className="p-3 pl-4 border-r border-slate-100/50">
-                      {isEditor && !m.es_simulacion ? (
-                        <select
-                          className={`text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full -ml-1 text-slate-700`}
-                          value={m.rol_gira || DEFAULT_ROL_ID}
-                          onChange={(e) => changeRole(m, e.target.value)}
-                        >
-                          {rolesList.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.id}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-[11px] font-bold uppercase text-slate-600 block">
-                          {m.rol_gira || DEFAULT_ROL_ID}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-slate-400 block font-medium mt-0.5">
-                        {m.instrumentos?.instrumento || "-"}
-                      </span>
-                    </td>
-                    {/* APELLIDO, NOMBRE (Expandido) */}
-                    {/* APELLIDO, NOMBRE (Expandido con Nota Interna) */}
-                    <td className="p-3 border-r border-slate-100/50 font-bold text-slate-700">
-                      <div className="flex flex-col gap-1.5">
-                        {/* Fila Nombre + Etiqueta Vacante */}
-                        <div className="flex items-center gap-2">
-                          {m.apellido}, {m.nombre}
-                          {m.es_simulacion && (
-                            <span className="bg-amber-100 text-amber-700 text-[9px] px-1 rounded border border-amber-200 font-black tracking-wider">
-                              VACANTE
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Nota Interna estilo Post-it */}
-                        {m.nota_interna && (
-                          <div className="group relative w-fit">
-                            <div className="bg-yellow-100 border border-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded-sm shadow-sm flex items-center gap-1 cursor-help transform -rotate-1 hover:rotate-0 transition-transform origin-left max-w-[160px]">
-                              <span className="text-[9px]">📝</span>
-                              <span className="truncate font-normal">
-                                {m.nota_interna}
-                              </span>
-                            </div>
-
-                            {/* Tooltip Flotante con el texto completo */}
-                            <div className="absolute left-0 top-full mt-1 hidden group-hover:block w-56 bg-yellow-50 border border-yellow-200 shadow-xl p-2 rounded text-xs font-normal text-slate-700 z-[60] whitespace-normal animate-in fade-in zoom-in-95">
-                              {m.nota_interna}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* GÉNERO */}
-                    {visibleColumns.genero && (
-                      <td className="p-3 text-xs text-slate-600 text-center border-r border-slate-100/50">
-                        {m.genero || "-"}
-                      </td>
-                    )}
-
-                    {/* ENSAMBLES (NUEVO) */}
-                    {visibleColumns.ensambles && (
-                      <td className="p-3 border-r border-slate-100/50 max-w-[180px]">
-                        <div className="flex flex-wrap gap-1">
-                          {m.integrantes_ensambles &&
-                          m.integrantes_ensambles.length > 0 ? (
-                            m.integrantes_ensambles.map((ie) => (
-                              <span
-                                key={ie.ensambles?.id || Math.random()}
-                                className="text-[9px] bg-white/50 border border-slate-300 px-1 rounded text-slate-500 truncate max-w-[80px]"
-                              >
-                                {ie.ensambles?.ensamble}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-slate-300 text-[10px]">
-                              -
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                    )}
-
-                    {/* UBICACIÓN */}
-                    {visibleColumns.localidad && (
-                      <td className="p-3 text-xs text-slate-600 border-r border-slate-100/50">
-                        {m.localidades ? (
-                          <div>
-                            <span className="font-semibold block">
-                              {m.localidades.localidad}
-                            </span>
-                            <span className="text-[9px] text-slate-400 block">
-                              {m.localidades.regiones?.region}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-300">-</span>
-                        )}
-                      </td>
-                    )}
-
-                    {/* CONTACTO */}
-                    <td className="p-3 border-r border-slate-100/50 text-xs">
-                      <div className="flex flex-col gap-1">
-                        {m.telefono && (
-                          <div className="flex items-center gap-1 text-slate-600">
-                            <IconPhone size={10} className="text-slate-400" />
-                            <span>{m.telefono}</span>
-                            <WhatsAppLink phone={m.telefono} />
-                          </div>
-                        )}
-                        {m.mail && (
-                          <div
-                            className="flex items-center gap-1 max-w-[180px] truncate"
-                            title={m.mail}
-                          >
-                            <IconMail
-                              size={10}
-                              className="text-slate-400 shrink-0"
-                            />
-                            <span className="text-slate-500 truncate">
-                              {m.mail}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* ALIMENTACIÓN */}
-                    {visibleColumns.alimentacion && (
-                      <td className="p-3 text-xs text-slate-600 truncate max-w-[100px] border-r border-slate-100/50">
-                        {m.alimentacion || "-"}
-                      </td>
-                    )}
-
-                    {/* ESTADO */}
-                    <td className="p-3 text-center border-r border-slate-100/50">
-                      <div className="flex items-center justify-center">
-                        <button
-                          onClick={() => isEditor && toggleStatus(m)}
-                          disabled={!isEditor}
-                          className={`w-7 h-7 rounded flex items-center justify-center text-[10px] font-bold transition-all shadow-sm mx-auto ${
-                            m.estado_gira === "ausente"
-                              ? "bg-white text-red-600 border border-red-200 hover:bg-red-50"
-                              : "bg-emerald-500 text-white border border-emerald-600 hover:bg-emerald-600"
-                          }`}
-                        >
-                          {m.estado_gira === "ausente" ? "A" : "P"}
-                        </button>
-                      </div>
-                    </td>
-
-                    {/* ACCIONES (Botones Visibles pero tenues) */}
-                    <td className="p-3 text-right pr-4">
-                      <div className="flex justify-end items-center gap-1">
-                        <button
-                          onClick={() => setEditingMusician(m)}
-                          className="p-1.5 text-slate-400 hover:text-fixed-indigo-600 hover:bg-white rounded transition-colors"
-                          title="Editar"
-                        >
-                          <IconPencil size={14} />
-                        </button>
-
-                        {m.es_simulacion ? (
-                          <>
-                            <div className="w-px h-3 bg-slate-200 mx-1"></div>
-                            <button
-                              onClick={() => setSwapTarget(m)}
-                              className="bg-amber-500 hover:bg-amber-600 text-white text-[9px] font-bold px-2 py-1 rounded shadow-sm flex items-center gap-1"
-                              title="Asignar titular"
-                            >
-                              <IconExchange size={10} /> ASIGNAR
-                            </button>
-                            <button
-                              onClick={() => handleDeleteVacancy(m)}
-                              className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                              title="Eliminar Vacante"
-                            >
-                              <IconTrash size={14} />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            {m.estado_gira === "confirmado" && (
-                              <button
-                                onClick={() => handleLiberarPlaza(m)}
-                                className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
-                                title="Liberar Plaza"
-                              >
-                                <IconUserMinus size={14} />
-                              </button>
-                            )}
-                            {m.es_adicional && (
-                              <button
-                                onClick={() => removeMemberManual(m.id)}
-                                className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                                title="Eliminar Manual"
-                              >
-                                <IconTrash size={14} />
-                              </button>
-                            )}
-                            <button
-                              onClick={() => copyGuestLink(m)}
-                              className="p-1.5 text-slate-400 hover:text-fixed-indigo-600 hover:bg-white rounded transition-colors"
-                              title="Copiar Link"
-                            >
-                              <IconLink size={14} />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                    musician={m}
+                    index={idx}
+                    isSelected={isSelected}
+                    rowClassName={rowClassName}
+                    rowStyle={rowStyle}
+                    visibleColumns={visibleColumns}
+                    isEditor={isEditor}
+                    rolesList={rolesList}
+                    defaultRolId={DEFAULT_ROL_ID}
+                    onToggleSelection={toggleSelection}
+                    onChangeRole={changeRole}
+                    onEdit={setEditingMusician}
+                    onSwap={setSwapTarget}
+                    onDeleteVacancy={handleDeleteVacancy}
+                    onToggleStatus={toggleStatus}
+                    onRequestBaja={requestBaja}
+                    onCancelBaja={cancelBaja}
+                    pendingBajaForRow={
+                      pendingBaja && pendingBaja.integranteId === m.id
+                        ? { action: pendingBaja.action, countdown: bajaCountdownSeconds }
+                        : null
+                    }
+                    onCopyLink={copyGuestLink}
+                  />
                 );
               })}
               {localRoster.length === 0 && (

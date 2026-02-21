@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { IconExternalLink } from "./Icons";
+import { IconDrive, IconExternalLink } from "./Icons";
 import Loader from "./Loader";
 
 /**
@@ -114,24 +114,6 @@ export default function VideoPlayer({ url }) {
         </div>
       )}
 
-      {/* Aviso fijo para Google Drive: el embed suele pedir login; ofrecemos abrir en pestaña */}
-      {isGoogleDrive && (
-        <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between gap-2 px-3 py-2 bg-amber-500/95 text-amber-900 text-xs rounded-t-xl backdrop-blur-sm">
-          <span className="flex-1 min-w-0">
-            Si Google pide iniciar sesión, el video es público: ábrelo en una nueva pestaña.
-          </span>
-          <a
-            href={viewUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 shrink-0 px-3 py-1.5 bg-amber-900 text-white font-bold rounded-lg hover:bg-amber-800 transition-colors text-xs whitespace-nowrap"
-          >
-            <IconExternalLink size={14} />
-            Ver en Google Drive
-          </a>
-        </div>
-      )}
-
       <iframe
         src={embedUrl}
         title="Video embebido"
@@ -145,15 +127,15 @@ export default function VideoPlayer({ url }) {
         }}
       />
 
-      {/* Botón para abrir en nueva pestaña (siempre visible en Drive, resto al hover) */}
+      {/* Ícono para abrir en nueva pestaña (Drive o enlace) */}
       <a
         href={viewUrl}
         target="_blank"
         rel="noopener noreferrer"
-        className={`absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white p-2 rounded-lg backdrop-blur-sm ${isGoogleDrive ? "top-12 opacity-100" : "opacity-0 group-hover:opacity-100 transition-opacity"}`}
+        className="absolute top-2 right-2 z-10 bg-black/60 hover:bg-black/80 text-white p-2 rounded-lg backdrop-blur-sm transition-opacity"
         title={isGoogleDrive ? "Ver en Google Drive" : "Abrir en nueva pestaña"}
       >
-        <IconExternalLink size={16} />
+        {isGoogleDrive ? <IconDrive size={18} /> : <IconExternalLink size={18} />}
       </a>
     </div>
   );

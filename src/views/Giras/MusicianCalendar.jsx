@@ -107,7 +107,7 @@ export default function MusicianCalendar({ supabase }) {
       const { data: eventsData } = await supabase
         .from("eventos")
         .select(
-          `id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, tipos_evento (id, nombre, color), locaciones (id, nombre), programas (id, google_drive_folder_id, nomenclador, giras_fuentes (tipo, valor_id), giras_integrantes (id_integrante, estado))`
+          `id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, tipos_evento (id, nombre, color), locaciones (id, nombre), programas (id, google_drive_folder_id, nomenclador, giras_fuentes (tipo, valor_id), giras_integrantes (id_integrante, estado))`
         )
         .gte("fecha", startDateString) // <-- FIX APLICADO
         .lte("fecha", endDateString);   // <-- FIX APLICADO
@@ -150,9 +150,11 @@ export default function MusicianCalendar({ supabase }) {
           descripcion: evt.descripcion || '',
           fecha: evt.fecha || '',
           hora_inicio: evt.hora_inicio || '',
-          hora_fin: evt.hora_fin || '', 
-          id_tipo_evento: evt.id_tipo_evento || '', 
-          id_locacion: evt.id_locacion || ''
+          hora_fin: evt.hora_fin || '',
+          id_tipo_evento: evt.id_tipo_evento || '',
+          id_locacion: evt.id_locacion || '',
+          id_gira: evt.id_gira ?? null,
+          id_gira_transporte: evt.id_gira_transporte ?? null,
       });
       setShowEditModal(true);
       setSelectedDate(null);
@@ -169,7 +171,8 @@ export default function MusicianCalendar({ supabase }) {
               hora_inicio: editFormData.hora_inicio,
               hora_fin: editFormData.hora_fin.trim() || editFormData.hora_inicio, 
               id_tipo_evento: editFormData.id_tipo_evento || null,
-              id_locacion: editFormData.id_locacion || null
+              id_locacion: editFormData.id_locacion || null,
+              id_gira_transporte: editFormData.id_gira_transporte ?? null,
           };
 
           await supabase.from('eventos').update(payload).eq('id', editFormData.id);
@@ -554,7 +557,7 @@ export default function MusicianCalendar({ supabase }) {
       {/* MODAL DE EDICIÓN DE EVENTO (Usando EventForm) */}
       {showEditModal && (
         <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-          <EventForm 
+          <EventForm
               formData={editFormData}
               setFormData={setEditFormData}
               onSave={handleSaveEdit}
@@ -565,6 +568,7 @@ export default function MusicianCalendar({ supabase }) {
               isNew={false}
               supabase={supabase}
               onRefreshLocations={fetchFormLocations}
+              giraId={editFormData?.id_gira}
           />
         </div>
       )}

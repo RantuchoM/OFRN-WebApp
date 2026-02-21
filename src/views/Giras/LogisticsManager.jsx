@@ -833,6 +833,7 @@ export default function LogisticsManager({ supabase, gira }) {
       descripcion: rest.descripcion,
       id_tipo_evento: rest.id_tipo_evento,
       id_locacion: rest.id_locacion,
+      id_gira_transporte: rest.id_gira_transporte ?? null,
       visible_agenda: rest.visible_agenda,
       convocados: rest.convocados,
       notas: rest.notas,
@@ -1677,6 +1678,7 @@ export default function LogisticsManager({ supabase, gira }) {
               eventTypes={catalogs.eventTypes}
               supabase={supabase}
               onRefreshLocations={fetchVenues}
+              giraId={editingFormData?.id_gira}
             />
           </div>
         </div>

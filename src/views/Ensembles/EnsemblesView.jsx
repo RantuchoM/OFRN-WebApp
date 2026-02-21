@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, IconCheck, IconMusic, IconUsers } from '../../components/ui/Icons';
 
 export default function EnsemblesView({ supabase }) {
@@ -55,7 +56,7 @@ export default function EnsemblesView({ supabase }) {
         const nombreDefault = "Nuevo Ensamble " + (ensembles.length + 1);
         const newId = generateEnsembleId();
         const { data, error } = await supabase.from('ensambles').insert([{ id: newId, ensamble: nombreDefault, descripcion: '' }]).select();
-        if (error) alert("Error al crear: " + error.message);
+        if (error) toast.error("Error al crear: " + error.message);
         else if (data && data.length > 0) { await fetchEnsembles(); setSelectedEnsemble(data[0]); }
     };
 
@@ -64,13 +65,13 @@ export default function EnsemblesView({ supabase }) {
         if (!confirm("¿Eliminar ensamble?")) return;
         await supabase.from('integrantes_ensambles').delete().eq('id_ensamble', id);
         const { error } = await supabase.from('ensambles').delete().eq('id', id);
-        if (error) alert("Error al eliminar: " + error.message); else { if (selectedEnsemble?.id === id) setSelectedEnsemble(null); fetchEnsembles(); }
+        if (error) toast.error("Error al eliminar: " + error.message); else { if (selectedEnsemble?.id === id) setSelectedEnsemble(null); fetchEnsembles(); }
     };
 
     const saveHeader = async () => {
         if (!selectedEnsemble) return;
         const { error } = await supabase.from('ensambles').update({ ensamble: headerForm.ensamble, descripcion: headerForm.descripcion }).eq('id', selectedEnsemble.id);
-        if (error) alert("Error al actualizar: " + error.message); else { setIsEditingHeader(false); fetchEnsembles(); setSelectedEnsemble({ ...selectedEnsemble, ...headerForm }); }
+        if (error) toast.error("Error al actualizar: " + error.message); else { setIsEditingHeader(false); fetchEnsembles(); setSelectedEnsemble({ ...selectedEnsemble, ...headerForm }); }
     };
 
     const toggleMembership = async (musicianId) => {
@@ -87,7 +88,7 @@ export default function EnsemblesView({ supabase }) {
             const { error: err } = await supabase.from('integrantes_ensambles').insert([{ id_ensamble: ensambleIdInt, id_integrante: musicianIdInt }]); error = err;
         }
         
-        if (error) alert(`Error: ${error.message}`); 
+        if (error) toast.error(`Error: ${error.message}`); 
         else { 
             const newSet = new Set(memberIds); 
             if (isMember) newSet.delete(musicianId); else newSet.add(musicianId); 

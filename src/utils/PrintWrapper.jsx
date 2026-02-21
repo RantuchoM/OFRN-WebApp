@@ -18,11 +18,13 @@ export const handlePrintExport = (ref, title = "Reporte") => {
     return;
   }
 
+  const isCompactReport = typeof htmlContent === 'string' && htmlContent.includes('meals-report-export');
+
   // Estilos críticos manuales (Tailwind-like) para asegurar la visualización
   const criticalStyles = `
     /* Reset */
     * { box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; color: #1e293b; }
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: ${isCompactReport ? '8px' : '20px'}; color: #1e293b; }
     
     /* Layout */
     .print-container { width: 100%; max-width: 100%; }
@@ -30,9 +32,9 @@ export const handlePrintExport = (ref, title = "Reporte") => {
     .print\\:block { display: block !important; } /* Forzar mostrar encabezados de impresión */
     
     /* Tablas */
-    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
-    th, td { padding: 8px; border: 1px solid #e2e8f0; text-align: left; }
-    th { background-color: #f8fafc; font-weight: 700; text-transform: uppercase; font-size: 11px; color: #64748b; }
+    table { width: 100%; border-collapse: collapse; font-size: ${isCompactReport ? '7px' : '12px'}; margin-top: ${isCompactReport ? '4px' : '10px'}; }
+    th, td { padding: ${isCompactReport ? '2px 4px' : '8px'}; border: 1px solid #e2e8f0; text-align: left; }
+    th { background-color: #f8fafc; font-weight: 700; text-transform: uppercase; font-size: ${isCompactReport ? '7px' : '11px'}; color: #64748b; }
     
     /* Alineación */
     .text-right { text-align: right; }
@@ -64,8 +66,9 @@ export const handlePrintExport = (ref, title = "Reporte") => {
     /* Tipografía */
     .font-bold { font-weight: 700; }
     .font-black { font-weight: 900; }
-    .text-lg { font-size: 1.125rem; }
-    .text-xs { font-size: 0.75rem; }
+    .text-lg { font-size: ${isCompactReport ? '8px' : '1.125rem'}; }
+    .text-xs { font-size: ${isCompactReport ? '6px' : '0.75rem'}; }
+    ${isCompactReport ? '.meals-report-export h1 { font-size: 10px !important; } .meals-report-export p, .meals-report-export * { font-size: 7px !important; }' : ''}
     .text-slate-500 { color: #64748b; }
     .text-slate-600 { color: #475569; }
     

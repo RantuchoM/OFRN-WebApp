@@ -292,6 +292,8 @@ export default function WeeklyCalendar({
         hora_fin: fullEvt.hora_fin || "",
         id_tipo_evento: fullEvt.id_tipo_evento || "",
         id_locacion: fullEvt.id_locacion || "",
+        id_gira: fullEvt.id_gira ?? null,
+        id_gira_transporte: fullEvt.id_gira_transporte ?? null,
       });
       setShowEditModal(true);
     }
@@ -311,6 +313,7 @@ export default function WeeklyCalendar({
         hora_fin: editFormData.hora_fin.trim() || editFormData.hora_inicio,
         id_tipo_evento: editFormData.id_tipo_evento || null,
         id_locacion: editFormData.id_locacion || null,
+        id_gira_transporte: editFormData.id_gira_transporte ?? null,
       };
 
       const { error } = await supabase
@@ -701,6 +704,7 @@ export default function WeeklyCalendar({
             isNew={false}
             supabase={supabase}
             onRefreshLocations={fetchFormLocations}
+            giraId={editFormData?.id_gira}
           />
         </div>
       )}

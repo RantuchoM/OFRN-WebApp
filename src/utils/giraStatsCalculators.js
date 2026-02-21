@@ -14,7 +14,7 @@ export const computeGeneralRaw = (data) => {
   if (!roster || !Array.isArray(roster)) return null;
   const activePax = roster.filter((p) => {
     const estado = normalize(p.estado_gira || p.estado);
-    return estado !== "ausente" && estado !== "rechazado" && estado !== "baja";
+    return estado !== "ausente" && estado !== "baja";
   });
   const vacantes = activePax.filter(p => p.es_simulacion).length;
   const total = activePax.length;
@@ -47,7 +47,7 @@ export const computeRoomingRaw = (data) => {
   if (!roster || !Array.isArray(roster)) return null;
   const paxQueRequierenHotel = roster.filter((p) => {
     const estado = normalize(p.estado_gira || p.estado);
-    const esActivo = estado !== "ausente" && estado !== "rechazado" && estado !== "baja";
+    const esActivo = estado !== "ausente" && estado !== "baja";
     const esLocal = p.is_local === true; 
     return esActivo && !esLocal;
   });
@@ -70,7 +70,7 @@ export const computeTransporteRaw = (data) => {
   if (!roster || !Array.isArray(roster)) return null;
   const activePax = roster.filter((p) => {
     const estado = normalize(p.estado_gira || p.estado);
-    return estado !== "ausente" && estado !== "rechazado" && estado !== "baja";
+    return estado !== "ausente" && estado !== "baja";
   });
   const totalPax = activePax.length;
   if (totalPax === 0) return null;
@@ -98,7 +98,7 @@ export const computeViaticosRaw = (data) => {
   const potentialPeopleIds = roster
     .filter(p => {
         const estado = normalize(p.estado_gira || p.estado);
-        if (estado === "ausente" || estado === "rechazado" || estado === "baja") return false;
+        if (estado === "ausente" || estado === "baja") return false;
         const condicion = normalize(p.condicion);
         const rol = normalize(p.rol_gira || p.rol);
         const isEstable = condicion === 'estable';
@@ -114,7 +114,7 @@ export const computeViaticosRaw = (data) => {
   // B. LOCALIDADES
   const activeMusicians = roster.filter(p => {
       const estado = normalize(p.estado_gira || p.estado);
-      return estado !== "ausente" && estado !== "rechazado" && estado !== "baja";
+      return estado !== "ausente" && estado !== "baja";
   });
   const uniqueResidenceIds = new Set();
   activeMusicians.forEach(p => { if (p.id_localidad) uniqueResidenceIds.add(Number(p.id_localidad)); });
@@ -173,7 +173,7 @@ export const computeMealsRaw = (data) => {
   // 2. Filtrar roster activo
   const activePax = roster.filter(p => {
       const estado = normalize(p.estado_gira || p.estado);
-      return estado !== "ausente" && estado !== "rechazado" && estado !== "baja";
+      return estado !== "ausente" && estado !== "baja";
   });
 
   // 3. Contadores

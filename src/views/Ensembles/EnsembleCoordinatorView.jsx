@@ -6,6 +6,7 @@ import React, {
   useRef,
 } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { useClickOutside } from "../../hooks/useClickOutside";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -63,19 +64,6 @@ const formatDateBox = (dateStr) => {
 };
 
 const formatTime = (timeStr) => (timeStr ? timeStr.slice(0, 5) : "--:--");
-
-// --- HELPER: CIERRE AL HACER CLICK FUERA ---
-function useOutsideAlerter(ref, callback) {
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (ref.current && !ref.current.contains(event.target)) {
-        callback();
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [ref, callback]);
-}
 
 // --- HELPER: Buscar feriado por fecha ---
 const findFeriado = (fechaStr, feriadosList) => {
@@ -361,7 +349,7 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase }) => {
     const names = myInvolvedMembers
       .map((m) => `• ${m.nombre} ${m.apellido}`)
       .join("\n");
-    alert(`Integrantes convocados (${count}):\n\n${names}`);
+    toast.success(`Integrantes convocados (${count}): ${names}`);
   };
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-full group">
@@ -459,7 +447,7 @@ const LocationManagerModal = ({ supabase, onClose, onSuccess }) => {
   };
 
   const handleSave = async () => {
-    if (!formData.nombre.trim()) return alert("El nombre es obligatorio");
+    if (!formData.nombre.trim()) { toast.error("El nombre es obligatorio"); return; }
 
     setLoading(true);
     try {
@@ -484,7 +472,7 @@ const LocationManagerModal = ({ supabase, onClose, onSuccess }) => {
       if (onSuccess) onSuccess(); // Notificar al padre para que actualice sus listas
       setView("list");
     } catch (err) {
-      alert("Error al guardar: " + err.message);
+      toast.error("Error al guardar: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -809,7 +797,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   // Estado para Menú de Herramientas Móvil
   const [showMobileTools, setShowMobileTools] = useState(false);
   const mobileToolsRef = useRef(null);
-  useOutsideAlerter(mobileToolsRef, () => setShowMobileTools(false));
+  useClickOutside(mobileToolsRef, () => setShowMobileTools(false));
 
   // --- ESTADOS PARA PERSISTENCIA DEL CALENDARIO ---
   const [viewDate, setViewDate] = useState(new Date());
