@@ -17,6 +17,8 @@ import {
   IconBulb,
   IconArrowLeft,
   IconPlus,
+  IconClipboard,
+  IconHelpCircle,
 } from "./Icons";
 
 // --- COMPONENTE INTERNO: EDITOR AVANZADO LIGERO ---
@@ -635,9 +637,21 @@ export default function FeedbackWidget({ supabase }) {
 
       let userInfo = "Anónimo";
       if (user) {
-        const nombre = user.nombre || user.user_metadata?.nombre || "";
-        const apellido = user.apellido || user.user_metadata?.apellido || "";
-        const email = user.email || "";
+        let nombre = user.nombre || user.user_metadata?.nombre || "";
+        let apellido = user.apellido || user.user_metadata?.apellido || "";
+        let email = (user.email || user.mail || "").trim();
+        if (!email && user.id) {
+          const { data: integrante } = await supabase
+            .from("integrantes")
+            .select("mail, nombre, apellido")
+            .eq("id", user.id)
+            .maybeSingle();
+          if (integrante) {
+            email = (integrante.mail || "").trim();
+            if (!nombre) nombre = integrante.nombre || "";
+            if (!apellido) apellido = integrante.apellido || "";
+          }
+        }
         userInfo = `${nombre} ${apellido} (${email})`.trim();
       }
 
@@ -739,13 +753,18 @@ export default function FeedbackWidget({ supabase }) {
                       Tipo
                     </label>
                     <div className="flex bg-white rounded border border-slate-200 p-1">
-                      {["Sugerencia", "Error", "Ayuda"].map((t) => (
+                      {[
+                        { t: "Sugerencia", Icon: IconClipboard, active: "bg-emerald-100 text-emerald-700" },
+                        { t: "Error", Icon: IconAlertCircle, active: "bg-red-100 text-red-700" },
+                        { t: "Ayuda", Icon: IconHelpCircle, active: "bg-amber-100 text-amber-700" },
+                      ].map(({ t, Icon, active }) => (
                         <button
                           key={t}
                           type="button"
                           onClick={() => setFormData({ ...formData, tipo: t })}
-                          className={`flex-1 text-xs py-1.5 rounded transition-colors ${formData.tipo === t ? "bg-indigo-100 text-indigo-700 font-bold" : "text-slate-500 hover:bg-slate-50"}`}
+                          className={`flex-1 text-xs py-1.5 rounded transition-colors flex items-center justify-center gap-1 ${formData.tipo === t ? active + " font-bold" : "text-slate-500 hover:bg-slate-50"}`}
                         >
+                          <Icon size={14} />
                           {t}
                         </button>
                       ))}

@@ -482,14 +482,17 @@ const ProtectedApp = () => {
         .order("id")
         .then(({ data }) => data && setCatalogoInstrumentos(data));
     }
-    if (["admin", "editor", "produccion_general"].includes(userRole))
+    // Coordinación solo para: tabla ensambles_coordinadores o roles que la incluyen (admin, produccion_general, coord_general)
+    const roleGrantsCoordinator = ["admin", "produccion_general", "coord_general"].includes(userRole);
+    if (roleGrantsCoordinator) {
       setIsEnsembleCoordinator(true);
-    else
+    } else {
       supabase
         .from("ensambles_coordinadores")
         .select("id", { count: "exact", head: true })
         .eq("id_integrante", user.id)
         .then(({ count }) => count > 0 && setIsEnsembleCoordinator(true));
+    }
   }, [user, userRole]);
 
   const tabToMode = {
@@ -639,7 +642,7 @@ const ProtectedApp = () => {
       id: "FEEDBACK_ADMIN",
       label: "Feedback",
       icon: <IconBulb size={20} />,
-      show: userRole === "admin",
+      show: userRole !== "invitado",
     },
   ];
   const visibleMenuItems = allMenuItems.filter((i) => i.show);
