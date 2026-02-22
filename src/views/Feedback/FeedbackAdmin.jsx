@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   IconCheck,
@@ -48,13 +48,22 @@ const STATUS_CONFIG = {
   },
 };
 
-// Identificador izquierdo de la tarjeta = estado (naranja / azul / verde). Tipo se muestra con icono en el badge.
+// Borde izquierdo + tinte sutil de tarjeta por estado (el color ya indica el estado, sin badge).
 const ESTADO_BAR = {
   PENDIENTE: "border-l-4 border-l-amber-500",
   EN_PROCESO: "border-l-4 border-l-blue-500",
   RESUELTO: "border-l-4 border-l-emerald-500",
   DESCARTADO: "border-l-4 border-l-slate-400",
 };
+const ESTADO_TINT = {
+  PENDIENTE: "bg-amber-50/50",
+  EN_PROCESO: "bg-blue-50/50",
+  RESUELTO: "bg-emerald-50/50",
+  DESCARTADO: "bg-slate-50/50",
+};
+function getEstadoTint(estado) {
+  return ESTADO_TINT[estado] || ESTADO_TINT.PENDIENTE;
+}
 
 // Tipos de feedback: icono + color (Sugerencia = notepad verde, Error = rojo, Ayuda = signo ? amarillo)
 const TIPO_CONFIG = {
@@ -67,8 +76,11 @@ function getTipoConfig(tipo) {
   return TIPO_CONFIG[tipo] || TIPO_CONFIG.Sugerencia;
 }
 
-const TAB_ADMIN = "admin";
-const TAB_MIS_PEDIDOS = "mis_pedidos";
+const TAB_ADMIN = "admin";       // Gestión General (solo admin)
+const TAB_MIS_PEDIDOS = "mis_pedidos"; // Mis Reportes
+
+/** Tipos usados en filtro (valores en BD pueden ser Sugerencia, Error, BUG, Ayuda). */
+const TIPO_FILTER_KEYS = ["Sugerencia", "Error", "Ayuda"];
 
 /** Normaliza para comparación: minúsculas y sin acentos. */
 function normalizeForMatch(s) {
@@ -101,13 +113,18 @@ function isMyFeedback(item, user) {
 
 export default function FeedbackAdmin({ supabase }) {
   const { user, isAdmin } = useAuth();
+  const defaultTabSet = useRef(false);
   const [activeTab, setActiveTab] = useState(TAB_MIS_PEDIDOS);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Filtros (solo vista Admin)
+  // Filtros (solo vista Admin): una sola línea (Búsqueda, Tipo, Estado)
   const [selectedStatuses, setSelectedStatuses] = useState(["PENDIENTE", "EN_PROCESO"]);
+  const [selectedTypes, setSelectedTypes] = useState([]); // vacío = todos los tipos
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Expandir detalle de un reporte (fila compacta → detalle debajo)
+  const [expandedId, setExpandedId] = useState(null);
 
   // Edición inline de comentarios (Admin)
   const [editingId, setEditingId] = useState(null);
@@ -124,6 +141,13 @@ export default function FeedbackAdmin({ supabase }) {
   useEffect(() => {
     fetchFeedback();
   }, []);
+
+  // Admin: vista por defecto = Gestión General; usuario = solo Mis Reportes
+  useEffect(() => {
+    if (defaultTabSet.current || user === undefined) return;
+    defaultTabSet.current = true;
+    setActiveTab(isAdmin ? TAB_ADMIN : TAB_MIS_PEDIDOS);
+  }, [user, isAdmin]);
 
   const fetchFeedback = async () => {
     setLoading(true);
@@ -153,6 +177,7 @@ export default function FeedbackAdmin({ supabase }) {
       const item = items.find((i) => i.id === id);
       if (item) {
         setResolvingId(id);
+        setExpandedId(id);
         startEditing(item);
       }
       return;
@@ -176,6 +201,7 @@ export default function FeedbackAdmin({ supabase }) {
   const startEditing = (item) => {
     setEditingId(item.id);
     setTempComment(item.admin_comments || "");
+    setExpandedId(item.id);
   };
 
   const cancelEditing = () => {
@@ -290,14 +316,18 @@ export default function FeedbackAdmin({ supabase }) {
     }
   };
 
-  // --- LÓGICA DE FILTRADO ---
+  // --- LÓGICA DE FILTRADO (reactiva a la línea de filtros) ---
   const toggleStatus = (statusKey) => {
     setSelectedStatuses((prev) => {
-      if (prev.includes(statusKey)) {
-        return prev.filter((s) => s !== statusKey);
-      } else {
-        return [...prev, statusKey];
-      }
+      if (prev.includes(statusKey)) return prev.filter((s) => s !== statusKey);
+      return [...prev, statusKey];
+    });
+  };
+
+  const toggleType = (tipoKey) => {
+    setSelectedTypes((prev) => {
+      if (prev.includes(tipoKey)) return prev.filter((t) => t !== tipoKey);
+      return [...prev, tipoKey];
     });
   };
 
@@ -305,6 +335,12 @@ export default function FeedbackAdmin({ supabase }) {
     return items.filter((item) => {
       const currentStatus = (item.estado || "PENDIENTE").toUpperCase();
       if (!selectedStatuses.includes(currentStatus)) return false;
+
+      if (selectedTypes.length > 0) {
+        const tipo = (item.tipo || "Sugerencia").trim();
+        const tipoNorm = tipo === "BUG" ? "Error" : tipo;
+        if (!selectedTypes.includes(tipoNorm)) return false;
+      }
 
       if (searchTerm) {
         const lower = searchTerm.toLowerCase();
@@ -317,7 +353,7 @@ export default function FeedbackAdmin({ supabase }) {
 
       return true;
     });
-  }, [items, selectedStatuses, searchTerm]);
+  }, [items, selectedStatuses, selectedTypes, searchTerm]);
 
   const displayItems = activeTab === TAB_MIS_PEDIDOS ? myItems : filteredItems;
   const isAdminView = activeTab === TAB_ADMIN;
@@ -332,285 +368,332 @@ export default function FeedbackAdmin({ supabase }) {
   }, [items]);
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 p-4 md:p-8 animate-in fade-in">
-      <div className="max-w-5xl mx-auto w-full flex flex-col h-full">
-        
-        {/* HEADER */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 shrink-0">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-              <IconBulb className="text-indigo-600" />
-              Centro de Feedback
-            </h1>
-            <p className="text-slate-500 text-sm">Gestiona reportes de error y sugerencias del equipo.</p>
-          </div>
+    <div className="flex flex-col h-full bg-slate-50 p-3 md:p-6 animate-in fade-in">
+      <div className="w-full max-w-[1600px] mx-auto flex flex-col h-full min-w-0">
+        {/* HEADER: título + refresh */}
+        <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
+          <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <IconBulb className="text-indigo-600 shrink-0" />
+            Centro de Feedback
+          </h1>
           <button
             onClick={fetchFeedback}
-            className="p-2 bg-white border border-slate-200 rounded-full text-slate-500 hover:text-indigo-600 hover:border-indigo-200 transition-colors shadow-sm"
+            className="p-2 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-indigo-600 hover:border-indigo-200 transition-colors shadow-sm shrink-0"
             title="Recargar"
           >
-            <IconRefresh size={20} className={loading ? "animate-spin" : ""} />
+            <IconRefresh size={18} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
 
-        {/* PESTAÑAS */}
-        <div className="flex items-center gap-2 mb-4 shrink-0">
-          <button
-            onClick={() => setActiveTab(TAB_MIS_PEDIDOS)}
-            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${
-              activeTab === TAB_MIS_PEDIDOS
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            <IconUser size={18} />
-            Mis Pedidos
-            <span className="px-1.5 py-0.5 rounded text-xs bg-white/20 text-inherit">{myItems.length}</span>
-          </button>
+        {/* PESTAÑAS: Admin = Gestión General (default) | Mis Reportes; Usuario = solo Mis Reportes */}
+        <div className="flex items-center gap-2 mb-3 shrink-0">
           {isAdmin && (
             <button
               onClick={() => setActiveTab(TAB_ADMIN)}
-              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${
                 activeTab === TAB_ADMIN
                   ? "bg-indigo-600 text-white shadow-sm"
                   : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
               }`}
             >
-              <IconBulb size={18} />
-              Administración
-              <span className="px-1.5 py-0.5 rounded text-xs bg-white/20 text-inherit">{items.length}</span>
+              <IconBulb size={16} />
+              Gestión General
+              <span className="px-1.5 py-0.5 rounded text-xs bg-white/20">{items.length}</span>
             </button>
           )}
+          <button
+            onClick={() => setActiveTab(TAB_MIS_PEDIDOS)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${
+              activeTab === TAB_MIS_PEDIDOS
+                ? "bg-indigo-600 text-white shadow-sm"
+                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <IconUser size={16} />
+            Mis Reportes
+            <span className="px-1.5 py-0.5 rounded text-xs bg-white/20">{myItems.length}</span>
+          </button>
         </div>
 
-        {/* CONTROLES (solo vista Admin) */}
+        {/* LÍNEA ÚNICA DE FILTROS (solo vista Gestión General): Búsqueda | Tipo | Estado */}
         {isAdminView && (
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6 shrink-0 space-y-4">
-            <div className="relative">
-                <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input 
-                    type="text" 
-                    placeholder="Buscar por título, mensaje o email..." 
-                    className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                />
+          <div className="flex flex-row flex-wrap items-center gap-3 mb-3 shrink-0 py-2 px-3 bg-white rounded-lg border border-slate-200 shadow-sm">
+            <div className="relative flex-1 min-w-[180px] max-w-[280px]">
+              <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                type="text"
+                placeholder="Buscar título, mensaje, email..."
+                className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-md text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-bold text-slate-400 uppercase mr-2 flex items-center gap-1">
-                    <IconFilter size={14}/> Estados:
-                </span>
-                {Object.entries(STATUS_CONFIG).map(([key, config]) => {
-                    const isActive = selectedStatuses.includes(key);
-                    return (
-                        <button
-                            key={key}
-                            onClick={() => toggleStatus(key)}
-                            className={`
-                                flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all border shadow-sm select-none
-                                ${isActive ? config.activeColor : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"}
-                            `}
-                        >
-                            {config.label}
-                            <span className={`px-1.5 py-0.5 rounded-full text-[9px] ${isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
-                                {counts[key]}
-                            </span>
-                            {isActive && <IconCheck size={12} />}
-                        </button>
-                    );
-                })}
-                {selectedStatuses.length < 4 && (
-                    <button
-                        onClick={() => setSelectedStatuses(Object.keys(STATUS_CONFIG))}
-                        className="text-[10px] text-indigo-600 hover:underline ml-auto font-bold"
-                    >
-                        Ver todo
-                    </button>
-                )}
+            <span className="text-xs font-semibold text-slate-400 uppercase flex items-center gap-1 shrink-0">
+              <IconFilter size={12} /> Tipo:
+            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {TIPO_FILTER_KEYS.map((key) => {
+                const conf = TIPO_CONFIG[key] || TIPO_CONFIG.Sugerencia;
+                const IconT = conf.Icon;
+                const isActive = selectedTypes.length === 0 || selectedTypes.includes(key);
+                return (
+                  <button
+                    key={key}
+                    onClick={() => toggleType(key)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border transition-all ${
+                      isActive ? conf.color + " border-current/30" : "bg-slate-50 text-slate-400 border-slate-200"
+                    }`}
+                  >
+                    <IconT size={12} />
+                    {conf.label}
+                  </button>
+                );
+              })}
+              {selectedTypes.length > 0 && (
+                <button
+                  onClick={() => setSelectedTypes([])}
+                  className="text-[10px] text-indigo-600 hover:underline font-semibold"
+                >
+                  Ver todos
+                </button>
+              )}
             </div>
-        </div>
+            <span className="text-xs font-semibold text-slate-400 uppercase flex items-center gap-1 shrink-0 ml-1">
+              Estado:
+            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {Object.entries(STATUS_CONFIG).map(([key, config]) => {
+                const isActive = selectedStatuses.includes(key);
+                return (
+                  <button
+                    key={key}
+                    onClick={() => toggleStatus(key)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all border ${
+                      isActive ? config.activeColor : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    {config.label}
+                    <span className={`px-1 py-0.5 rounded text-[10px] ${isActive ? "bg-white/20" : "bg-slate-100 text-slate-500"}`}>
+                      {counts[key]}
+                    </span>
+                  </button>
+                );
+              })}
+              {selectedStatuses.length < 4 && (
+                <button
+                  onClick={() => setSelectedStatuses(Object.keys(STATUS_CONFIG))}
+                  className="text-[10px] text-indigo-600 hover:underline font-semibold"
+                >
+                  Ver todo
+                </button>
+              )}
+            </div>
+          </div>
         )}
 
-        {/* LISTA */}
-        <div className="flex-1 overflow-y-auto pr-1 space-y-3">
+        {/* LISTA: filas compactas horizontales — [Icono][ID] | [Título] | [Badge] | [Email] | [Fecha] | [Acciones] */}
+        <div className="flex-1 overflow-y-auto min-h-0 pr-1">
           {loading && items.length === 0 ? (
-             <div className="text-center py-20 text-slate-400">
-                <IconLoader className="animate-spin mx-auto mb-2" size={32} />
-                Cargando feedback...
-             </div>
+            <div className="text-center py-16 text-slate-400">
+              <IconLoader className="animate-spin mx-auto mb-2" size={28} />
+              <p className="text-sm">Cargando feedback...</p>
+            </div>
           ) : displayItems.length === 0 ? (
-             <div className="text-center py-20 bg-white rounded-xl border border-dashed border-slate-300 text-slate-400">
-                <IconBulb size={48} className="mx-auto mb-4 opacity-20" />
-                <p>{activeTab === TAB_MIS_PEDIDOS ? "No tienes pedidos de feedback." : "No se encontraron items con los filtros actuales."}</p>
-             </div>
+            <div className="text-center py-16 bg-white rounded-lg border border-dashed border-slate-300 text-slate-400">
+              <IconBulb size={40} className="mx-auto mb-3 opacity-20" />
+              <p className="text-sm">{activeTab === TAB_MIS_PEDIDOS ? "No tienes reportes." : "No hay resultados con los filtros actuales."}</p>
+            </div>
           ) : (
-            displayItems.map((item) => {
-              const estadoBar = ESTADO_BAR[item.estado] || ESTADO_BAR.PENDIENTE;
-              const tipoConf = getTipoConfig(item.tipo);
-              const TipoIcon = tipoConf.Icon;
-              return (
-              <div
-                key={item.id}
-                className={`bg-white rounded-xl border p-4 shadow-sm transition-all hover:shadow-md ${estadoBar}`}
-              >
-                <div className="flex flex-col md:flex-row gap-4 justify-between items-start">
-                    <div className="flex-1 min-w-0 space-y-2">
-                        {/* Header Item */}
-                        <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider flex items-center gap-1 ${tipoConf.color}`}>
-                                <TipoIcon size={12} />
-                                {tipoConf.label}
-                            </span>
-                            <span className="text-xs text-slate-400">
-                                {item.created_at ? format(new Date(item.created_at), "d MMM, HH:mm", { locale: es }) : '-'}
-                            </span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded border ml-auto md:ml-0 ${
-                                STATUS_CONFIG[item.estado]?.color || "bg-gray-100"
-                            }`}>
-                                {STATUS_CONFIG[item.estado]?.label || item.estado}
-                            </span>
-                        </div>
-
-                        <h3 className="text-base font-bold text-slate-800">{item.titulo}</h3>
-                        
-                        <p className="text-sm text-slate-600 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg border border-slate-100">
-                            {item.mensaje}
-                        </p>
-
-                        {/* --- Respuesta de administración (visible en Mis Pedidos cuando está resuelto) --- */}
-                        {activeTab === TAB_MIS_PEDIDOS && item.admin_comments && (
-                            <div className="mt-2 p-3 rounded-lg bg-emerald-50 border border-emerald-100">
-                                <span className="font-bold block mb-1 text-emerald-800 uppercase text-[10px] tracking-wider">Respuesta de administración</span>
-                                <p className="text-sm text-emerald-900 whitespace-pre-wrap leading-relaxed">{item.admin_comments}</p>
-                            </div>
-                        )}
-
-                        {/* --- SECCIÓN DE COMENTARIOS INLINE (solo Admin) --- */}
-                        {isAdminView && editingId === item.id ? (
-                            <div className="mt-2 animate-in fade-in zoom-in-95">
-                                <textarea
-                                    className="w-full text-sm p-3 border border-amber-300 rounded-lg bg-amber-50 focus:ring-2 focus:ring-amber-500 outline-none text-slate-700 placeholder:text-amber-300/50"
-                                    rows={3}
-                                    placeholder="Escribe una nota interna para el equipo..."
-                                    value={tempComment}
-                                    onChange={(e) => setTempComment(e.target.value)}
-                                    autoFocus
-                                />
-                                <div className="flex items-center gap-2 mt-2">
-                                    <button
-                                        onClick={() => saveComment(item.id)}
-                                        disabled={savingResolution}
-                                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded flex items-center gap-1 transition-colors shadow-sm disabled:opacity-50"
-                                    >
-                                        {savingResolution ? <IconLoader size={14} className="animate-spin" /> : <IconCheck size={14} />}
-                                        Guardar Nota
-                                    </button>
-                                    <button 
-                                        onClick={cancelEditing}
-                                        className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-500 text-xs font-bold rounded flex items-center gap-1 transition-colors"
-                                    >
-                                        <IconX size={14} /> Cancelar
-                                    </button>
-                                </div>
-                            </div>
-                        ) : isAdminView && (
-                            <div className="mt-2 group">
-                                {item.admin_comments ? (
-                                    <div
-                                        onClick={() => startEditing(item)}
-                                        className="bg-amber-50 border border-amber-100 p-3 rounded-lg text-xs text-amber-800 cursor-pointer hover:border-amber-300 transition-colors relative"
-                                    >
-                                        <span className="font-bold block mb-1 text-amber-900/50 uppercase text-[10px] tracking-wider">Nota Admin:</span>
-                                        <p className="whitespace-pre-wrap leading-relaxed">{item.admin_comments}</p>
-                                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <IconEdit size={14} className="text-amber-400" />
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <button
-                                        onClick={() => startEditing(item)}
-                                        className="text-[10px] text-slate-400 hover:text-indigo-600 flex items-center gap-1 py-1 px-2 hover:bg-slate-100 rounded transition-colors border border-transparent hover:border-slate-200"
-                                    >
-                                        <IconEdit size={12} /> Agregar nota interna
-                                    </button>
-                                )}
-                            </div>
-                        )}
-
-                        <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 pt-2 border-t border-slate-100 mt-2">
-                            <span className="flex items-center gap-1 font-medium">
-                                👤 {item.user_email || 'Anónimo'}
-                            </span>
-                            {item.ruta_pantalla && (
-                                <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
-                                    {item.ruta_pantalla}
-                                </span>
-                            )}
-                            {item.screenshot_path && (
-                                <a href={item.screenshot_path} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline flex items-center gap-1 ml-auto">
-                                    📸 Ver Captura
-                                </a>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* BOTONES DE ACCIÓN */}
-                    <div className="flex flex-row md:flex-col gap-2 shrink-0 md:border-l md:border-slate-100 md:pl-4 min-w-[140px]">
+            <div className="space-y-1">
+              {displayItems.map((item) => {
+                const estadoBar = ESTADO_BAR[item.estado] || ESTADO_BAR.PENDIENTE;
+                const estadoTint = getEstadoTint(item.estado);
+                const tipoConf = getTipoConfig(item.tipo);
+                const TipoIcon = tipoConf.Icon;
+                const isExpanded = expandedId === item.id;
+                const shortDate = item.created_at ? format(new Date(item.created_at), "dd/MM HH:mm", { locale: es }) : "-";
+                return (
+                  <div
+                    key={item.id}
+                    className={`rounded-lg border shadow-sm transition-all ${estadoBar} ${estadoTint} overflow-hidden`}
+                  >
+                    {/* FILA COMPACTA HORIZONTAL */}
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setExpandedId((id) => (id === item.id ? null : item.id))}
+                      onKeyDown={(e) => e.key === "Enter" && setExpandedId((id) => (id === item.id ? null : item.id))}
+                      className="flex flex-row items-start gap-3 py-2 px-3 hover:bg-white/30 cursor-pointer min-h-0"
+                    >
+                      {/* Col 1: Icono + ID */}
+                      <div className="flex items-center gap-2 shrink-0 min-w-0">
+                        <span className={`flex items-center justify-center w-8 h-8 rounded ${tipoConf.color}`}>
+                          <TipoIcon size={16} />
+                        </span>
+                        <span className="text-xs font-mono text-slate-500 truncate max-w-[72px]" title={String(item.id)}>
+                          #{item.id?.toString().slice(-6) ?? "-"}
+                        </span>
+                      </div>
+                      <span className="text-slate-200 shrink-0">|</span>
+                      {/* Col 2: Título (truncado) — estado se sobreentiende por borde + tinte */}
+                      <div className="min-w-0 w-[140px] sm:w-[180px] shrink-0">
+                        <span className="text-sm font-semibold text-slate-800 truncate block" title={item.titulo}>
+                          {item.titulo || "Sin título"}
+                        </span>
+                      </div>
+                      <span className="text-slate-200 shrink-0 hidden md:inline">|</span>
+                      {/* Col 3: Detalle truncado — ocupa todo el espacio horizontal restante */}
+                      <div className="flex-1 min-w-0 hidden md:block">
+                        <span
+                          className="text-xs text-slate-600 line-clamp-2 block break-words"
+                          title={item.mensaje || ""}
+                        >
+                          {item.mensaje || "—"}
+                        </span>
+                      </div>
+                      <span className="text-slate-200 shrink-0 hidden md:inline">|</span>
+                      {/* Col 4: Persona que carga — columna fija, independiente de los botones */}
+                      <div className="hidden sm:flex flex-col items-start shrink-0 text-slate-500 text-left w-[140px] lg:w-[160px]">
+                        <span className="text-xs truncate w-full text-left" title={item.user_email || "Anónimo"}>
+                          {item.user_email || "Anónimo"}
+                        </span>
+                        <span className="text-[11px]">{shortDate}</span>
+                      </div>
+                      <div className="flex sm:hidden flex-col items-end shrink-0 text-slate-500 text-xs">
+                        <span className="text-[11px]">{shortDate}</span>
+                      </div>
+                      <span className="text-slate-200 shrink-0 hidden sm:inline">|</span>
+                      {/* Col 5: Acciones — ancho fijo para no desplazar la columna nombre */}
+                      <div className="flex items-center gap-1 shrink-0 w-[200px] sm:w-[220px] justify-end" onClick={(e) => e.stopPropagation()}>
                         {activeTab === TAB_MIS_PEDIDOS ? (
-                            (item.estado || "").toUpperCase() === "PENDIENTE" && (
-                                <button
-                                    onClick={() => openEditModal(item)}
-                                    className="px-3 py-1.5 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-bold transition-colors border border-indigo-100 flex items-center justify-center gap-2"
-                                >
-                                    <IconEdit size={14} /> Editar
-                                </button>
-                            )
+                          (item.estado || "").toUpperCase() === "PENDIENTE" && (
+                            <button
+                              onClick={() => openEditModal(item)}
+                              className="p-1.5 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold transition-colors"
+                              title="Editar"
+                            >
+                              <IconEdit size={14} />
+                            </button>
+                          )
                         ) : (
-                            <>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase hidden md:block mb-1">Acciones</span>
-                        {item.estado !== 'PENDIENTE' && (
-                            <button 
-                                onClick={() => handleStatusChange(item.id, 'PENDIENTE')}
-                                className="px-3 py-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 text-xs font-bold transition-colors flex items-center gap-2 border border-transparent"
-                            >
-                                <IconRefresh size={14} /> Reabrir
-                            </button>
-                        )}
-
-                        {item.estado !== 'EN_PROCESO' && item.estado !== 'RESUELTO' && item.estado !== 'DESCARTADO' && (
-                            <button 
-                                onClick={() => handleStatusChange(item.id, 'EN_PROCESO')}
-                                className="px-3 py-1.5 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold transition-colors border border-blue-100 flex items-center justify-center gap-2"
-                            >
+                          <>
+                            {item.estado !== "PENDIENTE" && (
+                              <button
+                                onClick={() => handleStatusChange(item.id, "PENDIENTE")}
+                                className="p-1.5 rounded hover:bg-slate-100 text-slate-500 text-xs transition-colors"
+                                title="Reabrir"
+                              >
+                                <IconRefresh size={14} />
+                              </button>
+                            )}
+                            {item.estado !== "EN_PROCESO" && item.estado !== "RESUELTO" && item.estado !== "DESCARTADO" && (
+                              <button
+                                onClick={() => handleStatusChange(item.id, "EN_PROCESO")}
+                                className="p-1.5 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs transition-colors"
+                                title="Iniciar"
+                              >
                                 Iniciar
-                            </button>
-                        )}
-
-                        {item.estado !== 'RESUELTO' && (
-                            <button 
-                                onClick={() => handleStatusChange(item.id, 'RESUELTO')}
-                                className="px-3 py-1.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-bold transition-colors border border-emerald-100 flex items-center justify-center gap-2"
+                              </button>
+                            )}
+                            {item.estado !== "RESUELTO" && (
+                              <button
+                                onClick={() => handleStatusChange(item.id, "RESUELTO")}
+                                className="p-1.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs transition-colors"
+                                title="Resolver"
+                              >
+                                <IconCheck size={14} />
+                              </button>
+                            )}
+                            {item.estado !== "DESCARTADO" && item.estado !== "RESUELTO" && (
+                              <button
+                                onClick={() => handleStatusChange(item.id, "DESCARTADO")}
+                                className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 text-xs transition-colors"
+                                title="Descartar"
+                              >
+                                <IconTrash size={14} />
+                              </button>
+                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); startEditing(item); }}
+                              className="p-1.5 rounded hover:bg-amber-50 text-amber-700 text-xs transition-colors"
+                              title="Comentar"
                             >
-                                <IconCheck size={14} /> Resolver
+                              <IconEdit size={14} />
                             </button>
+                          </>
                         )}
-
-                        {item.estado !== 'DESCARTADO' && item.estado !== 'RESUELTO' && (
-                            <button 
-                                onClick={() => handleStatusChange(item.id, 'DESCARTADO')}
-                                className="px-3 py-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 text-xs font-bold transition-colors flex items-center justify-center gap-2"
-                            >
-                                <IconTrash size={14} /> Descartar
-                            </button>
-                        )}
-                            </>
-                        )}
+                      </div>
                     </div>
-                </div>
-              </div>
-            );
-            })
+
+                    {/* DETALLE EXPANDIDO: mensaje, respuesta admin, nota admin, acciones */}
+                    {isExpanded && (
+                      <div className="border-t border-slate-100 bg-slate-50/50 px-3 py-3 text-sm animate-in fade-in slide-in-from-top-1 duration-150">
+                        <p className="text-slate-700 whitespace-pre-wrap rounded bg-white p-2 border border-slate-100 mb-2">
+                          {item.mensaje}
+                        </p>
+                        {activeTab === TAB_MIS_PEDIDOS && item.admin_comments && (
+                          <div className="mb-2 p-2 rounded bg-emerald-50 border border-emerald-100">
+                            <span className="font-semibold text-emerald-800 text-xs uppercase tracking-wider block mb-1">Respuesta de administración</span>
+                            <p className="text-slate-800 whitespace-pre-wrap text-sm">{item.admin_comments}</p>
+                          </div>
+                        )}
+                        {isAdminView && editingId === item.id ? (
+                          <div className="mb-2">
+                            <textarea
+                              className="w-full text-sm p-2 border border-amber-300 rounded bg-amber-50 focus:ring-2 focus:ring-amber-500 outline-none"
+                              rows={3}
+                              placeholder="Nota interna..."
+                              value={tempComment}
+                              onChange={(e) => setTempComment(e.target.value)}
+                              autoFocus
+                            />
+                            <div className="flex gap-2 mt-1">
+                              <button
+                                onClick={() => saveComment(item.id)}
+                                disabled={savingResolution}
+                                className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {savingResolution ? <IconLoader size={12} className="animate-spin" /> : <IconCheck size={12} />}
+                                Guardar
+                              </button>
+                              <button onClick={cancelEditing} className="px-2 py-1 border border-slate-200 rounded text-slate-600 text-xs font-semibold">
+                                <IconX size={12} /> Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : isAdminView && item.admin_comments && (
+                          <div
+                            onClick={() => startEditing(item)}
+                            className="p-2 rounded bg-amber-50 border border-amber-100 text-amber-800 text-xs cursor-pointer hover:border-amber-300 mb-2"
+                          >
+                            <span className="font-semibold text-amber-900/70 uppercase text-[10px] block mb-1">Nota Admin</span>
+                            <p className="whitespace-pre-wrap">{item.admin_comments}</p>
+                          </div>
+                        )}
+                        {isAdminView && !item.admin_comments && editingId !== item.id && (
+                          <button
+                            onClick={() => startEditing(item)}
+                            className="text-xs text-slate-500 hover:text-indigo-600 flex items-center gap-1 mb-2"
+                          >
+                            <IconEdit size={12} /> Agregar nota interna
+                          </button>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 pt-1 border-t border-slate-100">
+                          {item.ruta_pantalla && (
+                            <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">{item.ruta_pantalla}</span>
+                          )}
+                          {item.screenshot_path && (
+                            <a href={item.screenshot_path} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
+                              Ver captura
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
