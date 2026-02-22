@@ -31,3 +31,24 @@ Optimizar el espacio del input de fecha permitiendo que el indicador del día de
 ### 4. Props
 - `showDayName`: controla si se muestra el día breve (por defecto `true`).
 - `showCalendarPicker`: controla si se muestra el botón de calendario (por defecto `true`).
+
+---
+
+## Bug corregido: solo guardaba el primer dígito al editar con valor existente (feb 2025)
+
+### Síntoma
+Cuando el campo ya tenía un valor (p. ej. la fecha de hoy en UnifiedAgenda “Desde”), al entrar y empezar a escribir (p. ej. "19" en el día), se guardaba "01" o solo el primer dígito. Con el campo en blanco no pasaba.
+
+### Causas (dos correcciones)
+
+1. **handleBlur con entrada incompleta**  
+   En `handleBlur` se llamaba a `segmentsToIso(day, month, year)`, que hace `padStart(2, '0')` en día y mes. Si el usuario había escrito solo "1" en el día (para luego poner "19") y hacía blur (clic fuera, Tab, etc.), se generaba `"2025-02-01"` y se llamaba a `onChange("2025-02-01")`, guardando el día 01 en vez de esperar a que completara.
+
+2. **useEffect sobrescribiendo al escribir**  
+   El efecto que sincroniza `value` → estado se ejecutaba en cada render. Al escribir el primer carácter, el padre aún no había actualizado `value`, y en el siguiente render el efecto podía restaurar el valor anterior y pisar lo que el usuario acababa de escribir.
+
+### Soluciones
+
+1. **handleBlur**: Solo emitir `onChange(iso)` cuando los tres segmentos están completos (día 2 dígitos, mes 2, año 4). Si hay entrada incompleta (p. ej. día "1"), no guardar en blur; el valor anterior se mantiene.
+
+2. **useEffect**: Usar un ref `lastValueRef` con el último `value` recibido; el efecto solo sincroniza cuando `value !== lastValueRef.current`, así no se sobrescribe la edición en curso.

@@ -105,17 +105,31 @@ function segmentsToIso(d, m, y) {
 
 const inputBaseClass = 'border-0 bg-transparent outline-none p-0 text-center text-slate-800 min-w-0';
 
+/**
+ * Input de fecha dd/mm/aaaa con estado local (día, mes, año) sincronizado desde la prop `value`.
+ * - Sincronización value→estado solo cuando value cambia (lastValueRef), para no pisar la edición.
+ * - En blur solo se emite onChange cuando día/mes/año están completos (no guardar "01" si solo
+ *   se escribió "1" en el día). Ver docs/specs/ui-dateinput-v2.md.
+ */
 export default function DateInput({ value, onChange, label, className, showCalendarPicker = true, showDayName = true }) {
     const [day, setDay] = useState('');
     const [month, setMonth] = useState('');
     const [year, setYear] = useState('');
     const [calendarOpen, setCalendarOpen] = useState(false);
     const containerRef = useRef(null);
+    const calendarPortalRef = useRef(null);
     const dayRef = useRef(null);
     const monthRef = useRef(null);
     const yearRef = useRef(null);
+    /** Último value recibido por props; solo sincronizamos estado cuando value cambia. */
+    const lastValueRef = useRef(undefined);
 
+    // Sincronizar estado local solo cuando la prop value cambia desde el padre,
+    // no en cada render. Así no se sobrescribe lo que el usuario está escribiendo
+    // (p. ej. el primer dígito del día) con el valor anterior.
     useEffect(() => {
+        if (value === lastValueRef.current) return;
+        lastValueRef.current = value;
         if (value) {
             const [y, m, d] = value.split('-');
             if (y && m && d) {
@@ -137,9 +151,9 @@ export default function DateInput({ value, onChange, label, className, showCalen
     useEffect(() => {
         if (!calendarOpen) return;
         const handleClickOutside = (e) => {
-            if (containerRef.current && !containerRef.current.contains(e.target)) {
-                setCalendarOpen(false);
-            }
+            const inContainer = containerRef.current?.contains(e.target);
+            const inCalendar = calendarPortalRef.current?.contains(e.target);
+            if (!inContainer && !inCalendar) setCalendarOpen(false);
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -249,9 +263,19 @@ export default function DateInput({ value, onChange, label, className, showCalen
     };
 
     const handleBlur = () => {
-        const iso = segmentsToIso(day, month, year);
-        if (iso && iso !== value) onChange(iso);
-        if (!day && !month && !year) onChange('');
+        if (!day && !month && !year) {
+            onChange('');
+            return;
+        }
+        // Solo emitir fecha cuando los tres segmentos están completos; si el usuario
+        // escribió solo un dígito (p. ej. "1" en día) no guardar "01" al hacer blur.
+        const dayOk = String(day).replace(/\D/g, '').length === 2;
+        const monthOk = String(month).replace(/\D/g, '').length === 2;
+        const yearOk = String(year).replace(/\D/g, '').length === 4;
+        if (dayOk && monthOk && yearOk) {
+            const iso = segmentsToIso(day, month, year);
+            if (iso && iso !== value) onChange(iso);
+        }
     };
 
     const handleCalendarSelect = (iso) => {
@@ -290,6 +314,7 @@ export default function DateInput({ value, onChange, label, className, showCalen
                         </button>
                         {calendarOpen && createPortal(
                             <div
+                                ref={calendarPortalRef}
                                 className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
                                 role="dialog"
                                 aria-modal="true"

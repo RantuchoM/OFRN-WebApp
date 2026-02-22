@@ -16,7 +16,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    const { action, giraId, newStartDate, newName } = await req.json();
+    const { action, giraId, newStartDate, newName, notify } = await req.json();
 
     if (!giraId) throw new Error("Falta el ID de la gira (giraId)");
 
@@ -285,7 +285,7 @@ async function duplicateGira(
     log(`Error Integrantes: ${e.message}`);
   }
 
-  // 7. REGLAS LOGISTICAS
+  // 7. REGLAS LOGISTICAS (sin columnas de fecha; vinculadas por evento)
   try {
     const { data: reglas } = await supabase.from("giras_logistica_reglas").select("*").eq("id_gira", original.id);
     if (reglas?.length) {
@@ -297,12 +297,8 @@ async function duplicateGira(
         id_localidad: r.id_localidad,
         id_region: r.id_region,
         instrumento_familia: r.instrumento_familia,
-        fecha_checkin: shiftDate(r.fecha_checkin, days),
-        fecha_checkout: shiftDate(r.fecha_checkout, days),
         hora_checkin: r.hora_checkin,
         hora_checkout: r.hora_checkout,
-        comida_inicio_fecha: shiftDate(r.comida_inicio_fecha, days),
-        comida_fin_fecha: shiftDate(r.comida_fin_fecha, days),
         comida_inicio_servicio: r.comida_inicio_servicio,
         comida_fin_servicio: r.comida_fin_servicio,
         prov_desayuno: r.prov_desayuno,
@@ -455,70 +451,90 @@ async function duplicateGira(
 }
 
 // ────────────────────────────────────────────────
-// LÓGICA DE TRASLADO (MOVE)
+// LÓGICA DE TRASLADO (MOVE) — Modelo basado en eventos
+// Solo programas (fecha_desde/hasta) + eventos (fecha). Reglas logísticas
+// ya no tienen columnas de fecha; comidas/destaques/viáticos se mantienen.
 // ────────────────────────────────────────────────
 async function moveGira(supabase: any, giraId: number, days: number) {
   const logs: string[] = [];
   const log = (msg: string) => { console.log(msg); logs.push(msg); };
 
-  log("1. Moviendo fechas de la gira...");
   const { data: gira, error: errGira } = await supabase.from("programas").select("*").eq("id", giraId).single();
-  if (errGira) throw errGira;
+  if (errGira || !gira) throw new Error(errGira?.message || "Gira no encontrada");
 
-  await supabase.from("programas").update({
-    fecha_desde: shiftDate(gira.fecha_desde, days),
-    fecha_hasta: shiftDate(gira.fecha_hasta, days),
-    fecha_confirmacion_limite: shiftDate(gira.fecha_confirmacion_limite, days),
-  }).eq("id", giraId);
+  log("1. Actualizando fechas del programa...");
+  const { error: errProg } = await supabase
+    .from("programas")
+    .update({
+      fecha_desde: shiftDate(gira.fecha_desde, days),
+      fecha_hasta: shiftDate(gira.fecha_hasta, days),
+      fecha_confirmacion_limite: shiftDate(gira.fecha_confirmacion_limite, days),
+    })
+    .eq("id", giraId);
+  if (errProg) throw errProg;
 
-  log("2. Moviendo eventos...");
-  const { data: eventos } = await supabase.from("eventos").select("id, fecha").eq("id_gira", giraId);
+  log("2. Desplazando eventos...");
+  const { data: eventos, error: errEv } = await supabase
+    .from("eventos")
+    .select("id, fecha")
+    .eq("id_gira", giraId);
+  if (errEv) throw errEv;
   if (eventos?.length) {
     for (const ev of eventos) {
-      await supabase.from("eventos").update({ fecha: shiftDate(ev.fecha, days) }).eq("id", ev.id);
+      const { error: uErr } = await supabase
+        .from("eventos")
+        .update({ fecha: shiftDate(ev.fecha, days) })
+        .eq("id", ev.id);
+      if (uErr) throw uErr;
     }
+    log(`   ${eventos.length} evento(s) actualizado(s).`);
   }
 
-  log("3. Moviendo reglas logísticas...");
-  const { data: reglas } = await supabase.from("giras_logistica_reglas").select("*").eq("id_gira", giraId);
-  if (reglas?.length) {
-    for (const r of reglas) {
-      await supabase.from("giras_logistica_reglas").update({
-        fecha_checkin: shiftDate(r.fecha_checkin, days),
-        fecha_checkout: shiftDate(r.fecha_checkout, days),
-        comida_inicio_fecha: shiftDate(r.comida_inicio_fecha, days),
-        comida_fin_fecha: shiftDate(r.comida_fin_fecha, days),
-      }).eq("id", r.id);
-    }
-  }
-
-  log("4. Moviendo agenda de comidas...");
-  const { data: comidas } = await supabase.from("programas_agenda_comidas").select("id, fecha").eq("id_programa", giraId);
+  log("3. Moviendo agenda de comidas...");
+  const { data: comidas } = await supabase
+    .from("programas_agenda_comidas")
+    .select("id, fecha")
+    .eq("id_gira", giraId);
   if (comidas?.length) {
     for (const c of comidas) {
-      await supabase.from("programas_agenda_comidas").update({ fecha: shiftDate(c.fecha, days) }).eq("id", c.id);
+      await supabase
+        .from("programas_agenda_comidas")
+        .update({ fecha: shiftDate(c.fecha, days) })
+        .eq("id", c.id);
     }
   }
 
-  log("5. Moviendo destaques...");
-  const { data: destaques } = await supabase.from("giras_destaques_config").select("*").eq("id_gira", giraId);
+  log("4. Moviendo destaques...");
+  const { data: destaques } = await supabase
+    .from("giras_destaques_config")
+    .select("*")
+    .eq("id_gira", giraId);
   if (destaques?.length) {
     for (const d of destaques) {
-      await supabase.from("giras_destaques_config").update({
-        fecha_llegada: shiftDate(d.fecha_llegada, days),
-        fecha_salida: shiftDate(d.fecha_salida, days),
-      }).eq("id", d.id);
+      await supabase
+        .from("giras_destaques_config")
+        .update({
+          fecha_llegada: shiftDate(d.fecha_llegada, days),
+          fecha_salida: shiftDate(d.fecha_salida, days),
+        })
+        .eq("id", d.id);
     }
   }
 
-  log("6. Moviendo viáticos...");
-  const { data: viaticos } = await supabase.from("giras_viaticos_detalle").select("*").eq("id_gira", giraId);
+  log("5. Moviendo viáticos...");
+  const { data: viaticos } = await supabase
+    .from("giras_viaticos_detalle")
+    .select("*")
+    .eq("id_gira", giraId);
   if (viaticos?.length) {
     for (const v of viaticos) {
-      await supabase.from("giras_viaticos_detalle").update({
-        fecha_salida: shiftDate(v.fecha_salida, days),
-        fecha_llegada: shiftDate(v.fecha_llegada, days),
-      }).eq("id", v.id);
+      await supabase
+        .from("giras_viaticos_detalle")
+        .update({
+          fecha_salida: shiftDate(v.fecha_salida, days),
+          fecha_llegada: shiftDate(v.fecha_llegada, days),
+        })
+        .eq("id", v.id);
     }
   }
 

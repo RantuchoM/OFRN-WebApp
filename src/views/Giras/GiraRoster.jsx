@@ -831,9 +831,15 @@ export default function GiraRoster({
       refreshRoster();
     } catch (err) {
       console.error(err);
-      toast.error("Error al enviar notificación inicial: " + err.message, {
-        id: toastId,
-      });
+      const msg = err?.message || "";
+      const isFetchError =
+        msg.includes("Failed to send") ||
+        msg.includes("fetch") ||
+        msg.includes("NetworkError");
+      const userMsg = isFetchError
+        ? "No se pudo conectar con el servidor de correos. Revisá tu conexión o que las Edge Functions estén desplegadas en Supabase."
+        : "Error al enviar notificación inicial: " + msg;
+      toast.error(userMsg, { id: toastId });
     } finally {
       setSendingInitial(false);
     }

@@ -2,24 +2,20 @@ import { supabase } from './supabase';
 
 /**
  * Llama a la Edge Function 'manage-gira' para trasladar la gira.
+ * @param {number} giraId - ID de la gira
+ * @param {string} newStartDate - Nueva fecha de inicio (yyyy-MM-dd)
+ * @param {boolean} [notify=false] - Si true, envía notificación por email a integrantes (estado != ausente)
  */
-export const moveGira = async (giraId, newStartDate) => {
+export const moveGira = async (giraId, newStartDate, notify = false) => {
     try {
-        console.log("Invocando Edge Function para mover gira...");
         const { data, error } = await supabase.functions.invoke('manage-gira', {
-            body: { 
-                action: 'move',
-                giraId: giraId, 
-                newStartDate: newStartDate 
-            }
+            body: { action: 'move', giraId, newStartDate, notify: Boolean(notify) },
         });
 
         if (error) throw error;
-        // Supabase functions a veces devuelve data: { error: "..." } en lugar de throw
         if (data && data.error) throw new Error(data.error);
 
         return { success: true, message: data.message };
-
     } catch (error) {
         console.error("Error moving gira (Edge Function):", error);
         return { success: false, error: error.message || "Error desconocido" };

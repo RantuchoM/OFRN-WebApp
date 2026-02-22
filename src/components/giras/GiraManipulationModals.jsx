@@ -4,7 +4,8 @@ import DateInput from '../ui/DateInput';
 
 export const MoveGiraModal = ({ isOpen, onClose, onConfirm, gira, loading }) => {
     const [newDate, setNewDate] = useState('');
-    useEffect(() => { if (isOpen && gira) setNewDate(gira.fecha_desde); }, [isOpen, gira]);
+    const [notify, setNotify] = useState(true);
+    useEffect(() => { if (isOpen && gira) { setNewDate(gira.fecha_desde); setNotify(true); } }, [isOpen, gira]);
     if (!isOpen) return null;
 
     return (
@@ -16,13 +17,26 @@ export const MoveGiraModal = ({ isOpen, onClose, onConfirm, gira, loading }) => 
                 <p className="text-sm text-slate-500 mb-4">
                     Se moverán <strong>{gira?.nombre_gira}</strong> y todos sus eventos manteniendo la estructura.
                 </p>
-                <div className="mb-6">
+                <div className="mb-4">
                     <label className="block text-xs font-bold uppercase mb-1">Nueva Fecha Inicio</label>
                     <DateInput value={newDate} onChange={setNewDate} />
                 </div>
+                <label className="flex items-center gap-2 mb-6 cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={notify}
+                        onChange={(e) => setNotify(e.target.checked)}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className="text-sm text-slate-700">Notificar cambio a los músicos por email</span>
+                </label>
                 <div className="flex justify-end gap-2">
                     <button onClick={onClose} disabled={loading} className="px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded">Cancelar</button>
-                    <button onClick={() => onConfirm(newDate)} disabled={loading || !newDate} className="px-3 py-2 text-sm font-bold bg-orange-600 text-white rounded hover:bg-orange-700 flex items-center gap-2">
+                    <button
+                        onClick={() => onConfirm(newDate, notify)}
+                        disabled={loading || !newDate}
+                        className="px-3 py-2 text-sm font-bold bg-orange-600 text-white rounded hover:bg-orange-700 flex items-center gap-2"
+                    >
                         {loading && <IconLoader className="animate-spin"/>} Confirmar
                     </button>
                 </div>

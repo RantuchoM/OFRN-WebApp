@@ -54,6 +54,8 @@ import {
   DuplicateGiraModal,
 } from "../../components/giras/GiraManipulationModals";
 import { moveGira, duplicateGira } from "../../services/giraActions";
+import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
+import { es } from "date-fns/locale";
 
 export default function GirasView({ supabase, trigger = 0 }) {
   const { user, isEditor, isManagement, isPersonal, isGuest, isDifusion } =
@@ -515,13 +517,76 @@ export default function GirasView({ supabase, trigger = 0 }) {
     setShowDupModal(true);
   };
 
-  const onConfirmMove = async (newDate) => {
+  const onConfirmMove = async (newDate, notify = false) => {
     setActionLoading(true);
-    const res = await moveGira(actionGira.id, newDate);
+    const res = await moveGira(actionGira.id, newDate, notify);
     setActionLoading(false);
     if (res.success) {
       setShowMoveModal(false);
       fetchGiras();
+      if (notify) {
+        try {
+          const { roster } = await fetchRosterForGira(supabase, actionGira);
+          const conMail = roster.filter((m) => m.estado_gira !== "ausente" && m.mail);
+          const bcc = conMail.map((m) => m.mail);
+          if (bcc.length > 0) {
+            const fmtLargo = (s) => (s ? format(parseISO(s), "EEEE, dd/MM/yyyy", { locale: es }) : "");
+            const fechasViejas =
+              [actionGira.fecha_desde, actionGira.fecha_hasta]
+                .filter(Boolean)
+                .map(fmtLargo)
+                .join(" – ") || "";
+            const daysSpan = actionGira.fecha_desde && actionGira.fecha_hasta
+              ? differenceInCalendarDays(parseISO(actionGira.fecha_hasta), parseISO(actionGira.fecha_desde))
+              : 0;
+            const newEnd = newDate ? addDays(parseISO(newDate), daysSpan) : null;
+            const fechasNuevas =
+              newDate && newEnd
+                ? [format(parseISO(newDate), "EEEE, dd/MM/yyyy", { locale: es }), format(newEnd, "EEEE, dd/MM/yyyy", { locale: es })].join(" – ")
+                : newDate ? format(parseISO(newDate), "EEEE, dd/MM/yyyy", { locale: es }) : "";
+            const { data: eventosGira } = await supabase
+              .from("eventos")
+              .select("fecha, hora_inicio, locaciones(nombre, localidades(localidad))")
+              .eq("id_gira", actionGira.id)
+              .order("fecha", { ascending: true })
+              .order("hora_inicio", { ascending: true });
+            const fmtEvento = (e) => {
+              const dia = e.fecha ? format(parseISO(e.fecha), "EEEE d 'de' MMMM", { locale: es }) : "—";
+              const hora = e.hora_inicio ? `${e.hora_inicio.slice(0, 5)} hs` : "—";
+              const loc = e.locaciones?.nombre || "—";
+              const ciudad = e.locaciones?.localidades?.localidad || "—";
+              return `${dia}, ${hora}, ${loc}, ${ciudad}`;
+            };
+            const conciertos = (eventosGira || []).map(fmtEvento);
+            const linkGira = `${window.location.origin}${window.location.pathname}?tab=giras&view=AGENDA&giraId=${actionGira.id}`;
+            const { error } = await supabase.functions.invoke("mails_produccion", {
+              body: {
+                action: "enviar_mail",
+                templateId: "cambio_fechas_gira",
+                bcc,
+                nombre: "",
+                gira: actionGira.nombre_gira || "Gira OFRN",
+                detalle: {
+                  fechas_viejas: fechasViejas,
+                  fechas_nuevas: fechasNuevas,
+                  zona: actionGira.zona || "",
+                  conciertos,
+                  link_gira: linkGira,
+                },
+              },
+            });
+            if (error) throw error;
+            toast.success(`Gira trasladada. Notificación enviada a ${bcc.length} músico(s).`);
+          } else {
+            toast.success("Gira trasladada correctamente");
+          }
+        } catch (err) {
+          console.error("Error enviando notificación de traslado:", err);
+          toast.warning("Gira trasladada, pero no se pudo enviar el email a los músicos.");
+        }
+      } else {
+        toast.success("Gira trasladada correctamente");
+      }
     } else {
       toast.error("Error al mover la gira");
     }
