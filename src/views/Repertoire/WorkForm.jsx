@@ -26,6 +26,7 @@ import { useAuth } from "../../context/AuthContext";
 import { calculateInstrumentation } from "../../utils/instrumentation";
 import DriveMatcherModal from "../../components/repertoire/DriveMatcherModal";
 import LinksManagerModal from "../../components/repertoire/LinksManagerModal";
+import BowingSetManager from "../../components/repertoire/BowingSetManager";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
 import { toast } from "sonner";
@@ -150,7 +151,6 @@ export default function WorkForm({
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState("idle");
   const [particellas, setParticellas] = useState([]);
-  const [arcos, setArcos] = useState([]);
   const [instrumentList, setInstrumentList] = useState(
     catalogoInstrumentos || [],
   );
@@ -210,7 +210,6 @@ export default function WorkForm({
     fetchComposers();
     if (initialData?.id) {
       fetchParticellas(initialData.id);
-      fetchArcos(initialData.id);
       fetchWorkDetails(initialData.id);
     } else if (initialData) {
       setFormData((prev) => ({ ...prev, ...initialData }));
@@ -625,15 +624,6 @@ export default function WorkForm({
     }
   };
 
-  const fetchArcos = async (workId) => {
-    const { data } = await supabase
-      .from("obras_arcos")
-      .select("*")
-      .eq("id_obra", workId)
-      .order("created_at", { ascending: false });
-    if (data) setArcos(data);
-  };
-
   const setFieldStatusWithReset = (field, status) => {
     if (fieldStatusResetRef.current) clearTimeout(fieldStatusResetRef.current);
     setFieldStatus((prev) => ({ ...prev, [field]: status }));
@@ -1007,24 +997,6 @@ export default function WorkForm({
     setInstrumentQuery("");
     setGenInstrument("");
     setGenQuantity(1);
-  };
-
-  const handleSaveArco = async (arco) => {
-    if (!formData.id) return alert("Guarda la obra primero.");
-    const payload = { ...arco, id_obra: formData.id };
-    delete payload.tempId;
-    const query = arco.id
-      ? supabase.from("obras_arcos").update(payload).eq("id", arco.id)
-      : supabase.from("obras_arcos").insert([payload]);
-    await query;
-    fetchArcos(formData.id);
-  };
-
-  const handleDeleteArco = async (id) => {
-    if (confirm("¿Eliminar?")) {
-      await supabase.from("obras_arcos").delete().eq("id", id);
-      fetchArcos(formData.id);
-    }
   };
 
   const allOptions = [...INSTRUMENT_GROUPS, ...instrumentList];
@@ -1405,83 +1377,12 @@ export default function WorkForm({
         </div>
       </div>
 
-      {/* ARCOS */}
-      <div className="border-t pt-6">
-        <h3 className="text-sm font-bold uppercase text-slate-500 mb-3 flex items-center gap-2">
-          Gestión de Arcos / Bowings
-        </h3>
-        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
-          {arcos.map((a) => (
-            <div
-              key={a.id}
-              className="flex gap-2 items-center bg-white p-2 rounded-lg border shadow-sm group"
-            >
-              <input
-                type="text"
-                className="input text-xs font-bold border-none"
-                defaultValue={a.nombre}
-                onBlur={(e) => handleSaveArco({ ...a, nombre: e.target.value })}
-              />
-              <input
-                type="text"
-                className="input text-xs border-none flex-1"
-                defaultValue={a.descripcion}
-                onBlur={(e) =>
-                  handleSaveArco({ ...a, descripcion: e.target.value })
-                }
-              />
-              <input
-                type="text"
-                className="input text-xs text-blue-600 border-none w-1/3"
-                defaultValue={a.link}
-                onBlur={(e) => handleSaveArco({ ...a, link: e.target.value })}
-              />
-              <button
-                onClick={() => handleDeleteArco(a.id)}
-                className="text-slate-300 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <IconTrash size={14} />
-              </button>
-            </div>
-          ))}
-          <div className="flex gap-2 items-center pt-2 border-t border-dashed">
-            <input
-              id="newArcN"
-              className="input text-xs w-1/4"
-              placeholder="Nombre Set"
-            />
-            <input
-              id="newArcD"
-              className="input text-xs flex-1"
-              placeholder="Descripción"
-            />
-            <input
-              id="newArcL"
-              className="input text-xs w-1/3"
-              placeholder="Link Drive"
-            />
-            <button
-              onClick={() => {
-                const n = document.getElementById("newArcN"),
-                  d = document.getElementById("newArcD"),
-                  l = document.getElementById("newArcL");
-                if (n.value)
-                  handleSaveArco({
-                    nombre: n.value,
-                    descripcion: d.value,
-                    link: l.value,
-                  });
-                n.value = "";
-                d.value = "";
-                l.value = "";
-              }}
-              className="bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700"
-            >
-              <IconPlus size={16} />
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* ARCOS: workId desde estado o desde prop inicial (p. ej. al abrir modal desde RepertoireManager) */}
+      <BowingSetManager
+        mode="edit"
+        supabase={supabase}
+        workId={formData.id ?? initialData?.id}
+      />
 
       {/* PARTICELLAS */}
       <div className="border-t pt-6">

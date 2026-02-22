@@ -356,9 +356,10 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
         .select(`
           *,
           repertorio_obras (
-            id, id_obra, orden, notas_especificas, seating_provisorio, usar_seating_provisorio,
+            id, id_obra, orden, notas_especificas, seating_provisorio, usar_seating_provisorio, id_arco_seleccionado,
             obras (
-              id, titulo, duracion,
+              id, titulo, duracion_segundos,
+              obras_arcos (id, nombre, link, descripcion, id_drive_folder),
               compositores ( id, nombre, apellido )
             )
           )

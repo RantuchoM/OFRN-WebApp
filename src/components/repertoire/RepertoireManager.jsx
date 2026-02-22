@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+  useDroppable,
+} from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   IconMusic,
   IconPlus,
   IconTrash,
@@ -18,7 +29,9 @@ import {
   IconEyeOff,
   IconSettings,
   IconFilter,
+  IconGripVertical,
 } from "../ui/Icons";
+import { updateWorkPosition, normalizeRepertorioBlockOrden } from "../../services/giraService";
 import { formatSecondsToTime } from "../../utils/time";
 import {
   calculateInstrumentation,
@@ -30,7 +43,6 @@ import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import { useAuth } from "../../context/AuthContext";
 import WorkForm from "../../views/Repertoire/WorkForm";
-
 const ModalPortal = ({ children }) => {
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -314,14 +326,19 @@ export default function RepertoireManager({
   const [addModalStringsFilter, setAddModalStringsFilter] = useState("all");
   const [addModalStrictMode, setAddModalStrictMode] = useState(false);
   const addModalInstrFilterAnchorRef = useRef(null);
+  const [savingPosition, setSavingPosition] = useState(false);
+  const [dragOverId, setDragOverId] = useState(null);
+  const [activeDragId, setActiveDragId] = useState(null);
   // --- CALCULAR MAPA DE ARCOS DISPONIBLES ---
   const arcosByWork = useMemo(() => {
     const map = {};
     repertorios.forEach((rep) => {
       rep.repertorio_obras?.forEach((item) => {
-        if (item.obras && item.obras.obras_arcos) {
-          map[item.obras.id] = item.obras.obras_arcos;
-        }
+        const workId = item.obras?.id ?? item.id_obra;
+        if (workId == null) return;
+        const list = item.obras?.obras_arcos;
+        const arr = Array.isArray(list) ? list : list != null ? [list] : [];
+        map[workId] = arr;
       });
     });
     return map;
@@ -983,61 +1000,215 @@ export default function RepertoireManager({
         .catch((err) => console.error("Error vinculando arcos:", err));
     }
   };
-  // --- NUEVA FUNCIÓN: Crear Set de Arcos (DELEGADA AL PADRE) ---
-  const handleCreateBowingSet = async (workId, workTitle) => {
-    if (!onSyncArco) {
-      alert("Error: Función de sincronización no disponible.");
-      return;
-    }
-
-    const nombreSet = prompt(
-      "Nombre para el nuevo set de arcos:",
-      `Arcos ${new Date().getFullYear()}`,
+  // --- Crear Set de Arcos (columna Arcos en tabla) ---
+  const handleCreateBowingSetForManager = async (workId, workTitle, nombre) => {
+    if (!onSyncArco) throw new Error("Función de sincronización no disponible.");
+    const result = await onSyncArco(
+      { id: workId, titulo: workTitle },
+      nombre,
+      null,
     );
-    if (!nombreSet) return;
+    return result;
+  };
 
-    try {
-      setLoading(true);
+  // --- Drag & Drop: fila ordenable con handle GripVertical ---
+  const SortableRepertorioRow = ({
+    item,
+    rep,
+    idx,
+    rowClassName,
+    isEditor,
+    isCompact,
+    moveWork,
+    dragOverId,
+    children,
+  }) => {
+    const {
+      attributes,
+      listeners,
+      setNodeRef,
+      transform,
+      transition,
+      isDragging,
+    } = useSortable({
+      id: item.id,
+      data: { id_repertorio: rep.id, index: idx },
+    });
+    const isOver = dragOverId === item.id;
+    const style = {
+      transform: CSS.Translate.toString(transform),
+      transition,
+      opacity: isDragging ? 0.5 : 1,
+    };
+    return (
+      <tr
+        ref={setNodeRef}
+        style={style}
+        className={`${rowClassName} ${isOver ? "ring-2 ring-inset ring-indigo-400 bg-indigo-50/80" : ""}`}
+      >
+        <td className="p-1 text-center w-8 align-middle">
+          {isEditor && !isCompact && (
+            <div
+              {...listeners}
+              {...attributes}
+              className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-600 inline-flex touch-none"
+              title="Arrastrar para reordenar"
+            >
+              <IconGripVertical size={16} />
+            </div>
+          )}
+        </td>
+        <td className="p-1 text-center font-bold text-slate-500">
+          <div className="flex flex-col items-center">
+            {isEditor && !isCompact && (
+              <button
+                onClick={() => moveWork(rep.id, item.id, -1)}
+                disabled={idx === 0}
+                className="text-slate-300 hover:text-fixed-indigo-600 disabled:opacity-0 p-0.5"
+              >
+                <IconChevronDown size={8} className="rotate-180" />
+              </button>
+            )}
+            <span>{idx + 1}</span>
+            {isEditor && !isCompact && (
+              <button
+                onClick={() => moveWork(rep.id, item.id, 1)}
+                disabled={idx === rep.repertorio_obras.length - 1}
+                className="text-slate-300 hover:text-fixed-indigo-600 disabled:opacity-0 p-0.5"
+              >
+                <IconChevronDown size={8} />
+              </button>
+            )}
+          </div>
+        </td>
+        {children}
+      </tr>
+    );
+  };
 
-      // 1. Pedir al padre que cree todo
-      // Pasamos null en targetDriveId para indicar que es NUEVO
-      const result = await onSyncArco(
-        { id: workId, titulo: workTitle },
-        nombreSet,
-        null,
-      );
+  const BLOCK_ZONE_START = (repId) => `block-${repId}-start`;
+  const BLOCK_ZONE_END = (repId) => `block-${repId}-end`;
 
-      if (result.success && result.newArcoId) {
-        // 2. Asignar el nuevo arco creado a la obra en el repertorio
-        // Buscamos el item específico
-        let targetItem = null;
-        for (const r of repertorios) {
-          const found = r.repertorio_obras.find((o) => o.obras.id === workId);
-          if (found) {
-            targetItem = found;
-            break;
-          }
-        }
+  const BlockDropZoneRow = ({ zoneId, label }) => {
+    const { setNodeRef, isOver } = useDroppable({ id: zoneId });
+    return (
+      <tr ref={setNodeRef}>
+        <td
+          colSpan={13}
+          className={`min-h-[28px] py-1 px-2 border-2 border-dashed rounded text-[10px] text-slate-400 transition-colors ${
+            isOver ? "border-indigo-400 bg-indigo-50 text-indigo-600" : "border-slate-200 bg-slate-50/50"
+          }`}
+        >
+          {label}
+        </td>
+      </tr>
+    );
+  };
 
-        if (targetItem) {
-          await updateWorkDetail(
-            targetItem.id,
-            "id_arco_seleccionado",
-            result.newArcoId,
-          );
-          // Recargamos para que el nuevo arco aparezca en el <select>
-          window.location.reload();
+  const handleDragEnd = async (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const itemId = active.id;
+    const overId = over.id;
+    let sourceRep = null;
+    let sourceIdx = -1;
+    let targetRep = null;
+    let targetIdx = -1;
+
+    for (const r of repertorios) {
+      const i = (r.repertorio_obras || []).findIndex((o) => o.id === itemId);
+      if (i >= 0) {
+        sourceRep = r;
+        sourceIdx = i;
+        break;
+      }
+    }
+    if (!sourceRep) return;
+
+    const obras = (r) => r.repertorio_obras || [];
+    if (typeof overId === "string" && overId.startsWith("block-")) {
+      const parts = overId.split("-");
+      const repId = parseInt(parts[1], 10);
+      const zone = parts[2];
+      targetRep = repertorios.find((r) => r.id === repId);
+      if (!targetRep) return;
+      targetIdx = zone === "start" ? 0 : obras(targetRep).length;
+    } else {
+      for (const r of repertorios) {
+        const i = obras(r).findIndex((o) => o.id === overId);
+        if (i >= 0) {
+          targetRep = r;
+          targetIdx = i;
+          break;
         }
       }
-    } catch (error) {
-      console.error("Error creando set de arcos:", error);
-      alert(`Error al crear set: ${error.message}`);
+    }
+    if (!targetRep) return;
+
+    const movedToOtherBlock = sourceRep.id !== targetRep.id;
+    const nuevoIdBloque = targetRep.id;
+    // Si soltamos en "inicio", usar orden 0 para que tras normalizar quede primero (evita empate con el actual orden 1).
+    const nuevoOrden = targetIdx === 0 ? 0 : targetIdx + 1;
+
+    setSavingPosition(true);
+    try {
+      await updateWorkPosition(supabase, itemId, nuevoIdBloque, nuevoOrden);
+      await normalizeRepertorioBlockOrden(supabase, sourceRep.id);
+      if (movedToOtherBlock) {
+        await normalizeRepertorioBlockOrden(supabase, targetRep.id);
+      }
+      await fetchFullRepertoire();
+      autoSyncDrive();
+    } catch (err) {
+      console.error("Error reordenando obra:", err);
     } finally {
-      setLoading(false);
+      setSavingPosition(false);
     }
   };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+  );
+
+  const allRepertorioObraIds = useMemo(
+    () => repertorios.flatMap((r) => (r.repertorio_obras || []).map((o) => o.id)),
+    [repertorios],
+  );
+
+  const activeDragItemData = useMemo(() => {
+    if (!activeDragId) return null;
+    for (const r of repertorios) {
+      const item = (r.repertorio_obras || []).find((o) => o.id === activeDragId);
+      if (item) return { item, rep: r };
+    }
+    return null;
+  }, [activeDragId, repertorios]);
+
   return (
     <div className={containerClasses(isCompact)}>
+      {savingPosition && (
+        <div className="sticky top-0 z-20 flex items-center justify-center py-2 bg-amber-100 border-b border-amber-200 text-amber-800 text-sm font-bold shadow-sm">
+          <IconLoader size={16} className="animate-spin mr-2" />
+          Guardando orden...
+        </div>
+      )}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={({ active }) => {
+          setDragOverId(null);
+          setActiveDragId(active.id);
+        }}
+        onDragOver={({ over }) => setDragOverId(over?.id ?? null)}
+        onDragEnd={(e) => {
+          setDragOverId(null);
+          setActiveDragId(null);
+          handleDragEnd(e);
+        }}
+      >
+        <SortableContext items={allRepertorioObraIds} strategy={verticalListSortingStrategy}>
       {repertorios.map((rep) => {
         // Calculamos el atril para el usuario actual en este bloque (si aplica)
         const userSeating = user ? seatingMap[user.id] : null;
@@ -1047,7 +1218,7 @@ export default function RepertoireManager({
             key={rep.id}
             className={`border border-slate-200 ${
               isCompact ? "mb-4 rounded shadow-sm" : "shadow-sm bg-white mb-6"
-            }`}
+            } ${activeDragId ? "overflow-visible z-10" : ""}`}
           >
             {/* --- HEADER DEL BLOQUE (TÍTULO Y DURACIÓN) --- */}
             <div className="bg-fixed-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center h-10 sticky top-0 z-10 backdrop-blur-sm">
@@ -1301,27 +1472,29 @@ export default function RepertoireManager({
             {/* ============================================================ */}
             {/* VISTA ESCRITORIO: TABLA (Visible solo en md o superior)      */}
             {/* ============================================================ */}
-            <div className="hidden md:block overflow-x-auto pb-4">
-              <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1100px]">
+            <div className={`hidden md:block pb-4 ${activeDragId ? "overflow-visible" : "overflow-x-auto"}`}>
+              <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1200px]">
                 {/* --- NUEVO: DEFINICIÓN DE ANCHOS INDEPENDIENTE DE HEADER --- */}
                 <colgroup>
                   <col className="w-8" />
                   <col className="w-8" />
-                  <col className="w-[80px]" />
+                  <col className="w-10" />
+                  <col className="w-[88px]" />
+                  <col className="w-[280px]" />
+                  <col className="w-[150px]" />
+                  <col className="w-14" />
+                  <col className="w-[96px]" />
+                  <col className="w-[72px]" />
+                  <col className="w-28" />
                   <col className="w-[160px]" />
-                  <col className="w-[110px]" />
                   <col className="w-12" />
-                  <col className="w-[100px]" />
-                  <col className="w-[70px]" />
-                  <col className="w-[70px]" />
-                  <col className="w-24" />
-                  <col className="w-8" />
-                  <col className="w-16" />
-                  <col className="w-8" />
+                  <col className="w-[72px]" />
+                  <col className="w-10" />
                 </colgroup>
 
                 <thead className={tableHeaderClasses(isCompact)}>
                   <tr>
+                    <th className="p-1 w-8" aria-label="Arrastrar" />
                     <th className="p-1 text-center">#</th>
                     <th className="p-1 text-center">GD</th>
                     <th className="p-1">Compositor</th>
@@ -1338,43 +1511,34 @@ export default function RepertoireManager({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {rep.repertorio_obras.map((item, idx) => (
-                    <tr
+                  {isEditor && !isCompact && activeDragId && (
+                    <BlockDropZoneRow
+                      zoneId={BLOCK_ZONE_START(rep.id)}
+                      label={
+                        (rep.repertorio_obras || []).length === 0
+                          ? "Soltar aquí para agregar la primera obra"
+                          : "Soltar aquí para colocar al inicio"
+                      }
+                    />
+                  )}
+                  {(rep.repertorio_obras || []).map((item, idx) => (
+                    <SortableRepertorioRow
                       key={item.id}
-                      className={`group ${
+                      item={item}
+                      rep={rep}
+                      idx={idx}
+                      rowClassName={`group ${
                         item.obras.estado === "Informativo"
                           ? "bg-blue-50 hover:bg-blue-100 border-l-2 border-blue-400"
                           : item.obras.estado !== "Oficial"
                             ? "bg-amber-50 hover:bg-amber-100"
                             : "hover:bg-yellow-50"
                       }`}
+                      isEditor={isEditor}
+                      isCompact={isCompact}
+                      moveWork={moveWork}
+                      dragOverId={dragOverId}
                     >
-                      <td className="p-1 text-center font-bold text-slate-500">
-                        <div className="flex flex-col items-center">
-                          {isEditor && !isCompact && (
-                            <button
-                              onClick={() => moveWork(rep.id, item.id, -1)}
-                              disabled={idx === 0}
-                              className="text-slate-300 hover:text-fixed-indigo-600 disabled:opacity-0 p-0.5"
-                            >
-                              <IconChevronDown
-                                size={8}
-                                className="rotate-180"
-                              />
-                            </button>
-                          )}
-                          <span>{idx + 1}</span>
-                          {isEditor && !isCompact && (
-                            <button
-                              onClick={() => moveWork(rep.id, item.id, 1)}
-                              disabled={idx === rep.repertorio_obras.length - 1}
-                              className="text-slate-300 hover:text-fixed-indigo-600 disabled:opacity-0 p-0.5"
-                            >
-                              <IconChevronDown size={8} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
                       <td className="p-1 text-center">
                         {item.obras.estado === "Informativo" ? (
                           <span className="text-slate-300 text-[10px]" title="Obra informativa (sin archivo)">—</span>
@@ -1531,7 +1695,7 @@ export default function RepertoireManager({
                           </div>
                         )}
                       </td>
-                      <td className="px-2 py-4 align-middle">
+                      <td className="px-2 py-4 align-middle w-[160px] min-w-[140px]">
                         <div className="flex flex-row items-center gap-2 w-full max-w-[160px]">
                           <div className="relative flex-1 min-w-0 group">
                             <div
@@ -1539,7 +1703,7 @@ export default function RepertoireManager({
                             >
                               <span className="truncate w-full text-center">
                                 {item.id_arco_seleccionado
-                                  ? arcosByWork[item.obras.id]?.find(
+                                  ? (arcosByWork[item.obras?.id ?? item.id_obra] ?? []).find(
                                       (a) => a.id == item.id_arco_seleccionado,
                                     )?.nombre
                                   : "+ Asignar Arcos"}
@@ -1550,10 +1714,24 @@ export default function RepertoireManager({
                               onChange={(e) => {
                                 const val = e.target.value;
                                 if (val === "NEW_SET_ACTION") {
-                                  handleCreateBowingSet(
-                                    item.obras.id,
-                                    item.obras.titulo,
+                                  const nombreSet = prompt(
+                                    "Nombre para el nuevo set de arcos:",
+                                    `Arcos ${new Date().getFullYear()}`,
                                   );
+                                  if (!nombreSet?.trim()) return;
+                                  handleCreateBowingSetForManager(
+                                    item.obras?.id ?? item.id_obra,
+                                    item.obras?.titulo ?? "",
+                                    nombreSet.trim(),
+                                  ).then((result) => {
+                                    if (result?.newArcoId) {
+                                      handleArcoSelectionChange(item, result.newArcoId);
+                                      fetchFullRepertoire();
+                                    }
+                                  }).catch((err) => {
+                                    console.error("Error creando set de arcos:", err);
+                                    alert(err?.message || "Error al crear set de arcos.");
+                                  });
                                 } else {
                                   handleArcoSelectionChange(
                                     item,
@@ -1564,14 +1742,14 @@ export default function RepertoireManager({
                               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                               title={
                                 item.id_arco_seleccionado
-                                  ? arcosByWork[item.obras.id]?.find(
+                                  ? (arcosByWork[item.obras?.id ?? item.id_obra] ?? []).find(
                                       (a) => a.id == item.id_arco_seleccionado,
                                     )?.nombre
                                   : "Seleccionar set de arcos"
                               }
                             >
                               <option value="">-- Sin definir --</option>
-                              {arcosByWork[item.obras.id]?.map((arco) => (
+                              {(arcosByWork[item.obras?.id ?? item.id_obra] ?? []).map((arco) => (
                                 <option key={arco.id} value={arco.id}>
                                   {arco.nombre}
                                 </option>
@@ -1582,13 +1760,9 @@ export default function RepertoireManager({
                               </option>
                             </select>
                           </div>
-                          {item.id_arco_seleccionado && (
+                          {item.id_arco_seleccionado && (arcosByWork[item.obras?.id ?? item.id_obra] ?? []).find((a) => a.id == item.id_arco_seleccionado)?.link && (
                             <a
-                              href={
-                                arcosByWork[item.obras.id]?.find(
-                                  (a) => a.id == item.id_arco_seleccionado,
-                                )?.link
-                              }
+                              href={(arcosByWork[item.obras?.id ?? item.id_obra] ?? []).find((a) => a.id == item.id_arco_seleccionado)?.link}
                               target="_blank"
                               rel="noreferrer"
                               className="shrink-0 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-fixed-indigo-600 hover:bg-fixed-indigo-50 rounded-full transition-colors"
@@ -1669,8 +1843,14 @@ export default function RepertoireManager({
                           <span className="text-slate-200">-</span>
                         )}
                       </td>
-                    </tr>
+                    </SortableRepertorioRow>
                   ))}
+                  {isEditor && !isCompact && activeDragId && (rep.repertorio_obras || []).length > 0 && (
+                    <BlockDropZoneRow
+                      zoneId={BLOCK_ZONE_END(rep.id)}
+                      label="Soltar aquí para colocar al final"
+                    />
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1691,6 +1871,26 @@ export default function RepertoireManager({
           </div>
         );
       })}
+        </SortableContext>
+
+        <DragOverlay dropAnimation={null} zIndex={9998}>
+          {activeDragItemData ? (
+            <div className="bg-white border border-slate-200 rounded-lg shadow-xl p-2 flex items-center gap-3 min-w-[280px] pointer-events-none">
+              <IconGripVertical size={16} className="text-slate-400 shrink-0" />
+              <span className="text-slate-500 font-bold text-xs w-5 text-center shrink-0">#</span>
+              <span className="text-[11px] text-slate-600 truncate max-w-[120px]">
+                {getComposers(activeDragItemData.item.obras)}
+              </span>
+              <span className="text-[11px] font-medium text-slate-800 truncate max-w-[180px]" title={activeDragItemData.item.obras?.titulo?.replace(/<[^>]*>?/gm, "")}>
+                <RichTextPreview content={activeDragItemData.item.obras?.titulo} />
+              </span>
+              <span className="text-[10px] font-mono text-slate-500 shrink-0">
+                {formatSecondsToTime(activeDragItemData.item.obras?.duracion_segundos)}
+              </span>
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {!isCompact && (
         <div className="flex justify-between items-center mb-4">
@@ -1698,7 +1898,7 @@ export default function RepertoireManager({
             {syncingDrive && (
               <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded">
                 <IconLoader className="animate-spin inline mr-1" />
-                Syncing...
+                Sincronizando carpetas de Drive
               </span>
             )}
           </div>

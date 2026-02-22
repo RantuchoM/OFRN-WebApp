@@ -173,7 +173,7 @@ export const syncBowingToProgram = async (
     body: {
       action: "sync_bowing_to_program",
       programId,
-      obraId, // <--- AÑADIR ESTO
+      obraId,
       obraTitulo,
       nombreSet,
       targetDriveId,
@@ -182,6 +182,60 @@ export const syncBowingToProgram = async (
 
   if (error) throw error;
   return data;
+};
+
+/**
+ * Actualiza la posición de una obra en el repertorio (bloque y orden).
+ * @param {object} supabase - Cliente Supabase
+ * @param {number} id_repertorio_obra - ID de repertorio_obras (id de la relación)
+ * @param {number} nuevo_id_bloque - ID de programas_repertorios (id_repertorio)
+ * @param {number} nuevo_orden - Nuevo valor de orden
+ * @returns {Promise<void>}
+ */
+export const updateWorkPosition = async (
+  supabase,
+  id_repertorio_obra,
+  nuevo_id_bloque,
+  nuevo_orden,
+) => {
+  const { error } = await supabase
+    .from("repertorio_obras")
+    .update({
+      id_repertorio: nuevo_id_bloque,
+      orden: nuevo_orden,
+    })
+    .eq("id", id_repertorio_obra);
+
+  if (error) throw error;
+};
+
+/**
+ * Normaliza el campo orden de todas las obras en un bloque (1, 2, 3, ...).
+ * @param {object} supabase - Cliente Supabase
+ * @param {number} id_repertorio - ID de programas_repertorios
+ * @returns {Promise<void>}
+ */
+export const normalizeRepertorioBlockOrden = async (
+  supabase,
+  id_repertorio,
+) => {
+  const { data: rows, error: fetchError } = await supabase
+    .from("repertorio_obras")
+    .select("id, orden")
+    .eq("id_repertorio", id_repertorio)
+    .order("orden", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (fetchError) throw fetchError;
+  if (!rows?.length) return;
+
+  for (let i = 0; i < rows.length; i++) {
+    const { error: updateError } = await supabase
+      .from("repertorio_obras")
+      .update({ orden: i + 1 })
+      .eq("id", rows[i].id);
+    if (updateError) throw updateError;
+  }
 };
 /**
  * Obtiene la información de habitación de un integrante específico para una gira.
