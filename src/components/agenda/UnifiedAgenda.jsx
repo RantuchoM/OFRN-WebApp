@@ -42,6 +42,7 @@ import {
   getCurrentTimeLocal,
   timeStringToMinutes,
 } from "../../utils/dates";
+import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
 import {
   getNowLinePlacement,
   getDeadlineStatus,
@@ -53,6 +54,7 @@ import DriveSmartButton from "./DriveSmartButton";
 import TourDivider from "./TourDivider";
 import AgendaMealActionModal from "./AgendaMealActionModal";
 import EventHistoryModal from "../giras/EventHistoryModal";
+import ConfirmModal from "../ui/ConfirmModal";
 
 export default function UnifiedAgenda({
   supabase,
@@ -255,6 +257,12 @@ export default function UnifiedAgenda({
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isRehearsalEditOpen, setIsRehearsalEditOpen] = useState(false);
   const [editFormData, setEditFormData] = useState({});
+  const [deleteConfirm, setDeleteConfirm] = useState({
+    isOpen: false,
+    message: "",
+    messageIsHtml: false,
+    hasLogisticsLinks: false,
+  });
   const [editingEventObj, setEditingEventObj] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
   const [newFormData, setNewFormData] = useState({});
@@ -547,14 +555,44 @@ export default function UnifiedAgenda({
 
   const handleDeleteEvent = async () => {
     if (!editFormData.id) return;
-    const confirm = window.confirm(
-      "¿Mover este evento a la papelera? Se ocultará en 24 horas. Puedes restaurarlo hasta entonces.",
-    );
-    if (!confirm) return;
+    const id = editFormData.id;
+    const isTransport = [11, 12].includes(Number(editFormData.id_tipo_evento));
+    let hasLogisticsLinks = false;
+    let detail = "";
+    let detailHtml = null;
+    if (isTransport) {
+      const summary = await getTransportEventAffectedSummary(supabase, id);
+      hasLogisticsLinks = summary.hasLinks;
+      detail = summary.detail;
+      detailHtml = summary.detailHtml ?? null;
+    }
+    const baseMsg =
+      "¿Mover este evento a la papelera? Se ocultará en 24 horas. Puedes restaurarlo hasta entonces.";
+    const transportMsgPlain =
+      hasLogisticsLinks && detail
+        ? `\n\nEste evento está vinculado como subida/bajada en logística. Afecta a: ${detail}. Si lo movés a la papelera, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin si corresponde.`
+        : hasLogisticsLinks
+          ? "\n\nEste evento está vinculado como subida/bajada. Si lo movés a la papelera, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin si corresponde."
+          : "";
+    const transportMsgHtml =
+      hasLogisticsLinks && detailHtml
+        ? `\n\nEste evento está vinculado como subida/bajada en logística. Afecta a: ${detailHtml}. Si lo movés a la papelera, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin si corresponde.`
+        : transportMsgPlain;
+    setDeleteConfirm({
+      isOpen: true,
+      message: baseMsg + (detailHtml ? transportMsgHtml : transportMsgPlain),
+      messageIsHtml: !!detailHtml,
+      hasLogisticsLinks,
+    });
+  };
 
+  const handleConfirmDeleteEvent = async () => {
+    if (!editFormData.id) return;
+    const id = editFormData.id;
+    const hadLinks = deleteConfirm.hasLogisticsLinks;
+    setDeleteConfirm({ isOpen: false, message: "", messageIsHtml: false, hasLogisticsLinks: false });
     setLoading(true);
     try {
-      const id = editFormData.id;
       const { error } = await supabase
         .from("eventos")
         .update({
@@ -565,8 +603,16 @@ export default function UnifiedAgenda({
       if (error) throw error;
       setIsEditOpen(false);
       fetchAgenda();
+      if (hadLinks) {
+        toast.warning(
+          "Evento movido a la papelera. Revisá la logística de integrantes/regiones y creá un evento nuevo para viáticos si corresponde.",
+        );
+      } else {
+        toast.success("Evento movido a la papelera. Podés restaurarlo en 24 horas.");
+      }
     } catch (err) {
       toast.error("Error al eliminar: " + err.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -1942,6 +1988,18 @@ export default function UnifiedAgenda({
       </div>
 
       {/* MODALES */}
+      <ConfirmModal
+        isOpen={deleteConfirm.isOpen}
+        onClose={() =>
+          setDeleteConfirm({ isOpen: false, message: "", messageIsHtml: false, hasLogisticsLinks: false })
+        }
+        onConfirm={handleConfirmDeleteEvent}
+        title="Mover a la papelera"
+        message={deleteConfirm.message}
+        messageIsHtml={deleteConfirm.messageIsHtml}
+        confirmText="Mover a la papelera"
+        cancelText="Cancelar"
+      />
       {isEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <EventForm

@@ -39,6 +39,8 @@ const isDiff = (valA, valB) => {
   return cleanA !== cleanB;
 };
 
+const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
+
 // --- COMPONENTE INPUT MONEDA INTELIGENTE (DISPLAY VS EDIT) ---
 const CurrencyInput = ({
   value,
@@ -156,10 +158,52 @@ export default function ViaticosTable({
   errorFields = new Set(),
   successFields = new Set(),
   logisticsMap = {},
+  useHistoricalCalc = false,
+  onUseHistoricalCalcChange,
 }) {
   const [showBackup, setShowBackup] = useState(false);
+  const [useHistoricalLocal, setUseHistoricalLocal] = useState(useHistoricalCalc);
+  const isHistorical = onUseHistoricalCalcChange ? useHistoricalCalc : useHistoricalLocal;
+
+  const setHistorical = (value) => {
+    if (onUseHistoricalCalcChange) onUseHistoricalCalcChange(value);
+    else setUseHistoricalLocal(value);
+  };
 
   const cellClass = "px-2 py-2 border-b border-slate-100";
+
+  // Valor de viático a mostrar/usar: histórico (backup) o calculado actual
+  const getEffectiveSubtotal = (row) => {
+    if (!isHistorical) return parseFloat(row.subtotal || 0);
+    const stored = row.backup_viatico != null && row.backup_viatico !== ""
+      ? parseFloat(row.backup_viatico)
+      : null;
+    if (stored != null && !Number.isNaN(stored)) return stored;
+    const dias = parseFloat(row.backup_dias_computables ?? 0);
+    const valDiario = parseFloat(row.valorDiarioCalc ?? 0);
+    return round2(dias * valDiario);
+  };
+
+  // Valor del último backup (para comparar con cálculo actual). Null si no hay backup.
+  const getBackupViaticoValue = (row) => {
+    if (row.backup_viatico != null && row.backup_viatico !== "") {
+      const v = parseFloat(row.backup_viatico);
+      if (!Number.isNaN(v)) return v;
+    }
+    if (row.backup_dias_computables == null && !row.fecha_ultima_exportacion) return null;
+    const dias = parseFloat(row.backup_dias_computables ?? 0);
+    const valDiario = parseFloat(row.valorDiarioCalc ?? 0);
+    return round2(dias * valDiario);
+  };
+
+  // Diferencia vs último backup: positivo = subió, negativo = bajó (solo si hay backup)
+  const getViaticoDiffVsBackup = (row) => {
+    const backupVal = getBackupViaticoValue(row);
+    if (backupVal == null) return null;
+    const current = parseFloat(row.subtotal || 0);
+    const diff = round2(current - backupVal);
+    return diff === 0 ? null : diff;
+  };
 
   // --- GESTIÓN DE COLORES DE ESTADO (PRIORIDAD AL FEEDBACK BD) ---
   const getInputClass = (
@@ -184,9 +228,9 @@ export default function ViaticosTable({
     return `${defaultBgClass} ${defaultTextClass} border-transparent hover:border-slate-300 focus:border-indigo-500 transition-colors duration-300`;
   };
 
-  // --- CÁLCULOS GLOBALES ---
+  // --- CÁLCULOS GLOBALES (respeta histórico si toggle activo) ---
   const totalAnticipo = rows.reduce(
-    (acc, r) => acc + (parseFloat(r.subtotal) || 0),
+    (acc, r) => acc + getEffectiveSubtotal(r),
     0,
   );
   const totalGastos = rows.reduce((acc, r) => {
@@ -258,7 +302,7 @@ export default function ViaticosTable({
 
   // --- CELDA DE TOTAL FINAL (3 FILAS) ---
   const TotalFinalCell = ({ row }) => {
-    let totalEst = parseFloat(row.subtotal || 0);
+    let totalEst = getEffectiveSubtotal(row);
     let totalRen = parseFloat(row.rendicion_viaticos || 0);
 
     FINANCIAL_COLS.forEach((c) => {
@@ -312,13 +356,26 @@ export default function ViaticosTable({
             Total Est: <b>${granTotal.toLocaleString("es-AR")}</b>
           </span>
         </div>
-        <button
-          onClick={() => setShowBackup(!showBackup)}
-          className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold uppercase transition-colors ${showBackup ? "bg-amber-100 text-amber-800 border border-amber-200" : "bg-white text-slate-400 border border-slate-200 hover:text-slate-600"}`}
-        >
-          <IconHistory size={12} /> Backup{" "}
-          {showBackup ? <IconCheck size={12} /> : null}
-        </button>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={isHistorical}
+              onChange={(e) => setHistorical(e.target.checked)}
+              className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+            />
+            <span className={`text-[10px] font-medium ${isHistorical ? "text-amber-800" : "text-slate-500"}`}>
+              Calcular según Histórico
+            </span>
+          </label>
+          <button
+            onClick={() => setShowBackup(!showBackup)}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold uppercase transition-colors ${showBackup ? "bg-amber-100 text-amber-800 border border-amber-200" : "bg-white text-slate-400 border border-slate-200 hover:text-slate-600"}`}
+          >
+            <IconHistory size={12} /> Backup{" "}
+            {showBackup ? <IconCheck size={12} /> : null}
+          </button>
+        </div>
       </div>
 
       <div className="relative overflow-x-auto min-h-[300px] flex-1">
@@ -385,7 +442,7 @@ export default function ViaticosTable({
                     <th className="px-1 py-3 text-center w-12 sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
                       %
                     </th>
-                    <th className="px-2 py-3 text-right text-indigo-800 font-bold w-28 border-r border-indigo-100 sticky top-0 z-30 bg-indigo-50 border-b border-slate-200">
+                    <th className={`px-2 py-3 text-right font-bold w-28 border-r sticky top-0 z-30 border-b ${isHistorical ? "text-amber-800 bg-amber-50 border-amber-100" : "text-indigo-800 bg-indigo-50 border-indigo-100 border-slate-200"}`}>
                       Viático
                     </th>
                   </>
@@ -661,19 +718,34 @@ export default function ViaticosTable({
                           </select>
                         </td>
 
-                        {/* CELDA VIÁTICO (UNIFICADA ESTILO GASTOS) */}
+                        {/* CELDA VIÁTICO (histórico o calculado) + subida/bajada vs último backup */}
                         <td
-                          className={`px-2 py-1 border-r border-b border-indigo-100 ${showExpenses && showRendiciones ? "bg-slate-50/30" : showExpenses ? "bg-orange-50/10" : "bg-emerald-50/10"}`}
+                          className={`px-2 py-1 border-r border-b ${isHistorical ? "bg-amber-50/80 border-amber-100 text-amber-900" : "border-indigo-100"} ${!isHistorical && (showExpenses && showRendiciones ? "bg-slate-50/30" : showExpenses ? "bg-orange-50/10" : "bg-emerald-50/10")}`}
                         >
-                          <StackedFinancialCell
-                            row={row}
-                            colDef={{
-                              exp: "subtotal",
-                              ren: "rendicion_viaticos",
-                            }}
-                            isReadOnly={true}
-                            forceValue={row.subtotal} // Usar el calculado
-                          />
+                          <div className="flex flex-col gap-0.5">
+                            <StackedFinancialCell
+                              row={row}
+                              colDef={{
+                                exp: "subtotal",
+                                ren: "rendicion_viaticos",
+                              }}
+                              isReadOnly={true}
+                              forceValue={getEffectiveSubtotal(row)}
+                            />
+                            {(() => {
+                              const diff = getViaticoDiffVsBackup(row);
+                              if (diff == null) return null;
+                              const isUp = diff > 0;
+                              return (
+                                <div
+                                  className={`text-[9px] font-medium text-right ${isUp ? "text-emerald-600" : "text-red-600"}`}
+                                  title={isUp ? `Subió $${Math.abs(diff).toLocaleString("es-AR")} vs último backup` : `Bajó $${Math.abs(diff).toLocaleString("es-AR")} vs último backup`}
+                                >
+                                  {isUp ? "↑" : "↓"} ${Math.abs(diff).toLocaleString("es-AR")}
+                                </div>
+                              );
+                            })()}
+                          </div>
                         </td>
                       </>
                     )}

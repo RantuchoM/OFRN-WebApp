@@ -259,6 +259,7 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [showTransport, setShowTransport] = useState(false);
   const [showExpenses, setShowExpenses] = useState(true);
   const [showRendiciones, setShowRendiciones] = useState(false);
+  const [useHistoricalCalc, setUseHistoricalCalc] = useState(false);
   const [showIndividualPanel, setShowIndividualPanel] = useState(true);
   const [showMassivePanel, setShowMassivePanel] = useState(true);
 
@@ -596,6 +597,7 @@ export default function ViaticosManager({ supabase, giraId }) {
             backup_fecha_llegada: row.fecha_llegada,
             backup_hora_llegada: row.hora_llegada,
             backup_dias_computables: row.dias_computables,
+            backup_viatico: row.subtotal != null ? parseFloat(row.subtotal) : null,
           })
           .eq("id", row.id),
       );
@@ -918,14 +920,26 @@ export default function ViaticosManager({ supabase, giraId }) {
       return;
     }
 
-    // --- NORMALIZACIÓN DE DATOS ---
+    // Helper: viático efectivo para export/enviar (histórico si toggle activo)
+    const getEffectiveSubtotalForExport = (row) => {
+      if (!useHistoricalCalc) return parseFloat(row.subtotal || row.monto_viatico || row.subtotal_viatico || 0);
+      const backupVal = row.backup_viatico != null && row.backup_viatico !== "" ? parseFloat(row.backup_viatico) : NaN;
+      if (!Number.isNaN(backupVal)) return backupVal;
+      const dias = parseFloat(row.backup_dias_computables ?? 0);
+      const val = parseFloat(row.valorDiarioCalc ?? 0);
+      return Math.round((dias * val) * 100) / 100;
+    };
+
+    // --- NORMALIZACIÓN DE DATOS (subtotal efectivo si "Calcular según Histórico" activo) ---
     const selectedData = viaticosRows
       .filter((r) => selection.has(r.id_integrante))
       .map((row) => {
         const person = row.integrantes || {};
+        const effectiveSubtotal = getEffectiveSubtotalForExport(row);
         return {
           ...row,
           ...person,
+          subtotal: effectiveSubtotal,
           documentacion:
             person.documentacion || person.documentacion || row.documentacion,
           docred: person.docred || person.docred || row.docred,
@@ -990,14 +1004,24 @@ export default function ViaticosManager({ supabase, giraId }) {
           continue;
         }
 
+        // Viático efectivo: según histórico (backup) o calculado actual
+        let effectiveSubtotal = parseFloat(row.subtotal || row.monto_viatico || row.subtotal_viatico || 0);
+        if (useHistoricalCalc) {
+          const backupVal = row.backup_viatico != null && row.backup_viatico !== "" ? parseFloat(row.backup_viatico) : NaN;
+          if (!Number.isNaN(backupVal)) effectiveSubtotal = backupVal;
+          else {
+            const dias = parseFloat(row.backup_dias_computables ?? 0);
+            const val = parseFloat(row.valorDiarioCalc ?? 0);
+            effectiveSubtotal = Math.round((dias * val) * 100) / 100;
+          }
+        }
+
         // PAYLOAD COMPLETO (Igual que Legacy)
         const detalleCompleto = {
           dias_computables: row.dias_computables,
           porcentaje: row.porcentaje,
-          monto_viatico: parseFloat(
-            row.monto_viatico || row.subtotal_viatico || row.subtotal || 0,
-          ),
-          subtotal_viatico: parseFloat(row.subtotal || row.monto_viatico || 0), // Redundancia por si acaso
+          monto_viatico: effectiveSubtotal,
+          subtotal_viatico: effectiveSubtotal,
           gasto_combustible: parseFloat(row.gasto_combustible || 0),
           gasto_alojamiento: parseFloat(row.gasto_alojamiento || 0),
           gasto_pasajes: parseFloat(row.gasto_pasajes || 0),
@@ -1325,6 +1349,8 @@ export default function ViaticosManager({ supabase, giraId }) {
                 errorFields={feedbackIndividual.errorFields}
                 deletingRows={feedbackIndividual.deletingRows}
                 logisticsMap={logisticsMap}
+                useHistoricalCalc={useHistoricalCalc}
+                onUseHistoricalCalcChange={setUseHistoricalCalc}
               />
 
               {selection.size > 0 && (

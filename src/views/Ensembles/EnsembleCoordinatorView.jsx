@@ -44,10 +44,12 @@ import FilterDropdown from "../../components/ui/FilterDropdown";
 import DateInput from "../../components/ui/DateInput";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import MultiSelect from "../../components/ui/MultiSelect";
+import ConfirmModal from "../../components/ui/ConfirmModal";
 
 import { format, addMonths, getDay, setDay, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
 
 // --- UTILIDADES ---
 const formatDateBox = (dateStr) => {
@@ -252,7 +254,7 @@ const RehearsalCardItem = ({
                 <IconEdit size={14} />
               </button>
               <button
-                onClick={() => onDelete(evt.id)}
+                onClick={() => onDelete(evt.id, evt)}
                 className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-slate-100 transition-colors"
                 title="Eliminar Evento"
               >
@@ -756,6 +758,14 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [ensamblesOptions, setEnsamblesOptions] = useState([]);
   const [membersOptions, setMembersOptions] = useState([]);
   const [isGiraModalOpen, setIsGiraModalOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({
+    isOpen: false,
+    id: null,
+    ids: null,
+    message: "",
+    messageIsHtml: false,
+    hasLogisticsLinks: false,
+  });
   const [giraFormData, setGiraFormData] = useState({
     nombre_gira: "",
     subtitulo: "",
@@ -1551,49 +1561,104 @@ export default function EnsembleCoordinatorView({ supabase }) {
     setEditingEvent(evt);
     setIsModalOpen(true);
   };
-  const handleDeleteRehearsal = async (id) => {
-    if (!confirm("¿Eliminar?")) return;
-    toast.promise(
-      async () => {
-        await supabase.from("eventos").delete().eq("id", id);
-      },
-      {
-        loading: "Eliminando...",
-        success: () => {
-          refreshData();
-          return "Eliminado";
-        },
-        error: "Error",
-      },
-    );
+  const handleDeleteRehearsal = async (id, eventOptional) => {
+    const ev =
+      eventOptional ??
+      rehearsals.find((e) => String(e.id) === String(id));
+    const isTransport =
+      ev && [11, 12].includes(Number(ev.id_tipo_evento));
+
+    let hasLogisticsLinks = false;
+    let detail = "";
+    let detailHtml = null;
+    if (isTransport) {
+      const summary = await getTransportEventAffectedSummary(supabase, id);
+      hasLogisticsLinks = summary.hasLinks;
+      detail = summary.detail;
+      detailHtml = summary.detailHtml ?? null;
+    }
+
+    const message =
+      hasLogisticsLinks && (detailHtml || detail)
+        ? `Este evento está vinculado como subida/bajada en logística. Afecta a: ${detailHtml || detail}. Tené en cuenta que si lo eliminás, se afectará el cálculo de Viáticos y deberás crear un evento nuevo para tal fin. ¿Estás seguro de que deseas eliminarlo?`
+        : hasLogisticsLinks
+          ? "Este evento está vinculado como subida/bajada de personal o regiones. Si lo eliminás, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin. ¿Estás seguro de que deseas eliminarlo?"
+          : "¿Eliminar este evento?";
+    setDeleteConfirm({
+      isOpen: true,
+      id,
+      ids: null,
+      message,
+      messageIsHtml: !!detailHtml,
+      hasLogisticsLinks,
+    });
   };
 
-  const handleBulkDelete = async () => {
-    if (
-      !confirm(
-        `¿Estás seguro de eliminar ${selectedIds.length} eventos? Esta acción no se puede deshacer.`,
-      )
-    )
-      return;
-
-    toast.promise(
-      async () => {
-        const { error } = await supabase
-          .from("eventos")
-          .delete()
-          .in("id", selectedIds);
-        if (error) throw error;
-      },
-      {
-        loading: "Eliminando eventos...",
-        success: () => {
-          refreshData();
-          setSelectedIds([]);
-          return `${selectedIds.length} eventos eliminados`;
+  const handleConfirmDeleteRehearsal = () => {
+    const { id, ids, message: _msg, hasLogisticsLinks } = deleteConfirm;
+    setDeleteConfirm({
+      isOpen: false,
+      id: null,
+      ids: null,
+      message: "",
+      messageIsHtml: false,
+      hasLogisticsLinks: false,
+    });
+    if (ids?.length) {
+      toast.promise(
+        async () => {
+          const { error } = await supabase
+            .from("eventos")
+            .delete()
+            .in("id", ids);
+          if (error) throw error;
         },
-        error: (err) => `Error: ${err.message}`,
-      },
-    );
+        {
+          loading: "Eliminando eventos...",
+          success: () => {
+            refreshData();
+            setSelectedIds([]);
+            return `${ids.length} eventos eliminados`;
+          },
+          error: (err) => `Error: ${err.message}`,
+        },
+      );
+      return;
+    }
+    if (id) {
+      toast.promise(
+        async () => {
+          const { error } = await supabase
+            .from("eventos")
+            .delete()
+            .eq("id", id);
+          if (error) throw error;
+        },
+        {
+          loading: "Eliminando...",
+          success: () => {
+            refreshData();
+            if (hasLogisticsLinks) {
+              toast.warning(
+                "Evento eliminado. Revisá la logística de integrantes/regiones y creá un evento nuevo para viáticos si corresponde.",
+              );
+            }
+            return "Eliminado";
+          },
+          error: "Error",
+        },
+      );
+    }
+  };
+
+  const handleBulkDelete = () => {
+    setDeleteConfirm({
+      isOpen: true,
+      id: null,
+      ids: [...selectedIds],
+      message: `¿Estás seguro de eliminar ${selectedIds.length} eventos? Esta acción no se puede deshacer.`,
+      hasLogisticsLinks: false,
+    });
   };
 
   if (loading)
@@ -1620,6 +1685,25 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 p-4 md:p-6 gap-3 overflow-hidden">
+      <ConfirmModal
+        isOpen={deleteConfirm.isOpen}
+        onClose={() =>
+          setDeleteConfirm({
+            isOpen: false,
+            id: null,
+            ids: null,
+            message: "",
+            messageIsHtml: false,
+            hasLogisticsLinks: false,
+          })
+        }
+        onConfirm={handleConfirmDeleteRehearsal}
+        title={deleteConfirm.ids?.length ? "Eliminar eventos" : "Eliminar evento"}
+        message={deleteConfirm.message}
+        messageIsHtml={deleteConfirm.messageIsHtml}
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+      />
       {/* HEADER */}
       <div className="flex flex-col gap-2 shrink-0">
         <div className="flex justify-between items-center">
@@ -2363,7 +2447,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
           onClose={() => setViewingEvent(null)}
           onDelete={(id) => {
             setViewingEvent(null);
-            handleDeleteRehearsal(id);
+            handleDeleteRehearsal(id, viewingEvent);
           }}
           onEdit={(evt) => {
             setViewingEvent(null);

@@ -1,7 +1,7 @@
 import React from "react";
 import { IconAlertTriangle, IconX } from "./Icons"; // Tus iconos
 
-export default function ConfirmModal({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirmar", cancelText = "Cancelar" }) {
+export default function ConfirmModal({ isOpen, onClose, onConfirm, title, message, messageIsHtml = false, confirmText = "Confirmar", cancelText = "Cancelar" }) {
   if (!isOpen) return null;
 
   return (
@@ -13,7 +13,11 @@ export default function ConfirmModal({ isOpen, onClose, onConfirm, title, messag
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-bold text-slate-800">{title}</h3>
-            <p className="text-sm text-slate-500 mt-2 leading-relaxed">{message}</p>
+            {messageIsHtml ? (
+              <p className="text-sm text-slate-500 mt-2 leading-relaxed whitespace-pre-line [&_strong]:font-bold [&_strong]:text-slate-800" dangerouslySetInnerHTML={{ __html: message }} />
+            ) : (
+              <p className="text-sm text-slate-500 mt-2 leading-relaxed whitespace-pre-line">{message}</p>
+            )}
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
             <IconX size={20} />
