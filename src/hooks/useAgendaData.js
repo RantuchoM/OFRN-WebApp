@@ -5,7 +5,7 @@ import { getTodayDateStringLocal } from "../utils/dates";
 import { calculateLogisticsSummary } from "./useLogistics";
 
 const EVENT_SELECT = `
-    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte,
+    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, updated_at, is_deleted, deleted_at,
     giras_transportes ( id, detalle, transportes ( nombre, color ) ),
     tipos_evento ( id, nombre, color, categorias_tipos_eventos (id, nombre) ),
     locaciones ( id, nombre, direccion, link_mapa, localidades (localidad) ),
@@ -199,9 +199,16 @@ export function useAgendaData({
           ensembleEvents.data?.map((e) => e.id_evento),
         );
 
+        const timestamp24hAgo = new Date(
+          Date.now() - 24 * 60 * 60 * 1000,
+        ).toISOString();
+
         let query = supabase
           .from("eventos")
           .select(EVENT_SELECT)
+          .or(
+            `is_deleted.eq.false,is_deleted.is.null,and(is_deleted.eq.true,deleted_at.gt.${timestamp24hAgo})`,
+          )
           .order("fecha", { ascending: true })
           .order("hora_inicio", { ascending: true })
           .abortSignal(signal);
@@ -353,6 +360,10 @@ export function useAgendaData({
 
         const visibleEvents = (eventsData || []).filter((item) => {
           if (!item.fecha) return false;
+          if (item.is_deleted === true && item.deleted_at) {
+            const deletedAt = new Date(item.deleted_at).getTime();
+            if (deletedAt < Date.now() - 24 * 60 * 60 * 1000) return false;
+          }
           if (giraId) return true;
           const isManagementProfile = [
             "admin",

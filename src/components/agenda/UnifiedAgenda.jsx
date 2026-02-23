@@ -22,6 +22,7 @@ import {
   IconEyeOff,
   IconUtensils,
   IconFilter,
+  IconUndo,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -544,30 +545,40 @@ export default function UnifiedAgenda({
   const handleDeleteEvent = async () => {
     if (!editFormData.id) return;
     const confirm = window.confirm(
-      "¿Seguro que deseas eliminar este evento? Esta acción no se puede deshacer.",
+      "¿Mover este evento a la papelera? Se ocultará en 24 horas. Puedes restaurarlo hasta entonces.",
     );
     if (!confirm) return;
 
-    // Delete no usa background loading para dar feedback inmediato
     setLoading(true);
     try {
       const id = editFormData.id;
-      await Promise.all([
-        supabase
-          .from("eventos_programas_asociados")
-          .delete()
-          .eq("id_evento", id),
-        supabase.from("eventos_ensambles").delete().eq("id_evento", id),
-        supabase.from("eventos_asistencia_custom").delete().eq("id_evento", id),
-        supabase.from("eventos_asistencia").delete().eq("id_evento", id),
-      ]);
-      const { error } = await supabase.from("eventos").delete().eq("id", id);
+      const { error } = await supabase
+        .from("eventos")
+        .update({
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+        })
+        .eq("id", id);
       if (error) throw error;
       setIsEditOpen(false);
       fetchAgenda();
     } catch (err) {
       toast.error("Error al eliminar: " + err.message);
       setLoading(false);
+    }
+  };
+
+  const handleRestoreEvent = async (eventId) => {
+    try {
+      const { error } = await supabase
+        .from("eventos")
+        .update({ is_deleted: false, deleted_at: null })
+        .eq("id", eventId);
+      if (error) throw error;
+      toast.success("Evento restaurado exitosamente. Ha vuelto a la agenda activa.", { icon: "✅" });
+      fetchAgenda(true);
+    } catch (err) {
+      toast.error("Error al restaurar: " + err.message);
     }
   };
 
@@ -1214,6 +1225,12 @@ export default function UnifiedAgenda({
 
                     const feriado = feriados.find((f) => f.fecha === evt.fecha);
 
+                    const isRecentlyModified =
+                      evt.updated_at &&
+                      new Date(evt.updated_at).getTime() >
+                        Date.now() - 24 * 60 * 60 * 1000;
+                    const isDeleted = evt.is_deleted === true;
+
                     return (
                       <React.Fragment key={evt.id}>
                         {showDay && (
@@ -1306,16 +1323,19 @@ export default function UnifiedAgenda({
                           )}
                         {/* --- CONTENEDOR MÓVIL (VISIBLE SOLO EN < md) --- */}
                         <div
-                          className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-200 transition-colors hover:bg-slate-50 group gap-2
-                            ${shouldDim ? "opacity-50 grayscale" : ""}
-                            ${evt.is_guest ? "bg-emerald-50/30" : ""}
-                            ${isMyTransport ? "bg-indigo-50/30 border-l-4 border-l-indigo-400" : ""}
-                            ${recentlyUpdatedEventIds.has(evt.id) ? "ring-2 ring-inset ring-indigo-400/70 animate-pulse" : ""}
+                          className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-200 transition-colors group gap-2
+                            ${shouldDim && !isDeleted ? "opacity-50 grayscale hover:bg-slate-50" : ""}
+                            ${isDeleted ? "bg-orange-50 opacity-80 line-through pointer-events-none" : ""}
+                            ${!isDeleted && evt.is_guest ? "bg-emerald-50/30 hover:bg-slate-50" : ""}
+                            ${!isDeleted && isMyTransport ? "bg-indigo-50/30 border-l-4 border-l-indigo-400 hover:bg-slate-50" : ""}
+                            ${isRecentlyModified && !isDeleted ? "ring-2 ring-blue-500 animate-pulse" : ""}
                           `}
                           style={
-                            !shouldDim && !evt.is_guest && !isMyTransport
-                              ? cardStyle
-                              : {}
+                            isDeleted
+                              ? { backgroundColor: "#fff7ed" }
+                              : !shouldDim && !evt.is_guest && !isMyTransport
+                                ? cardStyle
+                                : {}
                           }
                         >
                           <div
@@ -1329,11 +1349,11 @@ export default function UnifiedAgenda({
                             }}
                           ></div>
 
-                          <div className="w-10 font-mono text-s text-slate-600 font-bold shrink-0 flex flex-col items-center pt-1">
+                          <div className={`w-10 font-mono text-s font-bold shrink-0 flex flex-col items-center pt-1 ${isDeleted ? "text-orange-700" : "text-slate-600"}`}>
                             <span>{evt.hora_inicio?.slice(0, 5)}</span>
                             {evt.hora_fin &&
                               evt.hora_fin !== evt.hora_inicio && (
-                                <span className="text-[9px] text-slate-400 block">
+                                <span className={`text-[9px] block ${isDeleted ? "text-orange-600" : "text-slate-400"}`}>
                                   {evt.hora_fin.slice(0, 5)}
                                 </span>
                               )}
@@ -1376,7 +1396,7 @@ export default function UnifiedAgenda({
                             </div>
 
                             <div
-                              className={`text-sm leading-tight break-words ${shouldDim ? "text-slate-400" : "text-slate-800"}`}
+                              className={`text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
                             >
                               {evt.descripcion ? (
                                 <div
@@ -1455,13 +1475,13 @@ export default function UnifiedAgenda({
                             </div>
 
                             {locName && (
-                              <div className="flex items-start gap-1 text-xs text-slate-500 mt-0.5">
+                              <div className={`flex items-start gap-1 text-xs mt-0.5 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}>
                                 <IconMapPin
                                   size={14}
-                                  className="text-slate-400 shrink-0 mt-0.5"
+                                  className={isDeleted ? "text-orange-600 shrink-0 mt-0.5" : "text-slate-400 shrink-0 mt-0.5"}
                                 />
                                 <div className="flex flex-col min-w-0">
-                                  <span className="font-semibold text-slate-700 truncate">
+                                  <span className={`font-semibold truncate ${isDeleted ? "text-orange-700" : "text-slate-700"}`}>
                                     {locName} {locCity ? `(${locCity})` : ""}
                                   </span>
                                   {evt.locaciones?.direccion && (
@@ -1481,20 +1501,26 @@ export default function UnifiedAgenda({
                           </div>
 
                           <div className="shrink-0 flex items-start gap-1 pl-2 pt-1 border-l border-slate-100 flex-col justify-between min-w-[40px]">
-                            {/* ACCIONES APILADAS EN MÓVIL (Como pediste en el primer prompt, o legacy si prefieres legacy estricto) */}
-                            {/* Nota: En tu legacy original los botones estaban abajo en una fila. 
-                                 Pero aquí estamos replicando la estructura FLEX ROW del legacy que me pasaste. 
-                                 Si quieres botones apilados en el lateral derecho como el código legacy que pegaste: */}
-
-                            <div className="flex flex-col items-end gap-2 w-full">
-                              {/* BOTÓN ÚNICO DE COMIDA */}
-                              {/* BOTÓN ÚNICO DE COMIDA (MÓVIL) */}
-                              {isMeal &&
-                                evt.is_convoked &&
-                                user.id !== "guest-general" && (
-                                  <button
-                                    onClick={() => setMealActionTarget(evt)}
-                                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm transition-all
+                            {isDeleted && (isEditor || isManagement) ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRestoreEvent(evt.id);
+                                }}
+                                className="pointer-events-auto p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors"
+                                title="Restaurar evento"
+                              >
+                                <IconUndo size={18} />
+                              </button>
+                            ) : (
+                              <>
+                                {isMeal &&
+                                  evt.is_convoked &&
+                                  user.id !== "guest-general" && (
+                                    <button
+                                      onClick={() => setMealActionTarget(evt)}
+                                      className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm transition-all
                                         ${
                                           evt.mi_asistencia === "P"
                                             ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
@@ -1503,73 +1529,68 @@ export default function UnifiedAgenda({
                                               : "bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200"
                                         }
                                       `}
-                                  >
-                                    {/* Icono según estado o candado si cerró y no votó */}
-                                    {(() => {
-                                      const dl = getDeadlineStatus(
-                                        evt.programas
-                                          ?.fecha_confirmacion_limite,
-                                      );
-                                      const isLocked =
-                                        dl.status === "CLOSED" &&
-                                        !isManagement &&
-                                        !isEditor;
-
-                                      if (evt.mi_asistencia === "P")
-                                        return <IconCheck size={14} />;
-                                      if (evt.mi_asistencia === "A")
-                                        return <IconX size={14} />;
-                                      if (isLocked)
-                                        return (
-                                          <span className="text-[10px]">
-                                            🔒
-                                          </span>
-                                        ); // Icono candado si cerró
-                                      return <IconUtensils size={14} />;
-                                    })()}
-
-                                    <span>
-                                      {evt.mi_asistencia === "P"
-                                        ? "Voy"
-                                        : evt.mi_asistencia === "A"
-                                          ? "No voy"
-                                          : getDeadlineStatus(
-                                                evt.programas
-                                                  ?.fecha_confirmacion_limite,
-                                              ).status === "CLOSED" &&
-                                              !isManagement &&
-                                              !isEditor
-                                            ? "Cerrado"
-                                            : "¿?"}
-                                    </span>
-                                  </button>
-                                )}
-                              <DriveSmartButton evt={evt} />
-
-                              <div className="flex flex-col gap-1 items-end">
-                                <CommentButton
-                                  supabase={supabase}
-                                  entityType="EVENTO"
-                                  entityId={evt.id}
-                                  onClick={() =>
-                                    setCommentsState({
-                                      type: "EVENTO",
-                                      id: evt.id,
-                                    })
-                                  }
-                                  className="text-slate-300 p-1"
-                                />
-                                {!isOfflineMode &&
-                                  (isGlobalEditor || canUserEditEvent(evt)) && (
-                                    <button
-                                      onClick={() => openEditModal(evt)}
-                                      className="p-1 text-slate-300 bg-white rounded-full border border-slate-100"
                                     >
-                                      <IconEdit size={14} />
+                                      {(() => {
+                                        const dl = getDeadlineStatus(
+                                          evt.programas
+                                            ?.fecha_confirmacion_limite,
+                                        );
+                                        const isLocked =
+                                          dl.status === "CLOSED" &&
+                                          !isManagement &&
+                                          !isEditor;
+                                        if (evt.mi_asistencia === "P")
+                                          return <IconCheck size={14} />;
+                                        if (evt.mi_asistencia === "A")
+                                          return <IconX size={14} />;
+                                        if (isLocked)
+                                          return (
+                                            <span className="text-[10px]">🔒</span>
+                                          );
+                                        return <IconUtensils size={14} />;
+                                      })()}
+                                      <span>
+                                        {evt.mi_asistencia === "P"
+                                          ? "Voy"
+                                          : evt.mi_asistencia === "A"
+                                            ? "No voy"
+                                            : getDeadlineStatus(
+                                                  evt.programas
+                                                    ?.fecha_confirmacion_limite,
+                                                ).status === "CLOSED" &&
+                                                !isManagement &&
+                                                !isEditor
+                                              ? "Cerrado"
+                                              : "¿?"}
+                                      </span>
                                     </button>
                                   )}
-                              </div>
-                            </div>
+                                <DriveSmartButton evt={evt} />
+                                <div className="flex flex-col gap-1 items-end">
+                                  <CommentButton
+                                    supabase={supabase}
+                                    entityType="EVENTO"
+                                    entityId={evt.id}
+                                    onClick={() =>
+                                      setCommentsState({
+                                        type: "EVENTO",
+                                        id: evt.id,
+                                      })
+                                    }
+                                    className="text-slate-300 p-1"
+                                  />
+                                  {!isOfflineMode &&
+                                    (isGlobalEditor || canUserEditEvent(evt)) && (
+                                      <button
+                                        onClick={() => openEditModal(evt)}
+                                        className="p-1 text-slate-300 bg-white rounded-full border border-slate-100"
+                                      >
+                                        <IconEdit size={14} />
+                                      </button>
+                                    )}
+                                </div>
+                              </>
+                            )}
                           </div>
                         </div>
 
@@ -1577,16 +1598,19 @@ export default function UnifiedAgenda({
                         {/* VISTA ESCRITORIO (Grid Columnar) - Visible solo en md+ */}
                         {/* ======================================================== */}
                         <div
-                          className={`hidden md:grid md:grid-cols-12 gap-2 p-3 pl-4 items-start border-b border-slate-100 transition-colors hover:bg-slate-50 group relative
-                            ${shouldDim ? "opacity-60 grayscale" : ""}
-                            ${evt.is_guest ? "bg-emerald-50/30" : ""}
-                            ${isMyTransport ? "bg-indigo-50/30" : ""}
-                            ${recentlyUpdatedEventIds.has(evt.id) ? "ring-2 ring-inset ring-indigo-400/70 animate-pulse" : ""}
+                          className={`hidden md:grid md:grid-cols-12 gap-2 p-3 pl-4 items-start border-b border-slate-100 transition-colors group relative
+                            ${shouldDim && !isDeleted ? "opacity-60 grayscale hover:bg-slate-50" : ""}
+                            ${isDeleted ? "bg-orange-50 opacity-80 line-through pointer-events-none" : ""}
+                            ${!isDeleted && evt.is_guest ? "bg-emerald-50/30 hover:bg-slate-50" : ""}
+                            ${!isDeleted && isMyTransport ? "bg-indigo-50/30 hover:bg-slate-50" : ""}
+                            ${isRecentlyModified && !isDeleted ? "ring-2 ring-blue-500 animate-pulse" : ""}
                           `}
                           style={
-                            !shouldDim && !evt.is_guest && !isMyTransport
-                              ? cardStyle
-                              : {}
+                            isDeleted
+                              ? { backgroundColor: "#fff7ed" }
+                              : !shouldDim && !evt.is_guest && !isMyTransport
+                                ? cardStyle
+                                : {}
                           }
                         >
                           <div
@@ -1602,12 +1626,12 @@ export default function UnifiedAgenda({
 
                           {/* COLUMNA 1: HORA */}
                           <div className="col-span-1">
-                            <div className="font-mono text-sm text-slate-700 font-bold">
+                            <div className={`font-mono text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}>
                               {evt.hora_inicio?.slice(0, 5)}
                             </div>
                             {evt.hora_fin &&
                               evt.hora_fin !== evt.hora_inicio && (
-                                <div className="font-mono text-[10px] text-slate-400">
+                                <div className={`font-mono text-[10px] ${isDeleted ? "text-orange-600" : "text-slate-400"}`}>
                                   {evt.hora_fin.slice(0, 5)}
                                 </div>
                               )}
@@ -1672,7 +1696,7 @@ export default function UnifiedAgenda({
                           {/* COLUMNA 3: DESCRIPCIÓN */}
                           <div className="col-span-4 min-w-0">
                             <div
-                              className={`text-sm leading-tight break-words ${shouldDim ? "text-slate-400" : "text-slate-800"}`}
+                              className={`text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
                             >
                               {evt.descripcion ? (
                                 <div
@@ -1682,7 +1706,7 @@ export default function UnifiedAgenda({
                                   }}
                                 />
                               ) : (
-                                <span className="font-bold text-slate-800">
+                                <span className={isDeleted ? "font-bold text-orange-700" : "font-bold text-slate-800"}>
                                   {evt.tipos_evento?.nombre}
                                 </span>
                               )}
@@ -1717,13 +1741,13 @@ export default function UnifiedAgenda({
                           {/* COLUMNA 4: LOCACIÓN */}
                           <div className="col-span-3 min-w-0">
                             {locName && (
-                              <div className="flex items-start gap-1.5">
+                              <div className={`flex items-start gap-1.5 ${isDeleted ? "text-orange-700" : ""}`}>
                                 <IconMapPin
                                   size={14}
-                                  className="text-slate-400 shrink-0 mt-0.5"
+                                  className={isDeleted ? "text-orange-600 shrink-0 mt-0.5" : "text-slate-400 shrink-0 mt-0.5"}
                                 />
                                 <div className="flex flex-col min-w-0">
-                                  <span className="text-xs font-semibold text-slate-700 truncate block">
+                                  <span className={`text-xs font-semibold truncate block ${isDeleted ? "text-orange-700" : "text-slate-700"}`}>
                                     {locName} {locCity ? `(${locCity})` : ""}
                                   </span>
                                   {evt.locaciones?.direccion && (
@@ -1744,6 +1768,20 @@ export default function UnifiedAgenda({
 
                           {/* COLUMNA 5: ACCIONES */}
                           <div className="col-span-2 flex flex-col items-end gap-2 pl-2 border-l border-slate-100 h-full">
+                            {isDeleted && (isEditor || isManagement) ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRestoreEvent(evt.id);
+                                }}
+                                className="pointer-events-auto p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors mt-auto"
+                                title="Restaurar evento"
+                              >
+                                <IconUndo size={18} />
+                              </button>
+                            ) : (
+                              <>
                             {isMeal &&
                               evt.is_convoked &&
                               user.id !== "guest-general" && (
@@ -1837,6 +1875,8 @@ export default function UnifiedAgenda({
                                   )}
                               </div>
                             </div>
+                              </>
+                            )}
                           </div>
                         </div>
                         </div>
