@@ -559,36 +559,51 @@ export function useMusicianForm(musician, supabase, onSave) {
 
   const handleCreateInitial = useCallback(
     async (formValues) => {
+      const nombre = (formValues.nombre || "").trim();
+      const apellido = (formValues.apellido || "").trim();
+      if (!nombre || !apellido) {
+        toast.error("Nombre y Apellido son obligatorios.");
+        return;
+      }
       setLoading(true);
       try {
+        const dniRaw = (formValues.dni || "").toString().replace(/\s/g, "").trim();
+        const cuilRaw = (formValues.cuil || "").toString().replace(/\s/g, "").trim();
         const payload = {
-          nombre: formValues.nombre,
-          apellido: formValues.apellido,
-          domicilio: formValues.domicilio || null,
+          nombre,
+          apellido,
+          domicilio: (formValues.domicilio || "").trim() || null,
           condicion: formValues.condicion || "Invitado",
           genero: formValues.genero || "-",
           rol_sistema: "user",
           nacionalidad: formValues.nacionalidad || "Argentina",
           id_instr: formValues.id_instr || null,
-          mail: formValues.mail || null,
-          telefono: formValues.telefono || null,
-          dni: formValues.dni || null,
-          cuil: formValues.cuil || null,
+          mail: (formValues.mail || "").trim() || null,
+          telefono: (formValues.telefono || "").trim() || null,
+          dni: dniRaw || null,
+          cuil: cuilRaw || null,
           fecha_nac: formValues.fecha_nac || null,
-          alimentacion: formValues.alimentacion || null,
+          alimentacion: (formValues.alimentacion || "").trim() || null,
           id_localidad: formValues.id_localidad || null,
           id_loc_viaticos: formValues.id_loc_viaticos || null,
           id_domicilio_laboral: formValues.id_domicilio_laboral || null,
           fecha_alta: formValues.fecha_alta || null,
           fecha_baja: formValues.fecha_baja || null,
-          email_acceso: formValues.email_acceso || null,
+          email_acceso: (formValues.email_acceso || "").trim() || null,
           clave_acceso: formValues.clave_acceso || null,
-          nota_interna: formValues.nota_interna || null,
+          nota_interna: (formValues.nota_interna || "").trim() || null,
           avatar_color: formValues.avatar_color || "#4f46e5",
-          cargo: formValues.cargo || null,
-          jornada: formValues.jornada || null,
-          motivo: formValues.motivo || null,
+          cargo: (formValues.cargo || "").trim() || null,
+          jornada: (formValues.jornada || "").trim() || null,
+          motivo: (formValues.motivo || "").trim() || null,
         };
+        if (process.env.NODE_ENV === "development") {
+          if (process.env.NODE_ENV === "development") {
+          if (process.env.NODE_ENV === "development") {
+          console.log("Creando Músico - Payload:", payload);
+        }
+        }
+        }
         const { data, error } = await supabase
           .from("integrantes")
           .insert([payload])
@@ -605,9 +620,10 @@ export function useMusicianForm(musician, supabase, onSave) {
         }
         reset({ ...getValues(), id: data.id });
         if (onSave) onSave(data, false);
+        toast.success("Ficha del músico creada correctamente.");
       } catch (error) {
-        console.error("Error al crear:", error.message);
-        toast.error("Error de base de datos: " + error.message);
+        console.error("Error al crear músico:", error);
+        toast.error("Error al crear: " + (error?.message || String(error)));
       } finally {
         setLoading(false);
       }

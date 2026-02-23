@@ -31,7 +31,6 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     loading,
     activeTab,
     setActiveTab,
-    isValid,
     handleSubmit,
     handleCreateInitial,
     cropModal,
@@ -43,6 +42,11 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     imgRef,
     handleConfirmCrop,
   } = ctx;
+
+  /** Habilitar "Crear Ficha" solo con nombre y apellido (mín. 2 caracteres cada uno) */
+  const canCreate =
+    (formData.nombre?.trim() || "").length >= 2 &&
+    (formData.apellido?.trim() || "").length >= 2;
 
   return (
     <MusicianFormContext.Provider value={{ ...ctx, onCancel }}>
@@ -126,15 +130,18 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
                 <button
                   type="button"
                   onClick={handleSubmit(handleCreateInitial)}
-                  disabled={loading || !isValid}
-                  className="bg-indigo-600 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={loading || !canCreate}
+                  className={`bg-indigo-600 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center gap-3 transition-all
+                    ${loading ? "opacity-80 cursor-wait" : ""}
+                    ${!canCreate && !loading ? "opacity-50 grayscale-[0.3] cursor-not-allowed" : "disabled:opacity-50 disabled:cursor-not-allowed"}
+                  `}
                 >
                   {loading ? (
                     <IconLoader className="animate-spin" size={18} />
                   ) : (
                     <IconSave size={18} />
                   )}{" "}
-                  CREAR FICHA
+                  {loading ? "Creando..." : "CREAR FICHA"}
                 </button>
               )}
               {formData.id && (

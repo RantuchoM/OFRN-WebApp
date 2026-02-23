@@ -264,6 +264,21 @@ export default function MusicianPersonalSection() {
         </div>
 
         <div className="space-y-1">
+          <label className={labelClass}>Condición</label>
+          <select
+            value={formData.condicion || "Estable"}
+            onChange={(e) => updateField("condicion", e.target.value)}
+            className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+          >
+            <option value="Estable">Estable</option>
+            <option value="Contratado">Contratado</option>
+            <option value="Refuerzo">Refuerzo</option>
+            <option value="Invitado">Invitado</option>
+            <option value="Becario">Becario</option>
+          </select>
+        </div>
+
+        <div className="space-y-1">
           <label className={labelClass}>Género</label>
           <select
             value={formData.genero || "-"}
