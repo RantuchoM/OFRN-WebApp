@@ -5,9 +5,11 @@ import React, {
   useMemo,
   useRef,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getProgramStyle } from "../../utils/giraUtils";
 import { toast } from "sonner";
 import {
   IconCalendar,
@@ -328,8 +330,11 @@ const RehearsalCardItem = ({
   );
 };
 
-const ProgramCardItem = ({ program, activeMembersSet, supabase }) => {
+const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
+  const navigate = useNavigate();
   const { roster, loading } = useGiraRoster(supabase, program);
+  const programStyle = getProgramStyle(program.tipo);
+
   if (loading)
     return (
       <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm animate-pulse h-24"></div>
@@ -351,26 +356,66 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase }) => {
       .join("\n");
     toast.success(`Integrantes convocados (${count}): ${names}`);
   };
+
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-full group">
+    <div
+      className={`rounded-lg border p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-full group ${programStyle.color}`}
+    >
       <div>
         <div className="flex justify-between items-start mb-1">
-          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider border bg-slate-50 text-slate-600 border-slate-200">
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider border border-inherit opacity-90">
             {program.tipo}
           </span>
-          <button
-            onClick={showMembersList}
-            className={`text-[10px] flex items-center gap-1 font-bold hover:underline ${isFull ? "text-green-600" : "text-amber-600"}`}
-          >
-            <IconUsers size={12} />
-            {isFull ? "Todos" : count}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate({ pathname: "/", search: `?tab=giras&view=AGENDA&giraId=${program.id}` });
+              }}
+              className="p-1 rounded opacity-70 hover:opacity-100 transition-opacity"
+              title="Ver Agenda"
+            >
+              <IconCalendar size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate({ pathname: "/", search: `?tab=giras&view=REPERTOIRE&giraId=${program.id}` });
+              }}
+              className="p-1 rounded opacity-70 hover:opacity-100 transition-opacity"
+              title="Ver Repertorio"
+            >
+              <IconMusic size={14} />
+            </button>
+            {program.tipo === "Ensamble" && onEdit && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit(program);
+                }}
+                className="p-1 rounded opacity-70 hover:opacity-100 transition-opacity"
+                title="Editar"
+              >
+                <IconEdit size={14} />
+              </button>
+            )}
+            <button
+              onClick={showMembersList}
+              className={`text-[10px] flex items-center gap-1 font-bold hover:underline ${isFull ? "text-green-600" : "text-amber-600"}`}
+            >
+              <IconUsers size={12} />
+              {isFull ? "Todos" : count}
+            </button>
+          </div>
         </div>
-        <h3 className="font-bold text-slate-800 text-sm leading-tight group-hover:text-indigo-700 transition-colors">
+        <h3 className="font-bold text-sm leading-tight group-hover:opacity-90 transition-opacity">
           {program.mes_letra} | {program.nomenclador} - {program.nombre_gira}
         </h3>
       </div>
-      <div className="text-[10px] text-slate-500 flex items-center gap-1 pt-2 border-t border-slate-100 mt-2">
+      <div className="text-[10px] opacity-80 flex items-center gap-1 pt-2 border-t border-current/20 mt-2">
         <IconCalendar size={10} />{" "}
         {format(new Date(program.fecha_desde), "d MMM", { locale: es })} -{" "}
         {format(new Date(program.fecha_hasta), "d MMM", { locale: es })}
@@ -724,6 +769,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   // Necesitamos este estado adicional para que GiraForm gestione los ensambles seleccionados
   const [selectedSources, setSelectedSources] = useState([]);
+  const [selectedLocations, setSelectedLocations] = useState(new Set());
+  const [selectedStaff, setSelectedStaff] = useState([]);
+  const [editingProgram, setEditingProgram] = useState(null);
 
   // Efecto para preseleccionar tu ensamble cuando se abre el modal
   useEffect(() => {
@@ -776,6 +824,92 @@ export default function EnsembleCoordinatorView({ supabase }) {
       toast.error("Error al crear: " + error.message);
     }
   };
+
+  const handleEditProgram = useCallback(
+    async (program) => {
+      if (!supabase || !program?.id) return;
+      try {
+        const [progRes, locRes, fuentesRes, staffRes] = await Promise.all([
+          supabase
+            .from("programas")
+            .select("*")
+            .eq("id", program.id)
+            .single(),
+          supabase
+            .from("giras_localidades")
+            .select("id_localidad")
+            .eq("id_gira", program.id),
+          supabase
+            .from("giras_fuentes")
+            .select("id_gira, tipo, valor_id, valor_texto")
+            .eq("id_gira", program.id),
+          supabase
+            .from("giras_integrantes")
+            .select("id_integrante, rol, integrantes(apellido, nombre)")
+            .eq("id_gira", program.id)
+            .in("rol", ["director", "solista"]),
+        ]);
+
+        const gira = progRes.data;
+        if (progRes.error || !gira) {
+          toast.error("No se pudo cargar el programa");
+          return;
+        }
+
+        setGiraFormData({
+          nombre_gira: gira.nombre_gira ?? "",
+          subtitulo: gira.subtitulo ?? "",
+          tipo: gira.tipo ?? "Ensamble",
+          fecha_desde: gira.fecha_desde ?? "",
+          fecha_hasta: gira.fecha_hasta ?? "",
+          estado: gira.estado ?? "Borrador",
+          zona: gira.zona ?? "",
+          token_publico: gira.token_publico ?? null,
+          nomenclador: gira.nomenclador ?? "",
+          notificaciones_habilitadas: gira.notificaciones_habilitadas !== false,
+        });
+
+        setSelectedLocations(
+          locRes.data
+            ? new Set(locRes.data.map((d) => d.id_localidad))
+            : new Set(),
+        );
+
+        const fuentes = (fuentesRes.data || []).map((f) => {
+          let label = f.valor_texto;
+          if (f.tipo === "ENSAMBLE") {
+            const found = allEnsembles.find(
+              (e) => String(e.id) === String(f.valor_id),
+            );
+            label = found ? found.ensamble : `Ensamble ${f.valor_id}`;
+          }
+          return {
+            tipo: f.tipo,
+            valor_id: f.valor_id,
+            valor_texto: f.valor_texto,
+            label,
+          };
+        });
+        setSelectedSources(fuentes);
+
+        const staff = (staffRes.data || []).map((i) => ({
+          id_integrante: i.id_integrante,
+          rol: i.rol,
+          label: i.integrantes
+            ? `${i.integrantes.apellido}, ${i.integrantes.nombre}`
+            : "Desconocido",
+        }));
+        setSelectedStaff(staff);
+
+        setEditingProgram(program);
+      } catch (err) {
+        console.error("[EnsembleCoordinator] handleEditProgram:", err);
+        toast.error("Error al cargar el programa: " + (err?.message ?? err));
+      }
+    },
+    [supabase, allEnsembles],
+  );
+
   // UI States
   const [activeTab, setActiveTab] = useState("ensayos");
   const [showOverlapOptions, setShowOverlapOptions] = useState(false);
@@ -1918,6 +2052,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                     program={prog}
                     activeMembersSet={activeMembersSet}
                     supabase={supabase}
+                    onEdit={handleEditProgram}
                   />
                 ))}
               </div>
@@ -2182,33 +2317,41 @@ export default function EnsembleCoordinatorView({ supabase }) {
           </div>
         </div>
       )}
-      {isGiraModalOpen && (
+      {(isGiraModalOpen || editingProgram) && (
         <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-2xl p-4">
             <GiraForm
               supabase={supabase}
-              isNew={true}
+              giraId={editingProgram?.id ?? null}
+              isNew={!editingProgram}
               formData={giraFormData}
               setFormData={setGiraFormData}
               onCancel={() => {
-                setIsGiraModalOpen(false);
-                setSelectedSources([]);
+                if (editingProgram) {
+                  setEditingProgram(null);
+                  queryClient.invalidateQueries(["programs"]);
+                } else {
+                  setIsGiraModalOpen(false);
+                  setSelectedSources([]);
+                }
               }}
-              onSave={handleSaveGira}
-              // PASAMOS LA LISTA COMPLETA DE ENSAMBLES
+              onSave={editingProgram ? () => {} : handleSaveGira}
+              onRefresh={editingProgram ? () => queryClient.invalidateQueries(["programs"]) : undefined}
+              enableAutoSave={!!editingProgram}
+              isCoordinator={true}
+              coordinatedEnsembles={myEnsembles.map((e) => e.id)}
               ensemblesList={allEnsembles.map((e) => ({
                 value: e.id,
                 label: e.ensamble,
               }))}
               allIntegrantes={membersOptions}
-              // PASAMOS EL ESTADO DE FUENTES PARA QUE SE PUEDAN SELECCIONAR VARIOS
               selectedSources={selectedSources}
               setSelectedSources={setSelectedSources}
-              // Props de seguridad para evitar errores
-              selectedStaff={[]}
-              setSelectedStaff={() => {}}
-              selectedLocations={new Set()}
-              setSelectedLocations={() => {}}
+              selectedStaff={editingProgram ? selectedStaff : []}
+              setSelectedStaff={editingProgram ? setSelectedStaff : () => {}}
+              selectedLocations={editingProgram ? selectedLocations : new Set()}
+              setSelectedLocations={editingProgram ? setSelectedLocations : () => {}}
+              locationsList={locationsList}
             />
           </div>
         </div>

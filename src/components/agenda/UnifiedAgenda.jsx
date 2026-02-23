@@ -23,6 +23,7 @@ import {
   IconUtensils,
   IconFilter,
   IconUndo,
+  IconHistory,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -51,6 +52,7 @@ import ConnectionBadge from "./ConnectionBadge";
 import DriveSmartButton from "./DriveSmartButton";
 import TourDivider from "./TourDivider";
 import AgendaMealActionModal from "./AgendaMealActionModal";
+import EventHistoryModal from "../giras/EventHistoryModal";
 
 export default function UnifiedAgenda({
   supabase,
@@ -249,6 +251,7 @@ export default function UnifiedAgenda({
   useClickOutside(filterMenuRef, () => setIsFilterMenuOpen(false));
 
   const [commentsState, setCommentsState] = useState(null);
+  const [eventHistoryEvent, setEventHistoryEvent] = useState(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isRehearsalEditOpen, setIsRehearsalEditOpen] = useState(false);
   const [editFormData, setEditFormData] = useState({});
@@ -1579,6 +1582,19 @@ export default function UnifiedAgenda({
                                     }
                                     className="text-slate-300 p-1"
                                   />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setEventHistoryEvent({
+                                        id: evt.id,
+                                        label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
+                                      })
+                                    }
+                                    className="p-1 text-slate-300 hover:text-indigo-500 rounded-full border border-transparent hover:border-indigo-100"
+                                    title="Ver historial de cambios"
+                                  >
+                                    <IconHistory size={14} />
+                                  </button>
                                   {!isOfflineMode &&
                                     (isGlobalEditor || canUserEditEvent(evt)) && (
                                       <button
@@ -1851,29 +1867,42 @@ export default function UnifiedAgenda({
                                     </button>
                                   )}
                               </div>
-                              <div className="flex gap-1">
-                                <CommentButton
-                                  supabase={supabase}
-                                  entityType="EVENTO"
-                                  entityId={evt.id}
-                                  onClick={() =>
-                                    setCommentsState({
-                                      type: "EVENTO",
-                                      id: evt.id,
-                                    })
-                                  }
-                                  className="p-1.5 text-slate-300 hover:text-indigo-500"
-                                />
-                                {!isOfflineMode &&
-                                  (isGlobalEditor || canUserEditEvent(evt)) && (
+                                  <div className="flex gap-1">
+                                    <CommentButton
+                                      supabase={supabase}
+                                      entityType="EVENTO"
+                                      entityId={evt.id}
+                                      onClick={() =>
+                                        setCommentsState({
+                                          type: "EVENTO",
+                                          id: evt.id,
+                                        })
+                                      }
+                                      className="p-1.5 text-slate-300 hover:text-indigo-500"
+                                    />
                                     <button
-                                      onClick={() => openEditModal(evt)}
+                                      type="button"
+                                      onClick={() =>
+                                        setEventHistoryEvent({
+                                          id: evt.id,
+                                          label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
+                                        })
+                                      }
                                       className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-slate-100 rounded-full"
+                                      title="Ver historial de cambios"
                                     >
-                                      <IconEdit size={14} />
+                                      <IconHistory size={14} />
                                     </button>
-                                  )}
-                              </div>
+                                    {!isOfflineMode &&
+                                      (isGlobalEditor || canUserEditEvent(evt)) && (
+                                        <button
+                                          onClick={() => openEditModal(evt)}
+                                          className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-slate-100 rounded-full"
+                                        >
+                                          <IconEdit size={14} />
+                                        </button>
+                                      )}
+                                  </div>
                             </div>
                               </>
                             )}
@@ -1955,6 +1984,14 @@ export default function UnifiedAgenda({
         isManagement={isManagement}
         isEditor={isEditor}
       />
+      {eventHistoryEvent && (
+        <EventHistoryModal
+          supabase={supabase}
+          eventId={eventHistoryEvent.id}
+          eventLabel={eventHistoryEvent.label}
+          onClose={() => setEventHistoryEvent(null)}
+        />
+      )}
       {isCreating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <EventForm

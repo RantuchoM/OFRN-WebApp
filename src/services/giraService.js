@@ -364,3 +364,26 @@ export const getMyRoomingStatus = async (supabase, giraId, userId) => {
     return null;
   }
 };
+
+/**
+ * Obtiene el historial de cambios (logs) de un evento.
+ * Solo se registran cambios en fecha, hora_inicio y hora_fin para eventos sensibles (Conciertos, Ensayos, Transporte).
+ * @param {object} supabase - Cliente Supabase
+ * @param {number|string} eventId - ID del evento
+ * @returns {Promise<Array<{ id, id_evento, campo, valor_anterior, valor_nuevo, created_at }>>}
+ */
+export const getEventLogs = async (supabase, eventId) => {
+  if (!supabase || eventId == null) return [];
+  try {
+    const { data, error } = await supabase
+      .from("eventos_logs")
+      .select("id, id_evento, campo, valor_anterior, valor_nuevo, created_at")
+      .eq("id_evento", eventId)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error("[GiraService] getEventLogs:", err);
+    return [];
+  }
+};
