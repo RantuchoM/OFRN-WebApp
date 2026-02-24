@@ -648,17 +648,18 @@ export default function RepertoireManager({
   const moveWork = async (repertorioId, workId, direction) => {
     if (!isEditor) return;
     const repIndex = repertorios.findIndex((r) => r.id === repertorioId);
-    const obras = [...repertorios[repIndex].repertorio_obras];
+    if (repIndex === -1) return;
+    const currentRep = repertorios[repIndex];
+    const obras = [...(currentRep.repertorio_obras || [])];
+    if (obras.length === 0) return;
     const workIndex = obras.findIndex((o) => o.id === workId);
-    if (
-      (direction === -1 && workIndex === 0) ||
-      (direction === 1 && workIndex === obras.length - 1)
-    )
-      return;
+    if (workIndex === -1) return;
+    const targetIndex = workIndex + direction;
+    if (targetIndex < 0 || targetIndex >= obras.length) return;
     const itemA = obras[workIndex];
-    const itemB = obras[workIndex + direction];
+    const itemB = obras[targetIndex];
     [itemA.orden, itemB.orden] = [itemB.orden, itemA.orden];
-    [obras[workIndex], obras[workIndex + direction]] = [itemB, itemA];
+    [obras[workIndex], obras[targetIndex]] = [itemB, itemA];
     const newRepertorios = [...repertorios];
     newRepertorios[repIndex].repertorio_obras = obras;
     setRepertorios(newRepertorios);
@@ -1059,14 +1060,14 @@ export default function RepertoireManager({
           )}
         </td>
         <td className="p-1 text-center font-bold text-slate-500">
-          <div className="flex flex-col items-center">
+          <div className="flex flex-col items-center gap-0.5">
             {isEditor && !isCompact && (
               <button
                 onClick={() => moveWork(rep.id, item.id, -1)}
                 disabled={idx === 0}
-                className="text-slate-300 hover:text-fixed-indigo-600 disabled:opacity-0 p-0.5"
+                className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 text-slate-700 shadow-sm hover:bg-slate-200 disabled:opacity-25"
               >
-                <IconChevronDown size={8} className="rotate-180" />
+                <IconChevronDown size={10} className="rotate-180" />
               </button>
             )}
             <span>{idx + 1}</span>
@@ -1074,9 +1075,9 @@ export default function RepertoireManager({
               <button
                 onClick={() => moveWork(rep.id, item.id, 1)}
                 disabled={idx === rep.repertorio_obras.length - 1}
-                className="text-slate-300 hover:text-fixed-indigo-600 disabled:opacity-0 p-0.5"
+                className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 text-slate-700 shadow-sm hover:bg-slate-200 disabled:opacity-25"
               >
-                <IconChevronDown size={8} />
+                <IconChevronDown size={10} />
               </button>
             )}
           </div>
@@ -1295,174 +1296,235 @@ export default function RepertoireManager({
                 // Está cargada si existe myPartData y tiene URL
                 const hasUploadedPart = !!myPartData?.url;
 
-                // Informativo: azul; Verde si está cargada, Gris si no (independiente de exclusión)
-                const isInformativo = item.obras.estado === "Informativo";
-                const borderClass = isInformativo
-                  ? "bg-blue-500"
-                  : hasUploadedPart
-                    ? "bg-emerald-500"
-                    : "bg-slate-300";
-                const cardBorderClass = isInformativo
-                  ? "border-blue-400 bg-blue-50/50"
-                  : "border-slate-200";
+                const estado = item.obras.estado;
+                let borderClass = "bg-slate-300";
+                let cardBorderClass = "border-slate-200";
+
+                if (estado === "Informativo") {
+                  borderClass = "bg-blue-500";
+                  cardBorderClass = "border-blue-400 bg-blue-50/50";
+                } else if (estado === "Solicitud") {
+                  borderClass = "bg-amber-500";
+                  cardBorderClass = "border-amber-300 bg-amber-50/50";
+                } else if (estado === "Oficial") {
+                  borderClass = "bg-emerald-500";
+                  cardBorderClass = "border-emerald-300 bg-emerald-50/60";
+                } else if (!estado && hasUploadedPart) {
+                  borderClass = "bg-emerald-500";
+                  cardBorderClass = "border-emerald-300 bg-emerald-50/40";
+                }
 
                 return (
                   <div
                     key={item.id}
                     className={`rounded-lg border shadow-sm p-2 relative overflow-hidden ${cardBorderClass}`}
                   >
-                    {/* Barra lateral de estado (Informativo / Cargada / No Cargada) */}
+                    {/* Barra lateral de estado */}
                     <div
                       className={`absolute left-0 top-0 bottom-0 w-1 ${borderClass}`}
                     ></div>
 
-                    {/* Fila 1: Orden, Compositor, Duración */}
-                    <div className="flex justify-between items-start mb-1 pl-2">
-                      <div className="flex items-center gap-2">
-                        <span className="bg-slate-100 text-slate-500 text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full relative">
-                          {idx + 1}
-                          {/* ICONO OJO TACHADO SI ESTÁ EXCLUIDA (Solo visual) */}
-                          {item.excluir && (
-                            <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 border border-red-100">
-                              <IconEyeOff size={8} className="text-red-500" />
-                            </div>
+                    <div className="flex gap-2 pl-2 pr-1">
+                      <div className="flex-1 min-w-0">
+                        {/* Fila 1: Orden, Compositor, Duración */}
+                        <div className="flex justify-between items-start mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="bg-slate-100 text-slate-500 text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full relative">
+                              {idx + 1}
+                              {/* ICONO OJO TACHADO SI ESTÁ EXCLUIDA (Solo visual) */}
+                              {item.excluir && (
+                                <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 border border-red-100">
+                                  <IconEyeOff size={8} className="text-red-500" />
+                                </div>
+                              )}
+                            </span>
+                            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide truncate max-w-[150px]">
+                              {getComposers(item.obras)}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-mono bg-slate-50 px-1.5 py-0.5 rounded text-slate-600 border border-slate-100">
+                            {formatSecondsToTime(item.obras.duracion_segundos)}
+                          </span>
+                        </div>
+
+                        {/* Fila 2: Título Multi-línea */}
+                        <div className="mb-1">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <MultiLineTitle content={item.obras.titulo} />
+                            {item.obras.estado === "Informativo" && (
+                              <span className="text-[8px] bg-blue-100 text-blue-600 px-1 rounded border border-blue-200 align-text-top">
+                                INFO
+                              </span>
+                            )}
+                          </div>
+                          {canSeeInternalNotes &&
+                            (item.obras.estado === "Solicitud" ||
+                              item.obras.estado === "Pendiente") &&
+                            (item.obras.nota_interna ||
+                              item.obras.observaciones ||
+                              item.obras.comentarios) && (
+                              <div className="group relative w-fit mt-1">
+                                <div className="bg-yellow-100 border border-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded-sm shadow-sm flex items-center gap-1 cursor-help transform -rotate-1 hover:rotate-0 transition-transform origin-left max-w-[160px]">
+                                  <span className="text-[9px]">📝</span>
+                                  <span className="truncate font-normal">
+                                    {(item.obras.nota_interna ||
+                                      item.obras.observaciones ||
+                                      item.obras.comentarios)
+                                      ?.replace(/<[^>]*>?/gm, "")
+                                      .trim()
+                                      .slice(0, 60)}
+                                    {((item.obras.nota_interna ||
+                                      item.obras.observaciones ||
+                                      item.obras.comentarios)
+                                      ?.replace(/<[^>]*>?/gm, "")
+                                      .trim().length || 0) > 60
+                                      ? "…"
+                                      : ""}
+                                  </span>
+                                </div>
+                                <div className="absolute left-0 top-full mt-1 hidden group-hover:block w-56 bg-yellow-50 border border-yellow-200 shadow-xl p-2 rounded text-xs font-normal text-slate-700 z-[60] whitespace-normal animate-in fade-in zoom-in-95">
+                                  {(item.obras.nota_interna ||
+                                    item.obras.observaciones ||
+                                    item.obras.comentarios)
+                                    ?.replace(/<[^>]*>?/gm, " ")
+                                    .replace(/\s+/g, " ")
+                                    .trim()}
+                                </div>
+                              </div>
+                            )}
+                          {getArranger(item.obras) !== "-" && (
+                            <p className="text-[10px] text-slate-400 italic mt-0.5">
+                              Arr: {getArranger(item.obras)}
+                            </p>
                           )}
-                        </span>
-                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide truncate max-w-[150px]">
-                          {getComposers(item.obras)}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-mono bg-slate-50 px-1.5 py-0.5 rounded text-slate-600 border border-slate-100">
-                        {formatSecondsToTime(item.obras.duracion_segundos)}
-                      </span>
-                    </div>
+                        </div>
 
-                    {/* Fila 2: Título Multi-línea */}
-                    <div className="pl-2 mb-1">
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <MultiLineTitle content={item.obras.titulo} />
-                        {item.obras.estado === "Informativo" && (
-                          <span className="text-[8px] bg-blue-100 text-blue-600 px-1 rounded border border-blue-200 align-text-top">INFO</span>
-                        )}
-                      </div>
-                      {canSeeInternalNotes && (item.obras.estado === "Solicitud" || item.obras.estado === "Pendiente") && (item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios) && (
-                        <div className="group relative w-fit mt-1">
-                          <div className="bg-yellow-100 border border-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded-sm shadow-sm flex items-center gap-1 cursor-help transform -rotate-1 hover:rotate-0 transition-transform origin-left max-w-[160px]">
-                            <span className="text-[9px]">📝</span>
-                            <span className="truncate font-normal">
-                              {(item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, "").trim().slice(0, 60)}
-                              {((item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, "").trim().length || 0) > 60 ? "…" : ""}
-                            </span>
+                        {/* Fila 3: Instrumentación + Mi Parte */}
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <span className="text-[10px] font-mono text-slate-500 bg-slate-50 px-1 rounded">
+                            {item.obras.instrumentacion ||
+                              calculateInstrumentation(
+                                item.obras.obras_particellas,
+                              ) ||
+                              "-"}
+                          </span>
+                          {renderMyPartBadge(item.obras)}
+                        </div>
+
+                        {/* Fila 4: Notas */}
+                        {item.notas_especificas && (
+                          <div className="mb-2">
+                            <div className="bg-yellow-50 border border-yellow-100 text-yellow-800 text-[10px] p-1.5 rounded relative">
+                              <IconAlertCircle
+                                size={10}
+                                className="absolute top-2 left-1 opacity-50"
+                              />
+                              <div className="pl-3 leading-tight">
+                                <RichTextPreview content={item.notas_especificas} />
+                              </div>
+                            </div>
                           </div>
-                          <div className="absolute left-0 top-full mt-1 hidden group-hover:block w-56 bg-yellow-50 border border-yellow-200 shadow-xl p-2 rounded text-xs font-normal text-slate-700 z-[60] whitespace-normal animate-in fade-in zoom-in-95">
-                            {(item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, " ").replace(/\s+/g, " ").trim()}
+                        )}
+
+                        {/* Fila 5: Solistas */}
+                        {(item.ids_solistas || item.id_solista) && (
+                          <div className="flex flex-wrap items-center gap-1 mb-2">
+                            {(
+                              item.ids_solistas ||
+                              (item.id_solista ? [item.id_solista] : [])
+                            ).map((id) => {
+                              const m = musicians.find((mus) => mus.id === id);
+                              return m ? (
+                                <span
+                                  key={id}
+                                  className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100"
+                                >
+                                  ★ {`${m.apellido}, ${m.nombre}`}
+                                </span>
+                              ) : null;
+                            })}
+                          </div>
+                        )}
+
+                        {/* Fila 6: Botonera inferior */}
+                        <div className="pt-1 border-t border-slate-50 flex justify-between items-center">
+                          <div className="flex gap-3">
+                            {(item.google_drive_shortcut_id ||
+                              item.obras.link_drive) && (
+                              <a
+                                href={item.obras.link_drive}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-600 flex items-center gap-1 text-[10px] font-medium"
+                              >
+                                <IconDrive size={12} /> Drive
+                              </a>
+                            )}
+                            {item.obras.link_youtube && (
+                              <a
+                                href={item.obras.link_youtube}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-red-600 flex items-center gap-1 text-[10px] font-medium"
+                              >
+                                <IconYoutube size={12} /> Video
+                              </a>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <CommentButton
+                              supabase={supabase}
+                              entityType="OBRA"
+                              entityId={item.id}
+                              onClick={() =>
+                                setCommentsState({
+                                  type: "OBRA",
+                                  id: item.id,
+                                  title: item.obras.titulo,
+                                })
+                              }
+                              className="text-slate-400 hover:text-fixed-indigo-600 p-1"
+                            />
                           </div>
                         </div>
-                      )}
-                      {getArranger(item.obras) !== "-" && (
-                        <p className="text-[10px] text-slate-400 italic mt-0.5">
-                          Arr: {getArranger(item.obras)}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Fila 3: Instrumentación + Mi Parte */}
-                    <div className="pl-2 flex flex-wrap items-center gap-2 mb-2">
-                      <span className="text-[10px] font-mono text-slate-500 bg-slate-50 px-1 rounded">
-                        {item.obras.instrumentacion ||
-                          calculateInstrumentation(
-                            item.obras.obras_particellas,
-                          ) ||
-                          "-"}
-                      </span>
-                      {renderMyPartBadge(item.obras)}
-                    </div>
-
-                    {/* Fila 4: Notas */}
-                    {item.notas_especificas && (
-                      <div className="pl-2 mb-2">
-                        <div className="bg-yellow-50 border border-yellow-100 text-yellow-800 text-[10px] p-1.5 rounded relative">
-                          <IconAlertCircle
-                            size={10}
-                            className="absolute top-2 left-1 opacity-50"
-                          />
-                          <div className="pl-3 leading-tight">
-                            <RichTextPreview content={item.notas_especificas} />
-                          </div>
-                        </div>
                       </div>
-                    )}
 
-                    {/* Fila 5: Solistas */}
-                    {(item.ids_solistas || item.id_solista) && (
-                      <div className="pl-2 flex flex-wrap items-center gap-1 mb-2">
-                        {(
-                          item.ids_solistas ||
-                          (item.id_solista ? [item.id_solista] : [])
-                        ).map((id) => {
-                          const m = musicians.find((mus) => mus.id === id);
-                          return m ? (
-                            <span
-                              key={id}
-                              className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100"
-                            >
-                              ★ {`${m.apellido}, ${m.nombre}`}
-                            </span>
-                          ) : null;
-                        })}
-                      </div>
-                    )}
-
-                    {/* Fila 6: Botonera */}
-                    <div className="pl-2 pt-1 border-t border-slate-50 flex justify-between items-center">
-                      <div className="flex gap-3">
-                        {(item.google_drive_shortcut_id ||
-                          item.obras.link_drive) && (
-                          <a
-                            href={item.obras.link_drive}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-blue-600 flex items-center gap-1 text-[10px] font-medium"
+                      {/* Columna de acciones (orden / editar / borrar) */}
+                      {isEditor && (
+                        <div className="flex flex-col items-center justify-between py-1">
+                          <button
+                            onClick={() => moveWork(rep.id, item.id, -1)}
+                            disabled={idx === 0}
+                            className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 text-slate-700 shadow-sm hover:bg-slate-200 disabled:opacity-25"
+                            title="Mover arriba"
                           >
-                            <IconDrive size={12} /> Drive
-                          </a>
-                        )}
-                        {item.obras.link_youtube && (
-                          <a
-                            href={item.obras.link_youtube}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-red-600 flex items-center gap-1 text-[10px] font-medium"
-                          >
-                            <IconYoutube size={12} /> Video
-                          </a>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        <CommentButton
-                          supabase={supabase}
-                          entityType="OBRA"
-                          entityId={item.id}
-                          onClick={() =>
-                            setCommentsState({
-                              type: "OBRA",
-                              id: item.id,
-                              title: item.obras.titulo,
-                            })
-                          }
-                          className="text-slate-400 hover:text-fixed-indigo-600 p-1"
-                        />
-                        {/* Botones de edición (si es editor) */}
-                        {isEditor && (
+                            <IconChevronDown size={14} className="rotate-180" />
+                          </button>
                           <button
                             onClick={() => openEditModal(item)}
-                            className="text-slate-300 hover:text-fixed-indigo-600 p-1"
+                            className="w-7 h-7 mt-1 mb-1 flex items-center justify-center rounded-full bg-slate-100 text-slate-700 shadow-sm hover:bg-slate-200"
+                            title="Editar obra"
                           >
-                            <IconEdit size={12} />
+                            <IconEdit size={14} />
                           </button>
-                        )}
-                      </div>
+                          <button
+                            onClick={() => moveWork(rep.id, item.id, 1)}
+                            disabled={idx === rep.repertorio_obras.length - 1}
+                            className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 text-slate-700 shadow-sm hover:bg-slate-200 disabled:opacity-25"
+                            title="Mover abajo"
+                          >
+                            <IconChevronDown size={14} />
+                          </button>
+                          <button
+                            onClick={() => removeWork(item.id)}
+                            className="w-7 h-7 mt-1 flex items-center justify-center rounded-full bg-red-50 text-red-500 shadow-sm hover:bg-red-100"
+                            title="Eliminar obra"
+                          >
+                            <IconTrash size={14} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -1532,7 +1594,7 @@ export default function RepertoireManager({
                           ? "bg-blue-50 hover:bg-blue-100 border-l-2 border-blue-400"
                           : item.obras.estado !== "Oficial"
                             ? "bg-amber-50 hover:bg-amber-100"
-                            : "hover:bg-yellow-50"
+                            : "bg-emerald-50 hover:bg-emerald-100 border-l-2 border-emerald-400"
                       }`}
                       isEditor={isEditor}
                       isCompact={isCompact}
@@ -1827,7 +1889,7 @@ export default function RepertoireManager({
                                 onClick={() => removeWork(item.id)}
                                 className="text-slate-300 hover:text-red-600 p-1"
                               >
-                                <IconX size={12} />
+                                <IconTrash size={12} />
                               </button>
                             </>
                           )}
