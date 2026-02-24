@@ -1060,27 +1060,7 @@ export default function RepertoireManager({
           )}
         </td>
         <td className="p-1 text-center font-bold text-slate-500">
-          <div className="flex flex-col items-center gap-0.5">
-            {isEditor && !isCompact && (
-              <button
-                onClick={() => moveWork(rep.id, item.id, -1)}
-                disabled={idx === 0}
-                className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 text-slate-700 shadow-sm hover:bg-slate-200 disabled:opacity-25"
-              >
-                <IconChevronDown size={10} className="rotate-180" />
-              </button>
-            )}
-            <span>{idx + 1}</span>
-            {isEditor && !isCompact && (
-              <button
-                onClick={() => moveWork(rep.id, item.id, 1)}
-                disabled={idx === rep.repertorio_obras.length - 1}
-                className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 text-slate-700 shadow-sm hover:bg-slate-200 disabled:opacity-25"
-              >
-                <IconChevronDown size={10} />
-              </button>
-            )}
-          </div>
+          <span>{idx + 1}</span>
         </td>
         {children}
       </tr>
