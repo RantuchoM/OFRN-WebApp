@@ -937,12 +937,14 @@ export default function ViaticosManager({ supabase, giraId }) {
         const person = row.integrantes || {};
         const effectiveSubtotal = getEffectiveSubtotalForExport(row);
         return {
-          ...row,
+          // Datos base de la persona (nombre, apellido, etc.)
           ...person,
+          // Datos editados de la fila (incluye row.motivo, que debe prevalecer)
+          ...row,
           subtotal: effectiveSubtotal,
           documentacion:
-            person.documentacion || person.documentacion || row.documentacion,
-          docred: person.docred || person.docred || row.docred,
+            person.documentacion || row.documentacion,
+          docred: person.docred || row.docred,
         };
       });
 
