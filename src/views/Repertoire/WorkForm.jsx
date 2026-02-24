@@ -155,6 +155,8 @@ export default function WorkForm({
     catalogoInstrumentos || [],
   );
   const [composersOptions, setComposersOptions] = useState([]);
+  const [tagsOptions, setTagsOptions] = useState([]);
+  const [selectedTags, setSelectedTags] = useState([]);
   const [genInstrument, setGenInstrument] = useState("");
   const [genQuantity, setGenQuantity] = useState(1);
   const [instrumentQuery, setInstrumentQuery] = useState("");
@@ -208,6 +210,7 @@ export default function WorkForm({
   useEffect(() => {
     if (instrumentList.length === 0) fetchInstruments();
     fetchComposers();
+    fetchTagsOptions();
     if (initialData?.id) {
       fetchParticellas(initialData.id);
       fetchWorkDetails(initialData.id);
@@ -219,7 +222,9 @@ export default function WorkForm({
   const fetchWorkDetails = async (workId) => {
     const { data } = await supabase
       .from("obras")
-      .select("*, obras_compositores(rol, id_compositor)")
+      .select(
+        "*, obras_compositores(rol, id_compositor), obras_palabras_clave (palabras_clave (id, tag))",
+      )
       .eq("id", workId)
       .single();
 
@@ -242,6 +247,11 @@ export default function WorkForm({
           .filter((oc) => oc.rol === "arreglador")
           .map((oc) => oc.id_compositor),
       );
+      setSelectedTags(
+        (data.obras_palabras_clave || [])
+          .map((opc) => opc.palabras_clave?.id)
+          .filter(Boolean),
+      );
     }
   };
 
@@ -262,6 +272,14 @@ export default function WorkForm({
       setComposersOptions(
         data.map((c) => ({ id: c.id, label: `${c.apellido}, ${c.nombre}` })),
       );
+  };
+
+  const fetchTagsOptions = async () => {
+    const { data } = await supabase
+      .from("palabras_clave")
+      .select("id, tag")
+      .order("tag");
+    if (data) setTagsOptions(data);
   };
 
   // --- Auto-enrichment: título + compositor → YouTube suggestions + year ---
@@ -699,6 +717,24 @@ export default function WorkForm({
     if (onSave) onSave(formData.id, false);
   };
 
+  const updateTagRelations = async (ids) => {
+    if (!formData.id) {
+      return;
+    }
+    setSaveStatus("saving");
+    await supabase.from("obras_palabras_clave").delete().eq("id_obra", formData.id);
+    if (ids.length > 0) {
+      await supabase.from("obras_palabras_clave").insert(
+        ids.map((id) => ({
+          id_obra: formData.id,
+          id_palabra_clave: id,
+        })),
+      );
+    }
+    setSaveStatus("saved");
+    if (onSave) onSave(formData.id, false);
+  };
+
   const handlePartsChange = async (newPartsList, overrideId = null) => {
     const targetId = overrideId || formData.id;
     setParticellas(newPartsList);
@@ -846,6 +882,15 @@ export default function WorkForm({
 
         if (relations.length > 0) {
           await supabase.from("obras_compositores").insert(relations);
+        }
+
+        if (selectedTags.length > 0) {
+          await supabase.from("obras_palabras_clave").insert(
+            selectedTags.map((id) => ({
+              id_obra: newId,
+              id_palabra_clave: id,
+            })),
+          );
         }
 
         if (particellas.length > 0) {
@@ -1221,109 +1266,126 @@ export default function WorkForm({
           />
         </div>
 
-        <div className="md:col-span-2">
-          <label className="text-[10px] font-bold uppercase text-indigo-600 mb-1 flex items-center gap-1">
-            <IconDrive size={12} /> Carpeta Drive de Material
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              className={getInputClass("link_drive", "text-xs text-blue-600")}
-              value={formData.link_drive ?? ""}
-              onChange={(e) => updateField("link_drive", e.target.value)}
-              placeholder="URL carpeta..."
-            />
-            {formData.id && formData.link_drive && (
-              <button
-                onClick={() => setShowDriveMatcher(true)}
-                className="bg-blue-600 text-white px-3 rounded shadow hover:bg-blue-700 transition-colors"
-              >
-                <IconLink size={16} />
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="md:col-span-2 relative">
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <label className="text-[10px] font-bold uppercase text-red-600 flex items-center gap-1">
-              <IconYoutube size={12} /> Link Audio / Video
-              {loadingYouTube && <IconLoader size={12} className="animate-spin text-red-500" />}
+        <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+          <div>
+            <label className="text-[10px] font-bold uppercase text-indigo-600 mb-1 flex items-center gap-1">
+              <IconDrive size={12} /> Carpeta Drive de Material
             </label>
-            <button
-              type="button"
-              onClick={searchYoutubeOnDemand}
-              disabled={loadingYouTube || !stripHtml(formData.titulo) || !selectedComposers?.length}
-              className="text-[10px] font-medium text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-            >
-              <IconYoutube size={10} />
-              Sugerencias de YouTube
-            </button>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className={getInputClass("link_drive", "text-xs text-blue-600")}
+                value={formData.link_drive ?? ""}
+                onChange={(e) => updateField("link_drive", e.target.value)}
+                placeholder="URL carpeta..."
+              />
+              {formData.id && formData.link_drive && (
+                <button
+                  onClick={() => setShowDriveMatcher(true)}
+                  className="bg-blue-600 text-white px-3 rounded shadow hover:bg-blue-700 transition-colors"
+                >
+                  <IconLink size={16} />
+                </button>
+              )}
+            </div>
           </div>
-          <input
-            type="text"
-            className={getInputClass("link_youtube", "text-xs")}
-            value={formData.link_youtube ?? ""}
-            onChange={(e) => updateField("link_youtube", e.target.value)}
-            onFocus={() => youtubeSuggestions.length > 0 && setShowYoutubePopover(true)}
-            placeholder="Spotify / Youtube..."
-          />
-          {showYoutubePopover && youtubeSuggestions.length > 0 && !formData.link_youtube?.trim() && (
-            <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
-              <div className="p-1.5 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500">
-                Sugerencias (5)
-              </div>
-              <ul className="max-h-64 overflow-y-auto">
-                {youtubeSuggestions.slice(0, 5).map((item) => (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => applyYoutubeSuggestion(item)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2"
-                    >
-                      {(item.thumbnailUrl ?? item.snippet?.thumbnails?.default?.url) ? (
-                        <img
-                          src={item.thumbnailUrl ?? item.snippet?.thumbnails?.default?.url}
-                          alt=""
-                          className="w-12 h-9 object-cover rounded shrink-0"
-                        />
-                      ) : (
-                        <IconYoutube size={14} className="text-red-500 shrink-0" />
-                      )}
-                      <span className="truncate flex-1" title={item.title ?? item.snippet?.title}>
-                        {item.title ?? item.snippet?.title}
-                      </span>
-                      {(item.durationSeconds ?? item.contentDetails?.duration) != null && (
-                        <span className="text-slate-400 shrink-0">
-                          {formatSecondsToTime(
-                            item.durationSeconds ??
-                              parseDurationToSeconds(item.contentDetails?.duration) ?? 0,
-                          )}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+          <div className="relative">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className="text-[10px] font-bold uppercase text-red-600 flex items-center gap-1">
+                <IconYoutube size={12} /> Link Audio / Video
+                {loadingYouTube && <IconLoader size={12} className="animate-spin text-red-500" />}
+              </label>
               <button
                 type="button"
-                onClick={() => setShowYoutubePopover(false)}
-                className="w-full py-1.5 text-[10px] text-slate-500 hover:bg-slate-100 border-t border-slate-100"
+                onClick={searchYoutubeOnDemand}
+                disabled={loadingYouTube || !stripHtml(formData.titulo) || !selectedComposers?.length}
+                className="text-[10px] font-medium text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
               >
-                Cerrar
+                <IconYoutube size={10} />
+                Sugerencias de YouTube
               </button>
             </div>
-          )}
-          {formData.link_youtube?.trim() && getYoutubeVideoId(formData.link_youtube) && (
-            <div className="mt-2 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 aspect-video max-w-md">
-              <iframe
-                title="Vista previa del video"
-                src={`https://www.youtube.com/embed/${getYoutubeVideoId(formData.link_youtube)}`}
-                className="w-full h-full"
-                allowFullScreen
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              />
-            </div>
-          )}
+            <input
+              type="text"
+              className={getInputClass("link_youtube", "text-xs")}
+              value={formData.link_youtube ?? ""}
+              onChange={(e) => updateField("link_youtube", e.target.value)}
+              onFocus={() => youtubeSuggestions.length > 0 && setShowYoutubePopover(true)}
+              placeholder="Spotify / Youtube..."
+            />
+            {showYoutubePopover && youtubeSuggestions.length > 0 && !formData.link_youtube?.trim() && (
+              <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+                <div className="p-1.5 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500">
+                  Sugerencias (5)
+                </div>
+                <ul className="max-h-64 overflow-y-auto">
+                  {youtubeSuggestions.slice(0, 5).map((item) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        onClick={() => applyYoutubeSuggestion(item)}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2"
+                      >
+                        {(item.thumbnailUrl ?? item.snippet?.thumbnails?.default?.url) ? (
+                          <img
+                            src={item.thumbnailUrl ?? item.snippet?.thumbnails?.default?.url}
+                            alt=""
+                            className="w-12 h-9 object-cover rounded shrink-0"
+                          />
+                        ) : (
+                          <IconYoutube size={14} className="text-red-500 shrink-0" />
+                        )}
+                        <span className="truncate flex-1" title={item.title ?? item.snippet?.title}>
+                          {item.title ?? item.snippet?.title}
+                        </span>
+                        {(item.durationSeconds ?? item.contentDetails?.duration) != null && (
+                          <span className="text-slate-400 shrink-0">
+                            {formatSecondsToTime(
+                              item.durationSeconds ??
+                                parseDurationToSeconds(item.contentDetails?.duration) ?? 0,
+                            )}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  onClick={() => setShowYoutubePopover(false)}
+                  className="w-full py-1.5 text-[10px] text-slate-500 hover:bg-slate-100 border-t border-slate-100"
+                >
+                  Cerrar
+                </button>
+              </div>
+            )}
+            {formData.link_youtube?.trim() && getYoutubeVideoId(formData.link_youtube) && (
+              <div className="mt-2 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 aspect-video max-w-md">
+                <iframe
+                  title="Vista previa del video"
+                  src={`https://www.youtube.com/embed/${getYoutubeVideoId(formData.link_youtube)}`}
+                  className="w-full h-full"
+                  allowFullScreen
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                />
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 block">
+              Palabras Clave / Tags
+            </label>
+            <SearchableSelect
+              options={tagsOptions.map((t) => ({ id: t.id, label: t.tag }))}
+              value={selectedTags}
+              isMulti
+              placeholder="Agregar palabras clave..."
+              onChange={(ids) => {
+                setSelectedTags(ids);
+                if (formData.id) updateTagRelations(ids);
+              }}
+            />
+          </div>
         </div>
       </div>
 

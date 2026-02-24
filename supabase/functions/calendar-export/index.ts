@@ -74,7 +74,7 @@ serve(async (req) => {
   
   const startDateFilter = '2024-01-01'; 
 
-  // 2. Obtener Eventos
+  // 2. Obtener Eventos (excluir eliminados lógicamente)
   const { data: eventos, error: eventosError } = await supabase
     .from("eventos")
     .select(`
@@ -91,6 +91,7 @@ serve(async (req) => {
       )
     `)
     .gte("fecha", startDateFilter)
+    .or("is_deleted.eq.false,is_deleted.is.null")
     .order("fecha", { ascending: true });
 
   if (eventosError) {

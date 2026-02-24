@@ -1543,13 +1543,26 @@ export default function RepertoireManager({
                         {item.obras.estado === "Informativo" ? (
                           <span className="text-slate-300 text-[10px]" title="Obra informativa (sin archivo)">—</span>
                         ) : item.google_drive_shortcut_id ? (
-                          <IconDrive className="w-3.5 h-3.5 mx-auto text-slate-600" />
+                          item.obras.link_drive ? (
+                            <a
+                              href={item.obras.link_drive}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex justify-center text-slate-600 hover:text-fixed-indigo-600"
+                              title="Abrir carpeta original en Drive"
+                            >
+                              <IconDrive className="w-3.5 h-3.5" />
+                            </a>
+                          ) : (
+                            <IconDrive className="w-3.5 h-3.5 mx-auto text-slate-600" />
+                          )
                         ) : item.obras.link_drive ? (
                           <a
                             href={item.obras.link_drive}
                             target="_blank"
                             rel="noreferrer"
                             className="block w-2 h-2 bg-amber-400 rounded-full mx-auto"
+                            title="Abrir carpeta original en Drive"
                           ></a>
                         ) : (
                           <span className="text-slate-200">-</span>

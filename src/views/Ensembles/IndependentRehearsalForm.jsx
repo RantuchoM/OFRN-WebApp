@@ -242,7 +242,7 @@ export default function IndependentRehearsalForm({
     if (!initialData) return;
     if (
       !confirm(
-        "¿Estás seguro de eliminar este ensayo? Esta acción no se puede deshacer.",
+        "¿Marcar este ensayo como eliminado? Se ocultará de la vista activa y se eliminará definitivamente en 24 horas.",
       )
     )
       return;
@@ -251,14 +251,17 @@ export default function IndependentRehearsalForm({
       async () => {
         const { error } = await supabase
           .from("eventos")
-          .delete()
+          .update({
+            is_deleted: true,
+            deleted_at: new Date().toISOString(),
+          })
           .eq("id", initialData.id);
         if (error) throw error;
         if (onSuccess) onSuccess();
       },
       {
-        loading: "Eliminando ensayo...",
-        success: "Ensayo eliminado correctamente",
+        loading: "Marcando como eliminado...",
+        success: "Ensayo marcado como eliminado. Se eliminará definitivamente en 24 horas.",
         error: (err) => `Error al eliminar: ${err.message}`,
       },
     );

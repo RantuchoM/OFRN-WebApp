@@ -96,6 +96,10 @@ CREATE TABLE public.eventos (
   visible_agenda boolean DEFAULT true,
   id_gira_transporte bigint,
   tecnica boolean DEFAULT false,
+  last_modified_at timestamp with time zone DEFAULT now(),
+  deleted_at timestamp with time zone,
+  updated_at timestamp with time zone DEFAULT now(),
+  is_deleted boolean DEFAULT false,
   CONSTRAINT eventos_pkey PRIMARY KEY (id),
   CONSTRAINT eventos_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
   CONSTRAINT eventos_id_tipo_evento_fkey FOREIGN KEY (id_tipo_evento) REFERENCES public.tipos_evento(id),
@@ -137,6 +141,16 @@ CREATE TABLE public.eventos_giras_asociadas (
   CONSTRAINT eventos_giras_asociadas_pkey PRIMARY KEY (id),
   CONSTRAINT eventos_giras_asociadas_id_evento_fkey FOREIGN KEY (id_evento) REFERENCES public.eventos(id),
   CONSTRAINT eventos_giras_asociadas_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id)
+);
+CREATE TABLE public.eventos_logs (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_evento bigint,
+  campo text NOT NULL,
+  valor_anterior text,
+  valor_nuevo text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT eventos_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT eventos_logs_id_evento_fkey FOREIGN KEY (id_evento) REFERENCES public.eventos(id)
 );
 CREATE TABLE public.eventos_programas_asociados (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -313,13 +327,9 @@ CREATE TABLE public.giras_logistica_reglas (
   target_regions ARRAY DEFAULT '{}'::bigint[],
   target_localities ARRAY DEFAULT '{}'::bigint[],
   target_categories ARRAY DEFAULT '{}'::text[],
-  fecha_checkin date,
   hora_checkin time without time zone,
-  fecha_checkout date,
   hora_checkout time without time zone,
-  comida_inicio_fecha date,
   comida_inicio_servicio text,
-  comida_fin_fecha date,
   comida_fin_servicio text,
   prov_desayuno text,
   prov_almuerzo text,
@@ -406,6 +416,15 @@ CREATE TABLE public.giras_logistica_rutas (
   CONSTRAINT giras_logistica_rutas_id_localidad_fkey FOREIGN KEY (id_localidad) REFERENCES public.localidades(id),
   CONSTRAINT giras_logistica_rutas_id_evento_subida_fkey FOREIGN KEY (id_evento_subida) REFERENCES public.eventos(id),
   CONSTRAINT giras_logistica_rutas_id_evento_bajada_fkey FOREIGN KEY (id_evento_bajada) REFERENCES public.eventos(id)
+);
+CREATE TABLE public.giras_notificaciones_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  id_gira integer,
+  tipo_notificacion text,
+  enviado_at timestamp with time zone DEFAULT now(),
+  video_url text,
+  CONSTRAINT giras_notificaciones_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT giras_notificaciones_logs_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id)
 );
 CREATE TABLE public.giras_progreso (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -617,10 +636,12 @@ CREATE TABLE public.integrantes (
   cargo text,
   jornada text,
   motivo text,
+  id_domicilio_laboral bigint,
   CONSTRAINT integrantes_pkey PRIMARY KEY (id),
   CONSTRAINT integrantes_id_instr_fkey FOREIGN KEY (id_instr) REFERENCES public.instrumentos(id),
   CONSTRAINT integrantes_id_localidad_fkey FOREIGN KEY (id_localidad) REFERENCES public.localidades(id),
-  CONSTRAINT integrantes_id_loc_viaticos_fkey FOREIGN KEY (id_loc_viaticos) REFERENCES public.localidades(id)
+  CONSTRAINT integrantes_id_loc_viaticos_fkey FOREIGN KEY (id_loc_viaticos) REFERENCES public.localidades(id),
+  CONSTRAINT integrantes_id_domicilio_laboral_fkey FOREIGN KEY (id_domicilio_laboral) REFERENCES public.locaciones(id)
 );
 CREATE TABLE public.integrantes_ensambles (
   id_ensamble bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -790,6 +811,8 @@ CREATE TABLE public.programas (
   estado USER-DEFINED DEFAULT 'Borrador'::estado_gira,
   id_folder_arcos text,
   id_shortcut_arcos_drive text,
+  notificacion_inicial_enviada boolean DEFAULT false,
+  notificaciones_habilitadas boolean DEFAULT true,
   CONSTRAINT programas_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.programas_agenda_comidas (

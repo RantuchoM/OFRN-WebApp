@@ -188,9 +188,11 @@ const RehearsalCardItem = ({
     ? `${evt.locaciones.nombre}${evt.locaciones.localidades?.localidad ? ` (${evt.locaciones.localidades.localidad})` : ""}`
     : "TBA";
 
+  const isDeleted = evt.is_deleted === true;
+
   return (
     <div
-      className={`flex items-start p-2.5 border rounded-lg shadow-sm transition-all bg-white ${isSelected ? "border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/40" : "border-slate-200"} ${!isMyEvent ? "opacity-60 grayscale-[0.5] border-dashed" : ""}`}
+      className={`flex items-start p-2.5 border rounded-lg shadow-sm transition-all bg-white ${isSelected ? "border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/40" : "border-slate-200"} ${!isMyEvent ? "opacity-60 grayscale-[0.5] border-dashed" : ""} ${isDeleted ? "line-through opacity-50 grayscale" : ""}`}
     >
       {/* COLUMNA IZQUIERDA: CHECKBOX + FECHA */}
       <div className="flex flex-col items-center gap-2 mr-3 shrink-0 relative">
@@ -243,6 +245,11 @@ const RehearsalCardItem = ({
             >
               {evt.descripcion || "Evento"}
             </h3>
+            {isDeleted && (
+              <span className="text-[10px] text-amber-600 font-medium mt-0.5 block">
+                Se elimina definitivamente en 24 h
+              </span>
+            )}
           </div>
           {isEditable && (
             <div className="flex items-center gap-1 shrink-0">
@@ -1147,13 +1154,15 @@ export default function EnsembleCoordinatorView({ supabase }) {
     queryFn: async () => {
       const ensembleIds = activeEnsembles.map((e) => e.id);
 
+      const today = new Date().toISOString().split("T")[0];
+
       // CONFIGURACIÓN DE FECHAS
       let queryMyRehearsals = supabase
         .from("eventos_ensambles")
         .select(
           `
             eventos (
-              id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, id_gira,
+              id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, id_gira, is_deleted,
               locaciones ( nombre, localidades(localidad) ),
               tipos_evento ( nombre, color, id_categoria ),
               programas ( id, nombre_gira, mes_letra, nomenclador ),
@@ -1187,16 +1196,18 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
       if (myRehearsals) {
         myRehearsals.forEach((r) => {
-          if (r.eventos && !seenEventIds.has(r.eventos.id)) {
-            seenEventIds.add(r.eventos.id);
-            const customs = r.eventos.eventos_asistencia_custom || [];
-            allEvents.push({
-              ...r.eventos,
-              isMyRehearsal: true,
-              deltaGuests: customs.filter((c) => c.tipo === "invitado").length,
-              deltaAbsent: customs.filter((c) => c.tipo === "ausente").length,
-            });
-          }
+          if (!r.eventos || seenEventIds.has(r.eventos.id)) return;
+          const e = r.eventos;
+          // Ocultar eliminados cuya fecha no sea hoy (soft delete: se muestran solo hoy)
+          if (e.is_deleted && e.fecha !== today) return;
+          seenEventIds.add(e.id);
+          const customs = e.eventos_asistencia_custom || [];
+          allEvents.push({
+            ...e,
+            isMyRehearsal: true,
+            deltaGuests: customs.filter((c) => c.tipo === "invitado").length,
+            deltaAbsent: customs.filter((c) => c.tipo === "ausente").length,
+          });
         });
       }
 
@@ -1218,7 +1229,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
           .from("eventos")
           .select(
             `
-                id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion,
+                id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, is_deleted,
                 locaciones ( nombre, localidades(localidad) ),
                 tipos_evento!inner ( nombre, color, id_categoria ),
                 programas ( id, nombre_gira, mes_letra, nomenclador ),
@@ -1239,29 +1250,29 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
         if (extraEvents) {
           extraEvents.forEach((e) => {
-            if (!seenEventIds.has(e.id)) {
-              // --- FILTRO DE SEGURIDAD: OCULTAR ENSAMBLES AJENOS ---
-              const linkedEnsembles = e.eventos_ensambles || [];
-              if (linkedEnsembles.length > 0) {
-                // Si el evento está vinculado a ensambles, verificamos si ALGUNO es mío.
-                const isRelevant = linkedEnsembles.some((le) =>
-                  ensembleIds.includes(le.id_ensamble),
-                );
+            if (seenEventIds.has(e.id)) return;
+            if (e.is_deleted && e.fecha !== today) return;
+            // --- FILTRO DE SEGURIDAD: OCULTAR ENSAMBLES AJENOS ---
+            const linkedEnsembles = e.eventos_ensambles || [];
+            if (linkedEnsembles.length > 0) {
+              // Si el evento está vinculado a ensambles, verificamos si ALGUNO es mío.
+              const isRelevant = linkedEnsembles.some((le) =>
+                ensembleIds.includes(le.id_ensamble),
+              );
 
-                // Si está vinculado a ensambles y NINGUNO es mío, lo ocultamos.
-                // (Esto oculta los ensayos de otros ensambles, pero mantiene eventos generales/giras que no tienen vínculo específico de ensamble)
-                if (!isRelevant) return;
-              }
-              // -----------------------------------------------------
-
-              seenEventIds.add(e.id);
-              allEvents.push({
-                ...e,
-                isMyRehearsal: false,
-                eventos_asistencia_custom: [],
-                eventos_ensambles: [],
-              });
+              // Si está vinculado a ensambles y NINGUNO es mío, lo ocultamos.
+              // (Esto oculta los ensayos de otros ensambles, pero mantiene eventos generales/giras que no tienen vínculo específico de ensamble)
+              if (!isRelevant) return;
             }
+            // -----------------------------------------------------
+
+            seenEventIds.add(e.id);
+            allEvents.push({
+              ...e,
+              isMyRehearsal: false,
+              eventos_asistencia_custom: [],
+              eventos_ensambles: [],
+            });
           });
         }
       }
@@ -1580,10 +1591,10 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
     const message =
       hasLogisticsLinks && (detailHtml || detail)
-        ? `Este evento está vinculado como subida/bajada en logística. Afecta a: ${detailHtml || detail}. Tené en cuenta que si lo eliminás, se afectará el cálculo de Viáticos y deberás crear un evento nuevo para tal fin. ¿Estás seguro de que deseas eliminarlo?`
+        ? `Este evento está vinculado como subida/bajada en logística. Afecta a: ${detailHtml || detail}. Tené en cuenta que si lo eliminás, se afectará el cálculo de Viáticos y deberás crear un evento nuevo para tal fin. Se ocultará de la vista y se eliminará definitivamente en 24 horas. ¿Continuar?`
         : hasLogisticsLinks
-          ? "Este evento está vinculado como subida/bajada de personal o regiones. Si lo eliminás, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin. ¿Estás seguro de que deseas eliminarlo?"
-          : "¿Eliminar este evento?";
+          ? "Este evento está vinculado como subida/bajada de personal o regiones. Si lo eliminás, se afectará el cálculo de Viáticos; deberás crear un evento nuevo para tal fin. Se ocultará y se eliminará definitivamente en 24 horas. ¿Continuar?"
+          : "¿Marcar este evento como eliminado? Se ocultará de la vista y se eliminará definitivamente en 24 horas.";
     setDeleteConfirm({
       isOpen: true,
       id,
@@ -1604,21 +1615,26 @@ export default function EnsembleCoordinatorView({ supabase }) {
       messageIsHtml: false,
       hasLogisticsLinks: false,
     });
+    const softDeletePayload = {
+      is_deleted: true,
+      deleted_at: new Date().toISOString(),
+    };
+
     if (ids?.length) {
       toast.promise(
         async () => {
           const { error } = await supabase
             .from("eventos")
-            .delete()
+            .update(softDeletePayload)
             .in("id", ids);
           if (error) throw error;
         },
         {
-          loading: "Eliminando eventos...",
+          loading: "Marcando eventos como eliminados...",
           success: () => {
             refreshData();
             setSelectedIds([]);
-            return `${ids.length} eventos eliminados`;
+            return `${ids.length} eventos marcados como eliminados. Se eliminarán definitivamente en 24 horas.`;
           },
           error: (err) => `Error: ${err.message}`,
         },
@@ -1630,20 +1646,20 @@ export default function EnsembleCoordinatorView({ supabase }) {
         async () => {
           const { error } = await supabase
             .from("eventos")
-            .delete()
+            .update(softDeletePayload)
             .eq("id", id);
           if (error) throw error;
         },
         {
-          loading: "Eliminando...",
+          loading: "Marcando como eliminado...",
           success: () => {
             refreshData();
             if (hasLogisticsLinks) {
               toast.warning(
-                "Evento eliminado. Revisá la logística de integrantes/regiones y creá un evento nuevo para viáticos si corresponde.",
+                "Evento marcado como eliminado. Revisá la logística de integrantes/regiones y creá un evento nuevo para viáticos si corresponde. Se eliminará definitivamente en 24 horas.",
               );
             }
-            return "Eliminado";
+            return "Marcado como eliminado. Se eliminará definitivamente en 24 horas.";
           },
           error: "Error",
         },

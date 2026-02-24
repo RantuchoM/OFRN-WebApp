@@ -223,7 +223,8 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
   cursorY += 5; 
 
   // --- PREPARACIÓN DE DATOS ---
-  const events = items.filter(i => !i.isProgramMarker);
+  // Excluir marcadores de programa y eventos eliminados (soft delete)
+  const events = items.filter(i => !i.isProgramMarker && !i.is_deleted);
 
   const columns = [
       { header: 'Desde', dataKey: 'desde' },

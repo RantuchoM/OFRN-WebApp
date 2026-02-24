@@ -2,6 +2,16 @@ import React, { useState, useEffect } from 'react';
 import TimeKeeper from 'react-timekeeper';
 import { IconClock, IconX, IconCheck } from './Icons';
 
+// Normaliza tiempos ingresados como "5:00" → "05:00" y valida rango 00:00–23:59
+const normalizeTime = (raw) => {
+  if (!raw || typeof raw !== 'string') return null;
+  const m = raw.match(/^(\d{1,2}):([0-5][0-9])$/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  if (Number.isNaN(h) || h < 0 || h > 23) return null;
+  return `${String(h).padStart(2, '0')}:${m[2]}`;
+};
+
 export default function TimeInput({ value, onChange, label, className }) {
     const [showClock, setShowClock] = useState(false);
     const initialTime = value ? value.slice(0, 5) : '12:00';
@@ -19,13 +29,15 @@ export default function TimeInput({ value, onChange, label, className }) {
              val = val.slice(0, 2) + ':' + val.slice(2);
         }
         if (val.length > 5) val = val.slice(0, 5);
-        onChange(val);
+
+        const normalized = normalizeTime(val);
+        onChange(normalized ?? val);
     };
 
     const handleOpenClock = () => {
-        const timeToValidate = value ? value.slice(0, 5) : null;
-        const isValidTime = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(timeToValidate);
-        setTempTime(isValidTime ? timeToValidate : '12:00');
+        const current = value ? value.slice(0, 5) : null;
+        const normalized = current ? normalizeTime(current) : null;
+        setTempTime(normalized || '12:00');
         setShowClock(true);
     };
 
