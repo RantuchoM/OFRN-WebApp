@@ -43,8 +43,10 @@ export function useAgendaFilters({
   isManagement,
   availableCategories = [],
   defaultPersonalFilter = false,
+  isPersonalGuest = false,
 }) {
-  const storageKey = `${STORAGE_KEY_PREFIX}${effectiveUserId}`;
+  const baseKey = `${STORAGE_KEY_PREFIX}${effectiveUserId}`;
+  const storageKey = isPersonalGuest ? `${baseKey}_personal_link` : baseKey;
 
   const [selectedCategoryIds, setSelectedCategoryIds] = useState(() => {
     const saved = getInitialFilterState(storageKey, "categories", []);
@@ -138,6 +140,7 @@ export function useAgendaFilters({
       hasAppliedGiraDefaultsRef.current = false;
       return;
     }
+    if (isPersonalGuest) return;
     if (hasAppliedGiraDefaultsRef.current || availableCategories.length === 0)
       return;
     hasAppliedGiraDefaultsRef.current = true;
@@ -150,7 +153,7 @@ export function useAgendaFilters({
     setShowNoGray(false);
     setShowNonActive(false);
     if (isManagement) setTechFilter("all");
-  }, [giraId, availableCategories, isEditor, isManagement]);
+  }, [giraId, availableCategories, isEditor, isManagement, isPersonalGuest]);
 
   const handleCategoryToggle = (catId) => {
     setSelectedCategoryIds((prev) =>

@@ -64,7 +64,7 @@ export default function UnifiedAgenda({
   onOpenRepertoire = null,
   onViewChange = null,
 }) {
-  const { user, isEditor, isManagement } = useAuth();
+  const { user, isEditor, isManagement, isGuest } = useAuth();
   // Estado para el modal de comida en móvil
   const [mealActionTarget, setMealActionTarget] = useState(null);
   const toggleEventTechnica = async (e, eventId, currentValue) => {
@@ -91,7 +91,10 @@ export default function UnifiedAgenda({
   const [musicianOptions, setMusicianOptions] = useState([]);
 
   const effectiveUserId = viewAsUserId || user.id;
-  const defaultPersonalFilter = !isEditor && !isManagement && !user?.isGeneral;
+  const isPersonalGuest =
+    isGuest && !user?.isGeneral && !!user?.token_original;
+  const defaultPersonalFilter =
+    isPersonalGuest || (!isEditor && !isManagement && !user?.isGeneral);
   // --- ESTADOS ---
   const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
   const [myEnsembleObjects, setMyEnsembleObjects] = useState([]);
@@ -178,6 +181,7 @@ export default function UnifiedAgenda({
     isManagement,
     availableCategories,
     defaultPersonalFilter,
+    isPersonalGuest,
   });
 
   const [userProfile, setUserProfile] = useState(null);
