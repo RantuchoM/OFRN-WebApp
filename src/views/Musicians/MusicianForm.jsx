@@ -23,10 +23,19 @@ import {
   IconCalendar,
 } from "../../components/ui/Icons";
 
+const condicionColors = {
+  Estable: "bg-green-600 text-white",
+  Contratado: "bg-orange-500 text-white",
+  Invitado: "bg-amber-800 text-white",
+  Refuerzo: "bg-gray-500 text-white",
+  Becario: "bg-blue-600 text-white",
+};
+
 export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
   const ctx = useMusicianForm(musician, supabase, onSave);
   const {
     formData,
+    updateField,
     musicianForGiras,
     loading,
     activeTab,
@@ -48,28 +57,51 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     (formData.nombre?.trim() || "").length >= 2 &&
     (formData.apellido?.trim() || "").length >= 2;
 
+  const condicionClass =
+    condicionColors[formData.condicion] || "bg-slate-100 text-slate-800";
+
   return (
     <MusicianFormContext.Provider value={{ ...ctx, onCancel }}>
     <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[60] p-4 backdrop-blur-md">
       <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-6xl max-h-[95vh] flex flex-col animate-in zoom-in-95 duration-300 overflow-hidden border border-white/20">
         {/* Header */}
-        <div className="p-6 border-b flex justify-between items-center bg-slate-50/50">
-          <h3 className="font-black text-slate-800 flex items-center gap-3 text-xl uppercase tracking-tighter">
-            {formData.id ? (
-              <IconUser className="text-indigo-500" />
-            ) : (
-              <IconPlus className="text-indigo-600" />
-            )}
-            {formData.id
-              ? `Ficha: ${formData.apellido || ""}`
-              : "Nuevo Integrante"}
-          </h3>
-          <button
-            onClick={() => onCancel(formData)} // CAMBIO 1: Pasar formData
-            className="bg-white p-2 rounded-full text-slate-400 hover:text-red-500 shadow-sm transition-all focus:outline-none"
-          >
-            <IconX size={20} />
-          </button>
+        <div className={`px-4 py-4 border-b ${condicionClass}`}>
+          <div className="max-w-4xl mx-auto flex justify-between items-center gap-4">
+            <div className="flex flex-col md:flex-row md:items-end gap-3 md:gap-6">
+              <h3 className="font-black flex items-center gap-3 text-xl uppercase tracking-tighter">
+                {formData.id ? (
+                  <IconUser className="text-indigo-200" />
+                ) : (
+                  <IconPlus className="text-indigo-200" />
+                )}
+                {formData.id
+                  ? `${(formData.apellido || "").trim()}, ${(formData.nombre || "").trim()}`
+                  : "Nuevo Integrante"}
+              </h3>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">
+                  Condición
+                </span>
+                <select
+                  value={formData.condicion || "Estable"}
+                  onChange={(e) => updateField("condicion", e.target.value)}
+                  className="bg-white text-slate-900 border border-white/80 rounded-xl px-3 py-1 text-lg md:text-xl font-semibold tracking-tight outline-none focus:ring-2 focus:ring-white/60"
+                >
+                  <option value="Estable">Estable</option>
+                  <option value="Contratado">Contratado</option>
+                  <option value="Refuerzo">Refuerzo</option>
+                  <option value="Invitado">Invitado</option>
+                  <option value="Becario">Becario</option>
+                </select>
+              </div>
+            </div>
+            <button
+              onClick={() => onCancel(formData)} // CAMBIO 1: Pasar formData
+              className="bg-white/90 p-2 rounded-full text-slate-500 hover:text-red-500 shadow-sm transition-all focus:outline-none"
+            >
+              <IconX size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}

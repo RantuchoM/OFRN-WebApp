@@ -410,7 +410,18 @@ const ColumnManager = ({ visibleColumns, onChange }) => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-  const columns = [{ key: "compositor", label: "Compositor" }, { key: "obra", label: "Obra" }, { key: "arreglador", label: "Arreglador" }, { key: "organico", label: "Orgánico" }, { key: "duracion", label: "Duración" }, { key: "estado", label: "Estado" }, { key: "fecha", label: "F. Esperada" }, { key: "observaciones", label: "Observaciones" }, { key: "tags", label: "Palabras Clave" }];
+  const columns = [
+    { key: "compositor", label: "Compositor" },
+    { key: "obra", label: "Obra" },
+    { key: "arreglador", label: "Arreglador" },
+    { key: "organico", label: "Orgánico" },
+    { key: "duracion", label: "Duración" },
+    { key: "estado", label: "Estado" },
+    { key: "proxima_gira", label: "Próxima Gira" },
+    { key: "fecha", label: "F. Esperada" },
+    { key: "observaciones", label: "Observaciones" },
+    { key: "tags", label: "Palabras Clave" },
+  ];
   return (
     <div className="relative" ref={wrapperRef}>
       <button onClick={() => setIsOpen(!isOpen)} className={`p-2 rounded-full transition-colors flex items-center gap-2 text-xs font-bold ${isOpen ? "bg-indigo-100 text-indigo-600" : "text-slate-500 hover:bg-slate-100"}`} title="Mostrar/Ocultar Columnas"><IconColumns size={18} /> <span className="hidden sm:inline">Columnas</span></button>
@@ -457,7 +468,19 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   }, []);
 
   // Visibilidad Columnas
-  const [visibleColumns, setVisibleColumns] = useState({ compositor: true, obra: true, arreglador: true, organico: true, duracion: true, estado: true, fecha: false, observaciones: false, tags: false, acciones: true });
+  const [visibleColumns, setVisibleColumns] = useState({
+    compositor: true,
+    obra: true,
+    arreglador: true,
+    organico: true,
+    duracion: true,
+    estado: true,
+    proxima_gira: true,
+    fecha: false,
+    observaciones: false,
+    tags: false,
+    acciones: true,
+  });
 
   // Filtros
   const [filters, setFilters] = useState({ titulo: "", compositor: "", arreglador: "", estado: "Todos", solicitante: "", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
@@ -512,30 +535,106 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     try {
       const { data, error: dbError } = await supabase
         .from("obras")
-        .select(`*, obras_compositores (rol, compositores (apellido, nombre, paises (nombre))), obras_palabras_clave (palabras_clave (id, tag)), usuario_carga:integrantes!id_usuario_carga(apellido, nombre)`)
+        .select(`
+          *,
+          obras_compositores (
+            rol,
+            compositores (
+              apellido,
+              nombre,
+              paises (nombre)
+            )
+          ),
+          obras_palabras_clave (
+            palabras_clave (id, tag)
+          ),
+          usuario_carga:integrantes!id_usuario_carga (
+            apellido,
+            nombre
+          ),
+          repertorio_obras (
+            programas_repertorios (
+              programas (
+                id,
+                nombre_gira,
+                fecha_desde,
+                fecha_hasta
+              )
+            )
+          )
+        `)
         .order("titulo");
 
       if (dbError) throw dbError;
 
       if (data) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
         const processed = data.map((w) => {
-          const listComposers = w.obras_compositores?.filter((oc) => oc.rol === "compositor" || !oc.rol);
-          const listArrangers = w.obras_compositores?.filter((oc) => oc.rol === "arreglador");
-          
+          const listComposers = w.obras_compositores?.filter(
+            (oc) => oc.rol === "compositor" || !oc.rol,
+          );
+          const listArrangers = w.obras_compositores?.filter(
+            (oc) => oc.rol === "arreglador",
+          );
+
           // Pre-cálculo de valores para el filtro orgánico/estricto
           const instValues = {};
-          ['fl', 'ob', 'cl', 'bn', 'hn', 'tpt', 'tbn', 'tba', 'timp', 'perc', 'harp', 'key'].forEach(k => {
-            instValues[k] = getInstrumentValue(w.instrumentacion, k);
+          ["fl", "ob", "cl", "bn", "hn", "tpt", "tbn", "tba", "timp", "perc", "harp", "key"].forEach(
+            (k) => {
+              instValues[k] = getInstrumentValue(w.instrumentacion, k);
+            },
+          );
+
+          // Cálculo de próxima gira (a partir de hoy)
+          let nextProgram = null;
+          let nextProgramStart = null;
+
+          (w.repertorio_obras || []).forEach((rel) => {
+            const prog = rel.programas_repertorios?.programas;
+            if (!prog || !prog.fecha_desde) return;
+
+            const startDate = parseISO(prog.fecha_desde);
+            if (isBefore(startDate, today)) return;
+
+            if (!nextProgramStart || isBefore(startDate, nextProgramStart)) {
+              nextProgram = prog;
+              nextProgramStart = startDate;
+            }
           });
 
           return {
             ...w,
             instValues,
-            compositor_full: listComposers?.map((oc) => `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`).join(" / ") || "",
-            arreglador_full: listArrangers?.map((oc) => `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`).join(" / ") || "",
-            pais_nombre: listComposers?.map((oc) => oc.compositores?.paises?.nombre).filter(Boolean).join(" / ") || "",
-            tags_objects: w.obras_palabras_clave?.map((opc) => opc.palabras_clave) || [],
-            tags_ids: w.obras_palabras_clave?.map((opc) => opc.palabras_clave?.id) || [],
+            compositor_full:
+              listComposers
+                ?.map(
+                  (oc) =>
+                    `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`,
+                )
+                .join(" / ") || "",
+            arreglador_full:
+              listArrangers
+                ?.map(
+                  (oc) =>
+                    `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`,
+                )
+                .join(" / ") || "",
+            pais_nombre:
+              listComposers
+                ?.map((oc) => oc.compositores?.paises?.nombre)
+                .filter(Boolean)
+                .join(" / ") || "",
+            tags_objects:
+              w.obras_palabras_clave?.map((opc) => opc.palabras_clave) || [],
+            tags_ids:
+              w.obras_palabras_clave?.map(
+                (opc) => opc.palabras_clave?.id,
+              ) || [],
+            proxima_gira_nombre: nextProgram?.nombre_gira || null,
+            proxima_gira_fecha_desde: nextProgram?.fecha_desde || null,
+            proxima_gira_fecha_hasta: nextProgram?.fecha_hasta || null,
           };
         });
         setWorks(processed);
@@ -614,9 +713,11 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     }).sort((a, b) => {
       let valA = a[sortConfig.key];
       let valB = b[sortConfig.key];
-      if (sortConfig.key === "fecha_esperada") {
-        const fallback = sortConfig.direction === "asc" ? "9999-12-31" : "0000-01-01";
-        valA = valA || fallback; valB = valB || fallback;
+      if (sortConfig.key === "fecha_esperada" || sortConfig.key === "proxima_gira_fecha_desde") {
+        const fallback =
+          sortConfig.direction === "asc" ? "9999-12-31" : "0000-01-01";
+        valA = valA || fallback;
+        valB = valB || fallback;
       }
       if (typeof valA === "string") valA = valA.toLowerCase();
       if (typeof valB === "string") valB = valB.toLowerCase();
@@ -641,6 +742,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     if (visibleColumns.organico) cols += "minmax(120px, 0.8fr) ";
     if (visibleColumns.duracion) cols += "100px ";
     if (visibleColumns.estado) cols += "100px ";
+    if (visibleColumns.proxima_gira) cols += "minmax(140px, 1fr) ";
     if (visibleColumns.fecha) cols += "100px ";
     if (visibleColumns.observaciones) cols += "minmax(150px, 1fr) ";
     if (visibleColumns.tags) cols += "minmax(150px, 1fr) ";
@@ -740,8 +842,75 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                     {visibleColumns.arreglador && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("arreglador_full")}>Arreglador <SortIcon column="arreglador_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.arreglador} onChange={(e) => setFilters({ ...filters, arreglador: e.target.value })} /></div>}
                     {visibleColumns.organico && <div className="space-y-2 relative"><div className="flex items-center text-xs font-bold text-slate-500 uppercase">Orgánico</div><button onClick={() => setShowInstrFilter(!showInstrFilter)} className={`w-full text-xs p-1.5 border rounded flex items-center justify-between ${instrFilters.length > 0 || stringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}><span>{instrFilters.length > 0 ? `${instrFilters.length} reglas` : stringsFilter !== "all" ? (stringsFilter === "with" ? "Con Cuerdas" : "Sin Cuerdas") : "Filtrar"}</span><IconFilter size={10} /></button>{showInstrFilter && <InstrumentationFilterModal onClose={() => setShowInstrFilter(false)} currentFilters={instrFilters} stringsFilter={stringsFilter} setStringsFilter={setStringsFilter} strictMode={strictMode} setStrictMode={setStrictMode} onApply={(newRules) => { setInstrFilters(newRules); setShowInstrFilter(false); }} />}</div>}
                     {visibleColumns.duracion && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase">Duración (min)</div><div className="flex gap-1"><input className="w-full text-xs p-1 border border-slate-300 rounded text-center outline-none" placeholder="Min" type="number" value={filters.duracionMin} onChange={(e) => setFilters({ ...filters, duracionMin: e.target.value })} /><input className="w-full text-xs p-1 border border-slate-300 rounded text-center outline-none" placeholder="Max" type="number" value={filters.duracionMax} onChange={(e) => setFilters({ ...filters, duracionMax: e.target.value })} /></div></div>}
-                    {visibleColumns.estado && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("estado")}>Estado <SortIcon column="estado" /></div><select className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none bg-white" value={filters.estado} onChange={(e) => setFilters({ ...filters, estado: e.target.value })}><option value="Todos">Todos</option><option value="Oficial">Oficial</option><option value="Solicitud">Solicitud</option><option value="Informativo">Informativo</option></select></div>}
-                    {visibleColumns.fecha && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("fecha_esperada")}>F. Esp. <SortIcon column="fecha_esperada" /></div><div className="flex flex-col gap-0.5"><input type="date" className="text-[9px] border border-slate-300 rounded p-0.5 w-full" value={filters.fechaDesde} onChange={(e) => setFilters({ ...filters, fechaDesde: e.target.value })} /><input type="date" className="text-[9px] border border-slate-300 rounded p-0.5 w-full" value={filters.fechaHasta} onChange={(e) => setFilters({ ...filters, fechaHasta: e.target.value })} /></div></div>}
+                    {visibleColumns.estado && (
+                      <div className="space-y-2">
+                        <div
+                          className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
+                          onClick={() => handleSort("estado")}
+                        >
+                          Estado <SortIcon column="estado" />
+                        </div>
+                        <select
+                          className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none bg-white"
+                          value={filters.estado}
+                          onChange={(e) =>
+                            setFilters({ ...filters, estado: e.target.value })
+                          }
+                        >
+                          <option value="Todos">Todos</option>
+                          <option value="Oficial">Oficial</option>
+                          <option value="Solicitud">Solicitud</option>
+                          <option value="Informativo">Informativo</option>
+                        </select>
+                      </div>
+                    )}
+                    {visibleColumns.proxima_gira && (
+                      <div className="space-y-2">
+                        <div
+                          className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
+                          onClick={() =>
+                            handleSort("proxima_gira_fecha_desde")
+                          }
+                        >
+                          Próxima Gira{" "}
+                          <SortIcon column="proxima_gira_fecha_desde" />
+                        </div>
+                      </div>
+                    )}
+                    {visibleColumns.fecha && (
+                      <div className="space-y-2">
+                        <div
+                          className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600"
+                          onClick={() => handleSort("fecha_esperada")}
+                        >
+                          F. Esp. <SortIcon column="fecha_esperada" />
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <input
+                            type="date"
+                            className="text-[9px] border border-slate-300 rounded p-0.5 w-full"
+                            value={filters.fechaDesde}
+                            onChange={(e) =>
+                              setFilters({
+                                ...filters,
+                                fechaDesde: e.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            type="date"
+                            className="text-[9px] border border-slate-300 rounded p-0.5 w-full"
+                            value={filters.fechaHasta}
+                            onChange={(e) =>
+                              setFilters({
+                                ...filters,
+                                fechaHasta: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                    )}
                     {visibleColumns.observaciones && <div className="space-y-2 animate-in fade-in slide-in-from-top-1"><div className="flex items-center text-xs font-bold text-slate-500 uppercase">Observaciones</div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar texto..." value={filters.observaciones} onChange={(e) => setFilters({ ...filters, observaciones: e.target.value })} /></div>}
                     {visibleColumns.tags && <div className="space-y-2 animate-in fade-in slide-in-from-top-1"><div className="flex items-center text-xs font-bold text-slate-500 uppercase">Tags</div><div className="relative"><TagMultiSelect tags={availableTags} selectedIds={selectedTags} onChange={setSelectedTags} /></div></div>}
                     <div className="flex justify-end pb-2"><span className="text-[10px] text-slate-300 font-bold uppercase">Acciones</span></div>
@@ -776,22 +945,87 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                         <div className="text-center">
                           {work.estado === "Solicitud" ? (
                             <div className="flex flex-col items-center gap-0.5">
-                              <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-amber-200">Pendiente</span>
-                              {work.usuario_carga && (work.usuario_carga.apellido || work.usuario_carga.nombre) && (
-                                <span className="text-[10px] text-slate-600 leading-tight" title="Solicitante">{[work.usuario_carga.apellido, work.usuario_carga.nombre].filter(Boolean).join(", ")}</span>
-                              )}
+                              <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded-full font-bold border border-amber-200">
+                                Pendiente
+                              </span>
+                              {work.usuario_carga &&
+                                (work.usuario_carga.apellido ||
+                                  work.usuario_carga.nombre) && (
+                                  <span
+                                    className="text-[10px] text-slate-600 leading-tight"
+                                    title="Solicitante"
+                                  >
+                                    {[
+                                      work.usuario_carga.apellido,
+                                      work.usuario_carga.nombre,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(", ")}
+                                  </span>
+                                )}
                               {work.fecha_esperada && (
-                                <span className="text-[10px] text-slate-500 leading-tight" title="F. finalización esperada">{format(parseISO(work.fecha_esperada), "dd/MM/yy", { locale: es })}</span>
+                                <span
+                                  className="text-[10px] text-slate-500 leading-tight"
+                                  title="F. finalización esperada"
+                                >
+                                  {format(
+                                    parseISO(work.fecha_esperada),
+                                    "dd/MM/yy",
+                                    { locale: es },
+                                  )}
+                                </span>
                               )}
                             </div>
                           ) : work.estado === "Informativo" ? (
-                            <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full font-bold border border-blue-200">Informativo</span>
+                            <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full font-bold border border-blue-200">
+                              Informativo
+                            </span>
                           ) : (
-                            <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full border border-slate-200">Oficial</span>
+                            <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full border border-slate-200">
+                              Oficial
+                            </span>
                           )}
                         </div>
                       )}
-                      {visibleColumns.fecha && <div className="text-center">{work.fecha_esperada ? <span className={`text-xs ${getDateStatusClass(work.fecha_esperada)}`}>{format(parseISO(work.fecha_esperada), "dd/MM/yy")}</span> : <span className="text-slate-300">-</span>}</div>}
+                      {visibleColumns.proxima_gira && (
+                        <div className="text-xs text-center text-slate-700">
+                          {work.proxima_gira_nombre ? (
+                            <div className="leading-tight">
+                              <div className="truncate">
+                                {work.proxima_gira_nombre}
+                              </div>
+                              {work.proxima_gira_fecha_hasta && (
+                                <div className="text-[10px] text-slate-500">
+                                  {`(hasta ${format(
+                                    parseISO(work.proxima_gira_fecha_hasta),
+                                    "dd/MM/yy",
+                                  )})`}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </div>
+                      )}
+                      {visibleColumns.fecha && (
+                        <div className="text-center">
+                          {work.fecha_esperada ? (
+                            <span
+                              className={`text-xs ${getDateStatusClass(
+                                work.fecha_esperada,
+                              )}`}
+                            >
+                              {format(
+                                parseISO(work.fecha_esperada),
+                                "dd/MM/yy",
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </div>
+                      )}
                       {visibleColumns.observaciones && <div className="text-xs text-slate-500 line-clamp-2 bg-slate-50 p-1 rounded border border-slate-100"><RichTextPreview content={work.observaciones || "-"} /></div>}
                       {visibleColumns.tags && <div className="flex flex-wrap gap-1">{work.tags_objects.length > 0 ? work.tags_objects.map((t) => <span key={t.id} className="text-[9px] bg-indigo-50 text-indigo-600 px-1 rounded border border-indigo-100 truncate max-w-[80px]">{t.tag}</span>) : <span className="text-slate-300 text-[10px]">-</span>}</div>}
                       <div className="flex justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">

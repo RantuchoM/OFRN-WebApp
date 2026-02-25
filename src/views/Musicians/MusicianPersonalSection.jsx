@@ -107,7 +107,6 @@ export default function MusicianPersonalSection() {
               className="w-6 h-6 rounded-full border-none cursor-pointer overflow-hidden p-0"
             />
           </div>
-
           <div className="w-full mt-2">
             <label className={labelClass + " text-center"}>
               Nota Interna
@@ -119,9 +118,7 @@ export default function MusicianPersonalSection() {
               }
               placeholder="Notas..."
               value={formData.nota_interna || ""}
-              onChange={(e) =>
-                updateField("nota_interna", e.target.value)
-              }
+              onChange={(e) => updateField("nota_interna", e.target.value)}
             />
           </div>
         </div>
@@ -201,6 +198,57 @@ export default function MusicianPersonalSection() {
               </div>
             </div>
           </div>
+
+          {/* Datos complementarios: domicilio, sede, género, alimentación */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>Domicilio</label>
+              <input
+                type="text"
+                className={getInputStatusClass("domicilio")}
+                value={formData.domicilio || ""}
+                onChange={(e) => updateField("domicilio", e.target.value)}
+              />
+            </div>
+
+            <div className="relative z-30">
+              <label className={labelClass}>Domicilio Laboral (Sede)</label>
+              <SearchableSelect
+                options={locacionesOptions}
+                value={formData.id_domicilio_laboral}
+                onChange={(val) => updateField("id_domicilio_laboral", val)}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className={labelClass}>Género</label>
+              <select
+                value={formData.genero || "-"}
+                onChange={(e) => updateField("genero", e.target.value)}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+              >
+                <option value="-">-</option>
+                <option value="M">Masculino</option>
+                <option value="F">Femenino</option>
+                <option value="X">No Binario / Otro</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className={labelClass}>Tipo de Alimentación</label>
+              <select
+                value={formData.alimentacion || "General"}
+                onChange={(e) => updateField("alimentacion", e.target.value)}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+              >
+                {DIET_OPTIONS.map((opcion) => (
+                  <option key={opcion} value={opcion}>
+                    {opcion}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -232,64 +280,6 @@ export default function MusicianPersonalSection() {
             selectedEnsembleIds={selectedEnsembles}
             onChange={handleEnsemblesChange}
           />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div>
-          <label className={labelClass}>Domicilio</label>
-          <input
-            type="text"
-            className={getInputStatusClass("domicilio")}
-            value={formData.domicilio || ""}
-            onChange={(e) => updateField("domicilio", e.target.value)}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className={labelClass}>Tipo de Alimentación</label>
-          <select
-            value={formData.alimentacion || "General"}
-            onChange={(e) =>
-              updateField("alimentacion", e.target.value)
-            }
-            className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-          >
-            {DIET_OPTIONS.map((opcion) => (
-              <option key={opcion} value={opcion}>
-                {opcion}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-1">
-          <label className={labelClass}>Condición</label>
-          <select
-            value={formData.condicion || "Estable"}
-            onChange={(e) => updateField("condicion", e.target.value)}
-            className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-          >
-            <option value="Estable">Estable</option>
-            <option value="Contratado">Contratado</option>
-            <option value="Refuerzo">Refuerzo</option>
-            <option value="Invitado">Invitado</option>
-            <option value="Becario">Becario</option>
-          </select>
-        </div>
-
-        <div className="space-y-1">
-          <label className={labelClass}>Género</label>
-          <select
-            value={formData.genero || "-"}
-            onChange={(e) => updateField("genero", e.target.value)}
-            className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-          >
-            <option value="-">-</option>
-            <option value="M">Masculino</option>
-            <option value="F">Femenino</option>
-            <option value="X">No Binario / Otro</option>
-          </select>
         </div>
       </div>
 
@@ -353,14 +343,6 @@ export default function MusicianPersonalSection() {
             options={locationsOptions}
             value={formData.id_loc_viaticos}
             onChange={(val) => updateField("id_loc_viaticos", val)}
-          />
-        </div>
-        <div className="relative z-30">
-          <label className={labelClass}>Domicilio Laboral (Sede)</label>
-          <SearchableSelect
-            options={locacionesOptions}
-            value={formData.id_domicilio_laboral}
-            onChange={(val) => updateField("id_domicilio_laboral", val)}
           />
         </div>
       </div>
