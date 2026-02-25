@@ -23,12 +23,17 @@ serve(async (req) => {
       const openai = new OpenAI({ apiKey: openaiKey });
       const titulo = (body.titulo || '').trim();
       const compositorApellido = (body.compositorApellido || '').trim();
-      if (!titulo || !compositorApellido) {
+      const compositorNombre = (body.compositorNombre || '').trim();
+      // Debe haber al menos título y algún dato de compositor (nombre o apellido)
+      if (!titulo || (!compositorApellido && !compositorNombre)) {
         return new Response(JSON.stringify({ year: null, imslpUrl: null }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
+      const compositorLabel = compositorNombre && compositorApellido
+        ? `${compositorNombre} ${compositorApellido}`
+        : (compositorApellido || compositorNombre);
       const systemContent = wantsIMSLP
-        ? 'Eres un experto en música clásica. Responde ÚNICAMENTE con un objeto JSON válido. Ejemplo: {"year": 1896, "imslpUrl": "https://imslp.org/wiki/..."}. Incluye "year" (número entero positivo entre 1000 y 2100, o null si no lo sabes) e "imslpUrl" (URL de IMSLP para la obra si existe, o null). No incluyas texto adicional.'
-        : 'Eres un experto en música clásica. Responde ÚNICAMENTE con un objeto JSON válido: {"year": número} con el año de composición (1000-2100, o null). No incluyas texto adicional.';
+        ? 'Eres un experto en música clásica. Debes identificar la obra EXACTA usando el nombre y apellido del compositor y el título completo (incluyendo movimientos y/o año si aparecen). NO INVENTES INFORMACIÓN. Usa solo fuentes confiables (catálogos oficiales, IMSLP, etc.). Si no puedes estar al menos en un 90% seguro de la obra y del año de composición, o hay varias obras posibles o las fuentes se contradicen, responde con {"year": null, "imslpUrl": null}. Si encuentras una única obra clara, responde ÚNICAMENTE con un objeto JSON válido, por ejemplo: {"year": 1896, "imslpUrl": "https://imslp.org/wiki/..."}. El campo "year" debe ser un número entero entre 1000 y 2100 o null. El campo "imslpUrl" debe ser la URL EXACTA de IMSLP para esa obra o null si no existe o no estás seguro. No incluyas texto adicional.'
+        : 'Eres un experto en música clásica. Debes identificar la obra EXACTA usando el nombre y apellido del compositor y el título completo (incluyendo movimientos y/o año si aparecen). NO INVENTES INFORMACIÓN. Si no puedes estar al menos en un 90% seguro del año de composición o las fuentes se contradicen, responde {"year": null}. Responde ÚNICAMENTE con un objeto JSON válido: {"year": número} donde "year" es un entero entre 1000 y 2100 o null. No incluyas texto adicional.';
       let rawContent = '{}';
       try {
         const comp = await openai.chat.completions.create({
@@ -38,8 +43,8 @@ serve(async (req) => {
             {
               role: 'user',
               content: wantsIMSLP
-                ? `Obra "${titulo}" de ${compositorApellido}. Dame año de composición y URL de IMSLP si existe. Respuesta JSON.`
-                : `¿En qué año se compuso la obra "${titulo}" de ${compositorApellido}? Responde solo el JSON.`,
+                ? `Obra EXACTA "${titulo}" de ${compositorLabel}. Usa SOLO información que puedas verificar en fuentes confiables. Si no estás seguro, "year" e "imslpUrl" deben ser null. Respuesta JSON.`
+                : `¿En qué año se compuso la obra EXACTA "${titulo}" de ${compositorLabel}? Si no estás seguro del año exacto, devuelve "year": null. Responde solo el JSON.`,
             },
           ],
           response_format: { type: 'json_object' },
@@ -68,6 +73,85 @@ serve(async (req) => {
         console.error('FIND_WORK_METADATA parse:', e);
       }
       return new Response(JSON.stringify({ year, imslpUrl }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // --- MODO: FIND_TITLE_WITH_MOVEMENTS (sugerencia de título con movimientos) ---
+    if (body?.type === 'FIND_TITLE_WITH_MOVEMENTS') {
+      const openaiKey = Deno.env.get('OPENAI_API_KEY') ?? '';
+      if (!openaiKey) {
+        return new Response(
+          JSON.stringify({ titleWithMovements: null, error: 'OPENAI_API_KEY no configurada' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+      const openai = new OpenAI({ apiKey: openaiKey });
+      const titulo = (body.titulo || '').trim();
+      const compositorApellido = (body.compositorApellido || '').trim();
+      const compositorNombre = (body.compositorNombre || '').trim();
+      if (!titulo || (!compositorApellido && !compositorNombre)) {
+        return new Response(
+          JSON.stringify({
+            titleWithMovements: null,
+            error: 'Debe indicar título y al menos un compositor para buscar sugerencias.',
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+      const compositorLabel = compositorNombre && compositorApellido
+        ? `${compositorNombre} ${compositorApellido}`
+        : (compositorApellido || compositorNombre);
+
+      const systemContent =
+        'Eres un experto en música clásica y editor de programas de concierto. Tu tarea es PROPONER UN TEXTO DE TÍTULO legible para el público, usando SOLO la información contenida en el título dado y en el nombre del compositor. ' +
+        'NO INVENTES NUEVAS OBRAS, MOVIMIENTOS, NÚMEROS DE CATÁLOGO NI AÑOS QUE NO APAREZCAN YA EN EL TEXTO. ' +
+        'Puedes: mejorar mayúsculas, tildes, signos de puntuación y maquetar los movimientos en líneas separadas con numerales romanos si ya se deducen claramente del texto. ' +
+        'Si no puedes estar al menos en un 90% seguro de la estructura del título y movimientos SOLO a partir del texto dado, responde {"titleWithMovements": null}. ' +
+        'Responde ÚNICAMENTE con un JSON válido: {"titleWithMovements": string | null}. No incluyas comentarios ni explicación.';
+
+      let rawContent = '{}';
+      try {
+        const comp = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemContent },
+            {
+              role: 'user',
+              content:
+                `Título de trabajo actual: "${titulo}".\n` +
+                `Compositor: ${compositorLabel}.\n` +
+                'Usa SOLO estos datos. No añadas nada que no esté ya implícito en el texto. Devuelve un JSON con "titleWithMovements".',
+            },
+          ],
+          response_format: { type: 'json_object' },
+        });
+        rawContent = comp.choices[0]?.message?.content || '{}';
+      } catch (e) {
+        console.error('FIND_TITLE_WITH_MOVEMENTS OpenAI:', e);
+        return new Response(
+          JSON.stringify({
+            titleWithMovements: null,
+            error: 'Error al llamar a OpenAI para sugerir el título.',
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+
+      const content = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      let titleWithMovements: string | null = null;
+      try {
+        const parsed = JSON.parse(content);
+        const rawTitle = parsed?.titleWithMovements ?? parsed?.title_with_movements;
+        if (typeof rawTitle === 'string' && rawTitle.trim().length > 0) {
+          titleWithMovements = rawTitle.trim();
+        }
+      } catch (e) {
+        console.error('FIND_TITLE_WITH_MOVEMENTS parse:', e);
+      }
+
+      return new Response(
+        JSON.stringify({ titleWithMovements }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
     }
 
     const { messages, userId, currentPath } = body;

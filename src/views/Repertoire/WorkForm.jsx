@@ -385,6 +385,7 @@ export default function WorkForm({
     const firstId = selectedComposers?.[0];
     const opt = composersOptions.find((c) => c.id === firstId);
     const compositorApellido = opt?.label?.split(",")[0]?.trim() ?? "";
+    const compositorNombre = opt?.label?.split(",")[1]?.trim() ?? "";
     if (!titulo || !compositorApellido) {
       toast.error("Indica título y al menos un compositor para buscar sugerencias");
       return;
@@ -397,10 +398,12 @@ export default function WorkForm({
           type: "FIND_TITLE_WITH_MOVEMENTS",
           titulo,
           compositorApellido,
+          compositorNombre,
         },
       });
       if (error) {
-        toast.error("Error al buscar sugerencias");
+        console.warn("FIND_TITLE_WITH_MOVEMENTS error:", error);
+        toast.error(error.message || "Error al buscar sugerencias");
         return;
       }
       const text = data?.titleWithMovements ?? data?.title_with_movements;
@@ -412,7 +415,7 @@ export default function WorkForm({
       }
     } catch (e) {
       console.warn("FIND_TITLE_WITH_MOVEMENTS:", e);
-      toast.error("Error al buscar sugerencias");
+      toast.error("Error al buscar sugerencias: " + (e.message || "Error desconocido"));
     } finally {
       setLoadingTitleSuggestions(false);
     }

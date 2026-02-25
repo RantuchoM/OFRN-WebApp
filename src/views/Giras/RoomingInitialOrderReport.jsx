@@ -56,7 +56,14 @@ const getLogisticsDates = (log) => {
   return { dateIn, dateOut };
 };
 
-const InitialOrderReportModal = ({ roster, logisticsMap, rooms = [], onClose, programName }) => {
+const InitialOrderReportModal = ({
+  roster,
+  logisticsMap,
+  rooms = [],
+  adjustmentsByRange = {},
+  onClose,
+  programName,
+}) => {
     const componentRef = useRef();
 
     const handlePrint = () => {
@@ -148,8 +155,6 @@ const InitialOrderReportModal = ({ roster, logisticsMap, rooms = [], onClose, pr
         return rooms.some(r => r.tipo === 'Plus' && r.id_integrantes_asignados?.includes(personId));
     };
 
-    let totalBedNights = 0;
-    let totalPax = 0;
     const dateGroups = {};
 
     roster.forEach((person) => {
@@ -165,9 +170,6 @@ const InitialOrderReportModal = ({ roster, logisticsMap, rooms = [], onClose, pr
         const nights = differenceInCalendarDays(dOut, dIn);
         if (nights <= 0) return; 
 
-        totalBedNights += nights;
-        totalPax++;
-
         const formatD = (d) => d.toLocaleDateString("es-AR", {day:"2-digit", month:"2-digit"});
         const formatT = (d) => d.toLocaleTimeString("es-AR", {hour:"2-digit", minute:"2-digit"});
 
@@ -178,24 +180,85 @@ const InitialOrderReportModal = ({ roster, logisticsMap, rooms = [], onClose, pr
                 rangeLabel: key,
                 checkIn: dIn,
                 checkOut: dOut,
-                count: 0,
                 nights: nights,
-                std: 0,
-                plus: 0
+                baseCount: 0,
+                baseStd: 0,
+                basePlus: 0,
+                baseM: 0,
+                baseF: 0
             };
         }
         
-        dateGroups[key].count++;
+        const group = dateGroups[key];
+        group.baseCount++;
         if (isPersonInPlus(person.id)) {
-            dateGroups[key].plus++;
+            group.basePlus++;
         } else {
-            dateGroups[key].std++;
+            group.baseStd++;
         }
+        const isFemale = person.genero === "F";
+        if (isFemale) group.baseF++;
+        else group.baseM++;
     });
 
-    const sortedGroups = Object.values(dateGroups).sort((a, b) => a.checkIn - b.checkIn);
-    const grandTotalStdNights = sortedGroups.reduce((acc, g) => acc + (g.std * g.nights), 0);
-    const grandTotalPlusNights = sortedGroups.reduce((acc, g) => acc + (g.plus * g.nights), 0);
+    const sortedGroups = Object.values(dateGroups).sort(
+      (a, b) => a.checkIn - b.checkIn,
+    );
+
+    const computedRows = sortedGroups.map((group) => {
+      const adj = adjustmentsByRange[group.rangeLabel] || {};
+      const extraStd = (adj.std_m || 0) + (adj.std_f || 0);
+      const extraPlus = (adj.plus_m || 0) + (adj.plus_f || 0);
+      const stdPax = group.baseStd + extraStd;
+      const plusPax = group.basePlus + extraPlus;
+      const totalRowPax = stdPax + plusPax;
+      const stdNights = stdPax * group.nights;
+      const plusNights = plusPax * group.nights;
+      const totalRowNights = totalRowPax * group.nights;
+
+      const totalF = group.baseF + (adj.std_f || 0) + (adj.plus_f || 0);
+      const totalM = group.baseM + (adj.std_m || 0) + (adj.plus_m || 0);
+      const roomsF = Math.ceil(totalF / 2);
+      const roomsM = Math.ceil(totalM / 2);
+      const suggestedRooms = roomsF + roomsM;
+
+      return {
+        group,
+        stdPax,
+        plusPax,
+        totalRowPax,
+        stdNights,
+        plusNights,
+        totalRowNights,
+        suggestedRooms,
+      };
+    });
+
+    const totalPax = computedRows.reduce(
+      (acc, row) => acc + row.totalRowPax,
+      0,
+    );
+    const totalBedNights = computedRows.reduce(
+      (acc, row) => acc + row.totalRowNights,
+      0,
+    );
+    const grandTotalStdNights = computedRows.reduce(
+      (acc, row) => acc + row.stdNights,
+      0,
+    );
+    const grandTotalPlusNights = computedRows.reduce(
+      (acc, row) => acc + row.plusNights,
+      0,
+    );
+    const totalStdPax = computedRows.reduce((acc, row) => acc + row.stdPax, 0);
+    const totalPlusPax = computedRows.reduce(
+      (acc, row) => acc + row.plusPax,
+      0,
+    );
+    const totalSuggestedRooms = computedRows.reduce(
+      (acc, row) => acc + row.suggestedRooms,
+      0,
+    );
 
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
@@ -236,6 +299,10 @@ const InitialOrderReportModal = ({ roster, logisticsMap, rooms = [], onClose, pr
                             <div className="text-xs text-slate-500 uppercase font-bold text-indigo-700 summary-label">Total General</div>
                             <div className="text-2xl font-bold text-indigo-600 summary-value text-indigo">{totalBedNights}</div>
                         </div>
+                        <div className="summary-item summary-divider">
+                            <div className="text-xs text-slate-500 uppercase font-bold text-slate-700 summary-label">Habs Sugeridas (DOBLE)</div>
+                            <div className="text-2xl font-bold text-slate-800 summary-value">{totalSuggestedRooms}</div>
+                        </div>
                     </div>
 
                     <h3>Desglose por Fechas y Categoría</h3>
@@ -254,24 +321,23 @@ const InitialOrderReportModal = ({ roster, logisticsMap, rooms = [], onClose, pr
                                 <th className="bg-plus text-plus" style={{width: '60px'}}>Pax Plus</th>
                                 <th className="bg-plus text-plus" style={{width: '80px'}}>Camas Plus</th>
                                 <th style={{width: '100px'}}>Total Camas</th>
+                                <th style={{width: '110px'}}>Habs Sugeridas</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedGroups.map((group, idx) => {
-                                const stdNights = group.std * group.nights;
-                                const plusNights = group.plus * group.nights;
-                                const totalRowNights = group.count * group.nights;
-
+                            {computedRows.map((row, idx) => {
+                                const { group, stdPax, plusPax, totalRowPax, stdNights, plusNights, totalRowNights, suggestedRooms } = row;
                                 return (
                                     <tr key={idx}>
                                         <td className="date-col">{group.rangeLabel}</td>
                                         <td className="highlight">{group.nights}</td>
-                                        <td>{group.count}</td>
-                                        <td className="bg-std">{group.std > 0 ? group.std : '-'}</td>
+                                        <td>{totalRowPax}</td>
+                                        <td className="bg-std">{stdPax > 0 ? stdPax : '-'}</td>
                                         <td className="bg-std font-bold">{stdNights > 0 ? stdNights : '-'}</td>
-                                        <td className="bg-plus">{group.plus > 0 ? group.plus : '-'}</td>
+                                        <td className="bg-plus">{plusPax > 0 ? plusPax : '-'}</td>
                                         <td className="bg-plus font-bold text-plus">{plusNights > 0 ? plusNights : '-'}</td>
                                         <td className="text-total">{totalRowNights}</td>
+                                        <td>{suggestedRooms}</td>
                                     </tr>
                                 );
                             })}
@@ -289,11 +355,12 @@ const InitialOrderReportModal = ({ roster, logisticsMap, rooms = [], onClose, pr
                                     <td style={{textAlign:'right'}}>TOTALES</td>
                                     <td></td>
                                     <td>{totalPax}</td>
-                                    <td className="bg-std">{sortedGroups.reduce((acc, g) => acc + g.std, 0)}</td>
+                                    <td className="bg-std">{totalStdPax}</td>
                                     <td className="bg-std">{grandTotalStdNights}</td>
-                                    <td className="bg-plus">{sortedGroups.reduce((acc, g) => acc + g.plus, 0)}</td>
+                                    <td className="bg-plus">{totalPlusPax}</td>
                                     <td className="bg-plus">{grandTotalPlusNights}</td>
                                     <td className="text-total">{totalBedNights}</td>
+                                    <td>{totalSuggestedRooms}</td>
                                 </tr>
                             </tfoot>
                         )}

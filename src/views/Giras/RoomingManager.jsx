@@ -21,6 +21,7 @@ import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
 import RoomingReportModal from "./RoomingReport";
 import InitialOrderReportModal from "./RoomingInitialOrderReport";
+import RoomingInitialAdjustmentModal from "./RoomingInitialAdjustmentModal";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { useLogistics } from "../../hooks/useLogistics"; // <--- CAMBIO CLAVE
 // --- MODAL DE AYUDA ---
@@ -922,6 +923,8 @@ export default function RoomingManager({
   const [draggedMusician, setDraggedMusician] = useState(null);
   const [commentsState, setCommentsState] = useState(null);
   const [showMissingData, setShowMissingData] = useState(false); // <--- NUEVO ESTADO
+  const [showInitialAdjust, setShowInitialAdjust] = useState(false);
+  const [initialAdjustments, setInitialAdjustments] = useState(null);
   // --- NUEVOS ESTADOS PARA SELECCIÓN MÚLTIPLE ---
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [lastSelectedId, setLastSelectedId] = useState(null);
@@ -1734,7 +1737,7 @@ export default function RoomingManager({
               <IconPlus size={16} /> Agregar Hotel
             </button>
             <button
-              onClick={() => setShowInitialOrder(true)}
+              onClick={() => setShowInitialAdjust(true)}
               className="bg-white text-slate-600 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-2 shadow-sm"
             >
               <IconList size={16} /> Pedido Inicial
@@ -1790,11 +1793,24 @@ export default function RoomingManager({
           logisticsMap={logisticsMap}
         />
       )}
+      {showInitialAdjust && (
+        <RoomingInitialAdjustmentModal
+          roster={roster}
+          logisticsMap={logisticsMap}
+          onClose={() => setShowInitialAdjust(false)}
+          onConfirm={(adjustments) => {
+            setInitialAdjustments(adjustments);
+            setShowInitialAdjust(false);
+            setShowInitialOrder(true);
+          }}
+        />
+      )}
       {showInitialOrder && (
         <InitialOrderReportModal
           roster={roster}
           logisticsMap={logisticsMap}
           rooms={rooms}
+          adjustmentsByRange={initialAdjustments || {}}
           onClose={() => setShowInitialOrder(false)}
           programName={`${program.nomenclador || ""} | ${program.zona || ""}`}
         />
