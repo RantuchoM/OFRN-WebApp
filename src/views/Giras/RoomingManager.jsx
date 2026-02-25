@@ -742,12 +742,20 @@ const RoomCard = ({
   supabase,
   selectedIds,
   onMusicianClick,
+  onUpdateAttribute,
 }) => {
   const isPlus = room.tipo === "Plus";
   const count = room.occupants.length;
   let colorClass = getRoomColor(count);
   const [isOver, setIsOver] = useState(false);
   const [showMenu, setShowMenu] = useState(false); // Menu 3 puntos
+
+  const handleToggleAttribute = (e, field, value) => {
+    e.stopPropagation();
+    if (onUpdateAttribute) {
+      onUpdateAttribute(room.id, field, value);
+    }
+  };
 
   return (
     <div
@@ -775,10 +783,71 @@ const RoomCard = ({
             />
             {getCapacityLabel(count)}
           </div>
-          <div className="text-[9px] opacity-70 flex flex-wrap gap-1 mt-0.5">
-            {isPlus && <span className="font-bold text-amber-700">PLUS</span>}
-            {room.es_matrimonial && <span>• Matri</span>}
-            {room.con_cuna && <span>• Cuna</span>}
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[9px] text-slate-600">
+            <button
+              type="button"
+              className="flex items-center gap-1"
+              onClick={(e) =>
+                handleToggleAttribute(
+                  e,
+                  "tipo",
+                  room.tipo === "Plus" ? "Común" : "Plus",
+                )
+              }
+            >
+              <span className="uppercase">Plus</span>
+              <span
+                className={`w-8 h-4 rounded-full relative transition-colors ${
+                  room.tipo === "Plus" ? "bg-amber-400" : "bg-slate-300"
+                }`}
+              >
+                <span
+                  className={`absolute top-[2px] left-[2px] w-3 h-3 rounded-full bg-white shadow transition-transform ${
+                    room.tipo === "Plus" ? "translate-x-4" : ""
+                  }`}
+                />
+              </span>
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-1"
+              onClick={(e) =>
+                handleToggleAttribute(e, "es_matrimonial", !room.es_matrimonial)
+              }
+            >
+              <span className="uppercase">Matr.</span>
+              <span
+                className={`w-8 h-4 rounded-full relative transition-colors ${
+                  room.es_matrimonial ? "bg-pink-500" : "bg-slate-300"
+                }`}
+              >
+                <span
+                  className={`absolute top-[2px] left-[2px] w-3 h-3 rounded-full bg-white shadow transition-transform ${
+                    room.es_matrimonial ? "translate-x-4" : ""
+                  }`}
+                />
+              </span>
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-1"
+              onClick={(e) =>
+                handleToggleAttribute(e, "con_cuna", !room.con_cuna)
+              }
+            >
+              <span className="uppercase">Cuna</span>
+              <span
+                className={`w-8 h-4 rounded-full relative transition-colors ${
+                  room.con_cuna ? "bg-emerald-500" : "bg-slate-300"
+                }`}
+              >
+                <span
+                  className={`absolute top-[2px] left-[2px] w-3 h-3 rounded-full bg-white shadow transition-transform ${
+                    room.con_cuna ? "translate-x-4" : ""
+                  }`}
+                />
+              </span>
+            </button>
           </div>
         </div>
 
@@ -1393,6 +1462,21 @@ export default function RoomingManager({
     return "Mixto";
   };
 
+  const handleUpdateRoomAttribute = async (roomId, field, value) => {
+    setRooms((prev) =>
+      prev.map((r) => (r.id === roomId ? { ...r, [field]: value } : r)),
+    );
+    try {
+      const { error } = await supabase
+        .from("hospedaje_habitaciones")
+        .update({ [field]: value })
+        .eq("id", roomId);
+      if (!error && onDataChange) onDataChange();
+    } catch (err) {
+      console.error("Error actualizando habitación:", err);
+    }
+  };
+
   // ... (HANDLERS) ...
   const handleSaveHotel = async ({
     id_hotel,
@@ -1979,6 +2063,7 @@ export default function RoomingManager({
                           }
                           selectedIds={selectedIds}
                           onMusicianClick={handleMusicianClick}
+                          onUpdateAttribute={handleUpdateRoomAttribute}
                         />
                       ))}
                     </div>
@@ -2037,6 +2122,7 @@ export default function RoomingManager({
                           }
                           selectedIds={selectedIds}
                           onMusicianClick={handleMusicianClick}
+                          onUpdateAttribute={handleUpdateRoomAttribute}
                         />
                       ))}
                     </div>
@@ -2073,6 +2159,7 @@ export default function RoomingManager({
                           }
                           selectedIds={selectedIds}
                           onMusicianClick={handleMusicianClick}
+                          onUpdateAttribute={handleUpdateRoomAttribute}
                         />
                       ))}
                     </div>
