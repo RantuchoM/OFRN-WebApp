@@ -2,6 +2,60 @@ import React, { useRef } from "react";
 import { IconFileText, IconPrinter, IconX } from "../../components/ui/Icons";
 import { differenceInCalendarDays } from "date-fns";
 
+// Helper compatible con objetos de evento y strings simples
+const getLogisticsDates = (log) => {
+  let dateIn = null;
+  let dateOut = null;
+
+  // Check-In
+  if (log?.checkin) {
+    let dStr;
+    let tStr;
+    if (typeof log.checkin === "object") {
+      // Prioridad: campos de evento ({ fecha, hora_inicio }) y alias ({ date, time, hora })
+      dStr = log.checkin.fecha || log.checkin.date;
+      tStr =
+        log.checkin.hora_inicio ||
+        log.checkin.hora ||
+        log.checkin.time ||
+        log.checkin_time ||
+        "14:00";
+    } else {
+      // Fallback: string plano + hora opcional en la raíz
+      dStr = log.checkin;
+      tStr = log.checkin_time || "14:00";
+    }
+    if (dStr) {
+      const safeTime = (tStr || "14:00").slice(0, 5);
+      dateIn = new Date(`${dStr}T${safeTime}`);
+    }
+  }
+
+  // Check-Out
+  if (log?.checkout) {
+    let dStr;
+    let tStr;
+    if (typeof log.checkout === "object") {
+      dStr = log.checkout.fecha || log.checkout.date;
+      tStr =
+        log.checkout.hora_inicio ||
+        log.checkout.hora ||
+        log.checkout.time ||
+        log.checkout_time ||
+        "10:00";
+    } else {
+      dStr = log.checkout;
+      tStr = log.checkout_time || "10:00";
+    }
+    if (dStr) {
+      const safeTime = (tStr || "10:00").slice(0, 5);
+      dateOut = new Date(`${dStr}T${safeTime}`);
+    }
+  }
+
+  return { dateIn, dateOut };
+};
+
 const InitialOrderReportModal = ({ roster, logisticsMap, rooms = [], onClose, programName }) => {
     const componentRef = useRef();
 
@@ -98,15 +152,13 @@ const InitialOrderReportModal = ({ roster, logisticsMap, rooms = [], onClose, pr
     let totalPax = 0;
     const dateGroups = {};
 
-    roster.forEach(person => {
+    roster.forEach((person) => {
         const log = logisticsMap[person.id];
-        if (!log || !log.checkin || !log.checkout) return;
+        if (!log) return;
 
-        const dInStr = `${log.checkin}T${log.checkin_time || '14:00'}`;
-        const dOutStr = `${log.checkout}T${log.checkout_time || '10:00'}`;
-        
-        const dIn = new Date(dInStr);
-        const dOut = new Date(dOutStr);
+        // Resolver fechas y horas desde objetos de evento o strings manuales
+        const { dateIn: dIn, dateOut: dOut } = getLogisticsDates(log);
+        if (!dIn || !dOut) return;
 
         if (isNaN(dIn.getTime()) || isNaN(dOut.getTime())) return;
 
@@ -116,8 +168,8 @@ const InitialOrderReportModal = ({ roster, logisticsMap, rooms = [], onClose, pr
         totalBedNights += nights;
         totalPax++;
 
-        const formatD = (d) => d.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit'});
-        const formatT = (d) => d.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
+        const formatD = (d) => d.toLocaleDateString("es-AR", {day:"2-digit", month:"2-digit"});
+        const formatT = (d) => d.toLocaleTimeString("es-AR", {hour:"2-digit", minute:"2-digit"});
 
         const key = `${formatD(dIn)} ${formatT(dIn)} - ${formatD(dOut)} ${formatT(dOut)}`;
         
