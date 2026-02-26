@@ -1,4 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  Suspense,
+  useCallback,
+} from "react";
 import {
   IconUsers,
   IconLoader,
@@ -14,6 +21,7 @@ import {
   IconEdit,
   IconTrash,
   IconDownload,
+  IconBulb,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
@@ -115,6 +123,34 @@ const EXCLUDED_ROLES = [
   "sonido",
   "acompañante",
 ];
+
+// Helpers nombres de partes (para matching inteligente)
+const stripExtension = (name = "") =>
+  name.replace(/\.(pdf|docx?)$/i, "").trim();
+
+const getPartLabelFromPart = (part) => {
+  if (!part) return "";
+  const base =
+    part.nombre_archivo ||
+    part.instrumentos?.instrumento ||
+    "";
+  return stripExtension(base);
+};
+
+// Elimina tildes/acentos para comparar "Violin" ~ "Violín"
+const removeDiacritics = (str = "") =>
+  str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+const normalizePartLabel = (label = "") => {
+  const lower = removeDiacritics(label.toLowerCase());
+  // Unificamos romanos simples a números: I/II/III/IV -> 1/2/3/4
+  const numerized = lower
+    .replace(/\biv\b/g, "4")
+    .replace(/\biii\b/g, "3")
+    .replace(/\bii\b/g, "2")
+    .replace(/\bi\b/g, "1");
+  return numerized.replace(/\s+/g, " ").trim();
+};
 
 // --- COMPONENTE MÓVIL OPTIMIZADO ---
 const MobileSeatingTable = ({
@@ -512,6 +548,8 @@ export default function ProgramSeating({
   const [filteredRoster, setFilteredRoster] = useState([]);
   const [particellas, setParticellas] = useState([]);
   const [assignments, setAssignments] = useState({});
+   // Sugerencias inteligentes por músico: { [id_musico]: { [id_obra]: id_particella } }
+  const [suggestions, setSuggestions] = useState({});
   const [containers, setContainers] = useState([]);
   const [showConfig, setShowConfig] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -637,6 +675,83 @@ export default function ProgramSeating({
     });
     return map;
   }, [obras, particellas]);
+
+  // Calcula sugerencias para un músico concreto a partir de una asignación reciente
+  const updateSuggestionsAfterAssign = useCallback(
+    (musicianId, originObraId, partId) => {
+      const part = particellas.find(
+        (p) => String(p.id) === String(partId),
+      );
+      if (!part) return;
+      const targetLabel = normalizePartLabel(getPartLabelFromPart(part));
+      if (!targetLabel) return;
+
+      setSuggestions((prev) => {
+        const nextForMusician = {};
+
+        obras.forEach((obra) => {
+          const obraId = obra.obra_id;
+          if (obraId === originObraId) return;
+
+          const key = `M-${musicianId}-${obraId}`;
+          if (assignments[key]) return;
+
+          const available = availablePartsByWork[obraId] || [];
+          if (!available.length) return;
+
+          // Si la obra ya tiene todas sus particellas usadas al menos una vez, no sugerimos más
+          const hasUnassigned = available.some((p) => !particellaCounts[p.id]);
+          if (!hasUnassigned) return;
+
+          const match = available.find((p) => {
+            const label = normalizePartLabel(getPartLabelFromPart(p));
+            return label === targetLabel;
+          });
+
+          if (match) {
+            nextForMusician[obraId] = match.id;
+          }
+        });
+
+        if (Object.keys(nextForMusician).length === 0) {
+          const copy = { ...prev };
+          delete copy[musicianId];
+          return copy;
+        }
+
+        return { ...prev, [musicianId]: nextForMusician };
+      });
+    },
+    [obras, availablePartsByWork, particellas, assignments, particellaCounts],
+  );
+
+  // Sugerencia basada en nombre de contenedor (cuerdas)
+  const getContainerSuggestedPart = useCallback(
+    (container, obraId) => {
+      const available = availablePartsByWork[obraId] || [];
+      if (!available.length) return null;
+
+      // Si la obra ya tiene todas sus particellas usadas al menos una vez, no sugerimos más
+      const hasUnassigned = available.some((p) => !particellaCounts[p.id]);
+      if (!hasUnassigned) return null;
+
+      const rawName = container?.nombre || "";
+      const normalizedContainer = normalizePartLabel(rawName);
+      if (!normalizedContainer) return null;
+
+      return (
+        available.find((p) => {
+          const label = normalizePartLabel(getPartLabelFromPart(p));
+          return (
+            label === normalizedContainer ||
+            label.includes(normalizedContainer) ||
+            normalizedContainer.includes(label)
+          );
+        }) || null
+      );
+    },
+    [availablePartsByWork, particellaCounts],
+  );
 
   useEffect(() => {
     if (program?.id && !rosterLoading) fetchInitialData();
@@ -881,6 +996,19 @@ export default function ProgramSeating({
       else copy[key] = particellaId;
       return copy;
     });
+
+    // Reset o recalcular sugerencias según el caso
+    if (targetType === "M") {
+      if (particellaId) {
+        updateSuggestionsAfterAssign(targetId, obraId, particellaId);
+      } else {
+        setSuggestions((prev) => {
+          const copy = { ...prev };
+          delete copy[targetId];
+          return copy;
+        });
+      }
+    }
 
     // DB Sync
     if (targetType === "C") {
@@ -1213,6 +1341,21 @@ export default function ProgramSeating({
                     const hasNoParts = c.items.some((i) =>
                       musiciansWithoutParts.has(String(i.id_musico)),
                     );
+                    const hasContainerSuggestions =
+                      isEditor &&
+                      obras.some((obra) => {
+                        const currentVal =
+                          assignments[`C-${c.id}-${obra.obra_id}`];
+                        if (currentVal) return false;
+                        const available =
+                          availablePartsByWork[obra.obra_id] || [];
+                        if (!available.length) return false;
+                        const hasUnassigned = available.some(
+                          (p) => !particellaCounts[p.id],
+                        );
+                        if (!hasUnassigned) return false;
+                        return !!getContainerSuggestedPart(c, obra.obra_id);
+                      });
                     return (
                       <tr
                         key={c.id}
@@ -1236,10 +1379,45 @@ export default function ProgramSeating({
                                 <IconAlertCircle size={14} />
                               </span>
                             )}
-                            <ContainerInfoCell
-                              container={c}
-                              myStandInfo={myStandText}
-                            />
+                            <div className="flex flex-col gap-1 min-w-0 flex-1">
+                              <ContainerInfoCell
+                                container={c}
+                                myStandInfo={myStandText}
+                              />
+                              {hasContainerSuggestions && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    for (const obra of obras) {
+                                      const obraId = obra.obra_id;
+                                      const key = `C-${c.id}-${obraId}`;
+                                      if (assignments[key]) continue;
+                                      const suggested =
+                                        getContainerSuggestedPart(
+                                          c,
+                                          obraId,
+                                        );
+                                      if (suggested) {
+                                        // eslint-disable-next-line no-await-in-loop
+                                        await handleAssign(
+                                          "C",
+                                          c.id,
+                                          obraId,
+                                          suggested.id,
+                                        );
+                                      }
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[9px] font-semibold border border-amber-200 hover:bg-amber-100 self-start"
+                                >
+                                  <IconBulb
+                                    size={12}
+                                    className="text-amber-500"
+                                  />
+                                  Aceptar todas
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </td>
                         {obras.map((obra) => {
@@ -1248,6 +1426,10 @@ export default function ProgramSeating({
                           // Usamos la lista memoizada
                           const availableParts =
                             availablePartsByWork[obra.obra_id] || [];
+                          const suggestedPart =
+                            !currentVal && c.items.length > 0
+                              ? getContainerSuggestedPart(c, obra.obra_id)
+                              : null;
 
                           return (
                             <td
@@ -1255,25 +1437,49 @@ export default function ProgramSeating({
                               className={`p-1 border-l border-slate-100 relative align-top ${isMyContainer ? "bg-amber-50" : "bg-slate-50/30"}`}
                             >
                               {isEditor ? (
-                                <ParticellaSelect
-                                  options={availableParts}
-                                  value={currentVal}
-                                  onChange={(val) =>
-                                    handleAssign("C", c.id, obra.obra_id, val)
-                                  }
-                                  onRequestCreate={() =>
-                                    openCreateModal(
-                                      obra.obra_id,
-                                      "00",
-                                      "C",
-                                      c.id,
-                                    )
-                                  }
-                                  disabled={false}
-                                  placeholder="Asignar"
-                                  preferredInstrumentId={c.id_instrumento}
-                                  counts={particellaCounts}
-                                />
+                                <div className="flex flex-col gap-1 items-stretch">
+                                  <ParticellaSelect
+                                    options={availableParts}
+                                    value={currentVal}
+                                    onChange={(val) =>
+                                      handleAssign("C", c.id, obra.obra_id, val)
+                                    }
+                                    onRequestCreate={() =>
+                                      openCreateModal(
+                                        obra.obra_id,
+                                        "00",
+                                        "C",
+                                        c.id,
+                                      )
+                                    }
+                                    disabled={false}
+                                    placeholder="Asignar"
+                                    preferredInstrumentId={c.id_instrumento}
+                                    counts={particellaCounts}
+                                  />
+                                  {suggestedPart && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleAssign(
+                                          "C",
+                                          c.id,
+                                          obra.obra_id,
+                                          suggestedPart.id,
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-medium border border-amber-200 max-w-[90px] mx-auto hover:bg-amber-200 transition-colors"
+                                    >
+                                      <IconBulb
+                                        size={12}
+                                        className="text-amber-500"
+                                      />
+                                      <span className="truncate">
+                                        {getPartLabelFromPart(suggestedPart)}
+                                      </span>
+                                    </button>
+                                  )}
+                                </div>
                               ) : (
                                 /* LECTURA OPTIMIZADA: Texto plano */
                                 <div className="flex items-center justify-center h-full px-2">
@@ -1317,6 +1523,9 @@ export default function ProgramSeating({
                   {otherMusicians.map((m) => {
                     const isMe = String(m.id) === String(user.id);
                     const hasNoParts = musiciansWithoutParts.has(String(m.id));
+                    const musicianSuggestions = suggestions[m.id] || {};
+                    const hasSuggestions =
+                      Object.keys(musicianSuggestions).length > 0;
                     return (
                       <tr
                         key={m.id}
@@ -1354,6 +1563,37 @@ export default function ProgramSeating({
                                   </span>
                                 )}
                               </span>
+                              {isEditor && hasSuggestions && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const entries = Object.entries(
+                                      musicianSuggestions,
+                                    );
+                                    for (const [obraId, partId] of entries) {
+                                      // obraId viene como string en el objeto
+                                      await handleAssign(
+                                        "M",
+                                        m.id,
+                                        Number(obraId),
+                                        partId,
+                                      );
+                                    }
+                                    setSuggestions((prev) => {
+                                      const copy = { ...prev };
+                                      delete copy[m.id];
+                                      return copy;
+                                    });
+                                  }}
+                                  className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[9px] font-semibold border border-amber-200 hover:bg-amber-100 self-start"
+                                >
+                                  <IconBulb
+                                    size={12}
+                                    className="text-amber-500"
+                                  />
+                                  Aceptar todas
+                                </button>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -1362,31 +1602,94 @@ export default function ProgramSeating({
                             assignments[`M-${m.id}-${obra.obra_id}`];
                           const availableParts =
                             availablePartsByWork[obra.obra_id] || [];
+                          const hasRealPartForInstrument = availableParts.some(
+                            (p) =>
+                              String(p.id_instrumento) ===
+                              String(m.id_instr),
+                          );
+                          const suggestedPartId =
+                            musicianSuggestions[obra.obra_id];
+                          const suggestedPart = suggestedPartId
+                            ? availableParts.find(
+                                (p) => p.id === suggestedPartId,
+                              )
+                            : null;
+
+                          const bgClass = !hasRealPartForInstrument
+                            ? "bg-slate-100"
+                            : isMe
+                              ? "bg-amber-50"
+                              : "";
+
                           return (
                             <td
                               key={`${m.id}-${obra.id}`}
-                              className={`p-1 border-l border-slate-100 relative align-top ${isMe ? "bg-amber-50" : ""}`}
+                              className={`p-1 border-l border-slate-100 relative align-top ${bgClass}`}
                             >
                               {isEditor ? (
-                                <ParticellaSelect
-                                  options={availableParts}
-                                  value={currentVal}
-                                  onChange={(val) =>
-                                    handleAssign("M", m.id, obra.obra_id, val)
-                                  }
-                                  onRequestCreate={() =>
-                                    openCreateModal(
-                                      obra.obra_id,
-                                      m.id_instr,
-                                      "M",
-                                      m.id,
-                                    )
-                                  }
-                                  disabled={false}
-                                  placeholder="Asignar"
-                                  preferredInstrumentId={m.id_instr}
-                                  counts={particellaCounts}
-                                />
+                                <div className="flex flex-col gap-1 items-stretch">
+                                  <ParticellaSelect
+                                    options={availableParts}
+                                    value={currentVal}
+                                    onChange={(val) =>
+                                      handleAssign(
+                                        "M",
+                                        m.id,
+                                        obra.obra_id,
+                                        val,
+                                      )
+                                    }
+                                    onRequestCreate={() =>
+                                      openCreateModal(
+                                        obra.obra_id,
+                                        m.id_instr,
+                                        "M",
+                                        m.id,
+                                      )
+                                    }
+                                    disabled={false}
+                                    placeholder="Asignar"
+                                    preferredInstrumentId={m.id_instr}
+                                    counts={particellaCounts}
+                                  />
+                                  {!currentVal && suggestedPart && (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        await handleAssign(
+                                          "M",
+                                          m.id,
+                                          obra.obra_id,
+                                          suggestedPart.id,
+                                        );
+                                        setSuggestions((prev) => {
+                                          const prevFor =
+                                            prev[m.id] || {};
+                                          const {
+                                            [obra.obra_id]: _,
+                                            ...restFor
+                                          } = prevFor;
+                                          const copy = { ...prev };
+                                          if (Object.keys(restFor).length) {
+                                            copy[m.id] = restFor;
+                                          } else {
+                                            delete copy[m.id];
+                                          }
+                                          return copy;
+                                        });
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-medium border border-amber-200 max-w-[90px] mx-auto hover:bg-amber-200 transition-colors"
+                                    >
+                                      <IconBulb
+                                        size={12}
+                                        className="text-amber-500"
+                                      />
+                                      <span className="truncate">
+                                        {getPartLabelFromPart(suggestedPart)}
+                                      </span>
+                                    </button>
+                                  )}
+                                </div>
                               ) : (
                                 <div className="flex items-center justify-center h-full px-2">
                                   <span
