@@ -360,7 +360,11 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
             obras (
               id, titulo, duracion_segundos,
               obras_arcos (id, nombre, link, descripcion, id_drive_folder),
-              compositores ( id, nombre, apellido )
+              compositores ( id, nombre, apellido ),
+              obras_compositores (
+                rol,
+                compositores ( id, nombre, apellido )
+              )
             )
           )
         `)

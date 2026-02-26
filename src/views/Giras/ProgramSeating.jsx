@@ -554,19 +554,36 @@ export default function ProgramSeating({
 
   const obras = useMemo(() => {
     if (!effectiveBlocks || effectiveBlocks.length === 0) return [];
+
     return effectiveBlocks
       .flatMap((block) =>
-        block.repertorio_obras.map((ro) => {
+        (block.repertorio_obras || []).map((ro) => {
           if (!ro.obras) return null;
-          const comp = ro.obras.obras_compositores?.find(
-            (oc) => oc.rol === "compositor" || !oc.rol,
-          )?.compositores;
-          const compName = comp?.apellido || "Anónimo";
+
+          const ocList = Array.isArray(ro.obras.obras_compositores)
+            ? ro.obras.obras_compositores
+            : ro.obras.obras_compositores
+              ? [ro.obras.obras_compositores]
+              : [];
+
+          const firstEntry =
+            ocList.find(
+              (oc) =>
+                (oc.rol && oc.rol.toLowerCase() === "compositor") || !oc.rol,
+            ) || ocList[0] || null;
+
+          const lastName =
+            firstEntry && firstEntry.compositores
+              ? firstEntry.compositores.apellido || ""
+              : "";
+
+          const compName = lastName || "S/D";
           const title = ro.obras.titulo || "Obra";
           const cleanTitle =
             typeof title === "string"
               ? title.replace(/<[^>]*>?/gm, "")
               : "Obra";
+
           return {
             id: ro.id,
             obra_id: ro.obras.id,
