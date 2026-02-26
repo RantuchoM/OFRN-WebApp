@@ -20,6 +20,7 @@ import {
   IconMessageSquare,
   IconUserPlus,
   IconCopy,
+  IconAlertCircle,
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { useAuth } from "../../context/AuthContext";
@@ -128,8 +129,11 @@ export default function WorkForm({
   onCancel,
   onSave,
   catalogoInstrumentos,
+  context = "archive", // "archive" (RepertoireView) | "program" (RepertoireManager)
+  onInsertExistingWork, // opcional: insertar obra ya existente en bloque de repertorio
 }) {
   const { user } = useAuth();
+  const isProgramContext = context === "program";
 
   const [formData, setFormData] = useState({
     id: null,
@@ -184,6 +188,8 @@ export default function WorkForm({
     instrumentacion: "idle",
     observaciones: "idle",
   });
+  const [duplicateWorks, setDuplicateWorks] = useState([]);
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
   const handleQuickCompCreated = (newComp) => {
     const newOption = {
       id: newComp.id,
@@ -420,6 +426,60 @@ export default function WorkForm({
       setLoadingTitleSuggestions(false);
     }
   }, [supabase, formData.titulo, selectedComposers, composersOptions]);
+
+  const checkDuplicateWorks = useCallback(
+    async (rawTitulo, composerIds) => {
+      const cleanTitle = stripHtml(rawTitulo);
+      const search = cleanTitle.trim();
+      if (!search || search.length <= 3 || !composerIds?.length) {
+        setDuplicateWorks([]);
+        setCheckingDuplicates(false);
+        return;
+      }
+
+      setCheckingDuplicates(true);
+      try {
+        let query = supabase
+          .from("obras")
+          .select(
+            "id, titulo, instrumentacion, obras_compositores!inner(id_compositor, rol)",
+          )
+          .ilike("titulo", `%${search}%`)
+          .in("obras_compositores.id_compositor", composerIds)
+          .eq("obras_compositores.rol", "compositor")
+          .limit(10);
+
+        if (formData.id) {
+          query = query.neq("id", formData.id);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+          console.warn("Error buscando duplicados de obras:", error);
+          setDuplicateWorks([]);
+          return;
+        }
+        setDuplicateWorks(data || []);
+      } catch (e) {
+        console.warn("checkDuplicateWorks:", e);
+        setDuplicateWorks([]);
+      } finally {
+        setCheckingDuplicates(false);
+      }
+    },
+    [supabase, formData.id],
+  );
+
+  const debouncedCheckDuplicates = useDebouncedCallback(
+    (tituloValue, composerIds) => {
+      checkDuplicateWorks(tituloValue, composerIds);
+    },
+    600,
+  );
+
+  useEffect(() => {
+    debouncedCheckDuplicates(formData.titulo, selectedComposers);
+  }, [formData.titulo, selectedComposers, debouncedCheckDuplicates]);
 
   useEffect(() => {
     const titulo = stripHtml(formData.titulo);
@@ -1082,6 +1142,54 @@ export default function WorkForm({
 
       {/* FORMULARIO */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* SECCIÓN COMPOSITORES Y ARREGLADORES CON BOTÓN DE CREACIÓN RÁPIDA (LÍNEA 1) */}
+        <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-9 gap-4 items-end">
+          <div className="md:col-span-4">
+            <label className="text-[10px] font-bold uppercase text-indigo-600 mb-1 flex items-center gap-1">
+              <IconUser size={12} /> Compositores
+            </label>
+            <SearchableSelect
+              options={composersOptions}
+              value={selectedComposers}
+              isMulti
+              onChange={(ids) => {
+                setSelectedComposers(ids);
+                updateComposerRelations("compositor", ids);
+              }}
+            />
+          </div>
+
+          <div className="md:col-span-4">
+            <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-1">
+              <IconUser size={12} /> Arregladores
+            </label>
+            <SearchableSelect
+              options={composersOptions}
+              value={selectedArrangers}
+              isMulti
+              onChange={(ids) => {
+                setSelectedArrangers(ids);
+                updateComposerRelations("arreglador", ids);
+              }}
+            />
+          </div>
+
+          <div className="md:col-span-1">
+            <button
+              type="button"
+              onClick={() => {
+                setQuickCompType("compositor"); // Por defecto vincula a compositor, pero el modal lo crea globalmente
+                setIsQuickCompOpen(true);
+              }}
+              className="w-full h-[32px] flex items-center justify-center bg-white text-indigo-600 rounded border border-slate-300 hover:border-indigo-500 hover:bg-indigo-50 transition-all shadow-sm"
+              title="Crear nuevo Compositor/Arreglador al vuelo"
+            >
+              <IconUserPlus size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* LÍNEA 2: TÍTULO + ESTADO */}
         <div className="md:col-span-3">
           <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
             <label className="text-[10px] font-bold uppercase text-slate-400">
@@ -1090,10 +1198,16 @@ export default function WorkForm({
             <button
               type="button"
               onClick={fetchTitleWithMovementsSuggestion}
-              disabled={loadingTitleSuggestions || !stripHtml(formData.titulo) || !selectedComposers?.length}
+              disabled={
+                loadingTitleSuggestions ||
+                !stripHtml(formData.titulo) ||
+                !selectedComposers?.length
+              }
               className="text-[10px] font-medium text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
             >
-              {loadingTitleSuggestions ? <IconLoader size={10} className="animate-spin" /> : null}
+              {loadingTitleSuggestions ? (
+                <IconLoader size={10} className="animate-spin" />
+              ) : null}
               Buscar sugerencias
             </button>
           </div>
@@ -1103,15 +1217,76 @@ export default function WorkForm({
             placeholder="Ej: Sinfonía n.5"
             className="min-h-[58px]"
           />
+
+          {duplicateWorks.length > 0 && (
+            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 text-xs text-amber-900 p-3 flex gap-3">
+              <div className="shrink-0 mt-0.5">
+                <IconAlertCircle size={16} className="text-amber-500" />
+              </div>
+              <div className="space-y-1">
+                <div className="font-semibold uppercase tracking-wide text-[11px] flex items-center gap-2">
+                  <span>Posibles duplicados encontrados</span>
+                  {checkingDuplicates && (
+                    <IconLoader size={10} className="animate-spin text-amber-600" />
+                  )}
+                </div>
+                <p className="text-[11px] text-amber-800">
+                  Revisa si alguna de estas obras ya existe en el archivo antes de crear una nueva.
+                </p>
+                <ul className="space-y-0.5 max-h-40 overflow-y-auto pr-1">
+                  {duplicateWorks.map((obra) => (
+                    <li
+                      key={obra.id}
+                      className="flex flex-col gap-1 rounded px-2 py-1 bg-amber-100/70 border border-amber-200/70"
+                    >
+                      <div>
+                        <span
+                          className="font-semibold text-[11px] text-amber-900"
+                          dangerouslySetInnerHTML={{ __html: obra.titulo || "" }}
+                        />
+                        {obra.instrumentacion && (
+                          <span className="block text-[10px] text-amber-800/90">
+                            {obra.instrumentacion}
+                          </span>
+                        )}
+                      </div>
+                      {isProgramContext && typeof onInsertExistingWork === "function" && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await onInsertExistingWork(obra.id);
+                              onCancel();
+                            } catch (e) {
+                              console.warn("onInsertExistingWork error:", e);
+                              toast.error("No se pudo insertar esta obra en el programa.");
+                            }
+                          }}
+                          className="self-start mt-0.5 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-600 text-white hover:bg-amber-700 shadow-sm"
+                        >
+                          Insertar esta obra en programa
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
           {suggestedTitleWithMovements && (
             <div className="mt-2 p-3 bg-sky-50 border border-sky-200 rounded-lg text-sm">
-              <pre className="whitespace-pre-wrap font-sans text-slate-700 mb-2">{suggestedTitleWithMovements}</pre>
+              <pre className="whitespace-pre-wrap font-sans text-slate-700 mb-2">
+                {suggestedTitleWithMovements}
+              </pre>
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => {
-                    const escape = (s) => s.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                    const isMovementLine = (line) => /^\s*[IVXLCDM]+\./i.test(line.trim());
+                    const escape = (s) =>
+                      s.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    const isMovementLine = (line) =>
+                      /^\s*[IVXLCDM]+\./i.test(line.trim());
                     const html = suggestedTitleWithMovements
                       .split("\n")
                       .map((line, i) => {
@@ -1168,53 +1343,6 @@ export default function WorkForm({
               />
             </div>
           )}
-        </div>
-
-        {/* SECCIÓN COMPOSITORES Y ARREGLADORES CON BOTÓN DE CREACIÓN RÁPIDA */}
-        <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-9 gap-4 items-end">
-          <div className="md:col-span-4">
-            <label className="text-[10px] font-bold uppercase text-indigo-600 mb-1 flex items-center gap-1">
-              <IconUser size={12} /> Compositores
-            </label>
-            <SearchableSelect
-              options={composersOptions}
-              value={selectedComposers}
-              isMulti
-              onChange={(ids) => {
-                setSelectedComposers(ids);
-                updateComposerRelations("compositor", ids);
-              }}
-            />
-          </div>
-
-          <div className="md:col-span-4">
-            <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-1">
-              <IconUser size={12} /> Arregladores
-            </label>
-            <SearchableSelect
-              options={composersOptions}
-              value={selectedArrangers}
-              isMulti
-              onChange={(ids) => {
-                setSelectedArrangers(ids);
-                updateComposerRelations("arreglador", ids);
-              }}
-            />
-          </div>
-
-          <div className="md:col-span-1">
-            <button
-              type="button"
-              onClick={() => {
-                setQuickCompType("compositor"); // Por defecto vincula a compositor, pero el modal lo crea globalmente
-                setIsQuickCompOpen(true);
-              }}
-              className="w-full h-[32px] flex items-center justify-center bg-white text-indigo-600 rounded border border-slate-300 hover:border-indigo-500 hover:bg-indigo-50 transition-all shadow-sm"
-              title="Crear nuevo Compositor/Arreglador al vuelo"
-            >
-              <IconUserPlus size={18} />
-            </button>
-          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4 md:col-span-2">

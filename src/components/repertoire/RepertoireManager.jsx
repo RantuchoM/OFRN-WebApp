@@ -2147,6 +2147,11 @@ export default function RepertoireManager({
               onCancel={() => setIsEditWorkModalOpen(false)}
               onSave={handleWorkSaved}
               catalogoInstrumentos={instrumentList}
+              context="program"
+              onInsertExistingWork={async (workId) => {
+                await addWorkToBlock(workId, activeRepertorioId);
+                setIsEditWorkModalOpen(false);
+              }}
             />
           </div>
         </ModalPortal>

@@ -1,48 +1,334 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { IconLayers, IconLoader, IconDownload, IconPlus, IconCheck, IconX, IconTrash, IconEdit } from "../ui/Icons";
+import {
+  IconLayers,
+  IconLoader,
+  IconDownload,
+  IconPlus,
+  IconCheck,
+  IconX,
+  IconTrash,
+  IconEdit,
+  IconChevronDown,
+} from "../ui/Icons";
+import DateInput from "../ui/DateInput";
 
-const ImportSeatingModal = ({ isOpen, onClose, onConfirm, currentProgramId, supabase }) => {
-  const [programs, setPrograms] = useState([]);
-  const [selectedProgram, setSelectedProgram] = useState("");
+const PROGRAM_TYPES = [
+  { value: "Todos", label: "Todos" },
+  { value: "Sinfónico", label: "Sinfónico" },
+  { value: "Ensamble", label: "Ensamble" },
+  { value: "Camerata", label: "Camerata" },
+  { value: "Otros", label: "Otros" },
+];
+
+const ImportSeatingModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  currentProgramId,
+  supabase,
+}) => {
   const [loading, setLoading] = useState(false);
   const [replace, setReplace] = useState(true);
+  const [selectedProgramId, setSelectedProgramId] = useState(null);
+  const [rows, setRows] = useState([]);
+  const [expandedId, setExpandedId] = useState(null);
+  const [tipoFiltro, setTipoFiltro] = useState("Todos");
+  const [fechaDesde, setFechaDesde] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 6);
+    return d.toISOString().slice(0, 10);
+  });
+
+  const fetchPrograms = async () => {
+    setLoading(true);
+    try {
+      let query = supabase
+        .from("programas")
+        .select("id, nombre_gira, nomenclador, fecha_desde, tipo")
+        .neq("id", currentProgramId)
+        .gte("fecha_desde", fechaDesde)
+        .order("fecha_desde", { ascending: true });
+
+      if (tipoFiltro === "Sinfónico" || tipoFiltro === "Ensamble") {
+        query = query.eq("tipo", tipoFiltro);
+      } else if (tipoFiltro === "Otros") {
+        query = query.not("tipo", "in", ["Sinfónico,Ensamble"]);
+      }
+
+      const { data: programasData } = await query;
+
+      if (!programasData || programasData.length === 0) {
+        setRows([]);
+        setSelectedProgramId(null);
+        setExpandedId(null);
+        setLoading(false);
+        return;
+      }
+
+      const ids = programasData.map((p) => p.id);
+      const { data: contenedores } = await supabase
+        .from("seating_contenedores")
+        .select("id, id_programa, nombre, id_instrumento")
+        .in("id_programa", ids);
+
+      const contIds = (contenedores || []).map((c) => c.id);
+      let itemsByContainer = {};
+      if (contIds.length > 0) {
+        const { data: items } = await supabase
+          .from("seating_contenedores_items")
+          .select("id_contenedor, id_musico, integrantes(apellido, nombre)")
+          .in("id_contenedor", contIds);
+
+        (items || []).forEach((item) => {
+          const key = item.id_contenedor;
+          if (!itemsByContainer[key]) itemsByContainer[key] = [];
+          if (item.integrantes) {
+            itemsByContainer[key].push(item.integrantes);
+          }
+        });
+      }
+
+      const grouped = {};
+      (contenedores || []).forEach((c) => {
+        if (!grouped[c.id_programa]) grouped[c.id_programa] = [];
+        grouped[c.id_programa].push(c);
+      });
+
+      const mapped = programasData.map((p) => ({
+        ...p,
+        contenedores: (grouped[p.id] || [])
+          .sort((a, b) => (a.orden || 0) - (b.orden || 0))
+          .map((c) => {
+            const people = itemsByContainer[c.id] || [];
+            const peopleNames = people
+              .map((pers) =>
+                `${pers.apellido || ""} ${pers.nombre || ""}`.trim(),
+              )
+              .filter(Boolean);
+            return {
+              ...c,
+              peopleCount: peopleNames.length,
+              peopleNames,
+            };
+          }),
+      }));
+
+      setRows(mapped);
+      setSelectedProgramId(mapped[0]?.id || null);
+      setExpandedId(mapped[0]?.id || null);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
-      const fetchPrograms = async () => {
-        setLoading(true);
-        const { data } = await supabase.from("programas").select("id, nombre_gira, nomenclador, mes_letra").neq("id", currentProgramId).order("fecha_desde", { ascending: false }).limit(20);
-        if (data) setPrograms(data);
-        setLoading(false);
-      };
       fetchPrograms();
     }
-  }, [isOpen, currentProgramId, supabase]);
+  }, [isOpen, tipoFiltro, fechaDesde]);
 
   if (!isOpen) return null;
 
+  const handleConfirm = () => {
+    if (!selectedProgramId) return;
+    onConfirm(selectedProgramId, replace);
+  };
+
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-4 border border-slate-200">
-        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><IconDownload className="text-indigo-600" /> Importar Disposición</h3>
-        <div className="flex flex-col gap-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-4 border border-slate-200 flex flex-col max-h-[80vh]">
+        <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2 text-sm">
+          <IconDownload className="text-indigo-600" /> Importar Disposición
+          desde otra gira
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3 text-xs">
           <div>
-            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Desde la Gira:</label>
-            {loading ? <div className="text-xs text-slate-400">Cargando...</div> : (
-              <select className="w-full border border-slate-300 rounded p-2 text-sm outline-none focus:border-indigo-500 bg-white" value={selectedProgram} onChange={(e) => setSelectedProgram(e.target.value)}>
-                <option value="" disabled>Seleccionar...</option>
-                {programs.map((p) => (<option key={p.id} value={p.id}>{p.mes_letra} | {p.nomenclador}</option>))}
-              </select>
+            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+              Tipo de programa
+            </label>
+            <select
+              className="w-full border border-slate-300 rounded px-2 py-1 text-xs bg-white"
+              value={tipoFiltro}
+              onChange={(e) => setTipoFiltro(e.target.value)}
+            >
+              {PROGRAM_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <DateInput
+              label="Fecha desde"
+              value={fechaDesde}
+              onChange={(iso) => setFechaDesde(iso || fechaDesde)}
+              className="text-xs"
+            />
+          </div>
+          <div className="flex items-end">
+            <div className="flex items-center gap-2 border p-2 rounded bg-slate-50 border-slate-200 w-full">
+              <input
+                type="checkbox"
+                id="chkReplace"
+                checked={replace}
+                onChange={(e) => setReplace(e.target.checked)}
+                className="accent-indigo-600"
+              />
+              <label
+                htmlFor="chkReplace"
+                className="text-[11px] text-slate-700 cursor-pointer"
+              >
+                Eliminar grupos actuales antes de importar
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto border border-slate-200 rounded-md mb-3">
+          {loading ? (
+            <div className="flex items-center justify-center py-6 text-xs text-slate-500">
+              <IconLoader className="animate-spin mr-2" size={14} />
+              Buscando programas...
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="flex items-center justify-center py-6 text-xs text-slate-400 italic">
+              No se encontraron programas con estos filtros.
+            </div>
+          ) : (
+            <table className="w-full text-[11px]">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="text-left px-2 py-1">Programa</th>
+                  <th className="text-left px-2 py-1">Fecha</th>
+                  <th className="text-left px-2 py-1">Tipo</th>
+                  <th className="text-center px-2 py-1">Contenedores</th>
+                  <th className="text-center px-2 py-1">Preview</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((p) => {
+                  const isSelected = selectedProgramId === p.id;
+                  const isExpanded = expandedId === p.id;
+                  const conts = p.contenedores || [];
+                  const fechaLabel = p.fecha_desde
+                    ? new Date(p.fecha_desde).toLocaleDateString("es-AR", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "2-digit",
+                      })
+                    : "-";
+                  return (
+                    <React.Fragment key={p.id}>
+                      <tr
+                        className={`cursor-pointer hover:bg-indigo-50 ${
+                          isSelected ? "bg-indigo-50" : ""
+                        }`}
+                        onClick={() => setSelectedProgramId(p.id)}
+                      >
+                        <td className="px-2 py-1">
+                          <div className="font-semibold text-slate-800 truncate">
+                            {p.nomenclador || p.nombre_gira || "Sin título"}
+                          </div>
+                        </td>
+                        <td className="px-2 py-1 text-slate-600">
+                          {fechaLabel}
+                        </td>
+                        <td className="px-2 py-1 text-slate-600">
+                          {p.tipo || "-"}
+                        </td>
+                        <td className="px-2 py-1 text-center text-slate-700 font-semibold">
+                          {conts.length}
+                        </td>
+                        <td className="px-2 py-1 text-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedId(isExpanded ? null : p.id);
+                              setSelectedProgramId(p.id);
+                            }}
+                            className="inline-flex items-center justify-center px-2 py-0.5 text-[10px] border rounded-full text-slate-600 hover:bg-slate-100"
+                          >
+                            <IconChevronDown
+                              size={12}
+                              className={`mr-1 transition-transform ${
+                                isExpanded ? "rotate-180" : ""
+                              }`}
+                            />
+                            Ver
+                          </button>
+                        </td>
+                      </tr>
+                      {isExpanded && conts.length > 0 && (
+                        <tr className="bg-slate-50/80">
+                          <td
+                            colSpan={5}
+                            className="px-3 py-2 border-t border-slate-200"
+                          >
+                            <div className="text-[10px] text-slate-500 mb-1 font-semibold uppercase">
+                              Contenedores / Instrumentos / Músicos
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {conts.map((c) => (
+                                <span
+                                  key={c.id}
+                                  className="px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] text-slate-700"
+                                >
+                                  {c.nombre}
+                                  {c.id_instrumento
+                                    ? ` · ${c.id_instrumento}`
+                                    : ""}
+                                  {typeof c.peopleCount === "number"
+                                    ? ` · ${c.peopleCount}`
+                                    : ""}
+                                  {c.peopleNames && c.peopleNames.length > 0 && (
+                                    <>
+                                      {" · "}
+                                      {c.peopleNames
+                                        .slice(0, 3)
+                                        .map((n, idx) =>
+                                          idx === 0 ? n : ` / ${n}`,
+                                        )}
+                                      {c.peopleNames.length > 3
+                                        ? ` +${c.peopleNames.length - 3}`
+                                        : ""}
+                                    </>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 mt-2">
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={!selectedProgramId || loading}
+            className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-sm disabled:opacity-50 flex items-center gap-1"
+          >
+            {loading ? (
+              <IconLoader className="animate-spin" size={12} />
+            ) : (
+              <IconDownload size={12} />
             )}
-          </div>
-          <div className="flex items-center gap-2 border p-2 rounded bg-slate-50 border-slate-200">
-            <input type="checkbox" id="chkReplace" checked={replace} onChange={(e) => setReplace(e.target.checked)} className="accent-indigo-600" />
-            <label htmlFor="chkReplace" className="text-xs text-slate-700 cursor-pointer">Eliminar grupos actuales antes de importar</label>
-          </div>
-          <div className="flex justify-end gap-2 mt-2">
-            <button onClick={onClose} className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
-            <button onClick={() => onConfirm(selectedProgram, replace)} disabled={!selectedProgram} className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-sm disabled:opacity-50">Importar</button>
-          </div>
+            Importar
+          </button>
         </div>
       </div>
     </div>
@@ -113,12 +399,17 @@ export default function GlobalStringsManager({ programId, roster, containers, on
       const { data: sourceContainers } = await supabase.from("seating_contenedores").select("*").eq("id_programa", sourceProgramId).order("orden");
       if (!sourceContainers?.length) { alert("La gira seleccionada no tiene configuración."); setIsImporting(false); return; }
       const { data: sourceItems } = await supabase.from("seating_contenedores_items").select("*").in("id_contenedor", sourceContainers.map(c => c.id)).order("orden");
-      const validMusicianIdsSet = new Set(roster.map(m => m.id));
       let currentOrderIndex = replaceCurrent ? 0 : containers.length;
       for (const srcCont of sourceContainers) {
         const { data: newCont } = await supabase.from("seating_contenedores").insert({ id_programa: programId, nombre: srcCont.nombre, id_instrumento: srcCont.id_instrumento || "00", orden: currentOrderIndex++ }).select().single();
         if (!newCont) continue;
-        const itemsToInsert = sourceItems.filter(i => i.id_contenedor === srcCont.id && validMusicianIdsSet.has(i.id_musico)).map((item, idx) => ({ id_contenedor: newCont.id, id_musico: item.id_musico, orden: idx }));
+        const itemsToInsert = sourceItems
+          .filter(i => i.id_contenedor === srcCont.id)
+          .map((item, idx) => ({
+            id_contenedor: newCont.id,
+            id_musico: item.id_musico,
+            orden: idx,
+          }));
         if (itemsToInsert.length) await supabase.from("seating_contenedores_items").insert(itemsToInsert);
       }
       onUpdate();
