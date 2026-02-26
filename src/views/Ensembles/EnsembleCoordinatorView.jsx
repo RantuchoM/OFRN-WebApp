@@ -291,12 +291,32 @@ const RehearsalCardItem = ({
             <IconMapPin size={12} className="text-slate-400 shrink-0" />{" "}
             {locationStr}
           </span>
-          {isMyEvent && (
+          {(isMyEvent || (evt.programas && activeMembersSet.size > 0)) && (
             <span
-              className={`flex items-center gap-1 font-bold ${isFull ? "text-green-600" : "text-amber-600"}`}
+              className={`flex items-center gap-1 font-bold ${
+                isMyEvent
+                  ? isFull
+                    ? "text-green-600"
+                    : "text-amber-600"
+                  : "text-slate-600"
+              }`}
             >
               <IconUsers size={12} />
-              {loadingRoster ? "..." : isFull ? "Tutti" : count}
+              {loadingRoster
+                ? "..."
+                : !evt.programas || activeMembersSet.size === 0
+                  ? isMyEvent
+                    ? isFull
+                      ? "Tutti"
+                      : count
+                    : count
+                  : isMyEvent
+                    ? isFull
+                      ? "Tutti"
+                      : count
+                    : count === activeMembersSet.size
+                      ? "Todos"
+                      : `${count} músicos`}
             </span>
           )}
           {evt.eventos_ensambles?.length > 0 && (
@@ -1000,7 +1020,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
       try {
         const today = new Date().toISOString().split("T")[0];
 
-        const [cats, locs, types, mems, progsData, feriadosData] = await Promise.all([
+        const [cats, locs, types, mems, feriadosData] = await Promise.all([
           supabase
             .from("categorias_tipos_eventos")
             .select("id, nombre")
@@ -1018,11 +1038,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
             .select("id, nombre, apellido")
             .order("apellido"),
           supabase
-            .from("programas")
-            .select("id, nombre_gira, fecha_desde, mes_letra, nomenclador")
-            .gte("fecha_hasta", today)
-            .order("fecha_desde", { ascending: true }),
-          supabase
             .from("feriados")
             .select("*")
             .order("fecha", { ascending: true }),
@@ -1037,15 +1052,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
           (mems.data || []).map((m) => ({
             id: m.id,
             label: `${m.apellido}, ${m.nombre}`,
-          })),
-        );
-        setProgramasOptions(
-          (progsData.data || []).map((p) => ({
-            id: p.id,
-            label: `${p.mes_letra || "?"} | ${p.nomenclador || ""} - ${p.nombre_gira}`,
-            subLabel: p.fecha_desde
-              ? `Inicio: ${format(new Date(p.fecha_desde), "dd/MM/yyyy")}`
-              : "",
           })),
         );
         setFeriados(feriadosData.data || []);
@@ -1111,6 +1117,68 @@ export default function EnsembleCoordinatorView({ supabase }) {
               };
             });
             setMemberMetadata(metaMap);
+
+            // --- PROGRAMAS RELEVANTES PARA EDICIÓN MASIVA (POR MÚSICOS) ---
+            const myEnsembleIds = ensemblesToManage.map((e) => e.id);
+            const myFamilies = new Set();
+            (memberInfos.data || []).forEach((m) => {
+              if (m.instrumentos?.familia) {
+                myFamilies.add(m.instrumentos.familia);
+              }
+            });
+
+            const { data: sources } = await supabase
+              .from("giras_fuentes")
+              .select("id_gira, tipo, valor_id, valor_texto")
+              .in("tipo", ["ENSAMBLE", "FAMILIA"]);
+
+            const candidateGiraIds = new Set();
+
+            sources?.forEach((s) => {
+              if (
+                s.tipo === "ENSAMBLE" &&
+                myEnsembleIds.includes(parseInt(s.valor_id, 10))
+              ) {
+                candidateGiraIds.add(s.id_gira);
+              }
+              if (s.tipo === "FAMILIA" && myFamilies.has(s.valor_texto)) {
+                candidateGiraIds.add(s.id_gira);
+              }
+            });
+
+            if (uniqueMemberIds.length > 0) {
+              const { data: memberPrograms } = await supabase
+                .from("giras_integrantes")
+                .select("id_gira")
+                .in("id_integrante", uniqueMemberIds);
+              memberPrograms?.forEach((mp) =>
+                candidateGiraIds.add(mp.id_gira),
+              );
+            }
+
+            const allIds = Array.from(candidateGiraIds);
+            if (allIds.length > 0) {
+              const { data: progsData } = await supabase
+                .from("programas")
+                .select(
+                  "id, nombre_gira, fecha_desde, fecha_hasta, mes_letra, nomenclador",
+                )
+                .in("id", allIds)
+                .gte("fecha_hasta", today)
+                .order("fecha_desde", { ascending: true });
+
+              setProgramasOptions(
+                (progsData || []).map((p) => ({
+                  id: p.id,
+                  label: `${p.mes_letra || "?"} | ${p.nomenclador || ""} - ${p.nombre_gira}`,
+                  subLabel: p.fecha_desde
+                    ? `Inicio: ${format(new Date(p.fecha_desde), "dd/MM/yyyy")}`
+                    : "",
+                })),
+              );
+            } else {
+              setProgramasOptions([]);
+            }
           }
         }
       } catch (error) {
@@ -1155,6 +1223,45 @@ export default function EnsembleCoordinatorView({ supabase }) {
       const ensembleIds = activeEnsembles.map((e) => e.id);
 
       const today = new Date().toISOString().split("T")[0];
+
+      // PROGRAMAS RELEVANTES SEGÚN MÚSICOS ACTIVOS (ensambles + familias + asignaciones directas)
+      const myEnsembleIds = ensembleIds;
+      const myFamilies = new Set();
+
+      activeMemberIdsArray.forEach((mid) => {
+        const meta = memberMetadata[mid];
+        if (meta?.family) {
+          myFamilies.add(meta.family);
+        }
+      });
+
+      const candidateProgramIds = new Set();
+
+      const { data: sources } = await supabase
+        .from("giras_fuentes")
+        .select("id_gira, tipo, valor_id, valor_texto")
+        .in("tipo", ["ENSAMBLE", "FAMILIA"]);
+
+      sources?.forEach((s) => {
+        if (
+          s.tipo === "ENSAMBLE" &&
+          myEnsembleIds.includes(parseInt(s.valor_id, 10))
+        ) {
+          candidateProgramIds.add(s.id_gira);
+        }
+        if (s.tipo === "FAMILIA" && myFamilies.has(s.valor_texto)) {
+          candidateProgramIds.add(s.id_gira);
+        }
+      });
+
+      if (activeMemberIdsArray.length > 0) {
+        const { data: memberPrograms } = await supabase
+          .from("giras_integrantes")
+          .select("id_gira")
+          .in("id_integrante", activeMemberIdsArray);
+
+        memberPrograms?.forEach((mp) => candidateProgramIds.add(mp.id_gira));
+      }
 
       // CONFIGURACIÓN DE FECHAS
       let queryMyRehearsals = supabase
@@ -1233,6 +1340,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 locaciones ( nombre, localidades(localidad) ),
                 tipos_evento!inner ( nombre, color, id_categoria ),
                 programas ( id, nombre_gira, mes_letra, nomenclador ),
+                eventos_programas_asociados ( programas ( id, nombre_gira, mes_letra, nomenclador ) ),
                 eventos_ensambles ( id_ensamble ) 
             `,
           ) // ^^^ AGREGAMOS eventos_ensambles AQUI PARA PODER FILTRAR
@@ -1252,19 +1360,35 @@ export default function EnsembleCoordinatorView({ supabase }) {
           extraEvents.forEach((e) => {
             if (seenEventIds.has(e.id)) return;
             if (e.is_deleted && e.fecha !== today) return;
-            // --- FILTRO DE SEGURIDAD: OCULTAR ENSAMBLES AJENOS ---
             const linkedEnsembles = e.eventos_ensambles || [];
-            if (linkedEnsembles.length > 0) {
-              // Si el evento está vinculado a ensambles, verificamos si ALGUNO es mío.
-              const isRelevant = linkedEnsembles.some((le) =>
+
+            const directProgram = e.programas || null;
+            const associatedPrograms =
+              e.eventos_programas_asociados
+                ?.map((epa) => epa.programas)
+                .filter(Boolean) || [];
+
+            const allProgramIds = new Set();
+            if (directProgram?.id != null) allProgramIds.add(directProgram.id);
+            associatedPrograms.forEach((p) => {
+              if (p?.id != null) allProgramIds.add(p.id);
+            });
+
+            let isRelevant = true;
+
+            // Priorizar coincidencia por programa (músicos compartidos) cuando haya programas asociados
+            if (allProgramIds.size > 0 && candidateProgramIds.size > 0) {
+              isRelevant = Array.from(allProgramIds).some((pid) =>
+                candidateProgramIds.has(pid),
+              );
+            } else if (linkedEnsembles.length > 0) {
+              // Fallback: si solo hay ensambles vinculados, mantener el filtro de "mis" ensambles
+              isRelevant = linkedEnsembles.some((le) =>
                 ensembleIds.includes(le.id_ensamble),
               );
-
-              // Si está vinculado a ensambles y NINGUNO es mío, lo ocultamos.
-              // (Esto oculta los ensayos de otros ensambles, pero mantiene eventos generales/giras que no tienen vínculo específico de ensamble)
-              if (!isRelevant) return;
             }
-            // -----------------------------------------------------
+
+            if (!isRelevant) return;
 
             seenEventIds.add(e.id);
             allEvents.push({
