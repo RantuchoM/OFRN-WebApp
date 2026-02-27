@@ -589,7 +589,7 @@ export default function RepertoireManager({
   const autoSyncDrive = async () => {
     setSyncingDrive(true);
     try {
-      await supabase.functions.invoke("manage-drive", {
+      await supabase.functions.invoke("manage-gira", {
         body: { action: "sync_program", programId: programId },
       });
     } catch (err) {

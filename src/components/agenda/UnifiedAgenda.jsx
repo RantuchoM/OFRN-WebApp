@@ -48,6 +48,7 @@ import {
   getDeadlineStatus,
   getGoogleMapsUrl,
 } from "../../utils/agendaHelpers";
+import { getProgramBadgeClasses } from "../../utils/giraUtils";
 import FeriadoBadge from "./FeriadoBadge";
 import ConnectionBadge from "./ConnectionBadge";
 import DriveSmartButton from "./DriveSmartButton";
@@ -1463,31 +1464,122 @@ export default function UnifiedAgenda({
                               )}
                             </div>
 
+                            {/* Etiquetas de ensamble para ensayos (tipo 13) */}
                             {evt.id_tipo_evento === 13 && (
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {(evt.eventos_ensambles?.length > 0
-                                  ? evt.eventos_ensambles
-                                      .map((ee) => ee.ensambles?.ensamble)
-                                      .filter(Boolean)
-                                  : []
-                                ).length > 0 ? (
-                                  (evt.eventos_ensambles || [])
-                                    .filter((ee) => ee.ensambles?.ensamble)
-                                    .map((ee) => (
-                                      <span
-                                        key={ee.ensambles?.id}
-                                        className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-100 uppercase tracking-tight"
-                                      >
-                                        {ee.ensambles.ensamble}
-                                      </span>
-                                    ))
-                                ) : (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-tight">
-                                    S/E
-                                  </span>
-                                )}
-                              </div>
+                              <>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {(evt.eventos_ensambles?.length > 0
+                                    ? evt.eventos_ensambles
+                                        .map((ee) => ee.ensambles?.ensamble)
+                                        .filter(Boolean)
+                                    : []
+                                  ).length > 0 ? (
+                                    (evt.eventos_ensambles || [])
+                                      .filter((ee) => ee.ensambles?.ensamble)
+                                      .map((ee) => (
+                                        <span
+                                          key={ee.ensambles?.id}
+                                          className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-100 uppercase tracking-tight"
+                                        >
+                                          {ee.ensambles.ensamble}
+                                        </span>
+                                      ))
+                                  ) : (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-tight">
+                                      S/E
+                                    </span>
+                                  )}
+                                </div>
+
+                                {Array.isArray(evt.eventos_programas_asociados) &&
+                                  evt.eventos_programas_asociados.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {evt.eventos_programas_asociados
+                                        .map((ep) => ep.programas)
+                                        .filter(Boolean)
+                                        .map((prog) => {
+                                          const badgeClasses =
+                                            getProgramBadgeClasses(prog);
+                                          return (
+                                            <div
+                                              key={prog.id}
+                                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${badgeClasses}`}
+                                              title={prog.nombre_gira}
+                                            >
+                                              <span className="font-bold">
+                                                [{prog.nomenclador || "Sin código"}]
+                                              </span>
+                                              <span className="opacity-70">|</span>
+                                              <span className="truncate max-w-[150px] italic">
+                                                {prog.nombre_gira}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                    </div>
+                                  )}
+                              </>
                             )}
+
+                            {/* Etiquetas de programa para ensayos de ensamble (tipo 13) */}
+                            {evt.id_tipo_evento === 13 &&
+                              Array.isArray(evt.eventos_programas_asociados) &&
+                              evt.eventos_programas_asociados.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {evt.eventos_programas_asociados
+                                    .map((ep) => ep.programas)
+                                    .filter(Boolean)
+                                    .map((prog) => {
+                                      const badgeClasses =
+                                        getProgramBadgeClasses(prog);
+                                      return (
+                                        <div
+                                          key={prog.id}
+                                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${badgeClasses}`}
+                                          title={prog.nombre_gira}
+                                        >
+                                          <span className="font-bold">
+                                            [{prog.nomenclador || "Sin código"}]
+                                          </span>
+                                          <span className="opacity-70">|</span>
+                                          <span className="truncate max-w-[150px] italic">
+                                            {prog.nombre_gira}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              )}
+
+                            {/* Etiquetas de programa para ensayos de ensamble (tipo 13) */}
+                            {evt.id_tipo_evento === 13 &&
+                              Array.isArray(evt.eventos_programas_asociados) &&
+                              evt.eventos_programas_asociados.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {evt.eventos_programas_asociados
+                                    .map((ep) => ep.programas)
+                                    .filter(Boolean)
+                                    .map((prog) => {
+                                      const badgeClasses =
+                                        getProgramBadgeClasses(prog);
+                                      return (
+                                        <div
+                                          key={prog.id}
+                                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${badgeClasses}`}
+                                          title={prog.nombre_gira}
+                                        >
+                                          <span className="font-bold">
+                                            [{prog.nomenclador || "Sin código"}]
+                                          </span>
+                                          <span className="opacity-70">|</span>
+                                          <span className="truncate max-w-[150px] italic">
+                                            {prog.nombre_gira}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              )}
 
                             <div className="flex flex-wrap gap-1">
                               {isTransportEvent && transportName && (
@@ -1757,51 +1849,86 @@ export default function UnifiedAgenda({
                                 </span>
                               )}
                             </div>
+
                           </div>
 
-                          {/* COLUMNA 3: DESCRIPCIÓN */}
+                          {/* COLUMNA 3: DESCRIPCIÓN + ENSAMBLES + PROGRAMAS */}
                           <div className="col-span-4 min-w-0">
-                            <div
-                              className={`text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
-                            >
-                              {evt.descripcion ? (
-                                <div
-                                  className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold text-sm"
-                                  dangerouslySetInnerHTML={{
-                                    __html: evt.descripcion,
-                                  }}
-                                />
-                              ) : (
-                                <span className={isDeleted ? "font-bold text-orange-700" : "font-bold text-slate-800"}>
-                                  {evt.tipos_evento?.nombre}
-                                </span>
-                              )}
-                            </div>
-                            {evt.id_tipo_evento === 13 && (
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {(evt.eventos_ensambles?.length > 0
-                                  ? evt.eventos_ensambles
-                                      .map((ee) => ee.ensambles?.ensamble)
-                                      .filter(Boolean)
-                                  : []
-                                ).length > 0 ? (
-                                  (evt.eventos_ensambles || [])
-                                    .filter((ee) => ee.ensambles?.ensamble)
-                                    .map((ee) => (
-                                      <span
-                                        key={ee.ensambles?.id}
-                                        className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-100 uppercase tracking-tight"
-                                      >
-                                        {ee.ensambles.ensamble}
-                                      </span>
-                                    ))
+                            <div className="flex items-start gap-2">
+                              <div
+                                className={`flex-1 text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
+                              >
+                                {evt.descripcion ? (
+                                  <div
+                                    className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold text-sm"
+                                    dangerouslySetInnerHTML={{
+                                      __html: evt.descripcion,
+                                    }}
+                                  />
                                 ) : (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-tight">
-                                    S/E
+                                  <span className={isDeleted ? "font-bold text-orange-700" : "font-bold text-slate-800"}>
+                                    {evt.tipos_evento?.nombre}
                                   </span>
                                 )}
                               </div>
-                            )}
+
+                              {/* Chip(es) de ensamble al lado de la descripción */}
+                              {evt.id_tipo_evento === 13 && (
+                                <div className="flex flex-wrap gap-1 shrink-0">
+                                  {(evt.eventos_ensambles?.length > 0
+                                    ? evt.eventos_ensambles
+                                        .map((ee) => ee.ensambles?.ensamble)
+                                        .filter(Boolean)
+                                    : []
+                                  ).length > 0 ? (
+                                    (evt.eventos_ensambles || [])
+                                      .filter((ee) => ee.ensambles?.ensamble)
+                                      .map((ee) => (
+                                        <span
+                                          key={ee.ensambles?.id}
+                                          className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-tight"
+                                        >
+                                          {ee.ensambles.ensamble}
+                                        </span>
+                                      ))
+                                  ) : (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-tight">
+                                      S/E
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Chips de programas DEBAJO de la descripción */}
+                            {evt.id_tipo_evento === 13 &&
+                              Array.isArray(evt.eventos_programas_asociados) &&
+                              evt.eventos_programas_asociados.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {evt.eventos_programas_asociados
+                                    .map((ep) => ep.programas)
+                                    .filter(Boolean)
+                                    .map((prog) => {
+                                      const badgeClasses =
+                                        getProgramBadgeClasses(prog);
+                                      return (
+                                        <div
+                                          key={prog.id}
+                                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${badgeClasses}`}
+                                          title={prog.nombre_gira}
+                                        >
+                                          <span className="font-bold">
+                                            [{prog.nomenclador || "Sin código"}]
+                                          </span>
+                                          <span className="opacity-70">|</span>
+                                          <span className="truncate max-w-[150px] italic">
+                                            {prog.nombre_gira}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              )}
                           </div>
 
                           {/* COLUMNA 4: LOCACIÓN */}

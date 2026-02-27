@@ -70,6 +70,176 @@ const getTypeAbbreviation = (type: string) => {
   return "Sinf";
 };
 
+const isOrquestaType = (tipo: string) => {
+  if (!tipo) return true;
+  const t = tipo.toLowerCase();
+  return !t.includes("ensamble");
+};
+
+function getEnsembleSigla(ensambleNombre: string, siglaFromDb?: string | null): string {
+  if (siglaFromDb?.trim()) return siglaFromDb.trim().toUpperCase();
+  if (!ensambleNombre?.trim()) return "Ens";
+  const words = ensambleNombre.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "Ens";
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  return words.map((w) => w[0]).join("").toUpperCase().slice(0, 4);
+}
+
+function fiscalYearFromDate(fechaDesde: string): string {
+  if (!fechaDesde) return "";
+  const y = fechaDesde.slice(0, 4);
+  return y.length === 4 ? y.slice(2) : "";
+}
+
+// =================================================================================
+// NOMENCLADOR: auditoría automática por año fiscal (orquestas cronológico, ensambles por sigla)
+// =================================================================================
+
+type ProgramRow = {
+  id: number;
+  fecha_desde: string;
+  tipo?: string;
+  nomenclador?: string | null;
+  giras_fuentes?: Array<{ tipo: string; valor_id: number | null; valor_texto: string | null }>;
+};
+
+async function fetchProgramsByFiscalYear(
+  supabase: any,
+  year2: string,
+  programIds?: number[]
+): Promise<ProgramRow[]> {
+  const yearFull = year2.length === 2 ? `20${year2}` : year2;
+  const start = `${yearFull}-01-01`;
+  const end = `${yearFull}-12-31`;
+  let q = supabase
+    .from("programas")
+    .select("id, fecha_desde, tipo, nomenclador, giras_fuentes(tipo, valor_id, valor_texto)")
+    .gte("fecha_desde", start)
+    .lte("fecha_desde", end)
+    .order("fecha_desde", { ascending: true })
+    .order("id", { ascending: true });
+  if (programIds?.length) q = q.in("id", programIds);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+
+function computeOrquestaNomenclador(
+  programsOrdered: ProgramRow[],
+  programId: number,
+  tipo: string,
+  year2: string
+): string {
+  const prefix = getTypeAbbreviation(tipo || "");
+  const idx = programsOrdered.findIndex((p) => p.id === programId);
+  const num = idx >= 0 ? idx + 1 : 1;
+  return `${prefix} ${String(num).padStart(2, "0")}/${year2}`;
+}
+
+function computeEnsambleNomenclador(
+  programsInYear: ProgramRow[],
+  prog: ProgramRow,
+  ensembleIdToSigla: Map<number, string>,
+  year2: string
+): string {
+  const sources = (prog.giras_fuentes || []).filter((f) => f.tipo === "ENSAMBLE" && f.valor_id != null);
+  if (sources.length === 0) return "";
+
+  const parts: string[] = [];
+  for (const s of sources) {
+    const eid = s.valor_id!;
+    const sigla =
+      ensembleIdToSigla.get(eid) ||
+      (s.valor_texto?.trim() ? getEnsembleSigla(s.valor_texto.trim(), null) : "Ens");
+    const girasWithThisEnsemble = programsInYear.filter((p) =>
+      (p.giras_fuentes || []).some((f) => f.tipo === "ENSAMBLE" && f.valor_id === eid)
+    );
+    const ordenado = [...girasWithThisEnsemble].sort(
+      (a, b) => (a.fecha_desde || "").localeCompare(b.fecha_desde || "") || a.id - b.id
+    );
+    const idx = ordenado.findIndex((p) => p.id === prog.id);
+    const num = idx >= 0 ? idx + 1 : 1;
+    parts.push(`${sigla} ${String(num).padStart(2, "0")}`);
+  }
+  return parts.join(" | ") + ` /${year2}`;
+}
+
+async function loadEnsembleSiglas(supabase: any, ensembleIds: number[]): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  if (ensembleIds.length === 0) return map;
+  const { data: rows } = await supabase
+    .from("ensambles")
+    .select("id, ensamble")
+    .in("id", [...new Set(ensembleIds)]);
+  for (const r of rows || []) {
+    map.set(r.id, getEnsembleSigla(r.ensamble ?? "", null));
+  }
+  return map;
+}
+
+async function auditAndApplyNomencladores(
+  supabase: any,
+  programsToSync: ProgramRow[]
+): Promise<{ updated: number; updatedIds: number[]; list: ProgramRow[] }> {
+  if (programsToSync.length === 0) return { updated: 0, updatedIds: [], list: [] };
+
+  const byYear = new Map<string, number[]>();
+  for (const p of programsToSync) {
+    const yy = fiscalYearFromDate(p.fecha_desde);
+    if (!yy) continue;
+    if (!byYear.has(yy)) byYear.set(yy, []);
+    byYear.get(yy)!.push(p.id);
+  }
+
+  const updates: Array<{ id: number; nomenclador: string }> = [];
+
+  for (const [year2] of byYear) {
+    const programsInYear = await fetchProgramsByFiscalYear(supabase, year2);
+
+    const orquestaByPrefix = new Map<string, ProgramRow[]>();
+    const ensembleIds = new Set<number>();
+
+    for (const p of programsInYear) {
+      if (isOrquestaType(p.tipo || "")) {
+        const prefix = getTypeAbbreviation(p.tipo || "");
+        if (!orquestaByPrefix.has(prefix)) orquestaByPrefix.set(prefix, []);
+        orquestaByPrefix.get(prefix)!.push(p);
+      } else {
+        (p.giras_fuentes || [])
+          .filter((f) => f.tipo === "ENSAMBLE" && f.valor_id != null)
+          .forEach((f) => ensembleIds.add(f.valor_id!));
+      }
+    }
+
+    const ensembleSiglas = await loadEnsembleSiglas(supabase, [...ensembleIds]);
+
+    for (const p of programsInYear) {
+      let computed = "";
+      if (isOrquestaType(p.tipo || "")) {
+        const list = orquestaByPrefix.get(getTypeAbbreviation(p.tipo || "")) || [];
+        computed = computeOrquestaNomenclador(list, p.id, p.tipo || "", year2);
+      } else {
+        computed = computeEnsambleNomenclador(programsInYear, p, ensembleSiglas, year2);
+      }
+      if (computed && computed !== (p.nomenclador || "")) {
+        updates.push({ id: p.id, nomenclador: computed });
+      }
+    }
+  }
+
+  for (const u of updates) {
+    await supabase.from("programas").update({ nomenclador: u.nomenclador }).eq("id", u.id);
+  }
+
+  const updatedIds = updates.map((x) => x.id);
+  const listWithNewNomenclador = programsToSync.map((p) => {
+    const up = updates.find((u) => u.id === p.id);
+    return up ? { ...p, nomenclador: up.nomenclador } : p;
+  });
+
+  return { updated: updates.length, updatedIds, list: listWithNewNomenclador };
+}
+
 const getFormattedDateString = (startStr: string, endStr: string) => {
   if (!startStr) return "SinFecha";
   const [y1, m1, d1] = startStr.split("-").map(Number);
@@ -956,48 +1126,74 @@ serve(async (req) => {
         return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
       }
 
-      // sync_program: sin ID = actualizar TODAS las giras vigentes
+      // sync_program: auditoría de nomencladores (backend centraliza la "estantería" del año)
       const selectProgramas = `
         *,
         programas_repertorios(*, repertorio_obras(*, obras(*))),
         giras_fuentes(*)
       `;
+      let programsToAudit: ProgramRow[];
       if (!targetProgramId) {
         const today = new Date().toISOString().slice(0, 10);
         const { data: programas, error: listError } = await supabase
           .from("programas")
-          .select(selectProgramas)
+          .select("id, fecha_desde, tipo, nomenclador, giras_fuentes(tipo, valor_id, valor_texto)")
           .eq("estado", "Vigente")
           .gte("fecha_hasta", today);
         if (listError) {
           console.error("[SYNC] Error listando programas:", listError);
           throw new Error("No se pudieron listar las giras vigentes.");
         }
-        const list = programas || [];
-        console.log(`[SYNC] Sincronizando ${list.length} programa(s) vigente(s).`);
-        for (const prog of list) {
-          try {
-            await syncOneProgram(supabase, drive, prog);
-          } catch (e) {
-            console.error(`[SYNC] Error en programa ${prog.id}:`, (e as Error).message);
-          }
+        programsToAudit = (programas || []) as ProgramRow[];
+        console.log(`[SYNC] Auditoría de nomencladores para ${programsToAudit.length} programa(s) vigente(s).`);
+      } else {
+        const { data: prog, error: progError } = await supabase
+          .from("programas")
+          .select("id, fecha_desde, tipo, nomenclador, giras_fuentes(tipo, valor_id, valor_texto)")
+          .eq("id", targetProgramId)
+          .single();
+        if (progError || !prog) {
+          console.error("[SYNC] Error DB:", progError);
+          throw new Error("No se encontró el programa especificado.");
         }
-        return new Response(JSON.stringify({ success: true, synced: list.length }), { headers: corsHeaders });
+        programsToAudit = [prog as ProgramRow];
       }
 
-      // sync_program con ID: un solo programa
-      const { data: prog, error: progError } = await supabase
-        .from("programas")
-        .select(selectProgramas)
-        .eq("id", targetProgramId)
-        .single();
-      if (progError || !prog) {
-        console.error("[SYNC] Error DB:", progError);
-        throw new Error("No se encontró el programa especificado.");
+      const { updated: nomencladorUpdated, updatedIds, list: listAfterAudit } =
+        await auditAndApplyNomencladores(supabase, programsToAudit);
+      if (nomencladorUpdated > 0) {
+        console.log(`[SYNC] Nomencladores actualizados en DB: ${nomencladorUpdated}`);
       }
-      await syncOneProgram(supabase, drive, prog);
-      console.log("[SYNC] Programa individual finalizado con éxito.");
-      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+
+      const idsToSync = [...new Set([...listAfterAudit.map((p) => p.id), ...updatedIds])];
+      let list: any[] = [];
+      if (idsToSync.length > 0) {
+        const { data: fullPrograms, error: fullError } = await supabase
+          .from("programas")
+          .select(selectProgramas)
+          .in("id", idsToSync);
+        if (fullError) {
+          console.error("[SYNC] Error cargando programas completos:", fullError);
+          throw new Error("No se pudieron cargar los programas para Drive.");
+        }
+        list = fullPrograms || [];
+      }
+      for (const prog of list) {
+        try {
+          await syncOneProgram(supabase, drive, prog);
+        } catch (e) {
+          console.error(`[SYNC] Error en programa ${prog.id}:`, (e as Error).message);
+        }
+      }
+      console.log("[SYNC] Sincronización Drive finalizada.");
+      return new Response(
+        JSON.stringify({
+          success: true,
+          synced: list.length,
+          nomencladorUpdated: nomencladorUpdated ?? 0,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
     // --- ACCIÓN: COPY / DELETE / PERMISSIONS ---
     if (action === "copy_file") {
