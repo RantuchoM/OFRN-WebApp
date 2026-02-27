@@ -12,7 +12,6 @@ import {
   IconCheck,
   IconUsers,
   IconChevronDown,
-  IconSearch,
   IconBold,
   IconItalic,
   IconUnderline,
@@ -116,7 +115,7 @@ const GroupInspectorHeader = ({ roster, catalogs }) => {
             </button>
 
             {selectedGroup === g.id && (
-              <div className="absolute top-[calc(100%+5px)] left-0 w-64 bg-white border border-slate-200 shadow-xl rounded-lg z-25 p-2 animate-in fade-in zoom-in-95 origin-top">
+              <div className="absolute top-[calc(100%+5px)] left-0 w-64 bg-white border border-slate-200 shadow-xl rounded-lg z-50 p-2 animate-in fade-in zoom-in-95 origin-top">
                 <div className="text-[9px] font-bold text-slate-400 uppercase mb-1 border-b pb-1">
                   Integrantes de {getGroupLabelShort(g.id, catalogs)}
                 </div>
@@ -420,7 +419,8 @@ export default function MealsManager({ supabase, gira, roster }) {
   const [justSavedRows, setJustSavedRows] = useState(new Set()); // Para el destello verde
   const [expandedStats, setExpandedStats] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
-  const [searchTerm, setSearchTerm] = useState("");
+  // Filtros por tipo de servicio (D/A/M/C)
+  const [serviceFilter, setServiceFilter] = useState(new Set(SERVICIOS));
   const debounceRef = useRef({});
 
   useEffect(() => {
@@ -686,12 +686,20 @@ export default function MealsManager({ supabase, gira, roster }) {
   const editorRef = useRef(null);
 
   const filteredGrid = useMemo(() => {
-    if (!searchTerm) return grid;
-    const low = searchTerm.toLowerCase();
-    return grid.filter((r) => r.fecha.includes(low) || r.servicio.toLowerCase().includes(low) || (r.descripcion || "").toLowerCase().includes(low));
-  }, [grid, searchTerm]);
+    if (serviceFilter.size === 0) return [];
+    return grid.filter((r) => serviceFilter.has(r.servicio));
+  }, [grid, serviceFilter]);
 
   const realEventIds = useMemo(() => grid.filter((r) => !r.isTemp).map((r) => r.id), [grid]);
+
+  const toggleServiceFilter = (svc) => {
+    setServiceFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(svc)) next.delete(svc);
+      else next.add(svc);
+      return next;
+    });
+  };
 
   const execDescCmd = (command) => {
     document.execCommand(command, false, null);
@@ -747,9 +755,35 @@ export default function MealsManager({ supabase, gira, roster }) {
           <GroupInspectorHeader roster={roster} catalogs={catalogs} />
         </div>
         <div className="flex items-center gap-4">
-          <div className="relative">
-            <IconSearch className="absolute left-2 top-2.5 text-slate-400" size={14} />
-            <input type="text" placeholder="Filtrar comidas..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-8 pr-4 py-1.5 text-xs border rounded-lg outline-none w-48 focus:ring-2 focus:ring-indigo-500" />
+          {/* Filtros rápidos por tipo de servicio: D/A/M/C */}
+          <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+            <span className="mr-1 uppercase">Servicios:</span>
+            {SERVICIOS.map((svc) => {
+              const isActive = serviceFilter.has(svc);
+              const short =
+                svc === "Desayuno"
+                  ? "D"
+                  : svc === "Almuerzo"
+                  ? "A"
+                  : svc === "Merienda"
+                  ? "M"
+                  : "C";
+              return (
+                <button
+                  key={svc}
+                  type="button"
+                  onClick={() => toggleServiceFilter(svc)}
+                  className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wide transition-colors ${
+                    isActive
+                      ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                      : "bg-slate-50 text-slate-500 border-slate-300 hover:bg-slate-100"
+                  }`}
+                  title={svc}
+                >
+                  {short}
+                </button>
+              );
+            })}
           </div>
           <FoodMatrix roster={roster} />
           {loading && <IconLoader className="animate-spin text-orange-500" />}
