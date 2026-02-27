@@ -438,8 +438,7 @@ const ProtectedApp = () => {
   const userRole = user?.rol_sistema || "";
   const isDirector = userRole === "director";
 
-  const isGuestRole =
-    userRole === "invitado" || userRole === "consulta_personal";
+  const isGuestRole = userRole === "invitado";
 
   const refreshMusicianData = async () => {
     if (!user?.id) return;

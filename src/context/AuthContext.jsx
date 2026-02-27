@@ -91,7 +91,6 @@ export function AuthProvider({ children }) {
     ].includes(role),
     isGuest:
       role === "invitado" ||
-      role === "consulta_personal" ||
       activeUser?.id === "guest-general",
     isActuallyAdmin: realUser?.rol_sistema?.toLowerCase().trim() === "admin",
     userName: activeUser ? `${activeUser.nombre} ${activeUser.apellido}` : "",

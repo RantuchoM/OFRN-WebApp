@@ -37,7 +37,7 @@ export default function UsersManager({ supabase }) {
     apellido: "",
     mail: "",
     clave_acceso: "",
-    rol_sistema: "consulta_general",
+    rol_sistema: "personal",
   });
   const [creating, setCreating] = useState(false);
 
@@ -183,7 +183,7 @@ export default function UsersManager({ supabase }) {
         apellido: "",
         mail: "",
         clave_acceso: "",
-        rol_sistema: "consulta_general",
+        rol_sistema: "personal",
       });
     }
   };
@@ -323,8 +323,8 @@ export default function UsersManager({ supabase }) {
                     setNewMember({ ...newMember, rol_sistema: e.target.value })
                   }
                 >
-                  <option value="consulta_personal">
-                    👤 Consulta Personal
+                  <option value="personal">
+                    👤 Personal
                   </option>
                   <option value="consulta_general">👁️ Consulta General</option>
                   {/* NUEVA OPCIÓN */}
@@ -438,17 +438,17 @@ export default function UsersManager({ supabase }) {
                               ? "bg-indigo-100 text-indigo-700 border-indigo-200"
                               : u.rol_sistema === "difusion"
                                 ? "bg-amber-100 text-amber-700 border-amber-200" // Estilo para Difusión
-                                : u.rol_sistema === "consulta_personal"
+                                : u.rol_sistema === "personal" || u.rol_sistema === "consulta_personal"
                                   ? "bg-blue-100 text-blue-700 border-blue-200"
                                   : "bg-slate-100 text-slate-600 border-slate-200"
                         }`}
-                        value={u.rol_sistema || "consulta_general"}
+                        value={u.rol_sistema === "consulta_personal" ? "personal" : (u.rol_sistema || "personal")}
                         onChange={(e) =>
                           handleUpdateUser(u.id, "rol_sistema", e.target.value)
                         }
                       >
-                        <option value="consulta_personal">
-                          👤 Consulta Personal
+                        <option value="personal">
+                          👤 Personal
                         </option>
                         <option value="consulta_general">
                           👁️ Consulta General
