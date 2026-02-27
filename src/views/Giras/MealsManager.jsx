@@ -13,6 +13,9 @@ import {
   IconUsers,
   IconChevronDown,
   IconSearch,
+  IconBold,
+  IconItalic,
+  IconUnderline,
 } from "../../components/ui/Icons";
 import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
@@ -677,6 +680,11 @@ export default function MealsManager({ supabase, gira, roster }) {
     refreshGridData();
   };
 
+  const [editingDescId, setEditingDescId] = useState(null);
+  const [editingDescValue, setEditingDescValue] = useState("");
+  const [toolbarPos, setToolbarPos] = useState({ top: 0, left: 0, visible: false });
+  const editorRef = useRef(null);
+
   const filteredGrid = useMemo(() => {
     if (!searchTerm) return grid;
     const low = searchTerm.toLowerCase();
@@ -684,12 +692,53 @@ export default function MealsManager({ supabase, gira, roster }) {
   }, [grid, searchTerm]);
 
   const realEventIds = useMemo(() => grid.filter((r) => !r.isTemp).map((r) => r.id), [grid]);
+
+  const execDescCmd = (command) => {
+    document.execCommand(command, false, null);
+    if (editorRef.current) editorRef.current.focus();
+  };
+
+  const handleDescPaste = (e) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text/plain");
+    document.execCommand("insertText", false, text);
+  };
+
+  const handleDescFocus = (e, row) => {
+    setEditingDescId(row.id);
+    setEditingDescValue(row.descripcion || "");
+    editorRef.current = e.currentTarget;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setToolbarPos({
+      top: rect.top + window.scrollY - 40,
+      left: rect.left + window.scrollX + 8,
+      visible: true,
+    });
+  };
+
+  const handleDescBlur = (row, idx) => {
+    setToolbarPos((prev) => ({ ...prev, visible: false }));
+    const newHtml = editorRef.current?.innerHTML ?? editingDescValue;
+    if (newHtml !== (row.descripcion || "")) {
+      handleGridChange(idx, "descripcion", newHtml);
+    }
+    setEditingDescId(null);
+  };
+
+  const handleDescKeyDown = (e, row, idx) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      // Forzamos blur + guardado
+      e.currentTarget.blur();
+      handleDescBlur(row, idx);
+    }
+  };
   const isMasterChecked = selectedRows.size === grid.length && grid.length > 0;
   const isOnlyRealSelected = selectedRows.size === realEventIds.length && realEventIds.every((id) => selectedRows.has(id)) && realEventIds.length > 0;
 
   return (
     <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
-      <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex justify-between items-center shrink-0 z-10">
+      <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex justify-between items-center shrink-0 z-10 relative">
         <div className="flex items-center">
           <div className="flex items-center gap-2">
             <IconUtensils className="text-orange-500" />
@@ -708,6 +757,48 @@ export default function MealsManager({ supabase, gira, roster }) {
       </div>
 
       {selectedRows.size > 0 && <BulkEditPanel selectedCount={selectedRows.size} onCancel={() => setSelectedRows(new Set())} onApply={handleBulkApply} catalogs={catalogs} />}
+
+      {/* Barra de herramientas flotante para descripción (rich text) */}
+      {toolbarPos.visible && (
+        <div
+          className="fixed z-40 bg-white border border-slate-200 rounded-lg shadow-md px-1.5 py-1 flex items-center gap-1 text-xs"
+          style={{ top: toolbarPos.top, left: toolbarPos.left }}
+        >
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              execDescCmd("bold");
+            }}
+            className="p-1.5 rounded hover:bg-slate-100 text-slate-700"
+            title="Negrita"
+          >
+            <IconBold size={14} />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              execDescCmd("italic");
+            }}
+            className="p-1.5 rounded hover:bg-slate-100 text-slate-700"
+            title="Itálica"
+          >
+            <IconItalic size={14} />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              execDescCmd("underline");
+            }}
+            className="p-1.5 rounded hover:bg-slate-100 text-slate-700"
+            title="Subrayado"
+          >
+            <IconUnderline size={14} />
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 p-4 overflow-auto">
         <div className="bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden flex flex-col relative">
@@ -735,27 +826,36 @@ export default function MealsManager({ supabase, gira, roster }) {
               {filteredGrid.map((row) => {
                 const idx = grid.findIndex((r) => r.id === row.id);
                 const eligible = getEligiblePeople(row);
-                const isSelected = selectedRows.has(row.id);
+        const isSelected = selectedRows.has(row.id);
                 const isSaving = savingRows.has(row.id);
                 const isJustSaved = justSavedRows.has(row.id);
                 const isDirty = row.dirty;
                 const isTemp = row.isTemp;
 
-                // --- LOGICA DE COLORES ---
-                const statusIndicatorClass = isSaving 
-                  ? "bg-blue-500 animate-pulse" 
-                  : isJustSaved 
-                    ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]" 
-                    : isDirty 
-                      ? "bg-amber-500" 
-                      : isTemp ? "bg-slate-300" : "bg-emerald-400 opacity-90";
+        // --- LÓGICA DE COLORES POR ESTADO ---
+        // Amarillo: procesando / pendiente de guardado
+        // Verde: guardado OK (destello breve)
+        // Rojo: error al guardar (se refleja vía toast; opcionalmente podríamos marcar la fila)
+        const statusIndicatorClass = isSaving
+          ? "bg-amber-400 animate-pulse" // procesando
+          : isJustSaved
+            ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]" // guardado OK
+            : isDirty
+              ? "bg-amber-300" // modificado pero aún no guardado
+              : isTemp
+                ? "bg-slate-300"
+                : "bg-emerald-400 opacity-90";
 
-                const rowBgClass = isSelected
-                  ? "bg-indigo-50"
-                  : isSaving ? "bg-blue-50/50"
-                  : isJustSaved ? "bg-emerald-300"
-                  : isDirty ? "bg-amber-50/40"
-                  : isTemp ? "bg-slate-50/80 grayscale opacity-60 italic"
+        const rowBgClass = isSelected
+          ? "bg-indigo-50"
+          : isSaving
+            ? "bg-amber-50" // procesando
+            : isJustSaved
+              ? "bg-emerald-100" // guardado OK
+              : isDirty
+                ? "bg-amber-50/60" // editado localmente
+                : isTemp
+                  ? "bg-slate-50/80 grayscale opacity-60 italic"
                   : "hover:bg-indigo-50/30";
 
                 return (
@@ -775,7 +875,22 @@ export default function MealsManager({ supabase, gira, roster }) {
                       <GridLocationSelect value={row.id_locacion || ""} onChange={(v) => handleGridChange(idx, "id_locacion", v)} options={catalogs.locaciones} disabled={isSaving} isDirty={isDirty} />
                     </td>
                     <td className="px-1">
-                      <input type="text" value={row.descripcion || ""} onChange={(e) => handleGridChange(idx, "descripcion", e.target.value)} className={`w-full text-xs border rounded p-1 outline-none focus:border-indigo-500 transition-all ${isDirty ? "border-amber-300 bg-amber-50/50" : "border-slate-300 bg-white"}`} placeholder="Descripción..." disabled={isSaving} />
+                      <div
+                        ref={editingDescId === row.id ? editorRef : null}
+                        contentEditable={!isSaving}
+                        suppressContentEditableWarning
+                        onFocus={(e) => handleDescFocus(e, row)}
+                        onBlur={() => handleDescBlur(row, idx)}
+                        onKeyDown={(e) => handleDescKeyDown(e, row, idx)}
+                        onPaste={handleDescPaste}
+                        dangerouslySetInnerHTML={{ __html: row.descripcion || "" }}
+                        className={`w-full text-xs border rounded p-1 outline-none transition-all min-h-[28px] ${
+                          isDirty
+                            ? "border-amber-300 bg-amber-50/50"
+                            : "border-slate-300 bg-white"
+                        }`}
+                        placeholder="Descripción..."
+                      />
                     </td>
                     <td className="px-1">
                       <MultiGroupSelect value={row.convocados} onChange={(v) => handleGridChange(idx, "convocados", v)} catalogs={catalogs} disabled={isSaving} isDirty={isDirty} showAlert={!isTemp && (!row.convocados || row.convocados.length === 0)} />
