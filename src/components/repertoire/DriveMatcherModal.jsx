@@ -34,6 +34,157 @@ const ModalPortal = ({ children }) => {
   );
 };
 
+// Normaliza texto para matching (minúsculas, sin tildes, sin sufijos comunes)
+const normalizeInstrumentString = (str) => {
+  if (!str) return "";
+  return str
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\b(1ra|2da|3ra|ppal|principal|score|partitura)\b/gi, "")
+    .replace(/\d+/g, "")
+    .replace(/[^a-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+// Distancia de Levenshtein simple para fuzzy matching
+const levenshtein = (a, b) => {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const dp = Array(b.length + 1)
+    .fill(null)
+    .map(() => Array(a.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) dp[0][i] = i;
+  for (let j = 0; j <= b.length; j++) dp[j][0] = j;
+  for (let j = 1; j <= b.length; j++) {
+    for (let i = 1; i <= a.length; i++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[j][i] = Math.min(
+        dp[j - 1][i] + 1, // eliminación
+        dp[j][i - 1] + 1, // inserción
+        dp[j - 1][i - 1] + cost, // sustitución
+      );
+    }
+  }
+  return dp[b.length][a.length];
+};
+
+const getDirectorInstrumentId = (catalogoInstrumentos) => {
+  const found =
+    (catalogoInstrumentos || []).find((i) => {
+      const name = (i.instrumento || "").toLowerCase();
+      return (
+        name.includes("director") ||
+        name.includes("conductor") ||
+        name.includes("score")
+      );
+    }) || null;
+  return found?.id ?? 142; // Fallback sugerido
+};
+
+// Determina si un id de instrumento pertenece al rango "01"–"29" (ej. "05a" -> 5)
+const isCoreInstrumentId = (id) => {
+  if (id === undefined || id === null) return false;
+  const str = String(id);
+  const match = str.match(/\d+/);
+  if (!match) return false;
+  const num = parseInt(match[0], 10);
+  return num >= 1 && num <= 29;
+};
+
+// Construye particellas sugeridas a partir de archivos de Drive
+const getSuggestedParts = (driveFiles, catalogoInstrumentos) => {
+  if (!driveFiles || driveFiles.length === 0 || !catalogoInstrumentos) return [];
+
+  const directorId = getDirectorInstrumentId(catalogoInstrumentos);
+
+  // Solo consideramos instrumentos "núcleo" (IDs entre 01 y 29, incluyendo variantes como 05a)
+  const normalizedCatalog = (catalogoInstrumentos || [])
+    .filter((i) => isCoreInstrumentId(i.id))
+    .map((i) => ({
+      ...i,
+      norm: normalizeInstrumentString(i.instrumento),
+    }));
+
+  const parts = [];
+
+  for (const file of driveFiles) {
+    const rawName = file.name || "";
+    if (!rawName) continue;
+
+    // Excluir PORTADA* y AUDIO* directamente
+    const upperName = rawName.toUpperCase();
+    if (upperName.startsWith("PORTADA") || upperName.startsWith("AUDIO")) {
+      continue;
+    }
+
+    const base = rawName.split(".")[0]; // quitar extensión
+    const prefix = base.split("-")[0].trim(); // antes del primer "-"
+    const lowerPrefix = prefix.toLowerCase();
+
+    // Caso especial: Director / Score
+    if (
+      /\b(director|conductor|score|partitura)\b/i.test(lowerPrefix) &&
+      directorId
+    ) {
+      const instrObj = normalizedCatalog.find((i) => i.id === directorId);
+      parts.push({
+        tempId: Date.now() + Math.random(),
+        id: undefined,
+        id_instrumento: directorId,
+        nombre_archivo: prefix || "Director",
+        links: [],
+        nota_organico: "",
+        instrumento_nombre: instrObj?.instrumento || "Director",
+        es_solista: false,
+      });
+      continue;
+    }
+
+    const normPrefix = normalizeInstrumentString(prefix);
+    if (!normPrefix) continue;
+
+    let best = null;
+    for (const instr of normalizedCatalog) {
+      if (!instr.norm) continue;
+      // Match fuerte por inclusión de tokens
+      if (
+        normPrefix === instr.norm ||
+        normPrefix.includes(instr.norm) ||
+        instr.norm.includes(normPrefix)
+      ) {
+        best = instr;
+        break;
+      }
+
+      const dist = levenshtein(normPrefix, instr.norm);
+      const maxLen = Math.max(normPrefix.length, instr.norm.length) || 1;
+      const sim = 1 - dist / maxLen;
+      if (!best || sim > best.sim) {
+        best = { ...instr, sim };
+      }
+    }
+
+    if (!best) continue;
+    if (best.sim !== undefined && best.sim < 0.4) continue; // Umbral de similitud
+
+    parts.push({
+      tempId: Date.now() + Math.random(),
+      id: undefined,
+      id_instrumento: best.id,
+      nombre_archivo: prefix,
+      links: [],
+      nota_organico: "",
+      instrumento_nombre: best.instrumento,
+      es_solista: false,
+    });
+  }
+
+  return parts;
+};
+
 export default function DriveMatcherModal({
   isOpen,
   onClose,
@@ -64,6 +215,30 @@ export default function DriveMatcherModal({
   const editInputRef = useRef(null);
 
   const currentInstrumentation = calculateInstrumentation(parts);
+  const suggestedParts = useMemo(
+    () => getSuggestedParts(driveFiles, catalogoInstrumentos),
+    [driveFiles, catalogoInstrumentos],
+  );
+  const suggestedInstrumentation = useMemo(
+    () => calculateInstrumentation(suggestedParts),
+    [suggestedParts],
+  );
+  const directorId = useMemo(
+    () => getDirectorInstrumentId(catalogoInstrumentos),
+    [catalogoInstrumentos],
+  );
+  const hasDirector = useMemo(() => {
+    const checkList = [...(parts || []), ...(suggestedParts || [])];
+    return checkList.some((p) => {
+      const base = (p.instrumento_nombre || "").toLowerCase();
+      return (
+        p.id_instrumento === directorId ||
+        base.includes("director") ||
+        base.includes("conductor") ||
+        base.includes("score")
+      );
+    });
+  }, [parts, suggestedParts, directorId]);
 
   const sortedDriveFiles = useMemo(
     () =>
@@ -374,6 +549,29 @@ export default function DriveMatcherModal({
     return count;
   };
 
+  const handleInsertSuggestedParts = () => {
+    if (!suggestedParts || suggestedParts.length === 0) return;
+    if (onPartsChange) onPartsChange(suggestedParts);
+  };
+
+  const handleAddDirectorPart = () => {
+    if (!directorId) return;
+    const instrObj = (catalogoInstrumentos || []).find(
+      (i) => i.id === directorId,
+    );
+    const newPart = {
+      tempId: Date.now() + Math.random(),
+      id: undefined,
+      id_instrumento: directorId,
+      nombre_archivo: "Director",
+      links: [],
+      nota_organico: "",
+      instrumento_nombre: instrObj?.instrumento || "Director",
+      es_solista: false,
+    };
+    if (onPartsChange) onPartsChange([...parts, newPart]);
+  };
+
   if (!isOpen) return null;
 
   const sortedParts = [...parts].sort(sortByNameEs);
@@ -387,8 +585,39 @@ export default function DriveMatcherModal({
             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
               <IconDrive className="text-blue-600" /> Asistente de Enlaces Drive
             </h3>
-            <div className="text-sm font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 inline-block w-fit">
-              {currentInstrumentation || "Sin instrumentación"}
+            <div className="flex flex-col gap-1">
+              <div className="text-sm font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 inline-block w-fit">
+                {currentInstrumentation || "Sin instrumentación"}
+              </div>
+              {suggestedParts.length > 0 && parts.length === 0 && (
+                <div className="mt-1 text-[11px] bg-emerald-50 border border-emerald-200 text-emerald-800 px-2 py-1 rounded flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                  <span>
+                    Instrumentación detectada:{" "}
+                    <span className="font-mono font-bold">
+                      {suggestedInstrumentation || "No identificada"}
+                    </span>
+                    . ¿Deseas inicializar las particellas con esta sugerencia?
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleInsertSuggestedParts}
+                      className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 shadow-sm"
+                    >
+                      Insertar
+                    </button>
+                    {!hasDirector && (
+                      <button
+                        type="button"
+                        onClick={handleAddDirectorPart}
+                        className="px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-800 text-[11px] font-bold hover:bg-amber-100"
+                      >
+                        + Agregar Director
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex gap-2 items-center">

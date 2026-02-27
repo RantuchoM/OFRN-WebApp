@@ -679,7 +679,7 @@ export default function WorkForm({
   const fetchParticellas = async (workId) => {
     const { data } = await supabase
       .from("obras_particellas")
-      .select("*, instrumentos(instrumento)")
+      .select("*, instrumentos(instrumento, abreviatura)")
       .eq("id_obra", workId);
     if (data) {
       setParticellas(
@@ -697,6 +697,7 @@ export default function WorkForm({
               ...p,
               links,
               instrumento_nombre: p.instrumentos?.instrumento,
+              instrumento_abreviatura: p.instrumentos?.abreviatura || null,
               es_solista: !!p.es_solista,
             };
           })

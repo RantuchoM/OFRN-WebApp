@@ -37,8 +37,15 @@ export const getInstrumentValue = (workString, instrumentKey) => {
   return Number.isNaN(val) ? 0 : val;
 };
 
-/** Devuelve la etiqueta corta del instrumento para la lista de solistas (ej: Fl, Vn). */
-function getSolistaLabel(baseName, rawBaseName) {
+/** Devuelve la etiqueta corta del instrumento para la lista de solistas (ej: Sax, Vc).
+ *  Prioriza la abreviatura proveniente de la tabla `instrumentos` (p.instrumentos.abreviatura
+ *  o p.instrumento_abreviatura) y solo si no existe usa heurísticas.
+ */
+function getSolistaLabel(baseName, rawBaseName, abreviaturaFromDb) {
+  if (abreviaturaFromDb && typeof abreviaturaFromDb === "string") {
+    return abreviaturaFromDb.trim();
+  }
+
   if (baseName.includes("flaut") || baseName.includes("picc")) return "Fl";
   if (baseName.includes("oboe") || baseName.includes("corno ing")) return "Ob";
   if (baseName.includes("clarin") || baseName.includes("requinto") || baseName.includes("basset")) return "Cl";
@@ -51,6 +58,7 @@ function getSolistaLabel(baseName, rawBaseName) {
   if (baseName.includes("perc") || baseName.includes("bombo") || baseName.includes("platillo") || baseName.includes("caja")) return "Perc";
   if (baseName.includes("arpa")) return "Hp";
   if (baseName.includes("piano") || baseName.includes("celesta") || baseName.includes("clavec") || baseName.includes("órgano")) return "Key";
+  if (baseName.includes("violonc") || baseName.includes("vc")) return "Vc";
   if (baseName.includes("viol") || baseName.includes("contrab")) return "Vn";
   return rawBaseName.charAt(0).toUpperCase() + rawBaseName.slice(1);
 }
@@ -82,6 +90,8 @@ export const calculateInstrumentation = (parts) => {
     const rawBaseName =
       p.instrumento_nombre || p.instrumentos?.instrumento || "Desconocido";
     const baseName = rawBaseName.toLowerCase();
+    const abreviaturaFromDb =
+      p.instrumentos?.abreviatura || p.instrumento_abreviatura || null;
     const note = p.nota_organico ? p.nota_organico.trim() : null;
 
     if (
@@ -94,7 +104,7 @@ export const calculateInstrumentation = (parts) => {
     }
 
     if (p.es_solista) {
-      solistas.push(getSolistaLabel(baseName, rawBaseName));
+      solistas.push(getSolistaLabel(baseName, rawBaseName, abreviaturaFromDb));
       return;
     }
 

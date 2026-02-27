@@ -544,7 +544,7 @@ export default function RepertoireManager({
               obras_arcos (id, nombre, link, descripcion, id_drive_folder),
               compositores (id, apellido, nombre), 
               obras_compositores (rol, compositores(id, apellido, nombre)),
-              obras_particellas (id, nombre_archivo, nota_organico, id_instrumento, url_archivo, es_solista, instrumentos (instrumento))
+          obras_particellas (id, nombre_archivo, nota_organico, id_instrumento, url_archivo, es_solista, instrumentos (instrumento, abreviatura))
           )
       )`,
       )
@@ -572,7 +572,7 @@ export default function RepertoireManager({
     const { data, error } = await supabase
       .from("obras")
       .select(
-        `*, obras_compositores (rol, compositores (apellido, nombre)), obras_palabras_clave (palabras_clave (tag)), obras_particellas (nombre_archivo, nota_organico, es_solista, instrumentos (instrumento))`,
+        `*, obras_compositores (rol, compositores (apellido, nombre)), obras_palabras_clave (palabras_clave (tag)), obras_particellas (nombre_archivo, nota_organico, es_solista, instrumentos (instrumento, abreviatura))`,
       )
       .order("titulo");
     if (!error && data)
