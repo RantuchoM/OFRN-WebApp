@@ -112,6 +112,123 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
   );
 };
 
+// --- MODAL NUEVO COMPOSITOR (fuera de WorkForm para no perder estado/foco en re-renders) ---
+function QuickComposerModal({ isOpen, onClose, onCreated, supabase }) {
+  const [data, setData] = useState({
+    nombre: "",
+    apellido: "",
+    fecha_nacimiento: "",
+    fecha_defuncion: "",
+    id_pais: null,
+  });
+  const [loading, setLoading] = useState(false);
+  const [paisesOptions, setPaisesOptions] = useState([]);
+
+  useEffect(() => {
+    if (isOpen && supabase) {
+      supabase
+        .from("paises")
+        .select("id, nombre")
+        .order("nombre")
+        .then(({ data: list }) => {
+          if (list) setPaisesOptions(list.map((p) => ({ id: p.id, label: p.nombre })));
+        });
+    }
+  }, [isOpen, supabase]);
+
+  if (!isOpen) return null;
+
+  const handleSave = async () => {
+    if (!data.apellido) return alert("El apellido es obligatorio");
+    setLoading(true);
+    const payload = {
+      nombre: data.nombre.trim() || null,
+      apellido: data.apellido.trim(),
+      id_pais: data.id_pais ? Number(data.id_pais) : null,
+      fecha_nacimiento: (data.fecha_nacimiento || "").trim() || null,
+      fecha_defuncion: (data.fecha_defuncion || "").trim() || null,
+    };
+    const { data: newComp, error } = await supabase
+      .from("compositores")
+      .insert([payload])
+      .select()
+      .single();
+
+    setLoading(false);
+    if (!error && newComp) {
+      onCreated(newComp);
+      setData({ nombre: "", apellido: "", fecha_nacimiento: "", fecha_defuncion: "", id_pais: null });
+      onClose();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl p-6 border border-slate-200">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <IconUserPlus size={18} className="text-indigo-600" /> Nuevo
+          Compositor
+        </h3>
+        <div className="space-y-3">
+          <input
+            className="input text-sm"
+            placeholder="Apellido (Obligatorio)"
+            value={data.apellido}
+            onChange={(e) => setData((prev) => ({ ...prev, apellido: e.target.value }))}
+            autoFocus
+          />
+          <input
+            className="input text-sm"
+            placeholder="Nombre"
+            value={data.nombre}
+            onChange={(e) => setData((prev) => ({ ...prev, nombre: e.target.value }))}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <DateInput
+              label="Nacimiento (opc.)"
+              value={data.fecha_nacimiento || ""}
+              onChange={(v) => setData((prev) => ({ ...prev, fecha_nacimiento: v }))}
+              className="border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500"
+            />
+            <DateInput
+              label="Defunción (opc.)"
+              value={data.fecha_defuncion || ""}
+              onChange={(v) => setData((prev) => ({ ...prev, fecha_defuncion: v }))}
+              className="border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase text-slate-400 mb-0.5 block">País (opc.)</label>
+            <SearchableSelect
+              options={paisesOptions}
+              value={data.id_pais}
+              onChange={(id) => setData((prev) => ({ ...prev, id_pais: id }))}
+              placeholder="Seleccionar país..."
+              isMulti={false}
+              className="text-sm"
+            />
+          </div>
+        </div>
+        <div className="flex gap-2 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={loading || !data.apellido}
+            className="flex-1 py-2 text-xs font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {loading ? "..." : "Crear y Vincular"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- UTILIDADES ---
 const capitalizeWords = (str) =>
   !str ? "" : str.toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase());
@@ -558,70 +675,6 @@ export default function WorkForm({
     await fetchYoutubeSuggestions(titulo, composerLabel);
   };
 
-  const QuickComposerModal = ({ isOpen, onClose, onCreated, supabase }) => {
-    const [data, setData] = useState({ nombre: "", apellido: "" });
-    const [loading, setLoading] = useState(false);
-
-    if (!isOpen) return null;
-
-    const handleSave = async () => {
-      if (!data.apellido) return alert("El apellido es obligatorio");
-      setLoading(true);
-      const { data: newComp, error } = await supabase
-        .from("compositores")
-        .insert([data])
-        .select()
-        .single();
-
-      setLoading(false);
-      if (!error && newComp) {
-        onCreated(newComp);
-        setData({ nombre: "", apellido: "" });
-        onClose();
-      }
-    };
-
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
-        <div className="bg-white w-full max-w-xs rounded-xl shadow-2xl p-6 border border-slate-200">
-          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <IconUserPlus size={18} className="text-indigo-600" /> Nuevo
-            Compositor
-          </h3>
-          <div className="space-y-3">
-            <input
-              className="input text-sm"
-              placeholder="Apellido (Obligatorio)"
-              value={data.apellido}
-              onChange={(e) => setData({ ...data, apellido: e.target.value })}
-              autoFocus
-            />
-            <input
-              className="input text-sm"
-              placeholder="Nombre"
-              value={data.nombre}
-              onChange={(e) => setData({ ...data, nombre: e.target.value })}
-            />
-          </div>
-          <div className="flex gap-2 mt-6">
-            <button
-              onClick={onClose}
-              className="flex-1 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={loading || !data.apellido}
-              className="flex-1 py-2 text-xs font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {loading ? "..." : "Crear y Vincular"}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
   // --- FUNCIÓN PARA CREACIÓN RÁPIDA DE COMPOSITORES ---
   const handleQuickCreateComposer = async (inputValue, type) => {
     // Esperamos formato "Apellido, Nombre"
