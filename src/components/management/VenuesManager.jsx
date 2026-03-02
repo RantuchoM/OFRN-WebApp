@@ -47,7 +47,7 @@ export function ManagementPanel({ supabase }) {
   );
 }
 
-export function VenuesManager({ supabase }) {
+export default function VenuesManager({ supabase }) {
   const { isEditor, isAdmin } = useAuth();
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState([]);
