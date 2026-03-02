@@ -1751,6 +1751,33 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           }
                           className="border border-indigo-300 rounded px-2 py-1 text-xs font-bold w-32"
                         />
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="Cap."
+                          value={editFormData.capacidad}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              capacidad: e.target.value,
+                            })
+                          }
+                          className="border border-indigo-300 rounded px-2 py-1 text-xs w-20"
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="Costo"
+                          value={editFormData.costo}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              costo: e.target.value,
+                            })
+                          }
+                          className="border border-indigo-300 rounded px-2 py-1 text-xs w-24"
+                        />
                         <label
                           className={`flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer select-none ${editFormData.es_tipo_alternativo ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-slate-50 border-slate-200 text-slate-400"}`}
                         >
