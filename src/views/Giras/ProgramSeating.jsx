@@ -119,7 +119,7 @@ const EXCLUDED_ROLES = [
   "utilero",
   "asistente",
   "iluminador",
-  "Iluminacion",
+  "iluminacion",
   "sonido",
   "acompañante",
 ];

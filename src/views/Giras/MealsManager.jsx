@@ -562,7 +562,13 @@ export default function MealsManager({ supabase, gira, roster }) {
         if (tag === "GRP:NO_LOCALES") return !p.is_local;
         if (tag === "GRP:PRODUCCION") {
           const rolesProduccion = [
-            "produccion", "chofer", "acompañante", "staff", "mus_prod", "técnico",
+            "produccion",
+            "chofer",
+            "acompañante",
+            "staff",
+            "mus_prod",
+            "técnico",
+            "iluminacion",
           ];
           return rolesProduccion.includes(p.rol_gira);
         }

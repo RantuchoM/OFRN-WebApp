@@ -12,7 +12,8 @@ import {
   IconSearch,
   IconChevronRight,
   IconArrowRight,
-  IconFilter
+  IconFilter,
+  IconRefresh,
 } from "../../components/ui/Icons";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -20,7 +21,8 @@ import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import ProgramSeating from "../Giras/ProgramSeating";
 import InstrumentationManager from "../../components/roster/InstrumentationManager";
 import MyPartsViewer from "./MyPartsViewer";
-import { syncBowingToProgram } from "../../services/giraService";
+import { syncBowingToProgram, syncProgramRepertoire } from "../../services/giraService";
+import { toast } from "sonner";
 
 // --- MODAL AVANZADO DE IMPORTACIÓN ---
 const AdvancedImportModal = ({ supabase, currentGiraId, onClose, onImport }) => {
@@ -316,9 +318,10 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
   const [loadingRepo, setLoadingRepo] = useState(true);
   const [repertoireKey, setRepertoireKey] = useState(0);
   const [canEdit, setCanEdit] = useState(false);
-  
+
   // Estado para modal importar
   const [showImport, setShowImport] = useState(false);
+  const [syncingRepertoire, setSyncingRepertoire] = useState(false);
 
   // 1. Efecto de Permisos
   useEffect(() => {
@@ -417,6 +420,23 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
       handleTabChange("repertoire");
     } else {
       onBack();
+    }
+  };
+
+  const handleSyncRepertoireDrive = async () => {
+    if (!program?.id) return;
+    setSyncingRepertoire(true);
+    try {
+      await syncProgramRepertoire(supabase, program.id);
+      toast.success("Sincronización de Drive completada para este programa.");
+      await fetchFullRepertoire();
+    } catch (err) {
+      console.error("Error al sincronizar repertorio en Drive:", err);
+      toast.error(
+        "Error al sincronizar Drive: " + (err?.message || "Error desconocido"),
+      );
+    } finally {
+      setSyncingRepertoire(false);
     }
   };
 
@@ -559,14 +579,32 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
             ) : (
               <>
                 <div className="flex justify-end mb-2">
-                   {canEdit && (
-                     <button 
-                       onClick={() => setShowImport(true)}
-                       className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded border border-indigo-200 flex items-center gap-1 bg-white shadow-sm transition-all"
-                     >
+                  {canEdit && (
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => setShowImport(true)}
+                        className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded border border-indigo-200 flex items-center gap-1 bg-white shadow-sm transition-all"
+                      >
                         <IconCopy size={14}/> Importar Repertorio
-                     </button>
-                   )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSyncRepertoireDrive}
+                        disabled={syncingRepertoire}
+                        className="text-xs font-bold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded border border-slate-200 flex items-center gap-1 bg-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {syncingRepertoire ? (
+                          <IconLoader
+                            size={14}
+                            className="animate-spin text-slate-500"
+                          />
+                        ) : (
+                          <IconRefresh size={14} />
+                        )}
+                        Sincronizar Drive
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <RepertoireManager
                   supabase={supabase}

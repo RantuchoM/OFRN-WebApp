@@ -88,6 +88,7 @@ export default function MealsReport({
               "staff",
               "mus_prod",
               "técnico",
+              "iluminacion",
             ];
 
             // Verificamos si el rol de la persona está en esa lista

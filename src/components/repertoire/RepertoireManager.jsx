@@ -30,15 +30,17 @@ import {
   IconSettings,
   IconFilter,
   IconGripVertical,
+  IconCopy,
 } from "../ui/Icons";
 import { updateWorkPosition, normalizeRepertorioBlockOrden } from "../../services/giraService";
-import { formatSecondsToTime } from "../../utils/time";
+import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import {
   calculateInstrumentation,
   calculateTotalDuration,
   getInstrumentValue,
   hasStrings,
 } from "../../utils/instrumentation";
+import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import { useAuth } from "../../context/AuthContext";
@@ -329,6 +331,8 @@ export default function RepertoireManager({
   const [savingPosition, setSavingPosition] = useState(false);
   const [dragOverId, setDragOverId] = useState(null);
   const [activeDragId, setActiveDragId] = useState(null);
+  const [quickEntryFollowup, setQuickEntryFollowup] = useState(null);
+  const [savingQuickLinks, setSavingQuickLinks] = useState(false);
   // --- CALCULAR MAPA DE ARCOS DISPONIBLES ---
   const arcosByWork = useMemo(() => {
     const map = {};
@@ -589,8 +593,11 @@ export default function RepertoireManager({
   const autoSyncDrive = async () => {
     setSyncingDrive(true);
     try {
-      await supabase.functions.invoke("manage-gira", {
-        body: { action: "sync_program", programId: programId },
+      await supabase.functions.invoke("manage-drive", {
+        body: {
+          action: "sync_repertoire_shortcuts",
+          programId: programId || giraId,
+        },
       });
     } catch (err) {
       console.error(err);
@@ -685,15 +692,22 @@ export default function RepertoireManager({
         0,
       ) || 0;
 
-    await supabase
+    const { data: insertedRows, error } = await supabase
       .from("repertorio_obras")
-      .insert([{ id_repertorio: repId, id_obra: workId, orden: maxOrder + 1 }]);
+      .insert([{ id_repertorio: repId, id_obra: workId, orden: maxOrder + 1 }])
+      .select();
+
+    if (error) {
+      console.error("Error añadiendo obra al bloque:", error);
+    }
+    const inserted = insertedRows?.[0] || null;
 
     if (isAddModalOpen && !targetRepertorioId) {
       setIsAddModalOpen(false);
       fetchFullRepertoire();
     }
     autoSyncDrive();
+    return inserted;
   };
 
   // --- ELIMINAR OBRA (CON LIMPIEZA DE SHORTCUTS ROBUSTA) ---
@@ -782,6 +796,51 @@ export default function RepertoireManager({
       } catch (e) {
         console.error("Error al sincronizar plantel:", e);
       }
+    }
+  };
+
+  const handleQuickLinksSave = async () => {
+    if (!quickEntryFollowup) return;
+    const {
+      obraId,
+      repertorioObraId,
+      link_drive,
+      link_youtube,
+      observaciones,
+      notas_especificas,
+      estado,
+      comentarios,
+    } = quickEntryFollowup;
+
+    setSavingQuickLinks(true);
+    try {
+      if (obraId) {
+        await supabase
+          .from("obras")
+          .update({
+            link_drive: (link_drive || "").trim() || null,
+            link_youtube: (link_youtube || "").trim() || null,
+            observaciones: observaciones || null,
+            estado: estado || null,
+            comentarios: comentarios || null,
+          })
+          .eq("id", obraId);
+      }
+      if (repertorioObraId) {
+        await supabase
+          .from("repertorio_obras")
+          .update({
+            notas_especificas: notas_especificas || null,
+          })
+          .eq("id", repertorioObraId);
+      }
+      setQuickEntryFollowup(null);
+      fetchFullRepertoire();
+    } catch (e) {
+      console.error("Error guardando enlaces rápidos:", e);
+      alert("Error al guardar los enlaces rápidos.");
+    } finally {
+      setSavingQuickLinks(false);
     }
   };
 
@@ -1086,6 +1145,801 @@ export default function RepertoireManager({
     );
   };
 
+  const QuickWorkRow = ({ rep }) => {
+    const [composerInput, setComposerInput] = useState("");
+    const [composerOptions, setComposerOptions] = useState([]);
+    const [selectedComposer, setSelectedComposer] = useState(null);
+    const [showComposerDropdown, setShowComposerDropdown] = useState(false);
+    const [searchingComposer, setSearchingComposer] = useState(false);
+    const [titulo, setTitulo] = useState("");
+    const [instrumentacion, setInstrumentacion] = useState("");
+    const [duracion, setDuracion] = useState("");
+    const [saving, setSaving] = useState(false);
+    const [isNewWorkForComposer, setIsNewWorkForComposer] = useState(false);
+    const [workOptions, setWorkOptions] = useState([]);
+    const [showWorkDropdown, setShowWorkDropdown] = useState(false);
+    const [searchingWork, setSearchingWork] = useState(false);
+    const [selectedWork, setSelectedWork] = useState(null);
+    const composerInputRef = useRef(null);
+    const workInputRef = useRef(null);
+    const [composerDropdownPos, setComposerDropdownPos] = useState(null);
+    const [workDropdownPos, setWorkDropdownPos] = useState(null);
+    const [arrangerInput, setArrangerInput] = useState("");
+    const [arrangerOptions, setArrangerOptions] = useState([]);
+    const [selectedArranger, setSelectedArranger] = useState(null);
+    const [showArrangerDropdown, setShowArrangerDropdown] = useState(false);
+    const [searchingArranger, setSearchingArranger] = useState(false);
+    const arrangerInputRef = useRef(null);
+    const [arrangerDropdownPos, setArrangerDropdownPos] = useState(null);
+
+    const debouncedSearchComposer = useDebouncedCallback(
+      async (query) => {
+        const trimmed = query.trim();
+        if (trimmed.length < 2) {
+          setComposerOptions([]);
+          setSearchingComposer(false);
+          setShowComposerDropdown(false);
+          return;
+        }
+
+        let apellido = trimmed;
+        let nombre = "";
+        if (trimmed.includes(",")) {
+          const parts = trimmed.split(",");
+          apellido = parts[0].trim();
+          nombre = parts[1]?.trim() || "";
+        }
+
+        try {
+          let q = supabase
+            .from("compositores")
+            .select("id, apellido, nombre")
+            .order("apellido")
+            .limit(8);
+          if (apellido) q = q.ilike("apellido", `${apellido}%`);
+          if (nombre) q = q.ilike("nombre", `${nombre}%`);
+          const { data, error } = await q;
+          if (error) {
+            console.error("Error buscando compositores:", error);
+            setComposerOptions([]);
+          } else {
+            setComposerOptions(data || []);
+          }
+        } catch (e) {
+          console.error("Error buscando compositores:", e);
+          setComposerOptions([]);
+        } finally {
+          setSearchingComposer(false);
+          setShowComposerDropdown(true);
+        }
+      },
+      300,
+    );
+
+    const debouncedSearchArranger = useDebouncedCallback(
+      async (query) => {
+        const trimmed = query.trim();
+        if (trimmed.length < 2) {
+          setArrangerOptions([]);
+          setSearchingArranger(false);
+          setShowArrangerDropdown(false);
+          return;
+        }
+
+        let apellido = trimmed;
+        let nombre = "";
+        if (trimmed.includes(",")) {
+          const parts = trimmed.split(",");
+          apellido = parts[0].trim();
+          nombre = parts[1]?.trim() || "";
+        }
+
+        try {
+          let q = supabase
+            .from("compositores")
+            .select("id, apellido, nombre")
+            .order("apellido")
+            .limit(8);
+          if (apellido) q = q.ilike("apellido", `${apellido}%`);
+          if (nombre) q = q.ilike("nombre", `${nombre}%`);
+          const { data, error } = await q;
+          if (error) {
+            console.error("Error buscando arregladores:", error);
+            setArrangerOptions([]);
+          } else {
+            setArrangerOptions(data || []);
+          }
+        } catch (e) {
+          console.error("Error buscando arregladores:", e);
+          setArrangerOptions([]);
+        } finally {
+          setSearchingArranger(false);
+          setShowArrangerDropdown(true);
+        }
+      },
+      300,
+    );
+
+    const debouncedSearchWorks = useDebouncedCallback(
+      async (composerId, rawTitle) => {
+        const clean = (rawTitle || "").trim();
+        if (!composerId) {
+          setWorkOptions([]);
+          setIsNewWorkForComposer(false);
+          setSearchingWork(false);
+          setShowWorkDropdown(false);
+          return;
+        }
+        try {
+          let query = supabase
+            .from("obras")
+            .select(
+              "id, titulo, duracion_segundos, instrumentacion, link_drive, link_youtube, observaciones, obras_compositores!inner(id_compositor, rol)",
+            )
+            .eq("obras_compositores.id_compositor", composerId)
+            .eq("obras_compositores.rol", "compositor")
+            .order("titulo")
+            .limit(20);
+
+          if (clean.length >= 2) {
+            query = query.ilike("titulo", `%${clean}%`);
+          }
+
+          const { data, error } = await query;
+          if (error) {
+            console.warn("Error buscando obras del compositor:", error);
+            setWorkOptions([]);
+            setIsNewWorkForComposer(false);
+            return;
+          }
+          const list = data || [];
+          setWorkOptions(list);
+          setIsNewWorkForComposer(!(list.length > 0 && clean.length >= 3));
+          setShowWorkDropdown(true);
+        } catch (e) {
+          console.warn("Error buscando obras del compositor:", e);
+          setWorkOptions([]);
+          setIsNewWorkForComposer(false);
+        } finally {
+          setSearchingWork(false);
+        }
+      },
+      400,
+    );
+
+    useEffect(() => {
+      if (showComposerDropdown && composerInputRef.current) {
+        const rect = composerInputRef.current.getBoundingClientRect();
+        setComposerDropdownPos({
+          top: rect.bottom + window.scrollY + 4,
+          left: rect.left + window.scrollX,
+          width: Math.max(rect.width, 260),
+        });
+      } else {
+        setComposerDropdownPos(null);
+      }
+    }, [showComposerDropdown]);
+
+    useEffect(() => {
+      if (showWorkDropdown && workInputRef.current) {
+        const rect = workInputRef.current.getBoundingClientRect();
+        setWorkDropdownPos({
+          top: rect.bottom + window.scrollY + 4,
+          left: rect.left + window.scrollX,
+          width: Math.max(rect.width, 320),
+        });
+      } else {
+        setWorkDropdownPos(null);
+      }
+    }, [showWorkDropdown]);
+
+    useEffect(() => {
+      if (showArrangerDropdown && arrangerInputRef.current) {
+        const rect = arrangerInputRef.current.getBoundingClientRect();
+        setArrangerDropdownPos({
+          top: rect.bottom + window.scrollY + 4,
+          left: rect.left + window.scrollX,
+          width: Math.max(rect.width, 260),
+        });
+      } else {
+        setArrangerDropdownPos(null);
+      }
+    }, [showArrangerDropdown]);
+
+    const handleComposerChange = (e) => {
+      const val = e.target.value;
+      setComposerInput(val);
+      setSelectedComposer(null);
+      setSelectedWork(null);
+      setSelectedArranger(null);
+      setWorkOptions([]);
+      setShowWorkDropdown(false);
+      setIsNewWorkForComposer(false);
+      if (val.trim().length >= 2) {
+        setSearchingComposer(true);
+        debouncedSearchComposer(val);
+      } else {
+        setComposerOptions([]);
+        setShowComposerDropdown(false);
+      }
+    };
+
+    const handleComposerSelect = (comp) => {
+      setSelectedComposer(comp);
+      setComposerInput(`${comp.apellido}, ${comp.nombre}`);
+      setShowComposerDropdown(false);
+      setSelectedWork(null);
+      setWorkOptions([]);
+      setShowWorkDropdown(false);
+      setIsNewWorkForComposer(false);
+    };
+
+    const handleQuickCreateComposerFromInput = async () => {
+      const raw = composerInput.trim();
+      if (!raw) return;
+
+      let apellido = raw;
+      let nombre = "";
+      if (raw.includes(",")) {
+        const parts = raw.split(",");
+        apellido = parts[0].trim();
+        nombre = parts[1]?.trim() || "";
+      }
+      if (!apellido) return;
+
+      try {
+        // Buscar si ya existe uno igual
+        let qComp = supabase
+          .from("compositores")
+          .select("id, apellido, nombre")
+          .eq("apellido", apellido)
+          .limit(1);
+        if (nombre) {
+          qComp = qComp.eq("nombre", nombre);
+        } else {
+          qComp = qComp.is("nombre", null);
+        }
+        const { data: existing, error: findError } = await qComp;
+        if (findError) {
+          console.error("Error buscando compositor para creación rápida:", findError);
+        }
+
+        let comp = existing && existing.length > 0 ? existing[0] : null;
+        if (!comp) {
+          const payload = { apellido, nombre: nombre || null };
+          const { data: newComp, error: insertError } = await supabase
+            .from("compositores")
+            .insert([payload])
+            .select()
+            .single();
+          if (insertError) {
+            console.error("Error creando compositor rápido:", insertError);
+            return;
+          }
+          comp = newComp;
+        }
+
+        setSelectedComposer(comp);
+        setComposerInput(`${comp.apellido}${comp.nombre ? `, ${comp.nombre}` : ""}`);
+        setComposerOptions([]);
+        setShowComposerDropdown(false);
+      } catch (e) {
+        console.error("Error en creación rápida de compositor:", e);
+      }
+    };
+
+    const handleArrangerChange = (e) => {
+      const val = e.target.value;
+      setArrangerInput(val);
+      setSelectedArranger(null);
+      if (val.trim().length >= 2) {
+        setSearchingArranger(true);
+        debouncedSearchArranger(val);
+      } else {
+        setArrangerOptions([]);
+        setShowArrangerDropdown(false);
+      }
+    };
+
+    const handleArrangerSelect = (comp) => {
+      setSelectedArranger(comp);
+      setArrangerInput(`${comp.apellido}, ${comp.nombre}`);
+      setShowArrangerDropdown(false);
+    };
+
+    const handleInsertExistingWork = async (work) => {
+      if (!isEditor || saving) return;
+      if (!selectedComposer) return;
+
+      setSaving(true);
+      try {
+        await addWorkToBlock(work.id, rep.id);
+
+        setComposerInput("");
+        setSelectedComposer(null);
+        setComposerOptions([]);
+        setShowComposerDropdown(false);
+        setTitulo("");
+        setInstrumentacion("");
+        setDuracion("");
+        setWorkOptions([]);
+        setShowWorkDropdown(false);
+        setSelectedWork(null);
+        setArrangerInput("");
+        setSelectedArranger(null);
+        setArrangerOptions([]);
+        setShowArrangerDropdown(false);
+        setIsNewWorkForComposer(false);
+
+        // No se abre el modal de follow-up porque la obra ya existe
+        fetchFullRepertoire();
+      } catch (e) {
+        console.error("Error insertando obra existente:", e);
+        alert("No se pudo insertar la obra seleccionada. Intenta nuevamente.");
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const handleSubmit = async () => {
+      if (!isEditor || saving) return;
+      const composerText = composerInput.trim();
+      const hasComposer = !!selectedComposer || !!composerText;
+
+      if (!hasComposer || !titulo.trim()) {
+        alert("Completa al menos Compositor y Título para crear la obra.");
+        return;
+      }
+
+      setSaving(true);
+      try {
+        let composerId = selectedComposer?.id || null;
+        let composerApellido = selectedComposer?.apellido || "";
+        let composerNombre = selectedComposer?.nombre || "";
+
+        if (selectedWork && composerId) {
+          const insertedRepObra = await addWorkToBlock(selectedWork.id, rep.id);
+
+          setComposerInput("");
+          setSelectedComposer(null);
+          setComposerOptions([]);
+          setShowComposerDropdown(false);
+          setTitulo("");
+          setInstrumentacion("");
+          setDuracion("");
+          setWorkOptions([]);
+          setShowWorkDropdown(false);
+          setSelectedWork(null);
+          setIsNewWorkForComposer(false);
+
+          setQuickEntryFollowup({
+            obraId: selectedWork.id,
+            repertorioObraId: insertedRepObra?.id ?? null,
+            titulo: selectedWork.titulo,
+            composerLabel:
+              composerApellido || composerNombre
+                ? `${composerApellido}${composerNombre ? `, ${composerNombre}` : ""}`
+                : "",
+            link_drive: selectedWork.link_drive || "",
+            link_youtube: selectedWork.link_youtube || "",
+            observaciones: selectedWork.observaciones || "",
+          estado: selectedWork.estado || "Solicitud",
+          comentarios: selectedWork.comentarios || "",
+            notas_especificas: "",
+          });
+
+          fetchFullRepertoire();
+          return;
+        }
+
+        if (!composerId) {
+          let apellido = composerText;
+          let nombre = "";
+          if (composerText.includes(",")) {
+            const parts = composerText.split(",");
+            apellido = parts[0].trim();
+            nombre = parts[1]?.trim() || "";
+          }
+          if (!apellido) {
+            throw new Error("El apellido del compositor es obligatorio.");
+          }
+
+          let qComp = supabase
+            .from("compositores")
+            .select("id, apellido, nombre")
+            .eq("apellido", apellido)
+            .limit(1);
+          if (nombre) {
+            qComp = qComp.eq("nombre", nombre);
+          } else {
+            qComp = qComp.is("nombre", null);
+          }
+          const { data: existing } = await qComp;
+
+          if (existing && existing.length > 0) {
+            composerId = existing[0].id;
+            composerApellido = existing[0].apellido;
+            composerNombre = existing[0].nombre;
+          } else {
+            const { data: newComp, error: compError } = await supabase
+              .from("compositores")
+              .insert([{ apellido, nombre }])
+              .select()
+              .single();
+            if (compError) throw compError;
+            composerId = newComp.id;
+            composerApellido = newComp.apellido;
+            composerNombre = newComp.nombre;
+          }
+        }
+
+        const tituloHtml = `<p>${titulo}</p>`;
+        const payload = {
+          titulo: tituloHtml,
+          duracion_segundos: inputToSeconds(duracion),
+          instrumentacion: instrumentacion || null,
+          estado: "Solicitud",
+          id_usuario_carga: user?.id ?? null,
+        };
+
+        const { data: newWork, error: obraError } = await supabase
+          .from("obras")
+          .insert([payload])
+          .select()
+          .single();
+        if (obraError) throw obraError;
+
+        const newWorkId = newWork.id;
+
+        const relaciones = [
+          {
+            id_obra: newWorkId,
+            id_compositor: composerId,
+            rol: "compositor",
+          },
+        ];
+        if (selectedArranger?.id && selectedArranger.id !== composerId) {
+          relaciones.push({
+            id_obra: newWorkId,
+            id_compositor: selectedArranger.id,
+            rol: "arreglador",
+          });
+        }
+        await supabase.from("obras_compositores").insert(relaciones);
+
+        const insertedRepObra = await addWorkToBlock(newWorkId, rep.id);
+
+        setComposerInput("");
+        setSelectedComposer(null);
+        setComposerOptions([]);
+        setShowComposerDropdown(false);
+        setTitulo("");
+        setInstrumentacion("");
+        setDuracion("");
+        setWorkOptions([]);
+        setShowWorkDropdown(false);
+        setSelectedWork(null);
+        setArrangerInput("");
+        setSelectedArranger(null);
+        setArrangerOptions([]);
+        setShowArrangerDropdown(false);
+        setIsNewWorkForComposer(false);
+
+        setQuickEntryFollowup({
+          obraId: newWorkId,
+          repertorioObraId: insertedRepObra?.id ?? null,
+          titulo: tituloHtml,
+          composerLabel:
+            composerApellido || composerNombre
+              ? `${composerApellido}${composerNombre ? `, ${composerNombre}` : ""}`
+              : "",
+          link_drive: newWork.link_drive || "",
+          link_youtube: newWork.link_youtube || "",
+          observaciones: newWork.observaciones || "",
+          estado: newWork.estado || "Solicitud",
+          comentarios: newWork.comentarios || "",
+          notas_especificas: "",
+        });
+
+        fetchFullRepertoire();
+      } catch (e) {
+        console.error("Error en creación rápida de obra:", e);
+        alert("No se pudo crear la obra. Intenta nuevamente.");
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleSubmit();
+      }
+    };
+
+    return (
+      <tr className="bg-white/80 border-t border-slate-200">
+        <td className="p-1 text-center text-slate-300">
+          <IconPlus size={12} />
+        </td>
+        <td className="p-1 text-center text-[10px] text-slate-400 font-bold">
+          Nueva
+        </td>
+        <td className="p-1 text-center text-slate-300">+</td>
+        <td className="p-1 align-middle">
+          <div className="relative">
+            <input
+              type="text"
+              value={composerInput}
+              onChange={handleComposerChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Compositor (Apellido, Nombre)"
+              ref={composerInputRef}
+              className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+            />
+            {searchingComposer && (
+              <div className="absolute right-1 top-1.5">
+                <IconLoader size={12} className="animate-spin text-slate-400" />
+              </div>
+            )}
+            {showComposerDropdown &&
+              composerDropdownPos &&
+              (composerOptions.length > 0 || composerInput.trim().length >= 2) &&
+              createPortal(
+                <div
+                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg max-h-52 overflow-y-auto text-xs min-w-[260px]"
+                  style={{
+                    top: composerDropdownPos.top,
+                    left: composerDropdownPos.left,
+                    width: composerDropdownPos.width,
+                  }}
+                >
+                  {composerOptions.map((c) => (
+                    <div
+                      key={c.id}
+                      className="px-2 py-1 hover:bg-fixed-indigo-50 cursor-pointer flex justify-between items-center"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleComposerSelect(c);
+                      }}
+                    >
+                      <span className="text-[11px] text-slate-700">
+                        {c.apellido}, {c.nombre}
+                      </span>
+                    </div>
+                  ))}
+                  {composerOptions.length === 0 && composerInput.trim().length >= 2 && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleQuickCreateComposerFromInput();
+                      }}
+                      className="w-full text-left px-2 py-1 border-t border-slate-100 text-fixed-indigo-600 text-[10px] font-semibold hover:bg-fixed-indigo-50"
+                    >
+                      + Crear "{composerInput.trim()}"
+                    </button>
+                  )}
+                </div>,
+                document.body,
+              )}
+          </div>
+        </td>
+        <td className="p-1 align-middle">
+          <div className="relative flex flex-col gap-1">
+            <input
+              type="text"
+              value={titulo}
+              onChange={(e) => {
+                const val = e.target.value;
+                setTitulo(val);
+                setSelectedWork(null);
+                if (selectedComposer && val.trim().length >= 2) {
+                  setSearchingWork(true);
+                  debouncedSearchWorks(selectedComposer.id, val);
+                } else {
+                  setWorkOptions([]);
+                  setShowWorkDropdown(false);
+                  setIsNewWorkForComposer(false);
+                }
+              }}
+              onFocus={() => {
+                if (selectedComposer) {
+                  setSearchingWork(true);
+                  debouncedSearchWorks(selectedComposer.id, "");
+                }
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder="Título de la obra"
+              ref={workInputRef}
+              className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+            />
+            {selectedComposer && titulo.trim().length >= 3 && isNewWorkForComposer && (
+              <span className="inline-flex items-center gap-1 text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 w-fit">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Nueva obra para este compositor
+              </span>
+            )}
+            {showWorkDropdown &&
+              selectedComposer &&
+              workDropdownPos &&
+              (workOptions.length > 0 || titulo.trim().length >= 2) &&
+              createPortal(
+                <div
+                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg max-h-60 overflow-y-auto text-xs"
+                  style={{
+                    top: workDropdownPos.top,
+                    left: workDropdownPos.left,
+                    width: workDropdownPos.width,
+                  }}
+                >
+                  <div className="px-2 py-1 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500 flex items-center justify-between">
+                    <span>Obras del archivo</span>
+                    {searchingWork && (
+                      <IconLoader size={10} className="animate-spin text-slate-400" />
+                    )}
+                  </div>
+                  {workOptions.map((w) => {
+                    const cleanTitle = (w.titulo || "").replace(/<[^>]*>?/gm, "") || "";
+                    return (
+                      <div
+                        key={w.id}
+                        className="w-full px-2 py-1.5 hover:bg-fixed-indigo-50 flex items-center gap-2"
+                      >
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            title="Copiar título en la fila (crear nueva obra)"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSelectedWork(w);
+                              setTitulo(cleanTitle);
+                              setShowWorkDropdown(false);
+                              setIsNewWorkForComposer(false);
+                            }}
+                            className="p-1 rounded-full text-slate-400 hover:text-fixed-indigo-600 hover:bg-fixed-indigo-50"
+                          >
+                            <IconCopy size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            title="Insertar esta obra en el bloque"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handleInsertExistingWork(w);
+                            }}
+                            className="p-1 rounded-full text-fixed-indigo-600 hover:text-white hover:bg-fixed-indigo-600 bg-fixed-indigo-50"
+                          >
+                            <IconPlus size={12} />
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            handleInsertExistingWork(w);
+                          }}
+                          className="flex-1 text-left flex flex-col gap-0.5"
+                        >
+                          <span
+                            className="font-semibold text-[11px] text-slate-800 truncate"
+                            title={cleanTitle}
+                          >
+                            {cleanTitle}
+                          </span>
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
+                            <span className="font-mono">
+                              {w.instrumentacion ||
+                                calculateInstrumentation(w.obras_particellas || []) ||
+                                "-"}
+                            </span>
+                            <span className="font-mono">
+                              {formatSecondsToTime(w.duracion_segundos || 0)}
+                            </span>
+                          </div>
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {workOptions.length === 0 && titulo.trim().length >= 2 && (
+                    <div className="px-2 py-1 text-[10px] text-slate-400 border-t border-slate-100">
+                      Sin coincidencias en el archivo para este compositor.
+                    </div>
+                  )}
+                </div>,
+                document.body,
+              )}
+          </div>
+        </td>
+        <td className="p-1 text-center">
+          <input
+            type="text"
+            value={instrumentacion}
+            onChange={(e) => setInstrumentacion(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Instr."
+            className="w-full px-1.5 py-1 text-[10px] border border-slate-300 rounded font-mono text-slate-600 focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+          />
+        </td>
+        <td className="p-1 text-center">
+          <input
+            type="text"
+            value={duracion}
+            onChange={(e) => setDuracion(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="00:00"
+            className="w-full px-1.5 py-1 text-[10px] border border-slate-300 rounded font-mono text-slate-700 text-center focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+          />
+        </td>
+        {/* Columna Solista (se deja vacía en la fila rápida) */}
+        <td className="p-1" />
+        {/* Columna Arr.: Arreglador opcional */}
+        <td className="p-1 align-middle">
+          <div className="relative">
+            <input
+              type="text"
+              value={arrangerInput}
+              onChange={handleArrangerChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Arreglador (Opcional)"
+              ref={arrangerInputRef}
+              className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+            />
+            {searchingArranger && (
+              <div className="absolute right-1 top-1.5">
+                <IconLoader size={12} className="animate-spin text-slate-400" />
+              </div>
+            )}
+            {showArrangerDropdown &&
+              arrangerDropdownPos &&
+              (arrangerOptions.length > 0 || arrangerInput.trim().length >= 2) &&
+              createPortal(
+                <div
+                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg max-h-52 overflow-y-auto text-xs min-w-[260px]"
+                  style={{
+                    top: arrangerDropdownPos.top,
+                    left: arrangerDropdownPos.left,
+                    width: arrangerDropdownPos.width,
+                  }}
+                >
+                  {arrangerOptions.map((c) => (
+                    <div
+                      key={c.id}
+                      className="px-2 py-1 hover:bg-fixed-indigo-50 cursor-pointer flex justify-between items-center"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleArrangerSelect(c);
+                      }}
+                    >
+                      <span className="text-[11px] text-slate-700">
+                        {c.apellido}, {c.nombre}
+                      </span>
+                    </div>
+                  ))}
+                </div>,
+                document.body,
+              )}
+          </div>
+        </td>
+        <td className="p-1" />
+        <td className="p-1" />
+        <td className="p-1" />
+        <td className="p-1 text-right">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={saving}
+            className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold bg-fixed-indigo-600 text-white hover:bg-fixed-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+          >
+            {saving ? <IconLoader size={12} className="animate-spin" /> : <IconCheck size={12} />}
+            Guardar
+          </button>
+        </td>
+        <td className="p-1" />
+      </tr>
+    );
+  };
+
   const handleDragEnd = async (event) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -1199,7 +2053,7 @@ export default function RepertoireManager({
             key={rep.id}
             className={`border border-slate-200 ${
               isCompact ? "mb-4 rounded shadow-sm" : "shadow-sm bg-white mb-6"
-            } ${activeDragId ? "overflow-visible z-10" : ""}`}
+            } overflow-visible ${activeDragId ? "z-10" : ""}`}
           >
             {/* --- HEADER DEL BLOQUE (TÍTULO Y DURACIÓN) --- */}
             <div className="bg-fixed-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center h-10 sticky top-0 z-10 backdrop-blur-sm">
@@ -1514,7 +2368,7 @@ export default function RepertoireManager({
             {/* ============================================================ */}
             {/* VISTA ESCRITORIO: TABLA (Visible solo en md o superior)      */}
             {/* ============================================================ */}
-            <div className={`hidden md:block pb-4 ${activeDragId ? "overflow-visible" : "overflow-x-auto"}`}>
+            <div className="hidden md:block pb-4 overflow-x-auto overflow-y-visible">
               <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1200px]">
                 {/* --- NUEVO: DEFINICIÓN DE ANCHOS INDEPENDIENTE DE HEADER --- */}
                 <colgroup>
@@ -1906,6 +2760,9 @@ export default function RepertoireManager({
                       label="Soltar aquí para colocar al final"
                     />
                   )}
+                  {isEditor && !isCompact && (
+                    <QuickWorkRow rep={rep} />
+                  )}
                 </tbody>
               </table>
             </div>
@@ -2132,6 +2989,175 @@ export default function RepertoireManager({
                   </tbody>
                 </table>
               )}
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
+      {quickEntryFollowup && (
+        <ModalPortal>
+          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl p-5 overflow-hidden animate-in zoom-in-95">
+            <h3 className="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <IconLink size={16} className="text-fixed-indigo-600" />
+              Enlaces de la nueva obra
+            </h3>
+            <p className="text-xs text-slate-500 mb-3">
+              ¿Deseas agregar los enlaces ahora?
+            </p>
+            {(quickEntryFollowup.composerLabel || quickEntryFollowup.titulo) && (
+              <div className="mb-3 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-[11px] font-semibold text-slate-600 truncate">
+                  {quickEntryFollowup.composerLabel}
+                </div>
+                <div className="text-[11px] text-slate-700 font-medium mt-0.5 line-clamp-2">
+                  <RichTextPreview content={quickEntryFollowup.titulo} />
+                </div>
+              </div>
+            )}
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                  Tipo de registro
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setQuickEntryFollowup((prev) => ({
+                        ...prev,
+                        estado: "Solicitud",
+                      }))
+                    }
+                    className={`flex-1 px-2 py-1.5 text-[11px] font-semibold rounded border ${
+                      (quickEntryFollowup.estado || "Solicitud") === "Solicitud"
+                        ? "bg-amber-50 border-amber-400 text-amber-800"
+                        : "bg-white border-slate-300 text-slate-500"
+                    }`}
+                  >
+                    Solicitud
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setQuickEntryFollowup((prev) => ({
+                        ...prev,
+                        estado: "Informativo",
+                      }))
+                    }
+                    className={`flex-1 px-2 py-1.5 text-[11px] font-semibold rounded border ${
+                      quickEntryFollowup.estado === "Informativo"
+                        ? "bg-sky-50 border-sky-400 text-sky-700"
+                        : "bg-white border-slate-300 text-slate-500"
+                    }`}
+                  >
+                    Informativo
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                  Carpeta Drive de material
+                </label>
+                <input
+                  type="text"
+                  value={quickEntryFollowup.link_drive || ""}
+                  onChange={(e) =>
+                    setQuickEntryFollowup((prev) => ({
+                      ...prev,
+                      link_drive: e.target.value,
+                    }))
+                  }
+                  placeholder="URL de carpeta en Drive..."
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                  Link Audio / Video
+                </label>
+                <input
+                  type="text"
+                  value={quickEntryFollowup.link_youtube || ""}
+                  onChange={(e) =>
+                    setQuickEntryFollowup((prev) => ({
+                      ...prev,
+                      link_youtube: e.target.value,
+                    }))
+                  }
+                  placeholder="Spotify / YouTube..."
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                  Observaciones (públicas)
+                </label>
+                <textarea
+                  value={quickEntryFollowup.observaciones || ""}
+                  onChange={(e) =>
+                    setQuickEntryFollowup((prev) => ({
+                      ...prev,
+                      observaciones: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                  Comentarios (internos)
+                </label>
+                <textarea
+                  value={quickEntryFollowup.comentarios || ""}
+                  onChange={(e) =>
+                    setQuickEntryFollowup((prev) => ({
+                      ...prev,
+                      comentarios: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 resize-none bg-slate-50"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                  Notas específicas para este programa
+                </label>
+                <textarea
+                  value={quickEntryFollowup.notas_especificas || ""}
+                  onChange={(e) =>
+                    setQuickEntryFollowup((prev) => ({
+                      ...prev,
+                      notas_especificas: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex justify-between gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setQuickEntryFollowup(null)}
+                className="flex-1 py-2 text-[11px] font-bold text-slate-500 rounded border border-slate-200 hover:bg-slate-50"
+              >
+                Más tarde
+              </button>
+              <button
+                type="button"
+                onClick={handleQuickLinksSave}
+                disabled={savingQuickLinks}
+                className="flex-1 py-2 text-[11px] font-bold rounded bg-fixed-indigo-600 text-white hover:bg-fixed-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+              >
+                {savingQuickLinks ? (
+                  <IconLoader size={14} className="animate-spin" />
+                ) : (
+                  <IconCheck size={14} />
+                )}
+                Guardar ahora
+              </button>
             </div>
           </div>
         </ModalPortal>

@@ -179,7 +179,8 @@ async function loadEnsembleSiglas(supabase: any, ensembleIds: number[]): Promise
 
 async function auditAndApplyNomencladores(
   supabase: any,
-  programsToSync: ProgramRow[]
+  programsToSync: ProgramRow[],
+  limitIds?: number[]
 ): Promise<{ updated: number; updatedIds: number[]; list: ProgramRow[] }> {
   if (programsToSync.length === 0) return { updated: 0, updatedIds: [], list: [] };
 
@@ -221,7 +222,11 @@ async function auditAndApplyNomencladores(
       } else {
         computed = computeEnsambleNomenclador(programsInYear, p, ensembleSiglas, year2);
       }
-      if (computed && computed !== (p.nomenclador || "")) {
+      if (
+        computed &&
+        computed !== (p.nomenclador || "") &&
+        (!limitIds || limitIds.includes(p.id))
+      ) {
         updates.push({ id: p.id, nomenclador: computed });
       }
     }
@@ -254,9 +259,9 @@ const getFormattedDateString = (startStr: string, endStr: string) => {
 };
 
 // =================================================================================
-// SYNC UN PROGRAMA (carpeta Drive + repertorio) — reutilizable para uno o todos
+// SYNC METADATA: carpeta raíz del programa (sin tocar repertorio)
 // =================================================================================
-async function syncOneProgram(supabase: any, drive: any, prog: any) {
+async function syncProgramRootFolder(supabase: any, drive: any, prog: any) {
   const dateStart = prog.fecha_desde;
   const [y, m] = (dateStart || "").split("-").map(Number);
   const monthPrefix = prog.mes_letra || (m ? m.toString().padStart(2, "0") : "00");
@@ -277,7 +282,20 @@ async function syncOneProgram(supabase: any, drive: any, prog: any) {
     }
   } catch (e) {
     console.error(`[Drive Error] Carpeta Principal programa ${prog.id}:`, (e as Error).message);
-    return;
+  }
+
+   return fId;
+}
+
+// =================================================================================
+// SYNC REPERTORIO: sólo subcarpetas de bloques + shortcuts numerados
+// =================================================================================
+async function syncProgramRepertoireShortcuts(supabase: any, drive: any, prog: any) {
+  const fId = prog.google_drive_folder_id;
+  if (!fId) {
+    throw new Error(
+      "El programa no tiene carpeta principal en Drive. Ejecuta primero sync_program_metadata."
+    );
   }
 
   for (const [rI, rep] of (prog.programas_repertorios || []).entries()) {
@@ -351,6 +369,15 @@ async function syncOneProgram(supabase: any, drive: any, prog: any) {
       }
     }
   }
+}
+
+// =================================================================================
+// SYNC UN PROGRAMA COMPLETO (metadata + repertorio) — compatible con lógica previa
+// =================================================================================
+async function syncOneProgram(supabase: any, drive: any, prog: any) {
+  const folderId = await syncProgramRootFolder(supabase, drive, prog);
+  const progWithFolder = { ...prog, google_drive_folder_id: folderId };
+  await syncProgramRepertoireShortcuts(supabase, drive, progWithFolder);
 }
 
 // =================================================================================
@@ -1102,6 +1129,105 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
+
+    // --- ACCIÓN: SYNC PROGRAM METADATA (nomenclador + mes_letra + carpeta raíz) ---
+    if (action === "sync_program_metadata") {
+      const targetProgramId = programId || body.id || body.id_gira;
+      if (!targetProgramId) {
+        throw new Error("ID de programa no proporcionado para sync_program_metadata.");
+      }
+
+      const { data: progBasic, error: progError } = await supabase
+        .from("programas")
+        .select("id, fecha_desde, tipo, nomenclador, giras_fuentes(tipo, valor_id, valor_texto)")
+        .eq("id", targetProgramId)
+        .single();
+
+      if (progError || !progBasic) {
+        console.error("[SYNC_METADATA] Error DB:", progError);
+        throw new Error("No se encontró el programa especificado.");
+      }
+
+      const {
+        updated: nomencladorUpdated,
+        updatedIds,
+        list: listAfterAudit
+      } = await auditAndApplyNomencladores(
+        supabase,
+        [progBasic as ProgramRow],
+        [targetProgramId]
+      );
+
+      const finalProgramId =
+        updatedIds[0] ?? listAfterAudit[0]?.id ?? targetProgramId;
+
+      const { data: progFull, error: fullError } = await supabase
+        .from("programas")
+        .select("id, fecha_desde, fecha_hasta, mes_letra, zona, nomenclador, google_drive_folder_id")
+        .eq("id", finalProgramId)
+        .single();
+
+      if (fullError || !progFull) {
+        console.error("[SYNC_METADATA] Error cargando programa completo:", fullError);
+        throw new Error("No se pudo cargar el programa para Drive.");
+      }
+
+      const folderId = await syncProgramRootFolder(supabase, drive, progFull);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          programId: finalProgramId,
+          folderId,
+          nomencladorUpdated: nomencladorUpdated ?? 0
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // --- ACCIÓN: SYNC REPERTOIRE SHORTCUTS (sólo subcarpetas y accesos directos) ---
+    if (action === "sync_repertoire_shortcuts") {
+      const targetProgramId = programId || body.id || body.id_gira;
+      if (!targetProgramId) {
+        throw new Error("ID de programa no proporcionado para sync_repertoire_shortcuts.");
+      }
+
+      const { data: progFull, error: progError } = await supabase
+        .from("programas")
+        .select(`
+          *,
+          programas_repertorios(
+            *,
+            repertorio_obras(*, obras(*))
+          ),
+          giras_fuentes(*)
+        `)
+        .eq("id", targetProgramId)
+        .single();
+
+      if (progError || !progFull) {
+        console.error("[SYNC_REPERTOIRE] Error DB:", progError);
+        throw new Error("No se encontró el programa especificado.");
+      }
+
+      if (!progFull.google_drive_folder_id) {
+        throw new Error(
+          "El programa no tiene carpeta principal en Drive. Ejecuta primero sync_program_metadata."
+        );
+      }
+
+      await syncProgramRepertoireShortcuts(supabase, drive, progFull);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          programId: targetProgramId,
+          synced: 1
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // --- ACCIÓN: SYNC / DELETE PROGRAM ---
     if (action === "sync_program" || action === "delete_program") {
       const targetProgramId = programId || body.id || body.id_gira;

@@ -184,6 +184,18 @@ export const syncBowingToProgram = async (
   return data;
 };
 
+export const syncProgramRepertoire = async (supabase, programId) => {
+  const { data, error } = await supabase.functions.invoke("manage-drive", {
+    body: {
+      action: "sync_repertoire_shortcuts",
+      programId,
+    },
+  });
+
+  if (error) throw error;
+  return data;
+};
+
 /**
  * Actualiza la posición de una obra en el repertorio (bloque y orden).
  * @param {object} supabase - Cliente Supabase

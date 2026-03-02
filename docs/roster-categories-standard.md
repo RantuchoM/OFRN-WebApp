@@ -22,7 +22,7 @@ Identificadores de categoría (tags de convocatoria). No inventar nuevos.
 | NO_LOCALES| GRP:NO_LOCALES|
 
 ### ROLES_PRODUCCION
-Lista de IDs de rol (tabla `roles`) que pertenecen al grupo Producción: produccion, chofer, acompañante, staff, mus_prod, técnico.
+Lista de IDs de rol (tabla `roles`) que pertenecen al grupo Producción: produccion, chofer, acompañante, staff, mus_prod, técnico, iluminacion.
 
 ### DEFAULT_ROL_ID, DEFAULT_CARGO
 Valores por defecto para rol no asignado y cargo en exportaciones.

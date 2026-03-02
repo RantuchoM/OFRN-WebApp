@@ -8,7 +8,8 @@ export default function SearchableSelect({
     onChange, 
     placeholder = "Buscar...", 
     isMulti = false,
-    className = ""
+    className = "",
+    dropdownMinWidth = 250,
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -40,17 +41,29 @@ export default function SearchableSelect({
 
     // Posicionamiento del dropdown
     useEffect(() => {
-        if (isOpen && containerRef.current) {
+        const updatePosition = () => {
+            if (!isOpen || !containerRef.current) return;
             const rect = containerRef.current.getBoundingClientRect();
             setDropdownStyle({
                 top: rect.bottom + window.scrollY + 5,
                 left: rect.left + window.scrollX,
-                width: rect.width,
-                minWidth: '250px',
-                zIndex: 99999
+                minWidth: dropdownMinWidth,
+                width: Math.max(rect.width, dropdownMinWidth),
+                zIndex: 99999,
             });
+        };
+
+        if (isOpen) {
+            updatePosition();
+            window.addEventListener('resize', updatePosition);
+            const handleScroll = () => setIsOpen(false);
+            window.addEventListener('scroll', handleScroll, true);
+            return () => {
+                window.removeEventListener('resize', updatePosition);
+                window.removeEventListener('scroll', handleScroll, true);
+            };
         }
-    }, [isOpen]);
+    }, [isOpen, dropdownMinWidth]);
 
     // Click outside
     useEffect(() => {

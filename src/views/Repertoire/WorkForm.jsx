@@ -1206,6 +1206,7 @@ export default function WorkForm({
               options={composersOptions}
               value={selectedComposers}
               isMulti
+              dropdownMinWidth={350}
               onChange={(ids) => {
                 setSelectedComposers(ids);
                 updateComposerRelations("compositor", ids);
@@ -1221,6 +1222,7 @@ export default function WorkForm({
               options={composersOptions}
               value={selectedArrangers}
               isMulti
+              dropdownMinWidth={350}
               onChange={(ids) => {
                 setSelectedArrangers(ids);
                 updateComposerRelations("arreglador", ids);

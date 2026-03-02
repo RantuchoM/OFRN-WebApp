@@ -196,6 +196,7 @@ export default function UnifiedAgenda({
         if (tag === "GRP:LOCALES") return userProfile.is_local;
         if (tag === "GRP:NO_LOCALES") return !userProfile.is_local;
         if (tag === "GRP:PRODUCCION") {
+          // Mantenemos aquí una lista acotada por compatibilidad con vistas antiguas
           const rolesProduccion = [
             "produccion",
             "chofer",
@@ -203,6 +204,7 @@ export default function UnifiedAgenda({
             "staff",
             "mus_prod",
             "técnico",
+            "iluminacion",
           ];
           return rolesProduccion.includes(userProfile.rol_gira);
         }

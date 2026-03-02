@@ -23,6 +23,7 @@ export const ROLES_PRODUCCION = [
   "staff",
   "mus_prod",
   "técnico",
+  "iluminacion",
 ];
 
 /** Rol por defecto cuando no está asignado (ID de tabla roles). */
