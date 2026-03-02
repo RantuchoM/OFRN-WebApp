@@ -399,3 +399,39 @@ export const getEventLogs = async (supabase, eventId) => {
     return [];
   }
 };
+
+/**
+ * Obtiene todos los eventos de tipo Concierto (id_tipo_evento = 1)
+ * junto con su programa asociado y el estado actual del venue.
+ * Pensado para el módulo de Gestión de Venues.
+ */
+export const getAllConcertVenues = async (supabase) => {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from("eventos")
+      .select(
+        `
+        id,
+        fecha,
+        hora_inicio,
+        hora_fin,
+        descripcion,
+        id_estado_venue,
+        id_tipo_evento,
+        id_gira,
+        programas ( id, nombre_gira, nomenclador ),
+        venue_status_types ( id, nombre, color, slug )
+      `,
+      )
+      .eq("id_tipo_evento", 1)
+      .order("fecha", { ascending: true })
+      .order("hora_inicio", { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error("[GiraService] getAllConcertVenues:", err);
+    return [];
+  }
+};

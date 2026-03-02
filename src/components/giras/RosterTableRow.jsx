@@ -58,10 +58,10 @@ export default function RosterTableRow({
       </td>
 
       {/* ROL / INSTR */}
-      <td className="py-1.5 px-3 pl-4 border-r border-slate-100/50">
+      <td className="py-1.5 px-2 pl-3 border-r border-slate-100/50 w-32 max-w-[8rem]">
         {isEditor && !m.es_simulacion ? (
           <select
-            className="text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full -ml-1 text-slate-700"
+            className="text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full -ml-1 text-slate-700 truncate"
             value={m.rol_gira || defaultRolId}
             onChange={(e) => onChangeRole(m, e.target.value)}
           >
@@ -72,11 +72,11 @@ export default function RosterTableRow({
             ))}
           </select>
         ) : (
-          <span className="text-[11px] font-bold uppercase text-slate-600 block">
+          <span className="text-[11px] font-bold uppercase text-slate-600 block truncate">
             {m.rol_gira || defaultRolId}
           </span>
         )}
-        <span className="text-[10px] text-slate-400 block font-medium mt-0.5">
+        <span className="text-[10px] text-slate-400 block font-medium mt-0.5 truncate">
           {m.instrumentos?.instrumento || "-"}
         </span>
       </td>
@@ -115,7 +115,7 @@ export default function RosterTableRow({
 
       {/* ENSAMBLES */}
       {visibleColumns.ensambles && (
-        <td className="py-1.5 px-3 border-r border-slate-100/50 max-w-[180px]">
+        <td className="hidden md:table-cell py-1.5 px-3 border-r border-slate-100/50 max-w-[180px]">
           <div className="flex flex-wrap gap-1">
             {m.integrantes_ensambles && m.integrantes_ensambles.length > 0 ? (
               m.integrantes_ensambles.map((ie) => (
@@ -135,7 +135,7 @@ export default function RosterTableRow({
 
       {/* UBICACIÓN */}
       {visibleColumns.localidad && (
-        <td className="py-1.5 px-3 text-xs text-slate-600 border-r border-slate-100/50">
+        <td className="hidden md:table-cell py-1.5 px-3 text-xs text-slate-600 border-r border-slate-100/50">
           {m.localidades ? (
             <div>
               <span className="font-semibold block">
@@ -151,8 +151,8 @@ export default function RosterTableRow({
         </td>
       )}
 
-      {/* CONTACTO */}
-      <td className="py-1.5 px-3 border-r border-slate-100/50 text-xs">
+      {/* CONTACTO (sólo escritorio) */}
+      <td className="hidden md:table-cell py-1.5 px-3 border-r border-slate-100/50 text-xs">
         <div className="flex flex-col gap-1">
           {m.telefono && (
             <div className="flex items-center gap-1 text-slate-600">
@@ -175,7 +175,7 @@ export default function RosterTableRow({
 
       {/* ALIMENTACIÓN */}
       {visibleColumns.alimentacion && (
-        <td className="py-1.5 px-3 text-xs text-slate-600 truncate max-w-[100px] border-r border-slate-100/50">
+        <td className="hidden md:table-cell py-1.5 px-3 text-xs text-slate-600 truncate max-w-[100px] border-r border-slate-100/50">
           {m.alimentacion || "-"}
         </td>
       )}
@@ -258,21 +258,58 @@ export default function RosterTableRow({
         </div>
       </td>
 
-      {/* ACCIONES: todas las filas (no vacante) tienen Editar, Baja, Link */}
-      <td className="py-1.5 px-3 text-right pr-4">
-        <div className="flex justify-end items-center gap-1">
+      {/* ACCIONES: Mail, WhatsApp, Editar, Link acceso (grid 2x2) */}
+      <td className="py-1.5 px-2 text-right w-[80px]">
+        <div className="mx-auto inline-grid grid-cols-2 gap-1 justify-items-center w-[70px]">
+          {/* Mail */}
+          <button
+            type="button"
+            disabled={!m.mail}
+            onClick={() => {
+              if (m.mail) window.location.href = `mailto:${m.mail}`;
+            }}
+            className={`w-7 h-7 flex items-center justify-center rounded ${
+              m.mail
+                ? "text-slate-500 hover:text-fixed-indigo-600 hover:bg-white"
+                : "text-slate-300 cursor-default"
+            } transition-colors`}
+            title={m.mail || "Sin mail"}
+          >
+            <IconMail size={14} />
+          </button>
+
+          {/* WhatsApp */}
+          <div className="w-7 h-7 flex items-center justify-center rounded hover:bg-white transition-colors">
+            {m.telefono ? (
+              <WhatsAppLink phone={m.telefono} iconSize={16} />
+            ) : (
+              <IconPhone size={14} className="text-slate-300" />
+            )}
+          </div>
+
+          {/* Editar */}
           <button
             type="button"
             onClick={() => onEdit(m)}
-            className="p-1.5 text-slate-400 hover:text-fixed-indigo-600 hover:bg-white rounded transition-colors"
+            className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-fixed-indigo-600 hover:bg-white transition-colors"
             title="Editar"
           >
             <IconPencil size={14} />
           </button>
 
-          {m.es_simulacion ? (
-            <>
-              <div className="w-px h-3 bg-slate-200 mx-1" />
+          {/* Link de acceso */}
+          <button
+            type="button"
+            onClick={() => onCopyLink(m)}
+            className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-fixed-indigo-600 hover:bg-white transition-colors"
+            title="Copiar link de acceso"
+          >
+            <IconLink size={14} />
+          </button>
+
+          {/* Vacantes: botón ASIGNAR y borrar siguen disponibles justo debajo en escritorio */}
+          {m.es_simulacion && (
+            <div className="col-span-2 hidden md:flex justify-end items-center gap-1 mt-1">
               <button
                 type="button"
                 onClick={() => onSwap(m)}
@@ -289,27 +326,7 @@ export default function RosterTableRow({
               >
                 <IconTrash size={14} />
               </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => onRequestBaja(m, m.es_adicional ? "desconvocar" : "ausente")}
-                disabled={!!pendingBajaForRow}
-                className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                title={m.es_adicional ? "Desconvocar" : "Marcar ausente"}
-              >
-                <IconUserMinus size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => onCopyLink(m)}
-                className="p-1.5 text-slate-400 hover:text-fixed-indigo-600 hover:bg-white rounded transition-colors"
-                title="Copiar Link"
-              >
-                <IconLink size={14} />
-              </button>
-            </>
+            </div>
           )}
         </div>
       </td>

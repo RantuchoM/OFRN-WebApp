@@ -28,6 +28,7 @@ import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import MusicianForm from "../Musicians/MusicianForm";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 
 // --- COMPONENTE INTERNO: Modal de Edición de Concierto ---
@@ -635,17 +636,32 @@ export default function GiraForm({
     }
   };
 
-  const handleSelectStaff = async (idInt) => {
-    const person = allIntegrantes.find((i) => i.value === idInt);
-    if (!person) return;
+  const handleSelectStaff = async (payload) => {
+    if (!payload) return;
+    let idInt = null;
+    let label = "";
+
+    if (typeof payload === "object") {
+      idInt = payload.id;
+      label = payload.label || "";
+    } else {
+      idInt = payload;
+      const person = allIntegrantes.find((i) => i.value === idInt);
+      label = person?.label || "";
+    }
+
+    if (!idInt) return;
+
     const exists = selectedStaff.some(
       (s) => s.id_integrante === idInt && s.rol === staffRole,
     );
     if (exists) return;
+
     setSelectedStaff([
       ...selectedStaff,
-      { id_integrante: idInt, rol: staffRole, label: person.label },
+      { id_integrante: idInt, rol: staffRole, label },
     ]);
+
     if (!isNew && enableAutoSave) {
       setGlobalSaving(true);
       await supabase.from("giras_integrantes").insert([
@@ -1148,7 +1164,7 @@ export default function GiraForm({
             <IconUsers size={16} /> Staff Artístico
           </h4>
           <div className="flex flex-col gap-2 p-3 rounded-lg border bg-fuchsia-50/30 border-fuchsia-100">
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
               <select
                 className="w-1/3 border border-slate-300 p-1.5 rounded text-xs outline-none bg-white font-bold text-fuchsia-800"
                 value={staffRole}
@@ -1157,11 +1173,15 @@ export default function GiraForm({
                 <option value="director">Director</option>
                 <option value="solista">Solista</option>
               </select>
-              <StaffSearchInput
-                options={allIntegrantes}
-                onSelect={handleSelectStaff}
-                onCreateNew={handleCreateGuest}
-              />
+              <div className="flex-1">
+                <PersonSelectWithCreate
+                  supabase={supabase}
+                  value={null}
+                  onChange={handleSelectStaff}
+                  isMulti={false}
+                  placeholder="Buscá o creá un nuevo invitado con el '+' ->"
+                />
+              </div>
             </div>
             <div className="flex flex-wrap gap-2 mt-1 content-start min-h-[20px]">
               {selectedStaff.map((s, idx) => (
@@ -1307,7 +1327,7 @@ export default function GiraForm({
           )}
         </div>
       </div>
-      {/* MODAL DETALLADO DE MÚSICO */}
+      {/* MODAL DETALLADO DE MÚSICO (flujo detallado previo) */}
       {isCreatingDetailed && (
         <div
           className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4"

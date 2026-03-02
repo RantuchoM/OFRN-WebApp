@@ -33,6 +33,7 @@ import {
 import RosterTableRow from "../../components/giras/RosterTableRow";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 import { toast } from "sonner";
+import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 
 // --- CONSTANTES ---
 // ROLES_GIRA eliminado en favor de DB
@@ -165,6 +166,13 @@ export default function GiraRoster({
   });
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const columnMenuRef = useRef(null);
+
+  const [showOrderMenu, setShowOrderMenu] = useState(false);
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [showSelectionMenu, setShowSelectionMenu] = useState(false);
+  const orderMenuRef = useRef(null);
+  const filterMenuRef = useRef(null);
+  const selectionMenuRef = useRef(null);
 
   // States Modales
   const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
@@ -320,8 +328,24 @@ export default function GiraRoster({
       if (
         columnMenuRef.current &&
         !columnMenuRef.current.contains(event.target)
-      )
+      ) {
         setShowColumnMenu(false);
+      }
+      if (orderMenuRef.current && !orderMenuRef.current.contains(event.target)) {
+        setShowOrderMenu(false);
+      }
+      if (
+        filterMenuRef.current &&
+        !filterMenuRef.current.contains(event.target)
+      ) {
+        setShowFilterMenu(false);
+      }
+      if (
+        selectionMenuRef.current &&
+        !selectionMenuRef.current.contains(event.target)
+      ) {
+        setShowSelectionMenu(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -1023,6 +1047,38 @@ export default function GiraRoster({
   const toggleColumn = (col) =>
     setVisibleColumns((prev) => ({ ...prev, [col]: !prev[col] }));
 
+  const sortLabelMap = {
+    rol: "Rol",
+    localidad: "Localidad",
+    region: "Región",
+    instrumento: "Instrumento",
+    genero: "Género",
+  };
+
+  const currentSortLabel = sortLabelMap[sortBy] || "Rol";
+
+  const handleSelectIndividual = async (payload) => {
+    if (!payload) return;
+    const idInt =
+      typeof payload === "object" && payload.id ? payload.id : payload;
+    if (!idInt) return;
+    const already = localRoster.some((m) => m.id === idInt);
+    if (already) {
+      scrollToIntegranteInTable(idInt);
+      return;
+    }
+    // Información mínima para notificaciones (sin mail conocido aquí)
+    const label =
+      typeof payload === "object" && payload.label ? payload.label : "";
+    const [apellido, nombre] = label.split(",").map((p) => p.trim());
+    await addManualMusician(idInt, {
+      id: idInt,
+      apellido: apellido || "",
+      nombre: nombre || "",
+      mail: null,
+    });
+  };
+
   // --- OBTENER ESTILOS DE FILA (MODIFICADO PARA DB ROLES) ---
   const getRowStyles = (m, isSelected) => {
     const baseStyle = {
@@ -1206,68 +1262,174 @@ export default function GiraRoster({
 
       {/* TOOLBAR */}
       <div className="px-4 py-2 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-4 z-40 relative">
-        <div className="flex items-center gap-2">
-          <div className="flex bg-slate-100 p-0.5 rounded text-xs font-medium mr-2">
-            {["rol", "localidad", "region", "instrumento", "genero"].map(
-              (crit) => (
-                <button
-                  key={crit}
-                  onClick={() => setSortBy(crit)}
-                  className={`px-2 py-1 rounded capitalize flex items-center gap-1 ${
-                    sortBy === crit
-                      ? "bg-white shadow text-fixed-indigo-700 font-bold"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  {crit}
-                  {sortBy === crit && (
-                    <IconArrowRight size={10} className="rotate-90" />
-                  )}
-                </button>
-              ),
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* ORDEN */}
+          <div className="relative" ref={orderMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowOrderMenu((v) => !v)}
+              className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100"
+            >
+              Orden: {currentSortLabel}
+              <IconChevronDown size={12} />
+            </button>
+            {showOrderMenu && (
+              <div className="absolute top-full left-0 mt-2 w-44 bg-white border border-slate-200 rounded-lg shadow-xl z-50 text-xs">
+                {["rol", "localidad", "region", "instrumento", "genero"].map(
+                  (crit) => (
+                    <button
+                      key={crit}
+                      type="button"
+                      onClick={() => {
+                        setSortBy(crit);
+                        setShowOrderMenu(false);
+                      }}
+                      className={`w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center justify-between ${
+                        sortBy === crit ? "font-bold text-fixed-indigo-700" : ""
+                      }`}
+                    >
+                      <span>{sortLabelMap[crit]}</span>
+                      {sortBy === crit && (
+                        <IconArrowRight size={10} className="rotate-90" />
+                      )}
+                    </button>
+                  ),
+                )}
+              </div>
             )}
           </div>
 
-          <span className="text-[10px] uppercase font-bold text-slate-400">
-            Filtros:
-          </span>
+          {/* FILTROS */}
+          <div className="relative" ref={filterMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowFilterMenu((v) => !v)}
+              className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50"
+            >
+              <IconFilter size={12} />
+              <span className="hidden sm:inline">Filtros</span>
+            </button>
+            {showFilterMenu && (
+              <div className="absolute top-full left-0 mt-2 w-72 bg-white border border-slate-200 rounded-lg shadow-xl z-50 p-3 space-y-2 text-xs">
+                <div className="font-bold text-slate-500 uppercase text-[10px]">
+                  Rol
+                </div>
+                <MultiSelectDropdown
+                  compact
+                  label=""
+                  placeholder="Todos"
+                  options={rolesList.map((r) => ({
+                    value: r.id,
+                    label:
+                      r.id.charAt(0).toUpperCase() + r.id.slice(1),
+                  }))}
+                  value={Array.from(selectedFilterRoles)}
+                  onChange={(arr) => setSelectedFilterRoles(new Set(arr))}
+                />
+                <div className="font-bold text-slate-500 uppercase text-[10px] mt-2">
+                  Condición
+                </div>
+                <MultiSelectDropdown
+                  compact
+                  label=""
+                  placeholder="Todas"
+                  options={CONDICIONES.map((c) => ({ value: c, label: c }))}
+                  value={Array.from(selectedFilterConditions)}
+                  onChange={(arr) =>
+                    setSelectedFilterConditions(new Set(arr))
+                  }
+                />
+                <div className="font-bold text-slate-500 uppercase text-[10px] mt-2">
+                  Ensamble
+                </div>
+                <MultiSelectDropdown
+                  compact
+                  label=""
+                  placeholder="Todos"
+                  options={ensemblesList}
+                  value={Array.from(selectedFilterEnsemblesList)}
+                  onChange={(arr) =>
+                    setSelectedFilterEnsemblesList(new Set(arr))
+                  }
+                />
+              </div>
+            )}
+          </div>
 
-          {/* MULTI FILTROS */}
-          <MultiSelectDropdown
-            compact
-            label="Rol"
-            placeholder="Todos"
-            options={rolesList.map((r) => ({
-              value: r.id,
-              label: r.id.charAt(0).toUpperCase() + r.id.slice(1),
-            }))}
-            value={Array.from(selectedFilterRoles)}
-            onChange={(arr) => setSelectedFilterRoles(new Set(arr))}
-          />
-          <MultiSelectDropdown
-            compact
-            label="Condición"
-            placeholder="Todas"
-            options={CONDICIONES.map((c) => ({ value: c, label: c }))}
-            value={Array.from(selectedFilterConditions)}
-            onChange={(arr) => setSelectedFilterConditions(new Set(arr))}
-          />
-          <MultiSelectDropdown
-            compact
-            label="Ensamble"
-            placeholder="Todos"
-            options={ensemblesList}
-            value={Array.from(selectedFilterEnsemblesList)}
-            onChange={(arr) => setSelectedFilterEnsemblesList(new Set(arr))}
-          />
+          {/* CONVOCAR (Grupos / Individual / Vacante) */}
+          <div className="relative" ref={selectionMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowSelectionMenu((v) => !v)}
+              className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50"
+            >
+              <IconUsers size={12} />
+              <span className="hidden sm:inline">Convocar</span>
+              <IconChevronDown size={12} />
+            </button>
+            {showSelectionMenu && (
+              <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-slate-200 rounded-lg shadow-xl z-50 p-3 text-xs space-y-2">
+                <div className="text-[10px] font-bold text-slate-500 uppercase">
+                  Modos de convocatoria
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddMode((prev) => (prev === "groups" ? null : "groups"));
+                    setShowSelectionMenu(false);
+                  }}
+                  className={`w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 flex items-center justify-between ${
+                    addMode === "groups" ? "font-bold text-fixed-indigo-700" : ""
+                  }`}
+                >
+                  <span>Grupos</span>
+                  {addMode === "groups" && (
+                    <IconArrowRight size={10} className="rotate-90" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddMode((prev) =>
+                      prev === "individual" ? null : "individual",
+                    );
+                    setShowSelectionMenu(false);
+                  }}
+                  className={`w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 flex items-center justify-between ${
+                    addMode === "individual"
+                      ? "font-bold text-fixed-indigo-700"
+                      : ""
+                  }`}
+                >
+                  <span>Individual</span>
+                  {addMode === "individual" && (
+                    <IconArrowRight size={10} className="rotate-90" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsVacancyModalOpen(true);
+                    setShowSelectionMenu(false);
+                  }}
+                  className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-50 flex items-center justify-between text-amber-700"
+                >
+                  <span>Nueva vacante</span>
+                  <IconUserPlus size={12} />
+                </button>
+              </div>
+            )}
+          </div>
 
-          {/* BOTÓN COPIAR MAILS */}
+          {/* BOTÓN COPIAR MAILS (sigue disponible cuando hay selección) */}
           {selectedIds.size > 0 && (
             <button
+              type="button"
               onClick={handleCopyEmails}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-fixed-indigo-50 border border-fixed-indigo-200 text-fixed-indigo-700 rounded-lg text-xs font-bold hover:bg-fixed-indigo-100 transition-all animate-in zoom-in ml-2"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-fixed-indigo-50 border border-fixed-indigo-200 text-fixed-indigo-700 rounded-lg text-xs font-bold hover:bg-fixed-indigo-100 transition-all"
             >
-              <IconCopy size={14} /> Copiar ({selectedIds.size})
+              <IconCopy size={12} />
+              Copiar mails ({selectedIds.size})
             </button>
           )}
         </div>
@@ -1344,40 +1506,11 @@ export default function GiraRoster({
         </div>
       </div>
 
-      {/* CONTROLES AGREGAR */}
-      <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex gap-3 items-start overflow-visible z-20">
-        <div className="flex bg-white border border-slate-200 p-1 rounded-lg shrink-0">
-          <button
-            onClick={() => setAddMode(addMode === "groups" ? null : "groups")}
-            className={`px-3 py-1 rounded text-xs font-bold ${
-              addMode === "groups"
-                ? "bg-fixed-indigo-50 text-fixed-indigo-700"
-                : "text-slate-500"
-            }`}
-          >
-            Grupos
-          </button>
-          <button
-            onClick={() =>
-              setAddMode(addMode === "individual" ? null : "individual")
-            }
-            className={`px-3 py-1 rounded text-xs font-bold ${
-              addMode === "individual"
-                ? "bg-fixed-indigo-50 text-fixed-indigo-700"
-                : "text-slate-500"
-            }`}
-          >
-            Individual
-          </button>
-          <button
-            onClick={() => setIsVacancyModalOpen(true)}
-            className="px-3 py-1 rounded text-xs font-bold text-amber-600 hover:bg-amber-50 flex items-center gap-1 border-l border-slate-100 ml-1"
-          >
-            <IconUserPlus size={14} /> Nueva Vacante
-          </button>
-        </div>
-        {addMode === "groups" && (
-          <div className="flex gap-3 flex-wrap animate-in slide-in-from-left-2 items-start bg-white p-3 rounded border border-slate-200 shadow-sm">
+      {/* CONTROLES AGREGAR (renderizados sólo cuando hay modo activo) */}
+      {(addMode === "groups" || addMode === "individual") && (
+        <div className="px-3 py-2 bg-slate-50/50 border-b border-slate-100 flex gap-3 items-start overflow-visible z-20">
+          {addMode === "groups" && (
+            <div className="flex gap-3 flex-wrap animate-in slide-in-from-left-2 items-start bg-white p-3 rounded border border-slate-200 shadow-sm">
             <div className="w-40">
               <MultiSelectDropdown
                 label="Ensambles"
@@ -1412,77 +1545,21 @@ export default function GiraRoster({
             >
               Actualizar
             </button>
-          </div>
-        )}
-        {addMode === "individual" && (
-          <div className="relative w-64 animate-in slide-in-from-left-2 mt-1">
-            <input
-              type="text"
-              placeholder="Buscar nombre o apellido..."
-              className="w-full border p-2 rounded text-sm outline-none bg-white shadow-sm"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            <div className="absolute top-full left-0 w-full bg-white border mt-1 rounded shadow-xl z-50 max-h-60 overflow-y-auto">
-              {searchResults.length > 0
-                ? searchResults.map((m) =>
-                    m.isAlreadyInTour ? (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => {
-                          setSearchTerm("");
-                          setSearchResults([]);
-                          scrollToIntegranteInTable(m.id);
-                        }}
-                        className="w-full text-left p-2 hover:bg-slate-100 text-xs border-b text-slate-500 bg-slate-50/80 flex items-center justify-between"
-                      >
-                        <span>
-                          <b className="font-medium text-slate-600">
-                            {m.apellido}, {m.nombre}
-                          </b>{" "}
-                          <span className="text-slate-400">
-                            ({m.instrumentos?.instrumento})
-                          </span>
-                        </span>
-                        <span className="text-[10px] uppercase text-slate-400 shrink-0 ml-2">
-                          Ya en gira
-                        </span>
-                      </button>
-                    ) : (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => addManualMusician(m.id, m)}
-                        className="w-full text-left p-2 hover:bg-emerald-50 text-xs border-b flex items-center justify-between group"
-                      >
-                        <span>
-                          <b>
-                            {m.apellido}, {m.nombre}
-                          </b>{" "}
-                          <span className="text-slate-400">
-                            ({m.instrumentos?.instrumento})
-                          </span>
-                        </span>
-                        <span className="flex items-center gap-1 text-emerald-600 font-bold text-[10px] uppercase shrink-0 ml-2 group-hover:bg-emerald-100 px-2 py-0.5 rounded">
-                          <IconUserPlus size={12} />
-                          Agregar a gira
-                        </span>
-                      </button>
-                    ),
-                  )
-                : searchTerm.trim().length > 0 && (
-                    <button
-                      onClick={handleOpenDetailedCreate}
-                      className="w-full text-left p-3 bg-fuchsia-50 hover:bg-fuchsia-100 text-xs text-fuchsia-700 font-bold border-t border-fuchsia-200 flex items-center gap-2 transition-colors"
-                    >
-                      <IconPlus size={14} /> Crear "{searchTerm}" como Invitado
-                    </button>
-                  )}
             </div>
-          </div>
-        )}
-      </div>
+          )}
+          {addMode === "individual" && (
+            <div className="w-72 animate-in slide-in-from-left-2">
+              <PersonSelectWithCreate
+                supabase={supabase}
+                value={null}
+                onChange={handleSelectIndividual}
+                isMulti={false}
+                placeholder="Buscar o crear invitado rápido..."
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TABLA */}
       <div className="flex-1 overflow-y-auto p-4 z-10">
@@ -1514,7 +1591,7 @@ export default function GiraRoster({
                   />
                 </th>
 
-                <th className="py-2 px-3 w-48 border-r border-slate-100">
+                <th className="py-2 px-2 w-32 max-w-[8rem] border-r border-slate-100">
                   Rol / Instr.
                 </th>
                 <th className="py-2 px-3 bg-slate-50 border-r border-slate-100 w-1/4">
@@ -1526,14 +1603,22 @@ export default function GiraRoster({
                   </th>
                 )}
                 {visibleColumns.ensambles && (
-                  <th className="py-2 px-3 border-r border-slate-100">Ensambles</th>
+                <th className="hidden md:table-cell py-2 px-3 border-r border-slate-100">
+                  Ensambles
+                </th>
                 )}
                 {visibleColumns.localidad && (
-                  <th className="py-2 px-3 border-r border-slate-100">Ubicación</th>
+                  <th className="hidden md:table-cell py-2 px-3 border-r border-slate-100">
+                    Ubicación
+                  </th>
                 )}
-                <th className="py-2 px-3 border-r border-slate-100">Contacto</th>
+                <th className="hidden md:table-cell py-2 px-3 border-r border-slate-100">
+                  Contacto
+                </th>
                 {visibleColumns.alimentacion && (
-                  <th className="py-2 px-3 border-r border-slate-100">Alim.</th>
+                  <th className="hidden md:table-cell py-2 px-3 border-r border-slate-100">
+                    Alim.
+                  </th>
                 )}
                 <th className="py-2 px-3 text-center w-16 border-r border-slate-100">
                   Estado

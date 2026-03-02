@@ -100,11 +100,13 @@ CREATE TABLE public.eventos (
   deleted_at timestamp with time zone,
   updated_at timestamp with time zone DEFAULT now(),
   is_deleted boolean DEFAULT false,
+  id_estado_venue integer,
   CONSTRAINT eventos_pkey PRIMARY KEY (id),
   CONSTRAINT eventos_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
   CONSTRAINT eventos_id_tipo_evento_fkey FOREIGN KEY (id_tipo_evento) REFERENCES public.tipos_evento(id),
   CONSTRAINT eventos_id_locacion_fkey FOREIGN KEY (id_locacion) REFERENCES public.locaciones(id),
-  CONSTRAINT eventos_id_gira_transporte_fkey FOREIGN KEY (id_gira_transporte) REFERENCES public.giras_transportes(id)
+  CONSTRAINT eventos_id_gira_transporte_fkey FOREIGN KEY (id_gira_transporte) REFERENCES public.giras_transportes(id),
+  CONSTRAINT eventos_id_estado_venue_fkey FOREIGN KEY (id_estado_venue) REFERENCES public.venue_status_types(id)
 );
 CREATE TABLE public.eventos_asistencia (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -160,6 +162,18 @@ CREATE TABLE public.eventos_programas_asociados (
   CONSTRAINT eventos_programas_asociados_pkey PRIMARY KEY (id),
   CONSTRAINT eventos_programas_asociados_id_evento_fkey FOREIGN KEY (id_evento) REFERENCES public.eventos(id),
   CONSTRAINT eventos_programas_asociados_id_programa_fkey FOREIGN KEY (id_programa) REFERENCES public.programas(id)
+);
+CREATE TABLE public.eventos_venue_log (
+  id integer NOT NULL DEFAULT nextval('eventos_venue_log_id_seq'::regclass),
+  id_evento integer,
+  id_estado_venue integer,
+  nota text,
+  id_integrante integer,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT eventos_venue_log_pkey PRIMARY KEY (id),
+  CONSTRAINT eventos_venue_log_id_evento_fkey FOREIGN KEY (id_evento) REFERENCES public.eventos(id),
+  CONSTRAINT eventos_venue_log_id_estado_venue_fkey FOREIGN KEY (id_estado_venue) REFERENCES public.venue_status_types(id),
+  CONSTRAINT eventos_venue_log_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id)
 );
 CREATE TABLE public.familia (
   familia text NOT NULL UNIQUE,
@@ -986,4 +1000,12 @@ CREATE TABLE public.user_ui_settings (
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT user_ui_settings_pkey PRIMARY KEY (user_id),
   CONSTRAINT user_ui_settings_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.integrantes(id)
+);
+CREATE TABLE public.venue_status_types (
+  id integer NOT NULL DEFAULT nextval('venue_status_types_id_seq'::regclass),
+  nombre text NOT NULL,
+  color text NOT NULL,
+  slug text NOT NULL UNIQUE,
+  
+  CONSTRAINT venue_status_types_pkey PRIMARY KEY (id)
 );
