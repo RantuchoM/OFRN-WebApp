@@ -133,6 +133,18 @@ export const INSTRUMENT_GROUPS = [
     ]
   },
   {
+    id: "group_bronces_abron_221",
+    instrumento: "★ ABRON (2 Trompetas, 2 Trombones, 1 Corno)",
+    isGroup: true,
+    definitions: [
+      { id_instrumento: '09', nombre_archivo: 'Corno 1', instrumento_base: 'Corno' },
+      { id_instrumento: '10', nombre_archivo: 'Trompeta 1', instrumento_base: 'Trompeta' },
+      { id_instrumento: '10', nombre_archivo: 'Trompeta 2', instrumento_base: 'Trompeta' },
+      { id_instrumento: '11', nombre_archivo: 'Trombón 1', instrumento_base: 'Trombón' },
+      { id_instrumento: '11', nombre_archivo: 'Trombón 2', instrumento_base: 'Trombón' },
+    ]
+  },
+  {
     id: "timp",
     instrumento: "★ Timbal",
     isGroup: true,
