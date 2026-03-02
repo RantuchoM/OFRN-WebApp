@@ -5,7 +5,7 @@ import { getTodayDateStringLocal } from "../utils/dates";
 import { calculateLogisticsSummary } from "./useLogistics";
 
 const EVENT_SELECT = `
-    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, updated_at, is_deleted, deleted_at,
+    id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, updated_at, is_deleted, deleted_at, id_estado_venue,
     giras_transportes ( id, detalle, transportes ( nombre, color ) ),
     tipos_evento ( id, nombre, color, categorias_tipos_eventos (id, nombre) ),
     locaciones ( id, nombre, direccion, link_mapa, localidades (localidad) ),

@@ -420,8 +420,9 @@ export const getAllConcertVenues = async (supabase) => {
         id_estado_venue,
         id_tipo_evento,
         id_gira,
-        programas ( id, nombre_gira, nomenclador ),
-        venue_status_types ( id, nombre, color, slug )
+        programas ( id, nombre_gira, nomenclador, tipo ),
+        venue_status_types ( id, nombre, color, slug ),
+        eventos_venue_log ( nota, created_at )
       `,
       )
       .eq("id_tipo_evento", 1)

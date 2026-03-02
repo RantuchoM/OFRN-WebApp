@@ -49,6 +49,7 @@ import {
   getGoogleMapsUrl,
 } from "../../utils/agendaHelpers";
 import { getProgramBadgeClasses } from "../../utils/giraUtils";
+import { getVenueStatusById } from "../../utils/venueUtils";
 import FeriadoBadge from "./FeriadoBadge";
 import ConnectionBadge from "./ConnectionBadge";
 import DriveSmartButton from "./DriveSmartButton";
@@ -275,6 +276,13 @@ export default function UnifiedAgenda({
   const [newFormData, setNewFormData] = useState({});
   const [formEventTypes, setFormEventTypes] = useState([]);
   const [formLocations, setFormLocations] = useState([]);
+  const [venueLogModal, setVenueLogModal] = useState({
+    isOpen: false,
+    eventId: null,
+    eventLabel: "",
+    logs: [],
+    loading: false,
+  });
 
   useEffect(() => {
     const fetchMusicians = async () => {
@@ -535,7 +543,7 @@ export default function UnifiedAgenda({
     exportAgendaToPDF(filteredItems, title, subTitle, hideGiraColumn);
   };
 
-  const openEditModal = (evt) => {
+  const openEditModal = async (evt) => {
     if (
       evt.id_tipo_evento === 13 &&
       coordinatedEnsembles.size > 0 &&
@@ -545,6 +553,25 @@ export default function UnifiedAgenda({
       setIsRehearsalEditOpen(true);
       return;
     }
+    let lastVenueNote = "";
+    if (Number(evt.id_tipo_evento) === 1) {
+      try {
+        const { data, error } = await supabase
+          .from("eventos_venue_log")
+          .select("nota, created_at")
+          .eq("id_evento", evt.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!error && data && data.nota) {
+          lastVenueNote = data.nota;
+        }
+      } catch (err) {
+        console.warn("No se pudo cargar la última nota de venue:", err);
+      }
+    }
+
+    setEditingEventObj(evt);
     setEditFormData({
       id: evt.id,
       descripcion: evt.descripcion || "",
@@ -556,6 +583,8 @@ export default function UnifiedAgenda({
       id_gira: evt.id_gira || null,
       id_gira_transporte: evt.id_gira_transporte ?? null,
       tecnica: evt.tecnica || false,
+      id_estado_venue: evt.id_estado_venue || null,
+      venue_status_note: lastVenueNote,
     });
     setIsEditOpen(true);
   };
@@ -715,6 +744,23 @@ export default function UnifiedAgenda({
       toast.error("Faltan datos");
       return;
     }
+
+    // Validar nota obligatoria si hay cambio de estado de venue
+    const prevStatus =
+      editingEventObj?.id_estado_venue == null
+        ? null
+        : editingEventObj.id_estado_venue;
+    const newStatus =
+      editFormData.id_estado_venue == null
+        ? null
+        : editFormData.id_estado_venue;
+    if (prevStatus !== newStatus && newStatus != null) {
+      if (!editFormData.venue_status_note || !editFormData.venue_status_note.trim()) {
+        toast.error("Agrega una nota para el cambio de estado de venue.");
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const payload = {
@@ -726,12 +772,29 @@ export default function UnifiedAgenda({
         id_locacion: editFormData.id_locacion || null,
         id_gira_transporte: editFormData.id_gira_transporte ?? null,
         tecnica: editFormData.tecnica || false,
+        id_estado_venue: editFormData.id_estado_venue || null,
       };
       const { error } = await supabase
         .from("eventos")
         .update(payload)
         .eq("id", editFormData.id);
       if (error) throw error;
+
+      // Log de cambio de estado de venue (solo conciertos)
+
+      if (prevStatus !== newStatus && newStatus != null) {
+        try {
+          await supabase.from("eventos_venue_log").insert({
+            id_evento: editFormData.id,
+            id_estado_venue: newStatus,
+            nota: editFormData.venue_status_note || null,
+            id_integrante: user.id,
+          });
+        } catch (logError) {
+          console.error("Error guardando log de estado de venue:", logError);
+        }
+      }
+
       setIsEditOpen(false);
       setEditFormData({});
       fetchAgenda();
@@ -752,6 +815,8 @@ export default function UnifiedAgenda({
       id_locacion: "",
       id_gira_transporte: null,
       tecnica: false,
+      id_estado_venue: null,
+      venue_status_note: "",
     });
     setIsCreating(true);
   };
@@ -761,6 +826,15 @@ export default function UnifiedAgenda({
       toast.error("Faltan datos");
       return;
     }
+
+    // Validar nota obligatoria si se asigna estado de venue al crear
+    if (newFormData.id_estado_venue) {
+      if (!newFormData.venue_status_note || !newFormData.venue_status_note.trim()) {
+        toast.error("Agrega una nota para el estado de venue inicial.");
+        return;
+      }
+    }
+
     setLoading(true); // Bloqueamos para crear
     const payload = {
       id_gira: giraId,
@@ -772,13 +846,71 @@ export default function UnifiedAgenda({
       id_locacion: newFormData.id_locacion || null,
       id_gira_transporte: newFormData.id_gira_transporte ?? null,
       tecnica: newFormData.tecnica,
+      id_estado_venue: newFormData.id_estado_venue || null,
     };
-    const { error } = await supabase.from("eventos").insert([payload]);
-    if (!error) {
-      setIsCreating(false);
-      fetchAgenda();
-    } else {
+    const { data, error } = await supabase
+      .from("eventos")
+      .insert([payload])
+      .select()
+      .single();
+    if (error) {
       setLoading(false);
+      toast.error("Error al crear evento: " + error.message);
+      return;
+    }
+
+    // Log inicial de estado de venue si corresponde
+    if (newFormData.id_estado_venue) {
+      try {
+        await supabase.from("eventos_venue_log").insert({
+          id_evento: data.id,
+          id_estado_venue: newFormData.id_estado_venue,
+          nota: newFormData.venue_status_note || null,
+          id_integrante: user.id,
+        });
+      } catch (logError) {
+        console.error("Error guardando log inicial de estado de venue:", logError);
+      }
+    }
+
+    setIsCreating(false);
+    fetchAgenda();
+  };
+
+  const openVenueLogHistory = async (evt) => {
+    if (!evt?.id) return;
+    const label = `${evt.tipos_evento?.nombre || "Evento"} ${
+      evt.fecha || ""
+    } ${evt.hora_inicio?.slice(0, 5) || ""}`;
+    setVenueLogModal((prev) => ({
+      ...prev,
+      isOpen: true,
+      eventId: evt.id,
+      eventLabel: label,
+      logs: [],
+      loading: true,
+    }));
+    try {
+      const { data, error } = await supabase
+        .from("eventos_venue_log")
+        .select(
+          "id, created_at, nota, status:venue_status_types(nombre,color,slug), integrante:integrantes(nombre,apellido)",
+        )
+        .eq("id_evento", evt.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setVenueLogModal((prev) => ({
+        ...prev,
+        logs: data || [],
+        loading: false,
+      }));
+    } catch (err) {
+      console.error("Error obteniendo historial de estado de venue:", err);
+      toast.error("No se pudo cargar el historial de estado del venue.");
+      setVenueLogModal((prev) => ({
+        ...prev,
+        loading: false,
+      }));
     }
   };
 
@@ -1276,6 +1408,10 @@ export default function UnifiedAgenda({
 
                     const locName = evt.locaciones?.nombre || "";
                     const locCity = evt.locaciones?.localidades?.localidad;
+                    const venueStatus = getVenueStatusById(
+                      evt.id_estado_venue,
+                    );
+                    const isConcertEvent = Number(evt.id_tipo_evento) === 1;
 
                     const cardStyle = { backgroundColor: `${eventColor}10` };
 
@@ -1581,13 +1717,43 @@ export default function UnifiedAgenda({
                             </div>
 
                             {locName && (
-                              <div className={`flex items-start gap-1 text-xs mt-0.5 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}>
-                                <IconMapPin
-                                  size={14}
-                                  className={isDeleted ? "text-orange-600 shrink-0 mt-0.5" : "text-slate-400 shrink-0 mt-0.5"}
-                                />
+                              <div
+                                className={`flex items-start gap-1 text-xs mt-0.5 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}
+                              >
+                                {isConcertEvent ? (
+                                  <button
+                                    type="button"
+                                    className="shrink-0 mt-0.5 relative w-5 h-5 flex items-center justify-center rounded-md border border-slate-200"
+                                    style={{
+                                      backgroundColor: venueStatus
+                                        ? venueStatus.color
+                                        : "#e5e7eb",
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openVenueLogHistory(evt);
+                                    }}
+                                    title={
+                                      venueStatus
+                                        ? `Historial de estado de venue: ${venueStatus.nombre}`
+                                        : "Historial de estado de venue"
+                                    }
+                                  >
+                                    <IconMapPin
+                                      size={14}
+                                      className="text-white"
+                                    />
+                                  </button>
+                                ) : (
+                                  <IconMapPin
+                                    size={14}
+                                    className="text-slate-400 shrink-0 mt-0.5"
+                                  />
+                                )}
                                 <div className="flex flex-col min-w-0">
-                                  <span className={`font-semibold truncate ${isDeleted ? "text-orange-700" : "text-slate-700"}`}>
+                                  <span
+                                    className={`font-semibold truncate ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
+                                  >
                                     {locName} {locCity ? `(${locCity})` : ""}
                                   </span>
                                   {evt.locaciones?.direccion && (
@@ -1895,13 +2061,43 @@ export default function UnifiedAgenda({
                           {/* COLUMNA 4: LOCACIÓN */}
                           <div className="col-span-3 min-w-0">
                             {locName && (
-                              <div className={`flex items-start gap-1.5 ${isDeleted ? "text-orange-700" : ""}`}>
-                                <IconMapPin
-                                  size={14}
-                                  className={isDeleted ? "text-orange-600 shrink-0 mt-0.5" : "text-slate-400 shrink-0 mt-0.5"}
-                                />
+                              <div
+                                className={`flex items-start gap-1.5 ${isDeleted ? "text-orange-700" : ""}`}
+                              >
+                                {isConcertEvent ? (
+                                  <button
+                                    type="button"
+                                    className="shrink-0 mt-0.5 relative w-6 h-6 flex items-center justify-center rounded-md border border-slate-200"
+                                    style={{
+                                      backgroundColor: venueStatus
+                                        ? venueStatus.color
+                                        : "#e5e7eb",
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openVenueLogHistory(evt);
+                                    }}
+                                    title={
+                                      venueStatus
+                                        ? `Historial de estado de venue: ${venueStatus.nombre}`
+                                        : "Historial de estado de venue"
+                                    }
+                                  >
+                                    <IconMapPin
+                                      size={14}
+                                      className="text-white"
+                                    />
+                                  </button>
+                                ) : (
+                                  <IconMapPin
+                                    size={14}
+                                    className="text-slate-400 shrink-0 mt-0.5"
+                                  />
+                                )}
                                 <div className="flex flex-col min-w-0">
-                                  <span className={`text-xs font-semibold truncate block ${isDeleted ? "text-orange-700" : "text-slate-700"}`}>
+                                  <span
+                                    className={`text-xs font-semibold truncate block ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
+                                  >
                                     {locName} {locCity ? `(${locCity})` : ""}
                                   </span>
                                   {evt.locaciones?.direccion && (
@@ -2172,6 +2368,110 @@ export default function UnifiedAgenda({
               title={commentsState.title}
               onClose={() => setCommentsState(null)}
             />
+          </div>
+        </div>
+      )}
+      {venueLogModal.isOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() =>
+            setVenueLogModal({
+              isOpen: false,
+              eventId: null,
+              eventLabel: "",
+              logs: [],
+              loading: false,
+            })
+          }
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">
+                  Historial de estado de venue
+                </h3>
+                {venueLogModal.eventLabel && (
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    {venueLogModal.eventLabel}
+                  </p>
+                )}
+              </div>
+              <button
+                className="text-slate-400 hover:text-slate-600"
+                onClick={() =>
+                  setVenueLogModal({
+                    isOpen: false,
+                    eventId: null,
+                    eventLabel: "",
+                    logs: [],
+                    loading: false,
+                  })
+                }
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {venueLogModal.loading && (
+                <div className="flex items-center justify-center py-8 text-slate-500 text-sm gap-2">
+                  <IconLoader className="animate-spin" size={18} />
+                  <span>Cargando historial...</span>
+                </div>
+              )}
+              {!venueLogModal.loading &&
+                (venueLogModal.logs.length === 0 ? (
+                  <div className="p-4 text-sm text-slate-500">
+                    No hay cambios registrados para este venue.
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {venueLogModal.logs.map((log) => (
+                      <li key={log.id} className="p-3 text-sm">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {log.status && (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                                style={{
+                                  backgroundColor: `${log.status.color}20`,
+                                  color: "#0f172a",
+                                }}
+                              >
+                                <span
+                                  className="w-2 h-2 rounded-full"
+                                  style={{ backgroundColor: log.status.color }}
+                                />
+                                {log.status.nombre}
+                              </span>
+                            )}
+                            {log.integrante && (
+                              <span className="text-[11px] text-slate-500">
+                                {log.integrante.apellido},{" "}
+                                {log.integrante.nombre}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-slate-400">
+                            {format(
+                              parseISO(log.created_at),
+                              "dd/MM/yyyy HH:mm",
+                              { locale: es },
+                            )}
+                          </span>
+                        </div>
+                        {log.nota && (
+                          <p className="mt-1 text-[12px] text-slate-600 whitespace-pre-wrap">
+                            {log.nota}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ))}
+            </div>
           </div>
         </div>
       )}

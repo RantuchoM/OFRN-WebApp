@@ -16,6 +16,10 @@ import LocationSelectWithCreate from "./LocationSelectWithCreate";
 import ConfirmModal from "../ui/ConfirmModal";
 import { useAuth } from "../../context/AuthContext";
 import { getTransportesByGira } from "../../services/giraService";
+import {
+  VENUE_STATUS_OPTIONS,
+  getVenueStatusById,
+} from "../../utils/venueUtils";
 
 const TIPO_TRANSPORTE_SALIDA = 11;
 const TIPO_TRANSPORTE_LLEGADA = 12;
@@ -38,6 +42,7 @@ export default function EventForm({
   const { isEditor, isManagement } = useAuth();
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [transportesList, setTransportesList] = useState([]);
+  const [isEditingVenueStatus, setIsEditingVenueStatus] = useState(false);
 
   // Usar giraId del evento si el padre no pasó giraId (ej. agenda sin gira en URL)
   const effectiveGiraId = giraId ?? formData?.id_gira ?? null;
@@ -293,6 +298,103 @@ export default function EventForm({
             onChange={(val) => handleChange("hora_fin", val)}
           />
         </div>
+
+        {/* Estado de venue (solo conciertos) */}
+        {Number(formData.id_tipo_evento) === 1 && (
+          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-slate-700 flex items-center gap-2">
+                <span
+                  className="inline-block w-2 h-2 rounded-full border border-slate-200"
+                  style={{
+                    backgroundColor:
+                      getVenueStatusById(formData.id_estado_venue)?.color ||
+                      "#e5e7eb",
+                  }}
+                />
+                <div>
+                  <span className="font-bold uppercase text-[10px] text-slate-500 block">
+                    Estado de Venue
+                  </span>
+                  <span className="text-sm">
+                    {(() => {
+                      const status = getVenueStatusById(
+                        formData.id_estado_venue,
+                      );
+                      const statusText = status ? status.nombre : "Sin estado";
+                      const note = formData.venue_status_note || "";
+                      const noteText = note ? `Nota: ${note}` : "Sin nota";
+                      return `${statusText}. ${noteText}`;
+                    })()}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditingVenueStatus((prev) => !prev)}
+                className="text-xs font-bold px-3 py-1.5 rounded-full border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50 hover:border-indigo-300 transition-colors"
+              >
+                {isEditingVenueStatus ? "Cancelar cambio" : "Cambiar estado"}
+              </button>
+            </div>
+
+            {isEditingVenueStatus && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200 mt-2">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                    Nuevo estado
+                  </label>
+                  <div className="relative">
+                    <div
+                      className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 rounded-md border border-slate-200 shadow-sm pointer-events-none z-10"
+                      style={{
+                        backgroundColor:
+                          getVenueStatusById(formData.id_estado_venue)?.color ||
+                          "transparent",
+                      }}
+                    ></div>
+                    <select
+                      className="w-full border border-slate-300 rounded-lg py-2 pl-7 pr-8 text-sm focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white cursor-pointer hover:bg-slate-50 transition-colors"
+                      value={formData.id_estado_venue || ""}
+                      onChange={(e) =>
+                        handleChange(
+                          "id_estado_venue",
+                          e.target.value ? Number(e.target.value) : null,
+                        )
+                      }
+                    >
+                      <option value="">Sin estado</option>
+                      {VENUE_STATUS_OPTIONS.map((status) => (
+                        <option key={status.id} value={status.id}>
+                          {status.nombre}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
+                      <svg className="h-4 w-4 fill-current" viewBox="0 0 20 20">
+                        <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                    Nota de cambio (obligatoria)
+                  </label>
+                  <textarea
+                    rows={2}
+                    className="w-full border border-slate-300 rounded-lg p-2 text-xs resize-none focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder='Ej: Solicitado. Nota: "Enviado mail a la sala"...'
+                    value={formData.venue_status_note || ""}
+                    onChange={(e) =>
+                      handleChange("venue_status_note", e.target.value)
+                    }
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div>
           <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
