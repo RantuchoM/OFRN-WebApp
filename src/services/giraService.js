@@ -95,6 +95,35 @@ const resolveGiraRosterIds = async (supabase, giraId) => {
   }
 };
 
+// Selección reducida de eventos pensada para trasposición/previa en UnifiedAgenda
+const EVENT_FOR_TRANSPOSE_SELECT = `
+  id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, id_estado_venue,
+  tipos_evento ( id, nombre, color, categorias_tipos_eventos (id, nombre) ),
+  locaciones ( id, nombre, direccion, localidades (localidad) )
+`;
+
+/**
+ * Devuelve todos los eventos de una gira específica (programa) en orden cronológico.
+ * Pensado para el modal de trasposición de agenda.
+ */
+export const getEventsByGira = async (supabase, giraId) => {
+  if (!supabase || !giraId) return [];
+  try {
+    const { data, error } = await supabase
+      .from("eventos")
+      .select(EVENT_FOR_TRANSPOSE_SELECT)
+      .eq("id_gira", giraId)
+      .order("fecha", { ascending: true })
+      .order("hora_inicio", { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error("[GiraService] getEventsByGira:", err);
+    return [];
+  }
+};
+
 /**
  * 2. FUNCIÓN PRINCIPAL (EXPORTADA)
  * Devuelve el Roster con datos de Logística (Habitación, Transporte)

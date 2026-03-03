@@ -24,6 +24,7 @@ import {
   IconFilter,
   IconUndo,
   IconHistory,
+  IconRefresh,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -57,6 +58,7 @@ import TourDivider from "./TourDivider";
 import AgendaMealActionModal from "./AgendaMealActionModal";
 import EventHistoryModal from "../giras/EventHistoryModal";
 import ConfirmModal from "../ui/ConfirmModal";
+import EventTranspositionModal from "./EventTranspositionModal";
 
 export default function UnifiedAgenda({
   supabase,
@@ -69,6 +71,7 @@ export default function UnifiedAgenda({
   const { user, isEditor, isManagement, isGuest } = useAuth();
   // Estado para el modal de comida en móvil
   const [mealActionTarget, setMealActionTarget] = useState(null);
+  const [isTranspositionOpen, setIsTranspositionOpen] = useState(false);
   const toggleEventTechnica = async (e, eventId, currentValue) => {
     e.stopPropagation();
     if (!isEditor && !isManagement) return;
@@ -153,6 +156,8 @@ export default function UnifiedAgenda({
     }
     return false;
   };
+
+  const canImportEvents = !!giraId && isEditor && !user?.isGeneral;
 
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
@@ -255,6 +260,11 @@ export default function UnifiedAgenda({
     isManagement,
     user,
   });
+
+  const mainProgram = useMemo(
+    () => items.find((i) => i.programas)?.programas || null,
+    [items],
+  );
 
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const filterMenuRef = useRef(null);
@@ -1019,6 +1029,17 @@ export default function UnifiedAgenda({
               isRefreshing={isRefreshing}
               isUpdating={isRefreshing || (loading && items.length > 0)}
             />
+
+            {canImportEvents && (
+              <button
+                type="button"
+                onClick={() => setIsTranspositionOpen(true)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-bold shadow-sm hover:bg-indigo-100 hover:text-indigo-800"
+              >
+                <IconRefresh size={14} />
+                <span>Importar</span>
+              </button>
+            )}
 
             {/* BOTONES DE FILTRO ... (igual que antes) */}
             {availableCategories.length > 0 && (
@@ -2474,6 +2495,20 @@ export default function UnifiedAgenda({
             </div>
           </div>
         </div>
+      )}
+
+      {isTranspositionOpen && (
+        <EventTranspositionModal
+          isOpen={isTranspositionOpen}
+          onClose={() => setIsTranspositionOpen(false)}
+          supabase={supabase}
+          giraDestino={mainProgram}
+          giraId={giraId}
+          currentEvents={items}
+          onImported={async () => {
+            await fetchAgenda(false);
+          }}
+        />
       )}
     </div>
   );

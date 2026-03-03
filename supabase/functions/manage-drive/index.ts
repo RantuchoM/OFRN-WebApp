@@ -64,6 +64,9 @@ async function downloadDriveFile(fileId: string, token: string) {
 const getTypeAbbreviation = (type: string) => {
   if (!type) return "Sinf";
   const t = type.toLowerCase();
+  const tSanitized = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  if (tSanitized.includes("comision")) return "Comis";
   if (t.includes("camerata") || t.includes("filarmónica")) return "CF";
   if (t.includes("ensamble")) return "Ens";
   if (t.includes("jazz")) return "JB";
