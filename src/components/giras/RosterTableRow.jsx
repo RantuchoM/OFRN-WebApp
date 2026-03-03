@@ -42,26 +42,26 @@ export default function RosterTableRow({
       className={`${rowClassName || ""} border-b border-slate-100`}
       style={rowStyle}
     >
-      {/* CHECKBOX */}
-      <td className="py-1.5 px-3 text-center border-r border-slate-100/50">
-        <div>
-          <span className="text-[10px] text-slate-400 font-mono w-5 text-right inline-block">
+      {/* CHECKBOX - 10% móvil */}
+      <td className="py-1.5 px-0.5 md:px-3 w-[10%] md:w-10 text-center border-r border-slate-100/50">
+        <div className="flex flex-col items-center gap-0 md:block">
+          <span className="hidden md:inline text-[10px] text-slate-400 font-mono w-5 text-right">
             {idx + 1}
           </span>{" "}
           <input
             type="checkbox"
-            className="rounded border-slate-300 text-fixed-indigo-600 focus:ring-fixed-indigo-500 cursor-pointer"
+            className="rounded border-slate-300 text-fixed-indigo-600 focus:ring-fixed-indigo-500 cursor-pointer shrink-0"
             checked={isSelected}
             onChange={() => onToggleSelection(m.id)}
           />
         </div>
       </td>
 
-      {/* ROL / INSTR */}
-      <td className="py-1.5 px-2 pl-3 border-r border-slate-100/50 w-20 max-w-[5rem] sm:w-28 sm:max-w-[7rem]">
+      {/* ROL / INSTR - 25% móvil */}
+      <td className="py-1.5 px-1 md:px-2 md:pl-3 border-r border-slate-100/50 w-[25%] md:w-28 md:max-w-[7rem]">
         {isEditor && !m.es_simulacion ? (
           <select
-            className="text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full -ml-1 text-slate-700 truncate"
+            className="text-[10px] md:text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full max-w-full -ml-1 text-slate-700 truncate"
             value={m.rol_gira || defaultRolId}
             onChange={(e) => onChangeRole(m, e.target.value)}
           >
@@ -72,28 +72,28 @@ export default function RosterTableRow({
             ))}
           </select>
         ) : (
-          <span className="text-[11px] font-bold uppercase text-slate-600 block truncate">
+          <span className="text-[10px] md:text-[11px] font-bold uppercase text-slate-600 block truncate">
             {m.rol_gira || defaultRolId}
           </span>
         )}
-        <span className="text-[10px] text-slate-400 block font-medium mt-0.5 truncate">
+        <span className="text-[9px] md:text-[10px] text-slate-400 block font-medium mt-0.5 truncate">
           {m.instrumentos?.instrumento || "-"}
         </span>
       </td>
 
-      {/* APELLIDO, NOMBRE + NOTA INTERNA */}
-      <td className="py-1.5 px-3 border-r border-slate-100/50 font-bold text-slate-700 w-56 max-w-[16rem]">
-        <div className="flex flex-col gap-1.5 truncate">
-          <div className="flex items-center gap-2 truncate">
+      {/* APELLIDO, NOMBRE + NOTA INTERNA - 30% móvil */}
+      <td className="py-1.5 px-1 md:px-3 border-r border-slate-100/50 font-bold text-slate-700 w-[30%] md:w-56 md:max-w-[16rem] min-w-0">
+        <div className="flex flex-col gap-0.5 md:gap-1.5 min-w-0 truncate">
+          <div className="flex items-center gap-1 md:gap-2 truncate text-[10px] md:text-sm">
             {m.apellido}, {m.nombre}
             {m.es_simulacion && (
-              <span className="bg-amber-100 text-amber-700 text-[9px] px-1 rounded border border-amber-200 font-black tracking-wider">
+              <span className="bg-amber-100 text-amber-700 text-[8px] md:text-[9px] px-0.5 md:px-1 rounded border border-amber-200 font-black tracking-wider shrink-0">
                 VACANTE
               </span>
             )}
           </div>
           {m.nota_interna && (
-            <div className="group relative w-fit">
+            <div className="hidden md:block group relative w-fit">
               <div className="bg-yellow-100 border border-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded-sm shadow-sm flex items-center gap-1 cursor-help transform -rotate-1 hover:rotate-0 transition-transform origin-left max-w-[160px]">
                 <span className="text-[9px]">📝</span>
                 <span className="truncate font-normal">{m.nota_interna}</span>
@@ -106,9 +106,9 @@ export default function RosterTableRow({
         </div>
       </td>
 
-      {/* GÉNERO */}
+      {/* GÉNERO - oculto en móvil para que entren las 5 columnas */}
       {visibleColumns.genero && (
-        <td className="py-1.5 px-3 text-xs text-slate-600 text-center border-r border-slate-100/50">
+        <td className="hidden md:table-cell py-1.5 px-3 text-xs text-slate-600 text-center border-r border-slate-100/50">
           {m.genero || "-"}
         </td>
       )}
@@ -180,13 +180,13 @@ export default function RosterTableRow({
         </td>
       )}
 
-      {/* ESTADO: P con X/tachito (ausente/desconvocar) → 5s con A + Deshacer; luego efectiviza y reordena */}
-      <td className="py-1.5 px-3 text-center border-r border-slate-100/50">
+      {/* ESTADO - 15% móvil */}
+      <td className="py-1.5 px-1 md:px-3 w-[15%] md:w-16 text-center border-r border-slate-100/50">
         <div className="flex items-center justify-center">
           {m.es_simulacion ? (
             <span className="text-[9px] text-slate-400">—</span>
           ) : pendingBajaForRow ? (
-            <div className="relative w-10 h-10 rounded flex items-center justify-center bg-white border-2 border-red-200 text-red-600 mx-auto">
+            <div className="relative w-7 h-7 md:w-10 md:h-10 rounded flex items-center justify-center bg-white border-2 border-red-200 text-red-600 mx-auto">
               <span className="text-[11px] font-bold relative z-10">A</span>
               {/* Círculo que se consume (countdown circular) */}
               <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 36 36">
@@ -226,15 +226,15 @@ export default function RosterTableRow({
               type="button"
               onClick={() => isEditor && onToggleStatus(m)}
               disabled={!isEditor}
-              className="w-7 h-7 rounded flex items-center justify-center text-[10px] font-bold bg-white text-red-600 border border-red-200 hover:bg-red-50 shadow-sm mx-auto transition-all"
+              className="w-6 h-6 md:w-7 md:h-7 rounded flex items-center justify-center text-[9px] md:text-[10px] font-bold bg-white text-red-600 border border-red-200 hover:bg-red-50 shadow-sm mx-auto transition-all"
               title="Marcar presente"
             >
               A
             </button>
           ) : (
-            <div className="relative w-8 h-8 mx-auto">
+            <div className="relative w-6 h-6 md:w-8 md:h-8 mx-auto">
               <div
-                className="w-full h-full rounded flex items-center justify-center text-[10px] font-bold bg-emerald-500 text-white border border-emerald-600 shadow-sm"
+                className="w-full h-full rounded flex items-center justify-center text-[9px] md:text-[10px] font-bold bg-emerald-500 text-white border border-emerald-600 shadow-sm"
                 title="Presente"
               >
                 P
@@ -243,13 +243,13 @@ export default function RosterTableRow({
                 <button
                   type="button"
                   onClick={() => onRequestBaja(m, m.es_adicional ? "desconvocar" : "ausente")}
-                  className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-white border border-slate-300 shadow flex items-center justify-center text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                  className="absolute -top-0.5 -right-0.5 w-3 h-3 md:w-4 md:h-4 rounded-full bg-white border border-slate-300 shadow flex items-center justify-center text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
                   title={m.es_adicional ? "Desconvocar" : "Marcar ausente"}
                 >
                   {m.es_adicional ? (
-                    <IconTrash size={10} />
+                    <IconTrash size={8} />
                   ) : (
-                    <IconX size={10} />
+                    <IconX size={8} />
                   )}
                 </button>
               )}
@@ -258,9 +258,9 @@ export default function RosterTableRow({
         </div>
       </td>
 
-      {/* ACCIONES: Mail, WhatsApp, Editar, Link acceso (grid 2x2) */}
-      <td className="py-1.5 px-1 pr-2 text-right w-[88px]">
-        <div className="mx-auto inline-grid grid-cols-2 gap-1 justify-items-center w-[76px]">
+      {/* ACCIONES - 20% móvil: Mail, WhatsApp, Editar, Link (grid 2x2) */}
+      <td className="py-1.5 px-0.5 md:px-1 md:pr-2 w-[20%] md:w-auto text-right min-w-0">
+        <div className="mx-auto inline-grid grid-cols-2 gap-0.5 md:gap-1 justify-items-center max-w-full">
           {/* Mail */}
           <button
             type="button"
@@ -268,22 +268,22 @@ export default function RosterTableRow({
             onClick={() => {
               if (m.mail) window.location.href = `mailto:${m.mail}`;
             }}
-            className={`w-7 h-7 flex items-center justify-center rounded ${
+            className={`w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded ${
               m.mail
                 ? "text-slate-500 hover:text-fixed-indigo-600 hover:bg-white"
                 : "text-slate-300 cursor-default"
             } transition-colors`}
             title={m.mail || "Sin mail"}
           >
-            <IconMail size={14} />
+            <IconMail size={12} />
           </button>
 
           {/* WhatsApp */}
-          <div className="w-7 h-7 flex items-center justify-center rounded hover:bg-white transition-colors">
+          <div className="w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded hover:bg-white transition-colors">
             {m.telefono ? (
-              <WhatsAppLink phone={m.telefono} iconSize={16} />
+              <WhatsAppLink phone={m.telefono} iconSize={12} />
             ) : (
-              <IconPhone size={14} className="text-slate-300" />
+              <IconPhone size={12} className="text-slate-300" />
             )}
           </div>
 
@@ -291,20 +291,20 @@ export default function RosterTableRow({
           <button
             type="button"
             onClick={() => onEdit(m)}
-            className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-fixed-indigo-600 hover:bg-white transition-colors"
+            className="w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded text-slate-400 hover:text-fixed-indigo-600 hover:bg-white transition-colors"
             title="Editar"
           >
-            <IconPencil size={14} />
+            <IconPencil size={12} />
           </button>
 
           {/* Link de acceso */}
           <button
             type="button"
             onClick={() => onCopyLink(m)}
-            className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-fixed-indigo-600 hover:bg-white transition-colors"
+            className="w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded text-slate-400 hover:text-fixed-indigo-600 hover:bg-white transition-colors"
             title="Copiar link de acceso"
           >
-            <IconLink size={14} />
+            <IconLink size={12} />
           </button>
 
           {/* Vacantes: botón ASIGNAR y borrar siguen disponibles justo debajo en escritorio */}

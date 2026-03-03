@@ -1562,13 +1562,13 @@ export default function GiraRoster({
       )}
 
       {/* TABLA */}
-      <div className="flex-1 overflow-y-auto p-4 z-10">
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <table className="w-full text-left text-sm border-collapse table-fixed">
+      <div className="flex-1 overflow-y-auto overflow-x-auto p-4 z-10 min-w-0">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-w-0">
+          <table className="w-full min-w-0 text-left text-sm border-collapse table-fixed" style={{ tableLayout: "fixed" }}>
             <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold sticky top-0 z-10">
               <tr>
                 {/* CHECKBOX HEADER */}
-                <th className="py-2 px-3 w-10 text-center bg-slate-50 border-r border-slate-100">
+                <th className="py-2 px-1 md:px-3 w-[10%] md:w-10 text-center bg-slate-50 border-r border-slate-100">
                   <input
                     type="checkbox"
                     className="rounded border-slate-300 text-fixed-indigo-600 focus:ring-fixed-indigo-500 cursor-pointer"
@@ -1591,14 +1591,14 @@ export default function GiraRoster({
                   />
                 </th>
 
-                <th className="py-2 px-2 w-28 max-w-[7rem] border-r border-slate-100">
+                <th className="py-2 px-1 md:px-2 w-[25%] md:w-28 md:max-w-[7rem] border-r border-slate-100">
                   Rol / Instr.
                 </th>
-                <th className="py-2 px-3 bg-slate-50 border-r border-slate-100 w-56 max-w-[16rem]">
+                <th className="py-2 px-1 md:px-3 bg-slate-50 border-r border-slate-100 w-[30%] md:w-56 md:max-w-[16rem]">
                   Apellido, Nombre
                 </th>
                 {visibleColumns.genero && (
-                  <th className="py-2 px-3 border-r border-slate-100 w-10 text-center">
+                  <th className="hidden md:table-cell py-2 px-3 border-r border-slate-100 w-10 text-center">
                     Gén.
                   </th>
                 )}
@@ -1620,10 +1620,10 @@ export default function GiraRoster({
                     Alim.
                   </th>
                 )}
-                <th className="py-2 px-3 text-center w-16 border-r border-slate-100">
+                <th className="py-2 px-1 md:px-3 text-center w-[15%] md:w-16 border-r border-slate-100">
                   Estado
                 </th>
-                <th className="py-2 px-3 text-right w-10"></th>
+                <th className="py-2 px-1 md:px-3 text-right w-[20%] md:w-10"></th>
               </tr>
             </thead>
             <tbody>
