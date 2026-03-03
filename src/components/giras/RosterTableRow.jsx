@@ -58,7 +58,7 @@ export default function RosterTableRow({
       </td>
 
       {/* ROL / INSTR */}
-      <td className="py-1.5 px-2 pl-3 border-r border-slate-100/50 w-32 max-w-[8rem]">
+      <td className="py-1.5 px-2 pl-3 border-r border-slate-100/50 w-20 max-w-[5rem] sm:w-28 sm:max-w-[7rem]">
         {isEditor && !m.es_simulacion ? (
           <select
             className="text-[11px] font-bold uppercase border-none bg-transparent outline-none cursor-pointer w-full -ml-1 text-slate-700 truncate"
@@ -82,7 +82,7 @@ export default function RosterTableRow({
       </td>
 
       {/* APELLIDO, NOMBRE + NOTA INTERNA */}
-      <td className="py-1.5 px-3 border-r border-slate-100/50 font-bold text-slate-700 w-40 max-w-[10rem]">
+      <td className="py-1.5 px-3 border-r border-slate-100/50 font-bold text-slate-700 w-56 max-w-[16rem]">
         <div className="flex flex-col gap-1.5 truncate">
           <div className="flex items-center gap-2 truncate">
             {m.apellido}, {m.nombre}
@@ -259,8 +259,8 @@ export default function RosterTableRow({
       </td>
 
       {/* ACCIONES: Mail, WhatsApp, Editar, Link acceso (grid 2x2) */}
-      <td className="py-1.5 px-2 text-right w-[80px]">
-        <div className="mx-auto inline-grid grid-cols-2 gap-1 justify-items-center w-[70px]">
+      <td className="py-1.5 px-1 pr-2 text-right w-[88px]">
+        <div className="mx-auto inline-grid grid-cols-2 gap-1 justify-items-center w-[76px]">
           {/* Mail */}
           <button
             type="button"

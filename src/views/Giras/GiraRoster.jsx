@@ -1591,10 +1591,10 @@ export default function GiraRoster({
                   />
                 </th>
 
-                <th className="py-2 px-2 w-32 max-w-[8rem] border-r border-slate-100">
+                <th className="py-2 px-2 w-28 max-w-[7rem] border-r border-slate-100">
                   Rol / Instr.
                 </th>
-                <th className="py-2 px-3 bg-slate-50 border-r border-slate-100 w-40 max-w-[10rem]">
+                <th className="py-2 px-3 bg-slate-50 border-r border-slate-100 w-56 max-w-[16rem]">
                   Apellido, Nombre
                 </th>
                 {visibleColumns.genero && (
