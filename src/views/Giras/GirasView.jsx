@@ -42,7 +42,7 @@ import CommentsManager from "../../components/comments/CommentsManager";
 import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer";
 import CommentButton from "../../components/comments/CommentButton";
 import GiraDifusion from "./GiraDifusion";
-import VenuesManagementPanel from "../../components/management/VenuesManager";
+import { VenuesManager as VenuesManagementPanel } from "../../components/management/VenuesManager";
 import SectionStatusControl from "../../components/giras/SectionStatusControl";
 import { deleteGira } from "../../services/giraActions";
 import { toast } from "sonner";

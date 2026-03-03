@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { IconLoader } from "../ui/Icons";
+import { IconLoader, IconHistory, IconPencil, IconX } from "../ui/Icons";
 import MultiSelect from "../ui/MultiSelect";
 import { useAuth } from "../../context/AuthContext";
 import { getAllConcertVenues } from "../../services/giraService";
@@ -9,6 +9,8 @@ import {
 } from "../../utils/venueUtils";
 import EventForm from "../forms/EventForm";
 import { toast } from "sonner";
+import { format, startOfDay, parseISO } from "date-fns";
+import { es } from "date-fns/locale";
 
 export function ManagementPanel({ supabase }) {
   const [activeTab, setActiveTab] = useState("venues");
@@ -48,7 +50,7 @@ export function ManagementPanel({ supabase }) {
 }
 
 export function VenuesManager({ supabase }) {
-  const { isEditor, isAdmin } = useAuth();
+  const { isEditor, isAdmin, userId } = useAuth();
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState([]);
   const [selectedProgramTypes, setSelectedProgramTypes] = useState([]);
@@ -57,6 +59,12 @@ export function VenuesManager({ supabase }) {
   const [editFormData, setEditFormData] = useState(null);
   const [editingEventObj, setEditingEventObj] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [dateFrom, setDateFrom] = useState(() => format(startOfDay(new Date()), "yyyy-MM-dd"));
+  const [dateTo, setDateTo] = useState("");
+  const [quickEditEvt, setQuickEditEvt] = useState(null);
+  const [quickEditStatusId, setQuickEditStatusId] = useState(null);
+  const [quickEditNote, setQuickEditNote] = useState("");
+  const [quickEditSaving, setQuickEditSaving] = useState(false);
 
   const canView = isEditor || isAdmin;
 
@@ -100,6 +108,9 @@ export function VenuesManager({ supabase }) {
   const filteredEvents = useMemo(() => {
     return events.filter((evt) => {
       if (evt.id_tipo_evento !== 1) return false;
+      const evtDate = evt.fecha || "";
+      if (dateFrom && evtDate < dateFrom) return false;
+      if (dateTo && evtDate > dateTo) return false;
       const tipoPrograma = evt.programas?.tipo || null;
       if (
         selectedProgramTypes.length > 0 &&
@@ -115,16 +126,75 @@ export function VenuesManager({ supabase }) {
         return false;
       }
       if (selectedStatusIds.length > 0 && !evt.id_estado_venue) {
-        // Si se filtró por estado y el evento no tiene estado, se oculta.
         return false;
       }
       return true;
     });
-  }, [events, selectedProgramTypes, selectedStatusIds]);
+  }, [events, selectedProgramTypes, selectedStatusIds, dateFrom, dateTo]);
+
+  const openQuickEdit = (evt) => {
+    setQuickEditEvt(evt);
+    setQuickEditStatusId(evt.id_estado_venue ?? null);
+    let lastNote = "";
+    if (Array.isArray(evt.eventos_venue_log) && evt.eventos_venue_log.length > 0) {
+      const latest = evt.eventos_venue_log.reduce((acc, curr) => {
+        if (!acc) return curr;
+        return new Date(curr.created_at) > new Date(acc.created_at) ? curr : acc;
+      }, null);
+      if (latest?.nota) lastNote = latest.nota;
+    }
+    setQuickEditNote(lastNote);
+  };
+
+  const handleQuickEditSave = async () => {
+    if (!quickEditEvt?.id) return;
+    const prevStatus = quickEditEvt.id_estado_venue ?? null;
+    const newStatus = quickEditStatusId ?? null;
+    if (prevStatus !== newStatus && newStatus != null && !quickEditNote?.trim()) {
+      toast.error("Agrega una nota para el cambio de estado.");
+      return;
+    }
+    setQuickEditSaving(true);
+    try {
+      const { error } = await supabase
+        .from("eventos")
+        .update({ id_estado_venue: newStatus })
+        .eq("id", quickEditEvt.id);
+      if (error) throw error;
+      if (prevStatus !== newStatus && newStatus != null) {
+        await supabase.from("eventos_venue_log").insert({
+          id_evento: quickEditEvt.id,
+          id_estado_venue: newStatus,
+          nota: quickEditNote || null,
+          id_integrante: userId || null,
+        });
+      }
+      const data = await getAllConcertVenues(supabase);
+      setEvents(data || []);
+      setQuickEditEvt(null);
+      setQuickEditStatusId(null);
+      setQuickEditNote("");
+      toast.success("Estado actualizado.");
+    } catch (err) {
+      console.error("Error actualizando estado:", err);
+      toast.error("No se pudo actualizar el estado.");
+    } finally {
+      setQuickEditSaving(false);
+    }
+  };
 
   const openEditModal = async (evt) => {
     try {
       setSaving(false);
+      let lastVenueNoteText = "";
+      if (Array.isArray(evt.eventos_venue_log) && evt.eventos_venue_log.length > 0) {
+        const latest = evt.eventos_venue_log.reduce((acc, curr) => {
+          if (!acc) return curr;
+          return new Date(curr.created_at) > new Date(acc.created_at) ? curr : acc;
+        }, null);
+        if (latest?.nota) lastVenueNoteText = latest.nota;
+      }
+
       const { data, error } = await supabase
         .from("eventos")
         .select(
@@ -136,7 +206,7 @@ export function VenuesManager({ supabase }) {
       setEditingEventObj(data);
       setEditFormData({
         ...data,
-        venue_status_note: "",
+        venue_status_note: lastVenueNoteText,
       });
       setIsEditOpen(true);
     } catch (err) {
@@ -193,8 +263,7 @@ export function VenuesManager({ supabase }) {
             id_evento: editFormData.id,
             id_estado_venue: newStatus,
             nota: editFormData.venue_status_note || null,
-            // Para este flujo, dejamos la responsabilidad del id_integrante
-            // a nivel de back o futuros ajustes (no rompemos la escritura).
+            id_integrante: userId || null,
           });
         } catch (logErr) {
           console.error(
@@ -227,7 +296,29 @@ export function VenuesManager({ supabase }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div>
+          <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+            Fecha desde
+          </label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+            Fecha hasta
+          </label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+          />
+        </div>
         <MultiSelect
           label="Tipos de Programa"
           options={programTypeOptions}
@@ -254,21 +345,22 @@ export function VenuesManager({ supabase }) {
           )}
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full text-xs">
+          <table className="min-w-full text-xs table-fixed">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-left text-[10px] font-bold uppercase text-slate-500">
-                <th className="px-3 py-2">Fecha</th>
-                <th className="px-3 py-2">Concierto</th>
-                <th className="px-3 py-2">Programa</th>
-                <th className="px-3 py-2">Estado Venue</th>
-                <th className="px-3 py-2">Nota Estado</th>
+                <th className="px-3 py-2 w-[14%]">Fecha</th>
+                <th className="px-3 py-2 w-[20%]">Concierto</th>
+                <th className="px-3 py-2 w-[20%]">Programa</th>
+                <th className="px-3 py-2 w-[14%]">Estado Venue</th>
+                <th className="px-3 py-2 w-[28%]">Nota Estado</th>
+                <th className="px-2 py-2 w-[8%] text-right">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {filteredEvents.length === 0 && !loading && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="px-3 py-4 text-center text-slate-400 text-xs"
                   >
                     No hay conciertos que coincidan con los filtros actuales.
@@ -278,7 +370,18 @@ export function VenuesManager({ supabase }) {
               {filteredEvents.map((evt) => {
                 const status = getVenueStatusById(evt.id_estado_venue);
                 const program = evt.programas;
-                const fecha = evt.fecha || "";
+                const fechaRaw = evt.fecha || "";
+                const fechaFormatted = fechaRaw
+                  ? (() => {
+                      try {
+                        const d = parseISO(fechaRaw);
+                        const s = format(d, "EEEE, dd/MM/yyyy", { locale: es });
+                        return s.charAt(0).toUpperCase() + s.slice(1);
+                      } catch {
+                        return fechaRaw;
+                      }
+                    })()
+                  : "";
                 const hora = evt.hora_inicio
                   ? evt.hora_inicio.slice(0, 5)
                   : "";
@@ -296,9 +399,9 @@ export function VenuesManager({ supabase }) {
                     key={evt.id}
                     className="border-b border-slate-100 hover:bg-slate-50/80"
                   >
-                    <td className="px-3 py-2 whitespace-nowrap text-slate-700">
+                    <td className="px-3 py-2 text-slate-700 w-[14%]">
                       <div className="flex flex-col">
-                        <span className="text-xs font-medium">{fecha}</span>
+                        <span className="text-xs font-medium">{fechaFormatted}</span>
                         {hora && (
                           <span className="text-[11px] text-slate-400">
                             {hora} hs
@@ -306,17 +409,17 @@ export function VenuesManager({ supabase }) {
                         )}
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-slate-700">
+                    <td className="px-3 py-2 w-[20%] text-slate-700 align-top">
                       <button
                         type="button"
-                        className="text-left w-full"
+                        className="text-left w-full min-w-0"
                         onClick={() => openEditModal(evt)}
                       >
-                        <div className="flex flex-col">
-                          <span className="text-xs font-semibold">
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs font-semibold truncate block" title={evt.descripcion ? String(evt.descripcion).replace(/<[^>]+>/g, "") : "Concierto"}>
                             {evt.descripcion ? (
                               <span
-                                className="whitespace-pre-wrap [&>b]:font-bold [&>strong]:font-bold"
+                                className="[&>b]:font-bold [&>strong]:font-bold"
                                 dangerouslySetInnerHTML={{
                                   __html: evt.descripcion,
                                 }}
@@ -326,21 +429,21 @@ export function VenuesManager({ supabase }) {
                             )}
                           </span>
                           {program?.nombre_gira && (
-                            <span className="text-[11px] text-slate-400">
+                            <span className="text-[11px] text-slate-400 truncate block">
                               {program.nombre_gira}
                             </span>
                           )}
                         </div>
                       </button>
                     </td>
-                    <td className="px-3 py-2 text-slate-700">
+                    <td className="px-3 py-2 w-[20%] text-slate-700 align-top">
                       {program ? (
-                        <div className="flex flex-col">
-                          <span className="text-xs font-semibold">
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs font-semibold truncate block">
                             {program.nombre_gira}
                           </span>
                           {program.nomenclador && (
-                            <span className="text-[11px] text-slate-400">
+                            <span className="text-[11px] text-slate-400 truncate block">
                               {program.nomenclador}
                             </span>
                           )}
@@ -351,7 +454,7 @@ export function VenuesManager({ supabase }) {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 w-[14%]">
                       {status ? (
                         <span
                           className="inline-flex items-center gap-2 px-2 py-1 rounded-full text-[11px] font-semibold"
@@ -361,10 +464,10 @@ export function VenuesManager({ supabase }) {
                           }}
                         >
                           <span
-                            className="inline-block w-2 h-2 rounded-full"
+                            className="inline-block w-2 h-2 rounded-full shrink-0"
                             style={{ backgroundColor: status.color }}
                           />
-                          {status.nombre}
+                          <span className="truncate">{status.nombre}</span>
                         </span>
                       ) : (
                         <span className="text-[11px] text-slate-400 italic">
@@ -372,9 +475,9 @@ export function VenuesManager({ supabase }) {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 max-w-xs">
+                    <td className="px-3 py-2 w-[28%] min-w-0">
                       {lastVenueNote?.nota ? (
-                        <span className="text-[11px] text-slate-600 line-clamp-2">
+                        <span className="text-[11px] text-slate-600 line-clamp-3 block">
                           {lastVenueNote.nota}
                         </span>
                       ) : (
@@ -383,6 +486,26 @@ export function VenuesManager({ supabase }) {
                         </span>
                       )}
                     </td>
+                    <td className="px-2 py-2 w-[8%] text-right align-top">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(evt)}
+                          className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                          title="Historial / Editar"
+                        >
+                          <IconHistory size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openQuickEdit(evt)}
+                          className="p-1.5 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                          title="Editar estado"
+                        >
+                          <IconPencil size={14} />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -390,6 +513,84 @@ export function VenuesManager({ supabase }) {
           </table>
         </div>
       </div>
+
+      {quickEditEvt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={() => {
+            setQuickEditEvt(null);
+            setQuickEditStatusId(null);
+            setQuickEditNote("");
+          }}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800">Editar estado</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickEditEvt(null);
+                  setQuickEditStatusId(null);
+                  setQuickEditNote("");
+                }}
+                className="p-1 text-slate-400 hover:text-slate-600"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Estado</label>
+                <select
+                  value={quickEditStatusId ?? ""}
+                  onChange={(e) => setQuickEditStatusId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                >
+                  <option value="">Sin estado</option>
+                  {VENUE_STATUS_OPTIONS.map((s) => (
+                    <option key={s.id} value={s.id}>{s.nombre}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Nota (obligatoria si cambia estado)</label>
+                <textarea
+                  rows={3}
+                  value={quickEditNote}
+                  onChange={(e) => setQuickEditNote(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg p-2 text-sm resize-none focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder='Ej: "Enviado mail a la sala"...'
+                />
+              </div>
+            </div>
+            <div className="px-4 py-3 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickEditEvt(null);
+                  setQuickEditStatusId(null);
+                  setQuickEditNote("");
+                }}
+                className="px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleQuickEditSave}
+                disabled={quickEditSaving}
+                className="px-3 py-1.5 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1"
+              >
+                {quickEditSaving && <IconLoader className="animate-spin" size={14} />}
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isEditOpen && editFormData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">

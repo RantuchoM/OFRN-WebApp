@@ -82,9 +82,9 @@ export default function RosterTableRow({
       </td>
 
       {/* APELLIDO, NOMBRE + NOTA INTERNA */}
-      <td className="py-1.5 px-3 border-r border-slate-100/50 font-bold text-slate-700">
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
+      <td className="py-1.5 px-3 border-r border-slate-100/50 font-bold text-slate-700 w-40 max-w-[10rem]">
+        <div className="flex flex-col gap-1.5 truncate">
+          <div className="flex items-center gap-2 truncate">
             {m.apellido}, {m.nombre}
             {m.es_simulacion && (
               <span className="bg-amber-100 text-amber-700 text-[9px] px-1 rounded border border-amber-200 font-black tracking-wider">

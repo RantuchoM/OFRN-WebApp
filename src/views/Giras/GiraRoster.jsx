@@ -1564,7 +1564,7 @@ export default function GiraRoster({
       {/* TABLA */}
       <div className="flex-1 overflow-y-auto p-4 z-10">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <table className="w-full text-left text-sm border-collapse">
+          <table className="w-full text-left text-sm border-collapse table-fixed">
             <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold sticky top-0 z-10">
               <tr>
                 {/* CHECKBOX HEADER */}
@@ -1594,7 +1594,7 @@ export default function GiraRoster({
                 <th className="py-2 px-2 w-32 max-w-[8rem] border-r border-slate-100">
                   Rol / Instr.
                 </th>
-                <th className="py-2 px-3 bg-slate-50 border-r border-slate-100 w-1/4">
+                <th className="py-2 px-3 bg-slate-50 border-r border-slate-100 w-40 max-w-[10rem]">
                   Apellido, Nombre
                 </th>
                 {visibleColumns.genero && (

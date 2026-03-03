@@ -63,6 +63,14 @@ export default function EventForm({
     return () => { cancelled = true; };
   }, [supabase, effectiveGiraId]);
 
+  // Al crear un evento tipo concierto (1), estado de venue por defecto "Solicitado" (id 2)
+  useEffect(() => {
+    if (!isNew) return;
+    if (Number(formData.id_tipo_evento) === 1 && (formData.id_estado_venue == null || formData.id_estado_venue === "")) {
+      setFormData((prev) => ({ ...prev, id_estado_venue: 2 }));
+    }
+  }, [isNew, formData.id_tipo_evento]);
+
   const transportOptions = useMemo(() => {
     return transportesList.map((t) => {
       const detalle = t.detalle || "";
