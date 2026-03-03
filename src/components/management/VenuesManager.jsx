@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { IconLoader, IconHistory, IconPencil, IconX } from "../ui/Icons";
 import MultiSelect from "../ui/MultiSelect";
 import { useAuth } from "../../context/AuthContext";
@@ -50,7 +50,7 @@ export function ManagementPanel({ supabase }) {
 }
 
 export function VenuesManager({ supabase }) {
-  const { isEditor, isAdmin } = useAuth();
+  const { isEditor, isAdmin, userId } = useAuth();
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState([]);
   const [selectedProgramTypes, setSelectedProgramTypes] = useState([]);
@@ -65,8 +65,21 @@ export function VenuesManager({ supabase }) {
   const [quickEditStatusId, setQuickEditStatusId] = useState(null);
   const [quickEditNote, setQuickEditNote] = useState("");
   const [quickEditSaving, setQuickEditSaving] = useState(false);
+  const [openStatusDropdownId, setOpenStatusDropdownId] = useState(null);
+  const statusDropdownRef = useRef(null);
 
   const canView = isEditor || isAdmin;
+
+  useEffect(() => {
+    if (openStatusDropdownId == null) return;
+    const handleClickOutside = (e) => {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target)) {
+        setOpenStatusDropdownId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [openStatusDropdownId]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -132,18 +145,29 @@ export function VenuesManager({ supabase }) {
     });
   }, [events, selectedProgramTypes, selectedStatusIds, dateFrom, dateTo]);
 
-  const openQuickEdit = (evt) => {
+  const openQuickEdit = (evt, preselectedStatusId = null, notePrefill = null) => {
     setQuickEditEvt(evt);
-    setQuickEditStatusId(evt.id_estado_venue ?? null);
-    let lastNote = "";
-    if (Array.isArray(evt.eventos_venue_log) && evt.eventos_venue_log.length > 0) {
-      const latest = evt.eventos_venue_log.reduce((acc, curr) => {
-        if (!acc) return curr;
-        return new Date(curr.created_at) > new Date(acc.created_at) ? curr : acc;
-      }, null);
-      if (latest?.nota) lastNote = latest.nota;
+    setQuickEditStatusId(preselectedStatusId ?? evt.id_estado_venue ?? null);
+    if (notePrefill !== undefined) {
+      setQuickEditNote(notePrefill);
+    } else {
+      let lastNote = "";
+      if (Array.isArray(evt.eventos_venue_log) && evt.eventos_venue_log.length > 0) {
+        const latest = evt.eventos_venue_log.reduce((acc, curr) => {
+          if (!acc) return curr;
+          return new Date(curr.created_at) > new Date(acc.created_at) ? curr : acc;
+        }, null);
+        if (latest?.nota) lastNote = latest.nota;
+      }
+      setQuickEditNote(lastNote);
     }
-    setQuickEditNote(lastNote);
+  };
+
+  const handleStatusOptionFromChip = (evt, newStatusId) => {
+    setOpenStatusDropdownId(null);
+    const currentId = evt.id_estado_venue ?? null;
+    if (newStatusId === currentId) return;
+    openQuickEdit(evt, newStatusId ?? null, "");
   };
 
   const handleQuickEditSave = async () => {
@@ -454,26 +478,64 @@ export function VenuesManager({ supabase }) {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 w-[14%]">
-                      {status ? (
-                        <span
-                          className="inline-flex items-center gap-2 px-2 py-1 rounded-full text-[11px] font-semibold"
-                          style={{
-                            backgroundColor: `${status.color}20`,
-                            color: "#0f172a",
-                          }}
+                    <td className="px-3 py-2 w-[14%] align-top">
+                      <div className="relative inline-block" ref={openStatusDropdownId === evt.id ? statusDropdownRef : null}>
+                        <button
+                          type="button"
+                          onClick={() => setOpenStatusDropdownId((prev) => (prev === evt.id ? null : evt.id))}
+                          className={`inline-flex items-center gap-2 px-2 py-1 rounded-full text-[11px] font-semibold border border-transparent hover:ring-2 hover:ring-slate-300 transition-all ${
+                            status
+                              ? ""
+                              : "text-slate-500 bg-slate-100 hover:bg-slate-200"
+                          }`}
+                          style={status ? { backgroundColor: `${status.color}20`, color: "#0f172a" } : undefined}
+                          title="Cambiar estado"
                         >
-                          <span
-                            className="inline-block w-2 h-2 rounded-full shrink-0"
-                            style={{ backgroundColor: status.color }}
-                          />
-                          <span className="truncate">{status.nombre}</span>
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-slate-400 italic">
-                          Sin estado
-                        </span>
-                      )}
+                          {status ? (
+                            <>
+                              <span
+                                className="inline-block w-2 h-2 rounded-full shrink-0"
+                                style={{ backgroundColor: status.color }}
+                              />
+                              <span className="truncate">{status.nombre}</span>
+                            </>
+                          ) : (
+                            <span className="italic">Sin estado</span>
+                          )}
+                          <svg className="w-3 h-3 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        {openStatusDropdownId === evt.id && (
+                          <div className="absolute left-0 top-full mt-1 z-50 min-w-[10rem] py-1 bg-white border border-slate-200 rounded-lg shadow-lg">
+                            {VENUE_STATUS_OPTIONS.map((s) => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => handleStatusOptionFromChip(evt, s.id)}
+                                className={`w-full text-left px-3 py-2 text-[11px] font-medium flex items-center gap-2 hover:bg-slate-50 first:rounded-t-lg last:rounded-b-lg ${
+                                  (evt.id_estado_venue ?? null) === s.id ? "bg-indigo-50 text-indigo-800" : "text-slate-700"
+                                }`}
+                              >
+                                <span
+                                  className="inline-block w-2 h-2 rounded-full shrink-0"
+                                  style={{ backgroundColor: s.color }}
+                                />
+                                {s.nombre}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => handleStatusOptionFromChip(evt, null)}
+                              className={`w-full text-left px-3 py-2 text-[11px] font-medium hover:bg-slate-50 rounded-b-lg ${
+                                evt.id_estado_venue == null ? "bg-indigo-50 text-indigo-800" : "text-slate-500 italic"
+                              }`}
+                            >
+                              Sin estado
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-2 w-[28%] min-w-0">
                       {lastVenueNote?.nota ? (
