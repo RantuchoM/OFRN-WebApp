@@ -15,6 +15,7 @@ export default function SearchableSelect({
     const [search, setSearch] = useState("");
     const containerRef = useRef(null);
     const [dropdownStyle, setDropdownStyle] = useState({});
+    const [isDropUp, setIsDropUp] = useState(false);
 
     // Filtrado local
     const filteredOptions = useMemo(() => {
@@ -39,18 +40,44 @@ export default function SearchableSelect({
         return options.filter(o => value.includes(o.id));
     }, [options, value, isMulti]);
 
-    // Posicionamiento del dropdown
+    // Posicionamiento del dropdown (inteligente: hacia abajo o hacia arriba)
     useEffect(() => {
         const updatePosition = () => {
             if (!isOpen || !containerRef.current) return;
             const rect = containerRef.current.getBoundingClientRect();
-            setDropdownStyle({
-                top: rect.bottom + window.scrollY + 5,
+
+            const estimatedHeight = 250; // max-h-60 (~240px) + buscador
+            const spaceBelow = window.innerHeight - rect.bottom;
+            const shouldDropUp =
+                spaceBelow < estimatedHeight && rect.top > estimatedHeight;
+
+            setIsDropUp(shouldDropUp);
+
+            const base = {
                 left: rect.left + window.scrollX,
                 minWidth: dropdownMinWidth,
                 width: Math.max(rect.width, dropdownMinWidth),
                 zIndex: 99999,
-            });
+            };
+
+            if (shouldDropUp) {
+                setDropdownStyle({
+                    ...base,
+                    top: 'auto',
+                    // Usamos bottom relativo al viewport para crecer hacia arriba
+                    bottom:
+                        window.innerHeight -
+                        rect.top -
+                        window.scrollY +
+                        5,
+                });
+            } else {
+                setDropdownStyle({
+                    ...base,
+                    top: rect.bottom + window.scrollY + 5,
+                    bottom: 'auto',
+                });
+            }
         };
 
         if (isOpen) {
@@ -122,7 +149,10 @@ export default function SearchableSelect({
             </div>
 
             {isOpen && createPortal(
-                <div className="searchable-portal fixed bg-white border border-slate-300 shadow-xl rounded-lg flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-100" style={dropdownStyle}>
+                <div
+                    className={`searchable-portal fixed bg-white border border-slate-300 shadow-xl rounded-lg flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-100 ${isDropUp ? 'origin-bottom' : 'origin-top'}`}
+                    style={dropdownStyle}
+                >
                     <div className="p-2 border-b border-slate-100 bg-slate-50">
                         <div className="relative">
                             <IconSearch size={14} className="absolute left-2 top-2 text-slate-400"/>
