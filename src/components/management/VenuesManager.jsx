@@ -50,7 +50,7 @@ export function ManagementPanel({ supabase }) {
 }
 
 export function VenuesManager({ supabase }) {
-  const { isEditor, isAdmin, userId } = useAuth();
+  const { isEditor, isAdmin } = useAuth();
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState([]);
   const [selectedProgramTypes, setSelectedProgramTypes] = useState([]);
