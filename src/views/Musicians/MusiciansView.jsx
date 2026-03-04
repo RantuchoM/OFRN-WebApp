@@ -25,6 +25,7 @@ import WhatsAppLink from "../../components/ui/WhatsAppLink";
 import MusicianForm from "./MusicianForm";
 import HorasCatedraDashboard from "./HorasCatedraDashboard";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import UniversalExporter from "../../components/ui/UniversalExporter";
 
 // --- CONFIGURACIÓN ---
 const MISSING_DATA_OPTIONS = [
@@ -1371,6 +1372,53 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     columnFilters,
   ]);
 
+  const exportColumnsMusicians = useMemo(
+    () => [
+      { header: "Apellido", key: "apellido", width: 22, type: "text", defaultSelected: true },
+      { header: "Nombre", key: "nombre", width: 22, type: "text", defaultSelected: true },
+      { header: "DNI", key: "dni", width: 18, type: "text", defaultSelected: true },
+      { header: "CUIL", key: "cuil", width: 22, type: "text", defaultSelected: true },
+      { header: "Instrumento", key: "instrumento", width: 22, type: "text", defaultSelected: true },
+      { header: "Condición", key: "condicion", width: 18, type: "text", defaultSelected: true },
+      { header: "Teléfono", key: "telefono", width: 20, type: "text", defaultSelected: true },
+      { header: "Email", key: "mail", width: 26, type: "text", defaultSelected: true },
+      { header: "Fecha Nac.", key: "fecha_nac", width: 20, type: "date", defaultSelected: false },
+      { header: "Nacionalidad", key: "nacionalidad", width: 22, type: "text", defaultSelected: false },
+      { header: "Domicilio", key: "domicilio", width: 26, type: "text", defaultSelected: false },
+      { header: "Residencia", key: "residencia", width: 26, type: "text", defaultSelected: false },
+      { header: "Viáticos (Loc)", key: "viaticos", width: 26, type: "text", defaultSelected: false },
+      { header: "Dieta", key: "alimentacion", width: 22, type: "text", defaultSelected: false },
+      { header: "Cargo", key: "cargo", width: 22, type: "text", defaultSelected: false },
+      { header: "Jornada", key: "jornada", width: 22, type: "text", defaultSelected: false },
+      { header: "Motivo", key: "motivo", width: 30, type: "text", defaultSelected: false },
+    ],
+    []
+  );
+
+  const exportDataMusicians = useMemo(
+    () =>
+      processedResultados.map((m) => ({
+        apellido: m.apellido || "",
+        nombre: m.nombre || "",
+        dni: m.dni || "",
+        cuil: m.cuil || "",
+        instrumento: m.instrumentos?.instrumento || "",
+        condicion: m.condicion || "",
+        telefono: m.telefono || "",
+        mail: m.mail || "",
+        fecha_nac: m.fecha_nac || "",
+        nacionalidad: m.nacionalidad || "",
+        domicilio: m.domicilio || "",
+        residencia: m.residencia?.localidad || "",
+        viaticos: m.viaticos?.localidad || "",
+        alimentacion: m.alimentacion || "",
+        cargo: m.cargo || "",
+        jornada: m.jornada || "",
+        motivo: m.motivo || "",
+      })),
+    [processedResultados]
+  );
+
   const instrumentOptions = catalogoInstrumentos.map((i) => ({
     value: i.id,
     label: i.instrumento,
@@ -1595,8 +1643,14 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
             </div>
           )}
           <div
-            className={`w-full md:w-auto flex gap-2 ${selectedMusicians.size === 0 ? "ml-auto" : ""}`}
+            className={`w-full md:w-auto flex items-center gap-2 ${selectedMusicians.size === 0 ? "ml-auto" : ""}`}
           >
+            <UniversalExporter
+              data={exportDataMusicians}
+              columns={exportColumnsMusicians}
+              fileName="musicos"
+              orientation="p"
+            />
             <button
               onClick={() => {
                 setEditingId(null);

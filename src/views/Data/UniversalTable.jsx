@@ -12,6 +12,7 @@ import {
   IconX,
   IconAlertTriangle // Nuevo icono para el aviso
 } from "../../components/ui/Icons";
+import UniversalExporter from "../../components/ui/UniversalExporter";
 
 // --- SUB-COMPONENTE: SELECTOR BUSCABLE (Sin cambios) ---
 const SearchableSelect = ({ value, options, onChange, onBlur, className }) => {
@@ -483,6 +484,22 @@ export default function UniversalTable({
     return result;
   }, [data, filters, sortConfig, columns]);
 
+  const exportColumns = useMemo(
+    () =>
+      (columns || []).map((col) => ({
+        header: col.label || col.key,
+        key: col.key,
+        width: col.width,
+        type:
+          col.type === "number"
+            ? "number"
+            : col.type === "date"
+            ? "date"
+            : "text",
+      })),
+    [columns]
+  );
+
   const handleHeaderClick = (key) => {
     setSortConfig((prev) => ({
       key,
@@ -518,13 +535,21 @@ export default function UniversalTable({
                 </div>
             )}
         </div>
-        <button
-          onClick={handleCreate}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-sm active:scale-95"
-        >
-          <IconPlus size={14} />
-          <span>Agregar</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <UniversalExporter
+            data={processedData}
+            columns={exportColumns}
+            fileName={tableName}
+            orientation="l"
+          />
+          <button
+            onClick={handleCreate}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-sm active:scale-95"
+          >
+            <IconPlus size={14} />
+            <span>Agregar</span>
+          </button>
+        </div>
       </div>
 
       {/* Tabla */}

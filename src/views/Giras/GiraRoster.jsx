@@ -34,6 +34,7 @@ import RosterTableRow from "../../components/giras/RosterTableRow";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 import { toast } from "sonner";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
+import UniversalExporter from "../../components/ui/UniversalExporter";
 
 // --- CONSTANTES ---
 // ROLES_GIRA eliminado en favor de DB
@@ -1153,6 +1154,57 @@ export default function GiraRoster({
   );
   const listaVacantes = localRoster.filter((r) => r.es_simulacion);
 
+  const exportColumnsRoster = useMemo(
+    () => [
+      { header: "Apellido", key: "apellido", width: 22, type: "text", defaultSelected: true },
+      { header: "Nombre", key: "nombre", width: 22, type: "text", defaultSelected: true },
+      { header: "DNI", key: "dni", width: 18, type: "text", defaultSelected: true },
+      { header: "CUIL", key: "cuil", width: 22, type: "text", defaultSelected: true },
+      { header: "Legajo", key: "legajo", width: 18, type: "text", defaultSelected: false },
+      { header: "Instrumento", key: "instrumento", width: 22, type: "text", defaultSelected: true },
+      { header: "Teléfono", key: "telefono", width: 20, type: "text", defaultSelected: true },
+      { header: "Email", key: "mail", width: 26, type: "text", defaultSelected: true },
+      { header: "Fecha Nac.", key: "fecha_nac", width: 20, type: "date", defaultSelected: false },
+      { header: "Nacionalidad", key: "nacionalidad", width: 22, type: "text", defaultSelected: false },
+      { header: "Domicilio", key: "domicilio", width: 26, type: "text", defaultSelected: false },
+      { header: "Residencia", key: "residencia", width: 26, type: "text", defaultSelected: false },
+      { header: "Viáticos (Loc)", key: "viaticos", width: 26, type: "text", defaultSelected: false },
+      { header: "Dieta", key: "alimentacion", width: 22, type: "text", defaultSelected: false },
+      { header: "Cargo", key: "cargo", width: 22, type: "text", defaultSelected: false },
+      { header: "Jornada", key: "jornada", width: 22, type: "text", defaultSelected: false },
+      { header: "Motivo", key: "motivo", width: 30, type: "text", defaultSelected: false },
+      { header: "Condición", key: "condicion", width: 18, type: "text", defaultSelected: true },
+      { header: "Estado Gira", key: "estado_gira", width: 18, type: "text", defaultSelected: true },
+    ],
+    []
+  );
+
+  const exportDataRoster = useMemo(
+    () =>
+      localRoster.map((m) => ({
+        apellido: m.apellido || "",
+        nombre: m.nombre || "",
+        dni: m.dni || "",
+        cuil: m.cuil || "",
+        legajo: m.legajo || "",
+        instrumento: m.instrumentos?.instrumento || "",
+        telefono: m.telefono || "",
+        mail: m.mail || "",
+        fecha_nac: m.fecha_nac || "",
+      nacionalidad: m.nacionalidad || "",
+      domicilio: m.domicilio || "",
+      residencia: m._loc_residencia?.localidad || "",
+      viaticos: m._loc_viaticos?.localidad || "",
+      alimentacion: m.alimentacion || "",
+      cargo: m.cargo || "",
+      jornada: m.jornada || "",
+      motivo: m.motivo || "",
+        condicion: m.condicion || "",
+        estado_gira: m.estado_gira || "",
+      })),
+    [localRoster]
+  );
+
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in duration-300">
       {/* HEADER */}
@@ -1222,6 +1274,12 @@ export default function GiraRoster({
             items={listaAdicionales}
             colorBase="bg-amber-50 text-amber-700 border-amber-100"
             icon={<span className="text-xs">+</span>}
+          />
+          <UniversalExporter
+            data={exportDataRoster}
+            columns={exportColumnsRoster}
+            fileName={gira?.nomenclador || gira?.nombre_gira || "gira_roster"}
+            orientation="l"
           />
         </div>
       </div>
