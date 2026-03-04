@@ -52,11 +52,28 @@ import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
 
 // --- UTILIDADES ---
+/** Fecha "hoy" en zona local como YYYY-MM-DD (evita desfase por UTC). */
+const toLocalDateString = (d = new Date()) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+/** Parsea YYYY-MM-DD como fecha local (no UTC) para mostrar el día correcto en cualquier huso. */
+const parseLocalDate = (dateStr) => {
+  if (!dateStr) return null;
+  const parts = dateStr.split("-").map(Number);
+  const [y, m, d] = parts;
+  if (!y || !m || !d) return null;
+  const date = new Date(y, m - 1, d);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 const formatDateBox = (dateStr) => {
   if (!dateStr) return { day: "-", num: "-", month: "-" };
   try {
-    const [y, m, d] = dateStr.split("-");
-    const date = new Date(y, m - 1, d);
+    const date = parseLocalDate(dateStr);
+    if (!date) return { day: "-", num: "-", month: "-" };
     return {
       day: format(date, "EEE", { locale: es }).toUpperCase().replace(".", ""),
       num: format(date, "d"),
@@ -446,8 +463,13 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
       </div>
       <div className="text-[10px] opacity-80 flex items-center gap-1 pt-2 border-t border-current/20 mt-2">
         <IconCalendar size={10} />{" "}
-        {format(new Date(program.fecha_desde), "d MMM", { locale: es })} -{" "}
-        {format(new Date(program.fecha_hasta), "d MMM", { locale: es })}
+        {parseLocalDate(program.fecha_desde)
+          ? format(parseLocalDate(program.fecha_desde), "d MMM", { locale: es })
+          : "—"}{" "}
+        -{" "}
+        {parseLocalDate(program.fecha_hasta)
+          ? format(parseLocalDate(program.fecha_hasta), "d MMM", { locale: es })
+          : "—"}
       </div>
     </div>
   );
@@ -959,9 +981,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
       .order("nombre");
     if (data) setLocationsList(data);
   };
-  // FILTRO DE FECHAS (LISTA PRINCIPAL)
+  // FILTRO DE FECHAS (LISTA PRINCIPAL) — uso de hora local para evitar desfase en UTC-3
   const [dateFilter, setDateFilter] = useState({
-    start: new Date().toISOString().split("T")[0], // Default: Hoy
+    start: toLocalDateString(), // Default: Hoy (local)
     end: "", // Default: Indefinido
   });
 
@@ -1018,7 +1040,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
       }
       setLoading(true);
       try {
-        const today = new Date().toISOString().split("T")[0];
+        const today = toLocalDateString();
 
         const [cats, locs, types, mems, feriadosData] = await Promise.all([
           supabase
@@ -1172,7 +1194,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   id: p.id,
                   label: `${p.mes_letra || "?"} | ${p.nomenclador || ""} - ${p.nombre_gira}`,
                   subLabel: p.fecha_desde
-                    ? `Inicio: ${format(new Date(p.fecha_desde), "dd/MM/yyyy")}`
+                    ? `Inicio: ${format(parseLocalDate(p.fecha_desde), "dd/MM/yyyy")}`
                     : "",
                 })),
               );
@@ -1222,7 +1244,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
     queryFn: async () => {
       const ensembleIds = activeEnsembles.map((e) => e.id);
 
-      const today = new Date().toISOString().split("T")[0];
+      const today = toLocalDateString();
 
       // PROGRAMAS RELEVANTES SEGÚN MÚSICOS ACTIVOS (ensambles + familias + asignaciones directas)
       const myEnsembleIds = ensembleIds;
@@ -1414,7 +1436,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
     queryFn: async () => {
       // Usamos la fecha de inicio del filtro o hoy como fallback
       const filterDate =
-        dateFilter.start || new Date().toISOString().split("T")[0];
+        dateFilter.start || toLocalDateString();
 
       const myEnsembleIds = activeEnsembles.map((e) => e.id);
       const myFamilies = new Set();
