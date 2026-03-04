@@ -29,6 +29,7 @@ import {
   ParticellaSelect,
   CreateParticellaModal,
 } from "../../components/seating/SeatingControls";
+import { exportSeatingToExcel } from "../../utils/seatingExcelExporter";
 import { createPortal } from "react-dom";
 
 // Librerías para reporte PDF
@@ -952,6 +953,26 @@ export default function ProgramSeating({
     }
   };
 
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+    try {
+      await exportSeatingToExcel(
+        supabase,
+        program,
+        effectiveBlocks,
+        filteredRoster,
+        assignments,
+        containers,
+        particellas,
+      );
+    } catch (err) {
+      console.error("Error exportando Excel Seating:", err);
+      alert("Error al exportar el Excel de Seating: " + err.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // --- MODALS & UPDATES ---
   const openCreateModal = (obraId, defaultInstrId, targetType, targetId) => {
     setCreateModalInfo({ obraId, targetType, targetId, defaultInstrId });
@@ -1167,6 +1188,14 @@ export default function ProgramSeating({
           >
             <IconDownload size={16} />{" "}
             <span className="hidden sm:inline">Reporte</span>
+          </button>
+          <button
+            onClick={handleExportExcel}
+            disabled={isExporting}
+            className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm active:scale-95 disabled:opacity-50"
+          >
+            <IconDownload size={16} />{" "}
+            <span className="hidden sm:inline">Excel</span>
           </button>
           {canManageSeating && (
             <>
