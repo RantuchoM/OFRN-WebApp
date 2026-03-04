@@ -28,10 +28,15 @@ const ImportSeatingModal = ({
   supabase,
 }) => {
   const [loading, setLoading] = useState(false);
-  const [replace, setReplace] = useState(true);
+  // Modo de importación:
+  // - "update_members": actualizar integrantes manteniendo contenedores que matchean por nombre
+  // - "create_new": crear nuevos contenedores sin tocar los existentes
+  // - "full_replace": borrar contenedores actuales y recrear desde el origen
+  const [mode, setMode] = useState("update_members");
   const [selectedProgramId, setSelectedProgramId] = useState(null);
   const [rows, setRows] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
+  const [selectedContainerIds, setSelectedContainerIds] = useState([]);
   const [tipoFiltro, setTipoFiltro] = useState("Todos");
   const [fechaDesde, setFechaDesde] = useState(() => {
     const d = new Date();
@@ -68,7 +73,7 @@ const ImportSeatingModal = ({
       const ids = programasData.map((p) => p.id);
       const { data: contenedores } = await supabase
         .from("seating_contenedores")
-        .select("id, id_programa, nombre, id_instrumento")
+        .select("id, id_programa, nombre, id_instrumento, orden")
         .in("id_programa", ids);
 
       const contIds = (contenedores || []).map((c) => c.id);
@@ -114,8 +119,12 @@ const ImportSeatingModal = ({
       }));
 
       setRows(mapped);
-      setSelectedProgramId(mapped[0]?.id || null);
-      setExpandedId(mapped[0]?.id || null);
+      const firstId = mapped[0]?.id || null;
+      setSelectedProgramId(firstId);
+      setExpandedId(firstId);
+      setSelectedContainerIds(
+        firstId ? (mapped[0]?.contenedores || []).map((c) => c.id) : [],
+      );
     } finally {
       setLoading(false);
     }
@@ -129,9 +138,26 @@ const ImportSeatingModal = ({
 
   if (!isOpen) return null;
 
+  const handleToggleContainer = (containerId, checked) => {
+    setSelectedContainerIds((prev) => {
+      if (checked) {
+        return Array.from(new Set([...prev, containerId]));
+      }
+      return prev.filter((id) => id !== containerId);
+    });
+  };
+
   const handleConfirm = () => {
     if (!selectedProgramId) return;
-    onConfirm(selectedProgramId, replace);
+    if (selectedContainerIds.length === 0) {
+      alert("Seleccioná al menos un contenedor para importar.");
+      return;
+    }
+    onConfirm({
+      sourceProgramId: selectedProgramId,
+      mode,
+      containerIds: selectedContainerIds,
+    });
   };
 
   return (
@@ -168,19 +194,49 @@ const ImportSeatingModal = ({
             />
           </div>
           <div className="flex items-end">
-            <div className="flex items-center gap-2 border p-2 rounded bg-slate-50 border-slate-200 w-full">
-              <input
-                type="checkbox"
-                id="chkReplace"
-                checked={replace}
-                onChange={(e) => setReplace(e.target.checked)}
-                className="accent-indigo-600"
-              />
-              <label
-                htmlFor="chkReplace"
-                className="text-[11px] text-slate-700 cursor-pointer"
-              >
-                Eliminar grupos actuales antes de importar
+            <div className="flex flex-col gap-1 border p-2 rounded bg-slate-50 border-slate-200 w-full text-[11px]">
+              <span className="text-[10px] font-bold text-slate-500 uppercase mb-0.5">
+                Modo de importación
+              </span>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="import-mode"
+                  value="update_members"
+                  className="accent-indigo-600"
+                  checked={mode === "update_members"}
+                  onChange={(e) => setMode(e.target.value)}
+                />
+                <span className="text-slate-700">
+                  Actualizar integrantes (mantener grupos que coinciden por
+                  nombre)
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="import-mode"
+                  value="create_new"
+                  className="accent-indigo-600"
+                  checked={mode === "create_new"}
+                  onChange={(e) => setMode(e.target.value)}
+                />
+                <span className="text-slate-700">
+                  Crear nuevos contenedores (no toca los existentes)
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="import-mode"
+                  value="full_replace"
+                  className="accent-red-500"
+                  checked={mode === "full_replace"}
+                  onChange={(e) => setMode(e.target.value)}
+                />
+                <span className="text-slate-700">
+                  Borrado total y recrear desde el programa origen
+                </span>
               </label>
             </div>
           </div>
@@ -225,7 +281,12 @@ const ImportSeatingModal = ({
                         className={`cursor-pointer hover:bg-indigo-50 ${
                           isSelected ? "bg-indigo-50" : ""
                         }`}
-                        onClick={() => setSelectedProgramId(p.id)}
+                        onClick={() => {
+                          setSelectedProgramId(p.id);
+                          setSelectedContainerIds(
+                            (p.contenedores || []).map((c) => c.id),
+                          );
+                        }}
                       >
                         <td className="px-2 py-1">
                           <div className="font-semibold text-slate-800 truncate">
@@ -271,33 +332,53 @@ const ImportSeatingModal = ({
                               Contenedores / Instrumentos / Músicos
                             </div>
                             <div className="flex flex-wrap gap-1">
-                              {conts.map((c) => (
-                                <span
-                                  key={c.id}
-                                  className="px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] text-slate-700"
-                                >
-                                  {c.nombre}
-                                  {c.id_instrumento
-                                    ? ` · ${c.id_instrumento}`
-                                    : ""}
-                                  {typeof c.peopleCount === "number"
-                                    ? ` · ${c.peopleCount}`
-                                    : ""}
-                                  {c.peopleNames && c.peopleNames.length > 0 && (
-                                    <>
-                                      {" · "}
-                                      {c.peopleNames
-                                        .slice(0, 3)
-                                        .map((n, idx) =>
-                                          idx === 0 ? n : ` / ${n}`,
-                                        )}
-                                      {c.peopleNames.length > 3
-                                        ? ` +${c.peopleNames.length - 3}`
-                                        : ""}
-                                    </>
-                                  )}
-                                </span>
-                              ))}
+                              {conts.map((c) => {
+                                const checked = selectedContainerIds.includes(
+                                  c.id,
+                                );
+                                return (
+                                  <label
+                                    key={c.id}
+                                    className={`px-2 py-1 rounded-full border text-[10px] flex items-center gap-1 shadow-sm cursor-pointer ${
+                                      checked
+                                        ? "bg-indigo-50 border-indigo-300 text-indigo-800"
+                                        : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="accent-indigo-600"
+                                      checked={checked}
+                                      onChange={(e) =>
+                                        handleToggleContainer(c.id, e.target.checked)
+                                      }
+                                    />
+                                    <span className="font-semibold">
+                                      {c.nombre}
+                                    </span>
+                                    {typeof c.peopleCount === "number" && (
+                                      <span className="text-[9px] text-slate-500">
+                                        · {c.peopleCount}
+                                      </span>
+                                    )}
+                                    {c.peopleNames &&
+                                      c.peopleNames.length > 0 && (
+                                        <span className="text-[9px] text-slate-400 truncate max-w-[140px]">
+                                          {c.peopleNames
+                                            .slice(0, 3)
+                                            .map((n, idx) =>
+                                              idx === 0 ? n : ` / ${n}`,
+                                            )}
+                                          {c.peopleNames.length > 3
+                                            ? ` +${
+                                                c.peopleNames.length - 3
+                                              }`
+                                            : ""}
+                                        </span>
+                                      )}
+                                  </label>
+                                );
+                              })}
                             </div>
                           </td>
                         </tr>
@@ -310,7 +391,14 @@ const ImportSeatingModal = ({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 mt-2">
+        <div className="flex justify-between gap-2 mt-2 text-[10px] items-center">
+          <div className="text-slate-400">
+            Seleccionados:{" "}
+            <span className="font-bold text-slate-600">
+              {selectedContainerIds.length}
+            </span>{" "}
+            grupos
+          </div>
           <button
             onClick={onClose}
             className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded"
@@ -335,7 +423,14 @@ const ImportSeatingModal = ({
   );
 };
 
-export default function GlobalStringsManager({ programId, roster, containers, onUpdate, supabase, readOnly }) {
+export default function GlobalStringsManager({
+  programId,
+  roster,
+  containers,
+  onUpdate,
+  supabase,
+  readOnly,
+}) {
   const validMusicianIds = useMemo(() => new Set(roster.map((m) => m.id)), [roster]);
   const displayContainers = useMemo(() => containers.map((c) => ({ ...c, validItems: c.items?.filter((i) => validMusicianIds.has(i.id_musico)) || [] })), [containers, validMusicianIds]);
   const stringMusicians = useMemo(() => roster.filter((m) => ["01", "02", "03", "04"].includes(m.id_instr)), [roster]);
@@ -392,28 +487,156 @@ export default function GlobalStringsManager({ programId, roster, containers, on
     await updateOrderInDB(targetItems); onUpdate();
   };
   const removeMusician = async (itemId) => { if (readOnly) return; await supabase.from("seating_contenedores_items").delete().eq("id", itemId); onUpdate(); };
-  const handleImportSeating = async (sourceProgramId, replaceCurrent) => {
-    setIsImporting(true); setShowImportModal(false);
+  const handleImportSeating = async ({
+    sourceProgramId,
+    mode,
+    containerIds,
+  }) => {
+    setIsImporting(true);
+    setShowImportModal(false);
     try {
-      if (replaceCurrent && containers.length > 0) await supabase.from("seating_contenedores").delete().eq("id_programa", programId);
-      const { data: sourceContainers } = await supabase.from("seating_contenedores").select("*").eq("id_programa", sourceProgramId).order("orden");
-      if (!sourceContainers?.length) { alert("La gira seleccionada no tiene configuración."); setIsImporting(false); return; }
-      const { data: sourceItems } = await supabase.from("seating_contenedores_items").select("*").in("id_contenedor", sourceContainers.map(c => c.id)).order("orden");
-      let currentOrderIndex = replaceCurrent ? 0 : containers.length;
-      for (const srcCont of sourceContainers) {
-        const { data: newCont } = await supabase.from("seating_contenedores").insert({ id_programa: programId, nombre: srcCont.nombre, id_instrumento: srcCont.id_instrumento || "00", orden: currentOrderIndex++ }).select().single();
-        if (!newCont) continue;
-        const itemsToInsert = sourceItems
-          .filter(i => i.id_contenedor === srcCont.id)
-          .map((item, idx) => ({
-            id_contenedor: newCont.id,
-            id_musico: item.id_musico,
-            orden: idx,
-          }));
-        if (itemsToInsert.length) await supabase.from("seating_contenedores_items").insert(itemsToInsert);
+      // Traemos contenedores e items del programa origen solo para los seleccionados
+      const { data: sourceContainers } = await supabase
+        .from("seating_contenedores")
+        .select("*")
+        .eq("id_programa", sourceProgramId)
+        .in("id", containerIds)
+        .order("orden");
+
+      if (!sourceContainers?.length) {
+        alert("La gira seleccionada no tiene contenedores para importar.");
+        setIsImporting(false);
+        return;
       }
+
+      const { data: sourceItems } = await supabase
+        .from("seating_contenedores_items")
+        .select("*")
+        .in(
+          "id_contenedor",
+          sourceContainers.map((c) => c.id),
+        )
+        .order("orden");
+
+      const sourceItemsByContainer = {};
+      (sourceItems || []).forEach((it) => {
+        if (!sourceItemsByContainer[it.id_contenedor]) {
+          sourceItemsByContainer[it.id_contenedor] = [];
+        }
+        sourceItemsByContainer[it.id_contenedor].push(it);
+      });
+
+      // Si el modo es full_replace, limpiamos todos los contenedores del programa actual
+      if (mode === "full_replace") {
+        if (
+          !window.confirm(
+            "Esto eliminará todos los grupos y sus integrantes actuales. ¿Continuar?",
+          )
+        ) {
+          setIsImporting(false);
+          return;
+        }
+        await supabase
+          .from("seating_contenedores_items")
+          .delete()
+          .in(
+            "id_contenedor",
+            containers.map((c) => c.id),
+          );
+        await supabase
+          .from("seating_contenedores")
+          .delete()
+          .eq("id_programa", programId);
+      }
+
+      // Mapa de contenedores actuales por nombre normalizado (para match inteligente)
+      const normalizeName = (name) =>
+        (name || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+      let { data: currentContainers } = await supabase
+        .from("seating_contenedores")
+        .select("*")
+        .eq("id_programa", programId)
+        .order("orden");
+
+      currentContainers = currentContainers || [];
+
+      const byName = new Map();
+      currentContainers.forEach((c) => {
+        const key = normalizeName(c.nombre);
+        if (!byName.has(key)) byName.set(key, []);
+        byName.get(key).push(c);
+      });
+
+      let currentOrderIndex =
+        mode === "full_replace"
+          ? 0
+          : currentContainers.length > 0
+            ? Math.max(...currentContainers.map((c) => c.orden || 0)) + 1
+            : 0;
+
+      for (const srcCont of sourceContainers) {
+        const srcItems = sourceItemsByContainer[srcCont.id] || [];
+        const normalizedName = normalizeName(srcCont.nombre);
+
+        if (mode === "update_members") {
+          const candidates = byName.get(normalizedName) || [];
+          const target = candidates[0];
+          if (target) {
+            // 1) Borrar integrantes actuales del contenedor destino
+            await supabase
+              .from("seating_contenedores_items")
+              .delete()
+              .eq("id_contenedor", target.id);
+
+            // 2) Insertar nuevos integrantes manteniendo id_contenedor
+            const itemsToInsert = srcItems.map((item, idx) => ({
+              id_contenedor: target.id,
+              id_musico: item.id_musico,
+              orden: idx,
+            }));
+            if (itemsToInsert.length) {
+              await supabase
+                .from("seating_contenedores_items")
+                .insert(itemsToInsert);
+            }
+            continue;
+          }
+          // Si no hay match por nombre, caemos a create_new para este grupo puntual
+        }
+
+        // create_new o fallback desde update_members: crear un contenedor nuevo
+        const { data: newCont } = await supabase
+          .from("seating_contenedores")
+          .insert({
+            id_programa: programId,
+            nombre: srcCont.nombre,
+            id_instrumento: srcCont.id_instrumento || "00",
+            orden: currentOrderIndex++,
+            capacidad: srcCont.capacidad ?? null,
+          })
+          .select()
+          .single();
+
+        if (!newCont) continue;
+
+        const itemsToInsert = srcItems.map((item, idx) => ({
+          id_contenedor: newCont.id,
+          id_musico: item.id_musico,
+          orden: idx,
+        }));
+        if (itemsToInsert.length) {
+          await supabase.from("seating_contenedores_items").insert(itemsToInsert);
+        }
+      }
+
       onUpdate();
-    } catch (e) { alert("Error importando."); } finally { setIsImporting(false); }
+    } catch (e) {
+      console.error(e);
+      alert("Error importando.");
+    } finally {
+      setIsImporting(false);
+    }
   };
   const handleDragStart = (e, type, id, containerId) => { if (readOnly) return; e.dataTransfer.setData("type", type); e.dataTransfer.setData("id", id); e.dataTransfer.setData("sourceContainerId", containerId); };
   const handleDrop = async (e, targetContainerId, targetItemId = null) => {
@@ -454,7 +677,35 @@ export default function GlobalStringsManager({ programId, roster, containers, on
                 {editingId === c.id ? (<div className="flex items-center gap-1 w-full"><input className="w-full text-[10px] border border-indigo-300 rounded px-1 py-0.5 focus:outline-none" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus /><input type="number" className="w-10 text-[10px] border border-indigo-300 rounded px-1 py-0.5 text-center" value={editCap} onChange={(e) => setEditCap(e.target.value)} /><button onClick={() => saveEditing(c.id)} className="text-green-600"><IconCheck size={12} /></button><button onClick={() => setEditingId(null)} className="text-red-500"><IconX size={12} /></button></div>) : (<><div className="flex items-center gap-1 overflow-hidden"><span className="font-bold text-[10px] text-indigo-900 truncate uppercase tracking-wider" title={c.nombre}>{c.nombre}</span>{c.capacidad && (<span className="text-[9px] text-slate-400 bg-slate-100 px-1 rounded-full border border-slate-200">{c.validItems.length}/{c.capacidad}</span>)}<button onClick={() => startEditing(c)} className="text-slate-400 hover:text-indigo-600 ml-1 p-1"><IconEdit size={12} /></button></div>{!readOnly && (<button onClick={() => deleteContainer(c.id)} className="text-slate-300 hover:text-red-500"><IconTrash size={10} /></button>)}</>)}
               </div>
               <div className="p-1 space-y-0.5 min-h-[40px]">
-                {c.validItems.map((item) => (<div key={item.id} draggable={!readOnly} onDragStart={(e) => handleDragStart(e, "MOVE", item.id, c.id)} onDragOver={(e) => { if (!readOnly) { e.preventDefault(); e.stopPropagation(); setDragOverContainerId(c.id); setDragOverItemId(item.id); } }} onDrop={(e) => handleDrop(e, c.id, item.id)} className={`flex items-center gap-1.5 p-1 border rounded text-[10px] group transition-colors cursor-grab active:cursor-grabbing ${dragOverItemId === item.id ? "border-t-2 border-t-indigo-500 bg-indigo-50 mt-1" : "bg-white border-slate-100"}`}><div className="flex-1 min-w-0 pointer-events-none"><span className="truncate block font-medium text-slate-700">{item.integrantes?.nombre} {item.integrantes?.apellido}</span></div>{!readOnly && (<button onClick={() => removeMusician(item.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><IconX size={10} /></button>)}</div>))}
+                {c.validItems.map((item, idx) => {
+                  const isEndOfAtril = (idx + 1) % 2 === 0 && idx !== c.validItems.length - 1;
+                  const nextAtrilNum = Math.floor(idx / 2) + 2;
+                  return (
+                    <React.Fragment key={item.id}>
+                      <div
+                        draggable={!readOnly}
+                        onDragStart={(e) => handleDragStart(e, "MOVE", item.id, c.id)}
+                        onDragOver={(e) => { if (!readOnly) { e.preventDefault(); e.stopPropagation(); setDragOverContainerId(c.id); setDragOverItemId(item.id); } }}
+                        onDrop={(e) => handleDrop(e, c.id, item.id)}
+                        className={`flex items-center gap-1.5 p-1 border rounded text-[10px] group transition-colors cursor-grab active:cursor-grabbing ${dragOverItemId === item.id ? "border-t-2 border-t-indigo-500 bg-indigo-50 mt-1" : "bg-white border-slate-100"}`}
+                      >
+                        <div className="flex-1 min-w-0 pointer-events-none">
+                          <span className="truncate block font-medium text-slate-700">{item.integrantes?.nombre} {item.integrantes?.apellido}</span>
+                        </div>
+                        {!readOnly && (
+                          <button onClick={() => removeMusician(item.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><IconX size={10} /></button>
+                        )}
+                      </div>
+                      {isEndOfAtril && (
+                        <div className="flex items-center gap-2 py-0.5" aria-hidden>
+                          <span className="flex-1 border-t border-dashed border-slate-300" />
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Atril {nextAtrilNum}</span>
+                          <span className="flex-1 border-t border-dashed border-slate-300" />
+                        </div>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
                 {c.validItems.length === 0 && (<div className="text-center text-[9px] text-indigo-200 py-4 border-2 border-dashed border-indigo-50 rounded italic pointer-events-none">Arrastra aquí</div>)}
               </div>
             </div>
