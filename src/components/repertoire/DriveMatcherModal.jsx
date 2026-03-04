@@ -13,6 +13,7 @@ import {
   IconEdit,
   IconSearch,
 } from "../ui/Icons";
+import SearchableSelect from "../ui/SearchableSelect";
 import { calculateInstrumentation } from "../../utils/instrumentation";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups"; // <--- IMPORTAR
 
@@ -541,6 +542,34 @@ export default function DriveMatcherModal({
         ),
       );
   };
+
+  const instrumentOptions = useMemo(() => {
+    const list = (catalogoInstrumentos || []).map((i) => ({
+      id: i.id,
+      label: i.instrumento || String(i.id),
+      subLabel: i.abreviatura || String(i.id),
+    }));
+    return list.sort((a, b) => a.label.localeCompare(b.label, "es"));
+  }, [catalogoInstrumentos]);
+
+  const updatePartInstrument = (tempId, newInstrumentId) => {
+    if (!onPartsChange || !newInstrumentId) return;
+    const instrObj = (catalogoInstrumentos || []).find(
+      (i) => String(i.id) === String(newInstrumentId),
+    );
+    onPartsChange(
+      parts.map((p) =>
+        p.tempId === tempId
+          ? {
+              ...p,
+              id_instrumento: newInstrumentId,
+              instrumento_nombre: instrObj?.instrumento || String(newInstrumentId),
+            }
+          : p,
+      ),
+    );
+  };
+
   const getFileAssignmentCount = (fileUrl) => {
     let count = 0;
     Object.values(assignments).forEach((links) => {
@@ -729,10 +758,7 @@ export default function DriveMatcherModal({
                           : "bg-white border-slate-200 hover:border-indigo-300"
                     }`}
                   >
-                    <div className="flex justify-between items-center h-7 gap-2">
-                      <span className="w-6 h-6 rounded bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center shrink-0 select-none">
-                        {part.id_instrumento}
-                      </span>
+                    <div className="flex justify-between items-center gap-2 flex-wrap">
                       <div className="flex-1 min-w-0">
                         {isEditing ? (
                           <input
@@ -782,7 +808,7 @@ export default function DriveMatcherModal({
                           </div>
                         )}
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 shrink-0">
                         {!isEditing && (
                           <>
                             {isAssigned && (
@@ -807,6 +833,19 @@ export default function DriveMatcherModal({
                             </button>
                           </>
                         )}
+                        <div
+                          className="w-28 min-w-[7rem]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <SearchableSelect
+                            options={instrumentOptions}
+                            value={part.id_instrumento}
+                            onChange={(id) => updatePartInstrument(part.tempId, id)}
+                            placeholder="Instr."
+                            className="text-[10px]"
+                            dropdownMinWidth={200}
+                          />
+                        </div>
                       </div>
                     </div>
                     {isAssigned && !isEditing && (
