@@ -41,6 +41,7 @@ import ThemeController from "./components/ui/ThemeController";
 import AIAssistant from "./components/ui/AIAssistant";
 import { CommandPaletteProvider } from "./context/CommandPaletteContext";
 import CommandBarTrigger from "./components/ui/CommandBarTrigger";
+import ManagementView from "./views/Management/ManagementView";
 import {
   IconLayoutDashboard,
   IconDownload,
@@ -288,7 +289,7 @@ const CalendarSelectionModal = ({ isOpen, onClose, userId, isAdmin }) => {
 };
 
 // --- APP PROTEGIDA ---
-const ProtectedApp = () => {
+const ProtectedApp = ({ initialTab }) => {
   const {
     user,
     logout,
@@ -511,17 +512,21 @@ const ProtectedApp = () => {
     feedback: "FEEDBACK_ADMIN",
     manual: "MANUAL_INDEX",
     manual_admin: "MANUAL_ADMIN",
+    management: "MANAGEMENT",
   };
   const modeToTab = Object.fromEntries(
     Object.entries(tabToMode).map(([k, v]) => [v, k]),
   );
 
   const currentTab = searchParams.get("tab");
-  const defaultMode = isPersonal
-    ? "FULL_AGENDA"
-    : isDifusion
-      ? "GIRAS"
-      : "GIRAS";
+  const defaultMode =
+    initialTab === "management"
+      ? "MANAGEMENT"
+      : isPersonal
+        ? "FULL_AGENDA"
+        : isDifusion
+          ? "GIRAS"
+          : "GIRAS";
   const [mode, setMode] = useState(tabToMode[currentTab] || defaultMode);
   const [activeGiraId, setActiveGiraId] = useState(searchParams.get("giraId"));
 
@@ -614,6 +619,12 @@ const ProtectedApp = () => {
       show: isManagement && !isDifusion,
     },
     {
+      id: "MANAGEMENT",
+      label: "Gestión",
+      icon: <IconSettingsWheel size={20} />,
+      show: userRole === "admin" || userRole === "editor",
+    },
+    {
       id: "NEWS_MANAGER",
       label: "Comunicación",
       icon: <IconBell size={20} />,
@@ -685,6 +696,8 @@ const ProtectedApp = () => {
         );
       case "DATA":
         return <DataView {...commonProps} />;
+      case "MANAGEMENT":
+        return <ManagementView {...commonProps} />;
       case "USERS":
         return <UsersManager {...commonProps} />;
       case "COMMENTS":
@@ -1065,7 +1078,7 @@ const ProtectedApp = () => {
   );
 };
 
-const AppContent = () => {
+const AppContent = ({ initialTab }) => {
   const { user, loading } = useAuth();
   if (loading)
     return (
@@ -1073,7 +1086,7 @@ const AppContent = () => {
         Cargando Sistema...
       </div>
     );
-  return user ? <ProtectedApp /> : <LoginView />;
+  return user ? <ProtectedApp initialTab={initialTab} /> : <LoginView />;
 };
 
 export default function App() {
@@ -1085,6 +1098,10 @@ export default function App() {
           <CommandPaletteProvider>
             <Routes>
               <Route path="/share/:token" element={<PublicLinkHandler />} />
+              <Route
+                path="/management/*"
+                element={<AppContent initialTab="management" />}
+              />
               <Route path="/*" element={<AppContent />} />
             </Routes>
           </CommandPaletteProvider>

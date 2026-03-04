@@ -42,7 +42,6 @@ import CommentsManager from "../../components/comments/CommentsManager";
 import GlobalCommentsViewer from "../../components/comments/GlobalCommentsViewer";
 import CommentButton from "../../components/comments/CommentButton";
 import GiraDifusion from "./GiraDifusion";
-import { VenuesManager as VenuesManagementPanel } from "../../components/management/VenuesManager";
 import SectionStatusControl from "../../components/giras/SectionStatusControl";
 import { deleteGira } from "../../services/giraActions";
 import { toast } from "sonner";
@@ -1268,24 +1267,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
                   <IconDrive size={20} />{" "}
                 </button>
               </div>
-              {(isEditor || userRole === "admin") && (
-                <div className="hidden sm:flex flex-col items-end gap-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">
-                    Administración
-                  </span>
-                  <button
-                    onClick={() => updateView("MANAGEMENT")}
-                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all border ${
-                      mode === "MANAGEMENT"
-                        ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                    }`}
-                  >
-                    <IconSettings size={16} />
-                    <span>Gestión General</span>
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -1297,9 +1278,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
         className="flex-1 overflow-y-auto overflow-x-auto relative bg-slate-50 print:overflow-visible print:h-auto"
       >
         {mode === "FULL_AGENDA" && <AgendaGeneral supabase={supabase} />}
-        {mode === "MANAGEMENT" && (isEditor || userRole === "admin") && (
-          <VenuesManagementPanel supabase={supabase} />
-        )}
         {mode === "CALENDAR" && <MusicianCalendar supabase={supabase} />}
         {mode === "WEEKLY" && (
           <WeeklyCalendar

@@ -244,6 +244,15 @@ export const PROGRAM_TYPES = {
   },
 };
 
+/**
+ * Devuelve las clases de color (Tailwind) asociadas a un tipo de programa.
+ * Pensado para colorear badges, chips o etiquetas en filtros.
+ */
+export const getProgramTypeColor = (type) => {
+  const config = PROGRAM_TYPES[type] || PROGRAM_TYPES.default;
+  return config.color;
+};
+
 export const getProgramStyle = (type) => {
   return PROGRAM_TYPES[type] || PROGRAM_TYPES["default"];
 };

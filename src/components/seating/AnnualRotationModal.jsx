@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { IconHistory, IconX, IconLoader, IconFilter } from "../ui/Icons";
+import { IconHistory, IconX, IconLoader, IconFilter, IconPrinter } from "../ui/Icons";
+import SearchableSelect from "../ui/SearchableSelect";
 
 const ModalPortal = ({ children }) => {
   return createPortal(
@@ -32,8 +33,12 @@ export default function AnnualRotationModal({ isOpen, onClose, currentProgram, r
         }
       });
       
-      const list = Array.from(uniqueMap.entries()).map(([id, name]) => ({ id, name }));
-      list.sort((a, b) => a.name.localeCompare(b.name));
+      const list = Array.from(uniqueMap.entries()).map(([id, name]) => ({
+        id,
+        label: name,
+        subLabel: id,
+      }));
+      list.sort((a, b) => a.label.localeCompare(b.label));
       setInstrumentsList(list);
 
       if (list.length > 0 && !selectedInstrId) {
@@ -53,7 +58,9 @@ export default function AnnualRotationModal({ isOpen, onClose, currentProgram, r
     setLoading(true);
     try {
       // A. Definir columnas de músicos (Músicos estables del instrumento)
-      const targetMusicians = roster.filter(m => m.id_instr === selectedInstrId);
+      const targetMusicians = roster.filter(
+        (m) => String(m.id_instr) === String(selectedInstrId),
+      );
       targetMusicians.sort((a, b) => a.apellido.localeCompare(b.apellido));
       setMusicianColumns(targetMusicians);
 
@@ -175,6 +182,10 @@ export default function AnnualRotationModal({ isOpen, onClose, currentProgram, r
     }
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -188,23 +199,38 @@ export default function AnnualRotationModal({ isOpen, onClose, currentProgram, r
               <IconHistory className="text-indigo-600" /> Rotación Anual
             </h3>
             
-            <div className="relative">
-                <IconFilter className="absolute left-2 top-2 text-slate-400" size={14}/>
-                <select 
-                    className="pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-md text-sm text-slate-700 outline-none focus:border-indigo-500 font-medium"
-                    value={selectedInstrId}
-                    onChange={(e) => setSelectedInstrId(e.target.value)}
-                >
-                    {instrumentsList.map(i => (
-                        <option key={i.id} value={i.id}>{i.name}</option>
-                    ))}
-                </select>
+            <div className="relative min-w-[220px]">
+              <IconFilter
+                className="absolute left-2 top-2.5 text-slate-400 z-10"
+                size={14}
+              />
+              <div className="pl-6">
+                <SearchableSelect
+                  options={instrumentsList}
+                  value={selectedInstrId}
+                  onChange={setSelectedInstrId}
+                  placeholder="Elegí un instrumento..."
+                  className="text-xs"
+                />
+              </div>
             </div>
           </div>
           
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
-            <IconX size={22} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePrint}
+              className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
+              title="Imprimir reporte"
+            >
+              <IconPrinter size={18} />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
+            >
+              <IconX size={22} />
+            </button>
+          </div>
         </div>
 
         {/* CONTENIDO (TABLA) */}

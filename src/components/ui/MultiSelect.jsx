@@ -49,12 +49,24 @@ export default function MultiSelect({
       
       {/* Chips de selección */}
       <div className="flex flex-wrap gap-1 mt-1 min-h-[24px]">
-        {options.filter(o => selectedIds.includes(o.id)).map(o => (
-          <span key={o.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold border border-indigo-200 animate-in fade-in zoom-in duration-200">
-            {o.label}
-            <button onClick={() => handleToggle(o.id)} className="hover:text-indigo-900 rounded-full p-0.5"><IconX size={10}/></button>
-          </span>
-        ))}
+        {options
+          .filter((o) => selectedIds.includes(o.id))
+          .map((o) => (
+            <span
+              key={o.id}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold border border-indigo-200 animate-in fade-in zoom-in duration-200 ${
+                o.badgeClass || ""
+              }`}
+            >
+              {o.label}
+              <button
+                onClick={() => handleToggle(o.id)}
+                className="hover:text-indigo-900 rounded-full p-0.5"
+              >
+                <IconX size={10} />
+              </button>
+            </span>
+          ))}
       </div>
     </div>
   );
