@@ -53,6 +53,7 @@ export function VenuesManager({ supabase }) {
   const { isEditor, isAdmin, userId } = useAuth();
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [selectedProgramTypes, setSelectedProgramTypes] = useState([]);
   const [selectedStatusIds, setSelectedStatusIds] = useState([]);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -66,6 +67,9 @@ export function VenuesManager({ supabase }) {
   const [quickEditNote, setQuickEditNote] = useState("");
   const [quickEditSaving, setQuickEditSaving] = useState(false);
   const [openStatusDropdownId, setOpenStatusDropdownId] = useState(null);
+  const [bulkStatusId, setBulkStatusId] = useState(null);
+  const [bulkNote, setBulkNote] = useState("");
+  const [bulkSaving, setBulkSaving] = useState(false);
   const statusDropdownRef = useRef(null);
 
   const canView = isEditor || isAdmin;
@@ -144,6 +148,100 @@ export function VenuesManager({ supabase }) {
       return true;
     });
   }, [events, selectedProgramTypes, selectedStatusIds, dateFrom, dateTo]);
+
+  const handleToggleSelectOne = (eventId, checked) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(eventId);
+      } else {
+        next.delete(eventId);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSelectAllVisible = (checked) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        filteredEvents.forEach((evt) => {
+          next.add(evt.id);
+        });
+      } else {
+        filteredEvents.forEach((evt) => {
+          next.delete(evt.id);
+        });
+      }
+      return next;
+    });
+  };
+
+  const handleClearBulkSelection = () => {
+    setSelectedIds(new Set());
+    setBulkStatusId(null);
+    setBulkNote("");
+  };
+
+  const handleBulkSave = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    const hasStatusChange = bulkStatusId != null;
+    const hasNote = Boolean(bulkNote?.trim());
+
+    if (!hasStatusChange && !hasNote) {
+      toast.error(
+        "Seleccioná un estado o escribí una nota para aplicar en bloque.",
+      );
+      return;
+    }
+
+    if (hasStatusChange && !hasNote) {
+      toast.error("Agrega una nota para el cambio de estado masivo.");
+      return;
+    }
+
+    setBulkSaving(true);
+    try {
+      const updatePayload = {};
+      if (hasStatusChange) {
+        updatePayload.id_estado_venue = bulkStatusId;
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        const { error: updateError } = await supabase
+          .from("eventos")
+          .update(updatePayload)
+          .in("id", ids);
+        if (updateError) throw updateError;
+      }
+
+      if (hasStatusChange || hasNote) {
+        const logsPayload = ids.map((id) => ({
+          id_evento: id,
+          id_estado_venue: hasStatusChange ? bulkStatusId : null,
+          nota: hasNote ? bulkNote.trim() : null,
+          id_integrante: userId || null,
+        }));
+
+        const { error: logError } = await supabase
+          .from("eventos_venue_log")
+          .insert(logsPayload);
+        if (logError) throw logError;
+      }
+
+      const data = await getAllConcertVenues(supabase);
+      setEvents(data || []);
+      handleClearBulkSelection();
+      toast.success("Cambios masivos aplicados a los venues seleccionados.");
+    } catch (err) {
+      console.error("Error en edición masiva de venues:", err);
+      toast.error("No se pudieron aplicar los cambios masivos.");
+    } finally {
+      setBulkSaving(false);
+    }
+  };
 
   const openQuickEdit = (evt, preselectedStatusId = null, notePrefill = null) => {
     setQuickEditEvt(evt);
@@ -372,6 +470,20 @@ export function VenuesManager({ supabase }) {
           <table className="min-w-full text-xs table-fixed">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr className="text-left text-[10px] font-bold uppercase text-slate-500">
+                <th className="px-2 py-2 w-[4%]">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    onChange={(e) =>
+                      handleToggleSelectAllVisible(e.target.checked)
+                    }
+                    checked={
+                      filteredEvents.length > 0 &&
+                      filteredEvents.every((evt) => selectedIds.has(evt.id))
+                    }
+                    aria-label="Seleccionar todos los conciertos visibles"
+                  />
+                </th>
                 <th className="px-3 py-2 w-[14%]">Fecha</th>
                 <th className="px-3 py-2 w-[20%]">Concierto</th>
                 <th className="px-3 py-2 w-[20%]">Programa</th>
@@ -384,7 +496,7 @@ export function VenuesManager({ supabase }) {
               {filteredEvents.length === 0 && !loading && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-3 py-4 text-center text-slate-400 text-xs"
                   >
                     No hay conciertos que coincidan con los filtros actuales.
@@ -423,6 +535,17 @@ export function VenuesManager({ supabase }) {
                     key={evt.id}
                     className="border-b border-slate-100 hover:bg-slate-50/80"
                   >
+                    <td className="px-2 py-2 w-[4%] align-top">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        checked={selectedIds.has(evt.id)}
+                        onChange={(e) =>
+                          handleToggleSelectOne(evt.id, e.target.checked)
+                        }
+                        aria-label="Seleccionar concierto para edición masiva"
+                      />
+                    </td>
                     <td className="px-3 py-2 text-slate-700 w-[14%]">
                       <div className="flex flex-col">
                         <span className="text-xs font-medium">{fechaFormatted}</span>
@@ -576,6 +699,19 @@ export function VenuesManager({ supabase }) {
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <BulkEditBanner
+          count={selectedIds.size}
+          statusId={bulkStatusId}
+          note={bulkNote}
+          onChangeStatus={setBulkStatusId}
+          onChangeNote={setBulkNote}
+          onApply={handleBulkSave}
+          saving={bulkSaving}
+          onClearSelection={handleClearBulkSelection}
+        />
+      )}
+
       {quickEditEvt && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
@@ -671,6 +807,166 @@ export function VenuesManager({ supabase }) {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+function BulkEditBanner({
+  count,
+  statusId,
+  note,
+  onChangeStatus,
+  onChangeNote,
+  onApply,
+  saving,
+  onClearSelection,
+}) {
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+  const statusDropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!isStatusDropdownOpen) return;
+    const handleClickOutside = (e) => {
+      if (
+        statusDropdownRef.current &&
+        !statusDropdownRef.current.contains(e.target)
+      ) {
+        setIsStatusDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isStatusDropdownOpen]);
+
+  const currentStatus =
+    statusId != null
+      ? VENUE_STATUS_OPTIONS.find((s) => s.id === statusId) || null
+      : null;
+
+  return (
+    <div className="fixed inset-x-4 bottom-4 z-40">
+      <div className="max-w-5xl mx-auto bg-indigo-600 text-white rounded-xl shadow-lg px-4 py-3 md:px-6 md:py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 transition-all duration-200">
+        <div className="flex-1 min-w-0 space-y-2 md:space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wide text-indigo-100">
+            Edición masiva de venues
+          </p>
+          <p className="text-sm font-medium truncate">
+            Aplicar cambios a {count} evento{count === 1 ? "" : "s"} seleccionados
+          </p>
+          <div className="flex flex-col md:flex-row md:items-center gap-3 text-[11px] text-indigo-100/90">
+            <div className="flex-1" ref={statusDropdownRef}>
+              <label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-100">
+                Estado de venue
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  setIsStatusDropdownOpen((prev) => !prev)
+                }
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border border-slate-300 bg-slate-50 text-slate-900 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-200 shadow-sm"
+              >
+                {currentStatus ? (
+                  <>
+                    <span
+                      className="inline-block w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: currentStatus.color }}
+                    />
+                    <span className="truncate">{currentStatus.nombre}</span>
+                  </>
+                ) : (
+                  <span className="italic text-slate-500">
+                    Sin cambio de estado
+                  </span>
+                )}
+                <svg
+                  className="w-3 h-3 shrink-0 opacity-70"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+              {isStatusDropdownOpen && (
+                <div className="mt-2 min-w-[12rem] py-1 bg-white border border-slate-200 rounded-lg shadow-lg text-slate-900">
+                  {VENUE_STATUS_OPTIONS.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        onChangeStatus(s.id);
+                        setIsStatusDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-[11px] font-medium flex items-center gap-2 hover:bg-slate-50 first:rounded-t-lg last:rounded-b-lg ${
+                        statusId === s.id
+                          ? "bg-indigo-50 text-indigo-800"
+                          : "text-slate-700"
+                      }`}
+                    >
+                      <span
+                        className="inline-block w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: s.color }}
+                      />
+                      {s.nombre}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChangeStatus(null);
+                      setIsStatusDropdownOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 text-[11px] font-medium hover:bg-slate-50 rounded-b-lg ${
+                      statusId == null
+                        ? "bg-indigo-50 text-indigo-800"
+                        : "text-slate-500 italic"
+                    }`}
+                  >
+                    Sin cambio de estado
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="flex-1">
+              <label className="block mb-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-100">
+                Nota masiva
+              </label>
+              <textarea
+                rows={2}
+                value={note}
+                onChange={(e) => onChangeNote(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg p-2 text-sm text-slate-900 resize-none focus:ring-2 focus:ring-indigo-500 outline-none bg-white placeholder:text-slate-400 shadow-sm"
+                placeholder='Ej: "Actualizado por coordinación de logística"...'
+              />
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col items-stretch md:items-end gap-2">
+          <button
+            type="button"
+            onClick={onClearSelection}
+            className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-[11px] font-medium bg-indigo-500/40 hover:bg-indigo-500/60 text-indigo-50 border border-indigo-300/60 transition-colors"
+          >
+            Limpiar selección
+          </button>
+          <button
+            type="button"
+            onClick={onApply}
+            disabled={saving}
+            className="inline-flex items-center justify-center px-4 py-1.5 rounded-lg text-xs font-semibold bg-white text-indigo-700 hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+          >
+            {saving && (
+              <IconLoader className="animate-spin mr-1.5" size={14} />
+            )}
+            Aplicar a {count} evento{count === 1 ? "" : "s"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
