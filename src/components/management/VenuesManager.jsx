@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { IconLoader, IconHistory, IconPencil, IconX } from "../ui/Icons";
 import MultiSelect from "../ui/MultiSelect";
+import DateInput from "../ui/DateInput";
+import SearchableSelect from "../ui/SearchableSelect";
 import { useAuth } from "../../context/AuthContext";
 import { getAllConcertVenues } from "../../services/giraService";
 import {
@@ -56,6 +58,7 @@ export function VenuesManager({ supabase }) {
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [selectedProgramTypes, setSelectedProgramTypes] = useState([]);
   const [selectedStatusIds, setSelectedStatusIds] = useState([]);
+  const [selectedLocationIds, setSelectedLocationIds] = useState([]);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editFormData, setEditFormData] = useState(null);
   const [editingEventObj, setEditingEventObj] = useState(null);
@@ -122,6 +125,27 @@ export function VenuesManager({ supabase }) {
     }));
   }, []);
 
+  const locationOptions = useMemo(() => {
+    const byId = new Map();
+    events.forEach((evt) => {
+      const loc = evt.locaciones;
+      if (loc && loc.id != null) {
+        if (!byId.has(loc.id)) {
+          const localidad =
+            loc.localidades?.localidad || loc.localidad?.localidad || null;
+          byId.set(loc.id, {
+            id: loc.id,
+            label: loc.nombre || "Sin nombre",
+            subLabel: localidad || loc.direccion || null,
+          });
+        }
+      }
+    });
+    return Array.from(byId.values()).sort((a, b) =>
+      a.label.localeCompare(b.label),
+    );
+  }, [events]);
+
   const filteredEvents = useMemo(() => {
     return events.filter((evt) => {
       if (evt.id_tipo_evento !== 1) return false;
@@ -145,9 +169,22 @@ export function VenuesManager({ supabase }) {
       if (selectedStatusIds.length > 0 && !evt.id_estado_venue) {
         return false;
       }
+      if (selectedLocationIds.length > 0) {
+        const locId = evt.locaciones?.id ?? evt.id_locacion ?? null;
+        if (!locId || !selectedLocationIds.includes(locId)) {
+          return false;
+        }
+      }
       return true;
     });
-  }, [events, selectedProgramTypes, selectedStatusIds, dateFrom, dateTo]);
+  }, [
+    events,
+    selectedProgramTypes,
+    selectedStatusIds,
+    selectedLocationIds,
+    dateFrom,
+    dateTo,
+  ]);
 
   const handleToggleSelectOne = (eventId, checked) => {
     setSelectedIds((prev) => {
@@ -419,26 +456,29 @@ export function VenuesManager({ supabase }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div>
-          <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
-            Fecha desde
-          </label>
-          <input
-            type="date"
+        <div className="space-y-2">
+          <DateInput
+            label="Fecha desde"
             value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+            onChange={setDateFrom}
+          />
+          <DateInput
+            label="Fecha hasta"
+            value={dateTo}
+            onChange={setDateTo}
           />
         </div>
         <div>
           <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
-            Fecha hasta
+            Locaciones
           </label>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+          <SearchableSelect
+            options={locationOptions}
+            value={selectedLocationIds}
+            onChange={setSelectedLocationIds}
+            isMulti
+            placeholder="Filtrar por locación..."
+            dropdownMinWidth={260}
           />
         </div>
         <MultiSelect

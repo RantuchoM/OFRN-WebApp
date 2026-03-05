@@ -83,7 +83,14 @@ export default function SearchableSelect({
         if (isOpen) {
             updatePosition();
             window.addEventListener('resize', updatePosition);
-            const handleScroll = () => setIsOpen(false);
+            const handleScroll = (e) => {
+                const target = e.target;
+                const insideTrigger = containerRef.current?.contains(target);
+                const insideDropdown = target?.closest?.('.searchable-portal');
+                if (!insideTrigger && !insideDropdown) {
+                    setIsOpen(false);
+                }
+            };
             window.addEventListener('scroll', handleScroll, true);
             return () => {
                 window.removeEventListener('resize', updatePosition);
