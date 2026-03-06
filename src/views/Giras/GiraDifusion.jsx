@@ -317,6 +317,7 @@ const EditableField = ({
   allIntegrantes,
   isLink = false,
   textArea = false,
+  canEdit = true,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [tempValue, setTempValue] = useState(value || "");
@@ -340,7 +341,7 @@ const EditableField = ({
         <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
           {label}
         </span>
-        {!isEditing && (
+        {canEdit && !isEditing && (
           <button
             onClick={() => {
               setTempValue(value || "");
@@ -453,7 +454,8 @@ const SpecificLogoPreview = ({ url }) => {
 
 // --- COMPONENTE PRINCIPAL ---
 export default function GiraDifusion({ supabase, gira, onBack }) {
-  const { user } = useAuth();
+  const { user, isEditor, isDifusion } = useAuth();
+  const canEditDifusion = isEditor || isDifusion;
   const [difusionData, setDifusionData] = useState(null);
   const [allIntegrantes, setAllIntegrantes] = useState([]);
   const [localEvents, setLocalEvents] = useState([]);
@@ -701,6 +703,7 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
             editorId={difusionData?.editor_link_foto_home}
             allIntegrantes={allIntegrantes}
             onSave={(val) => handleUpdateDifusion("link_foto_home", val)}
+            canEdit={canEditDifusion}
             isLink
           />
           {difusionData?.link_foto_home && (
@@ -739,6 +742,7 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
             editorId={difusionData?.editor_link_foto_banner}
             allIntegrantes={allIntegrantes}
             onSave={(val) => handleUpdateDifusion("link_foto_banner", val)}
+            canEdit={canEditDifusion}
             isLink
           />
           {difusionData?.link_foto_banner && (
@@ -754,6 +758,7 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
                 editorId={difusionData?.editor_link_logo_1}
                 allIntegrantes={allIntegrantes}
                 onSave={(val) => handleUpdateDifusion("link_logo_1", val)}
+                canEdit={canEditDifusion}
                 isLink
               />
               {difusionData?.link_logo_1 && (
@@ -768,6 +773,7 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
                 editorId={difusionData?.editor_link_logo_2}
                 allIntegrantes={allIntegrantes}
                 onSave={(val) => handleUpdateDifusion("link_logo_2", val)}
+                canEdit={canEditDifusion}
                 isLink
               />
               {difusionData?.link_logo_2 && (
@@ -916,6 +922,7 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
             editorId={difusionData?.editor_otros_comentarios}
             allIntegrantes={allIntegrantes}
             onSave={(val) => handleUpdateDifusion("otros_comentarios", val)}
+            canEdit={canEditDifusion}
             textArea
           />
         </section>

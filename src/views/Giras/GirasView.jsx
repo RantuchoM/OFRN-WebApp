@@ -58,9 +58,9 @@ import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 
 export default function GirasView({ supabase, trigger = 0 }) {
-  const { user, isEditor, isManagement, isPersonal, isGuest, isDifusion } =
+  const { user, isEditor, isManagement, isPersonal, isGuest, isDifusion, role } =
     useAuth();
-  const userRole = user?.rol_sistema || "";
+  const userRole = role ?? "";
   const [statsRefreshTrigger, setStatsRefreshTrigger] = useState(0);
 
   const handleChildDataChange = () => {
@@ -144,14 +144,16 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const [showRepertoireInCards, setShowRepertoireInCards] = useState(false);
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState(null);
+  // Por defecto "Comisión" solo activo para editores y admins; el resto lo puede activar manualmente
   const [filterType, setFilterType] = useState(
-    new Set([
-      "Sinfónico",
-      "Camerata Filarmónica",
-      "Ensamble",
-      "Jazz Band",
-      "Comisión",
-    ]),
+    () =>
+      new Set([
+        "Sinfónico",
+        "Camerata Filarmónica",
+        "Ensamble",
+        "Jazz Band",
+        // "Comisión" se añade en useEffect solo si isEditor
+      ]),
   );
   const PROGRAM_TYPES = [
     "Sinfónico",
@@ -256,6 +258,23 @@ export default function GirasView({ supabase, trigger = 0 }) {
     }
   }, [user, isEditor, isManagement, isPersonal, coordinatedEnsembles.size]);
 
+  // Filtro "Comisión" por defecto solo para editores y admins
+  useEffect(() => {
+    if (!user) return;
+    if (isEditor) {
+      setFilterType((prev) =>
+        prev.has("Comisión") ? prev : new Set([...prev, "Comisión"])
+      );
+    } else {
+      setFilterType((prev) => {
+        if (!prev.has("Comisión")) return prev;
+        const next = new Set(prev);
+        next.delete("Comisión");
+        return next;
+      });
+    }
+  }, [user, isEditor]);
+
   useEffect(() => {
     fetchGiras();
     fetchLocationsList();
@@ -322,9 +341,11 @@ export default function GirasView({ supabase, trigger = 0 }) {
         }
       } else {
         // --- LÓGICA NORMAL (Usuarios Autenticados) ---
+        // Con rol difusión ve TODOS los programas (en el detalle solo podrá abrir pestaña Difusión)
         const isPersonalRoleForDB =
           (userRole === "consulta_personal" || userRole === "personal") &&
-          user.id !== "guest-general";
+          user.id !== "guest-general" &&
+          !isDifusion;
         let myEnsembles = new Set();
         let myFamily = null;
         if (isPersonalRoleForDB) {

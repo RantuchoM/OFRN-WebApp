@@ -81,6 +81,7 @@ const UserAvatar = ({ user, size = "sm", onClick }) => {
 const MessageNode = ({
   msg,
   user,
+  isAdmin,
   lastReadAt,
   onDelete,
   onPreviewImage,
@@ -124,7 +125,7 @@ const MessageNode = ({
               )}
             </div>
 
-            {(isMine || user.rol_sistema === "admin") && (
+            {(isMine || isAdmin) && (
               <button
                 onClick={() => onDelete(msg.id)}
                 className="opacity-0 group-hover/msg:opacity-100 text-slate-300 hover:text-red-400 transition-opacity p-1"
@@ -149,6 +150,7 @@ const MessageNode = ({
               key={child.id}
               msg={child}
               user={user}
+              isAdmin={isAdmin}
               lastReadAt={lastReadAt}
               onDelete={onDelete}
               onPreviewImage={onPreviewImage}
@@ -165,6 +167,7 @@ const MessageNode = ({
 const GlobalThreadItem = ({
   thread,
   user,
+  isAdmin,
   onReply,
   onResolve,
   onDelete,
@@ -395,6 +398,7 @@ const GlobalThreadItem = ({
             key={msgNode.id}
             msg={msgNode}
             user={user}
+            isAdmin={isAdmin}
             lastReadAt={lastReadAt}
             onDelete={onDelete}
             onPreviewImage={onPreviewImage}
@@ -429,10 +433,7 @@ const GlobalThreadItem = ({
               <div
                 className={`text-[9px] px-1.5 py-0.5 rounded border flex items-center gap-1 cursor-pointer hover:shadow-sm transition-colors ${deadlineClass}`}
                 onClick={() => {
-                  if (
-                    messages.some((m) => m.id_autor === user.id) ||
-                    user.rol_sistema === "admin"
-                  )
+                  if (messages.some((m) => m.id_autor === user.id) || isAdmin)
                     setEditingDateId(thread.key);
                 }}
                 title="Clic para editar fecha límite del hilo"
@@ -444,8 +445,7 @@ const GlobalThreadItem = ({
                       "dd/MM",
                     )}`
                   : "Fecha límite"}
-                {(messages.some((m) => m.id_autor === user.id) ||
-                  user.rol_sistema === "admin") && (
+                {(messages.some((m) => m.id_autor === user.id) || isAdmin) && (
                   <IconEdit
                     size={8}
                     className="opacity-0 group-hover/date:opacity-50 ml-1"
@@ -473,7 +473,7 @@ export default function GlobalCommentsViewer({
   onNavigate,
   onCountsChange,
 }) {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
 
   const [threads, setThreads] = useState([]);
   const [filteredThreads, setFilteredThreads] = useState([]);
@@ -1018,6 +1018,7 @@ export default function GlobalCommentsViewer({
               key={thread.key}
               thread={thread}
               user={user}
+              isAdmin={isAdmin}
               lastReadMap={lastReadMap}
               onReply={(t) => setReplyingThread(t)}
               onResolve={handleResolveThread}

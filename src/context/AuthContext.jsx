@@ -21,7 +21,15 @@ export function AuthProvider({ children }) {
   }, []);
 
   const activeUser = impersonatedUser || realUser;
-  const role = activeUser?.rol_sistema?.toLowerCase().trim() || "";
+
+  // Normalizar rol_sistema: puede ser string (legacy) o array (multi-rol)
+  const rawRoles = activeUser?.rol_sistema;
+  const roles = (() => {
+    if (rawRoles == null) return [];
+    if (Array.isArray(rawRoles)) return rawRoles.map((r) => String(r).toLowerCase().trim()).filter(Boolean);
+    return [String(rawRoles).toLowerCase().trim()].filter(Boolean);
+  })();
+  const role = roles[0] ?? ""; // Legacy: primer rol para componentes que esperan un string
 
   const impersonate = (targetUser) => setImpersonatedUser(targetUser);
   const stopImpersonating = () => setImpersonatedUser(null);
@@ -69,30 +77,26 @@ export function AuthProvider({ children }) {
     login,
     loginAsGuest,
     logout,
-    // --- LÓGICA DE PERMISOS ---
-    isAdmin: role === "admin",
-    isDifusion: role === "difusion", // Nuevo rol específico
-    // Incluimos difusion en isEditor para permitir UPDATES en la tabla de difusión
-    isEditor: ["admin", "editor", "difusion"].includes(role), 
-    isManagement: [
-      "admin",
-      "editor",
-      "coord_general",
-      "consulta_general",
-      "produccion_general",
-      "director",
-      "difusion" // Permitimos acceso a vistas de gestión
-    ].includes(role),
-    isPersonal: [
-      "musico",
-      "archivista",
-      "personal",
-      "consulta_personal",
-    ].includes(role),
-    isGuest:
-      role === "invitado" ||
-      activeUser?.id === "guest-general",
-    isActuallyAdmin: realUser?.rol_sistema?.toLowerCase().trim() === "admin",
+    // --- LÓGICA DE PERMISOS (multi-rol: flags por includes) ---
+    isAdmin: roles.includes("admin"),
+    isDifusion: roles.includes("difusion"),
+    // Editor = solo admin/editor; difusión no da acceso a gestión general (ver isDifusion para tabla difusión)
+    isEditor: roles.some((r) => ["admin", "editor"].includes(r)),
+    isManagement: roles.some((r) =>
+      ["admin", "editor", "coord_general", "consulta_general", "produccion_general", "director"].includes(r)
+    ),
+    isPersonal: roles.some((r) => ["musico", "archivista", "personal", "consulta_personal"].includes(r)),
+    isGuest: roles.includes("invitado") || activeUser?.id === "guest-general",
+    isArreglador: roles.includes("arreglador"),
+    isArchivista: roles.includes("archivista"),
+    isActuallyAdmin: (() => {
+      const raw = realUser?.rol_sistema;
+      if (raw == null) return false;
+      const realRoles = Array.isArray(raw) ? raw.map((r) => String(r).toLowerCase().trim()) : [String(raw).toLowerCase().trim()];
+      return realRoles.includes("admin");
+    })(),
+    role, // Legacy: primer rol (roles[0])
+    roles, // Array normalizado para comprobaciones multi-rol
     userName: activeUser ? `${activeUser.nombre} ${activeUser.apellido}` : "",
     userId: activeUser?.id || null,
   };
@@ -105,3 +109,9 @@ export function AuthProvider({ children }) {
 }
 
 export const useAuth = () => useContext(AuthContext);
+
+/** Formatea rol_sistema para mostrar (soporta string legacy o text[]) */
+export function getRolesDisplay(rolSistema) {
+  if (rolSistema == null) return "";
+  return Array.isArray(rolSistema) ? rolSistema.join(", ") : String(rolSistema);
+}

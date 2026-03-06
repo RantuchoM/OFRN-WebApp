@@ -166,7 +166,12 @@ export function useAgendaData({
             : addMonths(new Date(), monthsLimit).toISOString();
         }
 
-        const profileRole = userProfile?.rol_sistema || "musico";
+        const rawProfileRole = userProfile?.rol_sistema;
+        const profileRole = (() => {
+          if (rawProfileRole == null) return "musico";
+          if (Array.isArray(rawProfileRole)) return rawProfileRole[0]?.toLowerCase?.()?.trim() || "musico";
+          return String(rawProfileRole).toLowerCase().trim() || "musico";
+        })();
         let myEnsembles = new Set();
         let myFamily = null;
         if (userProfile) {

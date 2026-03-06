@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'sonner'; // O tu librería de toasts preferida, o un simple alert custom
 
 export default function NotificationListener({ supabase }) {
-  const { user } = useAuth();
+  const { user, isEditor, isAdmin } = useAuth();
 
   useEffect(() => {
     if (!user) return;
@@ -26,7 +26,7 @@ export default function NotificationListener({ supabase }) {
             alert(`💬 TE MENCIONARON: \n"${newComment.contenido.substring(0, 50)}..."`);
           } 
           // 2. Soy Admin/Editor y es un comentario general?
-          else if (['admin', 'editor'].includes(user.rol_sistema)) {
+          else if (isAdmin || isEditor) {
              // Mostrar Toast discreto
              console.log("Nuevo comentario en el sistema:", newComment.id);
           }

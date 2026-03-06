@@ -123,12 +123,13 @@ export default function UnifiedAgenda({
     fetchCoordination();
   }, [user, supabase]);
 
-  const isGlobalEditor = [
-    "admin",
-    "editor",
-    "coord_general",
-    "director",
-  ].includes(user?.rol_sistema);
+  const editorRoles = ["admin", "editor", "coord_general", "director"];
+  const userRoles = (() => {
+    const r = user?.rol_sistema;
+    if (r == null) return [];
+    return Array.isArray(r) ? r.map((x) => String(x).toLowerCase().trim()) : [String(r).toLowerCase().trim()];
+  })();
+  const isGlobalEditor = userRoles.some((role) => editorRoles.includes(role));
   const canEdit = isGlobalEditor || coordinatedEnsembles.size > 0;
 
   const canUserEditEvent = (evt) => {

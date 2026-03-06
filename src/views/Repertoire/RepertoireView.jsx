@@ -444,6 +444,7 @@ const ColumnManager = ({ visibleColumns, onChange }) => {
 // --- COMPONENTE PRINCIPAL ---
 
 export default function RepertoireView({ supabase, catalogoInstrumentos }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [works, setWorks] = useState([]);
   const [availableTags, setAvailableTags] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -511,7 +512,35 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [formData, setFormData] = useState({});
 
   useEffect(() => { fetchWorks(); fetchTags(); }, []);
-  
+
+  // Abrir obra por editId (ej. desde ArreglosDashboard)
+  const editIdParam = searchParams.get("editId");
+  useEffect(() => {
+    if (!editIdParam || works.length === 0) return;
+    const work = works.find((w) => String(w.id) === String(editIdParam));
+    if (work) {
+      startEdit(work);
+      setSearchParams((prev) => {
+        const p = new URLSearchParams(prev);
+        p.delete("editId");
+        return p;
+      });
+    }
+  }, [works, editIdParam]);
+
+  // Abrir formulario de nueva obra (ej. desde ArreglosDashboard "Nueva Obra")
+  const newObraParam = searchParams.get("newObra");
+  useEffect(() => {
+    if (newObraParam !== "1") return;
+    setIsAdding(true);
+    setFormData({});
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev);
+      p.delete("newObra");
+      return p;
+    });
+  }, [newObraParam]);
+
   // Resetear página al filtrar
   useEffect(() => { setCurrentPage(1); }, [filters, selectedTags, instrFilters, stringsFilter, strictMode, sortConfig, pageSize]);
 
@@ -858,6 +887,9 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                           }
                         >
                           <option value="Todos">Todos</option>
+                          <option value="Pendiente">Pendiente</option>
+                          <option value="Para arreglar">Para arreglar</option>
+                          <option value="Entregado">Entregado</option>
                           <option value="Oficial">Oficial</option>
                           <option value="Solicitud">Solicitud</option>
                           <option value="Informativo">Informativo</option>
@@ -922,7 +954,12 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                   {loading ? (
                     <div className="p-20 text-center text-indigo-500"><IconLoader className="animate-spin inline mr-2" /> Cargando...</div>
                   ) : paginatedWorks.map((work) => (
-                    <div key={work.id} className="grid gap-4 px-4 py-3 items-center hover:bg-slate-50 transition-colors group text-sm" style={{ gridTemplateColumns: getGridTemplate() }}>
+                    <div
+                      key={work.id}
+                      className={`grid gap-4 px-4 py-3 items-center transition-colors group text-sm ${work.estado === "Entregado" ? "bg-sky-50/80 hover:bg-sky-100/80 border-l-4 border-sky-400" : "hover:bg-slate-50"}`}
+                      style={{ gridTemplateColumns: getGridTemplate() }}
+                      title={work.estado === "Entregado" ? "Pendiente de validación por Archivista" : undefined}
+                    >
                       {visibleColumns.compositor && <div className="truncate font-medium text-slate-700">{work.compositor_full || <span className="text-slate-300 italic">-</span>}</div>}
                       {visibleColumns.obra && (
                         <div className="min-w-0 flex flex-col justify-center gap-1 w-full">
@@ -976,13 +1013,25 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                                 </span>
                               )}
                             </div>
+                          ) : work.estado === "Para arreglar" ? (
+                            <span className="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-bold border border-amber-200">
+                              Para arreglar
+                            </span>
+                          ) : work.estado === "Entregado" ? (
+                            <span className="bg-sky-100 text-sky-800 text-[10px] px-2 py-0.5 rounded-full font-bold border border-sky-200" title="Revisión Archivista">
+                              Entregado
+                            </span>
                           ) : work.estado === "Informativo" ? (
                             <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full font-bold border border-blue-200">
                               Informativo
                             </span>
+                          ) : work.estado === "Oficial" || work.estado === "Pendiente" ? (
+                            <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full border border-slate-200">
+                              {work.estado}
+                            </span>
                           ) : (
                             <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full border border-slate-200">
-                              Oficial
+                              {work.estado || "Oficial"}
                             </span>
                           )}
                         </div>

@@ -16,6 +16,30 @@ import {
   IconEdit,
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
+import SearchableSelect from "../../components/ui/SearchableSelect";
+
+// Roles asignables en Gestión de Usuarios (multi-selección, alineado con AuthContext)
+const ROLES_OPTIONS = [
+  { id: "personal", label: "👤 Personal" },
+  { id: "consulta_personal", label: "👁️ Consulta Personal" },
+  { id: "consulta_general", label: "👁️ Consulta General" },
+  { id: "musico", label: "🎵 Músico" },
+  { id: "difusion", label: "📢 Difusión" },
+  { id: "arreglador", label: "📝 Arreglador" },
+  { id: "archivista", label: "📁 Archivista" },
+  { id: "editor", label: "✏️ Editor" },
+  { id: "coord_general", label: "⚙️ Coord. General" },
+  { id: "produccion_general", label: "🎬 Producción General" },
+  { id: "director", label: "🎼 Director" },
+  { id: "admin", label: "🛡️ Administrador" },
+];
+
+function normalizeRolSistema(rolSistema) {
+  if (rolSistema == null) return [];
+  if (Array.isArray(rolSistema)) return rolSistema.map((r) => String(r).trim()).filter(Boolean);
+  const s = String(rolSistema).trim();
+  return s ? [s] : [];
+}
 
 export default function UsersManager({ supabase }) {
   const [integrantes, setIntegrantes] = useState([]);
@@ -37,7 +61,7 @@ export default function UsersManager({ supabase }) {
     apellido: "",
     mail: "",
     clave_acceso: "",
-    rol_sistema: "personal",
+    rol_sistema: ["personal"],
   });
   const [creating, setCreating] = useState(false);
 
@@ -183,7 +207,7 @@ export default function UsersManager({ supabase }) {
         apellido: "",
         mail: "",
         clave_acceso: "",
-        rol_sistema: "personal",
+        rol_sistema: ["personal"],
       });
     }
   };
@@ -194,14 +218,17 @@ export default function UsersManager({ supabase }) {
     );
     setIntegrantes(updatedList);
 
+    const payload = field === "rol_sistema" && Array.isArray(value) ? { rol_sistema: value } : { [field]: value };
     const { error } = await supabase
       .from("integrantes")
-      .update({ [field]: value })
+      .update(payload)
       .eq("id", userId);
 
     if (error) {
-      alert("Error actualizando: " + error.message);
+      toast.error("Error actualizando: " + error.message);
       fetchData();
+    } else if (field === "rol_sistema") {
+      toast.success("Roles actualizados");
     }
   };
 
@@ -314,24 +341,19 @@ export default function UsersManager({ supabase }) {
                   }
                 />
               </div>
-              <div className="col-span-1">
-                <label className="label-text">Rol Inicial</label>
-                <select
-                  className="input-field"
-                  value={newMember.rol_sistema}
-                  onChange={(e) =>
-                    setNewMember({ ...newMember, rol_sistema: e.target.value })
+              <div className="col-span-2">
+                <label className="label-text">Roles de sistema (varios permitidos)</label>
+                <SearchableSelect
+                  options={ROLES_OPTIONS}
+                  value={Array.isArray(newMember.rol_sistema) ? newMember.rol_sistema : [newMember.rol_sistema || "personal"]}
+                  onChange={(ids) =>
+                    setNewMember({ ...newMember, rol_sistema: ids && ids.length ? ids : ["personal"] })
                   }
-                >
-                  <option value="personal">
-                    👤 Personal
-                  </option>
-                  <option value="consulta_general">👁️ Consulta General</option>
-                  {/* NUEVA OPCIÓN */}
-                  <option value="difusion">📢 Difusión</option>
-                  <option value="editor">✏️ Editor</option>
-                  <option value="admin">🛡️ Administrador</option>
-                </select>
+                  placeholder="Seleccionar roles..."
+                  isMulti
+                  className="input-field min-h-[38px]"
+                  dropdownMinWidth={280}
+                />
               </div>
               <div className="col-span-2 mt-4">
                 <button
@@ -429,35 +451,18 @@ export default function UsersManager({ supabase }) {
                       </div>
                     </td>
 
-                    <td className="p-4">
-                      <select
-                        className={`border rounded px-2 py-1 text-xs font-bold uppercase cursor-pointer outline-none w-full ${
-                          u.rol_sistema === "admin"
-                            ? "bg-purple-100 text-purple-700 border-purple-200"
-                            : u.rol_sistema === "editor"
-                              ? "bg-indigo-100 text-indigo-700 border-indigo-200"
-                              : u.rol_sistema === "difusion"
-                                ? "bg-amber-100 text-amber-700 border-amber-200" // Estilo para Difusión
-                                : u.rol_sistema === "personal" || u.rol_sistema === "consulta_personal"
-                                  ? "bg-blue-100 text-blue-700 border-blue-200"
-                                  : "bg-slate-100 text-slate-600 border-slate-200"
-                        }`}
-                        value={u.rol_sistema === "consulta_personal" ? "personal" : (u.rol_sistema || "personal")}
-                        onChange={(e) =>
-                          handleUpdateUser(u.id, "rol_sistema", e.target.value)
+                    <td className="p-4 min-w-[200px]">
+                      <SearchableSelect
+                        options={ROLES_OPTIONS}
+                        value={normalizeRolSistema(u.rol_sistema)}
+                        onChange={(ids) =>
+                          handleUpdateUser(u.id, "rol_sistema", ids && ids.length ? ids : ["personal"])
                         }
-                      >
-                        <option value="personal">
-                          👤 Personal
-                        </option>
-                        <option value="consulta_general">
-                          👁️ Consulta General
-                        </option>
-                        {/* NUEVA OPCIÓN */}
-                        <option value="difusion">📢 Difusión</option>
-                        <option value="editor">✏️ Editor</option>
-                        <option value="admin">🛡️ Administrador</option>
-                      </select>
+                        placeholder="Roles..."
+                        isMulti
+                        className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white min-h-[36px] w-full outline-none focus:ring-2 focus:ring-indigo-500"
+                        dropdownMinWidth={280}
+                      />
                     </td>
 
                     <td className="p-4">

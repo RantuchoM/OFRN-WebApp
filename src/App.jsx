@@ -6,7 +6,7 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { AuthProvider, useAuth } from "./context/AuthContext";
+import { AuthProvider, useAuth, getRolesDisplay } from "./context/AuthContext";
 import { supabase } from "./services/supabase";
 import ReloadPrompt from "./components/ui/ReloadPrompt";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -17,6 +17,7 @@ import EnsemblesView from "./views/Ensembles/EnsemblesView";
 import MusiciansView from "./views/Musicians/MusiciansView";
 import LocationsView from "./views/Locations/LocationsView";
 import RepertoireView from "./views/Repertoire/RepertoireView";
+import ArreglosDashboard from "./views/Arreglos/ArreglosDashboard";
 import DataView from "./views/Data/DataView";
 import UsersManager from "./views/Users/UsersManager";
 import AgendaGeneral from "./views/Giras/AgendaGeneral";
@@ -303,8 +304,13 @@ const ProtectedApp = ({ initialTab }) => {
     isPersonal,
     isGuest,
     realUser,
-    isDifusion
+    isDifusion,
+    isArreglador,
+    isArchivista,
+    role,
+    roles,
   } = useAuth();
+  const userRole = role ?? "";
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -436,7 +442,6 @@ const ProtectedApp = ({ initialTab }) => {
     return () => clearInterval(interval);
   }, [user]);
 
-  const userRole = user?.rol_sistema || "";
   const isDirector = userRole === "director";
 
   const isGuestRole = userRole === "invitado";
@@ -483,7 +488,7 @@ const ProtectedApp = ({ initialTab }) => {
         .then(({ data }) => data && setCatalogoInstrumentos(data));
     }
     // Coordinación solo para: tabla ensambles_coordinadores o roles que la incluyen (admin, produccion_general, coord_general)
-    const roleGrantsCoordinator = ["admin", "produccion_general", "coord_general"].includes(userRole);
+    const roleGrantsCoordinator = (roles || []).some((r) => ["admin", "produccion_general", "coord_general"].includes(r));
     if (roleGrantsCoordinator) {
       setIsEnsembleCoordinator(true);
     } else {
@@ -493,13 +498,14 @@ const ProtectedApp = ({ initialTab }) => {
         .eq("id_integrante", user.id)
         .then(({ count }) => count > 0 && setIsEnsembleCoordinator(true));
     }
-  }, [user, userRole]);
+  }, [user, userRole, roles]);
 
   const tabToMode = {
     dashboard: "DASHBOARD",
     giras: "GIRAS",
     agenda: "FULL_AGENDA",
     repertorio: "REPERTOIRE",
+    arreglos: "ARREGLOS",
     ensambles: "ENSAMBLES",
     musicos: "MUSICIANS",
     usuarios: "USERS",
@@ -576,41 +582,44 @@ const ProtectedApp = ({ initialTab }) => {
       id: "DASHBOARD",
       label: "Dashboard",
       icon: <IconSpiralNotebook size={20} />,
-      show: (isManagement || isDirector) && !isDifusion,
+      show: isManagement || isDirector,
     },
     {
       id: "FULL_AGENDA",
       label: "Agenda General",
       icon: <IconCalendar size={20} />,
-      show: userRole !== "invitado" && !isDifusion,
+      show: !isGuest && (isPersonal || isEditor || isManagement),
     },
     { id: "GIRAS", label: "Giras", icon: <IconMap size={20} />, show: true },
     {
       id: "ENSAMBLES",
       label: "Ensambles",
       icon: <IconMusic size={20} />,
-      show: isManagement && !isDifusion,
+      show: isManagement,
     },
     {
       id: "COORDINACION",
       label: "Coordinación",
       icon: <IconList size={20} />,
-      show: isEnsembleCoordinator && !isDifusion,
+      show: isEnsembleCoordinator,
     },
     {
       id: "REPERTOIRE",
       label: "Repertorio",
       icon: <IconFileText size={20} />,
-      show:
-        userRole !== "invitado" &&
-        (!isPersonal || userRole === "archivista") &&
-        !isDifusion,
+      show: !isGuest && (isPersonal || isArchivista || isEditor || isManagement),
+    },
+    {
+      id: "ARREGLOS",
+      label: "Mis Arreglos",
+      icon: <IconMusic size={20} />,
+      show: isAdmin || isArreglador || user?.mail === "martin.rantucho@gmail.com",
     },
     {
       id: "MUSICIANS",
       label: "Personas",
       icon: <IconUsers size={20} />,
-      show: (isManagement || isDirector) && !isDifusion,
+      show: isManagement || isDirector,
     },
     {
       id: "DATA",
@@ -622,37 +631,37 @@ const ProtectedApp = ({ initialTab }) => {
       id: "MANAGEMENT",
       label: "Gestión",
       icon: <IconSettingsWheel size={20} />,
-      show: userRole === "admin" || userRole === "editor",
+      show: isAdmin || isEditor,
     },
     {
       id: "NEWS_MANAGER",
       label: "Comunicación",
       icon: <IconBell size={20} />,
-      show: isManagement&& !isDifusion,
+      show: isManagement,
     },
     {
       id: "MANUAL_INDEX",
       label: "Manual de Usuario",
       icon: <IconBookOpen size={20} />,
-      show: userRole !== "invitado" && !isDifusion,
+      show: !isGuest && (isPersonal || isEditor || isManagement),
     },
     {
       id: "MANUAL_ADMIN",
       label: "Editor Manual",
       icon: <IconEdit size={20} />,
-      show: isManagement && !isDifusion,
+      show: isManagement,
     },
     {
       id: "USERS",
       label: "Usuarios",
       icon: <IconSettings size={20} />,
-      show: userRole === "admin", 
+      show: isAdmin,
     },
     {
       id: "FEEDBACK_ADMIN",
       label: "Feedback",
       icon: <IconBulb size={20} />,
-      show: userRole !== "invitado",
+      show: !isGuest,
     },
   ];
   const visibleMenuItems = allMenuItems.filter((i) => i.show);
@@ -690,6 +699,13 @@ const ProtectedApp = ({ initialTab }) => {
       case "REPERTOIRE":
         return (
           <RepertoireView
+            {...commonProps}
+            catalogoInstrumentos={catalogoInstrumentos}
+          />
+        );
+      case "ARREGLOS":
+        return (
+          <ArreglosDashboard
             {...commonProps}
             catalogoInstrumentos={catalogoInstrumentos}
           />
@@ -906,7 +922,7 @@ const ProtectedApp = ({ initialTab }) => {
                       options={orchestraList.map((u) => ({
                         id: u.id,
                         label: `${u.apellido}, ${u.nombre}`,
-                        subLabel: u.rol_sistema,
+                        subLabel: getRolesDisplay(u.rol_sistema),
                       }))}
                       value=""
                       onChange={(id) => {

@@ -69,6 +69,7 @@ const CommentItem = ({
   comment,
   isChild,
   user,
+  isAdmin,
   lastReadAt,
   usersList,
   onReply,
@@ -77,7 +78,7 @@ const CommentItem = ({
   onUpdateDate,
   editingDateId,
   setEditingDateId,
-  onPreviewImage, // <--- Nueva prop
+  onPreviewImage,
 }) => {
   const isMine = comment.id_autor === user.id;
   const isUnread =
@@ -183,7 +184,7 @@ const CommentItem = ({
                   <IconCheckCircle size={14} />
                 </button>
               )}
-              {(isMine || user.rol_sistema === "admin") && !isChild && (
+              {(isMine || isAdmin) && !isChild && (
                 <button
                   onClick={() => onDelete(comment.id, comment.deleted)}
                   className={`p-1 rounded ${comment.deleted ? "text-indigo-400 hover:bg-indigo-50" : "text-slate-300 hover:text-red-500 hover:bg-red-50"}`}
@@ -242,7 +243,7 @@ const CommentItem = ({
                   <div
                     className={`text-[9px] px-1.5 py-0.5 rounded border flex items-center gap-1 cursor-pointer hover:shadow-sm transition-colors ${deadlineClass}`}
                     onClick={() => {
-                      if (isMine || user.rol_sistema === "admin")
+                      if (isMine || isAdmin)
                         setEditingDateId(comment.id);
                     }}
                     title="Clic para editar fecha"
@@ -251,7 +252,7 @@ const CommentItem = ({
                     {comment.fecha_limite
                       ? `Vence: ${format(parseISO(comment.fecha_limite), "dd/MM/yyyy")}`
                       : "Sin fecha"}
-                    {(isMine || user.rol_sistema === "admin") && (
+                    {(isMine || isAdmin) && (
                       <IconEdit
                         size={8}
                         className="opacity-0 group-hover/date:opacity-50 ml-1"
@@ -278,6 +279,7 @@ const CommentItem = ({
               comment={child}
               isChild={true}
               user={user}
+              isAdmin={isAdmin}
               lastReadAt={lastReadAt}
               usersList={usersList}
               onReply={onReply}
@@ -286,7 +288,7 @@ const CommentItem = ({
               onUpdateDate={onUpdateDate}
               editingDateId={editingDateId}
               setEditingDateId={setEditingDateId}
-              onPreviewImage={onPreviewImage} // Propagar función
+              onPreviewImage={onPreviewImage}
             />
           ))}
         </div>
@@ -303,7 +305,7 @@ export default function CommentsManager({
   title,
   onClose,
 }) {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [comments, setComments] = useState([]);
   const [replyingTo, setReplyingTo] = useState(null);
   const [newComment, setNewComment] = useState("");
@@ -592,6 +594,7 @@ export default function CommentsManager({
             key={thread.id}
             comment={thread}
             user={user}
+            isAdmin={isAdmin}
             lastReadAt={lastReadAt}
             usersList={usersList}
             onReply={setReplyingTo}
@@ -600,7 +603,7 @@ export default function CommentsManager({
             onUpdateDate={updateCommentDate}
             editingDateId={editingDateId}
             setEditingDateId={setEditingDateId}
-            onPreviewImage={setPreviewImage} // PASAR SETTER
+            onPreviewImage={setPreviewImage}
           />
         ))}
       </div>

@@ -75,7 +75,8 @@ export default function GiraCard({
   // --- LÓGICA DE ROLES PARA UI ---
   const normalizedRole = userRole?.toLowerCase().trim();
   const isDifusionRole = normalizedRole === "difusion";
-  const showQuickAccessSidebar = !isEditor && !isDifusionRole;
+  // Barra lateral móvil universal: editores y vista personal; no para rol difusión
+  const showQuickAccessSidebar = !isDifusionRole;
 
   const handleOpenMyRooming = async () => {
     // 1. Usamos el objeto 'user' que viene de useAuth()
@@ -462,50 +463,92 @@ export default function GiraCard({
       className={`relative rounded-xl border p-0 overflow-visible transition-all duration-700 ease-out ${isMenuOpen ? "z-50" : "z-0"} ${cardClasses} ${isHighlighted ? "ring-4 ring-offset-2 ring-indigo-200 z-40" : "shadow-sm hover:shadow-md"}`}
     >
       {/* VISTA MÓVIL */}
-      <div className="md:hidden">
+      <div className="md:hidden relative">
         {showQuickAccessSidebar ? (
-          <div className="absolute right-0 top-0 h-40 w-11 bg-white/40 backdrop-blur-sm border-l border-black/5 flex flex-col items-center justify-evenly py-1 z-30 rounded-r-xl">
-            <button
-              onClick={() => updateView("AGENDA", gira.id)}
-              className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-fixed-indigo-600 transition-colors"
-            >
-              <IconCalendar size={14} />
-            </button>
-            <button
-              onClick={() => updateView("REPERTOIRE", gira.id, "my_parts")}
-              className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-fuchsia-600 transition-colors"
-            >
-              <IconMusic size={14} />
-            </button>
-            <button
-              onClick={() =>
-                gira.google_drive_folder_id &&
-                window.open(
-                  `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
-                  "_blank",
-                )
-              }
-              className={`p-2 rounded-full transition-colors ${gira.google_drive_folder_id ? "text-slate-500 hover:bg-white hover:text-green-600" : "text-slate-300 cursor-not-allowed"}`}
-            >
-              <IconDrive size={14} />
-            </button>
-            <button
-              onClick={() => updateView("MEALS_PERSONAL", gira.id)}
-              className={`p-2 rounded-full transition-colors hover:bg-white ${mealConfig.color} ${mealConfig.animate ? "animate-pulse" : ""}`}
-            >
-              <IconUtensils size={14} />
-            </button>
-            {/* NUEVO BOTÓN DE HOTEL EN MÓVIL */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleOpenMyRooming();
-              }}
-              className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-indigo-600 transition-colors"
-              title="Mi Rooming"
-            >
-              <IconHotel size={14} />
-            </button>
+          <div className="absolute right-0 top-0 h-full w-[5.25rem] bg-white/40 backdrop-blur-sm border-l border-black/5 flex flex-row z-30 rounded-r-xl">
+            {/* Columna izquierda: menú tres puntos (arriba) y comentarios (abajo) */}
+            <div className="w-10 flex flex-col items-center justify-between py-1 shrink-0">
+              <div
+                className="p-2 rounded-full hover:bg-white transition-colors [&_button]:text-slate-500 [&_button:hover]:text-slate-700"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <GiraActionMenu
+                  gira={gira}
+                  onViewChange={handleViewChange}
+                  isEditor={isEditor}
+                  isPersonal={isPersonal}
+                  isDifusion={isDifusion}
+                  userRole={userRole}
+                  onEdit={() => startEdit(gira)}
+                  onDelete={onDelete}
+                  onGlobalComments={() => setGlobalCommentsGiraId(gira.id)}
+                  isOpen={isMenuOpen}
+                  onToggle={() => setActiveMenuId(isMenuOpen ? null : gira.id)}
+                  onClose={() => setActiveMenuId(null)}
+                  onMove={() => onMove(gira)}
+                  onDuplicate={() => onDuplicate(gira)}
+                  onMyRooming={handleOpenMyRooming}
+                />
+              </div>
+              <div className="p-2 rounded-full hover:bg-white transition-colors [&_button]:text-slate-500 [&_button:hover]:text-fixed-indigo-600">
+                <CommentButton
+                  supabase={supabase}
+                  entityType="GIRA"
+                  entityId={gira.id}
+                  onClick={() =>
+                    setCommentsState({
+                      type: "GIRA",
+                      id: gira.id,
+                      title: gira.nombre_gira,
+                    })
+                  }
+                  className="!p-2 rounded-full hover:!bg-white transition-colors"
+                />
+              </div>
+            </div>
+            {/* Columna derecha: 5 iconos de acceso rápido */}
+            <div className="w-11 flex flex-col items-center justify-evenly py-1 flex-1 min-h-0 border-l border-black/5">
+              <button
+                onClick={() => updateView("AGENDA", gira.id)}
+                className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-fixed-indigo-600 transition-colors"
+              >
+                <IconCalendar size={14} />
+              </button>
+              <button
+                onClick={() => updateView("REPERTOIRE", gira.id, "my_parts")}
+                className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-fuchsia-600 transition-colors"
+              >
+                <IconMusic size={14} />
+              </button>
+              <button
+                onClick={() =>
+                  gira.google_drive_folder_id &&
+                  window.open(
+                    `https://drive.google.com/drive/folders/${gira.google_drive_folder_id}`,
+                    "_blank",
+                  )
+                }
+                className={`p-2 rounded-full transition-colors ${gira.google_drive_folder_id ? "text-slate-500 hover:bg-white hover:text-green-600" : "text-slate-300 cursor-not-allowed"}`}
+              >
+                <IconDrive size={14} />
+              </button>
+              <button
+                onClick={() => updateView("MEALS_PERSONAL", gira.id)}
+                className={`p-2 rounded-full transition-colors hover:bg-white ${mealConfig.color} ${mealConfig.animate ? "animate-pulse" : ""}`}
+              >
+                <IconUtensils size={14} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenMyRooming();
+                }}
+                className="p-2 rounded-full text-slate-500 hover:bg-white hover:text-indigo-600 transition-colors"
+                title="Mi Rooming"
+              >
+                <IconHotel size={14} />
+              </button>
+            </div>
           </div>
         ) : (
           <div className="absolute top-2 right-2 z-30 flex items-center gap-1">
@@ -518,6 +561,7 @@ export default function GiraCard({
                 onViewChange={handleViewChange}
                 isEditor={isEditor}
                 isPersonal={isPersonal}
+                isDifusion={isDifusion}
                 userRole={userRole}
                 onEdit={() => startEdit(gira)}
                 onDelete={onDelete}
@@ -550,7 +594,7 @@ export default function GiraCard({
                 e.stopPropagation();
                 scrollSlide(1);
               }}
-              className={`absolute top-1/2 -translate-y-1/2 z-20 text-black/20 hover:text-black/50 p-1 ${showQuickAccessSidebar ? "right-12" : "right-1"}`}
+              className={`absolute top-1/2 -translate-y-1/2 z-20 text-black/20 hover:text-black/50 p-1 ${showQuickAccessSidebar ? "right-[5.25rem]" : "right-1"}`}
             >
               <IconChevronDown size={20} className="-rotate-90" />
             </button>
@@ -558,7 +602,7 @@ export default function GiraCard({
           <div
             ref={scrollRef}
             onScroll={handleScroll}
-            className={`flex w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth ${showQuickAccessSidebar ? "pr-11" : ""}`}
+            className={`flex w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth ${showQuickAccessSidebar ? "pr-[5.25rem]" : ""}`}
           >
             <div className="min-w-full w-full h-full snap-center p-3 flex flex-col justify-between relative">
               <div className="flex items-center gap-2 text-[14px] font-bold uppercase tracking-wide opacity-60 truncate pr-4">
@@ -634,7 +678,7 @@ export default function GiraCard({
             </div>
           </div>
           <div
-            className={`absolute bottom-1 left-0 flex justify-center gap-1 ${showQuickAccessSidebar ? "right-11" : "right-0"}`}
+            className={`absolute bottom-1 left-0 flex justify-center gap-1 ${showQuickAccessSidebar ? "right-[5.25rem]" : "right-0"}`}
           >
             {[0, 1, 2].map((i) => (
               <div
@@ -644,23 +688,6 @@ export default function GiraCard({
             ))}
           </div>
 
-          {!showQuickAccessSidebar && !isDifusionRole && (
-            <div className="absolute bottom-2 right-2 z-30">
-              <CommentButton
-                supabase={supabase}
-                entityType="GIRA"
-                entityId={gira.id}
-                onClick={() =>
-                  setCommentsState({
-                    type: "GIRA",
-                    id: gira.id,
-                    title: gira.nombre_gira,
-                  })
-                }
-                className="bg-white/80 backdrop-blur shadow-sm border border-black/10 p-1.5 rounded-full text-slate-400 hover:text-fixed-indigo-600"
-              />
-            </div>
-          )}
         </div>
       </div>
       {/* VISTA ESCRITORIO */}
@@ -745,6 +772,7 @@ export default function GiraCard({
               onViewChange={handleViewChange}
               isEditor={isEditor}
               isPersonal={isPersonal}
+              isDifusion={isDifusion}
               userRole={userRole}
               onEdit={() => startEdit(gira)}
               onDelete={onDelete}

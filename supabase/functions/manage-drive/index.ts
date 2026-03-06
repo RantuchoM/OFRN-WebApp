@@ -14,6 +14,7 @@ const OBRAS_REAL_STORAGE_ID = "1p2mIZhko_BGDKwxJUwzhb9pl8JXChFvO";
 const ROOT_FOLDER_ID = "1vlIkMhbc61ZPHRuXwbwVYi2E42rGok9z";
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const GIRAS_ROOT_ID = "1PRWEbGKUBxfhF9HIf2DgpOWKDRwslsCc";
+const ARCHIVO_OBRAS_FOLDER_ID = "10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi";
 // =================================================================================
 // HELPERS GENERALES
 // =================================================================================
@@ -42,6 +43,51 @@ const extractStoragePath = (url: string, bucket: string) => {
   const parts = url.split(`${bucket}/`);
   return parts.length > 1 ? parts[1] : null;
 };
+
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+/** Copia recursivamente el contenido de una carpeta Drive a otra carpeta destino (solo contenido, no la carpeta raíz). */
+async function copyFolderContentsRecursive(
+  drive: any,
+  sourceFolderId: string,
+  destParentId: string,
+  opts: { supportsAllDrives?: boolean } = {}
+): Promise<void> {
+  const listOpts: any = {
+    q: `'${sourceFolderId}' in parents and trashed = false`,
+    fields: "nextPageToken, files(id, name, mimeType)",
+    pageSize: 100,
+    ...opts,
+  };
+  let pageToken: string | undefined;
+  do {
+    const res = await drive.files.list({ ...listOpts, pageToken });
+    const files = res.data?.files || [];
+    for (const f of files) {
+      const name = (f.name || "sin_nombre").slice(0, 255);
+      if (f.mimeType === FOLDER_MIME) {
+        const newFolder = await drive.files.create({
+          requestBody: {
+            name,
+            mimeType: FOLDER_MIME,
+            parents: [destParentId],
+          },
+          fields: "id",
+          ...opts,
+        });
+        await copyFolderContentsRecursive(drive, f.id, newFolder.data.id, opts);
+      } else {
+        await drive.files.copy({
+          fileId: f.id,
+          requestBody: { name, parents: [destParentId] },
+          fields: "id",
+          ...opts,
+        });
+      }
+    }
+    pageToken = res.data?.nextPageToken;
+  } while (pageToken);
+}
 
 const getAuthClient = () => {
   const clientId = Deno.env.get("G_CLIENT_ID");
@@ -541,7 +587,8 @@ serve(async (req) => {
       layout, sources, fileName, programId, folderUrl,
       folderName, parentId, fileBase64, mimeType, sourceUrl, targetParentId,
       newName, nombreSet, obraTitulo, targetDriveId, fileId, targetEmail, role,
-      giraId
+      giraId,
+      id_obra, link_origen, titulo: tituloObra
     } = body;
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -549,6 +596,83 @@ serve(async (req) => {
     const tokenResponse = await authClient.getAccessToken();
     const token = tokenResponse.token;
     const drive = google.drive({ version: "v3", auth: authClient });
+
+    // --- ACCIÓN: ENTREGAR OBRA AL ARCHIVO (vista arreglador: copia real de archivos + actualiza obras + mail) ---
+    if (action === "entregar_obra_archivo") {
+      if (!id_obra || !link_origen) throw new Error("Faltan id_obra o link_origen");
+      const sourceId = extractFileId(link_origen);
+      if (!sourceId) throw new Error("Link de Drive inválido");
+
+      const { data: obra, error: obraError } = await supabase
+        .from("obras")
+        .select("id, titulo")
+        .eq("id", id_obra)
+        .single();
+      if (obraError || !obra) throw new Error("Obra no encontrada");
+      const tituloParaMail = tituloObra || (obra.titulo || "").replace(/<[^>]*>/g, "").trim() || "Sin título";
+      const nombreCarpeta = tituloParaMail.slice(0, 200).replace(/[/\\?*:\[\]]/g, "_");
+
+      const driveOpts = { supportsAllDrives: true, includeItemsFromAllDrives: true };
+
+      try {
+        const nuevaCarpeta = await drive.files.create({
+          requestBody: {
+            name: nombreCarpeta,
+            mimeType: FOLDER_MIME,
+            parents: [ARCHIVO_OBRAS_FOLDER_ID],
+          },
+          fields: "id, webViewLink",
+        });
+        const destFolderId = nuevaCarpeta.data.id;
+
+        await copyFolderContentsRecursive(drive, sourceId, destFolderId, driveOpts);
+
+        const meta = await drive.files.get({
+          fileId: destFolderId,
+          fields: "webViewLink",
+          ...driveOpts,
+        });
+        const nuevoEnlace = meta.data.webViewLink || `https://drive.google.com/drive/folders/${destFolderId}`;
+
+        const { error: updateError } = await supabase
+          .from("obras")
+          .update({ link_drive: nuevoEnlace, estado: "Entregado" })
+          .eq("id", id_obra);
+        if (updateError) throw updateError;
+
+        const supabaseUrl = Deno.env.get("SUPABASE_URL");
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        if (supabaseUrl && serviceKey) {
+          await fetch(`${supabaseUrl}/functions/v1/mails_produccion`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${serviceKey}`,
+            },
+            body: JSON.stringify({
+              action: "enviar_mail",
+              templateId: "obra_entregada",
+              email: "ofrn.archivo@gmail.com",
+              nombre: "Sistema",
+              gira: null,
+              detalle: {
+                titulo: tituloParaMail,
+                id_obra: id_obra,
+                link_drive: nuevoEnlace,
+              },
+            }),
+          }).catch((e) => console.error("[entregar_obra_archivo] Error enviando mail:", e));
+        }
+
+        return new Response(
+          JSON.stringify({ success: true, link_drive: nuevoEnlace }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (e: any) {
+        console.error("[entregar_obra_archivo]:", e?.message);
+        throw new Error(e?.message || "Error al copiar o actualizar");
+      }
+    }
 
     // --- ACCIÓN: CREAR CARPETA DE VIÁTICOS/GIRA (Insertar esto) ---
     if (action === "create_viaticos_folder") {

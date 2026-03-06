@@ -25,6 +25,7 @@ const GiraActionMenu = ({
   onViewChange,
   isEditor,
   isPersonal,
+  isDifusion = false,
   userRole,
   onEdit,
   onDelete,
@@ -40,7 +41,8 @@ const GiraActionMenu = ({
   const menuRef = useRef(null);
 
   const normalizedRole = userRole?.toLowerCase().trim();
-  const isOnlyDifusion = normalizedRole === "difusion";
+  // Solo difusión: tiene rol difusión y no es editor → en el menú solo ve la opción Difusión
+  const isOnlyDifusion = isDifusion && !isEditor;
   const isGuest = normalizedRole === "invitado";
 
   useEffect(() => {
@@ -208,6 +210,21 @@ const GiraActionMenu = ({
               </CategoryItem>
             )}
 
+            {/* Difusión: visible para editor O para rol difusión (en tres puntos) */}
+            {(isEditor || isDifusion) && (
+              <CategoryItem
+                label="Difusión"
+                icon={IconMegaphone}
+                categoryKey="difusion"
+              >
+                <SubMenuItem
+                  icon={IconMegaphone}
+                  label="Material de Prensa"
+                  onClick={() => onViewChange("DIFUSION")}
+                />
+              </CategoryItem>
+            )}
+
             {isEditor && (
               <>
                 <CategoryItem
@@ -219,19 +236,6 @@ const GiraActionMenu = ({
                     icon={IconUsers}
                     label="Gestión de Roster"
                     onClick={() => onViewChange("ROSTER")}
-                  />
-                </CategoryItem>
-
-                {/* ESTA ES LA ÚNICA CATEGORÍA QUE VERÁ EL ROL DIFUSION */}
-                <CategoryItem
-                  label="Difusión"
-                  icon={IconMegaphone}
-                  categoryKey="difusion"
-                >
-                  <SubMenuItem
-                    icon={IconMegaphone}
-                    label="Material de Prensa"
-                    onClick={() => onViewChange("DIFUSION")}
                   />
                 </CategoryItem>
 

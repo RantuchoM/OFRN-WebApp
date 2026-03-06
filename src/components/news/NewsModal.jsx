@@ -116,7 +116,12 @@ export default function NewsModal({ supabase }) {
         .order("created_at", { ascending: false })
         .limit(20);
 
-      const isAdminOrEditor = ["admin", "editor", "director", "coord_general"].includes(user?.rol_sistema);
+      const roles = (() => {
+        const r = user?.rol_sistema;
+        if (r == null) return [];
+        return Array.isArray(r) ? r.map((x) => String(x).toLowerCase().trim()) : [String(r).toLowerCase().trim()];
+      })();
+      const isAdminOrEditor = roles.some((role) => ["admin", "editor", "director", "coord_general"].includes(role));
       if (!isAdminOrEditor) {
         query = query.eq("visibilidad", "todos");
       }

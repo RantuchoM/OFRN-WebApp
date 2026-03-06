@@ -714,10 +714,12 @@ CREATE TABLE public.obras (
   fecha_esperada date,
   id_folder_arcos text,
   id_usuario_carga bigint,
+  id_integrante_arreglador bigint,
   CONSTRAINT obras_pkey PRIMARY KEY (id),
   CONSTRAINT obras_id_arreglador_fkey FOREIGN KEY (id_arreglador) REFERENCES public.compositores(id),
   CONSTRAINT obras_solicitado_por_fkey FOREIGN KEY (solicitado_por) REFERENCES auth.users(id),
-  CONSTRAINT obras_id_usuario_carga_fkey FOREIGN KEY (id_usuario_carga) REFERENCES public.integrantes(id)
+  CONSTRAINT obras_id_usuario_carga_fkey FOREIGN KEY (id_usuario_carga) REFERENCES public.integrantes(id),
+  CONSTRAINT obras_id_integrante_arreglador_fkey FOREIGN KEY (id_integrante_arreglador) REFERENCES public.integrantes(id)
 );
 CREATE TABLE public.obras_arcos (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,

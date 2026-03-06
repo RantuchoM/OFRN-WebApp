@@ -251,6 +251,7 @@ export default function WorkForm({
 }) {
   const { user } = useAuth();
   const isProgramContext = context === "program";
+  const DEFAULT_ARREGLADOR_INTEGRANTE_ID = 4340365;
 
   const [formData, setFormData] = useState({
     id: null,
@@ -261,6 +262,8 @@ export default function WorkForm({
     instrumentacion: "",
     anio: "",
     estado: "Solicitud",
+    id_arreglador: null,
+    id_integrante_arreglador: null,
     fecha_esperada: "",
     comentarios: "",
     observaciones: "",
@@ -276,6 +279,7 @@ export default function WorkForm({
     catalogoInstrumentos || [],
   );
   const [composersOptions, setComposersOptions] = useState([]);
+  const [integrantesArregladorOptions, setIntegrantesArregladorOptions] = useState([]);
   const [tagsOptions, setTagsOptions] = useState([]);
   const [selectedTags, setSelectedTags] = useState([]);
   const [genInstrument, setGenInstrument] = useState("");
@@ -330,9 +334,21 @@ export default function WorkForm({
     }
     toast.success("Compositor creado y vinculado");
   };
+  const fetchIntegrantesArreglador = async () => {
+    const { data } = await supabase
+      .from("integrantes")
+      .select("id, nombre, apellido, mail")
+      .order("apellido");
+    if (data)
+      setIntegrantesArregladorOptions(
+        data.map((i) => ({ id: i.id, label: `${i.apellido || ""}, ${i.nombre || ""}`.trim() || `ID ${i.id}`, mail: i.mail })),
+      );
+  };
+
   useEffect(() => {
     if (instrumentList.length === 0) fetchInstruments();
     fetchComposers();
+    fetchIntegrantesArreglador();
     fetchTagsOptions();
     if (initialData?.id) {
       fetchParticellas(initialData.id);
@@ -352,6 +368,10 @@ export default function WorkForm({
       .single();
 
     if (data) {
+      const idIntArreglador =
+        data.estado === "Para arreglar" && (data.id_integrante_arreglador == null || data.id_integrante_arreglador === "")
+          ? DEFAULT_ARREGLADOR_INTEGRANTE_ID
+          : data.id_integrante_arreglador;
       setFormData({
         ...data,
         duracion: data.duracion_segundos
@@ -359,6 +379,7 @@ export default function WorkForm({
           : "",
         anio: data.anio_composicion || "",
         fecha_esperada: data.fecha_esperada || "",
+        id_integrante_arreglador: idIntArreglador,
       });
       setSelectedComposers(
         data.obras_compositores
@@ -781,8 +802,46 @@ export default function WorkForm({
     return ["input", statusClass, baseClass].filter(Boolean).join(" ");
   };
 
+  const enviarEncargoArreglo = (obraId, tituloStr, idIntegranteArregladorVal, linkDrive, observacionesStr) => {
+    const integranteOpt = integrantesArregladorOptions.find((i) => Number(i.id) === Number(idIntegranteArregladorVal));
+    const arregladorLabel = integranteOpt ? integranteOpt.label : "";
+    const emailTo = integranteOpt?.mail || null;
+    if (!emailTo) {
+      console.warn("encargo_arreglo: sin email para integrante", idIntegranteArregladorVal);
+      toast.error("No se encontró email del arreglador para enviar el encargo.");
+      return;
+    }
+    const detalle = {
+      titulo: tituloStr,
+      arreglador: arregladorLabel,
+      id_obra: obraId,
+      link_drive: linkDrive || null,
+      observaciones: observacionesStr || null,
+    };
+    supabase.functions
+      .invoke("mails_produccion", {
+        body: {
+          action: "enviar_mail",
+          templateId: "encargo_arreglo",
+          email: emailTo,
+          bcc: ["ofrn.archivo@gmail.com"],
+          nombre: user ? `${user.nombre} ${user.apellido}` : "Sistema",
+          gira: null,
+          detalle,
+        },
+      })
+      .then(({ error }) => {
+        if (error) console.error("mails_produccion (encargo_arreglo):", error);
+        else toast.success("Mail de encargo enviado al Arreglador y al Archivista.");
+      });
+  };
+
   const saveFieldToDb = async (field, value) => {
     if (!formData.id) return;
+    if (field === "estado" && value === "Para arreglar" && !formData.id_integrante_arreglador) {
+      toast.error("Al marcar 'Para arreglar' debes asignar un Arreglador (integrante a notificar).");
+      return;
+    }
     setSaveStatus("saving");
     setFieldStatus((prev) => ({ ...prev, [field]: "saving" }));
     try {
@@ -793,13 +852,50 @@ export default function WorkForm({
         payload["anio_composicion"] = value ? parseInt(value) : null;
       else if (field === "fecha_esperada")
         payload["fecha_esperada"] = value || null;
-      else payload[field] = value === "" ? null : value;
+      else if (field === "estado") {
+        payload["estado"] = value;
+        if (value === "Para arreglar" && formData.id_integrante_arreglador)
+          payload["id_integrante_arreglador"] = formData.id_integrante_arreglador;
+      } else if (field === "id_arreglador") {
+        payload["id_arreglador"] = value ? Number(value) : null;
+      } else if (field === "id_integrante_arreglador") {
+        payload["id_integrante_arreglador"] = value ? Number(value) : null;
+      } else payload[field] = value === "" ? null : value;
 
       await supabase.from("obras").update(payload).eq("id", formData.id);
       setSaveStatus("saved");
       setFieldStatusWithReset(field, "success");
       setTimeout(() => setSaveStatus("idle"), 2000);
       if (onSave) onSave(formData.id, false);
+
+      // Encargo arreglo: solo al pasar a "Para arreglar" o al asignar integrante arreglador (no en cada guardado)
+      const acabaDePasarParaArreglar = field === "estado" && value === "Para arreglar";
+      const acabaDeAsignarArreglador = field === "id_integrante_arreglador" && value && formData.estado === "Para arreglar";
+      const idIntegranteParaMail = field === "id_integrante_arreglador" ? (value ? Number(value) : null) : formData.id_integrante_arreglador;
+      if ((acabaDePasarParaArreglar || acabaDeAsignarArreglador) && idIntegranteParaMail) {
+        enviarEncargoArreglo(
+          formData.id,
+          stripHtml(formData.titulo),
+          idIntegranteParaMail,
+          formData.link_drive,
+          (formData.observaciones || "").trim()
+        );
+      }
+
+      // manage-drive: al pasar a Entregado
+      if (field === "estado" && value === "Entregado" && (formData.link_drive || "").trim()) {
+        supabase.functions
+          .invoke("manage-drive", {
+            body: {
+              link_origen: formData.link_drive,
+              id_carpeta_destino: "10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi",
+            },
+          })
+          .then(({ error }) => {
+            if (error) console.error("manage-drive:", error);
+            else toast.success("Copia al Archivo iniciada.");
+          });
+      }
     } catch (e) {
       setSaveStatus("error");
       setFieldStatus((prev) => ({ ...prev, [field]: "error" }));
@@ -809,6 +905,21 @@ export default function WorkForm({
   const debouncedSave = useDebouncedCallback(saveFieldToDb, 1000);
 
   const updateField = (field, val) => {
+    if (field === "estado" && val === "Para arreglar") {
+      setFormData((prev) => {
+        const hasIntegrante = prev.id_integrante_arreglador != null && prev.id_integrante_arreglador !== "";
+        return {
+          ...prev,
+          estado: val,
+          id_integrante_arreglador: hasIntegrante ? prev.id_integrante_arreglador : DEFAULT_ARREGLADOR_INTEGRANTE_ID,
+        };
+      });
+      if (formData.id) {
+        debouncedSave("estado", val);
+        if (!formData.id_integrante_arreglador) saveFieldToDb("id_integrante_arreglador", DEFAULT_ARREGLADOR_INTEGRANTE_ID);
+      }
+      return;
+    }
     setFormData((prev) => ({ ...prev, [field]: val }));
     if (formData.id) debouncedSave(field, val);
   };
@@ -962,8 +1073,9 @@ export default function WorkForm({
         anio_composicion: formData.anio ? parseInt(formData.anio) : null,
         instrumentacion: calculateInstrumentation(particellas),
         estado: formData.estado,
+        id_integrante_arreglador: formData.estado === "Para arreglar" && formData.id_integrante_arreglador ? formData.id_integrante_arreglador : null,
         fecha_esperada:
-          formData.estado === "Solicitud"
+          formData.estado === "Solicitud" || formData.estado === "Para arreglar"
             ? formData.fecha_esperada || null
             : null,
         comentarios: formData.comentarios,
@@ -1049,6 +1161,16 @@ export default function WorkForm({
             if (error) console.error("Error enviando alerta de obra:", error);
           });
 
+        if (formData.estado === "Para arreglar" && formData.id_integrante_arreglador) {
+          enviarEncargoArreglo(
+            newId,
+            stripHtml(formData.titulo),
+            formData.id_integrante_arreglador,
+            formData.link_drive,
+            (formData.observaciones || "").trim()
+          );
+        }
+
         if (onSave) onSave(newId, true);
       }
     } catch (err) {
@@ -1071,7 +1193,11 @@ export default function WorkForm({
         duracion_segundos: inputToSeconds(formData.duracion),
         anio_composicion: formData.anio ? parseInt(formData.anio) : null,
         estado: formData.estado,
-        fecha_esperada: formData.estado === "Solicitud" ? (formData.fecha_esperada || null) : null,
+        id_integrante_arreglador: formData.estado === "Para arreglar" && formData.id_integrante_arreglador ? formData.id_integrante_arreglador : null,
+        fecha_esperada:
+          formData.estado === "Solicitud" || formData.estado === "Para arreglar"
+            ? (formData.fecha_esperada || null)
+            : null,
         observaciones: formData.observaciones || null,
         comentarios: formData.comentarios || null,
         link_youtube: formData.link_youtube || null,
@@ -1383,11 +1509,49 @@ export default function WorkForm({
               value={formData.estado ?? ""}
               onChange={(e) => updateField("estado", e.target.value)}
             >
-              <option value="Oficial">Oficial</option>
+              <option value="Pendiente">Pendiente</option>
+              <option value="Para arreglar">Para arreglar</option>
+              <option value="Entregado">Entregado (Revisión Archivista)</option>
+              <option value="Oficial">Oficial (Disponible)</option>
               <option value="Solicitud">Solicitud</option>
               <option value="Informativo">Informativo</option>
             </select>
           </div>
+
+          {formData.estado === "Para arreglar" && (
+            <div className="w-full space-y-2 animate-in slide-in-from-top-2 fade-in mt-2">
+              <div>
+                <label className="text-[10px] font-bold uppercase text-amber-600 mb-1 block">
+                  Arreglador a notificar (integrante, para envío de mail)
+                </label>
+                <SearchableSelect
+                  options={
+                    integrantesArregladorOptions.some((o) => Number(o.id) === Number(DEFAULT_ARREGLADOR_INTEGRANTE_ID))
+                      ? integrantesArregladorOptions
+                      : [{ id: DEFAULT_ARREGLADOR_INTEGRANTE_ID, label: `Integrante (ID ${DEFAULT_ARREGLADOR_INTEGRANTE_ID})` }, ...integrantesArregladorOptions]
+                  }
+                  value={formData.id_integrante_arreglador ?? null}
+                  onChange={(id) => updateField("id_integrante_arreglador", id)}
+                  placeholder="Seleccionar integrante..."
+                  isMulti={false}
+                  className="text-sm border-amber-200 bg-amber-50/50"
+                />
+              </div>
+              <DateInput
+                label="Fecha estimada de entrega"
+                value={formData.fecha_esperada || ""}
+                onChange={(v) => updateField("fecha_esperada", v)}
+                className="border border-amber-200 bg-amber-50/50 text-amber-800 rounded-lg text-xs focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+          )}
+
+          {formData.estado === "Entregado" && (
+            <div className="w-full animate-in slide-in-from-top-2 fade-in mt-2 p-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-800 text-xs">
+              <IconInfo size={14} className="inline mr-1" />
+              Se iniciará la copia automática a la carpeta del Archivo.
+            </div>
+          )}
 
           {formData.estado === "Solicitud" && (
             <div className="w-full animate-in slide-in-from-top-2 fade-in mt-2">
