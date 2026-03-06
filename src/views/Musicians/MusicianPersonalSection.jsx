@@ -221,16 +221,19 @@ export default function MusicianPersonalSection() {
             </div>
 
             <div className="space-y-1">
-              <label className={labelClass}>Género</label>
+              <label className={labelClass}>Sexo (M/F/-)</label>
               <select
-                value={formData.genero || "-"}
+                value={
+                  ["M", "F", "-"].includes(formData.genero)
+                    ? formData.genero
+                    : "-"
+                }
                 onChange={(e) => updateField("genero", e.target.value)}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
               >
                 <option value="-">-</option>
-                <option value="M">Masculino</option>
-                <option value="F">Femenino</option>
-                <option value="X">No Binario / Otro</option>
+                <option value="M">M</option>
+                <option value="F">F</option>
               </select>
             </div>
 
