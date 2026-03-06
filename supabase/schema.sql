@@ -627,7 +627,7 @@ CREATE TABLE public.integrantes (
   id_localidad bigint,
   condicion USER-DEFINED DEFAULT 'Estable'::condicion_integrante,
   email_acceso text,
-  rol_sistema text DEFAULT 'personal'::text,
+  rol_sistema ARRAY DEFAULT '{}'::text[],
   clave_acceso text,
   link_bio text,
   link_foto_popup text,
@@ -761,6 +761,18 @@ CREATE TABLE public.obras_particellas (
   CONSTRAINT obras_particellas_pkey PRIMARY KEY (id),
   CONSTRAINT obras_particellas_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id),
   CONSTRAINT obras_particellas_id_instrumento_fkey FOREIGN KEY (id_instrumento) REFERENCES public.instrumentos(id)
+);
+CREATE TABLE public.obras_produccion_log (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_obra bigint,
+  estado_anterior text,
+  estado_nuevo text,
+  id_usuario_accion bigint,
+  link_entregado text,
+  fecha timestamp with time zone DEFAULT now(),
+  CONSTRAINT obras_produccion_log_pkey PRIMARY KEY (id),
+  CONSTRAINT obras_produccion_log_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id),
+  CONSTRAINT obras_produccion_log_id_usuario_accion_fkey FOREIGN KEY (id_usuario_accion) REFERENCES public.integrantes(id)
 );
 CREATE TABLE public.paises (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -1008,6 +1020,5 @@ CREATE TABLE public.venue_status_types (
   nombre text NOT NULL,
   color text NOT NULL,
   slug text NOT NULL UNIQUE,
-  
   CONSTRAINT venue_status_types_pkey PRIMARY KEY (id)
 );

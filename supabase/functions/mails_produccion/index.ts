@@ -229,6 +229,17 @@
         const linkDrive = d.link_drive || null;
         const observaciones = d.observaciones || null;
         const idObra = d.id_obra || null;
+        const fechaEstimada = d.fecha_esperada || null;
+        const dificultad = d.dificultad || null;
+        const organico = d.instrumentacion || null;
+
+        const fechaEstimadaLabel = fechaEstimada
+          ? new Date(fechaEstimada + "T12:00:00").toLocaleDateString("es-AR", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+            })
+          : null;
 
         return `
           <!DOCTYPE html>
@@ -260,6 +271,9 @@
                 <tr><td class="label">Título:</td><td class="value">${titulo}</td></tr>
                 <tr><td class="label">Arreglador asignado:</td><td class="value">${arreglador}</td></tr>
                 ${idObra ? `<tr><td class="label">ID obra:</td><td class="value">${idObra}</td></tr>` : ''}
+                <tr><td class="label">Fecha estimada:</td><td class="value">${fechaEstimadaLabel || "—"}</td></tr>
+                <tr><td class="label">Dificultad:</td><td class="value">${dificultad || "—"}</td></tr>
+                <tr><td class="label">Orgánico:</td><td class="value">${organico || "—"}</td></tr>
                 <tr>
                   <td class="label">Link Drive:</td>
                   <td class="value">

@@ -9,12 +9,15 @@ import {
   IconCheck,
   IconPlus,
   IconX,
+  IconUserPlus,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../services/supabase";
+import SearchableSelect from "../../components/ui/SearchableSelect";
+import DateInput from "../../components/ui/DateInput";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import WorkForm from "../Repertoire/WorkForm";
+import WorkForm, { QuickComposerModal } from "../Repertoire/WorkForm";
 
 const RichTextPreview = ({ content, className = "" }) => {
   if (!content) return null;
@@ -36,6 +39,8 @@ function getFieldStatusClass(status) {
   return "border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500";
 }
 
+const DEFAULT_ARREGLADOR_INTEGRANTE_ID = 4340365;
+
 export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRepertoire, catalogoInstrumentos }) {
   const { user, isEditor, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -45,6 +50,8 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const [loading, setLoading] = useState(true);
   const [works, setWorks] = useState([]);
   const [arregladoresOptions, setArregladoresOptions] = useState([]);
+  const [integrantesArregladorOptions, setIntegrantesArregladorOptions] = useState([]);
+  const [compositoresOptions, setCompositoresOptions] = useState([]);
   const [filterArregladorId, setFilterArregladorId] = useState("");
   const [myCompositorId, setMyCompositorId] = useState(null);
   const [sortFechaEsperada, setSortFechaEsperada] = useState("asc"); // "asc" | "desc"
@@ -59,10 +66,35 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   // Por celda: 'idle' | 'saving' | 'saved' | 'error' (rojo/amarillo/verde)
   const [fieldStatus, setFieldStatus] = useState({});
 
+  // Fila de carga rápida
+  const [quickDraft, setQuickDraft] = useState({
+    compositorId: null,
+    titulo: "",
+    fecha_esperada: "",
+    instrumentacion: "",
+    dificultad: "",
+    observaciones: "",
+    id_integrante_arreglador: DEFAULT_ARREGLADOR_INTEGRANTE_ID,
+  });
+  const [quickSaving, setQuickSaving] = useState(false);
+  const [isQuickCompOpen, setIsQuickCompOpen] = useState(false);
+
   const fetchWorks = async () => {
     setLoading(true);
     try {
-      const { data: obras, error } = await sb
+      // 1) Obtener todas las obras que tengan al menos un log de producción (arreglos)
+      const { data: logs, error: logsError } = await sb
+        .from("obras_produccion_log")
+        .select("id_obra");
+      if (logsError) throw logsError;
+      const obrasConLogIds = Array.from(
+        new Set((logs || []).map((l) => l.id_obra).filter(Boolean))
+      );
+
+      // 2) Traer obras que:
+      //    - estén en "Para arreglar" o "Entregado"
+      //    - o bien tengan al menos un registro en obras_produccion_log
+      let obrasQuery = sb
         .from("obras")
         .select(
           `
@@ -79,8 +111,18 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           fecha_esperada,
           obras_compositores (rol, compositores (apellido, nombre))
         `
-        )
-        .in("estado", ["Para arreglar", "Entregado"])
+        );
+
+      if (obrasConLogIds.length > 0) {
+        const inList = obrasConLogIds.join(",");
+        obrasQuery = obrasQuery.or(
+          `estado.eq.Para arreglar,estado.eq.Entregado,id.in.(${inList})`
+        );
+      } else {
+        obrasQuery = obrasQuery.in("estado", ["Para arreglar", "Entregado"]);
+      }
+
+      const { data: obras, error } = await obrasQuery
         .order("estado", { ascending: true })
         .order("titulo");
 
@@ -88,15 +130,27 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
 
       const { data: integrantes } = await sb
         .from("integrantes")
-        .select("id, apellido, nombre")
+        .select("id, apellido, nombre, mail")
         .order("apellido");
 
-      const intMap = new Map((integrantes || []).map((i) => [i.id, `${i.apellido || ""}, ${i.nombre || ""}`.trim() || `ID ${i.id}`]));
+      const intMap = new Map(
+        (integrantes || []).map((i) => [
+          i.id,
+          `${i.apellido || ""}, ${i.nombre || ""}`.trim() || `ID ${i.id}`,
+        ])
+      );
       const arregladorIds = new Set((obras || []).map((w) => w.id_integrante_arreglador).filter(Boolean));
       const options = Array.from(arregladorIds)
         .map((id) => ({ id, label: intMap.get(id) || `ID ${id}` }))
         .sort((a, b) => (a.label || "").localeCompare(b.label || ""));
       setArregladoresOptions(options);
+      setIntegrantesArregladorOptions(
+        (integrantes || []).map((i) => ({
+          id: i.id,
+          label: intMap.get(i.id) || `ID ${i.id}`,
+          mail: i.mail || null,
+        }))
+      );
 
       const list = (obras || []).map((w) => {
         const compositoresList = (w.obras_compositores || [])
@@ -127,6 +181,30 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   useEffect(() => {
     fetchWorks();
   }, [sb]);
+
+  // Cargar lista de compositores para SearchableSelect
+  useEffect(() => {
+    if (!canEditFields) return;
+    const fetchComposers = async () => {
+      try {
+        const { data, error } = await sb
+          .from("compositores")
+          .select("id, apellido, nombre")
+          .order("apellido");
+        if (error) throw error;
+        setCompositoresOptions(
+          (data || []).map((c) => ({
+            id: c.id,
+            label: `${c.apellido || ""}${c.nombre ? `, ${c.nombre}` : ""}`.trim(),
+          }))
+        );
+      } catch (err) {
+        console.error("Error al cargar compositores:", err);
+        toast.error(err?.message || "Error al cargar compositores.");
+      }
+    };
+    fetchComposers();
+  }, [sb, canEditFields]);
 
   useEffect(() => {
     if (!user || arregladoresOptions.length === 0) return;
@@ -167,6 +245,181 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       ...prev,
       [workId]: { ...(prev[workId] || {}), [field]: value },
     }));
+  };
+
+  const setQuickDraftField = (field, value) => {
+    setQuickDraft((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const resetQuickDraft = () => {
+    setQuickDraft({
+      compositorId: null,
+      titulo: "",
+      fecha_esperada: "",
+      instrumentacion: "",
+      dificultad: "",
+      observaciones: "",
+      id_integrante_arreglador: DEFAULT_ARREGLADOR_INTEGRANTE_ID,
+    });
+  };
+
+  const handleQuickCompCreated = (newComp) => {
+    const newOption = {
+      id: newComp.id,
+      label: `${newComp.apellido}, ${newComp.nombre}`,
+    };
+    setCompositoresOptions((prev) =>
+      [...prev, newOption].sort((a, b) => (a.label || "").localeCompare(b.label || ""))
+    );
+    setQuickDraftField("compositorId", newComp.id);
+  };
+
+  const getRowPriorityClass = (work) => {
+    const estado = (work.estado || "").toLowerCase();
+    if (estado === "entregado") return "bg-emerald-50";
+
+    const fechaStr = work.fecha_esperada;
+    if (fechaStr) {
+      const today = new Date();
+      const target = new Date(`${fechaStr}T00:00:00`);
+      const diffMs = target.getTime() - today.getTime();
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+      if (diffDays < 2) return "bg-red-50";
+      if (diffDays < 7) return "bg-orange-50";
+    }
+
+    return "bg-yellow-50/30";
+  };
+
+  const enviarEncargoArreglo = (
+    obraId,
+    tituloStr,
+    idIntegranteArregladorVal,
+    linkDrive,
+    observacionesStr,
+    fechaEsperada,
+    dificultad,
+    instrumentacion
+  ) => {
+    const integranteOpt = integrantesArregladorOptions.find(
+      (i) => Number(i.id) === Number(idIntegranteArregladorVal)
+    );
+    const arregladorLabel = integranteOpt ? integranteOpt.label : "";
+    const emailTo = integranteOpt?.mail || null;
+    if (!emailTo) {
+      console.warn(
+        "encargo_arreglo (ArreglosDashboard): sin email para integrante",
+        idIntegranteArregladorVal
+      );
+      toast.error(
+        "No se encontró email del arreglador para enviar el encargo."
+      );
+      return;
+    }
+    const detalle = {
+      titulo: tituloStr,
+      arreglador: arregladorLabel,
+      id_obra: obraId,
+      link_drive: linkDrive || null,
+      observaciones: observacionesStr || null,
+      fecha_esperada: fechaEsperada || null,
+      dificultad: dificultad || null,
+      instrumentacion: instrumentacion || null,
+    };
+    sb.functions
+      .invoke("mails_produccion", {
+        body: {
+          action: "enviar_mail",
+          templateId: "encargo_arreglo",
+          email: emailTo,
+          bcc: ["ofrn.archivo@gmail.com"],
+          nombre: user ? `${user.nombre} ${user.apellido}` : "Sistema",
+          gira: null,
+          detalle,
+        },
+      })
+      .then(({ error }) => {
+        if (error)
+          console.error("mails_produccion (encargo_arreglo):", error);
+        else
+          toast.success(
+            "Mail de encargo enviado al Arreglador y al Archivista."
+          );
+      });
+  };
+
+  const handleQuickSave = async () => {
+    if (!canEditFields) return;
+    const compositorId = quickDraft.compositorId;
+    const titulo = (quickDraft.titulo || "").trim();
+    const arregladorId =
+      quickDraft.id_integrante_arreglador || DEFAULT_ARREGLADOR_INTEGRANTE_ID;
+
+    if (!compositorId) {
+      toast.error("Seleccioná un compositor para el encargo.");
+      return;
+    }
+    if (!titulo) {
+      toast.error("Ingresá el título de la obra para el encargo.");
+      return;
+    }
+
+    setQuickSaving(true);
+    try {
+      const payload = {
+        titulo,
+        instrumentacion: (quickDraft.instrumentacion || "").trim() || null,
+        dificultad: (quickDraft.dificultad || "").trim() || null,
+        observaciones: (quickDraft.observaciones || "").trim() || null,
+        estado: "Para arreglar",
+        fecha_esperada: quickDraft.fecha_esperada || null,
+        id_integrante_arreglador: arregladorId,
+        id_usuario_carga: user?.id || null,
+      };
+
+      const { data, error } = await sb
+        .from("obras")
+        .insert([payload])
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      if (data?.id) {
+        const { error: relError } = await sb.from("obras_compositores").insert([
+          {
+            id_obra: data.id,
+            id_compositor: Number(compositorId),
+            rol: "compositor",
+          },
+        ]);
+        if (relError) throw relError;
+
+        // Enviar mail de encargo igual que en WorkForm
+        enviarEncargoArreglo(
+          data.id,
+          titulo,
+          arregladorId,
+          null,
+          quickDraft.observaciones || "",
+          quickDraft.fecha_esperada || null,
+          quickDraft.dificultad || null,
+          quickDraft.instrumentacion || null
+        );
+      }
+
+      toast.success("Nuevo encargo de arreglo creado y asignado.");
+      resetQuickDraft();
+      await fetchWorks();
+    } catch (err) {
+      console.error("Error al crear encargo rápido de arreglo:", err);
+      toast.error(err?.message || "Error al crear el encargo.");
+    } finally {
+      setQuickSaving(false);
+    }
   };
 
   const saveEditorField = async (work, field, value) => {
@@ -322,10 +575,10 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
-              <IconMusicNote className="text-indigo-600" /> Encargos de arreglo
+              <IconMusicNote className="text-indigo-600" />Obras para arreglar
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Tabla de obras en &quot;Para arreglar&quot; o &quot;Entregado&quot;. Cargá el link de Drive, una observación opcional y pasá a Entregado.
+              Tabla de obras con encargos de arreglo: incluye las que están en &quot;Para arreglar&quot;, &quot;Entregado&quot; o tienen un arreglador asignado. Cargá el link de Drive, una observación opcional y pasá a Entregado.
             </p>
           </div>
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -364,7 +617,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           </div>
         ) : works.length === 0 ? (
           <div className="p-12 text-center text-slate-500 italic">
-            No hay obras en &quot;Para arreglar&quot; ni &quot;Entregado&quot;.
+            No hay obras con encargos de arreglo para mostrar.
           </div>
         ) : filteredWorks.length === 0 ? (
           <div className="p-12 text-center text-slate-500 italic">
@@ -402,9 +655,9 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                   return (
                     <tr
                       key={work.id}
-                      className={`hover:bg-slate-50/50 ${isParaArreglar ? "bg-amber-50/30" : "bg-sky-50/20"}`}
+                      className={`hover:bg-slate-50/50 ${getRowPriorityClass(work)}`}
                     >
-                      <td className="py-2 px-3 align-top">
+                      <td className="py-2 px-3 align-top bg-blue-50/40">
                         {canEditFields && isParaArreglar ? (
                           <input
                             type="text"
@@ -434,7 +687,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           </div>
                         )}
                       </td>
-                      <td className="py-2 px-3 align-top text-xs whitespace-nowrap">
+                      <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40">
                         {canEditFields && isParaArreglar ? (
                           <input
                             type="date"
@@ -459,7 +712,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           </span>
                         )}
                       </td>
-                      <td className="py-2 px-3 align-top">
+                      <td className="py-2 px-3 align-top bg-blue-50/40">
                         {canEditFields && isParaArreglar ? (
                           <input
                             type="text"
@@ -478,7 +731,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           </span>
                         )}
                       </td>
-                      <td className="py-2 px-3 align-top text-xs">
+                      <td className="py-2 px-3 align-top text-xs bg-blue-50/40">
                         {canEditFields && isParaArreglar ? (
                           <input
                             type="text"
@@ -495,7 +748,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                           <span className="text-slate-600">{work.dificultad || "-"}</span>
                         )}
                       </td>
-                      <td className="py-2 px-3 align-top text-xs max-w-[180px]">
+                      <td className="py-2 px-3 align-top text-xs max-w-[180px] bg-blue-50/40">
                         {canEditFields && isParaArreglar ? (
                           <textarea
                             rows={2}
@@ -610,6 +863,131 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                     </tr>
                   );
                 })}
+                {/* Fila de carga rápida para nuevos encargos de arreglos */}
+                {canEditFields && (
+                  <tr className="border-t border-slate-100 bg-yellow-50/20 hover:bg-yellow-50/40">
+                    <td className="py-2 px-3 align-top bg-blue-50/40">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1">
+                          <div className="flex-1">
+                            <SearchableSelect
+                              options={compositoresOptions}
+                              value={quickDraft.compositorId}
+                              onChange={(id) => setQuickDraftField("compositorId", id)}
+                              placeholder="Buscar compositor..."
+                              className="text-xs"
+                              dropdownMinWidth={260}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsQuickCompOpen(true)}
+                            className="inline-flex items-center justify-center px-2 py-1 rounded-lg border border-slate-300 bg-white text-slate-600 hover:border-indigo-500 hover:bg-indigo-50 transition-colors"
+                            title="Crear nuevo compositor"
+                          >
+                            <IconUserPlus size={16} />
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          value={quickDraft.titulo}
+                          onChange={(e) => setQuickDraftField("titulo", e.target.value)}
+                          placeholder="Título de la obra"
+                          className="w-full text-xs border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                      </div>
+                    </td>
+                    <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40">
+                      <DateInput
+                        label=""
+                        value={quickDraft.fecha_esperada || ""}
+                        onChange={(v) => setQuickDraftField("fecha_esperada", v)}
+                        className="border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </td>
+                    <td className="py-2 px-3 align-top bg-blue-50/40">
+                      <input
+                        type="text"
+                        value={quickDraft.instrumentacion}
+                        onChange={(e) => setQuickDraftField("instrumentacion", e.target.value)}
+                        placeholder="Orgánico"
+                        className="w-full min-w-[100px] text-xs border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </td>
+                    <td className="py-2 px-3 align-top text-xs bg-blue-50/40">
+                      <input
+                        type="text"
+                        value={quickDraft.dificultad}
+                        onChange={(e) => setQuickDraftField("dificultad", e.target.value)}
+                        placeholder="Dificultad"
+                        className="w-full min-w-[80px] border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </td>
+                    <td className="py-2 px-3 align-top text-xs max-w-[180px] bg-blue-50/40">
+                      <textarea
+                        rows={2}
+                        value={quickDraft.observaciones}
+                        onChange={(e) => setQuickDraftField("observaciones", e.target.value)}
+                        placeholder="Observación del pedido"
+                        className="w-full min-w-[120px] border border-slate-300 rounded px-2 py-1 resize-y focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </td>
+                    <td className="py-2 px-3 align-top w-36 max-w-[10rem] text-[11px] text-slate-400">
+                      Se completa al entregar el arreglo.
+                    </td>
+                    <td className="py-2 px-3 align-top text-xs text-slate-400">
+                      -
+                    </td>
+                    <td className="py-2 px-3 align-top min-w-[8rem]">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-amber-100 text-amber-800 border-amber-200">
+                        Nuevo encargo
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 align-top">
+                      <div className="flex flex-col gap-2">
+                        <SearchableSelect
+                          options={integrantesArregladorOptions}
+                          value={quickDraft.id_integrante_arreglador}
+                          onChange={(id) =>
+                            setQuickDraftField("id_integrante_arreglador", id)
+                          }
+                          placeholder="Seleccionar arreglador..."
+                          isMulti={false}
+                          className="text-xs"
+                          dropdownMinWidth={260}
+                        />
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            onClick={handleQuickSave}
+                            disabled={
+                              quickSaving ||
+                              !quickDraft.compositorId ||
+                              !(quickDraft.titulo || "").trim()
+                            }
+                            className="text-[10px] font-bold px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1"
+                          >
+                            {quickSaving ? (
+                              <IconLoader size={12} className="animate-spin" />
+                            ) : (
+                              <IconCheck size={12} />
+                            )}
+                            Asignar a...
+                          </button>
+                          <button
+                            type="button"
+                            onClick={resetQuickDraft}
+                            disabled={quickSaving}
+                            className="text-[10px] font-bold px-2 py-1.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-50 flex items-center gap-1"
+                          >
+                            <IconX size={12} />
+                            Limpiar
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -662,6 +1040,13 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           </div>
         </div>
       )}
+
+      <QuickComposerModal
+        isOpen={isQuickCompOpen}
+        onClose={() => setIsQuickCompOpen(false)}
+        onCreated={handleQuickCompCreated}
+        supabase={sb}
+      />
     </div>
   );
 }

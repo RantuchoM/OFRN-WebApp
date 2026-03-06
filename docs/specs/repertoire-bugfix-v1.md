@@ -21,6 +21,9 @@ El elemento arrastrado se recortaba por el `overflow` del bloque de origen (tabl
 - Si hubo cambio de bloque, se normaliza también el bloque destino: `normalizeRepertorioBlockOrden(supabase, targetRep.id)`.
 - Se refresca la lista con `fetchFullRepertoire()`.
 
+> Nota (multi-bloque):  
+> El soporte completo de múltiples bloques de repertorio en vistas de Seating y Mis Partes se documenta en `docs/fix-multi-block-repertoire.md` y se apoya en el orden `bloque.orden` + `repertorio_obras.orden` descrito en `docs/repertoire-spec.md`.
+
 ---
 
 ## 2. Bowing Sets (Initialization Fix)

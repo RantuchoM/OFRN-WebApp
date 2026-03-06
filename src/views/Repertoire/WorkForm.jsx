@@ -113,7 +113,7 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
 };
 
 // --- MODAL NUEVO COMPOSITOR (fuera de WorkForm para no perder estado/foco en re-renders) ---
-function QuickComposerModal({ isOpen, onClose, onCreated, supabase }) {
+export function QuickComposerModal({ isOpen, onClose, onCreated, supabase }) {
   const [data, setData] = useState({
     nombre: "",
     apellido: "",
@@ -802,7 +802,16 @@ export default function WorkForm({
     return ["input", statusClass, baseClass].filter(Boolean).join(" ");
   };
 
-  const enviarEncargoArreglo = (obraId, tituloStr, idIntegranteArregladorVal, linkDrive, observacionesStr) => {
+  const enviarEncargoArreglo = (
+    obraId,
+    tituloStr,
+    idIntegranteArregladorVal,
+    linkDrive,
+    observacionesStr,
+    fechaEsperada,
+    dificultad,
+    instrumentacion,
+  ) => {
     const integranteOpt = integrantesArregladorOptions.find((i) => Number(i.id) === Number(idIntegranteArregladorVal));
     const arregladorLabel = integranteOpt ? integranteOpt.label : "";
     const emailTo = integranteOpt?.mail || null;
@@ -817,6 +826,9 @@ export default function WorkForm({
       id_obra: obraId,
       link_drive: linkDrive || null,
       observaciones: observacionesStr || null,
+      fecha_esperada: fechaEsperada || null,
+      dificultad: dificultad || null,
+      instrumentacion: instrumentacion || null,
     };
     supabase.functions
       .invoke("mails_produccion", {
@@ -878,7 +890,10 @@ export default function WorkForm({
           stripHtml(formData.titulo),
           idIntegranteParaMail,
           formData.link_drive,
-          (formData.observaciones || "").trim()
+          (formData.observaciones || "").trim(),
+          formData.fecha_esperada || null,
+          formData.dificultad || null,
+          formData.instrumentacion || null,
         );
       }
 
@@ -1167,7 +1182,10 @@ export default function WorkForm({
             stripHtml(formData.titulo),
             formData.id_integrante_arreglador,
             formData.link_drive,
-            (formData.observaciones || "").trim()
+            (formData.observaciones || "").trim(),
+            formData.fecha_esperada || null,
+            formData.dificultad || null,
+            payload.instrumentacion || null,
           );
         }
 

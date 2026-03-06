@@ -306,6 +306,7 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
 
           processed.push({
             id: obra.id,
+            blockOrden: cat.orden ?? 0,
             uniqueId: item.id,
             orden: item.orden,
             compositor: composerName,
@@ -322,6 +323,13 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
           });
         });
       });
+
+      // Garantizamos que la lista final respete el orden de bloque y de obra
+      processed.sort(
+        (a, b) =>
+          (a.blockOrden || 0) - (b.blockOrden || 0) ||
+          (a.orden || 0) - (b.orden || 0),
+      );
 
       setRepertoire(processed);
     } catch (error) {

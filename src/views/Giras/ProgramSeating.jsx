@@ -588,8 +588,19 @@ export default function ProgramSeating({
     fetchRepertoire();
   }, [program.id, repertoireBlocks, supabase]);
 
-  const effectiveBlocks =
+  const rawBlocks =
     repertoireBlocks.length > 0 ? repertoireBlocks : fetchedBlocks;
+
+  // Aseguramos orden estable de bloques y de obras dentro de cada bloque
+  const effectiveBlocks = (rawBlocks || [])
+    .slice()
+    .sort((a, b) => (a.orden || 0) - (b.orden || 0))
+    .map((block) => ({
+      ...block,
+      repertorio_obras: (block.repertorio_obras || [])
+        .slice()
+        .sort((a, b) => (a.orden || 0) - (b.orden || 0)),
+    }));
 
   const obras = useMemo(() => {
     if (!effectiveBlocks || effectiveBlocks.length === 0) return [];

@@ -613,7 +613,7 @@ const ProtectedApp = ({ initialTab }) => {
     },
     {
       id: "ARREGLOS",
-      label: "Mis Arreglos",
+      label: "Arreglos",
       icon: <IconMusicNote size={20} />,
       show: isAdmin || isArreglador || user?.mail === "martin.rantucho@gmail.com",
     },
