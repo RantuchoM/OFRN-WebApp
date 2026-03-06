@@ -78,6 +78,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   });
   const [quickSaving, setQuickSaving] = useState(false);
   const [isQuickCompOpen, setIsQuickCompOpen] = useState(false);
+  const [showQuickRow, setShowQuickRow] = useState(false);
 
   const fetchWorks = async () => {
     setLoading(true);
@@ -279,7 +280,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
 
   const getRowPriorityClass = (work) => {
     const estado = (work.estado || "").toLowerCase();
-    if (estado === "entregado") return "bg-emerald-50";
+    if (estado === "entregado" || estado === "oficial") return "bg-emerald-100";
 
     const fechaStr = work.fecha_esperada;
     if (fechaStr) {
@@ -287,11 +288,41 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
       const target = new Date(`${fechaStr}T00:00:00`);
       const diffMs = target.getTime() - today.getTime();
       const diffDays = diffMs / (1000 * 60 * 60 * 24);
-      if (diffDays < 2) return "bg-red-50";
-      if (diffDays < 7) return "bg-orange-50";
+      if (diffDays < 2) return "bg-red-100";
+      if (diffDays < 7) return "bg-orange-100";
     }
 
-    return "bg-yellow-50/30";
+    return "bg-yellow-100";
+  };
+
+  const getDiasRestantesLabel = (work) => {
+    if (!work.fecha_esperada) return null;
+    const estado = (work.estado || "").toLowerCase();
+    if (estado === "entregado") return null;
+
+    const today = new Date();
+    const todayMidnight = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate()
+    );
+    const target = new Date(`${work.fecha_esperada}T00:00:00`);
+    const diffMs = target.getTime() - todayMidnight.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return "vence hoy";
+    if (diffDays > 0) return `faltan ${diffDays} día${diffDays === 1 ? "" : "s"}`;
+
+    const atras = Math.abs(diffDays);
+    return `venció hace ${atras} día${atras === 1 ? "" : "s"}`;
+  };
+
+  const canEditDeliveryForWork = (work) => {
+    const hasOwner =
+      work.id_integrante_arreglador != null &&
+      myCompositorId != null &&
+      Number(work.id_integrante_arreglador) === Number(myCompositorId);
+    return isAdmin || hasOwner;
   };
 
   const enviarEncargoArreglo = (
@@ -456,6 +487,11 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   const saveLinkDrive = async (work) => {
     const draft = getDraft(work.id);
     const link = (draft.link_drive !== undefined ? draft.link_drive : work.link_drive) || "";
+
+    if (!canEditDeliveryForWork(work)) {
+      toast.error("Solo el arreglador asignado o un admin pueden modificar el link de entrega.");
+      return;
+    }
     if (!link.trim()) {
       toast.error("Ingresá el link de Drive antes de guardar.");
       return;
@@ -482,6 +518,16 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   };
 
   const pasarAEntregado = async (work) => {
+    // Solo el arreglador asignado (o un admin) puede marcar como Entregado
+    const isOwnerArreglador =
+      work.id_integrante_arreglador &&
+      myCompositorId &&
+      Number(work.id_integrante_arreglador) === Number(myCompositorId);
+    if (!isAdmin && !isOwnerArreglador) {
+      toast.error("Solo el arreglador asignado puede marcar este encargo como entregado.");
+      return;
+    }
+
     const draft = getDraft(work.id);
     const link = (draft.link_drive !== undefined ? draft.link_drive : work.link_drive) || "";
     if (!link.trim()) {
@@ -646,6 +692,156 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
+                {canEditFields && (
+                  <>
+                    <tr
+                      className="cursor-pointer bg-indigo-50 hover:bg-indigo-100 border-y border-indigo-100"
+                      onClick={() => setShowQuickRow((prev) => !prev)}
+                    >
+                      <td
+                        colSpan={9}
+                        className="py-0.5 px-3 text-[11px] font-semibold text-indigo-700"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1">
+                            <IconPlus size={12} />
+                            <span>
+                              {showQuickRow ? "Ocultar nuevo arreglo" : "Nuevo arreglo"}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-normal text-indigo-500">
+                            Cargar un nuevo encargo de arreglo.
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    {showQuickRow && (
+                      <tr className="border-b border-slate-100 bg-yellow-50/30 hover:bg-yellow-50/50">
+                        <td className="py-2 px-3 align-top bg-blue-50/40">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <div className="flex-1">
+                                <SearchableSelect
+                                  options={compositoresOptions}
+                                  value={quickDraft.compositorId}
+                                  onChange={(id) => setQuickDraftField("compositorId", id)}
+                                  placeholder="Buscar compositor..."
+                                  className="text-xs"
+                                  dropdownMinWidth={260}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setIsQuickCompOpen(true)}
+                                className="inline-flex items-center justify-center px-2 py-1 rounded-lg border border-slate-300 bg-white text-slate-600 hover:border-indigo-500 hover:bg-indigo-50 transition-colors"
+                                title="Crear nuevo compositor"
+                              >
+                                <IconUserPlus size={16} />
+                              </button>
+                            </div>
+                            <input
+                              type="text"
+                              value={quickDraft.titulo}
+                              onChange={(e) => setQuickDraftField("titulo", e.target.value)}
+                              placeholder="Título de la obra"
+                              className="w-full text-xs border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            />
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40">
+                          <DateInput
+                            label=""
+                            value={quickDraft.fecha_esperada || ""}
+                            onChange={(v) => setQuickDraftField("fecha_esperada", v)}
+                            className="border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </td>
+                        <td className="py-2 px-3 align-top bg-blue-50/40">
+                          <input
+                            type="text"
+                            value={quickDraft.instrumentacion}
+                            onChange={(e) => setQuickDraftField("instrumentacion", e.target.value)}
+                            placeholder="Orgánico"
+                            className="w-full min-w-[100px] text-xs border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                        </td>
+                        <td className="py-2 px-3 align-top text-xs bg-blue-50/40">
+                          <input
+                            type="text"
+                            value={quickDraft.dificultad}
+                            onChange={(e) => setQuickDraftField("dificultad", e.target.value)}
+                            placeholder="Dificultad"
+                            className="w-full min-w-[80px] border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                        </td>
+                        <td className="py-2 px-3 align-top text-xs max-w-[180px] bg-blue-50/40">
+                          <textarea
+                            rows={2}
+                            value={quickDraft.observaciones}
+                            onChange={(e) => setQuickDraftField("observaciones", e.target.value)}
+                            placeholder="Observación del pedido"
+                            className="w-full min-w-[120px] border border-slate-300 rounded px-2 py-1 resize-y focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                        </td>
+                        <td className="py-2 px-3 align-top w-36 max-w-[10rem] text-[11px] text-slate-400">
+                          Se completa al entregar el arreglo.
+                        </td>
+                        <td className="py-2 px-3 align-top text-xs text-slate-400">
+                          -
+                        </td>
+                        <td className="py-2 px-3 align-top min-w-[8rem]">
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-amber-100 text-amber-800 border-amber-200">
+                            Nuevo encargo
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 align-top">
+                          <div className="flex flex-col gap-2">
+                            <SearchableSelect
+                              options={integrantesArregladorOptions}
+                              value={quickDraft.id_integrante_arreglador}
+                              onChange={(id) =>
+                                setQuickDraftField("id_integrante_arreglador", id)
+                              }
+                              placeholder="Seleccionar arreglador..."
+                              isMulti={false}
+                              className="text-xs"
+                              dropdownMinWidth={260}
+                            />
+                            <div className="flex flex-wrap gap-1">
+                              <button
+                                type="button"
+                                onClick={handleQuickSave}
+                                disabled={
+                                  quickSaving ||
+                                  !quickDraft.compositorId ||
+                                  !(quickDraft.titulo || "").trim()
+                                }
+                                className="text-[10px] font-bold px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {quickSaving ? (
+                                  <IconLoader size={12} className="animate-spin" />
+                                ) : (
+                                  <IconCheck size={12} />
+                                )}
+                                Asignar a...
+                              </button>
+                              <button
+                                type="button"
+                                onClick={resetQuickDraft}
+                                disabled={quickSaving}
+                                className="text-[10px] font-bold px-2 py-1.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-50 flex items-center gap-1"
+                              >
+                                <IconX size={12} />
+                                Limpiar
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                )}
+
                 {filteredWorks.map((work) => {
                   const draft = getDraft(work.id);
                   const linkValue = draft.link_drive !== undefined ? draft.link_drive : (work.link_drive || "");
@@ -689,27 +885,45 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                       </td>
                       <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40">
                         {canEditFields && isParaArreglar ? (
-                          <input
-                            type="date"
-                            value={(draft.fecha_esperada !== undefined ? draft.fecha_esperada : work.fecha_esperada) || ""}
-                            onChange={(e) => setDraftField(work.id, "fecha_esperada", e.target.value || "")}
-                            onBlur={(e) => {
-                              const v = e.target.value || "";
+                          <DateInput
+                            label=""
+                            value={
+                              (draft.fecha_esperada !== undefined
+                                ? draft.fecha_esperada
+                                : work.fecha_esperada) || ""
+                            }
+                            onChange={(v) => {
+                              const nextVal = v || "";
+                              setDraftField(work.id, "fecha_esperada", nextVal);
                               const current = work.fecha_esperada || "";
-                              if (v !== current) saveEditorField(work, "fecha_esperada", v);
+                              if (nextVal !== current) {
+                                saveEditorField(work, "fecha_esperada", nextVal);
+                              }
                             }}
-                            className={`w-full min-w-[110px] text-xs border rounded px-2 py-1 ${getFieldStatusClass(fieldStatus[fieldStatusKey(work.id, "fecha_esperada")] || "idle")}`}
+                            className={`border rounded-lg text-xs min-w-[110px] ${getFieldStatusClass(
+                              fieldStatus[fieldStatusKey(work.id, "fecha_esperada")] ||
+                                "idle"
+                            )}`}
                           />
                         ) : (
-                          <span className="text-slate-600">
-                            {work.fecha_esperada
-                              ? new Date(work.fecha_esperada + "T12:00:00").toLocaleDateString("es-AR", {
-                                  day: "2-digit",
-                                  month: "2-digit",
-                                  year: "numeric",
-                                })
-                              : "-"}
-                          </span>
+                          <div className="flex flex-col text-slate-600">
+                            <span>
+                              {work.fecha_esperada
+                                ? new Date(
+                                    work.fecha_esperada + "T12:00:00"
+                                  ).toLocaleDateString("es-AR", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    year: "numeric",
+                                  })
+                                : "-"}
+                            </span>
+                            {getDiasRestantesLabel(work) && (
+                              <span className="text-[10px] text-slate-400 mt-0.5">
+                                ({getDiasRestantesLabel(work)})
+                              </span>
+                            )}
+                          </div>
                         )}
                       </td>
                       <td className="py-2 px-3 align-top bg-blue-50/40">
@@ -768,7 +982,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                         )}
                       </td>
                       <td className="py-2 px-3 align-top w-36 max-w-[10rem]">
-                        {isParaArreglar ? (
+                        {isParaArreglar && canEditDeliveryForWork(work) ? (
                           <div className="flex flex-col gap-1 min-w-0">
                             <input
                               type="url"
@@ -800,12 +1014,14 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                               >
                                 <IconDrive size={18} />
                               </a>
-                            ) : "-"}
+                            ) : (
+                              "-"
+                            )}
                           </div>
                         )}
                       </td>
                       <td className="py-2 px-3 align-top">
-                        {isParaArreglar ? (
+                        {isParaArreglar && canEditDeliveryForWork(work) ? (
                           <input
                             type="text"
                             value={notaValue}
@@ -830,24 +1046,43 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                       </td>
                       <td className="py-2 px-3 align-top">
                         {isParaArreglar ? (
-                          <div className="flex flex-wrap gap-1">
-                            <button
-                              type="button"
-                              onClick={() => saveLinkDrive(work)}
-                              disabled={isSaving || !linkValue.trim()}
-                              className="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50"
-                            >
-                              {isSaving ? <IconLoader size={12} className="animate-spin inline" /> : "Guardar link"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => pasarAEntregado(work)}
-                              disabled={isSaving || !linkValue.trim()}
-                              className="text-[10px] font-bold px-2 py-1 rounded bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 flex items-center gap-1"
-                            >
-                              {isSaving ? <IconLoader size={12} className="animate-spin" /> : <IconCheck size={12} />}
-                              Entregado
-                            </button>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex flex-wrap gap-1">
+                              <button
+                                type="button"
+                                onClick={() => saveLinkDrive(work)}
+                                disabled={isSaving || !linkValue.trim()}
+                                className="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                              >
+                                {isSaving ? <IconLoader size={12} className="animate-spin inline" /> : "Guardar link"}
+                              </button>
+                              {work.id_integrante_arreglador &&
+                              myCompositorId &&
+                              Number(work.id_integrante_arreglador) ===
+                                Number(myCompositorId) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => pasarAEntregado(work)}
+                                  disabled={isSaving || !linkValue.trim()}
+                                  className="text-[10px] font-bold px-2 py-1 rounded bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 flex items-center gap-1"
+                                >
+                                  {isSaving ? (
+                                    <IconLoader size={12} className="animate-spin" />
+                                  ) : (
+                                    <IconCheck size={12} />
+                                  )}
+                                  Entregado
+                                </button>
+                              ) : null}
+                            </div>
+                            {work.id_integrante_arreglador &&
+                              myCompositorId &&
+                              Number(work.id_integrante_arreglador) !==
+                                Number(myCompositorId) && (
+                                <span className="text-[10px] text-slate-400 italic">
+                                  Solo el arreglador asignado puede marcar como entregado.
+                                </span>
+                              )}
                           </div>
                         ) : (
                           <button
@@ -863,131 +1098,6 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                     </tr>
                   );
                 })}
-                {/* Fila de carga rápida para nuevos encargos de arreglos */}
-                {canEditFields && (
-                  <tr className="border-t border-slate-100 bg-yellow-50/20 hover:bg-yellow-50/40">
-                    <td className="py-2 px-3 align-top bg-blue-50/40">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-1">
-                          <div className="flex-1">
-                            <SearchableSelect
-                              options={compositoresOptions}
-                              value={quickDraft.compositorId}
-                              onChange={(id) => setQuickDraftField("compositorId", id)}
-                              placeholder="Buscar compositor..."
-                              className="text-xs"
-                              dropdownMinWidth={260}
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setIsQuickCompOpen(true)}
-                            className="inline-flex items-center justify-center px-2 py-1 rounded-lg border border-slate-300 bg-white text-slate-600 hover:border-indigo-500 hover:bg-indigo-50 transition-colors"
-                            title="Crear nuevo compositor"
-                          >
-                            <IconUserPlus size={16} />
-                          </button>
-                        </div>
-                        <input
-                          type="text"
-                          value={quickDraft.titulo}
-                          onChange={(e) => setQuickDraftField("titulo", e.target.value)}
-                          placeholder="Título de la obra"
-                          className="w-full text-xs border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        />
-                      </div>
-                    </td>
-                    <td className="py-2 px-3 align-top text-xs whitespace-nowrap bg-blue-50/40">
-                      <DateInput
-                        label=""
-                        value={quickDraft.fecha_esperada || ""}
-                        onChange={(v) => setQuickDraftField("fecha_esperada", v)}
-                        className="border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </td>
-                    <td className="py-2 px-3 align-top bg-blue-50/40">
-                      <input
-                        type="text"
-                        value={quickDraft.instrumentacion}
-                        onChange={(e) => setQuickDraftField("instrumentacion", e.target.value)}
-                        placeholder="Orgánico"
-                        className="w-full min-w-[100px] text-xs border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      />
-                    </td>
-                    <td className="py-2 px-3 align-top text-xs bg-blue-50/40">
-                      <input
-                        type="text"
-                        value={quickDraft.dificultad}
-                        onChange={(e) => setQuickDraftField("dificultad", e.target.value)}
-                        placeholder="Dificultad"
-                        className="w-full min-w-[80px] border border-slate-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      />
-                    </td>
-                    <td className="py-2 px-3 align-top text-xs max-w-[180px] bg-blue-50/40">
-                      <textarea
-                        rows={2}
-                        value={quickDraft.observaciones}
-                        onChange={(e) => setQuickDraftField("observaciones", e.target.value)}
-                        placeholder="Observación del pedido"
-                        className="w-full min-w-[120px] border border-slate-300 rounded px-2 py-1 resize-y focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      />
-                    </td>
-                    <td className="py-2 px-3 align-top w-36 max-w-[10rem] text-[11px] text-slate-400">
-                      Se completa al entregar el arreglo.
-                    </td>
-                    <td className="py-2 px-3 align-top text-xs text-slate-400">
-                      -
-                    </td>
-                    <td className="py-2 px-3 align-top min-w-[8rem]">
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-amber-100 text-amber-800 border-amber-200">
-                        Nuevo encargo
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 align-top">
-                      <div className="flex flex-col gap-2">
-                        <SearchableSelect
-                          options={integrantesArregladorOptions}
-                          value={quickDraft.id_integrante_arreglador}
-                          onChange={(id) =>
-                            setQuickDraftField("id_integrante_arreglador", id)
-                          }
-                          placeholder="Seleccionar arreglador..."
-                          isMulti={false}
-                          className="text-xs"
-                          dropdownMinWidth={260}
-                        />
-                        <div className="flex flex-wrap gap-1">
-                          <button
-                            type="button"
-                            onClick={handleQuickSave}
-                            disabled={
-                              quickSaving ||
-                              !quickDraft.compositorId ||
-                              !(quickDraft.titulo || "").trim()
-                            }
-                            className="text-[10px] font-bold px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1"
-                          >
-                            {quickSaving ? (
-                              <IconLoader size={12} className="animate-spin" />
-                            ) : (
-                              <IconCheck size={12} />
-                            )}
-                            Asignar a...
-                          </button>
-                          <button
-                            type="button"
-                            onClick={resetQuickDraft}
-                            disabled={quickSaving}
-                            className="text-[10px] font-bold px-2 py-1.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-50 flex items-center gap-1"
-                          >
-                            <IconX size={12} />
-                            Limpiar
-                          </button>
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
