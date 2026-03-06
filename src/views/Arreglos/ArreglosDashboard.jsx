@@ -84,9 +84,14 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
     setLoading(true);
     try {
       // 1) Obtener todas las obras que tengan al menos un log de producción (arreglos)
+      //    Solo consideramos transiciones entre estados propios del flujo de arreglos:
+      //    "Para arreglar" ↔ "Entregado" ↔ "Oficial".
+      const estadosArreglo = ["Para arreglar", "Entregado", "Oficial"];
       const { data: logs, error: logsError } = await sb
         .from("obras_produccion_log")
-        .select("id_obra");
+        .select("id_obra, estado_anterior, estado_nuevo")
+        .in("estado_anterior", estadosArreglo)
+        .in("estado_nuevo", estadosArreglo);
       if (logsError) throw logsError;
       const obrasConLogIds = Array.from(
         new Set((logs || []).map((l) => l.id_obra).filter(Boolean))
@@ -129,6 +134,11 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
 
       if (error) throw error;
 
+      // Excluir obras cuyo estado actual es "Solicitud" (solo las ve el Archivista)
+      const obrasFiltradas = (obras || []).filter(
+        (w) => (w.estado || "").toLowerCase() !== "solicitud"
+      );
+
       const { data: integrantes } = await sb
         .from("integrantes")
         .select("id, apellido, nombre, mail")
@@ -140,7 +150,11 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
           `${i.apellido || ""}, ${i.nombre || ""}`.trim() || `ID ${i.id}`,
         ])
       );
-      const arregladorIds = new Set((obras || []).map((w) => w.id_integrante_arreglador).filter(Boolean));
+      const arregladorIds = new Set(
+        (obrasFiltradas || [])
+          .map((w) => w.id_integrante_arreglador)
+          .filter(Boolean)
+      );
       const options = Array.from(arregladorIds)
         .map((id) => ({ id, label: intMap.get(id) || `ID ${id}` }))
         .sort((a, b) => (a.label || "").localeCompare(b.label || ""));
@@ -153,7 +167,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         }))
       );
 
-      const list = (obras || []).map((w) => {
+      const list = (obrasFiltradas || []).map((w) => {
         const compositoresList = (w.obras_compositores || [])
           .filter((oc) => oc.rol === "compositor")
           .map((oc) => oc.compositores)
