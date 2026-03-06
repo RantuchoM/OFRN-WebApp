@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
-  IconMusic,
+  IconMusicNote,
   IconLoader,
   IconDrive,
   IconEdit,
@@ -322,7 +322,7 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
-              <IconMusic className="text-indigo-600" /> Encargos de arreglo
+              <IconMusicNote className="text-indigo-600" /> Encargos de arreglo
             </h2>
             <p className="text-xs text-slate-500 mt-1">
               Tabla de obras en &quot;Para arreglar&quot; o &quot;Entregado&quot;. Cargá el link de Drive, una observación opcional y pasá a Entregado.

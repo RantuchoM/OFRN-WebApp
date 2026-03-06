@@ -47,8 +47,10 @@ import {
   IconLayoutDashboard,
   IconDownload,
   IconSettingsWheel,
+  IconManagement,
   IconMap,
   IconMusic,
+  IconMusicNote,
   IconUsers,
   IconMapPin,
   IconFileText,
@@ -612,7 +614,7 @@ const ProtectedApp = ({ initialTab }) => {
     {
       id: "ARREGLOS",
       label: "Mis Arreglos",
-      icon: <IconMusic size={20} />,
+      icon: <IconMusicNote size={20} />,
       show: isAdmin || isArreglador || user?.mail === "martin.rantucho@gmail.com",
     },
     {
@@ -630,7 +632,7 @@ const ProtectedApp = ({ initialTab }) => {
     {
       id: "MANAGEMENT",
       label: "Gestión",
-      icon: <IconSettingsWheel size={20} />,
+      icon: <IconManagement size={20} />,
       show: isAdmin || isEditor,
     },
     {

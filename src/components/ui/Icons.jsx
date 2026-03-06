@@ -53,6 +53,21 @@ export const IconMusic = ({ size = 24, className = "" }) => (
     <path d="M190.85 451.25c11.66 14.72 32.32 24.49 55.84 24.49 36.4 0 65.89-23.37 65.89-52.21 0-28.84-29.49-52.21-65.89-52.21-20.31 4.15-28.59 9-33.14-2.91 17.98-54.33 46.92-66.71 96.55-66.71 65.91 0 96.97 59.9 96.97 142.97-18.23 190.63-205.95 286.75-246.57 316.19 5.69 13.1 5.4 12.63 5.4 12.01 189.78-86.2 330.69-204.43 330.69-320.74 0-92.42-58.58-175.59-187.72-172.8-77.58 0-170.32 86.2-118 171.93z m328.1 89.88c0-17.85-14.47-32.32-32.32-32.32-17.85 0-32.32 14.47-32.32 32.32 0 17.85 14.47 32.32 32.32 32.32 17.85 0 32.32-14.47 32.32-32.32zm0 136.75c0-17.85-14.47-32.32-32.32-32.32-17.85 0-32.32 14.47-32.32 32.32 0 17.85 14.47 32.32 32.32 32.32 17.85 0 32.32-14.47 32.32-32.32z" />
   </svg>
 );
+
+/** Corchea (8th note) – usado para el menú de Arreglos */
+export const IconMusicNote = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 90 90"
+    fill="currentColor"
+    className={className}
+    style={{ display: "block" }}
+  >
+    <path d="M 23.7,87.9 C 18.1,82.8 21.2,74.7 30.4,69.9 C 33.5,68.4 35.8,67.7 39.8,67.8 C 42.3,67.9 45.1,69.3 45.1,69.3 C 45.1,51.2 45.0,17.0 45.0,0.2 C 46.0,0.2 46.7,0.1 48.1,0.1 C 48.1,1.1 48.1,1.9 48.1,2.7 C 48.1,3.6 48.1,4.1 48.2,4.7 C 49.2,11.0 50.6,13.5 57.6,21.2 C 66.5,31.1 69.1,37.0 69.1,44.9 C 69.0,52.3 62.5,68.1 61.1,67.5 C 63.1,61.9 65.9,55.9 66.6,50.9 C 67.5,44.8 65.0,36.2 61.0,31.7 C 57.8,27.9 50.2,24.6 48.1,24.6 C 48.1,24.6 48.0,61.0 48.0,74.8 C 48.0,77.1 45.9,81.2 44.7,82.6 C 39.2,89.2 28.5,92.2 23.7,87.9 z" />
+  </svg>
+);
 export const IconCopy = ({ size = 24, className = "" }) => (
   <svg
     className={className}
@@ -434,6 +449,26 @@ export const IconCheck = ({ size = 24, className = "" }) => (
     strokeLinejoin="round"
   >
     <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+/** Check dentro de círculo con hueco (1–3 h) – icono del menú Gestión */
+export const IconManagement = ({ size = 24, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    {/* Círculo con gap entre 1 y 3 h (arco de 330° en sentido antihorario) */}
+    <path d="M19.79 7.5a9 9 0 1 0 1.21 4.5" />
+    {/* Checkmark centrado, ligeramente abajo-izquierda */}
+    <path d="M8 12.5l3 3 6.5-7" />
   </svg>
 );
 export const IconX = ({ size = 24, className = "" }) => (
