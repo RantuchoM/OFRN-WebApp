@@ -298,6 +298,40 @@
         `;
       },
 
+      // 5b. Versionado de arreglo (REEMPLAZO o NUEVO ARREGLO → ofrn.archivo@gmail.com)
+      versionado_arreglo: (nombreUser: string, _gira: string, d: any) => {
+        const tipo = d.tipo === "NUEVO_ARREGLO" ? "NUEVO ARREGLO (Clon)" : "REEMPLAZO de versión";
+        const titulo = d.titulo || "-";
+        const linkDrive = d.link_drive || null;
+        const observacion = d.observacion || "";
+
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; font-size: 14px; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background-color: #e0e7ff; padding: 15px; border-radius: 6px; margin-bottom: 20px; border-left: 5px solid #4f46e5; }
+              .block { margin-top: 12px; padding: 10px; background: #f9fafb; border-radius: 4px; border-left: 3px solid #94a3b8; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h2 style="color: #111; margin-top:0;">Versionado de arreglo</h2>
+              <div class="header">
+                <p style="margin: 0;"><strong>Tipo:</strong> ${tipo}</p>
+              </div>
+              <p><strong>Título:</strong> ${titulo}</p>
+              ${linkDrive ? `<p><a href="${linkDrive}" style="color:#4f46e5; font-weight:bold;">Ver carpeta en Drive</a></p>` : ""}
+              ${observacion ? `<div class="block"><strong>Observación del arreglador:</strong><br/>${observacion}</div>` : ""}
+              <p style="font-size: 12px; color: #888; margin-top: 30px; text-align: center;">Notificación automática – Sistema de Gestión OFRN</p>
+            </div>
+          </body>
+          </html>
+        `;
+      },
+
       // 6. Obra entregada (notificación al Archivista)
       obra_entregada: (nombreUser: string, _gira: string, d: any) => {
         const titulo = d.titulo || '-';
@@ -481,6 +515,9 @@
             subject = `[Repertorio] Para arreglar: ${detalle?.titulo || 'Obra'}`;
           } else if (tid === 'obra_entregada') {
             subject = `[Repertorio] Obra entregada: ${detalle?.titulo || 'Obra'}`;
+          } else if (tid === 'versionado_arreglo') {
+            const tipoLabel = detalle?.tipo === 'NUEVO_ARREGLO' ? 'Nuevo arreglo' : 'Reemplazo';
+            subject = `[Repertorio] ${tipoLabel}: ${detalle?.titulo || 'Obra'}`;
           } else if (tid === 'convocatoria_gira') {
             const v = (detalle?.variant || 'INITIAL_BROADCAST').toUpperCase();
             if (v === 'INITIAL_BROADCAST') subject = `Convocatoria a gira | ${nombreGira}`;

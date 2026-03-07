@@ -588,7 +588,7 @@ serve(async (req) => {
       folderName, parentId, fileBase64, mimeType, sourceUrl, targetParentId,
       newName, nombreSet, obraTitulo, targetDriveId, fileId, targetEmail, role,
       giraId,
-      id_obra, link_origen, titulo: tituloObra
+      id_obra, link_origen, titulo: tituloObra, nombre_carpeta
     } = body;
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -672,6 +672,145 @@ serve(async (req) => {
         console.error("[entregar_obra_archivo]:", e?.message);
         throw new Error(e?.message || "Error al copiar o actualizar");
       }
+    }
+
+    // --- ACCIÓN: COPIAR CARPETA AL ARCHIVO (solo copia; para "Nuevo arreglo" clon) ---
+    if (action === "copiar_carpeta_a_archivo") {
+      if (!link_origen || !nombre_carpeta) throw new Error("Faltan link_origen o nombre_carpeta");
+      const sourceId = extractFileId(link_origen);
+      if (!sourceId) throw new Error("Link de Drive inválido");
+
+      const driveOpts = { supportsAllDrives: true, includeItemsFromAllDrives: true };
+      const nombreCarpeta = String(nombre_carpeta).slice(0, 200).replace(/[/\\?*:\[\]]/g, "_");
+
+      const nuevaCarpeta = await drive.files.create({
+        requestBody: {
+          name: nombreCarpeta,
+          mimeType: FOLDER_MIME,
+          parents: [ARCHIVO_OBRAS_FOLDER_ID],
+        },
+        fields: "id, webViewLink",
+      });
+      const destFolderId = nuevaCarpeta.data.id!;
+
+      await copyFolderContentsRecursive(drive, sourceId, destFolderId, driveOpts);
+
+      const meta = await drive.files.get({
+        fileId: destFolderId,
+        fields: "webViewLink",
+        ...driveOpts,
+      });
+      const linkDrive = meta.data.webViewLink || `https://drive.google.com/drive/folders/${destFolderId}`;
+
+      return new Response(
+        JSON.stringify({ success: true, link_drive: linkDrive }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // --- ACCIÓN: REEMPLAZAR ARCHIVOS EN CARPETA DE OBRA (nueva versión mismo arreglo) ---
+    if (action === "reemplazar_archivos_obra") {
+      if (!id_obra || !link_origen) throw new Error("Faltan id_obra o link_origen");
+
+      const { data: obra, error: obraError } = await supabase
+        .from("obras")
+        .select("id, link_drive, titulo")
+        .eq("id", id_obra)
+        .single();
+      if (obraError || !obra?.link_drive) throw new Error("Obra no encontrada o sin carpeta en Drive");
+
+      const destFolderId = extractFileId(obra.link_drive);
+      const sourceFolderId = extractFileId(link_origen);
+      if (!destFolderId || !sourceFolderId) throw new Error("Links de Drive inválidos");
+
+      const driveOpts = { supportsAllDrives: true, includeItemsFromAllDrives: true };
+
+      const [destRes, sourceRes] = await Promise.all([
+        drive.files.list({
+          q: `'${destFolderId}' in parents and trashed = false`,
+          fields: "files(id, name, webViewLink, mimeType)",
+          pageSize: 200,
+          ...driveOpts,
+        }),
+        drive.files.list({
+          q: `'${sourceFolderId}' in parents and trashed = false`,
+          fields: "files(id, name, mimeType)",
+          pageSize: 200,
+          ...driveOpts,
+        }),
+      ]);
+
+      const destFiles = (destRes.data?.files || []).filter((f: any) => f.mimeType !== FOLDER_MIME);
+      const sourceFiles = (sourceRes.data?.files || []).filter((f: any) => f.mimeType !== FOLDER_MIME);
+
+      const norm = (name: string) => (name || "").toLowerCase().trim();
+      const destByName = new Map<string, { id: string; webViewLink: string; mimeType: string }>();
+      destFiles.forEach((f: any) => destByName.set(norm(f.name), { id: f.id, webViewLink: f.webViewLink || "", mimeType: f.mimeType || "application/octet-stream" }));
+
+      for (const src of sourceFiles) {
+        const name = (src.name || "sin_nombre").slice(0, 255);
+        const key = norm(name);
+        const dest = destByName.get(key);
+        if (dest) {
+          const content = await downloadDriveFile(src.id, token);
+          if (content && content.length > 0) {
+            const mime = src.mimeType || "application/octet-stream";
+            const uploadRes = await fetch(
+              `https://www.googleapis.com/upload/drive/v3/files/${dest.id}?uploadType=media`,
+              {
+                method: "PATCH",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": mime,
+                },
+                body: content,
+              }
+            );
+            if (!uploadRes.ok) {
+              const errText = await uploadRes.text();
+              console.error("[reemplazar_archivos_obra] update file:", dest.id, uploadRes.status, errText);
+            }
+          }
+        } else {
+          const copied = await drive.files.copy({
+            fileId: src.id,
+            requestBody: { name, parents: [destFolderId] },
+            fields: "id, webViewLink",
+            ...driveOpts,
+          });
+          destByName.set(key, {
+            id: copied.data.id!,
+            webViewLink: copied.data.webViewLink || `https://drive.google.com/file/d/${copied.data.id}/view`,
+            mimeType: src.mimeType || "application/octet-stream",
+          });
+        }
+      }
+
+      const { data: particellas, error: partError } = await supabase
+        .from("obras_particellas")
+        .select("id, nombre_archivo, url_archivo")
+        .eq("id_obra", id_obra);
+      if (!partError && particellas?.length) {
+        const destList = Array.from(destByName.entries());
+        for (const part of particellas) {
+          const partName = (part.nombre_archivo || "").trim();
+          if (!partName) continue;
+          const key = norm(partName);
+          const baseKey = key.replace(/\.[^.]+$/, "");
+          const entry = destList.find(([k]) => k === key || k.replace(/\.[^.]+$/, "") === baseKey);
+          if (entry) {
+            const [, info] = entry;
+            if (info.webViewLink && info.webViewLink !== part.url_archivo) {
+              await supabase.from("obras_particellas").update({ url_archivo: info.webViewLink }).eq("id", part.id);
+            }
+          }
+        }
+      }
+
+      return new Response(
+        JSON.stringify({ success: true }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     // --- ACCIÓN: CREAR CARPETA DE VIÁTICOS/GIRA (Insertar esto) ---

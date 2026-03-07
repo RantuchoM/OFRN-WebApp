@@ -10,6 +10,7 @@ import {
   IconPlus,
   IconX,
   IconUserPlus,
+  IconCopy,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../services/supabase";
@@ -18,6 +19,7 @@ import DateInput from "../../components/ui/DateInput";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import WorkForm, { QuickComposerModal } from "../Repertoire/WorkForm";
+import NewVersionModal from "../../components/repertoire/NewVersionModal";
 
 const RichTextPreview = ({ content, className = "" }) => {
   if (!content) return null;
@@ -59,6 +61,10 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
   // Modal WorkForm: abrir por encima de la vista sin cambiar de tab
   const [workFormModalOpen, setWorkFormModalOpen] = useState(false);
   const [workFormInitialData, setWorkFormInitialData] = useState({});
+
+  // Modal Nueva versión (solo para obras Entregado / Oficial)
+  const [newVersionModalOpen, setNewVersionModalOpen] = useState(false);
+  const [newVersionWork, setNewVersionWork] = useState(null);
 
   // Inline edit state: workId -> { link_drive, nota_entrega, fecha_esperada, instrumentacion, dificultad, observaciones }
   const [rowDraft, setRowDraft] = useState({});
@@ -1099,14 +1105,32 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
                               )}
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => openWorkFormModal(work.id)}
-                            className="text-[10px] font-bold px-2 py-1 rounded bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-1"
-                          >
-                            <IconEdit size={12} />
-                            Editar
-                          </button>
+                          <div className="flex flex-wrap gap-1">
+                            {canEditFields && (
+                              <button
+                                type="button"
+                                onClick={() => openWorkFormModal(work.id)}
+                                className="text-[10px] font-bold px-2 py-1 rounded bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-1"
+                              >
+                                <IconEdit size={12} />
+                                Editar
+                              </button>
+                            )}
+                            {(work.estado === "Entregado" || work.estado === "Oficial") && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewVersionWork(work);
+                                  setNewVersionModalOpen(true);
+                                }}
+                                className="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center gap-1"
+                                title="Nueva versión (reemplazar o clonar)"
+                              >
+                                <IconCopy size={12} />
+                                Nueva versión
+                              </button>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -1170,6 +1194,17 @@ export default function ArreglosDashboard({ supabase: supabaseClient, onViewInRe
         onClose={() => setIsQuickCompOpen(false)}
         onCreated={handleQuickCompCreated}
         supabase={sb}
+      />
+
+      <NewVersionModal
+        isOpen={newVersionModalOpen}
+        onClose={() => {
+          setNewVersionModalOpen(false);
+          setNewVersionWork(null);
+        }}
+        work={newVersionWork}
+        supabase={sb}
+        onSuccess={fetchWorks}
       />
     </div>
   );
