@@ -168,6 +168,20 @@ const getSuggestedParts = (driveFiles, catalogoInstrumentos) => {
       }
     }
 
+    // Caso especial: si el prefijo es exactamente "corno",
+    // priorizamos el instrumento cuyo nombre normalizado sea "corno"
+    // (evita que "Corno Inglés" gane el match por contener "corno").
+    if (normPrefix === "corno") {
+      const plainHorn =
+        normalizedCatalog.find((i) => i.norm === "corno") ||
+        normalizedCatalog.find(
+          (i) => i.norm.startsWith("corno") && !i.norm.includes("ingl"),
+        );
+      if (plainHorn) {
+        best = plainHorn;
+      }
+    }
+
     if (!best) continue;
     if (best.sim !== undefined && best.sim < 0.4) continue; // Umbral de similitud
 
