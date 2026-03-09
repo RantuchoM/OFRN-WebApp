@@ -18,7 +18,7 @@ import {
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 
-// Roles asignables en Gestión de Usuarios (multi-selección, alineado con AuthContext)
+// Roles asignables en Gestión de Usuarios (multi-selección, alineado con AuthContext y docs de permisos)
 const ROLES_OPTIONS = [
   { id: "personal", label: "👤 Personal" },
   { id: "consulta_personal", label: "👁️ Consulta Personal" },
@@ -27,6 +27,8 @@ const ROLES_OPTIONS = [
   { id: "difusion", label: "📢 Difusión" },
   { id: "arreglador", label: "📝 Arreglador" },
   { id: "archivista", label: "📁 Archivista" },
+  // Curador de Repertorio: acceso global a programación de repertorio de todos los ensambles
+  { id: "curador", label: "🎼 Curador Repertorio" },
   { id: "editor", label: "✏️ Editor" },
   { id: "coord_general", label: "⚙️ Coord. General" },
   { id: "produccion_general", label: "🎬 Producción General" },

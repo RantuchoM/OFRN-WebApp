@@ -429,6 +429,16 @@ export default function GiraForm({
   const [shiftNewDate, setShiftNewDate] = useState("");
   const [shiftLoading, setShiftLoading] = useState(false);
   const [staffRole, setStaffRole] = useState("director");
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle | saving | saved | error
+
+  useEffect(() => {
+    if (syncStatus === "saved") {
+      const timeout = setTimeout(() => {
+        setSyncStatus("idle");
+      }, 3000);
+      return () => clearTimeout(timeout);
+    }
+  }, [syncStatus]);
 
   // Estados para Conciertos
   const [concerts, setConcerts] = useState([]);
@@ -556,6 +566,7 @@ export default function GiraForm({
   const handleAutoSave = async (fieldName, valueOverride = null) => {
     if (isNew || !enableAutoSave || !giraId) return;
     const value = valueOverride !== null ? valueOverride : formData[fieldName];
+    setSyncStatus("saving");
     setSavingField(fieldName);
     setGlobalSaving(true);
     try {
@@ -565,8 +576,10 @@ export default function GiraForm({
         .eq("id", giraId);
       if (error) throw error;
       if (onRefresh) onRefresh();
+      setSyncStatus("saved");
     } catch (err) {
       console.error("Error auto-guardando:", err);
+      setSyncStatus("error");
     } finally {
       setTimeout(() => {
         setSavingField(null);
@@ -607,6 +620,7 @@ export default function GiraForm({
     }
 
     if (!isNew && enableAutoSave) {
+      setSyncStatus("saving");
       setGlobalSaving(true);
       try {
         if (exists) {
@@ -628,8 +642,10 @@ export default function GiraForm({
             },
           ]);
         }
+        setSyncStatus("saved");
       } catch (error) {
         console.error("Error guardando fuente:", error);
+        setSyncStatus("error");
       } finally {
         setGlobalSaving(false);
       }
@@ -663,16 +679,25 @@ export default function GiraForm({
     ]);
 
     if (!isNew && enableAutoSave) {
+      setSyncStatus("saving");
       setGlobalSaving(true);
-      await supabase.from("giras_integrantes").insert([
-        {
-          id_gira: giraId,
-          id_integrante: idInt,
-          rol: staffRole,
-          estado: "confirmado",
-        },
-      ]);
-      setGlobalSaving(false);
+      try {
+        const { error } = await supabase.from("giras_integrantes").insert([
+          {
+            id_gira: giraId,
+            id_integrante: idInt,
+            rol: staffRole,
+            estado: "confirmado",
+          },
+        ]);
+        if (error) throw error;
+        setSyncStatus("saved");
+      } catch (error) {
+        console.error("Error agregando integrante a gira:", error);
+        setSyncStatus("error");
+      } finally {
+        setGlobalSaving(false);
+      }
     }
   };
 
@@ -682,14 +707,23 @@ export default function GiraForm({
     newStaff.splice(index, 1);
     setSelectedStaff(newStaff);
     if (!isNew && enableAutoSave && staffToRemove) {
+      setSyncStatus("saving");
       setGlobalSaving(true);
-      await supabase
-        .from("giras_integrantes")
-        .delete()
-        .eq("id_gira", giraId)
-        .eq("id_integrante", staffToRemove.id_integrante)
-        .eq("rol", staffToRemove.rol);
-      setGlobalSaving(false);
+      try {
+        const { error } = await supabase
+          .from("giras_integrantes")
+          .delete()
+          .eq("id_gira", giraId)
+          .eq("id_integrante", staffToRemove.id_integrante)
+          .eq("rol", staffToRemove.rol);
+        if (error) throw error;
+        setSyncStatus("saved");
+      } catch (error) {
+        console.error("Error eliminando integrante de gira:", error);
+        setSyncStatus("error");
+      } finally {
+        setGlobalSaving(false);
+      }
     }
   };
 
@@ -698,18 +732,32 @@ export default function GiraForm({
     const removed = [...selectedLocations].filter((x) => !newSet.has(x));
     setSelectedLocations(newSet);
     if (!isNew && enableAutoSave) {
+      setSyncStatus("saving");
       setGlobalSaving(true);
-      if (added.length)
-        await supabase
-          .from("giras_localidades")
-          .insert(added.map((lid) => ({ id_gira: giraId, id_localidad: lid })));
-      if (removed.length)
-        await supabase
-          .from("giras_localidades")
-          .delete()
-          .eq("id_gira", giraId)
-          .in("id_localidad", removed);
-      setGlobalSaving(false);
+      try {
+        if (added.length) {
+          const { error: insertError } = await supabase
+            .from("giras_localidades")
+            .insert(
+              added.map((lid) => ({ id_gira: giraId, id_localidad: lid })),
+            );
+          if (insertError) throw insertError;
+        }
+        if (removed.length) {
+          const { error: deleteError } = await supabase
+            .from("giras_localidades")
+            .delete()
+            .eq("id_gira", giraId)
+            .in("id_localidad", removed);
+          if (deleteError) throw deleteError;
+        }
+        setSyncStatus("saved");
+      } catch (error) {
+        console.error("Error actualizando localidades de gira:", error);
+        setSyncStatus("error");
+      } finally {
+        setGlobalSaving(false);
+      }
     }
   };
 
@@ -718,13 +766,22 @@ export default function GiraForm({
     newLocs.delete(locId);
     setSelectedLocations(newLocs);
     if (!isNew && enableAutoSave) {
+      setSyncStatus("saving");
       setGlobalSaving(true);
-      await supabase
-        .from("giras_localidades")
-        .delete()
-        .eq("id_gira", giraId)
-        .eq("id_localidad", locId);
-      setGlobalSaving(false);
+      try {
+        const { error } = await supabase
+          .from("giras_localidades")
+          .delete()
+          .eq("id_gira", giraId)
+          .eq("id_localidad", locId);
+        if (error) throw error;
+        setSyncStatus("saved");
+      } catch (error) {
+        console.error("Error eliminando localidad de gira:", error);
+        setSyncStatus("error");
+      } finally {
+        setGlobalSaving(false);
+      }
     }
   };
 
@@ -739,16 +796,25 @@ export default function GiraForm({
 
   const handleDetailedSave = async (newMusician) => {
     if (!isNew && giraId) {
+      setSyncStatus("saving");
       setGlobalSaving(true);
-      await supabase.from("giras_integrantes").insert([
-        {
-          id_gira: giraId,
-          id_integrante: newMusician.id,
-          rol: staffRole,
-          estado: "confirmado",
-        },
-      ]);
-      setGlobalSaving(false);
+      try {
+        const { error } = await supabase.from("giras_integrantes").insert([
+          {
+            id_gira: giraId,
+            id_integrante: newMusician.id,
+            rol: staffRole,
+            estado: "confirmado",
+          },
+        ]);
+        if (error) throw error;
+        setSyncStatus("saved");
+      } catch (error) {
+        console.error("Error guardando músico detallado en gira:", error);
+        setSyncStatus("error");
+      } finally {
+        setGlobalSaving(false);
+      }
     }
     setSelectedStaff((prev) => [
       ...prev,
@@ -789,15 +855,6 @@ export default function GiraForm({
     <div
       className={`p-4 rounded-xl border shadow-sm animate-in fade-in zoom-in-95 duration-200 relative ${isNew ? "bg-fixed-indigo-50 border-fixed-indigo-200" : "bg-white ring-2 ring-fixed-indigo-500 border-fixed-indigo-500 z-10"}`}
     >
-      {/* INDICADOR GLOBAL DE GUARDADO */}
-      {!isNew && enableAutoSave && (
-        <div
-          className={`absolute top-2 right-14 flex items-center gap-2 text-[10px] font-bold uppercase transition-opacity duration-300 ${globalSaving ? "opacity-100 text-fixed-indigo-600" : "opacity-0 text-slate-400"}`}
-        >
-          <IconCloud size={12} /> {globalSaving ? "Guardando..." : "Guardado"}
-        </div>
-      )}
-
       <div className="flex justify-between items-center mb-4 border-b border-fixed-indigo-100 pb-2">
         <h3 className="text-fixed-indigo-900 font-bold flex items-center gap-2">
           {isNew ? (
@@ -815,14 +872,39 @@ export default function GiraForm({
             </>
           )}
         </h3>
-        {!isNew && !isShifting && (
-          <button
-            onClick={() => setIsShifting(true)}
-            className="text-xs bg-fixed-indigo-50 text-fixed-indigo-700 px-3 py-1 rounded-full border border-fixed-indigo-100 hover:bg-fixed-indigo-100 flex items-center gap-1 transition-colors"
-          >
-            <IconCalendar size={14} /> Trasladar Gira
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {!isNew && enableAutoSave && (
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase">
+              {syncStatus === "saving" && (
+                <span className="inline-flex items-center gap-1 text-amber-500">
+                  <IconLoader size={14} className="animate-spin" />
+                  <span>Guardando...</span>
+                </span>
+              )}
+              {syncStatus === "saved" && (
+                <span className="inline-flex items-center gap-1 text-emerald-600">
+                  <IconCheck size={14} />
+                  <span>Cambios guardados</span>
+                </span>
+              )}
+              {syncStatus === "error" && (
+                <span className="inline-flex items-center gap-1 text-red-600">
+                  <IconAlertTriangle size={14} />
+                  <span>Error al guardar</span>
+                </span>
+              )}
+            </div>
+          )}
+
+          {!isNew && !isShifting && (
+            <button
+              onClick={() => setIsShifting(true)}
+              className="text-xs bg-fixed-indigo-50 text-fixed-indigo-700 px-3 py-1 rounded-full border border-fixed-indigo-100 hover:bg-fixed-indigo-100 flex items-center gap-1 transition-colors"
+            >
+              <IconCalendar size={14} /> Trasladar Gira
+            </button>
+          )}
+        </div>
       </div>
 
       {isShifting && (

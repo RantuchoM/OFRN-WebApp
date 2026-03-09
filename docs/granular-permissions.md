@@ -6,14 +6,17 @@ Se utiliza una columna de tipo Array de Texto (`text[]`) en la tabla `integrante
 ## Configuración de Roles
 Un usuario puede tener, por ejemplo: `['musico', 'arreglador', 'archivista']`.
 
+- **curador**: rol específico de curaduría de repertorio. Puede acceder a la pestaña **“Programación de Repertorio”** en el coordinador de ensambles y ver/editar la programación de repertorio de **todos los ensambles**, sin estar limitado a uno solo.
+
 ## Lógica de Consumo (AuthContext)
 El sistema expone flags booleanas basadas en la existencia del rol en el array:
 
-- **isAdmin**: Contiene 'admin'.
-- **isArreglador**: Contiene 'arreglador'.
-- **isArchivista**: Contiene 'archivista'.
-- **isEditor**: Contiene 'admin', 'editor' o 'difusion'.
-- **isManagement**: Contiene cualquier rol directivo o de coordinación.
+- **isAdmin**: Contiene `admin`.
+- **isArreglador**: Contiene `arreglador`.
+- **isArchivista**: Contiene `archivista`.
+- **isCurador**: Contiene `curador` (permite curar programación de repertorio globalmente).
+- **isEditor**: Contiene `admin`, `editor` o `curador`.
+- **isManagement**: Contiene cualquier rol directivo o de coordinación, incluyendo `curador`.
 
 ## Cómo asignar roles (SQL)
 Para agregar un rol sin borrar los existentes:

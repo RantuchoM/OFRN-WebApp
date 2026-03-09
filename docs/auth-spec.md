@@ -17,13 +17,11 @@ userId: Alias directo de user.id.
 role: Rol del sistema normalizado en minúsculas.
 
 4. Lógica de Permisos (Banderas)
-isEditor: true para roles admin, editor o difusion.
-
-isManagement: Permite acceso a vistas de gestión general.
-
-isPersonal: true para músicos y personal que consulta su propia información.
-
-isGuest: Usuarios con acceso limitado o invitados.
+- isEditor: true para roles `admin`, `editor` o `curador`.
+- isCurador: true si el array `rol_sistema` contiene `curador` (curaduría de repertorio global).
+- isManagement: Permite acceso a vistas de gestión general; incluye `admin`, `editor`, `curador`, `coord_general`, `consulta_general`, `produccion_general`, `director`.
+- isPersonal: true para músicos y personal que consulta su propia información.
+- isGuest: Usuarios con acceso limitado o invitados.
 
 5. Funciones Clave
 login(email, password): Valida credenciales contra la tabla integrantes.

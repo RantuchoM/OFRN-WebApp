@@ -2047,6 +2047,8 @@ export default function RepertoireManager({
       {repertorios.map((rep) => {
         // Calculamos el atril para el usuario actual en este bloque (si aplica)
         const userSeating = user ? seatingMap[user.id] : null;
+        const isDefinitionMode =
+          (rep.repertorio_obras || []).some((o) => o.en_definicion) || false;
 
         return (
           <div
@@ -2057,7 +2059,7 @@ export default function RepertoireManager({
           >
             {/* --- HEADER DEL BLOQUE (TÍTULO Y DURACIÓN) --- */}
             <div className="bg-fixed-indigo-50/50 p-2 border-b border-slate-200 flex justify-between items-center h-10 sticky top-0 z-10 backdrop-blur-sm">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <IconMusic size={14} className="text-fixed-indigo-600" />
                 {editingBlock.id === rep.id ? (
                   <input
@@ -2091,6 +2093,68 @@ export default function RepertoireManager({
                       )}
                     </span>
 
+                    {isEditor && (
+                      <button
+                        onClick={async () => {
+                          const nextValue = !isDefinitionMode;
+                          // Actualizar UI local
+                          setRepertorios((current) =>
+                            current.map((r) =>
+                              r.id === rep.id
+                                ? {
+                                    ...r,
+                                    repertorio_obras: (r.repertorio_obras || []).map(
+                                      (o) => ({
+                                        ...o,
+                                        en_definicion: nextValue,
+                                      }),
+                                    ),
+                                  }
+                                : r,
+                            ),
+                          );
+                          // Persistir en Supabase para todas las obras del bloque
+                          const obraIds = (rep.repertorio_obras || []).map(
+                            (o) => o.id,
+                          );
+                          if (obraIds.length > 0) {
+                            try {
+                              await supabase
+                                .from("repertorio_obras")
+                                .update({ en_definicion: nextValue })
+                                .in("id", obraIds);
+                            } catch (e) {
+                              console.error(
+                                "Error al actualizar en_definicion del bloque:",
+                                e,
+                              );
+                              alert(
+                                "Error al actualizar el modo de definición del bloque.",
+                              );
+                            }
+                          }
+                        }}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold transition-colors ${
+                          isDefinitionMode
+                            ? "bg-amber-50 border-amber-300 text-amber-800"
+                            : "bg-white border-slate-200 text-slate-500"
+                        }`}
+                        title="Controla si este bloque está en modo de definición/curaduría"
+                      >
+                        {isDefinitionMode ? (
+                          <>
+                            <IconAlertCircle size={12} className="text-amber-500" />
+                            <span>Modo Definición</span>
+                          </>
+                        ) : (
+                          <>
+                            <IconCheck size={12} className="text-emerald-500" />
+                            <span>Definido</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+
                     {/* Badge de Atril (si el usuario tiene asignación) */}
                     {userSeating && (
                       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-white border border-fixed-indigo-200 rounded text-[10px] text-fixed-indigo-700 shadow-sm animate-in fade-in">
@@ -2111,12 +2175,14 @@ export default function RepertoireManager({
                   Total: {calculateTotalDuration(rep.repertorio_obras)}
                 </span>
                 {isEditor && (
-                  <button
-                    onClick={() => deleteRepertoireBlock(rep.id)}
-                    className="text-slate-400 hover:text-red-600 p-1"
-                  >
-                    <IconTrash size={12} />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => deleteRepertoireBlock(rep.id)}
+                      className="text-slate-400 hover:text-red-600 p-1"
+                    >
+                      <IconTrash size={12} />
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -2260,7 +2326,7 @@ export default function RepertoireManager({
                           </div>
                         )}
 
-                        {/* Fila 5: Solistas */}
+                {/* Fila 5: Solistas */}
                         {(item.ids_solistas || item.id_solista) && (
                           <div className="flex flex-wrap items-center gap-1 mb-2">
                             {(
@@ -2280,7 +2346,93 @@ export default function RepertoireManager({
                           </div>
                         )}
 
-                        {/* Fila 6: Botonera inferior */}
+                        {/* Fila 6: Curaduría (solo si el bloque está en definición) */}
+                        {item.en_definicion && (
+                          <div className="mb-2 mt-1 border-t border-amber-100 pt-1">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[9px] uppercase tracking-wide text-amber-700 font-semibold">
+                                  Curaduría
+                                </span>
+                                {item.estado_curaduria === "Aceptado" && (
+                                  <IconCheck
+                                    size={10}
+                                    className="text-emerald-600"
+                                  />
+                                )}
+                                {item.estado_curaduria === "Rechazado" && (
+                                  <IconX size={10} className="text-red-600" />
+                                )}
+                                {!item.estado_curaduria ||
+                                  item.estado_curaduria === "Propuesto" ? (
+                                  <IconAlertCircle
+                                    size={10}
+                                    className="text-amber-500"
+                                  />
+                                ) : null}
+                              </div>
+                              {isEditor ? (
+                                <div className="flex flex-col gap-1">
+                                  <select
+                                    value={item.estado_curaduria || "Propuesto"}
+                                    onChange={(e) =>
+                                      updateWorkDetail(
+                                        item.id,
+                                        "estado_curaduria",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className={`w-full text-[10px] px-2 py-1 rounded border focus:outline-none focus:ring-1 ${
+                                      item.estado_curaduria === "Aceptado"
+                                        ? "bg-emerald-50 border-emerald-300 text-emerald-700 focus:ring-emerald-400"
+                                        : item.estado_curaduria === "Rechazado"
+                                          ? "bg-red-50 border-red-300 text-red-700 focus:ring-red-400"
+                                          : "bg-amber-50 border-amber-300 text-amber-800 focus:ring-amber-400"
+                                    }`}
+                                  >
+                                    <option value="Propuesto">Propuesto</option>
+                                    <option value="Aceptado">Aceptado</option>
+                                    <option value="Rechazado">Rechazado</option>
+                                  </select>
+                                  <input
+                                    type="text"
+                                    className="w-full text-[10px] px-2 py-1 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-slate-300"
+                                    placeholder="Observación de curaduría..."
+                                    defaultValue={item.observacion_curaduria || ""}
+                                    onBlur={(e) =>
+                                      updateWorkDetail(
+                                        item.id,
+                                        "observacion_curaduria",
+                                        e.target.value,
+                                      )
+                                    }
+                                  />
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-1">
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                                      item.estado_curaduria === "Aceptado"
+                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                        : item.estado_curaduria === "Rechazado"
+                                          ? "bg-red-50 text-red-700 border border-red-200"
+                                          : "bg-amber-50 text-amber-800 border border-amber-200"
+                                    }`}
+                                  >
+                                    {item.estado_curaduria || "Propuesto"}
+                                  </span>
+                                  {item.observacion_curaduria && (
+                                    <p className="text-[10px] text-slate-600 leading-tight">
+                                      {item.observacion_curaduria}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Fila 7: Botonera inferior */}
                         <div className="pt-1 border-t border-slate-50 flex justify-between items-center">
                           <div className="flex gap-3">
                             {(item.google_drive_shortcut_id ||
@@ -2377,6 +2529,7 @@ export default function RepertoireManager({
                   <col className="w-10" />
                   <col className="w-[88px]" />
                   <col className="w-[280px]" />
+                  {isDefinitionMode && <col className="w-[160px]" />}
                   <col className="w-[150px]" />
                   <col className="w-14" />
                   <col className="w-[96px]" />
@@ -2395,6 +2548,9 @@ export default function RepertoireManager({
                     <th className="p-1 text-center">GD</th>
                     <th className="p-1">Compositor</th>
                     <th className="p-1">Obra</th>
+                    {isDefinitionMode && (
+                      <th className="p-1 text-center">Curaduría</th>
+                    )}
                     <th className="p-1 text-center">Instr.</th>
                     <th className="p-1 text-center">Dur.</th>
                     <th className="p-1">Solista</th>
@@ -2509,6 +2665,92 @@ export default function RepertoireManager({
                           )}
                         </div>
                       </td>
+                      {isDefinitionMode && (
+                        <td className="p-1 text-center align-middle">
+                          {item.en_definicion ? (
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1">
+                                {item.estado_curaduria === "Aceptado" && (
+                                  <IconCheck
+                                    size={12}
+                                    className="text-emerald-600 shrink-0"
+                                  />
+                                )}
+                                {item.estado_curaduria === "Rechazado" && (
+                                  <IconX
+                                    size={12}
+                                    className="text-red-600 shrink-0"
+                                  />
+                                )}
+                                {!item.estado_curaduria ||
+                                  item.estado_curaduria === "Propuesto" ? (
+                                  <IconAlertCircle
+                                    size={12}
+                                    className="text-amber-500 shrink-0"
+                                  />
+                                ) : null}
+                                {isEditor ? (
+                                  <select
+                                    value={item.estado_curaduria || "Propuesto"}
+                                    onChange={(e) =>
+                                      updateWorkDetail(
+                                        item.id,
+                                        "estado_curaduria",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className={`flex-1 min-w-[80px] text-[10px] px-1.5 py-0.5 rounded border focus:outline-none focus:ring-1 ${
+                                      item.estado_curaduria === "Aceptado"
+                                        ? "bg-emerald-50 border-emerald-300 text-emerald-700 focus:ring-emerald-400"
+                                        : item.estado_curaduria === "Rechazado"
+                                          ? "bg-red-50 border-red-300 text-red-700 focus:ring-red-400"
+                                          : "bg-amber-50 border-amber-300 text-amber-800 focus:ring-amber-400"
+                                    }`}
+                                  >
+                                    <option value="Propuesto">Propuesto</option>
+                                    <option value="Aceptado">Aceptado</option>
+                                    <option value="Rechazado">Rechazado</option>
+                                  </select>
+                                ) : (
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                                      item.estado_curaduria === "Aceptado"
+                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                        : item.estado_curaduria === "Rechazado"
+                                          ? "bg-red-50 text-red-700 border border-red-200"
+                                          : "bg-amber-50 text-amber-800 border border-amber-200"
+                                    }`}
+                                  >
+                                    {item.estado_curaduria || "Propuesto"}
+                                  </span>
+                                )}
+                              </div>
+                              {isEditor && (
+                                <input
+                                  type="text"
+                                  className="w-full text-[10px] px-1.5 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-slate-300"
+                                  placeholder="Obs. curaduría…"
+                                  defaultValue={item.observacion_curaduria || ""}
+                                  onBlur={(e) =>
+                                    updateWorkDetail(
+                                      item.id,
+                                      "observacion_curaduria",
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                              )}
+                              {!isEditor && item.observacion_curaduria && (
+                                <p className="text-[10px] text-slate-600 leading-tight">
+                                  {item.observacion_curaduria}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-slate-300">-</span>
+                          )}
+                        </td>
+                      )}
                       <td className="p-1 text-center whitespace-pre-line text-[10px] text-slate-500 font-mono">
                         {item.obras.instrumentacion ||
                           calculateInstrumentation(

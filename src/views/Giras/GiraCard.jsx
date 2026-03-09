@@ -61,6 +61,7 @@ export default function GiraCard({
   onDuplicate,
   onDelete,
   isHighlighted,
+  defaultOpenSection,
 }) {
   const { user, isDifusion } = useAuth();
   const isMenuOpen = activeMenuId === gira.id;
@@ -193,6 +194,8 @@ export default function GiraCard({
   };
 
   const mealConfig = getMealStatusConfig();
+  const shouldShowRepertoire =
+    showRepertoireInCards || defaultOpenSection === "repertoire";
   const baseStyle = getProgramStyle(gira.tipo);
   let cardClasses = baseStyle.color;
   if (gira.estado === "Pausada") {
@@ -1032,15 +1035,15 @@ export default function GiraCard({
           </div>,
           document.body,
         )}
-      {showRepertoireInCards && (
+      {shouldShowRepertoire && (
         <div className="border-t border-black/5 bg-white/40 p-2 relative z-20">
           <div className="animate-in slide-in-from-top-2">
             <RepertoireManager
               supabase={supabase}
               programId={gira.id}
               giraId={gira.id}
-              isCompact={true}
-              readOnly={true}
+              isCompact={false}
+              readOnly={!isEditor}
             />
           </div>
         </div>

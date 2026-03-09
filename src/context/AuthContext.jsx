@@ -80,10 +80,13 @@ export function AuthProvider({ children }) {
     // --- LÓGICA DE PERMISOS (multi-rol: flags por includes) ---
     isAdmin: roles.includes("admin"),
     isDifusion: roles.includes("difusion"),
-    // Editor = solo admin/editor; difusión no da acceso a gestión general (ver isDifusion para tabla difusión)
-    isEditor: roles.some((r) => ["admin", "editor"].includes(r)),
+    // Rol específico de curaduría de repertorio (acceso global a programación de repertorio por ensamble)
+    isCurador: roles.includes("curador"),
+    // Editor global de datos: incluye admin, editor y curador
+    isEditor: roles.some((r) => ["admin", "editor", "curador"].includes(r)),
+    // Vista de gestión general (agenda, ensembles, repertorio por ensamble, etc.)
     isManagement: roles.some((r) =>
-      ["admin", "editor", "coord_general", "consulta_general", "produccion_general", "director"].includes(r)
+      ["admin", "editor", "curador", "coord_general", "consulta_general", "produccion_general", "director"].includes(r)
     ),
     isPersonal: roles.some((r) => ["musico", "archivista", "personal", "consulta_personal"].includes(r)),
     isGuest: roles.includes("invitado") || activeUser?.id === "guest-general",

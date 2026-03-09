@@ -33,6 +33,7 @@ import {
   IconUserPlus,
   IconUserX,
   IconMenu,
+  IconEyeOff,
 } from "../../components/ui/Icons";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 import GiraForm from "../Giras/GiraForm";
@@ -45,10 +46,12 @@ import DateInput from "../../components/ui/DateInput";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import MultiSelect from "../../components/ui/MultiSelect";
 import ConfirmModal from "../../components/ui/ConfirmModal";
+import RichTextEditor from "../../components/ui/RichTextEditor";
 
 import { format, addMonths, getDay, setDay, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import GiraCard from "../Giras/GiraCard";
 import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
 
 // --- UTILIDADES ---
@@ -82,6 +85,20 @@ const formatDateBox = (dateStr) => {
   } catch (e) {
     return { day: "-", num: "-", month: "-" };
   }
+};
+
+const formatProgramDateRange = (fromStr, toStr) => {
+  const from = parseLocalDate(fromStr);
+  const to = parseLocalDate(toStr);
+  if (!from && !to) return "";
+  if (from && to) {
+    if (from.getTime() === to.getTime()) {
+      return format(from, "dd/MM/yyyy");
+    }
+    return `${format(from, "dd/MM/yyyy")} – ${format(to, "dd/MM/yyyy")}`;
+  }
+  if (from) return `Desde ${format(from, "dd/MM/yyyy")}`;
+  return `Hasta ${format(to, "dd/MM/yyyy")}`;
 };
 
 const formatTime = (timeStr) => (timeStr ? timeStr.slice(0, 5) : "--:--");
@@ -380,6 +397,9 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
   const navigate = useNavigate();
   const { roster, loading } = useGiraRoster(supabase, program);
   const programStyle = getProgramStyle(program.tipo);
+  const [showDetail, setShowDetail] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailGira, setDetailGira] = useState(null);
 
   if (loading)
     return (
@@ -403,11 +423,60 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
     toast.success(`Integrantes convocados (${count}): ${names}`);
   };
 
+  const handleToggleDetail = async (e) => {
+    e.stopPropagation();
+    if (showDetail) {
+      setShowDetail(false);
+      return;
+    }
+    setShowDetail(true);
+    if (detailGira) return;
+    setDetailLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("programas")
+        .select(
+          `
+          *,
+          giras_localidades(id_localidad, localidades(localidad)),
+          giras_integrantes(
+            id_integrante, rol, estado,
+            integrantes(
+              id, nombre, apellido,
+              id_localidad,
+              instrumentos(familia)
+            )
+          ),
+          giras_fuentes(*),
+          eventos(
+            id, fecha, hora_inicio, hora_fin, descripcion,
+            locaciones(nombre, localidades(localidad)),
+            tipos_evento(nombre, id_categoria),
+            eventos_asistencia(id_integrante, estado)
+          )
+        `,
+        )
+        .eq("id", program.id)
+        .single();
+      if (error) throw error;
+      setDetailGira(data);
+    } catch (err) {
+      console.error(err);
+      toast.error("No se pudo cargar el detalle del programa");
+      setShowDetail(false);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
   return (
     <div
-      className={`rounded-lg border p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-full group ${programStyle.color}`}
+      className={`rounded-lg border p-3 shadow-sm hover:shadow-md transition-all flex flex-col h-full group bg-white`}
     >
-      <div>
+      <div
+        className={`flex flex-col gap-1 cursor-pointer ${programStyle.color}`}
+        onClick={() => onEdit && onEdit(program)}
+      >
         <div className="flex justify-between items-start mb-1">
           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider border border-inherit opacity-90">
             {program.tipo}
@@ -417,7 +486,10 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                navigate({ pathname: "/", search: `?tab=giras&view=AGENDA&giraId=${program.id}` });
+                navigate({
+                  pathname: "/",
+                  search: `?tab=giras&view=AGENDA&giraId=${program.id}`,
+                });
               }}
               className="p-1 rounded opacity-70 hover:opacity-100 transition-opacity"
               title="Ver Agenda"
@@ -428,7 +500,10 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                navigate({ pathname: "/", search: `?tab=giras&view=REPERTOIRE&giraId=${program.id}` });
+                navigate({
+                  pathname: "/",
+                  search: `?tab=giras&view=REPERTOIRE&giraId=${program.id}`,
+                });
               }}
               className="p-1 rounded opacity-70 hover:opacity-100 transition-opacity"
               title="Ver Repertorio"
@@ -460,17 +535,1406 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
         <h3 className="font-bold text-sm leading-tight group-hover:opacity-90 transition-opacity">
           {program.mes_letra} | {program.nomenclador} - {program.nombre_gira}
         </h3>
+        <div className="text-[10px] opacity-80 flex items-center gap-1 pt-2 border-t border-current/20 mt-2">
+          <IconCalendar size={10} />{" "}
+          {parseLocalDate(program.fecha_desde)
+            ? format(parseLocalDate(program.fecha_desde), "d MMM", { locale: es })
+            : "—"}{" "}
+          -{" "}
+          {parseLocalDate(program.fecha_hasta)
+            ? format(parseLocalDate(program.fecha_hasta), "d MMM", { locale: es })
+            : "—"}
+        </div>
       </div>
-      <div className="text-[10px] opacity-80 flex items-center gap-1 pt-2 border-t border-current/20 mt-2">
-        <IconCalendar size={10} />{" "}
-        {parseLocalDate(program.fecha_desde)
-          ? format(parseLocalDate(program.fecha_desde), "d MMM", { locale: es })
-          : "—"}{" "}
-        -{" "}
-        {parseLocalDate(program.fecha_hasta)
-          ? format(parseLocalDate(program.fecha_hasta), "d MMM", { locale: es })
-          : "—"}
+      <div className="mt-3 pt-2 border-t border-slate-100">
+        <button
+          type="button"
+          onClick={handleToggleDetail}
+          className="text-[11px] font-bold text-fixed-indigo-600 hover:text-fixed-indigo-800 flex items-center gap-1"
+        >
+          <IconChevronDown
+            size={12}
+            className={`transition-transform ${showDetail ? "rotate-180" : ""}`}
+          />
+          {showDetail ? "Ocultar programa" : "Ver programa"}
+        </button>
+        {showDetail && (
+          <div className="mt-2">
+            {detailLoading && (
+              <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                <IconLoader className="animate-spin" size={12} /> Cargando
+                GiraCard...
+              </div>
+            )}
+            {!detailLoading && detailGira && (
+              <GiraCard
+                gira={detailGira}
+                updateView={(mode, giraId, subTab) => {
+                  const params = new URLSearchParams();
+                  params.set("tab", "giras");
+                  if (mode && mode !== "LIST") {
+                    params.set("view", mode);
+                    if (giraId) params.set("giraId", giraId);
+                    if (subTab) params.set("subTab", subTab);
+                  }
+                  navigate({ pathname: "/", search: params.toString() });
+                }}
+                isEditor={true}
+                isPersonal={false}
+                userRole={null}
+                startEdit={() => {}}
+                setGlobalCommentsGiraId={() => {}}
+                setCommentsState={() => {}}
+                activeMenuId={null}
+                setActiveMenuId={() => {}}
+                showRepertoireInCards={false}
+                ensemblesList={[]}
+                supabase={supabase}
+                onMove={() => {}}
+                onDuplicate={() => {}}
+                onDelete={() => {}}
+                isHighlighted={false}
+                defaultOpenSection="repertoire"
+              />
+            )}
+          </div>
+        )}
       </div>
+    </div>
+  );
+};
+// --- COMPONENTE: TAB DE PROGRAMACIÓN DE REPERTORIO ---
+const LinkedProgramPreview = ({ programId, supabase, showGiraCards = false }) => {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [gira, setGira] = useState(null);
+
+  const fetchAndOpen = async () => {
+    setOpen(true);
+    if (gira || loading) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("programas")
+        .select(
+          `
+          *,
+          giras_localidades(id_localidad, localidades(localidad)),
+          giras_integrantes(
+            id_integrante, rol, estado,
+            integrantes(
+              id, nombre, apellido,
+              id_localidad,
+              instrumentos(familia)
+            )
+          ),
+          giras_fuentes(*),
+          eventos(
+            id, fecha, hora_inicio, hora_fin, descripcion,
+            locaciones(nombre, localidades(localidad)),
+            tipos_evento(nombre, id_categoria),
+            eventos_asistencia(id_integrante, estado)
+          )
+        `,
+        )
+        .eq("id", programId)
+        .single();
+      if (error) throw error;
+      setGira(data);
+    } catch (e) {
+      console.error(e);
+      toast.error("No se pudo cargar el programa asociado");
+      setOpen(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showGiraCards) {
+      fetchAndOpen();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showGiraCards, programId]);
+
+  const toggle = async () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    await fetchAndOpen();
+  };
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={toggle}
+        className="text-[11px] font-bold text-fixed-indigo-600 hover:text-fixed-indigo-800 flex items-center gap-1"
+      >
+        <IconChevronDown
+          size={12}
+          className={`transition-transform ${open ? "rotate-180" : ""}`}
+        />
+        {open ? "Ocultar programa" : "Ver programa"}
+      </button>
+      {open && (
+        <div className="mt-2">
+          {loading && (
+            <div className="text-[11px] text-slate-400 flex items-center gap-1">
+              <IconLoader className="animate-spin" size={12} /> Cargando GiraCard...
+            </div>
+          )}
+          {!loading && gira && (
+            <GiraCard
+              gira={gira}
+              updateView={(mode, giraId, subTab) => {
+                const params = new URLSearchParams();
+                params.set("tab", "giras");
+                if (mode && mode !== "LIST") {
+                  params.set("view", mode);
+                  if (giraId) params.set("giraId", giraId);
+                  if (subTab) params.set("subTab", subTab);
+                }
+                navigate({ pathname: "/", search: params.toString() });
+              }}
+              isEditor={true}
+              isPersonal={false}
+              userRole={null}
+              startEdit={() => {}}
+              setGlobalCommentsGiraId={() => {}}
+              setCommentsState={() => {}}
+              activeMenuId={null}
+              setActiveMenuId={() => {}}
+              showRepertoireInCards={false}
+              ensemblesList={[]}
+              supabase={supabase}
+              onMove={() => {}}
+              onDuplicate={() => {}}
+              onDelete={() => {}}
+              isHighlighted={false}
+              defaultOpenSection="repertoire"
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const CycleProposalCard = ({
+  proposal,
+  ensemble,
+  supabase,
+  programsMap,
+  proposalFields,
+  handleUpdateProposalField,
+  handleAssociateProgram,
+  onCreateProgramFromProposal,
+  editingProposalId,
+  setEditingProposalId,
+  showGiraCards,
+}) => {
+  const cardRef = useRef(null);
+  const isEditing = editingProposalId === proposal.id;
+
+  const linkedProgramFromMap =
+    proposal.id_programa != null && programsMap
+      ? programsMap[String(proposal.id_programa)] || null
+      : null;
+  const linkedProgramEstadoFromRelation = proposal.programas?.estado || null;
+  // Priorizar el estado reactivo proveniente del programsMap por sobre la relación anidada
+  const estado = linkedProgramFromMap?.estado || linkedProgramEstadoFromRelation || null;
+  const estadoBadgeLabel =
+    estado || (proposal.id_programa != null ? `Prog #${proposal.id_programa}` : null);
+  let borderClass = "border-slate-300";
+  let bgClass = "bg-slate-50/40";
+  if (estado === "Vigente") {
+    borderClass = "border-emerald-300";
+    bgClass = "bg-emerald-50/40";
+  } else if (estado === "Pausada") {
+    borderClass = "border-amber-300";
+    bgClass = "bg-amber-50/40";
+  }
+
+  const resumenVentana =
+    proposalFields[proposal.id]?.ventana_fechas ??
+    proposal.ventana_fechas ??
+    "";
+  const resumenObs =
+    proposalFields[proposal.id]?.observaciones ??
+    proposal.observaciones ??
+    "";
+
+  const programDateRangeText = linkedProgramFromMap
+    ? formatProgramDateRange(
+        linkedProgramFromMap.fecha_desde,
+        linkedProgramFromMap.fecha_hasta,
+      )
+    : "";
+
+  useEffect(() => {
+    if (!isEditing) return;
+    const handleClickOutside = (event) => {
+      if (cardRef.current && !cardRef.current.contains(event.target)) {
+        setEditingProposalId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isEditing, setEditingProposalId]);
+
+  return (
+    <div
+      ref={cardRef}
+      className={`border ${borderClass} rounded-lg ${bgClass} shadow-xs p-3 space-y-2`}
+    >
+      {!isEditing && (
+        <button
+          type="button"
+          className="w-full text-left space-y-1"
+          onClick={() => setEditingProposalId(proposal.id)}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-400 uppercase">
+              Nombre de programa
+            </span>
+            <div className="flex items-center gap-2">
+              {estadoBadgeLabel && (
+                <span
+                  className={`text-[9px] px-1.5 py-0.5 rounded-full border font-bold uppercase ${
+                    estado === "Vigente"
+                      ? "border-emerald-300 bg-emerald-50/40 text-emerald-700"
+                      : estado === "Pausada"
+                        ? "border-amber-300 bg-amber-50/40 text-amber-700"
+                        : "border-slate-300 bg-slate-50/40 text-slate-700"
+                  }`}
+                >
+                  {estadoBadgeLabel}
+                </span>
+              )}
+              <span className="text-[10px] text-slate-300">
+                ID #{proposal.id}
+              </span>
+            </div>
+          </div>
+          <div className="text-xs font-semibold text-slate-800 truncate">
+            {proposal.nombre_programa || "—"}
+          </div>
+          {(programDateRangeText || resumenVentana) && (
+            <div>
+              <span className="block text-[10px] font-bold text-slate-400 uppercase">
+                Ventana de fechas
+              </span>
+              {programDateRangeText && (
+                <div className="text-[10px] text-slate-400 font-medium">
+                  {programDateRangeText}
+                </div>
+              )}
+              {resumenVentana && (
+                <div
+                  className="text-xs text-slate-700 line-clamp-1"
+                  dangerouslySetInnerHTML={{
+                    __html: resumenVentana,
+                  }}
+                />
+              )}
+            </div>
+          )}
+          {resumenObs && (
+            <div>
+              <span className="block text-[10px] font-bold text-slate-400 uppercase">
+                Observaciones internas
+              </span>
+              <div
+                className="text-xs text-slate-700 line-clamp-1"
+                dangerouslySetInnerHTML={{
+                  __html: resumenObs,
+                }}
+              />
+            </div>
+          )}
+        </button>
+      )}
+
+      {isEditing && (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex-1">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                Nombre de programa
+              </label>
+              <input
+                type="text"
+                defaultValue={proposal.nombre_programa || ""}
+                onBlur={(e) =>
+                  handleUpdateProposalField(
+                    proposal.id,
+                    "nombre_programa",
+                    e.target.value,
+                  )
+                }
+                className="w-full border border-slate-300 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-fixed-indigo-100 outline-none"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              {estadoBadgeLabel && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full border bg-white/70 text-slate-600 font-bold uppercase">
+                  {estadoBadgeLabel}
+                </span>
+              )}
+              <span className="text-[10px] text-slate-400 uppercase font-bold">
+                ID #{proposal.id}
+              </span>
+              <button
+                type="button"
+                onClick={() => setEditingProposalId(null)}
+                className="text-[10px] font-bold text-slate-400 hover:text-slate-600"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3 mt-2">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                Ventana de fechas (texto libre)
+              </label>
+              <RichTextEditor
+                value={resumenVentana}
+                onChange={(val) =>
+                  handleUpdateProposalField(
+                    proposal.id,
+                    "ventana_fechas",
+                    val,
+                  )
+                }
+                placeholder="Ej: Enero - Marzo, semanas pares..."
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                Observaciones internas
+              </label>
+              <RichTextEditor
+                value={resumenObs}
+                onChange={(val) =>
+                  handleUpdateProposalField(
+                    proposal.id,
+                    "observaciones",
+                    val,
+                  )
+                }
+                placeholder="Notas, criterios de selección, etc."
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="mt-2 pt-2 border-t border-slate-100 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+        {!proposal.id_programa ? (
+          <>
+            <div className="flex-1 flex flex-col gap-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase">
+                Asociar o Crear Programa
+              </span>
+              <div className="flex flex-col md:flex-row gap-2 md:items-center">
+                <div className="flex-1">
+                  <SearchableSelect
+                    options={Object.values(programsMap || {}).map((p) => ({
+                      id: p.id,
+                      label: p.label,
+                      subLabel: p.subLabel,
+                    }))}
+                    value={proposal.id_programa || ""}
+                    onChange={(val) => handleAssociateProgram(proposal.id, val)}
+                    placeholder="Buscar programa existente..."
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onCreateProgramFromProposal(proposal, ensemble)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold rounded-full bg-fixed-indigo-600 text-white hover:bg-fixed-indigo-700"
+                >
+                  <IconPlus size={12} /> Crear Programa
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col gap-1 w-full">
+            <span className="text-[10px] font-bold text-emerald-700 uppercase">
+              Programa asociado
+            </span>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                <div className="flex-1 flex flex-col gap-1">
+                  <div className="text-xs text-slate-700 bg-emerald-50 border border-emerald-100 rounded px-2 py-1.5">
+                    {programsMap[String(proposal.id_programa)]?.label ||
+                      `Programa #${proposal.id_programa}`}
+                  </div>
+                  {programsMap[String(proposal.id_programa)] && (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleEditProgramFromProposal(
+                            programsMap[String(proposal.id_programa)],
+                          )
+                        }
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold rounded-full bg-emerald-600 text-white hover:bg-emerald-700"
+                      >
+                        <IconEdit size={12} /> Editar programa
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <LinkedProgramPreview
+                programId={proposal.id_programa}
+                supabase={supabase}
+                showGiraCards={showGiraCards}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export const RepertoireCyclesTab = ({
+  supabase,
+  activeEnsembles,
+  programasOptions,
+  repertoireYear,
+  setRepertoireYear,
+  queryClient,
+  onCreateProgramFromProposal,
+  onEditProgram,
+  isGlobalEditor,
+  adminOptions,
+  adminFilterIds,
+  onChangeAdminFilterIds,
+}) => {
+  const [cycleComments, setCycleComments] = useState({});
+  const [proposalFields, setProposalFields] = useState({});
+  const [editingProposalId, setEditingProposalId] = useState(null);
+  const [showGiraCards, setShowGiraCards] = useState(false);
+  const [isCreateCycleModalOpen, setIsCreateCycleModalOpen] = useState(false);
+  const [selectedEnsembleForCycle, setSelectedEnsembleForCycle] =
+    useState(null);
+  const [showEnsemblesPicker, setShowEnsemblesPicker] = useState(false);
+  const [membersModal, setMembersModal] = useState({
+    open: false,
+    ensemble: null,
+    members: [],
+    loading: false,
+  });
+
+  const handleEditProgramFromProposal = (programMeta) => {
+    if (!programMeta?.id || !onEditProgram) return;
+    onEditProgram({ id: programMeta.id });
+  };
+
+  const handleOpenMembers = async (ensemble) => {
+    if (!supabase || !ensemble?.id) return;
+    setMembersModal({
+      open: true,
+      ensemble,
+      members: [],
+      loading: true,
+    });
+    try {
+      // 1) Obtener los IDs de integrantes asociados al ensamble
+      const { data: rels, error: relError } = await supabase
+        .from("integrantes_ensambles")
+        .select("id_integrante")
+        .eq("id_ensamble", ensemble.id);
+      if (relError) throw relError;
+
+      const ids = (rels || []).map((r) => r.id_integrante).filter(Boolean);
+      if (ids.length === 0) {
+        setMembersModal((prev) => ({
+          ...prev,
+          members: [],
+          loading: false,
+        }));
+        return;
+      }
+
+      // 2) Traer datos de cada integrante (apellido, nombre, instrumento)
+      const { data: membersData, error: membersError } = await supabase
+        .from("integrantes")
+        .select("id, apellido, nombre, instrumentos ( instrumento )")
+        .in("id", ids)
+        .order("apellido", { ascending: true });
+      if (membersError) throw membersError;
+
+      const members =
+        membersData?.map((m) => ({
+          id: m.id,
+          apellido: m.apellido,
+          nombre: m.nombre,
+          instrumento:
+            m.instrumentos?.instrumento?.trim() || "Instrumento no definido",
+        })) || [];
+
+      setMembersModal((prev) => ({
+        ...prev,
+        members,
+        loading: false,
+      }));
+    } catch (e) {
+      console.error("Error cargando integrantes del ensamble:", e);
+      setMembersModal((prev) => ({
+        ...prev,
+        loading: false,
+      }));
+    }
+  };
+
+  const closeMembersModal = () =>
+    setMembersModal({
+      open: false,
+      ensemble: null,
+      members: [],
+      loading: false,
+    });
+
+  const {
+    data: availableYearsData = [],
+    isLoading: loadingYears,
+  } = useQuery({
+    queryKey: [
+      "repertoireYears",
+      activeEnsembles.map((e) => e.id),
+    ],
+    enabled: activeEnsembles.length > 0,
+    queryFn: async () => {
+      const ensembleIds = activeEnsembles.map((e) => e.id);
+      if (ensembleIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from("ciclos_ensambles_anios")
+        .select("anio")
+        .in("id_ensamble", ensembleIds)
+        .order("anio", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const uniqueYearOptions = Array.from(
+    new Set(
+      (availableYearsData || [])
+        .map((y) => y.anio)
+        .filter((y) => y != null),
+    ),
+  ).sort((a, b) => b - a);
+
+  const {
+    data: cyclesData = { cycles: [], proposals: [], programsMap: {} },
+    isLoading,
+    isFetching,
+  } = useQuery({
+    queryKey: [
+      "repertoireCycles",
+      activeEnsembles.map((e) => e.id),
+      repertoireYear,
+    ],
+    enabled: activeEnsembles.length > 0 && !!repertoireYear,
+    queryFn: async () => {
+      const ensembleIds = activeEnsembles.map((e) => e.id);
+      if (ensembleIds.length === 0) return { cycles: [], proposals: [], programsMap: {} };
+
+      const { data: cycles, error: cyclesError } = await supabase
+        .from("ciclos_ensambles_anios")
+        .select("id, id_ensamble, anio, comentarios_generales")
+        .in("id_ensamble", ensembleIds)
+        .eq("anio", repertoireYear);
+      if (cyclesError) throw cyclesError;
+
+      const cycleIds = (cycles || []).map((c) => c.id);
+      let proposals = [];
+      if (cycleIds.length > 0) {
+        const { data: propsData, error: propsError } = await supabase
+          .from("ciclos_propuestas")
+          .select(
+            "id, id_ciclo, nombre_programa, ventana_fechas, observaciones, id_programa",
+          )
+          .in("id_ciclo", cycleIds);
+        if (propsError) throw propsError;
+        proposals = propsData || [];
+      }
+
+      // Cargar programas efectivamente usados por las propuestas (sin depender de relaciones/FKs)
+      const usedProgramIds = Array.from(
+        new Set(
+          (proposals || [])
+            .map((p) => p.id_programa)
+            .filter((id) => id !== null && id !== undefined),
+        ),
+      );
+
+      let programsMap = {};
+      if (usedProgramIds.length > 0) {
+        const { data: progsData, error: progsError } = await supabase
+          .from("programas")
+          .select(
+            "id, nombre_gira, fecha_desde, fecha_hasta, mes_letra, nomenclador, estado",
+          )
+          .in("id", usedProgramIds);
+        if (progsError) throw progsError;
+
+        (progsData || []).forEach((p) => {
+          programsMap[String(p.id)] = {
+            id: p.id,
+            label: `${p.mes_letra || "?"} | ${p.nomenclador || ""} - ${p.nombre_gira}`,
+            subLabel: p.fecha_desde
+              ? `Inicio: ${format(parseLocalDate(p.fecha_desde), "dd/MM/yyyy")}`
+              : "",
+            estado: p.estado || "Borrador",
+            fecha_desde: p.fecha_desde,
+            fecha_hasta: p.fecha_hasta,
+          };
+        });
+      }
+
+      return { cycles: cycles || [], proposals, programsMap };
+    },
+  });
+
+  const cycles = cyclesData.cycles;
+  const proposals = cyclesData.proposals;
+  const programsMap = cyclesData.programsMap || {};
+
+  const handleCreateCycle = async (ensembleId) => {
+    const { error } = await supabase.from("ciclos_ensambles_anios").insert([
+      {
+        id_ensamble: ensembleId,
+        anio: repertoireYear,
+      },
+    ]);
+    if (error) {
+      toast.error("Error creando ciclo: " + error.message);
+      return;
+    }
+    toast.success("Ciclo creado");
+    queryClient.invalidateQueries({ queryKey: ["repertoireCycles"], exact: false });
+  };
+
+  const handleCreateCycleFromHeader = () => {
+    if (activeEnsembles.length === 0) return;
+    if (activeEnsembles.length === 1) {
+      handleCreateCycle(activeEnsembles[0].id);
+      return;
+    }
+    setSelectedEnsembleForCycle(
+      activeEnsembles.find((e) => e.id === adminFilterIds?.[0]) ||
+        activeEnsembles[0],
+    );
+    setIsCreateCycleModalOpen(true);
+  };
+
+  const handleCreateProposal = async (cycleId) => {
+    const { error } = await supabase.from("ciclos_propuestas").insert([
+      {
+        id_ciclo: cycleId,
+        nombre_programa: "Nuevo programa",
+      },
+    ]);
+    if (error) {
+      toast.error("Error creando propuesta: " + error.message);
+      return;
+    }
+    toast.success("Propuesta creada");
+    queryClient.invalidateQueries({ queryKey: ["repertoireCycles"], exact: false });
+  };
+
+  const handleUpdateProposalField = async (proposalId, field, value) => {
+    setProposalFields((prev) => ({
+      ...prev,
+      [proposalId]: {
+        ...(prev[proposalId] || {}),
+        [field]: value,
+      },
+    }));
+    const { error } = await supabase
+      .from("ciclos_propuestas")
+      .update({ [field]: value })
+      .eq("id", proposalId);
+    if (error) {
+      console.error("Error guardando propuesta:", error);
+      toast.error("Error guardando propuesta");
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["repertoireCycles"], exact: false });
+  };
+
+  const handleAssociateProgram = async (proposalId, programId) => {
+    await toast.promise(
+      supabase
+        .from("ciclos_propuestas")
+        .update({ id_programa: programId })
+        .eq("id", proposalId),
+      {
+        loading: "Guardando asociación...",
+        success: "Programa asociado",
+        error: "Error asociando programa",
+      },
+    );
+    queryClient.invalidateQueries({ queryKey: ["repertoireCycles"], exact: false });
+  };
+
+  const handleUpdateCycleYear = async (cycleId, newYear) => {
+    const parsed = parseInt(newYear, 10);
+    if (!parsed || String(parsed).length !== 4) return;
+    const { error } = await supabase
+      .from("ciclos_ensambles_anios")
+      .update({ anio: parsed })
+      .eq("id", cycleId);
+    if (error) {
+      console.error("Error guardando año:", error);
+      toast.error("Error guardando año");
+      return;
+    }
+    setRepertoireYear(parsed);
+    queryClient.invalidateQueries({ queryKey: ["repertoireCycles"], exact: false });
+  };
+
+  const handleUpdateCycleComments = async (cycleId, value) => {
+    setCycleComments((prev) => ({ ...prev, [cycleId]: value }));
+    const { error } = await supabase
+      .from("ciclos_ensambles_anios")
+      .update({ comentarios_generales: value })
+      .eq("id", cycleId);
+    if (error) {
+      console.error("Error guardando comentarios:", error);
+      toast.error("Error guardando comentarios");
+      return;
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-2 pb-2 border-b border-slate-100">
+        <div className="flex flex-wrap items-center gap-4 flex-1 min-w-0">
+          <div className="flex flex-col gap-1 min-w-[220px]">
+            <span className="text-[10px] font-bold uppercase text-slate-400">
+              Ensambles
+            </span>
+            {isGlobalEditor ? (
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => setShowEnsemblesPicker((prev) => !prev)}
+                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                >
+                  <IconFilter size={12} className="text-slate-500" />
+                  <span>
+                    {adminFilterIds && adminFilterIds.length > 0
+                      ? `Filtrando ${adminFilterIds.length} ensamble${
+                          adminFilterIds.length > 1 ? "s" : ""
+                        }`
+                      : "Elegir ensambles..."}
+                  </span>
+                  <IconChevronDown
+                    size={10}
+                    className={`transition-transform ${
+                      showEnsemblesPicker ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+                {showEnsemblesPicker && (
+                  <div className="w-72 max-w-full mt-1 border border-slate-200 rounded-lg bg-white shadow-lg p-2">
+                    <MultiSelect
+                      placeholder="Elegí uno o varios ensambles..."
+                      options={adminOptions}
+                      selectedIds={adminFilterIds}
+                      onChange={(ids) => {
+                        const next = Array.isArray(ids) ? ids : [];
+                        onChangeAdminFilterIds(next);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex gap-1 flex-wrap">
+                {activeEnsembles.map((e) => (
+                  <span
+                    key={e.id}
+                    className="text-[10px] font-bold px-2 py-0.5 bg-white text-slate-600 rounded border border-slate-200 shadow-sm flex items-center gap-1 whitespace-nowrap"
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
+                    {e.ensamble}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase text-slate-400">
+              Año
+            </span>
+            <div className="flex items-center gap-2">
+              <select
+                value={
+                  uniqueYearOptions.includes(Number(repertoireYear))
+                    ? Number(repertoireYear)
+                    : repertoireYear || ""
+                }
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  if (val && String(val).length === 4) {
+                    setRepertoireYear(val);
+                  }
+                }}
+                className="border border-slate-300 rounded px-2 py-1 text-xs bg-white"
+              >
+                {!repertoireYear && (
+                  <option value="">
+                    {loadingYears ? "Cargando años..." : "Elegir año"}
+                  </option>
+                )}
+                {uniqueYearOptions.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+                {repertoireYear &&
+                  !uniqueYearOptions.includes(Number(repertoireYear)) && (
+                    <option value={repertoireYear}>{repertoireYear}</option>
+                  )}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowGiraCards((prev) => !prev)}
+            className="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+          >
+            {showGiraCards ? (
+              <IconEyeOff size={12} className="text-slate-500" />
+            ) : (
+              <IconEye size={12} className="text-slate-500" />
+            )}
+            <span>
+              {showGiraCards ? "Ocultar programas" : "Ver programas"}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={handleCreateCycleFromHeader}
+            className="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded-full bg-fixed-indigo-600 text-white hover:bg-fixed-indigo-700"
+          >
+            <IconPlus size={12} /> Nuevo ciclo
+          </button>
+        </div>
+      </div>
+
+      {isCreateCycleModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-xl p-4 w-full max-w-sm">
+            <h3 className="text-sm font-bold text-slate-800 mb-2">
+              Crear ciclo para ensamble
+            </h3>
+            <p className="text-xs text-slate-500 mb-3">
+              Seleccioná el ensamble al que querés asignar el ciclo {repertoireYear}.
+            </p>
+            <div className="mb-3">
+              <SearchableSelect
+                options={activeEnsembles.map((e) => ({
+                  id: e.id,
+                  label: e.ensamble,
+                }))}
+                value={selectedEnsembleForCycle?.id || ""}
+                onChange={(id) => {
+                  const found = activeEnsembles.find((e) => e.id === id);
+                  setSelectedEnsembleForCycle(found || null);
+                }}
+                placeholder="Elegí un ensamble..."
+              />
+            </div>
+            <div className="flex justify-end gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setIsCreateCycleModalOpen(false)}
+                className="px-3 py-1 text-[11px] font-bold rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedEnsembleForCycle) {
+                    handleCreateCycle(selectedEnsembleForCycle.id);
+                    setIsCreateCycleModalOpen(false);
+                  }
+                }}
+                disabled={!selectedEnsembleForCycle}
+                className="px-3 py-1 text-[11px] font-bold rounded-full bg-fixed-indigo-600 text-white hover:bg-fixed-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Crear ciclo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeEnsembles.length === 0 && (
+        <div className="text-center py-8 text-slate-400 text-sm">
+          No hay ensambles activos para gestionar.
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {activeEnsembles.map((ens) => {
+          const cycle = cycles.find((c) => c.id_ensamble === ens.id);
+          const cycleProposals = proposals
+            .filter((p) => p.id_ciclo === cycle?.id)
+            .slice()
+            .sort((a, b) => {
+              const progA = a.id_programa
+                ? programsMap[String(a.id_programa)]
+                : null;
+              const progB = b.id_programa
+                ? programsMap[String(b.id_programa)]
+                : null;
+
+              const dA =
+                progA?.fecha_desde || progA?.fecha_hasta || null;
+              const dB =
+                progB?.fecha_desde || progB?.fecha_hasta || null;
+
+              const dateA = dA ? parseLocalDate(dA) : null;
+              const dateB = dB ? parseLocalDate(dB) : null;
+
+              if (!dateA && !dateB) {
+                // si ninguno tiene programa/fecha, mantener orden original
+                return 0;
+              }
+              if (!dateA) return 1; // sin programa/fecha al final
+              if (!dateB) return -1;
+
+              // Orden cronológico: primero lo más antiguo, luego lo posterior
+              return dateA.getTime() - dateB.getTime();
+            });
+          const cycleCommentsValue =
+            cycle && cycleComments[cycle.id] !== undefined
+              ? cycleComments[cycle.id]
+              : cycle?.comentarios_generales || "";
+
+          return (
+            <div
+              key={ens.id}
+              className="border border-slate-200 rounded-lg bg-slate-50/60 overflow-hidden"
+            >
+              <div className="px-4 py-2 bg-white flex items-center justify-between border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <IconMusic size={14} className="text-fixed-indigo-600" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs font-bold text-slate-800">
+                        {ens.ensamble}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenMembers(ens)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100"
+                        title="Ver integrantes actuales del ensamble"
+                      >
+                        Integrantes
+                      </button>
+                    </div>
+                    {cycle ? (
+                      <div className="flex items-center gap-1 text-[10px] text-slate-400 uppercase mt-0.5">
+                        <span>Ciclo</span>
+                        <input
+                          type="number"
+                          className="w-16 border border-slate-300 rounded px-1 py-0.5 text-[10px] bg-white"
+                          defaultValue={cycle.anio}
+                          onBlur={(e) =>
+                            handleUpdateCycleYear(cycle.id, e.target.value)
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-slate-400 uppercase mt-0.5">
+                        Ciclo {repertoireYear}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {!cycle && (
+                  <button
+                    type="button"
+                    onClick={() => handleCreateCycle(ens.id)}
+                    className="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded-full bg-fixed-indigo-50 text-fixed-indigo-700 border border-fixed-indigo-200 hover:bg-fixed-indigo-100"
+                  >
+                    <IconPlus size={12} /> Crear ciclo
+                  </button>
+                )}
+              </div>
+
+              {cycle ? (
+                <div className="p-3 space-y-3 bg-white/60">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                      Comentarios Generales del Año
+                    </label>
+                    <RichTextEditor
+                      value={cycleCommentsValue}
+                      onChange={(val) => handleUpdateCycleComments(cycle.id, val)}
+                      placeholder="Notas o lineamientos generales para este año..."
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="text-[11px] text-slate-500">
+                      Propuestas de programa para este ensamble en {repertoireYear}.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCreateProposal(cycle.id)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                    >
+                      <IconPlus size={12} /> Nueva propuesta
+                    </button>
+                  </div>
+
+                  {cycleProposals.length === 0 ? (
+                    <div className="text-center text-[11px] text-slate-400 py-4 border border-dashed border-slate-200 rounded-lg bg-slate-50">
+                      Sin propuestas aún.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                  {cycleProposals.map((p) => {
+                        const isEditing = editingProposalId === p.id;
+                        const resumenVentana =
+                          proposalFields[p.id]?.ventana_fechas ??
+                          p.ventana_fechas ??
+                          "";
+                        const resumenObs =
+                          proposalFields[p.id]?.observaciones ??
+                          p.observaciones ??
+                          "";
+
+                        const linkedProgramFromMap =
+                          p.id_programa != null && programsMap
+                            ? programsMap[String(p.id_programa)] || null
+                            : null;
+                        const rawEstado = linkedProgramFromMap?.estado || null;
+                        const programDateRangeText = linkedProgramFromMap
+                          ? formatProgramDateRange(
+                              linkedProgramFromMap.fecha_desde,
+                              linkedProgramFromMap.fecha_hasta,
+                            )
+                          : "";
+                        const estado =
+                          typeof rawEstado === "string" && rawEstado.length > 0
+                            ? rawEstado
+                            : null;
+                        const estadoBadgeLabel =
+                          estado ||
+                          (p.id_programa != null ? `Prog #${p.id_programa}` : null);
+                        let borderClass = "border-slate-300";
+                        let bgClass = "bg-slate-50/40";
+                        if (estado === "Vigente") {
+                          borderClass = "border-emerald-300";
+                          bgClass = "bg-emerald-50/40";
+                        } else if (estado === "Pausada") {
+                          borderClass = "border-amber-300";
+                          bgClass = "bg-amber-50/40";
+                        }
+
+                        return (
+                          <div
+                            key={p.id}
+                            className={`border ${borderClass} rounded-lg ${bgClass} shadow-xs p-3 space-y-2`}
+                          >
+                            {!isEditing && (
+                              <button
+                                type="button"
+                                className="w-full text-left space-y-1"
+                                onClick={() => setEditingProposalId(p.id)}
+                              >
+                              <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                    Nombre de programa
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    {estadoBadgeLabel && (
+                                      <span
+                                        className={`text-[9px] px-1.5 py-0.5 rounded-full border font-bold uppercase ${
+                                          estado === "Vigente"
+                                            ? "border-emerald-300 bg-emerald-50/40 text-emerald-700"
+                                            : estado === "Pausada"
+                                              ? "border-amber-300 bg-amber-50/40 text-amber-700"
+                                              : "border-slate-300 bg-slate-50/40 text-slate-700"
+                                        }`}
+                                      >
+                                        {estadoBadgeLabel}
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] text-slate-300">
+                                      ID #{p.id}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="text-xs font-semibold text-slate-800 truncate">
+                                  {p.nombre_programa || "—"}
+                                </div>
+                                {(programDateRangeText || resumenVentana) && (
+                                  <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase">
+                                      Ventana de fechas
+                                    </span>
+                                    {programDateRangeText && (
+                                      <div className="text-[10px] text-slate-400 font-medium">
+                                        {programDateRangeText}
+                                      </div>
+                                    )}
+                                    {resumenVentana && (
+                                      <div
+                                        className="text-xs text-slate-700 line-clamp-1"
+                                        dangerouslySetInnerHTML={{
+                                          __html: resumenVentana,
+                                        }}
+                                      />
+                                    )}
+                                  </div>
+                                )}
+                                {resumenObs && (
+                                  <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase">
+                                      Observaciones internas
+                                    </span>
+                                    <div
+                                      className="text-xs text-slate-700 line-clamp-1"
+                                      dangerouslySetInnerHTML={{
+                                        __html: resumenObs,
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </button>
+                            )}
+
+                            {isEditing && (
+                              <>
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex-1">
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                      Nombre de programa
+                                    </label>
+                                    <input
+                                      type="text"
+                                      defaultValue={p.nombre_programa || ""}
+                                      onBlur={(e) =>
+                                        handleUpdateProposalField(
+                                          p.id,
+                                          "nombre_programa",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full border border-slate-300 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-fixed-indigo-100 outline-none"
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold">
+                                      ID #{p.id}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingProposalId(null)}
+                                      className="text-[10px] font-bold text-slate-400 hover:text-slate-600"
+                                    >
+                                      Cerrar
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-3 mt-2">
+                                  <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                      Ventana de fechas (texto libre)
+                                    </label>
+                                    <RichTextEditor
+                                      value={resumenVentana}
+                                      onChange={(val) =>
+                                        handleUpdateProposalField(
+                                          p.id,
+                                          "ventana_fechas",
+                                          val,
+                                        )
+                                      }
+                                      placeholder="Ej: Enero - Marzo, semanas pares..."
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                      Observaciones internas
+                                    </label>
+                                    <RichTextEditor
+                                      value={resumenObs}
+                                      onChange={(val) =>
+                                        handleUpdateProposalField(
+                                          p.id,
+                                          "observaciones",
+                                          val,
+                                        )
+                                      }
+                                      placeholder="Notas, criterios de selección, etc."
+                                    />
+                                  </div>
+                                </div>
+                              </>
+                            )}
+
+                            <div className="mt-2 pt-2 border-t border-slate-100 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+                            {!p.id_programa ? (
+                              <>
+                                  <div className="flex-1 flex flex-col gap-1">
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                    Asociar o Crear Programa
+                                  </span>
+                                  <div className="flex flex-col md:flex-row gap-2 md:items-center">
+                                    <div className="flex-1">
+                                      <SearchableSelect
+                                        options={programasOptions.map((opt) => ({
+                                          id: opt.id,
+                                          label: opt.label,
+                                          subLabel: opt.subLabel,
+                                        }))}
+                                        value={p.id_programa || ""}
+                                        onChange={(val) =>
+                                          handleAssociateProgram(p.id, val)
+                                        }
+                                        placeholder="Buscar programa existente..."
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onCreateProgramFromProposal(p, ens)
+                                      }
+                                      className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold rounded-full bg-fixed-indigo-600 text-white hover:bg-fixed-indigo-700"
+                                    >
+                                      <IconPlus size={12} /> Crear Programa
+                                    </button>
+                                  </div>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="flex flex-col gap-1 w-full">
+                                <span className="text-[10px] font-bold text-emerald-700 uppercase">
+                                  Programa asociado
+                                </span>
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                    <div className="text-xs text-slate-700 bg-emerald-50 border border-emerald-100 rounded px-2 py-1.5 flex-1">
+                      {programsMap[String(p.id_programa)]?.label ||
+                        `Programa #${p.id_programa}`}
+                    </div>
+                    {programsMap[String(p.id_programa)] && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleEditProgramFromProposal(
+                              programsMap[String(p.id_programa)],
+                            )
+                          }
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold rounded-full bg-emerald-600 text-white hover:bg-emerald-700"
+                        >
+                          <IconEdit size={12} /> Editar programa
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                                  <LinkedProgramPreview
+                                    programId={p.id_programa}
+                                    supabase={supabase}
+                                showGiraCards={showGiraCards}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3 text-[11px] text-slate-400 bg-slate-50">
+                  Crea el ciclo anual para empezar a cargar propuestas.
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {membersModal.open && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div>
+                <div className="text-[11px] font-bold uppercase text-slate-400">
+                  Integrantes actuales del ensamble
+                </div>
+                <div className="text-sm font-bold text-slate-800">
+                  {membersModal.ensemble?.ensamble || ""}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeMembersModal}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-3">
+              {membersModal.loading ? (
+                <div className="flex items-center justify-center text-xs text-slate-500 gap-2 py-6">
+                  <IconLoader className="animate-spin text-indigo-600" size={16} />
+                  Cargando integrantes...
+                </div>
+              ) : membersModal.members.length === 0 ? (
+                <div className="text-center text-xs text-slate-400 py-6 border border-dashed border-slate-200 rounded-lg bg-slate-50">
+                  Este ensamble no tiene integrantes asignados actualmente.
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-100 text-xs">
+                  {membersModal.members.map((m) => (
+                    <li
+                      key={m.id}
+                      className="py-1.5 flex items-center justify-between"
+                    >
+                      <span className="font-medium text-slate-700">
+                        {m.apellido}, {m.nombre}
+                      </span>
+                      <span className="text-[11px] text-slate-500 italic">
+                        {m.instrumento}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -807,6 +2271,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [ensamblesOptions, setEnsamblesOptions] = useState([]);
   const [membersOptions, setMembersOptions] = useState([]);
   const [isGiraModalOpen, setIsGiraModalOpen] = useState(false);
+  const [repertoireYear, setRepertoireYear] = useState(
+    () => new Date().getFullYear(),
+  );
   const [deleteConfirm, setDeleteConfirm] = useState({
     isOpen: false,
     id: null,
@@ -831,6 +2298,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [selectedLocations, setSelectedLocations] = useState(new Set());
   const [selectedStaff, setSelectedStaff] = useState([]);
   const [editingProgram, setEditingProgram] = useState(null);
+  const [proposalToLink, setProposalToLink] = useState(null);
 
   // Efecto para preseleccionar tu ensamble cuando se abre el modal
   useEffect(() => {
@@ -873,6 +2341,20 @@ export default function EnsembleCoordinatorView({ supabase }) {
           .insert(sourcesPayload);
 
         if (sourcesError) throw sourcesError;
+      }
+
+      // 3. Si estamos creando desde una propuesta de ciclo, vincularla
+      if (proposalToLink && newGira?.id) {
+        const { error: linkError } = await supabase
+          .from("ciclos_propuestas")
+          .update({ id_programa: newGira.id })
+          .eq("id", proposalToLink);
+        if (linkError) throw linkError;
+        setProposalToLink(null);
+        queryClient.invalidateQueries({
+          queryKey: ["repertoireCycles"],
+          exact: false,
+        });
       }
 
       toast.success("Programa creado correctamente");
@@ -1028,8 +2510,22 @@ export default function EnsembleCoordinatorView({ supabase }) {
   });
   const [selectedMemberToAdd, setSelectedMemberToAdd] = useState("");
 
+  // Roles con acceso global de edición de ciclos y programación de repertorio
+  // Incluye rol específico "curador" para curaduría de repertorio en todos los ensambles
+  const editorRoles = ["admin", "editor", "curador", "coord_general", "director"];
+  const userRoles = (() => {
+    const r = user?.rol_sistema;
+    if (r == null) return [];
+    if (Array.isArray(r))
+      return r.map((x) => String(x).toLowerCase().trim()).filter(Boolean);
+    return [String(r).toLowerCase().trim()];
+  })();
+  const isGlobalEditor = userRoles.some((role) => editorRoles.includes(role));
+
   const isSuperUser =
-    user?.rol_sistema === "admin" || user?.rol_sistema === "produccion_general";
+    userRoles.includes("admin") ||
+    userRoles.includes("produccion_general") ||
+    userRoles.includes("curador");
 
   // --- CARGA DE DATOS ESTÁTICOS ---
   useEffect(() => {
@@ -1183,7 +2679,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
               const { data: progsData } = await supabase
                 .from("programas")
                 .select(
-                  "id, nombre_gira, fecha_desde, fecha_hasta, mes_letra, nomenclador",
+                  "id, nombre_gira, fecha_desde, fecha_hasta, mes_letra, nomenclador, estado",
                 )
                 .in("id", allIds)
                 .gte("fecha_hasta", today)
@@ -1196,6 +2692,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   subLabel: p.fecha_desde
                     ? `Inicio: ${format(parseLocalDate(p.fecha_desde), "dd/MM/yyyy")}`
                     : "",
+                  estado: p.estado || "Borrador",
                 })),
               );
             } else {
@@ -2128,6 +3625,12 @@ export default function EnsembleCoordinatorView({ supabase }) {
           >
             Programas
           </button>
+          <button
+            onClick={() => setActiveTab("repertorio")}
+            className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors flex items-center gap-2 ${activeTab === "repertorio" ? "border-fixed-indigo-600 text-fixed-indigo-600" : "border-transparent text-slate-500"}`}
+          >
+            <IconMusic size={14} /> Programación de Repertorio
+          </button>
         </div>
 
         {(activeTab === "ensayos" || activeTab === "calendario") && (
@@ -2193,7 +3696,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
       </div>
 
       <div className="flex-1 bg-white rounded-b-lg border border-slate-200 border-t-0 p-0 shadow-sm overflow-hidden relative">
-        {rehearsalsLoading ? (
+        {rehearsalsLoading && activeTab === "ensayos" ? (
           <div className="h-full flex items-center justify-center text-slate-400">
             <IconLoader className="animate-spin mr-2" /> Cargando...
           </div>
@@ -2302,6 +3805,46 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   />
                 ))}
               </div>
+            )}
+            {activeTab === "repertorio" && (
+              <RepertoireCyclesTab
+                supabase={supabase}
+                activeEnsembles={activeEnsembles}
+                programasOptions={programasOptions}
+                repertoireYear={repertoireYear}
+                setRepertoireYear={setRepertoireYear}
+                queryClient={queryClient}
+                onEditProgram={handleEditProgram}
+                isGlobalEditor={isGlobalEditor}
+                adminOptions={adminOptions}
+                adminFilterIds={adminFilterIds}
+                onChangeAdminFilterIds={setAdminFilterIds}
+                onCreateProgramFromProposal={(proposal, ensemble) => {
+                  const baseName =
+                    proposal?.nombre_programa ||
+                    `${ensemble?.ensamble || "Programa"} ${repertoireYear}`;
+                  setGiraFormData((prev) => ({
+                    ...prev,
+                    nombre_gira: baseName,
+                    subtitulo: `Ciclo ${repertoireYear} - ${ensemble?.ensamble || ""}`,
+                    tipo: "Ensamble",
+                    fecha_desde: "",
+                    fecha_hasta: "",
+                    estado: "Borrador",
+                    zona: prev.zona || "",
+                  }));
+                  setProposalToLink(proposal?.id || null);
+                  setEditingProgram(null);
+                  setSelectedSources([
+                    {
+                      tipo: "ENSAMBLE",
+                      valor_id: ensemble.id,
+                      label: ensemble.ensamble,
+                    },
+                  ]);
+                  setIsGiraModalOpen(true);
+                }}
+              />
             )}
           </div>
         )}

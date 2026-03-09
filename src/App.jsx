@@ -17,6 +17,7 @@ import EnsemblesView from "./views/Ensembles/EnsemblesView";
 import MusiciansView from "./views/Musicians/MusiciansView";
 import LocationsView from "./views/Locations/LocationsView";
 import RepertoireView from "./views/Repertoire/RepertoireView";
+import CuradoriaView from "./views/Curadoria/CuradoriaView";
 import ArreglosDashboard from "./views/Arreglos/ArreglosDashboard";
 import DataView from "./views/Data/DataView";
 import UsersManager from "./views/Users/UsersManager";
@@ -45,6 +46,7 @@ import CommandBarTrigger from "./components/ui/CommandBarTrigger";
 import ManagementView from "./views/Management/ManagementView";
 import {
   IconLayoutDashboard,
+  CuratorIcon,
   IconDownload,
   IconSettingsWheel,
   IconManagement,
@@ -309,6 +311,7 @@ const ProtectedApp = ({ initialTab }) => {
     isDifusion,
     isArreglador,
     isArchivista,
+    isCurador,
     role,
     roles,
   } = useAuth();
@@ -489,8 +492,11 @@ const ProtectedApp = ({ initialTab }) => {
         .order("id")
         .then(({ data }) => data && setCatalogoInstrumentos(data));
     }
-    // Coordinación solo para: tabla ensambles_coordinadores o roles que la incluyen (admin, produccion_general, coord_general)
-    const roleGrantsCoordinator = (roles || []).some((r) => ["admin", "produccion_general", "coord_general"].includes(r));
+    // Coordinación solo para: tabla ensambles_coordinadores o roles que la incluyen
+    // Incluye 'curador' para permitir curaduría de repertorio global en todos los ensambles
+    const roleGrantsCoordinator = (roles || []).some((r) =>
+      ["admin", "produccion_general", "coord_general", "curador"].includes(r),
+    );
     if (roleGrantsCoordinator) {
       setIsEnsembleCoordinator(true);
     } else {
@@ -514,6 +520,7 @@ const ProtectedApp = ({ initialTab }) => {
     datos: "DATA",
     locaciones: "LOCATIONS",
     coordinacion: "COORDINACION",
+    curadoria: "CURADORIA",
     news_manager: "NEWS_MANAGER",
     avisos: "COMMENTS",
     comidas: "MY_MEALS",
@@ -636,6 +643,12 @@ const ProtectedApp = ({ initialTab }) => {
       show: isAdmin || isEditor,
     },
     {
+      id: "CURADORIA",
+      label: "Curaduría",
+      icon: <CuratorIcon size={20} />,
+      show: isAdmin || isCurador,
+    },
+    {
       id: "NEWS_MANAGER",
       label: "Comunicación",
       icon: <IconBell size={20} />,
@@ -716,6 +729,8 @@ const ProtectedApp = ({ initialTab }) => {
         return <DataView {...commonProps} />;
       case "MANAGEMENT":
         return <ManagementView {...commonProps} />;
+      case "CURADORIA":
+        return <CuradoriaView {...commonProps} />;
       case "USERS":
         return <UsersManager {...commonProps} />;
       case "COMMENTS":
