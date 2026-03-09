@@ -449,7 +449,7 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
           ),
           giras_fuentes(*),
           eventos(
-            id, fecha, hora_inicio, hora_fin, descripcion,
+            id, fecha, hora_inicio, hora_fin, descripcion, id_estado_venue,
             locaciones(nombre, localidades(localidad)),
             tipos_evento(nombre, id_categoria),
             eventos_asistencia(id_integrante, estado)
@@ -631,7 +631,7 @@ const LinkedProgramPreview = ({ programId, supabase, showGiraCards = false }) =>
           ),
           giras_fuentes(*),
           eventos(
-            id, fecha, hora_inicio, hora_fin, descripcion,
+            id, fecha, hora_inicio, hora_fin, descripcion, id_estado_venue,
             locaciones(nombre, localidades(localidad)),
             tipos_evento(nombre, id_categoria),
             eventos_asistencia(id_integrante, estado)

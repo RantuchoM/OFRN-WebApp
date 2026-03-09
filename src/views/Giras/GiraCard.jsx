@@ -14,6 +14,7 @@ import {
   IconUsers,
   IconClock,
 } from "../../components/ui/Icons";
+import VenueStatusPin from "../../components/ui/VenueStatusPin";
 import CommentButton from "../../components/comments/CommentButton";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import GiraActionMenu from "./GiraActionMenu";
@@ -322,6 +323,14 @@ export default function GiraCard({
                   {c.hora_inicio.slice(0, 5)}
                 </div>
               </div>
+              <VenueStatusPin
+                eventId={c.id}
+                idEstadoVenue={c.id_estado_venue}
+                label={`${c.locaciones?.nombre || "TBA"} ${c.fecha || ""} ${c.hora_inicio?.slice(0, 5) || ""}`}
+                supabase={supabase}
+                size={12}
+                className="shrink-0"
+              />
             </div>
           ))}
         </div>
@@ -443,7 +452,17 @@ export default function GiraCard({
               <span className="font-mono text-[10px] mr-1 bg-white/60 px-1 rounded border border-black/10">
                 {formatDate(c.fecha)} - {c.hora_inicio.slice(0, 5)}
               </span>
-              {`${c.locaciones?.nombre || ""} | ${c.locaciones?.localidades?.localidad || ""}`}
+              <span className="min-w-0 truncate">
+                {`${c.locaciones?.nombre || ""} | ${c.locaciones?.localidades?.localidad || ""}`}
+              </span>
+              <VenueStatusPin
+                eventId={c.id}
+                idEstadoVenue={c.id_estado_venue}
+                label={`${c.locaciones?.nombre || ""} ${c.fecha || ""} ${c.hora_inicio?.slice(0, 5) || ""}`}
+                supabase={supabase}
+                size={12}
+                className="shrink-0"
+              />
             </li>
           ))}
           {concerts.length > 3 && (

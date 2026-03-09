@@ -50,7 +50,7 @@ import {
   getGoogleMapsUrl,
 } from "../../utils/agendaHelpers";
 import { getProgramBadgeClasses } from "../../utils/giraUtils";
-import { getVenueStatusById } from "../../utils/venueUtils";
+import VenueStatusPin from "../ui/VenueStatusPin";
 import FeriadoBadge from "./FeriadoBadge";
 import ConnectionBadge from "./ConnectionBadge";
 import DriveSmartButton from "./DriveSmartButton";
@@ -287,14 +287,6 @@ export default function UnifiedAgenda({
   const [newFormData, setNewFormData] = useState({});
   const [formEventTypes, setFormEventTypes] = useState([]);
   const [formLocations, setFormLocations] = useState([]);
-  const [venueLogModal, setVenueLogModal] = useState({
-    isOpen: false,
-    eventId: null,
-    eventLabel: "",
-    logs: [],
-    loading: false,
-  });
-
   useEffect(() => {
     const fetchMusicians = async () => {
       if (isGlobalEditor && navigator.onLine) {
@@ -888,43 +880,6 @@ export default function UnifiedAgenda({
     fetchAgenda();
   };
 
-  const openVenueLogHistory = async (evt) => {
-    if (!evt?.id) return;
-    const label = `${evt.tipos_evento?.nombre || "Evento"} ${
-      evt.fecha || ""
-    } ${evt.hora_inicio?.slice(0, 5) || ""}`;
-    setVenueLogModal((prev) => ({
-      ...prev,
-      isOpen: true,
-      eventId: evt.id,
-      eventLabel: label,
-      logs: [],
-      loading: true,
-    }));
-    try {
-      const { data, error } = await supabase
-        .from("eventos_venue_log")
-        .select(
-          "id, created_at, nota, status:venue_status_types(nombre,color,slug), integrante:integrantes(nombre,apellido)",
-        )
-        .eq("id_evento", evt.id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      setVenueLogModal((prev) => ({
-        ...prev,
-        logs: data || [],
-        loading: false,
-      }));
-    } catch (err) {
-      console.error("Error obteniendo historial de estado de venue:", err);
-      toast.error("No se pudo cargar el historial de estado del venue.");
-      setVenueLogModal((prev) => ({
-        ...prev,
-        loading: false,
-      }));
-    }
-  };
-
   const groupedByMonth = useMemo(() => {
     return filteredItems.reduce((acc, item) => {
       try {
@@ -1430,9 +1385,6 @@ export default function UnifiedAgenda({
 
                     const locName = evt.locaciones?.nombre || "";
                     const locCity = evt.locaciones?.localidades?.localidad;
-                    const venueStatus = getVenueStatusById(
-                      evt.id_estado_venue,
-                    );
                     const isConcertEvent = Number(evt.id_tipo_evento) === 1;
 
                     const cardStyle = { backgroundColor: `${eventColor}10` };
@@ -1742,36 +1694,14 @@ export default function UnifiedAgenda({
                               <div
                                 className={`flex items-start gap-1 text-xs mt-0.5 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}
                               >
-                                {isConcertEvent ? (
-                                  <button
-                                    type="button"
-                                    className="shrink-0 mt-0.5 relative w-5 h-5 flex items-center justify-center rounded-md border border-slate-200"
-                                    style={{
-                                      backgroundColor: venueStatus
-                                        ? venueStatus.color
-                                        : "#e5e7eb",
-                                    }}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openVenueLogHistory(evt);
-                                    }}
-                                    title={
-                                      venueStatus
-                                        ? `Historial de estado de venue: ${venueStatus.nombre}`
-                                        : "Historial de estado de venue"
-                                    }
-                                  >
-                                    <IconMapPin
-                                      size={14}
-                                      className="text-white"
-                                    />
-                                  </button>
-                                ) : (
-                                  <IconMapPin
-                                    size={14}
-                                    className="text-slate-400 shrink-0 mt-0.5"
-                                  />
-                                )}
+                                <VenueStatusPin
+                                  eventId={evt.id}
+                                  idEstadoVenue={evt.id_estado_venue}
+                                  label={`${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`}
+                                  supabase={supabase}
+                                  className="mt-0.5"
+                                  size={14}
+                                />
                                 <div className="flex flex-col min-w-0">
                                   <span
                                     className={`font-semibold truncate ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
@@ -2086,36 +2016,14 @@ export default function UnifiedAgenda({
                               <div
                                 className={`flex items-start gap-1.5 ${isDeleted ? "text-orange-700" : ""}`}
                               >
-                                {isConcertEvent ? (
-                                  <button
-                                    type="button"
-                                    className="shrink-0 mt-0.5 relative w-6 h-6 flex items-center justify-center rounded-md border border-slate-200"
-                                    style={{
-                                      backgroundColor: venueStatus
-                                        ? venueStatus.color
-                                        : "#e5e7eb",
-                                    }}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openVenueLogHistory(evt);
-                                    }}
-                                    title={
-                                      venueStatus
-                                        ? `Historial de estado de venue: ${venueStatus.nombre}`
-                                        : "Historial de estado de venue"
-                                    }
-                                  >
-                                    <IconMapPin
-                                      size={14}
-                                      className="text-white"
-                                    />
-                                  </button>
-                                ) : (
-                                  <IconMapPin
-                                    size={14}
-                                    className="text-slate-400 shrink-0 mt-0.5"
-                                  />
-                                )}
+                                <VenueStatusPin
+                                  eventId={evt.id}
+                                  idEstadoVenue={evt.id_estado_venue}
+                                  label={`${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`}
+                                  supabase={supabase}
+                                  className="mt-0.5"
+                                  size={14}
+                                />
                                 <div className="flex flex-col min-w-0">
                                   <span
                                     className={`text-xs font-semibold truncate block ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
@@ -2393,111 +2301,6 @@ export default function UnifiedAgenda({
           </div>
         </div>
       )}
-      {venueLogModal.isOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          onClick={() =>
-            setVenueLogModal({
-              isOpen: false,
-              eventId: null,
-              eventLabel: "",
-              logs: [],
-              loading: false,
-            })
-          }
-        >
-          <div
-            className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">
-                  Historial de estado de venue
-                </h3>
-                {venueLogModal.eventLabel && (
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    {venueLogModal.eventLabel}
-                  </p>
-                )}
-              </div>
-              <button
-                className="text-slate-400 hover:text-slate-600"
-                onClick={() =>
-                  setVenueLogModal({
-                    isOpen: false,
-                    eventId: null,
-                    eventLabel: "",
-                    logs: [],
-                    loading: false,
-                  })
-                }
-              >
-                <IconX size={18} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {venueLogModal.loading && (
-                <div className="flex items-center justify-center py-8 text-slate-500 text-sm gap-2">
-                  <IconLoader className="animate-spin" size={18} />
-                  <span>Cargando historial...</span>
-                </div>
-              )}
-              {!venueLogModal.loading &&
-                (venueLogModal.logs.length === 0 ? (
-                  <div className="p-4 text-sm text-slate-500">
-                    No hay cambios registrados para este venue.
-                  </div>
-                ) : (
-                  <ul className="divide-y divide-slate-100">
-                    {venueLogModal.logs.map((log) => (
-                      <li key={log.id} className="p-3 text-sm">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            {log.status && (
-                              <span
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
-                                style={{
-                                  backgroundColor: `${log.status.color}20`,
-                                  color: "#0f172a",
-                                }}
-                              >
-                                <span
-                                  className="w-2 h-2 rounded-full"
-                                  style={{ backgroundColor: log.status.color }}
-                                />
-                                {log.status.nombre}
-                              </span>
-                            )}
-                            {log.integrante && (
-                              <span className="text-[11px] text-slate-500">
-                                {log.integrante.apellido},{" "}
-                                {log.integrante.nombre}
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[11px] text-slate-400">
-                            {format(
-                              parseISO(log.created_at),
-                              "dd/MM/yyyy HH:mm",
-                              { locale: es },
-                            )}
-                          </span>
-                        </div>
-                        {log.nota && (
-                          <p className="mt-1 text-[12px] text-slate-600 whitespace-pre-wrap">
-                            {log.nota}
-                          </p>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                ))}
-            </div>
-          </div>
-        </div>
-      )}
-
       {isTranspositionOpen && (
         <EventTranspositionModal
           isOpen={isTranspositionOpen}
