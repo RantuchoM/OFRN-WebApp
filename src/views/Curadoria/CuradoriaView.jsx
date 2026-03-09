@@ -3,10 +3,12 @@ import { useAuth } from "../../context/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { RepertoireCyclesTab } from "../Ensembles/EnsembleCoordinatorView";
 import { IconMusic, IconAlertTriangle } from "../../components/ui/Icons";
+import { useSearchParams } from "react-router-dom";
 
 export default function CuradoriaView({ supabase }) {
   const { isAdmin, isCurador } = useAuth();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [loading, setLoading] = useState(true);
   const [ensembles, setEnsembles] = useState([]);
@@ -26,6 +28,18 @@ export default function CuradoriaView({ supabase }) {
     const filterSet = new Set(adminFilterIds);
     return ensembles.filter((e) => filterSet.has(e.id));
   }, [ensembles, adminFilterIds]);
+
+  const handleEditProgram = (program) => {
+    if (!program?.id) return;
+    const params = new URLSearchParams(searchParams);
+    // Ir a Coordinación y abrir modal de edición de programa en EnsembleCoordinatorView
+    params.set("tab", "coordinacion");
+    params.set("programId", String(program.id));
+    params.delete("giraId");
+    params.delete("view");
+    params.delete("subTab");
+    setSearchParams(params);
+  };
 
   useEffect(() => {
     if (!supabase || (!isAdmin && !isCurador)) return;
@@ -115,7 +129,7 @@ export default function CuradoriaView({ supabase }) {
           setRepertoireYear={setRepertoireYear}
           queryClient={queryClient}
           onCreateProgramFromProposal={null}
-          onEditProgram={null}
+          onEditProgram={handleEditProgram}
           isGlobalEditor={true}
           adminOptions={adminOptions}
           adminFilterIds={adminFilterIds}
