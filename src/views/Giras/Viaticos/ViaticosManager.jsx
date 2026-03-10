@@ -56,6 +56,41 @@ const esPerfilMasivo = (persona) => {
   return esEstable && esRolMusicoOSolista;
 };
 
+const zeroDestaqueMonetaryFields = (data) => {
+  const monetaryKeys = [
+    "subtotal",
+    "totalFinal",
+    "gasto_alojamiento",
+    "gasto_combustible",
+    "gasto_otros",
+    "gastos_movilidad",
+    "gastos_movil_otros",
+    "gastos_capacit",
+    "gasto_ceremonial",
+    "gasto_pasajes",
+    "rendicion_viaticos",
+    "rendicion_gasto_alojamiento",
+    "rendicion_gasto_pasajes",
+    "rendicion_gasto_combustible",
+    "rendicion_gastos_movil_otros",
+    "rendicion_gastos_capacit",
+    "rendicion_gasto_ceremonial",
+    "rendicion_transporte_otros",
+    "rendicion_viatico_monto",
+    "total_percibir",
+    "valorDiarioCalc",
+  ];
+
+  const cloned = { ...data };
+  monetaryKeys.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(cloned, key)) {
+      cloned[key] = 0;
+    }
+  });
+
+  return cloned;
+};
+
 const MemberSearchSelect = ({ options = [], value, onChange, placeholder }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -271,6 +306,14 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [exportDetail, setExportDetail] = useState(""); // Segunda línea de detalle
   const [showEmailConfirm, setShowEmailConfirm] = useState(false);
   const [notification, setNotification] = useState(null);
+
+  useEffect(() => {
+    if (!notification) return;
+    const timer = setTimeout(() => {
+      setNotification(null);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [notification]);
 
   const [batchValues, setBatchValues] = useState({
     cargo: "",
@@ -540,9 +583,16 @@ export default function ViaticosManager({ supabase, giraId }) {
     const single = [personData];
 
     if (options.destaque) {
+      const destaqueData = zeroDestaqueMonetaryFields(personData);
+      const singleDestaque = [destaqueData];
       if (setDetail) setDetail(`Generando Destaque (${name})...`);
       await mergeBytes(
-        await exportViaticosToPDFForm(giraData, single, config, "destaque"),
+        await exportViaticosToPDFForm(
+          giraData,
+          singleDestaque,
+          config,
+          "destaque",
+        ),
         "Destaque",
       );
     }
@@ -752,9 +802,10 @@ export default function ViaticosManager({ supabase, giraId }) {
         }
         if (options.destaque) {
           setExportDetail("Generando PDF Destaque...");
+          const destaqueData = zeroDestaqueMonetaryFields(personData);
           const pdfBytes = await exportViaticosToPDFForm(
             giraData,
-            [personData],
+            [destaqueData],
             config,
             "destaque",
           );
@@ -900,6 +951,10 @@ export default function ViaticosManager({ supabase, giraId }) {
           "Comisión Gira";
         rich.lugar_comision = lugarDestaques;
         rich.asiento_habitual = p.localidades?.localidad || "";
+
+        if (options?.destaque) {
+          return zeroDestaqueMonetaryFields(rich);
+        }
 
         return rich;
       });

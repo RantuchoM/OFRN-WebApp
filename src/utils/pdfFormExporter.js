@@ -38,6 +38,41 @@ const fmtMoney = (val) => {
   );
 };
 
+const zeroDestaqueMonetaryFields = (data) => {
+  const monetaryKeys = [
+    "subtotal",
+    "totalFinal",
+    "gasto_alojamiento",
+    "gasto_combustible",
+    "gasto_otros",
+    "gastos_movilidad",
+    "gastos_movil_otros",
+    "gastos_capacit",
+    "gasto_ceremonial",
+    "gasto_pasajes",
+    "rendicion_viaticos",
+    "rendicion_gasto_alojamiento",
+    "rendicion_gasto_pasajes",
+    "rendicion_gasto_combustible",
+    "rendicion_gastos_movil_otros",
+    "rendicion_gastos_capacit",
+    "rendicion_gasto_ceremonial",
+    "rendicion_transporte_otros",
+    "rendicion_viatico_monto",
+    "total_percibir",
+    "valorDiarioCalc",
+  ];
+
+  const cloned = { ...data };
+  monetaryKeys.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(cloned, key)) {
+      cloned[key] = 0;
+    }
+  });
+
+  return cloned;
+};
+
 const fmtDate = (isoStr) => {
   if (!isoStr) return "";
   const [y, m, d] = isoStr.split("-");
@@ -96,7 +131,12 @@ export const exportViaticosToPDFForm = async (
 
   const finalPdf = await PDFDocument.create();
 
-  for (const data of viaticosData) {
+  const effectiveDataList =
+    mode === "destaque"
+      ? viaticosData.map((d) => zeroDestaqueMonetaryFields(d))
+      : viaticosData;
+
+  for (const data of effectiveDataList) {
     const srcDoc = await PDFDocument.load(templateBuffer);
     const form = srcDoc.getForm();
 
@@ -106,8 +146,7 @@ export const exportViaticosToPDFForm = async (
       data.ciudad_origen || "Viedma"
     }, ${hoy.toLocaleDateString("es-AR")}`;
 
-    // HELPER LOCAL PARA MONTOS: Si es destaque devuelve vacío, sino formatea
-    const money = (val) => (mode === "destaque" ? "" : fmtMoney(val));
+    const money = (val) => fmtMoney(val);
 
     try {
       if (mode === "rendicion") {

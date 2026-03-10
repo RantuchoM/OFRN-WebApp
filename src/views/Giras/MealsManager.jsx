@@ -615,18 +615,38 @@ export default function MealsManager({ supabase, gira, roster }) {
 
   const handleBulkApply = async (changes) => {
     const selectedIds = Array.from(selectedRows);
-    const rowsToSave = grid.filter((r) => selectedIds.includes(r.id)).map((r) => {
-      let newRow = { ...r, ...changes, dirty: true };
-      if (changes.convocados)
-        newRow.descripcion = `${newRow.servicio} ${changes.convocados.map((id) => getGroupLabelShort(id, catalogs)).join(" + ")}`;
-      return newRow;
-    });
+
+    const rowsToSave = grid
+      .filter((r) => selectedIds.includes(r.id))
+      .map((r) => {
+        const newRow = { ...r, dirty: true };
+
+        if (changes.hora_inicio) {
+          newRow.hora_inicio = changes.hora_inicio;
+        }
+
+        if (changes.id_locacion) {
+          newRow.id_locacion = changes.id_locacion;
+        }
+
+        if (Array.isArray(changes.convocados) && changes.convocados.length > 0) {
+          newRow.convocados = changes.convocados;
+          newRow.descripcion = `${newRow.servicio} ${changes.convocados
+            .map((id) => getGroupLabelShort(id, catalogs))
+            .join(" + ")}`;
+        }
+
+        return newRow;
+      });
+
     setSelectedRows(new Set());
+
     for (const row of rowsToSave) {
-      if (row.fecha && (row.hora_inicio || row.hora_inicio === changes.hora_inicio)) {
+      if (row.fecha && row.hora_inicio) {
         await saveRow(row);
       }
     }
+
     refreshGridData();
   };
 

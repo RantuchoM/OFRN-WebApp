@@ -45,6 +45,13 @@ const calculateDaysDiff = (dSal, hSal, dLleg, hLleg) => {
     return (Math.max(0, diffDays - 1) + getDepartureFactor(hSal || "12:00") + getArrivalFactor(hLleg || "12:00"));
 };
 
+const parseVisualDateToIso = (visual) => {
+    if (!visual) return null;
+    const [d, m, y] = visual.split("-");
+    if (!d || !m || !y) return null;
+    return `${y}-${m}-${d}`;
+};
+
 const areDifferentDates = (visualDate, isoDate) => {
     if (!visualDate && !isoDate) return false;
     if (!visualDate || !isoDate) return true;
@@ -371,13 +378,17 @@ const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, 
         ? 'border-cyan-400 ring-1 ring-cyan-200 bg-cyan-50/30' 
         : (isSelected ? 'border-indigo-500 ring-1 ring-indigo-200 bg-indigo-50/10' : 'border-slate-200');
     
-    const personWithTravel = group.people.find(p => p.travelData);
-    const calculatedDays = personWithTravel ? calculateDaysDiff(
-        personWithTravel.travelData.fecha_salida, 
-        personWithTravel.travelData.hora_salida, 
-        personWithTravel.travelData.fecha_llegada, 
-        personWithTravel.travelData.hora_llegada
-    ) : 0;
+    const hInfo = group.headerInfo;
+    const salidaIso = hInfo?.fecha ? parseVisualDateToIso(hInfo.fecha) : null;
+    const llegadaIso = hInfo?.fecha_llegada ? parseVisualDateToIso(hInfo.fecha_llegada) : null;
+    const calculatedDays = hInfo
+        ? calculateDaysDiff(
+            salidaIso,
+            hInfo.hora,
+            llegadaIso,
+            hInfo.hora_llegada
+          )
+        : 0;
 
     const logisticsInfo = {
         fechaSalida: group.headerInfo?.fecha,
@@ -564,8 +575,10 @@ export default function DestaquesLocationPanel({
                 return { 
                     hora: evt.hora_inicio ? evt.hora_inicio.slice(0,5) : "??:??", 
                     fecha: formatDateVisual(evt.fecha), 
+                    fecha_iso: evt.fecha,
                     hora_llegada: evtLlegada?.hora_inicio ? evtLlegada.hora_inicio.slice(0,5) : null,
                     fecha_llegada: evtLlegada?.fecha ? formatDateVisual(evtLlegada.fecha) : null,
+                    fecha_llegada_iso: evtLlegada?.fecha || null,
                     transporte: `${tNombre}${tDetalle}`.trim() 
                 };
             };
@@ -589,13 +602,26 @@ export default function DestaquesLocationPanel({
                 }
             }
             
-            const travelData = logisticsMap?.[person.id];
-            if (travelData) {
-                const grp = groups[locName];
-                if (grp.headerInfo && !grp.headerInfo.hora_llegada && travelData.fecha_llegada) {
+            const baseTravel = logisticsMap?.[person.id] || {};
+            const grp = groups[locName];
+            if (!grp) return;
+
+            let travelData = { ...baseTravel };
+
+            if (grp.headerInfo) {
+                const h = grp.headerInfo;
+                travelData.fecha_salida = travelData.fecha_salida || h.fecha_iso || null;
+                travelData.hora_salida = travelData.hora_salida || h.hora || null;
+                travelData.fecha_llegada = travelData.fecha_llegada || h.fecha_llegada_iso || null;
+                travelData.hora_llegada = travelData.hora_llegada || h.hora_llegada || null;
+
+                if (!h.hora_llegada && travelData.fecha_llegada) {
                     grp.headerInfo.fecha_llegada = formatDateVisual(travelData.fecha_llegada);
                     grp.headerInfo.hora_llegada = travelData.hora_llegada?.slice(0,5);
                 }
+            }
+
+            if (travelData.fecha_salida || travelData.fecha_llegada) {
                 grp.people.push({ ...person, travelData, hasIndividual });
             }
         });
@@ -658,14 +684,27 @@ export default function DestaquesLocationPanel({
                     validPeople = validPeople.filter(p => !exportedIds.includes(Number(p.id)));
                 }
                 // Si es 'all', usamos todos los validPeople (re-exportar)
-
+                
                 if (validPeople.length > 0) {
                     validPeople.forEach(p => {
+                        const travelFromHeader = group.headerInfo
+                            ? {
+                                fecha_salida: group.headerInfo.fecha
+                                    ? parseVisualDateToIso(group.headerInfo.fecha)
+                                    : null,
+                                hora_salida: group.headerInfo.hora || null,
+                                fecha_llegada: group.headerInfo.fecha_llegada
+                                    ? parseVisualDateToIso(group.headerInfo.fecha_llegada)
+                                    : null,
+                                hora_llegada: group.headerInfo.hora_llegada || null,
+                              }
+                            : {};
+
                         peopleToExport.push({ 
                             ...p, 
                             _massConfigId: groupId,
-                            _groupName: group.name, // NOMBRE DEL GRUPO IMPORTANTE
-                            travelData: p.travelData 
+                            _groupName: group.name,
+                            travelData: { ...travelFromHeader, ...(p.travelData || {}) },
                         });
                     });
                     locationIds.push(groupId);
