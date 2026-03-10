@@ -159,6 +159,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     motivo: "",
     motivo_destaques_exportacion: "",
     lugar_comision: "",
+    lugar_comision_destaques_exportacion: "",
     link_drive: "",
     porcentaje_destaques: 100,
   });
@@ -893,7 +894,11 @@ export default function ViaticosManager({ supabase, giraId }) {
         rich.totalFinal = rich.subtotal + totalGastos;
 
         rich.ciudad_origen = p.localidades?.localidad || "";
-        rich.lugar_comision = config.lugar_comision || "Comisión Gira";
+        const lugarDestaques =
+          config.lugar_comision_destaques_exportacion?.trim() ||
+          config.lugar_comision ||
+          "Comisión Gira";
+        rich.lugar_comision = lugarDestaques;
         rich.asiento_habitual = p.localidades?.localidad || "";
 
         return rich;

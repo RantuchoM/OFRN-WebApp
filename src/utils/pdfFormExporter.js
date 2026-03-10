@@ -236,7 +236,11 @@ export const exportViaticosToPDFForm = async (
         f("cargo", data.cargo);
         f("jornada", data.jornada_laboral);
         f("ciudad_origen", data.ciudad_origen || "Viedma");
-        f("lugar_comision", configData.lugar_comision);
+        const lugarParaDoc =
+          mode === "destaque" && configData.lugar_comision_destaques_exportacion
+            ? configData.lugar_comision_destaques_exportacion
+            : configData.lugar_comision;
+        f("lugar_comision", lugarParaDoc || "");
         const motivoParaDoc =
           data.motivo ||
           (mode === "destaque" && configData.motivo_destaques_exportacion
