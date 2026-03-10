@@ -249,12 +249,16 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
     const isCoord = !isEditor && coordinatedEnsembles.size > 0;
 
-    if (isCoord) {
+    // Prioridad de permisos:
+    // 1) Admin / Management / Consulta General -> ve todo
+    // 2) Coordinador de ensambles -> Vigente + Borrador
+    // 3) Personal (músico de fila / consulta_personal) -> solo Vigente
+    if (isEditor || isManagement) {
+      setFilterStatus(new Set(["Vigente", "Borrador", "Pausada"]));
+    } else if (isCoord) {
       setFilterStatus(new Set(["Vigente", "Borrador"]));
     } else if (isPersonal) {
       setFilterStatus(new Set(["Vigente"]));
-    } else if (isEditor || isManagement) {
-      setFilterStatus(new Set(["Vigente", "Borrador", "Pausada"]));
     }
   }, [user, isEditor, isManagement, isPersonal, coordinatedEnsembles.size]);
 
@@ -1018,12 +1022,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
       updateView("LOGISTICS", currentGira.id, "rooming");
   };
 
-  const [filterStatus, setFilterStatus] = useState(() => {
-    // Músico de fila: solo Vigente
-    if (isPersonal) return new Set(["Vigente"]);
-    // Admin/editor/management: Vigente + Borrador + Pausada. Coordinadores se ajustan en useEffect.
-    return new Set(["Vigente", "Borrador", "Pausada"]);
-  });
+  const [filterStatus, setFilterStatus] = useState(
+    () => new Set(["Vigente", "Borrador", "Pausada"]),
+  );
   // -----------------------------------------------
   const [resolvedRoster, setResolvedRoster] = useState(null);
   const handleRosterResolved = (rosterData) => setResolvedRoster(rosterData);
