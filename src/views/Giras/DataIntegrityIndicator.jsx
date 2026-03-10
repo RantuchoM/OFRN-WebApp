@@ -28,7 +28,7 @@ import ItineraryManagerModal from "./ItineraryManagerModal";
 import BoardingManagerModal from "./BoardingManagerModal";
 import StopRulesManager from "./StopRulesManager";
 import TransportPassengersModal from "./TransportPassengersModal";
-import { useLogistics } from "../../hooks/useLogistics";
+import { useLogistics, matchesRule } from "../../hooks/useLogistics";
 
 // --- UTILIDADES ---
 const formatDateSafe = (dateString) => {
@@ -373,6 +373,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     loading: rosterLoading,
     refresh,
     roster,
+    allLocalities,
   } = useLogistics(supabase, gira);
   
   const passengerList = rawSummary || [];
@@ -593,6 +594,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   const getEventRulesSummary = (eventId, type, transportId) => {
     if (!transportRules) return [];
+
     const relevantRules = transportRules.filter((r) => {
       if (r.id_gira_transporte !== transportId) return false;
       if (type === "up") return String(r.id_evento_subida) === String(eventId);
@@ -602,36 +604,59 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
     if (relevantRules.length === 0) return [];
 
-    const mapIds = (ids, list, keyField = "id", labelField = "nombre") => {
-      return ids.map((id) => {
-          const item = list.find((x) => String(x[keyField]) === String(id));
-          return item ? item[labelField] || item.localidad || item.region : "?";
-        }).join(", ");
-    };
+    // Personas con reglas individuales para este evento/trayecto
+    const personalIds = new Set(
+      relevantRules
+        .filter((r) => r.alcance === "Persona" && r.id_integrante)
+        .map((r) => String(r.id_integrante)),
+    );
 
-    const summaryParts = relevantRules.map((r) => {
-      const scope = r.alcance;
-      if (scope === "General") return "Todos";
-      if (scope === "Persona") {
-        const p = roster?.find((mus) => mus.id === r.id_integrante);
-        return p ? `${p.nombre} ${p.apellido}` : "Individual";
-      }
-      if (r.target_ids && Array.isArray(r.target_ids) && r.target_ids.length > 0) {
-        if (scope === "Region") return mapIds(r.target_ids, regionsList, "id", "region");
-        if (scope === "Localidad") return mapIds(r.target_ids, localitiesList, "id", "localidad");
-        return r.target_ids.join(", ");
-      }
-      if (scope === "Region" && r.id_region) {
-        const reg = regionsList.find((x) => String(x.id) === String(r.id_region));
-        return reg ? reg.region : "Región";
-      }
-      if (scope === "Localidad" && r.id_localidad) {
-        const loc = localitiesList.find((x) => String(x.id) === String(r.id_localidad));
-        return loc ? loc.localidad : "Loc";
-      }
-      return scope;
-    });
-    return [...new Set(summaryParts)].filter(Boolean);
+    const summaryParts = relevantRules
+      .map((r) => {
+        const scope = r.alcance;
+
+        // Personas afectadas por esta regla según el motor centralizado
+        let affected = (passengerList || []).filter((p) =>
+          matchesRule(r, p, allLocalities),
+        );
+
+        // En reglas de Localidad, excluimos los que ya tienen regla Persona
+        if (scope === "Localidad" && personalIds.size > 0) {
+          affected = affected.filter(
+            (p) => !personalIds.has(String(p.id)),
+          );
+        }
+
+        if (affected.length === 0) return null;
+
+        let baseLabel = scope;
+
+        if (scope === "General") {
+          baseLabel = "Todos";
+        } else if (scope === "Persona") {
+          const p = roster?.find(
+            (mus) => String(mus.id) === String(r.id_integrante),
+          );
+          baseLabel = p ? `${p.apellido}, ${p.nombre}` : "Individual";
+        } else if (scope === "Region") {
+          const reg =
+            regionsList.find(
+              (x) => String(x.id) === String(r.id_region),
+            ) || null;
+          baseLabel = reg ? reg.region : "Región";
+        } else if (scope === "Localidad") {
+          const loc =
+            localitiesList.find(
+              (x) => String(x.id) === String(r.id_localidad),
+            ) || null;
+          baseLabel = loc ? loc.localidad : "Localidad";
+        }
+
+        return `${baseLabel} (${affected.length})`;
+      })
+      .filter(Boolean);
+
+    return [...new Set(summaryParts)];
   };
 
   const handleInsertItinerary = async (template, startDate, startTime) => {

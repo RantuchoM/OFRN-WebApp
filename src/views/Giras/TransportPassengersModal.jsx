@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from "react";
-import { IconX, IconCheck, IconSearch, IconUser, IconUsers, IconTrash } from "../../components/ui/Icons";
+import React, { useState, useEffect, useMemo } from "react";
+import { IconX, IconCheck, IconSearch } from "../../components/ui/Icons";
 import { normalize } from "../../hooks/useLogistics";
 
-export default function TransportPassengersModal({ 
-  isOpen, 
-  onClose, 
-  transporte, 
-  roster, 
-  supabase, 
-  giraId, 
-  onUpdate 
+export default function TransportPassengersModal({
+  isOpen,
+  onClose,
+  transporte,
+  roster,
+  supabase,
+  giraId,
+  onUpdate,
 }) {
   const [assignedIds, setAssignedIds] = useState(new Set());
   const [loading, setLoading] = useState(false);
@@ -89,14 +89,83 @@ export default function TransportPassengersModal({
     }
   };
 
-  // Filtrado de lista
-  const filteredRoster = roster.filter(p => {
-    const matchSearch = `${p.nombre} ${p.apellido}`.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchRole = filterRole === "todos" || 
-                      (filterRole === "musicos" && (!p.rol_gira || p.rol_gira === "musico")) ||
-                      (filterRole === "staff" && ["staff", "produccion", "tecnico"].includes(normalize(p.rol_gira)));
+  // Mapa de transportes por persona desde el summary/logistics
+  const transportByPersonId = useMemo(() => {
+    const map = {};
+    (roster || []).forEach((p) => {
+      const list =
+        p.logistics?.transports?.map((t) => ({
+          id: t.id,
+          nombre: t.nombre,
+          subidaScope: t.subidaScope,
+          bajadaScope: t.bajadaScope,
+        })) || [];
+      map[p.id] = list;
+    });
+    return map;
+  }, [roster]);
+
+  const isOverriddenByPersonal = (person) => {
+    const personTransports = transportByPersonId[person.id] || [];
+    if (!personTransports.length || !transporte) return false;
+
+    const current = personTransports.find(
+      (t) => String(t.id) === String(transporte.id),
+    );
+    if (!current) return false;
+
+    const isLocalHere =
+      !["persona", "integrante"].includes(current.subidaScope) &&
+      !["persona", "integrante"].includes(current.bajadaScope);
+
+    if (!isLocalHere) return false;
+
+    const personalElsewhere = personTransports.some(
+      (t) =>
+        String(t.id) !== String(transporte.id) &&
+        (["persona", "integrante"].includes(t.subidaScope) ||
+          ["persona", "integrante"].includes(t.bajadaScope)),
+    );
+
+    return personalElsewhere;
+  };
+
+  const hasMultiPersonalConflict = (person) => {
+    const personTransports = transportByPersonId[person.id] || [];
+    const personalTransports = personTransports.filter(
+      (t) =>
+        ["persona", "integrante"].includes(t.subidaScope) ||
+        ["persona", "integrante"].includes(t.bajadaScope),
+    );
+    return personalTransports.length > 1;
+  };
+
+  // Filtrado de lista base (búsqueda y rol)
+  const filteredRoster = roster.filter((p) => {
+    const matchSearch = `${p.nombre} ${p.apellido}`
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase());
+    const matchRole =
+      filterRole === "todos" ||
+      (filterRole === "musicos" &&
+        (!p.rol_gira || normalize(p.rol_gira).includes("music"))) ||
+      (filterRole === "staff" &&
+        ["staff", "produccion", "tecnico"].includes(normalize(p.rol_gira)));
     return matchSearch && matchRole;
   });
+
+  // Aplicar jerarquía de exclusión: quitamos a quienes llegan aquí solo por Localidad
+  // pero tienen una regla Personal que los lleva a otro transporte.
+  const effectiveRoster = filteredRoster.filter(
+    (p) => !isOverriddenByPersonal(p),
+  );
+
+  // Conteo efectivo de asignados (respetando prioridad personal)
+  const effectiveAssignedCount = Array.from(assignedIds).filter((id) => {
+    const person = roster.find((p) => String(p.id) === String(id));
+    if (!person) return true;
+    return !isOverriddenByPersonal(person);
+  }).length;
 
   if (!isOpen) return null;
 
@@ -109,7 +178,8 @@ export default function TransportPassengersModal({
           <div>
             <h3 className="text-lg font-bold text-slate-800">Gestionar Pasajeros</h3>
             <p className="text-xs text-slate-500 flex items-center gap-1">
-              {transporte?.nombre} <span className="mx-1">•</span> {assignedIds.size} Asignados
+              {transporte?.nombre} <span className="mx-1">•</span>{" "}
+              {effectiveAssignedCount} Asignados
             </p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
@@ -144,20 +214,38 @@ export default function TransportPassengersModal({
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {loading ? (
             <div className="p-8 text-center text-slate-400">Cargando asignaciones...</div>
-          ) : filteredRoster.length === 0 ? (
+          ) : effectiveRoster.length === 0 ? (
             <div className="p-8 text-center text-slate-400">No se encontraron personas.</div>
           ) : (
-            filteredRoster.map(p => {
+            effectiveRoster.map((p) => {
               const isSelected = assignedIds.has(p.id);
+              const hasConflict = hasMultiPersonalConflict(p);
+              const conflictTransports =
+                (transportByPersonId[p.id] || [])
+                  .filter(
+                    (t) =>
+                      ["persona", "integrante"].includes(t.subidaScope) ||
+                      ["persona", "integrante"].includes(t.bajadaScope),
+                  )
+                  .map((t) => t.nombre)
+                  .join(" / ") || "";
+
+              const rowClasses = hasConflict
+                ? "bg-amber-900 text-amber-50 border-amber-700"
+                : isSelected
+                  ? "bg-indigo-50 border-indigo-200 shadow-sm"
+                  : "bg-white border-slate-100 hover:border-indigo-300 hover:shadow-sm";
+
+              const title = hasConflict
+                ? `Conflicto de asignación: ${conflictTransports}`
+                : undefined;
+
               return (
-                <div 
-                  key={p.id} 
+                <div
+                  key={p.id}
                   onClick={() => handleTogglePassenger(p.id)}
-                  className={`flex items-center justify-between p-3 rounded-lg cursor-pointer border transition-all ${
-                    isSelected 
-                      ? "bg-indigo-50 border-indigo-200 shadow-sm" 
-                      : "bg-white border-slate-100 hover:border-indigo-300 hover:shadow-sm"
-                  }`}
+                  title={title}
+                  className={`flex items-center justify-between p-3 rounded-lg cursor-pointer border transition-all ${rowClasses}`}
                 >
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isSelected ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-500"}`}>

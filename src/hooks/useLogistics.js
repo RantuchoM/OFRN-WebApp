@@ -156,7 +156,7 @@ export const calculateLogisticsSummary = (
       if (r.prov_cena && r.prov_cena !== "-") log.prov_cen = r.prov_cena;
     });
 
-    // --- BLOQUE B: TRANSPORTE (IGUAL QUE ANTES) ---
+    // --- BLOQUE B: TRANSPORTE (con prioridad de reglas personales) ---
     const allowedTids = new Set();
     (admissionRules || []).forEach((r) => {
       if (matchesRule(r, person, allLocalities)) {
@@ -166,24 +166,45 @@ export const calculateLogisticsSummary = (
       }
     });
 
+    // Reglas de trayecto único:
+    // si un integrante tiene reglas de alcance Persona/Integrante para subida/bajada,
+    // esas deben anular reglas de Localidad para ese mismo trayecto.
+    const personalRouteRules =
+      routeRules?.filter(
+        (r) =>
+          ["persona", "integrante"].includes(normalize(r.alcance)) &&
+          matchesRule(r, person, allLocalities),
+      ) || [];
+
+    const hasPersonalSubida = personalRouteRules.some((r) => r.id_evento_subida);
+    const hasPersonalBajada = personalRouteRules.some(
+      (r) => r.id_evento_bajada,
+    );
+
     allowedTids.forEach((tid) => {
       const myRoutes = (routeRules || []).filter(
         (r) =>
           String(r.id_transporte_fisico) === String(tid) &&
           matchesRule(r, person, allLocalities),
       );
-      let sub = { prio: -1, data: null },
-        baj = { prio: -1, data: null };
+      let sub = { prio: -1, data: null, scope: null },
+        baj = { prio: -1, data: null, scope: null };
       let maxPrio = 0;
 
       myRoutes.forEach((r) => {
-        // Aquí también podrías usar getMatchStrength si quieres consistencia total
+        const scope = normalize(r.alcance);
         const p = getMatchStrength(r, person, allLocalities);
         if (p > maxPrio) maxPrio = p;
-        if (r.id_evento_subida && p >= sub.prio)
-          sub = { prio: p, data: r.evento_subida };
-        if (r.id_evento_bajada && p >= baj.prio)
-          baj = { prio: p, data: r.evento_bajada };
+
+        const allowSubida =
+          !hasPersonalSubida || ["persona", "integrante"].includes(scope);
+        const allowBajada =
+          !hasPersonalBajada || ["persona", "integrante"].includes(scope);
+
+        if (r.id_evento_subida && allowSubida && p >= sub.prio)
+          sub = { prio: p, data: r.evento_subida, scope };
+        if (r.id_evento_bajada && allowBajada && p >= baj.prio)
+          baj = { prio: p, data: r.evento_bajada, scope };
       });
 
       log.transports.push({
@@ -195,6 +216,8 @@ export const calculateLogisticsSummary = (
         bajadaId: baj.data?.id || null,
         subidaData: enrichEvent(sub.data),
         bajadaData: enrichEvent(baj.data),
+        subidaScope: sub.scope,
+        bajadaScope: baj.scope,
         priority: maxPrio,
       });
     });

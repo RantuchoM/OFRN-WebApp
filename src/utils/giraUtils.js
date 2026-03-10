@@ -194,6 +194,14 @@ export const matchesRule = (rule, person, allLocalities = []) => {
       pRole,
     );
     if (isStaff || pCondicion !== "estable") return false;
+
+    // Reglas de Localidad de transporte:
+    // solo aplican a músicos estables, con excepción de solistas estables.
+    if (scope === "localidad") {
+      const isMusician = pRole.includes("music");
+      const isStableSolist = pRole === "solista" && pCondicion === "estable";
+      if (!isMusician && !isStableSolist) return false;
+    }
   }
 
   if ((rule.target_ids || []).map(String).includes(pId)) return true;

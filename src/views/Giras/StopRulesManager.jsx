@@ -9,7 +9,7 @@ import {
   IconChevronDown,
   IconChevronUp,
 } from "../../components/ui/Icons";
-import { matchesRule } from "../../hooks/useLogistics";
+import { normalize } from "../../hooks/useLogistics";
 
 // Helpers de Etiquetado
 const getScopeLabel = (scope) => {
@@ -47,7 +47,7 @@ export default function StopRulesManager({
   giraId,
   regions,
   localities,
-  musicians, // Roster completo
+  passengers, // summary/logistics completo
   onRefresh,
 }) {
   const [existingRules, setExistingRules] = useState([]);
@@ -198,32 +198,73 @@ export default function StopRulesManager({
 
   const resolveTargetName = (rule) => {
     if (rule.alcance === "General") return "Todos";
-    if (rule.alcance === "Region")
-      return (
-        regions.find((r) => String(r.id) === String(rule.id_region))?.region ||
-        "Región"
+
+    if (rule.alcance === "Region") {
+      const reg = regions.find(
+        (r) => String(r.id) === String(rule.id_region),
       );
-    if (rule.alcance === "Localidad")
-      return (
-        localities.find((l) => String(l.id) === String(rule.id_localidad))
-          ?.localidad || "Localidad"
+      return reg ? reg.region : "Región";
+    }
+
+    if (rule.alcance === "Localidad") {
+      const loc = localities.find(
+        (l) => String(l.id) === String(rule.id_localidad),
       );
+      return loc ? loc.localidad : "Localidad";
+    }
+
     if (rule.alcance === "Persona") {
-      const p = musicians.find(
+      const p = (passengers || []).find(
         (m) => String(m.id) === String(rule.id_integrante),
       );
       return p ? `${p.apellido}, ${p.nombre}` : "Persona";
     }
-    if (rule.alcance === "Categoria")
+
+    if (rule.alcance === "Categoria") {
       return rule.target_ids?.[0] || "Categoría";
+    }
+
     return "-";
   };
 
-  // Helper para calcular afectados en tiempo real
+  // Helper para calcular afectados en tiempo real, respetando prioridad de reglas
+  const getPriorityFromScope = (scope) => {
+    switch (scope) {
+      case "Persona":
+        return 5;
+      case "Categoria":
+        return 4;
+      case "Localidad":
+        return 3;
+      case "Region":
+        return 2;
+      case "General":
+      default:
+        return 1;
+    }
+  };
+
   const getAffectedPeople = (rule) => {
-    if (!musicians) return [];
-    // Usamos el helper matchesRule que ya contiene la lógica estricta (solo estables para regiones, etc.)
-    return musicians.filter((p) => matchesRule(rule, p));
+    if (!passengers) return [];
+
+    const scopeNorm = normalize(rule.alcance);
+    const fieldKey = type === "up" ? "subidaId" : "bajadaId";
+    const scopeKey = type === "up" ? "subidaScope" : "bajadaScope";
+
+    return passengers.filter((p) => {
+      const tr = p.logistics?.transports?.find(
+        (t) => String(t.id) === String(transportId),
+      );
+      if (!tr) return false;
+
+      // Debe corresponder a este evento
+      if (String(tr[fieldKey]) !== String(event.id)) return false;
+
+      const winningScope = tr[scopeKey] || "";
+      // Solo mostramos a la persona en la regla cuyo alcance
+      // coincide con el alcance efectivo del trayecto.
+      return normalize(winningScope) === normalize(scopeNorm);
+    });
   };
 
   if (!isOpen || !event) return null;
@@ -275,8 +316,12 @@ export default function StopRulesManager({
             )}
 
             {existingRules.map((rule) => {
-              const affectedPeople = getAffectedPeople(rule);
+              const isPersonaRule = rule.alcance === "Persona";
+              const affectedPeople = isPersonaRule
+                ? []
+                : getAffectedPeople(rule);
               const isExpanded = expandedRuleId === rule.id;
+              const displayCount = isPersonaRule ? 1 : affectedPeople.length;
 
               return (
                 <div
@@ -285,10 +330,13 @@ export default function StopRulesManager({
                 >
                   {/* Cabecera de la Regla */}
                   <div
-                    className="p-3 flex justify-between items-center cursor-pointer hover:bg-slate-50"
-                    onClick={() =>
-                      setExpandedRuleId(isExpanded ? null : rule.id)
-                    }
+                    className={`p-3 flex justify-between items-center hover:bg-slate-50 ${
+                      isPersonaRule ? "" : "cursor-pointer"
+                    }`}
+                    onClick={() => {
+                      if (isPersonaRule) return;
+                      setExpandedRuleId(isExpanded ? null : rule.id);
+                    }}
                   >
                     <div className="flex items-center gap-3">
                       <span
@@ -302,7 +350,7 @@ export default function StopRulesManager({
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
-                        <IconUsers size={12} /> {affectedPeople.length}
+                        <IconUsers size={12} /> {displayCount}
                       </span>
                       <button
                         onClick={(e) => {
@@ -313,18 +361,20 @@ export default function StopRulesManager({
                       >
                         <IconTrash size={16} />
                       </button>
-                      <div className="text-slate-400">
-                        {isExpanded ? (
-                          <IconChevronUp size={16} />
-                        ) : (
-                          <IconChevronDown size={16} />
-                        )}
-                      </div>
+                      {!isPersonaRule && (
+                        <div className="text-slate-400">
+                          {isExpanded ? (
+                            <IconChevronUp size={16} />
+                          ) : (
+                            <IconChevronDown size={16} />
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Acordeón con lista de personas */}
-                  {isExpanded && (
+                  {/* Acordeón con lista de personas (solo para reglas no-Persona) */}
+                  {!isPersonaRule && isExpanded && (
                     <div className="bg-slate-50 border-t border-slate-100 p-3 animate-in slide-in-from-top-2">
                       {affectedPeople.length > 0 ? (
                         <ul className="grid grid-cols-2 gap-2">

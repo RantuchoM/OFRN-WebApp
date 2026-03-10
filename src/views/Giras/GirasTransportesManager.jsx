@@ -40,7 +40,7 @@ import BoardingManagerModal from "./BoardingManagerModal";
 import StopRulesManager from "./StopRulesManager";
 import TransportAdmissionModal from "./TransportAdmissionModal";
 import DataIntegrityIndicator from "../../components/DataIntegrityIndicator";
-import { useLogistics, matchesRule } from "../../hooks/useLogistics";
+import { useLogistics, matchesRule, normalize } from "../../hooks/useLogistics";
 
 import { toast } from "sonner";
 
@@ -1022,12 +1022,29 @@ export default function GirasTransportesManager({ supabase, gira }) {
     });
 
     return relevantRules.map((r) => {
+      const scopeNorm = normalize(r.alcance);
+
       const count = passengerList.filter((p) => {
         const matchesStop = matchesRule(r, p, localitiesList);
-        const isAdmittedInBus = p.logistics?.transports?.some(
+        if (!matchesStop) return false;
+
+        const tr = p.logistics?.transports?.find(
           (t) => String(t.id) === String(transportId),
         );
-        return matchesStop && isAdmittedInBus;
+        if (!tr) return false;
+
+        const eventIdMatch =
+          type === "up"
+            ? String(tr.subidaId) === String(eventId)
+            : String(tr.bajadaId) === String(eventId);
+        if (!eventIdMatch) return false;
+
+        // Solo contamos si esta regla es la que efectivamente define
+        // el trayecto para esta persona y este evento/transport.
+        const winningScope =
+          type === "up" ? tr.subidaScope || "" : tr.bajadaScope || "";
+
+        return scopeNorm === winningScope;
       }).length;
 
       let label = "";
@@ -2137,7 +2154,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     {totalUps > 0
                                       ? totalUps
                                       : upAlert
-                                        ? "0 ⚠️"
+                                        ? "0 ⚠️"  
                                         : "+"}
                                   </div>
                                   {upsSummary.map((s, i) => (
@@ -2402,7 +2419,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           giraId={giraId}
           regions={regionsList}
           localities={localitiesList}
-          musicians={roster}
+          passengers={passengerList}
           onRefresh={refresh}
         />
       )}
