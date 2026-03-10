@@ -594,7 +594,10 @@ export default function LogisticsManager({ supabase, gira }) {
   );
 
   const listBeforeMilestoneFilter = useMemo(() => {
-    let list = summary || [];
+    // Excluir ausentes de todos los filtros de la Línea de Tiempo
+    let list = (summary || []).filter(
+      (m) => (m.estado_gira || "").toLowerCase() !== "ausente",
+    );
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       list = list.filter(
