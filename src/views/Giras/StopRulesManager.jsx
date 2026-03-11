@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   IconX,
   IconPlus,
@@ -454,6 +454,41 @@ export default function StopRulesManager({
     });
   };
 
+  const groupedRules = useMemo(() => {
+    if (!existingRules || existingRules.length === 0) return [];
+
+    const map = {};
+
+    existingRules.forEach((rule) => {
+      const key = `${rule.prioridad}|${rule.alcance}`;
+      if (!map[key]) {
+        map[key] = {
+          prioridad: rule.prioridad,
+          alcance: rule.alcance,
+          rules: [],
+        };
+      }
+      map[key].rules.push(rule);
+    });
+
+    const groups = Object.values(map);
+
+    groups.forEach((group) => {
+      group.rules.sort((a, b) =>
+        resolveTargetName(a).localeCompare(resolveTargetName(b), "es", {
+          sensitivity: "base",
+        }),
+      );
+    });
+
+    groups.sort((a, b) => {
+      if (b.prioridad !== a.prioridad) return b.prioridad - a.prioridad;
+      return a.alcance.localeCompare(b.alcance);
+    });
+
+    return groups;
+  }, [existingRules, regions, localities, passengers]);
+
   if (!isOpen || !event) return null;
 
   return (
@@ -502,108 +537,134 @@ export default function StopRulesManager({
               </div>
             )}
 
-            {existingRules.map((rule) => {
-              const isPersonaRule = rule.alcance === "Persona";
-              const affectedPeople = isPersonaRule
-                ? []
-                : getAffectedPeople(rule);
-              const isExpanded = expandedRuleId === rule.id;
-              const displayCount = isPersonaRule ? 1 : affectedPeople.length;
-
-              return (
-                <div
-                  key={rule.id}
-                  className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden transition-all"
-                >
-                  {/* Cabecera de la Regla */}
+            {existingRules.length > 0 && (
+              <div className="space-y-3">
+                {groupedRules.map((group) => (
                   <div
-                    className={`p-3 flex justify-between items-center hover:bg-slate-50 ${
-                      isPersonaRule ? "" : "cursor-pointer"
-                    }`}
-                    onClick={() => {
-                      if (isPersonaRule) return;
-                      setExpandedRuleId(isExpanded ? null : rule.id);
-                    }}
+                    key={`${group.prioridad}-${group.alcance}`}
+                    className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden transition-all"
                   >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${getPriorityColor(rule.prioridad)}`}
-                      >
-                        {rule.alcance}
-                      </span>
-                      <span className="text-sm font-bold text-slate-700">
-                        {resolveTargetName(rule)}
+                    <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">
+                          {getScopeLabel(group.alcance)}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${getPriorityColor(group.prioridad)}`}
+                        >
+                          Prio {group.prioridad}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-semibold">
+                        {group.rules.length}{" "}
+                        {group.rules.length === 1 ? "regla" : "reglas"}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
-                        <IconUsers size={12} /> {displayCount}
-                      </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteRule(rule.id);
-                        }}
-                        className="text-slate-300 hover:text-red-500 p-1"
-                      >
-                        <IconTrash size={16} />
-                      </button>
-                      {!isPersonaRule && (
-                        <div className="text-slate-400">
-                          {isExpanded ? (
-                            <IconChevronUp size={16} />
-                          ) : (
-                            <IconChevronDown size={16} />
-                          )}
-                        </div>
-                      )}
+
+                    <div className="divide-y divide-slate-100">
+                      {group.rules.map((rule) => {
+                        const isPersonaRule = rule.alcance === "Persona";
+                        const affectedPeople = isPersonaRule
+                          ? []
+                          : getAffectedPeople(rule);
+                        const isExpanded = expandedRuleId === rule.id;
+                        const displayCount = isPersonaRule
+                          ? 1
+                          : affectedPeople.length;
+
+                        return (
+                          <div key={rule.id} className="flex flex-col">
+                            <div
+                              className={`px-3 py-2 flex justify-between items-center hover:bg-slate-50 ${
+                                isPersonaRule ? "" : "cursor-pointer"
+                              }`}
+                              onClick={() => {
+                                if (isPersonaRule) return;
+                                setExpandedRuleId(isExpanded ? null : rule.id);
+                              }}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span className="text-xs font-semibold text-slate-700 truncate">
+                                  {resolveTargetName(rule)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
+                                  <IconUsers size={12} /> {displayCount}
+                                </span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteRule(rule.id);
+                                  }}
+                                  className="text-slate-300 hover:text-red-500 p-1"
+                                >
+                                  <IconTrash size={14} />
+                                </button>
+                                {!isPersonaRule && (
+                                  <button
+                                    type="button"
+                                    className="text-slate-400"
+                                  >
+                                    {isExpanded ? (
+                                      <IconChevronUp size={14} />
+                                    ) : (
+                                      <IconChevronDown size={14} />
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {!isPersonaRule && isExpanded && (
+                              <div className="bg-slate-50 border-t border-slate-100 px-3 py-2 animate-in slide-in-from-top-2">
+                                {affectedPeople.length > 0 ? (
+                                  <ul className="grid grid-cols-2 gap-2">
+                                    {affectedPeople.map((p) => (
+                                      <li
+                                        key={p.id}
+                                        className="text-xs text-slate-600 flex items-center gap-2"
+                                      >
+                                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>
+                                        {p.apellido}, {p.nombre}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <div className="text-xs text-slate-500 text-center py-1.5 space-y-1">
+                                    <div className="italic">
+                                      Ninguna persona coincide con esta regla
+                                      actualmente.
+                                    </div>
+                                    {rule.alcance === "Localidad" && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setNewScope("Localidad");
+                                          setTargetId(
+                                            rule.id_localidad
+                                              ? String(rule.id_localidad)
+                                              : "",
+                                          );
+                                        }}
+                                        className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-full border border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
+                                      >
+                                        Sugerir regla de admisión para esta
+                                        localidad
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-
-                  {/* Acordeón con lista de personas (solo para reglas no-Persona) */}
-                  {!isPersonaRule && isExpanded && (
-                    <div className="bg-slate-50 border-t border-slate-100 p-3 animate-in slide-in-from-top-2">
-                      {affectedPeople.length > 0 ? (
-                        <ul className="grid grid-cols-2 gap-2">
-                          {affectedPeople.map((p) => (
-                            <li
-                              key={p.id}
-                              className="text-xs text-slate-600 flex items-center gap-2"
-                            >
-                              <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>
-                              {p.apellido}, {p.nombre}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <div className="text-xs text-slate-500 text-center py-2 space-y-1">
-                          <div className="italic">
-                            Ninguna persona coincide con esta regla actualmente.
-                          </div>
-                          {rule.alcance === "Localidad" && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                // Preconfiguramos el formulario para sugerir la regla de admisión por localidad
-                                setNewScope("Localidad");
-                                setTargetId(
-                                  rule.id_localidad
-                                    ? String(rule.id_localidad)
-                                    : "",
-                                );
-                              }}
-                              className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-full border border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
-                            >
-                              Sugerir regla de admisión para esta localidad
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                ))}
+              </div>
+            )}
           </div>
 
           {/* 2. Formulario Agregar */}

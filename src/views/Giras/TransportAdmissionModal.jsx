@@ -6,6 +6,7 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconTruck,
+  IconUsers,
 } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { matchesRule } from "../../hooks/useLogistics";
@@ -45,9 +46,12 @@ export default function TransportAdmissionModal({
   const [newScope, setNewScope] = useState("General");
   const [newType, setNewType] = useState("INCLUSION");
   const [targetId, setTargetId] = useState("");
+  const [expandedRuleId, setExpandedRuleId] = useState(null);
 
   useEffect(() => {
-    if (isOpen && transporte) fetchInitialData();
+    if (isOpen && transporte) {
+      fetchInitialData();
+    }
   }, [isOpen, transporte]);
 
   const fetchInitialData = async () => {
@@ -72,7 +76,6 @@ export default function TransportAdmissionModal({
     }
   };
 
-  // --- 1. FILTRAR LOCALIDADES SOLO A LAS PRESENTES EN EL ROSTER ---
   const relevantLocalities = useMemo(() => {
     const rosterLocIds = new Set(
       roster.map((p) => String(p.id_localidad)).filter((id) => id !== "null"),
@@ -80,9 +83,7 @@ export default function TransportAdmissionModal({
     return localities.filter((l) => rosterLocIds.has(String(l.id)));
   }, [localities, roster]);
 
-  // --- 2. MOTOR DE DETECCIÓN DE ASIGNACIÓN (ACTUAL VS OTROS) ---
   const getAssignmentInfo = (entity, entityType) => {
-    // Definimos los buses a evaluar: primero el actual, luego el resto
     const transportIds = [
       String(transporte.id),
       ...new Set(
@@ -106,8 +107,6 @@ export default function TransportAdmissionModal({
           const isMatch = matchesRule(r, entity, localities);
           if (!isMatch) return false;
 
-          // LÓGICA DE PRODUCCIÓN/STAFF:
-          // Las reglas geo (General, Región, Localidad) NO aplican a staff puro.
           const isGeoRule = ["General", "Region", "Localidad"].includes(
             r.alcance,
           );
@@ -215,12 +214,17 @@ export default function TransportAdmissionModal({
           id: val,
           label: label,
           subLabel: otherRule
-            ? `${isCurrent ? "✅" : "⚠️"} Regla en ${isCurrent ? "este bus" : otherRule.giras_transportes?.detalle || "otro bus"}`
+            ? `${isCurrent ? "✅" : "⚠️"} Regla en ${
+                isCurrent
+                  ? "este bus"
+                  : otherRule.giras_transportes?.detalle || "otro bus"
+              }`
             : newScope,
           variant: otherRule ? (isCurrent ? "success" : "warning") : "default",
         };
       });
     }
+
     return [];
   }, [
     newScope,
@@ -271,29 +275,108 @@ export default function TransportAdmissionModal({
 
   const resolveName = (rule) => {
     if (rule.alcance === "General") return "Todos los integrantes";
-    if (rule.alcance === "Region")
-      return (
+
+    if (rule.alcance === "Region") {
+      const region =
         regions.find((r) => String(r.id) === String(rule.id_region))?.region ||
-        "Región"
-      );
-    if (rule.alcance === "Localidad")
-      return (
+        "Región";
+      return region;
+    }
+
+    if (rule.alcance === "Localidad") {
+      const loc =
         localities.find((l) => String(l.id) === String(rule.id_localidad))
-          ?.localidad || "Localidad"
-      );
-    if (rule.alcance === "Categoria")
-      return (
+          ?.localidad || "Localidad";
+      return loc;
+    }
+
+    if (rule.alcance === "Categoria") {
+      const cat =
         CATEGORIA_OPTIONS.find((c) => rule.target_ids?.includes(c.val))
-          ?.label || "Categoría"
-      );
+          ?.label || "Categoría";
+      return cat;
+    }
+
     if (rule.alcance === "Persona") {
       const p = roster.find((m) => String(m.id) === String(rule.id_integrante));
       return p
         ? `${p.apellido}, ${p.nombre}`
         : `Músico ID: ${rule.id_integrante}`;
     }
+
     return "-";
   };
+
+  const groupedRules = useMemo(() => {
+    if (!rules || rules.length === 0) return [];
+
+    const groupsMap = {};
+
+    rules.forEach((rule) => {
+      const key = `${rule.prioridad}|${rule.alcance}`;
+      if (!groupsMap[key]) {
+        groupsMap[key] = {
+          prioridad: rule.prioridad,
+          alcance: rule.alcance,
+          rules: [],
+        };
+      }
+      groupsMap[key].rules.push(rule);
+    });
+
+    const groups = Object.values(groupsMap);
+
+    groups.forEach((group) => {
+      group.rules.sort((a, b) =>
+        resolveName(a).localeCompare(resolveName(b), "es", {
+          sensitivity: "base",
+        }),
+      );
+    });
+
+    groups.sort((a, b) => {
+      if (b.prioridad !== a.prioridad) return b.prioridad - a.prioridad;
+      return a.alcance.localeCompare(b.alcance);
+    });
+
+    return groups;
+  }, [rules, regions, localities, roster]);
+
+  const rulePeopleMap = useMemo(() => {
+    const map = {};
+    if (!rules || rules.length === 0 || !roster || roster.length === 0) {
+      return map;
+    }
+
+    roster.forEach((person) => {
+      const applicable = rules.filter((rule) =>
+        matchesRule(rule, person, localities),
+      );
+      if (!applicable.length) return;
+
+      applicable.sort((a, b) => b.prioridad - a.prioridad);
+      const topRule = applicable[0];
+
+      if (topRule.tipo === "EXCLUSION") return;
+
+      const status =
+        (person.estado || person.estado_gira || "").toString().toUpperCase();
+      if (["AUSENTE", "NO VIAJA", "NO_VIAJA"].includes(status)) return;
+
+      if (!map[topRule.id]) map[topRule.id] = [];
+      map[topRule.id].push(person);
+    });
+
+    Object.values(map).forEach((list) => {
+      list.sort((a, b) => {
+        const an = `${a.apellido || ""} ${a.nombre || ""}`.trim();
+        const bn = `${b.apellido || ""} ${b.nombre || ""}`.trim();
+        return an.localeCompare(bn, "es", { sensitivity: "base" });
+      });
+    });
+
+    return map;
+  }, [rules, roster, localities]);
 
   if (!isOpen) return null;
 
@@ -350,7 +433,11 @@ export default function TransportAdmissionModal({
                   Acción
                 </label>
                 <select
-                  className={`w-full text-sm border rounded-xl p-3 font-black bg-white shadow-sm transition-all ${newType === "INCLUSION" ? "text-emerald-600" : "text-rose-600"}`}
+                  className={`w-full text-sm border rounded-xl p-3 font-black bg-white shadow-sm transition-all ${
+                    newType === "INCLUSION"
+                      ? "text-emerald-600"
+                      : "text-rose-600"
+                  }`}
                   value={newType}
                   onChange={(e) => setNewType(e.target.value)}
                 >
@@ -375,7 +462,7 @@ export default function TransportAdmissionModal({
                       options={dynamicOptions}
                       value={targetId}
                       onChange={setTargetId}
-                      placeholder={`Buscar...`}
+                      placeholder="Buscar..."
                     />
                   )}
                 </div>
@@ -406,41 +493,100 @@ export default function TransportAdmissionModal({
               </div>
             ) : (
               <div className="grid gap-3">
-                {rules.map((rule) => (
+                {groupedRules.map((group) => (
                   <div
-                    key={rule.id}
-                    className="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center shadow-sm group hover:border-indigo-300 transition-all"
+                    key={`${group.prioridad}-${group.alcance}`}
+                    className="bg-white px-4 py-3 rounded-2xl border border-slate-200 shadow-sm"
                   >
-                    <div className="flex items-center gap-4">
-                      <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center ${rule.tipo === "INCLUSION" ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}
-                      >
-                        {rule.tipo === "INCLUSION" ? (
-                          <IconCheck size={20} />
-                        ) : (
-                          <IconX size={20} />
-                        )}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
+                          {group.alcance}
+                        </span>
+                        <span className="text-[10px] font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                          Prioridad {group.prioridad}
+                        </span>
                       </div>
-                      <div>
-                        <div className="text-sm font-black text-slate-700 uppercase tracking-tight">
-                          {resolveName(rule)}
-                        </div>
-                        <div className="flex gap-2 items-center mt-1">
-                          <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded uppercase">
-                            {rule.alcance}
-                          </span>
-                          <span className="text-[9px] font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
-                            Prio: {rule.prioridad}
-                          </span>
-                        </div>
-                      </div>
+                      <span className="text-[10px] text-slate-400 font-semibold">
+                        {group.rules.length}{" "}
+                        {group.rules.length === 1 ? "regla" : "reglas"}
+                      </span>
                     </div>
-                    <button
-                      onClick={() => handleDeleteRule(rule.id)}
-                      className="text-slate-300 hover:text-red-500 p-2 opacity-0 group-hover:opacity-100 transition-all"
-                    >
-                      <IconTrash size={18} />
-                    </button>
+
+                    <ul className="mt-2 space-y-1.5">
+                      {group.rules.map((rule) => {
+                        const isInclusion =
+                          !rule.tipo || rule.tipo === "INCLUSION";
+                        const people = rulePeopleMap[rule.id] || [];
+                        const isExpanded = expandedRuleId === rule.id;
+
+                        return (
+                          <li
+                            key={rule.id}
+                            className="px-2 py-1 rounded-xl hover:bg-slate-50 group transition-colors"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div
+                                  className={`w-6 h-6 rounded-lg flex items-center justify-center text-[11px] shrink-0 ${
+                                    isInclusion
+                                      ? "bg-emerald-50 text-emerald-600"
+                                      : "bg-rose-50 text-rose-600"
+                                  }`}
+                                >
+                                  {isInclusion ? (
+                                    <IconCheck size={14} />
+                                  ) : (
+                                    <IconX size={14} />
+                                  )}
+                                </div>
+                                <span className="text-[13px] font-semibold text-slate-700 truncate">
+                                  {resolveName(rule)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {people.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedRuleId(
+                                        isExpanded ? null : rule.id,
+                                      )
+                                    }
+                                    className="text-[10px] font-bold text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full hover:bg-slate-200"
+                                  >
+                                    <IconUsers size={12} />
+                                    {people.length}
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleDeleteRule(rule.id)}
+                                  className="text-slate-300 hover:text-red-500 p-1 opacity-60 hover:opacity-100 transition-all"
+                                >
+                                  <IconTrash size={14} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {isExpanded && people.length > 0 && (
+                              <ul className="mt-1 pl-8 space-y-0.5">
+                                {people.map((p) => (
+                                  <li
+                                    key={p.id}
+                                    className="flex items-center gap-1 text-[11px] text-slate-600"
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                                    <span className="truncate">
+                                      {p.apellido}, {p.nombre}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   </div>
                 ))}
               </div>
@@ -456,11 +602,11 @@ export default function TransportAdmissionModal({
               sistema ahora detecta si un músico está incluido por localidad
               pero <strong className="text-white">vetado</strong>{" "}
               individualmente. El check verde ✅ indica que ya está en este bus
-              (directa o geográficamente). 
-            </p> 
+              (directa o geográficamente).
+            </p>
           </div>
         </div>
       </div>
     </div>
   );
-} 
+}
