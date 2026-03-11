@@ -176,7 +176,7 @@ export const calculateInstrumentation = (parts) => {
   // Construir string estándar (Maderas - Metales)
   let standardStr = `${fmt(families.fl)}.${fmt(families.ob)}.${fmt(families.cl)}.${fmt(families.bn)} - ${fmt(families.hn)}.${fmt(families.tpt)}.${fmt(families.tbn)}.${fmt(families.tba)}`;
 
-  // Percusión
+  // Percusión (criterio original: Timp.+n o Perc.xn)
   let percStr = "";
   if (families.timp) {
     percStr = families.perc.count > 0 ? `Timp.+${families.perc.count}` : "Timp";

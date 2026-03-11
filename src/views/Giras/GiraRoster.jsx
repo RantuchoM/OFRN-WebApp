@@ -35,6 +35,7 @@ import NotificationQueuePanel from "../../components/giras/NotificationQueuePane
 import { toast } from "sonner";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import UniversalExporter from "../../components/ui/UniversalExporter";
+import InstrumentationBadges from "../../components/instrumentation/InstrumentationBadges";
 
 // --- CONSTANTES ---
 // ROLES_GIRA eliminado en favor de DB
@@ -170,6 +171,10 @@ export default function GiraRoster({
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const columnMenuRef = useRef(null);
 
+  const [showInstrumentationModal, setShowInstrumentationModal] =
+    useState(false);
+  const [instrumentationWorks, setInstrumentationWorks] = useState([]);
+
   const [showOrderMenu, setShowOrderMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showSelectionMenu, setShowSelectionMenu] = useState(false);
@@ -191,6 +196,133 @@ export default function GiraRoster({
   const bajaTimerRef = useRef(null);
 
   const notificationQueueRef = useRef(null);
+
+  useEffect(() => {
+    const fetchWorks = async () => {
+      if (!gira?.id) return;
+      try {
+        const { data, error } = await supabase
+          .from("programas_repertorios")
+          .select(
+            `
+            id, orden,
+            repertorio_obras (
+              id, orden, excluir,
+              obras (
+                id, titulo, instrumentacion,
+                obras_compositores (
+                  rol,
+                  compositores ( apellido )
+                ),
+                obras_particellas (
+                  id,
+                  nombre_archivo,
+                  nota_organico,
+                  es_solista,
+                  instrumentos ( instrumento, abreviatura )
+                )
+              )
+            )
+          `,
+          )
+          .eq("id_programa", gira.id)
+          .order("orden");
+        if (error) throw error;
+        const works = [];
+        (data || []).forEach((block) => {
+          (block.repertorio_obras || [])
+            .slice()
+            .sort((a, b) => (a.orden || 0) - (b.orden || 0))
+            .forEach((ro) => {
+              if (ro.excluir) return;
+              const obra = ro.obras;
+              if (!obra) return;
+              const ocList = Array.isArray(obra.obras_compositores)
+                ? obra.obras_compositores
+                : obra.obras_compositores
+                  ? [obra.obras_compositores]
+                  : [];
+              const firstEntry =
+                ocList.find(
+                  (oc) =>
+                    (oc.rol && oc.rol.toLowerCase() === "compositor") ||
+                    !oc.rol,
+                ) || ocList[0] || null;
+              const lastName =
+                firstEntry && firstEntry.compositores
+                  ? firstEntry.compositores.apellido || ""
+                  : "";
+              const title = obra.titulo || "Obra";
+              const cleanTitle =
+                typeof title === "string"
+                  ? title.replace(/<[^>]*>?/gm, "")
+                  : "Obra";
+              works.push({
+                id: ro.id,
+                obra_id: obra.id,
+                composer: lastName || "S/D",
+                title: cleanTitle,
+                shortTitle: cleanTitle.split(/\s+/).slice(0, 3).join(" "),
+                obras_particellas: obra.obras_particellas || [],
+                instrumentacion_effective:
+                  obra.instrumentacion ||
+                  calculateInstrumentation(obra.obras_particellas || []) ||
+                  "",
+              });
+            });
+        });
+        setInstrumentationWorks(works);
+      } catch (err) {
+        console.error("Error cargando obras para instrumentación:", err);
+      }
+    };
+    fetchWorks();
+  }, [supabase, gira?.id]);
+
+  const renderInstrumentationStandardDiff = (map, otherMap) => {
+    const keysOrder = [
+      "Fl",
+      "Ob",
+      "Cl",
+      "Fg",
+      "Cr",
+      "Tp",
+      "Tb",
+      "Tba",
+      "Tim",
+      "Perc",
+      "Har",
+      "Pno",
+      "Str",
+    ];
+    const tokens = [];
+    keysOrder.forEach((key) => {
+      const val = map[key] || 0;
+      if (key === "Tim" || key === "Perc") return;
+      if (!val) return;
+      tokens.push(`${val} ${key}`);
+    });
+    const hasTimp = (map.Tim || 0) > 0;
+    const percCount = map.Perc || 0;
+    if (hasTimp || percCount > 0) {
+      const txt = hasTimp
+        ? percCount > 0
+          ? `Timp.+${percCount}`
+          : "Timp"
+        : percCount === 1
+          ? "Perc"
+          : `Perc.x${percCount}`;
+      tokens.push(txt);
+    }
+    if ((map.Har || 0) > 0) {
+      const n = map.Har || 0;
+      tokens.push(n > 1 ? `${n} Hp` : "Hp");
+    }
+    if ((map.Pno || 0) > 0) tokens.push("Key");
+    if ((map.Str || 0) > 0) tokens.push("Str");
+    if (tokens.length === 0) return "s/d";
+    return tokens.join(" · ");
+  };
   const pendingExitAfterFlushRef = useRef(false);
 
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
@@ -1297,8 +1429,15 @@ export default function GiraRoster({
             ← Volver
           </button>
           <div>
-            <h2 className="text-xl font-bold text-slate-800">
-              {gira.nombre_gira}
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              <span>{gira.nombre_gira}</span>
+              {instrumentationWorks.length > 0 && (
+                <InstrumentationBadges
+                  works={instrumentationWorks}
+                  roster={rawRoster}
+                  className="hidden md:flex flex-wrap items-center gap-1 ml-2"
+                />
+              )}
             </h2>
             <div className="flex gap-2 mt-1 flex-wrap">
               {sources.map((s) => (

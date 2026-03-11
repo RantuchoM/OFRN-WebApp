@@ -2,9 +2,11 @@ import React, { useState } from "react";
 import {
   IconSettingsWheel,
   IconHistory,
+  IconMusicNote,
 } from "../../components/ui/Icons";
 import { VenuesManager } from "../../components/management/VenuesManager";
 import SeatingReports from "./SeatingReports";
+import InstrumentationAudit from "./InstrumentationAudit";
 
 export default function ManagementView({ supabase }) {
   const [activeTab, setActiveTab] = useState("venues");
@@ -45,12 +47,27 @@ export default function ManagementView({ supabase }) {
             <IconHistory size={14} />
             <span>Informes Seating</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("instrumentation")}
+            className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-colors ${
+              activeTab === "instrumentation"
+                ? "bg-white text-indigo-700 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            <IconMusicNote size={14} />
+            <span>Instrumentación</span>
+          </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
         {activeTab === "venues" && <VenuesManager supabase={supabase} />}
         {activeTab === "seating" && <SeatingReports supabase={supabase} />}
+        {activeTab === "instrumentation" && (
+          <InstrumentationAudit supabase={supabase} />
+        )}
       </div>
     </div>
   );

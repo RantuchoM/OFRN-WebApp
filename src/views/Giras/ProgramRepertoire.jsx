@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   IconLoader,
   IconMusic,
@@ -20,12 +20,13 @@ import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import ProgramSeating from "../Giras/ProgramSeating";
-import InstrumentationManager from "../../components/roster/InstrumentationManager";
+import InstrumentationBadges from "../../components/instrumentation/InstrumentationBadges";
 import MyPartsViewer from "./MyPartsViewer";
 import {
   syncBowingToProgram,
   syncProgramRepertoire,
 } from "../../services/giraService";
+import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { toast } from "sonner";
 
 // --- MODAL AVANZADO DE IMPORTACIÓN ---
@@ -362,6 +363,7 @@ const AdvancedImportModal = ({
 // --- COMPONENTE PRINCIPAL ---
 export default function ProgramRepertoire({ supabase, program, onBack }) {
   const { user, isEditor, isManagement } = useAuth();
+  const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("subTab") || "repertoire";
 
@@ -419,12 +421,19 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
           repertorio_obras (
             id, id_obra, orden, notas_especificas, seating_provisorio, usar_seating_provisorio, id_arco_seleccionado,
             obras (
-              id, titulo, duracion_segundos,
+              id, titulo, duracion_segundos, instrumentacion,
               obras_arcos (id, nombre, link, descripcion, id_drive_folder),
               compositores ( id, nombre, apellido ),
               obras_compositores (
                 rol,
                 compositores ( id, nombre, apellido )
+              ),
+              obras_particellas (
+                id,
+                nombre_archivo,
+                nota_organico,
+                es_solista,
+                instrumentos ( instrumento, abreviatura )
               )
             )
           )
@@ -477,6 +486,35 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
       return newParams;
     });
   };
+
+  const obrasWithInstrumentation = useMemo(() => {
+    if (!repertorios || repertorios.length === 0) return [];
+    const works = [];
+    repertorios.forEach((block) => {
+      (block.repertorio_obras || []).forEach((ro) => {
+        const obra = ro.obras;
+        if (!obra) return;
+        const title = obra.titulo || "Obra";
+        const cleanTitle =
+          typeof title === "string"
+            ? title.replace(/<[^>]*>?/gm, "")
+            : "Obra";
+        works.push({
+          id: ro.id,
+          obra_id: obra.id,
+          title: cleanTitle,
+          composer: "", // no necesitamos aquí el apellido
+          shortTitle: cleanTitle.split(/\s+/).slice(0, 3).join(" "),
+          obras_particellas: obra.obras_particellas || [],
+          instrumentacion_effective:
+            obra.instrumentacion ||
+            calculateInstrumentation(obra.obras_particellas || []) ||
+            "",
+        });
+      });
+    });
+    return works;
+  }, [repertorios]);
 
   const handleBack = () => {
     if (activeTab !== "repertoire") {
@@ -795,12 +833,17 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
               : "Volver a Programas"}
           </button>
           <div className="flex flex-col">
-            <h2 className="text-m font-bold text-slate-800">Repertorio</h2>
-            {activeTab === "repertoire" && (
-              <div className="hidden md:block pl-2 border-l border-slate-200 mt-1">
-                <InstrumentationManager supabase={supabase} gira={program} />
-              </div>
-            )}
+            <h2 className="text-m font-bold text-slate-800 flex items-center gap-2">
+              <span>Repertorio</span>
+              {activeTab === "repertoire" &&
+                obrasWithInstrumentation.length > 0 && (
+                  <InstrumentationBadges
+                    works={obrasWithInstrumentation}
+                    roster={roster}
+                    className="hidden md:flex flex-wrap items-center gap-1 ml-2"
+                  />
+                )}
+            </h2>
           </div>
         </div>
 

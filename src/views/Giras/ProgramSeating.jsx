@@ -25,6 +25,7 @@ import {
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { getInstrumentValue, calculateInstrumentation } from "../../utils/instrumentation";
 import {
   ParticellaSelect,
   CreateParticellaModal,
@@ -529,6 +530,9 @@ const GlobalStringsManager = React.lazy(
 const AnnualRotationModal = React.lazy(
   () => import("../../components/seating/AnnualRotationModal"),
 );
+const InstrumentationSummaryModal = React.lazy(
+  () => import("../../components/seating/InstrumentationSummaryModal"),
+);
 
 export default function ProgramSeating({
   supabase,
@@ -555,6 +559,8 @@ export default function ProgramSeating({
   const [showConfig, setShowConfig] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showRotationModal, setShowRotationModal] = useState(false);
+  const [showInstrumentationModal, setShowInstrumentationModal] =
+    useState(false);
   const [loading, setLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [instrumentList, setInstrumentList] = useState([]);
@@ -569,7 +575,7 @@ export default function ProgramSeating({
         const { data } = await supabase
           .from("programas_repertorios")
           .select(
-            `id, orden, nombre, repertorio_obras (id, orden, obras (id, titulo, link_drive, obras_compositores (rol, compositores (apellido))))`,
+            `id, orden, nombre, repertorio_obras (id, orden, obras (id, titulo, link_drive, instrumentacion, obras_compositores (rol, compositores (apellido))))`,
           )
           .eq("id_programa", program.id)
           .order("orden");
@@ -642,6 +648,7 @@ export default function ProgramSeating({
             composer: compName,
             shortTitle: cleanTitle.split(/\s+/).slice(0, 3).join(" "),
             fullTitle: `${compName} - ${cleanTitle}`,
+            instrumentacion: ro.obras.instrumentacion || "",
           };
         }),
       )
@@ -678,6 +685,24 @@ export default function ProgramSeating({
     return counts;
   }, [assignments]);
 
+  function createEmptyInstrumentationMap() {
+    return {
+      Fl: 0,
+      Ob: 0,
+      Cl: 0,
+      Fg: 0,
+      Cr: 0,
+      Tp: 0,
+      Tb: 0,
+      Tba: 0,
+      Tim: 0,
+      Perc: 0,
+      Har: 0,
+      Pno: 0,
+      Str: 0,
+    };
+  }
+
   // --- MEMOIZACIÓN CRÍTICA PARA RENDIMIENTO ---
   // Pre-calculamos las opciones disponibles por obra para no filtrar en cada celda
   const availablePartsByWork = useMemo(() => {
@@ -687,6 +712,52 @@ export default function ProgramSeating({
     });
     return map;
   }, [obras, particellas]);
+
+  const obrasWithInstrumentation = useMemo(() => {
+    if (!obras || obras.length === 0) return [];
+    return obras.map((obra) => {
+      const parts = availablePartsByWork[obra.obra_id] || [];
+      const instString =
+        obra.instrumentacion || calculateInstrumentation(parts) || "";
+      return {
+        ...obra,
+        instrumentacion_effective: instString,
+      };
+    });
+  }, [obras, availablePartsByWork]);
+
+  const instrumentationRequired = useMemo(() => {
+    if (!obrasWithInstrumentation || obrasWithInstrumentation.length === 0)
+      return createEmptyInstrumentationMap();
+    const acc = createEmptyInstrumentationMap();
+
+    obrasWithInstrumentation.forEach((obra) => {
+      const instString = obra.instrumentacion_effective || "";
+      if (!instString) return;
+
+      const values = {
+        Fl: getInstrumentValue(instString, "fl") || 0,
+        Ob: getInstrumentValue(instString, "ob") || 0,
+        Cl: getInstrumentValue(instString, "cl") || 0,
+        Fg: getInstrumentValue(instString, "bn") || 0,
+        Cr: getInstrumentValue(instString, "hn") || 0,
+        Tp: getInstrumentValue(instString, "tpt") || 0,
+        Tb: getInstrumentValue(instString, "tbn") || 0,
+        Tba: getInstrumentValue(instString, "tba") || 0,
+        Tim: getInstrumentValue(instString, "timp") || 0,
+        Perc: getInstrumentValue(instString, "perc") || 0,
+        Har: getInstrumentValue(instString, "harp") || 0,
+        Pno: getInstrumentValue(instString, "key") || 0,
+        Str: getInstrumentValue(instString, "str") || 0,
+      };
+
+      Object.keys(values).forEach((k) => {
+        if (values[k] > acc[k]) acc[k] = values[k];
+      });
+    });
+
+    return acc;
+  }, [obrasWithInstrumentation]);
 
   // Calcula sugerencias para un músico concreto a partir de una asignación reciente
   const updateSuggestionsAfterAssign = useCallback(
@@ -770,6 +841,332 @@ export default function ProgramSeating({
   }, [program.id, rosterLoading, rawRoster]);
 
   const isString = (id) => ["01", "02", "03", "04"].includes(id);
+
+  const instrumentationConvoked = useMemo(() => {
+    const acc = createEmptyInstrumentationMap();
+    if (!filteredRoster || filteredRoster.length === 0) return acc;
+
+    filteredRoster.forEach((m) => {
+      if (m.estado_gira === "ausente") return;
+
+      const idInstr = String(m.id_instr || "");
+      const name = (m.instrumentos?.instrumento || "").toLowerCase();
+      const familia = (m.instrumentos?.familia || "").toLowerCase();
+
+      const add = (key) => {
+        acc[key] += 1;
+      };
+
+      if (["01", "02", "03", "04"].includes(idInstr)) {
+        add("Str");
+        return;
+      }
+
+      if (name.includes("flaut") || name.includes("picc")) {
+        add("Fl");
+        return;
+      }
+      if (name.includes("oboe") || name.includes("corno ing")) {
+        add("Ob");
+        return;
+      }
+      if (
+        name.includes("clarin") ||
+        name.includes("requinto") ||
+        name.includes("basset")
+      ) {
+        add("Cl");
+        return;
+      }
+      if (name.includes("fagot") || name.includes("contraf")) {
+        add("Fg");
+        return;
+      }
+      if (name.includes("corno") || name.includes("trompa")) {
+        add("Cr");
+        return;
+      }
+      if (name.includes("trompet") || name.includes("fliscorno")) {
+        add("Tp");
+        return;
+      }
+      if (name.includes("trombon") || name.includes("trombón")) {
+        add("Tb");
+        return;
+      }
+      if (name.includes("tuba") || name.includes("bombard")) {
+        add("Tba");
+        return;
+      }
+      if (name.includes("timbal")) {
+        add("Tim");
+        return;
+      }
+      if (
+        name.includes("perc") ||
+        name.includes("bombo") ||
+        name.includes("platillo") ||
+        name.includes("caja")
+      ) {
+        add("Perc");
+        return;
+      }
+      if (name.includes("arpa")) {
+        add("Har");
+        return;
+      }
+      if (
+        name.includes("piano") ||
+        name.includes("teclado") ||
+        name.includes("celesta") ||
+        name.includes("órgano") ||
+        name.includes("organo")
+      ) {
+        add("Pno");
+        return;
+      }
+
+      if (familia.includes("cuerd")) {
+        add("Str");
+      }
+    });
+
+    return acc;
+  }, [filteredRoster]);
+
+  const normalizeForCompare = (key, value) => {
+    if (key === "Str") {
+      return value > 0 ? 1 : 0;
+    }
+    return value || 0;
+  };
+
+  const hasInstrumentationMismatch = useMemo(() => {
+    const requiredPercTotal =
+      (instrumentationRequired.Tim || 0) +
+      (instrumentationRequired.Perc || 0);
+    const convokedPercTotal =
+      (instrumentationConvoked.Tim || 0) +
+      (instrumentationConvoked.Perc || 0);
+
+    const keys = [
+      "Fl",
+      "Ob",
+      "Cl",
+      "Fg",
+      "Cr",
+      "Tp",
+      "Tb",
+      "Tba",
+      "Perc",
+      "Har",
+      "Pno",
+      "Str",
+    ];
+    return keys.some((k) => {
+      if (k === "Perc") {
+        return (
+          normalizeForCompare("Perc", requiredPercTotal) !==
+          normalizeForCompare("Perc", convokedPercTotal)
+        );
+      }
+      const r = normalizeForCompare(k, instrumentationRequired[k] || 0);
+      const c = normalizeForCompare(k, instrumentationConvoked[k] || 0);
+      return r !== c;
+    });
+  }, [instrumentationRequired, instrumentationConvoked]);
+
+  const formatInstrumentationStandard = (map) => {
+    const fl = map.Fl || 0;
+    const ob = map.Ob || 0;
+    const cl = map.Cl || 0;
+    const bn = map.Fg || 0;
+    const hn = map.Cr || 0;
+    const tpt = map.Tp || 0;
+    const tbn = map.Tb || 0;
+    const tba = map.Tba || 0;
+
+    const hasTimp = (map.Tim || 0) > 0;
+    const percCount = map.Perc || 0;
+    const harpCount = map.Har || 0;
+    const keyCount = map.Pno || 0;
+    const hasStr = (map.Str || 0) > 0;
+
+    let standardStr = `${fl}.${ob}.${cl}.${bn} - ${hn}.${tpt}.${tbn}.${tba}`;
+
+    let percStr = "";
+    if (hasTimp) {
+      percStr = percCount > 0 ? `Timp.+${percCount}` : "Timp";
+    } else {
+      if (percCount === 1) percStr = "Perc";
+      else if (percCount > 1) percStr = `Perc.x${percCount}`;
+    }
+    if (percStr) standardStr += ` - ${percStr}`;
+
+    if (harpCount > 0)
+      standardStr += ` - ${harpCount > 1 ? harpCount : ""}Hp`;
+    if (keyCount > 0) standardStr += ` - Key`;
+    if (hasStr) standardStr += " - Str";
+
+    const isStandardEmpty =
+      standardStr.startsWith("0.0.0.0 - 0.0.0.0") &&
+      !hasTimp &&
+      percCount === 0 &&
+      !hasStr &&
+      harpCount === 0 &&
+      keyCount === 0;
+
+    if (isStandardEmpty) return "s/d";
+
+    return standardStr
+      .replace("0.0.0.0 - 0.0.0.0 - ", "")
+      .replace("0.0.0.0 - 0.0.0.0", "");
+  };
+
+  const renderInstrumentationStandardDiff = (map, otherMap) => {
+    const fl = map.Fl || 0;
+    const ob = map.Ob || 0;
+    const cl = map.Cl || 0;
+    const bn = map.Fg || 0;
+    const hn = map.Cr || 0;
+    const tpt = map.Tp || 0;
+    const tbn = map.Tb || 0;
+    const tba = map.Tba || 0;
+
+    const hasTimp = (map.Tim || 0) > 0;
+    const percCount = map.Perc || 0;
+    const harpCount = map.Har || 0;
+    const keyCount = map.Pno || 0;
+    const hasStr = (map.Str || 0) > 0;
+
+    const percTotalThis = (map.Tim || 0) + (map.Perc || 0);
+    const percTotalOther = (otherMap.Tim || 0) + (otherMap.Perc || 0);
+    const isPercTotalDiff =
+      normalizeForCompare("Perc", percTotalThis) !==
+      normalizeForCompare("Perc", percTotalOther);
+
+    const isDiff = (key) => {
+      if (key === "Tim" || key === "Perc") {
+        return isPercTotalDiff;
+      }
+      return (
+        normalizeForCompare(key, map[key] || 0) !==
+        normalizeForCompare(key, otherMap[key] || 0)
+      );
+    };
+
+    const tokenNumber = (value, key) => {
+      const diff = isDiff(key);
+      const base =
+        "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
+      const diffClass = diff
+        ? "bg-orange-200 text-black font-extrabold"
+        : "text-slate-700";
+      return (
+        <span key={key} className={`${base} ${diffClass}`}>
+          {value}.
+        </span>
+      );
+    };
+
+    const parts = [];
+    // Maderas
+    parts.push(tokenNumber(fl, "Fl"));
+    parts.push(" ");
+    parts.push(tokenNumber(ob, "Ob"));
+    parts.push(" ");
+    parts.push(tokenNumber(cl, "Cl"));
+    parts.push(" ");
+    parts.push(tokenNumber(bn, "Fg"));
+    // Separador
+    parts.push(" - ");
+    // Metales
+    parts.push(tokenNumber(hn, "Cr"));
+    parts.push(" ");
+    parts.push(tokenNumber(tpt, "Tp"));
+    parts.push(" ");
+    parts.push(tokenNumber(tbn, "Tb"));
+    parts.push(" ");
+    parts.push(tokenNumber(tba, "Tba"));
+
+    // Percusión
+    let percStr = "";
+    if (hasTimp) {
+      percStr = percCount > 0 ? `Timp.+${percCount}` : "Timp";
+    } else {
+      if (percCount === 1) percStr = "Perc";
+      else if (percCount > 1) percStr = `Perc.x${percCount}`;
+    }
+    if (percStr) {
+      parts.push(" - ");
+      const diff = isPercTotalDiff;
+      const base =
+        "inline-flex items-center justify-center rounded px-0.5 text-[9px] leading-none";
+      const diffClass = diff
+        ? "bg-orange-200 text-black font-extrabold"
+        : "text-slate-700";
+      parts.push(
+        <span key="perc" className={`${base} ${diffClass}`}>
+          {percStr}
+        </span>,
+      );
+    }
+
+    // Hp
+    if (harpCount > 0) {
+      parts.push(" - ");
+      const hpText = harpCount > 1 ? `${harpCount}Hp` : "Hp";
+      const diff = isDiff("Har");
+      const base =
+        "inline-flex items-center justify-center rounded px-0.5 text-[9px] leading-none";
+      const diffClass = diff
+        ? "bg-orange-200 text-black font-extrabold"
+        : "text-slate-700";
+      parts.push(
+        <span key="harp" className={`${base} ${diffClass}`}>
+          {hpText}
+        </span>,
+      );
+    }
+
+    // Key
+    if (keyCount > 0) {
+      parts.push(" - ");
+      const diff = isDiff("Pno");
+      const base =
+        "inline-flex items-center justify-center rounded px-0.5 text-[9px] leading-none";
+      const diffClass = diff
+        ? "bg-orange-200 text-black font-extrabold"
+        : "text-slate-700";
+      parts.push(
+        <span key="key" className={`${base} ${diffClass}`}>
+          Key
+        </span>,
+      );
+    }
+
+    // Str
+    if (hasStr) {
+      parts.push(" - ");
+      const diff = isDiff("Str");
+      const base =
+        "inline-flex items-center justify-center rounded px-0.5 text-[10px]";
+      const diffClass = diff
+        ? "bg-orange-400 text-black font-semibold"
+        : "text-slate-700";
+      parts.push(
+        <span key="str" className={`${base} ${diffClass}`}>
+          Str
+        </span>,
+      );
+    }
+
+    if (parts.length === 0) {
+      return <span className="text-slate-400">s/d</span>;
+    }
+
+    return <>{parts}</>;
+  };
 
   const fetchInitialData = async () => {
     setLoading(true);
@@ -1185,11 +1582,49 @@ export default function ProgramSeating({
             supabase={supabase}
           />
         )}
+        {showInstrumentationModal && (
+          <InstrumentationSummaryModal
+            isOpen={showInstrumentationModal}
+            onClose={() => setShowInstrumentationModal(false)}
+            works={obrasWithInstrumentation}
+            required={instrumentationRequired}
+            convoked={instrumentationConvoked}
+          />
+        )}
       </Suspense>
 
       <div className="px-4 py-2 border-b border-slate-200 bg-white flex justify-between items-center shrink-0">
         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-          <IconUsers className="text-indigo-600" /> Seating & Particellas
+          <IconUsers className="text-indigo-600" />
+          <span>Seating & Particellas</span>
+          {obras.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1 ml-3">
+              <button
+                type="button"
+                onClick={() => setShowInstrumentationModal(true)}
+                className="px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
+                title={formatInstrumentationStandard(instrumentationRequired)}
+              >
+                <span className="mr-1">Req:</span>
+                {renderInstrumentationStandardDiff(
+                  instrumentationRequired,
+                  instrumentationConvoked,
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowInstrumentationModal(true)}
+                className="px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
+                title={formatInstrumentationStandard(instrumentationConvoked)}
+              >
+                <span className="mr-1">Conv:</span>
+                {renderInstrumentationStandardDiff(
+                  instrumentationConvoked,
+                  instrumentationRequired,
+                )}
+              </button>
+            </div>
+          )}
         </h2>
         <div className="flex gap-2">
           <button
