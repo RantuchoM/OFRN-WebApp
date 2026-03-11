@@ -33,9 +33,12 @@ export default function MultiSelect({
 
   // Texto dinámico para el botón
   const getButtonText = () => {
-    if (value.length === 0) return compact ? label : placeholder;
+    if (value.length === 0) return compact ? (label || placeholder) : placeholder;
     if (value.length === options.length && options.length > 0) return "Todos";
-    if (compact) return `${label}: ${value.length}`;
+    if (compact) {
+      if (label) return `${label} (${value.length})`;
+      return `${value.length} seleccionados`;
+    }
     
     // Si hay pocos seleccionados (ej: 1 o 2), mostramos sus nombres
     if (value.length === 1) {
@@ -90,36 +93,72 @@ export default function MultiSelect({
       {isOpen && (
         <div className="absolute top-full left-0 min-w-[180px] w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto p-1 animate-in fade-in zoom-in-95">
           {options.length === 0 ? (
-             <div className="p-2 text-xs text-slate-400 text-center">Sin opciones</div>
+            <div className="p-2 text-xs text-slate-400 text-center">
+              Sin opciones
+            </div>
           ) : (
-            options.map((opt) => {
-              const isSelected = value.includes(opt.value);
-              return (
-                <div
-                  key={opt.value} // SOLUCIÓN: Key única aquí
-                  onClick={() => toggleOption(opt.value)}
-                  className={`
-                    flex items-center gap-2 p-2 rounded cursor-pointer text-xs select-none
-                    transition-colors
-                    ${isSelected ? "bg-indigo-50 text-indigo-700 font-bold" : "hover:bg-slate-50 text-slate-600"}
-                  `}
+            <>
+              <div className="flex justify-between items-center px-1 pb-1 mb-1 border-b border-slate-100 text-[10px] text-slate-500">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onChange(options.map((o) => o.value));
+                  }}
+                  className="hover:text-indigo-600"
                 >
+                  Seleccionar todos
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onChange([]);
+                  }}
+                  className="hover:text-indigo-600"
+                >
+                  Limpiar
+                </button>
+              </div>
+              {options.map((opt) => {
+                const isSelected = value.includes(opt.value);
+                return (
                   <div
+                    key={opt.value}
+                    onClick={() => toggleOption(opt.value)}
                     className={`
-                      w-4 h-4 border rounded flex items-center justify-center shrink-0 transition-all
+                      flex items-center gap-2 p-2 rounded cursor-pointer text-xs select-none
+                      transition-colors
                       ${
                         isSelected
-                          ? "bg-indigo-600 border-indigo-600"
-                          : "border-slate-300 bg-white"
+                          ? "bg-indigo-50 text-indigo-700 font-bold"
+                          : "hover:bg-slate-50 text-slate-600"
                       }
                     `}
                   >
-                    {isSelected && <IconCheck size={10} className="text-white" strokeWidth={4} />}
+                    <div
+                      className={`
+                        w-4 h-4 border rounded flex items-center justify-center shrink-0 transition-all
+                        ${
+                          isSelected
+                            ? "bg-indigo-600 border-indigo-600"
+                            : "border-slate-300 bg-white"
+                        }
+                      `}
+                    >
+                      {isSelected && (
+                        <IconCheck
+                          size={10}
+                          className="text-white"
+                          strokeWidth={4}
+                        />
+                      )}
+                    </div>
+                    <span className="truncate">{opt.label}</span>
                   </div>
-                  <span className="truncate">{opt.label}</span>
-                </div>
-              );
-            })
+                );
+              })}
+            </>
           )}
         </div>
       )}

@@ -73,7 +73,7 @@ export default function StopRulesManager({
     try {
       const { data, error } = await supabase
         .from("giras_logistica_admision") // <--- NOMBRE CORRECTO
-        .select("id_integrante, target_ids, alcance, tipo")
+        .select("id_integrante, id_localidad, id_region, target_ids, alcance, tipo")
         .eq("id_transporte_fisico", transportId)
         .eq("id_gira", giraId);
 
@@ -81,12 +81,45 @@ export default function StopRulesManager({
 
       const ids = new Set();
       data?.forEach((reg) => {
-        // En tu tabla 'tipo' es texto ('INCLUSION' o 'EXCLUSION')
-        if (reg.tipo === "INCLUSION" || !reg.tipo) {
-          if (reg.id_integrante) ids.add(String(reg.id_integrante));
-          if (reg.target_ids && Array.isArray(reg.target_ids)) {
-            reg.target_ids.forEach((id) => ids.add(String(id)));
-          }
+        // Solo consideramos inclusiones para armar el set de "ya admitidos"
+        if (!(reg.tipo === "INCLUSION" || !reg.tipo)) return;
+
+        const alcanceNorm = normalize(reg.alcance);
+
+        // 1) Reglas individuales/personales
+        if (alcanceNorm === "persona" && reg.id_integrante) {
+          ids.add(String(reg.id_integrante));
+          return;
+        }
+
+        // 2) Reglas por localidad: incluimos a TODAS las personas de esa localidad
+        if (alcanceNorm === "localidad" && reg.id_localidad) {
+          (passengers || [])
+            .filter(
+              (p) =>
+                String(p.id_localidad) === String(reg.id_localidad) ||
+                String(p.localidades?.id) === String(reg.id_localidad),
+            )
+            .forEach((p) => ids.add(String(p.id)));
+          return;
+        }
+
+        // 3) Reglas por región: incluimos a quienes pertenezcan a una localidad de esa región
+        if (alcanceNorm === "region" && reg.id_region) {
+          (passengers || [])
+            .filter(
+              (p) =>
+                String(p.localidades?.id_region) === String(reg.id_region) ||
+                String(p.localidades?.region?.id) === String(reg.id_region),
+            )
+            .forEach((p) => ids.add(String(p.id)));
+          return;
+        }
+
+        // 4) Reglas por categoría u otros usos que vengan vía target_ids:
+        // mantenemos compatibilidad anterior (pueden ser IDs de personas u otro esquema)
+        if (reg.target_ids && Array.isArray(reg.target_ids)) {
+          reg.target_ids.forEach((id) => ids.add(String(id)));
         }
       });
       setAdmittedIds(ids);
@@ -124,6 +157,75 @@ export default function StopRulesManager({
 
     setLoading(true);
     try {
+      const fieldToUpdate = type === "up" ? "id_evento_subida" : "id_evento_bajada";
+
+      // Antes de crear una nueva regla de trayecto, verificamos si
+      // ya existe otra subida/bajada para el mismo alcance/objetivo
+      // en este transporte.
+      const { data: existingAll, error: fetchRouteError } = await supabase
+        .from("giras_logistica_rutas")
+        .select("*")
+        .eq("id_gira", giraId)
+        .eq("id_transporte_fisico", transportId);
+
+      if (fetchRouteError) throw fetchRouteError;
+
+      const conflict = (existingAll || []).find((r) => {
+        if (r.alcance !== newScope) return false;
+
+        const sameTarget =
+          newScope === "General"
+            ? true
+            : newScope === "Region"
+              ? String(r.id_region) === String(targetId)
+              : newScope === "Localidad"
+                ? String(r.id_localidad) === String(targetId)
+                : newScope === "Persona"
+                  ? String(r.id_integrante) === String(targetId)
+                  : newScope === "Categoria"
+                    ? (r.target_ids || [])[0] === targetId
+                    : false;
+
+        if (!sameTarget) return false;
+
+        const currentEventId = r[fieldToUpdate];
+        if (!currentEventId) return false;
+
+        // Si ya apunta a este mismo evento, no hacemos nada.
+        if (String(currentEventId) === String(event.id)) return false;
+
+        return true;
+      });
+
+      if (conflict) {
+        const actionLabel = type === "up" ? "subida" : "bajada";
+        const confirmReplace = window.confirm(
+          `Ya existe una ${actionLabel.toUpperCase()} definida para este alcance en otro evento.\n\n` +
+            `¿Querés reemplazarla por esta parada?\n\n` +
+            `Aceptar: reemplazar la ${actionLabel} anterior.\n` +
+            `Cancelar: dejar todo como está.`,
+        );
+
+        if (!confirmReplace) {
+          setLoading(false);
+          return;
+        }
+
+        // Reemplazamos la subida/bajada en la misma regla
+        const { error: updateErr } = await supabase
+          .from("giras_logistica_rutas")
+          .update({ [fieldToUpdate]: event.id })
+          .eq("id", conflict.id);
+
+        if (updateErr) throw updateErr;
+
+        setTargetId("");
+        await fetchRules();
+        onRefresh && onRefresh();
+        setLoading(false);
+        return;
+      }
+
       // --- LÓGICA DE AUTO-INCLUSIÓN ---
       // --- LÓGICA DE AUTO-INCLUSIÓN ---
       if (newScope === "Persona" && !admittedIds.has(String(targetId))) {
@@ -318,8 +420,37 @@ export default function StopRulesManager({
 
       const winningScope = tr[scopeKey] || "";
       // Solo mostramos a la persona en la regla cuyo alcance
-      // coincide con el alcance efectivo del trayecto.
-      return normalize(winningScope) === normalize(scopeNorm);
+      // coincide con el alcance efectivo del trayecto...
+      if (normalize(winningScope) !== scopeNorm) return false;
+
+      // ...y además, para alcances por territorio/categoría,
+      // validamos que pertenezca al objetivo específico de la regla.
+      if (rule.alcance === "Localidad" && rule.id_localidad) {
+        const pLocId =
+          p.id_localidad ||
+          p.localidades?.id ||
+          p.localidades?.id_localidad ||
+          "";
+        return String(pLocId) === String(rule.id_localidad);
+      }
+
+      if (rule.alcance === "Region" && rule.id_region) {
+        const pRegId =
+          p.localidades?.id_region || p.localidades?.region?.id || "";
+        return String(pRegId) === String(rule.id_region);
+      }
+
+      if (rule.alcance === "Persona" && rule.id_integrante) {
+        return String(p.id) === String(rule.id_integrante);
+      }
+
+      if (rule.alcance === "Categoria" && (rule.target_ids || []).length > 0) {
+        const cat = p.categoria_logistica || p.categoria || "";
+        return normalize(cat) === normalize(rule.target_ids[0]);
+      }
+
+      // General u otros casos: ya alcanza con el scope ganador.
+      return true;
     });
   };
 

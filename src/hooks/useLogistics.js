@@ -169,23 +169,25 @@ export const calculateLogisticsSummary = (
     // Reglas de trayecto único:
     // si un integrante tiene reglas de alcance Persona/Integrante para subida/bajada,
     // esas deben anular reglas de Localidad para ese mismo trayecto.
-    const personalRouteRules =
-      routeRules?.filter(
-        (r) =>
-          ["persona", "integrante"].includes(normalize(r.alcance)) &&
-          matchesRule(r, person, allLocalities),
-      ) || [];
-
-    const hasPersonalSubida = personalRouteRules.some((r) => r.id_evento_subida);
-    const hasPersonalBajada = personalRouteRules.some(
-      (r) => r.id_evento_bajada,
-    );
-
     allowedTids.forEach((tid) => {
       const myRoutes = (routeRules || []).filter(
         (r) =>
           String(r.id_transporte_fisico) === String(tid) &&
           matchesRule(r, person, allLocalities),
+      );
+
+      // Importante: la existencia de reglas "Persona" se evalúa
+      // por transporte, no de forma global. Así evitamos que una
+      // excepción en otro bus anule reglas de localidad aquí.
+      const hasPersonalSubida = myRoutes.some(
+        (r) =>
+          ["persona", "integrante"].includes(normalize(r.alcance)) &&
+          r.id_evento_subida,
+      );
+      const hasPersonalBajada = myRoutes.some(
+        (r) =>
+          ["persona", "integrante"].includes(normalize(r.alcance)) &&
+          r.id_evento_bajada,
       );
       let sub = { prio: -1, data: null, scope: null },
         baj = { prio: -1, data: null, scope: null };

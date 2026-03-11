@@ -52,30 +52,25 @@ export default function LogisticsDashboard({
 
     if (!summary || summary.length === 0) return data;
 
-    // IDs de localidades sede (extraídos de la metadata que useLogistics adjunta al array)
-    const sedeIds = summary.viaticosMeta?.sedeIds || [];
-
     summary.forEach((curr) => {
-      // ---------------------------------------------------------
-      // CORRECCIÓN: Usar 'estado_gira' en lugar de 'estado'
-      // ---------------------------------------------------------
+      // Usar 'estado_gira' para filtrar bajas / ausentes
       const estado = (curr.estado_gira || "").toUpperCase();
-
-      // Filtrar bajas o ausentes
       if (estado === "BAJA" || estado === "AUSENTE") return;
 
+      // Total "real": todos los activos, sin discriminar género ni localía
       data.total++;
 
-      // 1. Determinar Localía (Comparando ID localidad vs Sedes)
-      const pLoc = curr.id_localidad ? parseInt(curr.id_localidad) : null;
-      const isLocal = pLoc && sedeIds.includes(pLoc);
-
-      // 2. Determinar Género
+      // Género binario que se muestra en la matriz
       const g = (curr.genero || "").toUpperCase();
       const isMale = g.startsWith("M");
       const isFemale = g.startsWith("F");
 
-      // 3. Llenar Matriz
+      // Si no es M/F, no se incluye en la matriz, pero sí cuenta en el total
+
+      // Localía: usamos el flag ya calculado por useLogistics.
+      // Cualquier persona sin localidad o con localidad fuera de las sedes queda como viajera.
+      const isLocal = Boolean(curr.is_local);
+
       if (isMale) {
         if (isLocal) data.m_local++;
         else data.m_viajero++;
@@ -83,7 +78,6 @@ export default function LogisticsDashboard({
         if (isLocal) data.f_local++;
         else data.f_viajero++;
       }
-      // (Otros géneros suman al total pero no entran en la matriz binaria M/F visual)
     });
 
     return data;

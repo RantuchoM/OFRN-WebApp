@@ -153,6 +153,8 @@ export default function GiraRoster({
   );
   const [selectedFilterEnsemblesList, setSelectedFilterEnsemblesList] =
     useState(new Set());
+  const [selectedFilterLocalities, setSelectedFilterLocalities] =
+    useState(new Set());
 
   // Selección Múltiple (Filas)
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -195,6 +197,48 @@ export default function GiraRoster({
   const [selectedFamilies, setSelectedFamilies] = useState(new Set());
   const [selectedExclEnsembles, setSelectedExclEnsembles] = useState(new Set());
 
+  // Localidades disponibles para filtro: residencias de músicos confirmados
+  const confirmedLocalityOptions = useMemo(() => {
+    if (!rawRoster) return [];
+    const map = new Map();
+    (rawRoster || []).forEach((m) => {
+      if (m.estado_gira !== "confirmado") return;
+      const locId =
+        m.localidades?.id != null
+          ? String(m.localidades.id)
+          : m.id_localidad != null
+          ? String(m.id_localidad)
+          : null;
+      const locName = m.localidades?.localidad;
+      if (!locId || !locName) return;
+      if (!map.has(locId)) map.set(locId, locName);
+    });
+    return Array.from(map.entries())
+      .map(([value, label]) => ({
+        value,
+        label,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [rawRoster]);
+
+  const sortedRolesList = useMemo(
+    () => [...(rolesList || [])].sort((a, b) => a.id.localeCompare(b.id)),
+    [rolesList],
+  );
+
+  const sortedEnsemblesList = useMemo(
+    () =>
+      [...(ensemblesList || [])].sort((a, b) =>
+        String(a.label || "").localeCompare(String(b.label || "")),
+      ),
+    [ensemblesList],
+  );
+
+  const sortedConditions = useMemo(
+    () => [...CONDICIONES].sort((a, b) => a.localeCompare(b)),
+    [],
+  );
+
   // --- FILTRADO Y ORDENAMIENTO COMPLETO ---
   useEffect(() => {
     if (rawRoster) {
@@ -208,7 +252,8 @@ export default function GiraRoster({
 
         // Filtros Múltiples
         const matchesRole =
-          selectedFilterRoles.size === 0 || selectedFilterRoles.has(m.rol_gira);
+          selectedFilterRoles.size === 0 ||
+          selectedFilterRoles.has(m.rol_gira);
         const matchesCondition =
           selectedFilterConditions.size === 0 ||
           selectedFilterConditions.has(m.condicion);
@@ -228,8 +273,25 @@ export default function GiraRoster({
             matchesEnsemble = false;
         }
 
+        // Filtro Localidad (residencia)
+        let matchesLocality = true;
+        if (selectedFilterLocalities.size > 0) {
+          const locId =
+            m.localidades?.id != null
+              ? String(m.localidades.id)
+              : m.id_localidad != null
+              ? String(m.id_localidad)
+              : null;
+          matchesLocality =
+            locId != null && selectedFilterLocalities.has(String(locId));
+        }
+
         return (
-          matchesSearch && matchesRole && matchesCondition && matchesEnsemble
+          matchesSearch &&
+          matchesRole &&
+          matchesCondition &&
+          matchesEnsemble &&
+          matchesLocality
         );
       });
 
@@ -301,7 +363,8 @@ export default function GiraRoster({
     selectedFilterRoles,
     selectedFilterConditions,
     selectedFilterEnsemblesList,
-    rolesList, // Dependencia agregada
+    selectedFilterLocalities,
+    rolesList,
   ]);
 
   useEffect(() => {
@@ -712,7 +775,12 @@ export default function GiraRoster({
   // --- Baja con ventana 5s (ausente o desconvocar): no reordenar ni notificar hasta efectivizar ---
   const requestBaja = (musician, action) => {
     if (pendingBaja) return;
-    setPendingBaja({ integranteId: musician.id, action, musician, startedAt: Date.now() });
+    setPendingBaja({
+      integranteId: musician.id,
+      action,
+      musician,
+      startedAt: Date.now(),
+    });
     setBajaCountdownSeconds(5);
   };
 
@@ -1212,6 +1280,12 @@ export default function GiraRoster({
         <div className="flex items-center gap-4">
           <button
             onClick={() => {
+              if (pendingBaja) {
+                toast.warning(
+                  "Hay una baja pendiente. Espera los 5 segundos o cancélala antes de salir.",
+                );
+                return;
+              }
               if (pendingNotifications.length > 0) {
                 setShowExitConfirmModal(true);
                 return;
@@ -1371,12 +1445,14 @@ export default function GiraRoster({
               <div className="absolute top-full left-0 mt-2 w-72 bg-white border border-slate-200 rounded-lg shadow-xl z-50 p-3 space-y-2 text-xs">
                 <div className="font-bold text-slate-500 uppercase text-[10px]">
                   Rol
+                  {selectedFilterRoles.size > 0 &&
+                    ` (${selectedFilterRoles.size})`}
                 </div>
                 <MultiSelectDropdown
                   compact
                   label=""
                   placeholder="Todos"
-                  options={rolesList.map((r) => ({
+                  options={sortedRolesList.map((r) => ({
                     value: r.id,
                     label:
                       r.id.charAt(0).toUpperCase() + r.id.slice(1),
@@ -1384,32 +1460,158 @@ export default function GiraRoster({
                   value={Array.from(selectedFilterRoles)}
                   onChange={(arr) => setSelectedFilterRoles(new Set(arr))}
                 />
+                {selectedFilterRoles.size > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {sortedRolesList
+                      .filter((r) => selectedFilterRoles.has(r.id))
+                      .map((r) => (
+                        <span
+                          key={r.id}
+                          className="relative pl-2 pr-4 py-0.5 rounded-full bg-indigo-50 text-[10px] font-semibold text-indigo-700 border border-indigo-100"
+                        >
+                          {r.id.charAt(0).toUpperCase() + r.id.slice(1)}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = new Set(selectedFilterRoles);
+                              next.delete(r.id);
+                              setSelectedFilterRoles(next);
+                            }}
+                            className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[8px]"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                  </div>
+                )}
                 <div className="font-bold text-slate-500 uppercase text-[10px] mt-2">
                   Condición
+                  {selectedFilterConditions.size > 0 &&
+                    ` (${selectedFilterConditions.size})`}
                 </div>
                 <MultiSelectDropdown
                   compact
                   label=""
                   placeholder="Todas"
-                  options={CONDICIONES.map((c) => ({ value: c, label: c }))}
+                  options={sortedConditions.map((c) => ({
+                    value: c,
+                    label: c,
+                  }))}
                   value={Array.from(selectedFilterConditions)}
                   onChange={(arr) =>
                     setSelectedFilterConditions(new Set(arr))
                   }
                 />
+                {selectedFilterConditions.size > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {sortedConditions.filter((c) =>
+                      selectedFilterConditions.has(c),
+                    ).map((c) => (
+                      <span
+                        key={c}
+                        className="relative pl-2 pr-4 py-0.5 rounded-full bg-slate-100 text-[10px] font-semibold text-slate-700 border border-slate-200"
+                      >
+                        {c}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = new Set(selectedFilterConditions);
+                            next.delete(c);
+                            setSelectedFilterConditions(next);
+                          }}
+                          className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-slate-500 text-white flex items-center justify-center text-[8px]"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="font-bold text-slate-500 uppercase text-[10px] mt-2">
                   Ensamble
+                  {selectedFilterEnsemblesList.size > 0 &&
+                    ` (${selectedFilterEnsemblesList.size})`}
                 </div>
                 <MultiSelectDropdown
                   compact
                   label=""
                   placeholder="Todos"
-                  options={ensemblesList}
+                  options={sortedEnsemblesList}
                   value={Array.from(selectedFilterEnsemblesList)}
                   onChange={(arr) =>
                     setSelectedFilterEnsemblesList(new Set(arr))
                   }
                 />
+                {selectedFilterEnsemblesList.size > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {sortedEnsemblesList
+                      .filter((e) =>
+                        selectedFilterEnsemblesList.has(e.value),
+                      )
+                      .map((e) => (
+                        <span
+                          key={e.value}
+                          className="relative pl-2 pr-4 py-0.5 rounded-full bg-emerald-50 text-[10px] font-semibold text-emerald-700 border border-emerald-200"
+                        >
+                          {e.label}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = new Set(selectedFilterEnsemblesList);
+                              next.delete(e.value);
+                              setSelectedFilterEnsemblesList(next);
+                            }}
+                            className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[8px]"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                  </div>
+                )}
+                <div className="font-bold text-slate-500 uppercase text-[10px] mt-2">
+                  Localidad (residencia)
+                  {selectedFilterLocalities.size > 0 &&
+                    ` (${selectedFilterLocalities.size})`}
+                </div>
+                <MultiSelectDropdown
+                  compact
+                  label=""
+                  placeholder="Todas"
+                  options={confirmedLocalityOptions}
+                  value={Array.from(selectedFilterLocalities)}
+                  onChange={(arr) =>
+                    setSelectedFilterLocalities(new Set(arr))
+                  }
+                />
+                {selectedFilterLocalities.size > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {confirmedLocalityOptions
+                      .filter((l) =>
+                        selectedFilterLocalities.has(l.value),
+                      )
+                      .map((l) => (
+                        <span
+                          key={l.value}
+                          className="relative pl-2 pr-4 py-0.5 rounded-full bg-cyan-50 text-[10px] font-semibold text-cyan-700 border border-cyan-200"
+                        >
+                          {l.label}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = new Set(selectedFilterLocalities);
+                              next.delete(l.value);
+                              setSelectedFilterLocalities(next);
+                            }}
+                            className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-cyan-600 text-white flex items-center justify-center text-[8px]"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
