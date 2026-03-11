@@ -10,6 +10,7 @@ import {
   IconChevronUp,
 } from "../../components/ui/Icons";
 import { normalize } from "../../hooks/useLogistics";
+import { toast } from "sonner";
 
 // Helpers de Etiquetado
 const getScopeLabel = (scope) => {
@@ -193,6 +194,61 @@ export default function StopRulesManager({
       onRefresh && onRefresh();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleAutoCreateLocalityRule = async () => {
+    try {
+      const problematic = existingRules.find(
+        (r) => r.alcance === "Localidad" && getAffectedPeople(r).length === 0,
+      );
+      if (!problematic || !problematic.id_localidad) {
+        toast.info(
+          "No se encontró ninguna regla de localidad vacía para este transporte.",
+        );
+        return;
+      }
+
+      const confirmed = window.confirm(
+        "Se creará una REGLA DE ADMISIÓN por Localidad para este transporte,\n" +
+          "incluyendo automáticamente a todas las personas de esa localidad en este bus.\n\n" +
+          "¿Deseás continuar?",
+      );
+      if (!confirmed) return;
+
+      setLoading(true);
+
+      const { error } = await supabase
+        .from("giras_logistica_admision")
+        .insert([
+          {
+            id_gira: giraId,
+            id_transporte_fisico: transportId,
+            alcance: "Localidad",
+            prioridad: 3,
+            tipo: "INCLUSION",
+            id_localidad: problematic.id_localidad,
+          },
+        ]);
+
+      if (error) throw error;
+
+      await fetchAdmissions();
+      onRefresh && onRefresh();
+
+      toast.success(
+        "Se creó la regla de admisión por localidad para este transporte.",
+      );
+    } catch (e) {
+      console.error(
+        "Error en creación automática de regla de admisión por localidad:",
+        e,
+      );
+      toast.error(
+        "No se pudo crear automáticamente la regla de admisión por localidad.",
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -389,8 +445,27 @@ export default function StopRulesManager({
                           ))}
                         </ul>
                       ) : (
-                        <div className="text-xs text-slate-400 italic text-center py-2">
-                          Ninguna persona coincide con esta regla actualmente.
+                        <div className="text-xs text-slate-500 text-center py-2 space-y-1">
+                          <div className="italic">
+                            Ninguna persona coincide con esta regla actualmente.
+                          </div>
+                          {rule.alcance === "Localidad" && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Preconfiguramos el formulario para sugerir la regla de admisión por localidad
+                                setNewScope("Localidad");
+                                setTargetId(
+                                  rule.id_localidad
+                                    ? String(rule.id_localidad)
+                                    : "",
+                                );
+                              }}
+                              className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-full border border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
+                            >
+                              Sugerir regla de admisión para esta localidad
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -405,6 +480,27 @@ export default function StopRulesManager({
             <h4 className="text-xs font-bold text-indigo-900 uppercase tracking-wider mb-3">
               Agregar Nueva Regla
             </h4>
+            {/* Hint cuando hay reglas de localidad sin nadie admitido */}
+            {existingRules.some(
+              (r) => r.alcance === "Localidad" && getAffectedPeople(r).length === 0,
+            ) && (
+              <div className="mb-3 flex items-center justify-between gap-3 text-[10px] bg-amber-50 border border-amber-200 px-2 py-1.5 rounded">
+                <div className="text-amber-700">
+                  Detectamos reglas por <strong>Localidad</strong> sin pasajeros asignados.{" "}
+                  Podés crear la regla correspondiente seleccionando
+                  <span className="font-semibold"> Alcance = Localidad</span> y la
+                  localidad adecuada, y luego presionando{" "}
+                  <span className="font-semibold">Asignar Parada</span>.
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAutoCreateLocalityRule}
+                  className="shrink-0 px-2 py-1 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+                >
+                  Crear regla automáticamente
+                </button>
+              </div>
+            )}
             <div className="flex gap-2 mb-3">
               <div className="w-1/3">
                 <label className="text-[10px] font-bold text-slate-400 block mb-1">

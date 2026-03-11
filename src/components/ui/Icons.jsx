@@ -1794,6 +1794,32 @@ export const IconBus = ({ size = 24, className = "" }) => (
     <circle cx="16" cy="18" r="2" />
   </svg>
 );
+
+export const IconViolin = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    {/* mástil */}
+    <path d="M15 3l-3 3" />
+    <path d="M13 5l3 3" />
+    {/* caja del violín */}
+    <path d="M9 9c1.5-1.5 4.5-1.5 6 0 1.5 1.5 1.5 4.5 0 6s-4.5 1.5-6 0-1.5-4.5 0-6z" />
+    {/* efes simplificadas */}
+    <path d="M11 11.5c-.5-.5-.5-1.3 0-1.8" />
+    <path d="M13 13.5c.5.5.5 1.3 0 1.8" />
+    {/* arco sugerido */}
+    <path d="M4 18c2-2 4.5-3.5 7.5-4" />
+  </svg>
+);
 export const IconUpload = ({ size = 24, className = "" }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"

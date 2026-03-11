@@ -213,6 +213,27 @@ export const syncBowingToProgram = async (
   return data;
 };
 
+/**
+ * Copia múltiples archivos en Drive usando la Edge Function manage-drive.
+ * Pensado para operaciones batch como "Scores para Arcos".
+ *
+ * @param {object} supabase - Cliente Supabase
+ * @param {Array<{ fileId: string, destinationFolderId: string, newName?: string }>} files
+ * @param {number|string} giraId - ID de la gira (programa) para logging/tracking
+ */
+export const copyFilesBatchToDrive = async (supabase, { files, giraId }) => {
+  const { data, error } = await supabase.functions.invoke("manage-drive", {
+    body: {
+      action: "COPY_FILES_BATCH",
+      giraId,
+      files,
+    },
+  });
+
+  if (error) throw error;
+  return data;
+};
+
 export const syncProgramRepertoire = async (supabase, programId) => {
   const { data, error } = await supabase.functions.invoke("manage-drive", {
     body: {

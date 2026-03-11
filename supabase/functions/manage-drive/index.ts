@@ -1587,11 +1587,252 @@ serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    // --- ACCIÓN: COPY / DELETE / PERMISSIONS ---
+    // --- ACCIÓN: COPIAR UN ARCHIVO ÚNICO ---
     if (action === "copy_file") {
-      const res = await drive.files.copy({ fileId: extractFileId(sourceUrl), requestBody: { name: newName, parents: [targetParentId] }, fields: "id, webViewLink" });
-      return new Response(JSON.stringify({ success: true, file: res.data }), { headers: corsHeaders });
+      const res = await drive.files.copy({
+        fileId: extractFileId(sourceUrl),
+        requestBody: { name: newName, parents: [targetParentId] },
+        fields: "id, webViewLink, name",
+        supportsAllDrives: true,
+      });
+      return new Response(
+        JSON.stringify({ success: true, file: res.data }),
+        { headers: corsHeaders },
+      );
     }
+
+    // --- ACCIÓN: COPIAR VARIOS ARCHIVOS EN BATCH (Scores para Arcos, etc.) ---
+    if (action === "COPY_FILES_BATCH") {
+      const files = Array.isArray(body.files) ? body.files : [];
+      if (!files.length) {
+        throw new Error("No se recibieron archivos para copiar (files vacío).");
+      }
+
+      // Permite reparar giras sin carpeta de Arcos:
+      // si no se proporciona destinationFolderId pero sí giraId/programId,
+      // se crea (o reutiliza) la carpeta "Arcos <nomenclador>" y su shortcut.
+      const giraIdForBatch: number | null =
+        body.giraId ?? body.programId ?? body.id_gira ?? null;
+      let cachedTourArcosId: string | null = null;
+
+      const ensureTourArcosFolderForBatch = async (): Promise<string> => {
+        if (cachedTourArcosId) return cachedTourArcosId;
+        if (!giraIdForBatch) {
+          throw new Error(
+            "No se pudo resolver la carpeta de Arcos: falta giraId/programId en la petición.",
+          );
+        }
+
+        const { data: prog, error: progError } = await supabase
+          .from("programas")
+          .select(
+            "id, nomenclador, google_drive_folder_id, id_folder_arcos, id_shortcut_arcos_drive",
+          )
+          .eq("id", giraIdForBatch)
+          .single();
+
+        if (progError || !prog) {
+          throw new Error("No se encontró el programa para crear carpeta de Arcos.");
+        }
+
+        const tourRootId = prog.google_drive_folder_id;
+        if (!tourRootId) {
+          throw new Error(
+            "La gira no tiene carpeta principal en Drive. Ejecuta primero sync_program_metadata.",
+          );
+        }
+
+        const tourArcosName = `Arcos ${prog.nomenclador || "Gira"}`;
+        let tourArcosId = prog.id_folder_arcos as string | null;
+        let tourArcosExists = false;
+
+        if (tourArcosId) {
+          try {
+            const f = await drive.files.get({
+              fileId: tourArcosId,
+              fields: "id, name, trashed",
+            });
+            if (!f.data.trashed) {
+              tourArcosExists = true;
+              if (f.data.name !== tourArcosName) {
+                await drive.files.update({
+                  fileId: tourArcosId,
+                  requestBody: { name: tourArcosName },
+                });
+              }
+            }
+          } catch {
+            // Si falla, lo recreamos más abajo.
+          }
+        }
+
+        if (!tourArcosExists) {
+          const newFolder = await drive.files.create({
+            requestBody: {
+              name: tourArcosName,
+              mimeType: "application/vnd.google-apps.folder",
+              parents: [PROGRAMAS_ARCOS_ROOT_ID],
+            },
+            fields: "id",
+          });
+          tourArcosId = newFolder.data.id!;
+          await supabase
+            .from("programas")
+            .update({ id_folder_arcos: tourArcosId })
+            .eq("id", giraIdForBatch);
+        }
+
+        // Shortcut G1 en la carpeta principal de la gira
+        let shortcutG1Id = prog.id_shortcut_arcos_drive as string | null;
+        let shortcutG1Exists = false;
+        if (shortcutG1Id) {
+          try {
+            const s = await drive.files.get({
+              fileId: shortcutG1Id,
+              fields: "trashed",
+            });
+            if (!s.data.trashed) shortcutG1Exists = true;
+          } catch {
+            // lo recreamos abajo
+          }
+        }
+
+        if (!shortcutG1Exists) {
+          const qS1 =
+            `'${tourRootId}' in parents and mimeType = 'application/vnd.google-apps.shortcut' ` +
+            `and name = '${tourArcosName}' and trashed = false`;
+          const searchS1 = await drive.files.list({
+            q: qS1,
+            fields: "files(id)",
+          });
+
+          if (searchS1.data.files && searchS1.data.files.length > 0) {
+            shortcutG1Id = searchS1.data.files[0].id!;
+          } else {
+            const s1 = await drive.files.create({
+              requestBody: {
+                name: tourArcosName,
+                mimeType: "application/vnd.google-apps.shortcut",
+                parents: [tourRootId],
+                shortcutDetails: { targetId: tourArcosId },
+              },
+              fields: "id",
+            });
+            shortcutG1Id = s1.data.id!;
+          }
+
+          await supabase
+            .from("programas")
+            .update({ id_shortcut_arcos_drive: shortcutG1Id })
+            .eq("id", giraIdForBatch);
+        }
+
+        cachedTourArcosId = tourArcosId!;
+        return cachedTourArcosId;
+      };
+
+      const results: Array<{
+        sourceId: string;
+        destinationFolderId: string;
+        newFileId?: string;
+        webViewLink?: string | null;
+        name?: string | null;
+        error?: string;
+      }> = [];
+
+      for (const entry of files) {
+        const rawId = entry?.fileId || entry?.sourceId;
+        let destFolder = entry?.destinationFolderId || entry?.targetFolderId;
+        const newNameForCopy: string | undefined = entry?.newName;
+        const prefixLabel: string | undefined = entry?.prefixLabel;
+
+        const fileId = typeof rawId === "string" ? rawId : extractFileId(rawId);
+
+        if (!destFolder && giraIdForBatch != null) {
+          destFolder = await ensureTourArcosFolderForBatch();
+        }
+
+        if (!fileId || !destFolder) {
+          results.push({
+            sourceId: rawId ?? "",
+            destinationFolderId: destFolder ?? "",
+            error: "Parámetros inválidos (fileId o destinationFolderId faltantes).",
+          });
+          continue;
+        }
+
+        try {
+          // Si no se provee newName, usamos el nombre original del archivo en Drive
+          // y aplicamos opcionalmente un prefijo (por ejemplo "[ARCOS] ").
+          let finalName = newNameForCopy;
+          if (!finalName) {
+            const meta = await drive.files.get({
+              fileId,
+              fields: "name",
+              supportsAllDrives: true,
+            });
+            const originalName = (meta.data.name || "archivo").slice(0, 255);
+            finalName = prefixLabel ? `${prefixLabel}${originalName}` : originalName;
+          }
+
+          // Evitar duplicados: si ya existe un archivo con ese nombre en la carpeta destino, lo saltamos.
+          const safeNameForQuery = finalName.replace(/'/g, "\\'");
+          const existing = await drive.files.list({
+            q: `'${destFolder}' in parents and name = '${safeNameForQuery}' and trashed = false`,
+            fields: "files(id)",
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+          });
+          if (existing.data.files && existing.data.files.length > 0) {
+            results.push({
+              sourceId: fileId,
+              destinationFolderId: destFolder,
+              name: finalName,
+              error: "ALREADY_EXISTS",
+            });
+            continue;
+          }
+
+          const copied = await drive.files.copy({
+            fileId,
+            requestBody: {
+              name: finalName,
+              parents: [destFolder],
+            },
+            fields: "id, webViewLink, name",
+            supportsAllDrives: true,
+          });
+
+          results.push({
+            sourceId: fileId,
+            destinationFolderId: destFolder,
+            newFileId: copied.data.id || undefined,
+            webViewLink: copied.data.webViewLink || null,
+            name: copied.data.name || null,
+          });
+        } catch (e: any) {
+          console.error("[COPY_FILES_BATCH] Error copiando archivo:", e?.message || e);
+          results.push({
+            sourceId: fileId,
+            destinationFolderId: destFolder,
+            error: e?.message || "Error desconocido al copiar archivo.",
+          });
+        }
+      }
+
+      const copiedCount = results.filter((r) => !r.error && r.newFileId).length;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          copied: copiedCount,
+          results,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // --- ACCIÓN: BORRAR / PERMISOS MASIVOS ---
     if (action === "delete_file") {
       try { await drive.files.delete({ fileId }); } catch (e) { }
       return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
