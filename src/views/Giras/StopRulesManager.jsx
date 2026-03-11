@@ -482,7 +482,7 @@ export default function StopRulesManager({
                     <option value="">Buscar Persona...</option>
 
                     <optgroup label="EN ESTE TRANSPORTE">
-                      {musicians
+                      {(passengers || [])
                         .filter((m) => admittedIds.has(String(m.id)))
                         .sort((a, b) => a.apellido.localeCompare(b.apellido))
                         .map((p) => (
@@ -493,7 +493,7 @@ export default function StopRulesManager({
                     </optgroup>
 
                     <optgroup label="OTROS (SE INCLUIRÁ AL BUS)">
-                      {musicians
+                      {(passengers || [])
                         .filter((m) => !admittedIds.has(String(m.id)))
                         .sort((a, b) => a.apellido.localeCompare(b.apellido))
                         .map((p) => (
