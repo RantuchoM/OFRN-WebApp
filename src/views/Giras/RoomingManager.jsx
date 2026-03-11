@@ -1,5 +1,6 @@
 // src/views/Giras/RoomingManager.jsx
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   IconHotel,
   IconArrowRight,
@@ -614,7 +615,7 @@ const MusicianCard = ({
   );
 };
 
-// --- LISTA LATERAL ---
+// --- LISTA LATERAL (colapsable en móvil) ---
 const MusicianListColumn = ({
   title,
   color,
@@ -625,8 +626,10 @@ const MusicianListColumn = ({
   onDrop,
   selectedIds,
   onMusicianClick,
+  forceExpanded = false,
 }) => {
   const [showLocals, setShowLocals] = useState(false);
+  const [mobileCollapsed, setMobileCollapsed] = useState(true);
   const locals = musicians.filter((m) => m.is_local);
   const visitors = musicians.filter((m) => !m.is_local);
   const byCity = visitors.reduce((acc, m) => {
@@ -637,25 +640,68 @@ const MusicianListColumn = ({
   }, {});
   const sortedCities = Object.keys(byCity).sort();
 
+  const colorClasses = {
+    pink: {
+      bg: "bg-pink-50/50",
+      border: "border-pink-100",
+      borderDrag: "border-pink-300",
+      bgDrag: "bg-pink-100/50",
+      text: "text-pink-800",
+      badge: "border-pink-200/50 text-pink-700",
+    },
+    blue: {
+      bg: "bg-blue-50/50",
+      border: "border-blue-100",
+      borderDrag: "border-blue-300",
+      bgDrag: "bg-blue-100/50",
+      text: "text-blue-800",
+      badge: "border-blue-200/50 text-blue-700",
+    },
+  };
+  const c = colorClasses[color] || colorClasses.blue;
+  const isCollapsed = forceExpanded ? false : mobileCollapsed;
+
   return (
     <div
-      className={`w-48 flex flex-col bg-${color}-50/50 rounded-xl border border-${color}-100 p-3 overflow-y-auto transition-colors ${
-        isDragging ? `bg-${color}-100/50 border-${color}-300 border-dashed` : ""
+      className={`w-full lg:w-48 flex flex-col rounded-xl border p-3 overflow-hidden transition-colors ${c.bg} ${c.border} ${
+        isDragging ? `${c.bgDrag} ${c.border} border-dashed` : ""
       }`}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <h4 className={`font-bold text-${color}-800 mb-3 flex justify-between`}>
-        <span>{title}</span>
-        <span className="bg-white px-2 rounded text-xs shadow-sm">
-          {visitors.length}
-        </span>
-      </h4>
-      <div className="space-y-3 flex-1">
+      {/* Encabezado: en móvil es botón acordeón, en desktop solo título */}
+      <button
+        type="button"
+        className={`lg:pointer-events-none w-full flex justify-between items-center mb-0 lg:mb-3 text-left`}
+        onClick={
+          forceExpanded ? undefined : () => setMobileCollapsed((v) => !v)
+        }
+      >
+        <h4 className={`font-bold ${c.text} flex justify-between items-center w-full`}>
+          <span>{title}</span>
+          <span className="bg-white px-2 rounded text-xs shadow-sm">
+            {visitors.length}
+          </span>
+        </h4>
+        {!forceExpanded && (
+          <IconChevronDown
+            size={18}
+            className={`lg:hidden ml-1 transition-transform duration-200 ${
+              isCollapsed ? "" : "rotate-180"
+            }`}
+          />
+        )}
+      </button>
+      {/* Contenido: en móvil solo visible cuando no está colapsado */}
+      <div
+        className={`space-y-3 flex-1 overflow-y-auto ${
+          isCollapsed ? "hidden lg:block" : "block"
+        }`}
+      >
         {sortedCities.map((city) => (
           <div key={city}>
             <div
-              className={`text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1 border-b border-${color}-200/50 pb-0.5 text-${color}-700`}
+              className={`text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1 border-b pb-0.5 ${c.badge}`}
             >
               {city}
             </div>
@@ -680,7 +726,7 @@ const MusicianListColumn = ({
         )}
       </div>
       {locals.length > 0 && (
-        <div className="mt-4 pt-2 border-t border-slate-200/60">
+        <div className="mt-4 pt-2 border-t border-slate-200/60 lg:block">
           <button
             onClick={() => setShowLocals(!showLocals)}
             className={`w-full flex justify-between items-center px-2 py-1.5 rounded text-xs font-bold transition-all ${
@@ -743,6 +789,7 @@ const RoomCard = ({
   selectedIds,
   onMusicianClick,
   onUpdateAttribute,
+  onAssignSelected,
 }) => {
   const isPlus = room.tipo === "Plus";
   const count = room.occupants.length;
@@ -768,9 +815,9 @@ const RoomCard = ({
         setIsOver(false);
         onDrop(e, room.id);
       }}
-      className={`rounded-lg border shadow-sm flex flex-col transition-all duration-200 ${colorClass} ${
+      className={`rounded-lg border shadow-sm flex flex-col transition-all duration-200 relative ${colorClass} ${
         isPlus ? "ring-2 ring-amber-400 ring-offset-1" : ""
-      } ${isOver ? "ring-4 ring-indigo-400 scale-105 z-10" : ""} relative`}
+      } ${isOver ? "ring-4 ring-indigo-400 scale-105 z-10" : ""}`}
     >
       <div className="p-2 border-b border-black/5 flex justify-between items-start">
         <div className="flex-1">
@@ -941,6 +988,20 @@ const RoomCard = ({
             Arrastra aquí
           </div>
         )}
+        {/* Botón + en móvil para asignar selección a esta habitación */}
+        {onAssignSelected && selectedIds && selectedIds.size > 0 && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAssignSelected(room.id);
+            }}
+            className="lg:hidden absolute bottom-2 right-2 w-8 h-8 rounded-full bg-indigo-600 text-white shadow flex items-center justify-center text-lg font-bold hover:bg-indigo-700"
+            title="Asignar selección a esta habitación"
+          >
+            <IconPlus size={16} />
+          </button>
+        )}
       </div>
       {room.notas_internas && (
         <div
@@ -950,6 +1011,143 @@ const RoomCard = ({
           {room.notas_internas}
         </div>
       )}
+    </div>
+  );
+};
+
+// --- MODAL ASIGNAR (móvil: lista de hoteles y habitaciones) ---
+const AssignRoomModal = ({
+  bookings,
+  rooms,
+  getCapacityLabel,
+  onSelectRoom,
+  onSelectNewRoom,
+  onClose,
+}) => {
+  const [roomFilter, setRoomFilter] = useState("F"); // F | Mix | M
+
+  const applyFilter = (hotelRooms) => {
+    if (roomFilter === "F") return hotelRooms.filter((r) => r.roomGender === "F");
+    if (roomFilter === "M") return hotelRooms.filter((r) => r.roomGender === "M");
+    if (roomFilter === "Mix")
+      return hotelRooms.filter((r) => r.roomGender === "Mixto");
+    return hotelRooms;
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full max-h-[85vh] sm:max-h-[80vh] flex flex-col animate-in slide-in-from-bottom sm:zoom-in-95"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white border-b border-slate-200 px-4 py-3 flex justify-between items-center rounded-t-2xl sm:rounded-t-xl z-10">
+          <h3 className="font-bold text-lg text-indigo-900">Asignar a habitación</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-full hover:bg-slate-100 text-slate-500"
+          >
+            <IconX size={20} />
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1 p-4 space-y-6">
+          {bookings.length === 0 ? (
+            <p className="text-sm text-slate-500 text-center py-6">
+              No hay hoteles cargados.
+            </p>
+          ) : (
+            bookings.map((bk) => {
+              const hotelRooms = rooms.filter((r) => r.id_hospedaje === bk.id);
+              const filteredRooms = applyFilter(hotelRooms);
+              const hotelName = bk.hoteles?.nombre || "Hotel";
+              const loc = bk.hoteles?.localidades?.localidad;
+              return (
+                <div key={bk.id} className="space-y-2">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2 text-indigo-900 font-bold">
+                      <IconHotel size={18} />
+                      {hotelName}
+                      {loc && (
+                        <span className="text-slate-500 font-normal text-sm">
+                          ({loc})
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-1 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => setRoomFilter("F")}
+                        className={`flex-1 px-2 py-1 rounded-full border ${
+                          roomFilter === "F"
+                            ? "bg-pink-100 border-pink-300 text-pink-800"
+                            : "bg-white border-slate-200 text-slate-600"
+                        }`}
+                      >
+                        Femenino
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRoomFilter("Mix")}
+                        className={`flex-1 px-2 py-1 rounded-full border ${
+                          roomFilter === "Mix"
+                            ? "bg-purple-100 border-purple-300 text-purple-800"
+                            : "bg-white border-slate-200 text-slate-600"
+                        }`}
+                      >
+                        Mixto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRoomFilter("M")}
+                        className={`flex-1 px-2 py-1 rounded-full border ${
+                          roomFilter === "M"
+                            ? "bg-blue-100 border-blue-300 text-blue-800"
+                            : "bg-white border-slate-200 text-slate-600"
+                        }`}
+                      >
+                        Masculino
+                      </button>
+                    </div>
+                  </div>
+                  <div className="pl-6 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => onSelectNewRoom(bk.id)}
+                      className="w-full flex items-center gap-2 py-2.5 px-3 rounded-lg border-2 border-dashed border-indigo-200 text-indigo-600 hover:bg-indigo-50 font-medium text-sm"
+                    >
+                      <IconPlus size={16} /> Nueva habitación en {hotelName}
+                    </button>
+                    {filteredRooms.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => onSelectRoom(r.id)}
+                        className="w-full flex items-center justify-between py-2.5 px-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 text-left text-sm"
+                      >
+                        <span className="font-medium text-slate-800">
+                          <IconBed size={14} className="inline mr-1 text-slate-500" />
+                          {getCapacityLabel(r.occupants.length)}
+                          {r.occupants.length > 0 && (
+                            <span className="text-slate-500 font-normal ml-1">
+                              —{" "}
+                              {r.occupants
+                                .map((o) => `${o.apellido}, ${o.nombre}`)
+                                .join("; ")}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
     </div>
   );
 };
@@ -997,6 +1195,10 @@ export default function RoomingManager({
   // --- NUEVOS ESTADOS PARA SELECCIÓN MÚLTIPLE ---
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [lastSelectedId, setLastSelectedId] = useState(null);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [showRoomingPanel, setShowRoomingPanel] = useState(false);
+  const [mobileActiveList, setMobileActiveList] = useState(null); // "women" | "men" | null
+  const [mobileRoomFilter, setMobileRoomFilter] = useState("F"); // F | Mix | M
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1153,6 +1355,110 @@ export default function RoomingManager({
     setSelectedIds(new Set());
     setDraggedMusician(null);
     setIsDragging(false);
+  };
+
+  /** API única para asignar selección a habitación (modal móvil y botón + en RoomCard). Hace validación de habitación mixta. */
+  const handleMoveToRoom = (targetRoomId, ids) => {
+    const idList = Array.isArray(ids) ? ids : Array.from(ids);
+    if (idList.length === 0) return;
+    if (targetRoomId != null) {
+      const targetRoom = rooms.find((r) => r.id === targetRoomId);
+      if (targetRoom) {
+        const selectedPeople = [];
+        idList.forEach((id) => {
+          const m = musicians.find((x) => x.id === id) ||
+            targetRoom.occupants.find((x) => x.id === id) ||
+            rooms.flatMap((r) => r.occupants).find((x) => x.id === id);
+          if (m) selectedPeople.push(m);
+        });
+        const futureOccupants = [...targetRoom.occupants, ...selectedPeople];
+        const futureGender = calculateRoomGender(futureOccupants);
+        const currentGender = calculateRoomGender(targetRoom.occupants);
+        if (futureGender === "Mixto" && currentGender !== "Mixto" && selectedPeople.some((p) => p.genero)) {
+          if (!window.confirm("Esta habitación quedaría mixta (hombres y mujeres). ¿Continuar?")) return;
+        }
+      }
+    }
+    processDrop(targetRoomId, idList);
+  };
+
+  /** Asignar selección a una habitación nueva en el hotel indicado (desde modal móvil). */
+  const handleMoveToNewRoom = async (bookingId, ids) => {
+    const idList = Array.isArray(ids) ? ids : Array.from(ids);
+    if (idList.length === 0) return;
+    setLoading(true);
+    try {
+      const currentMaxOrder =
+        rooms.length > 0 ? Math.max(...rooms.map((r) => r.orden || 0)) : 0;
+      const { data: newRoomData } = await supabase
+        .from("hospedaje_habitaciones")
+        .insert([
+          {
+            id_hospedaje: bookingId,
+            tipo: "Común",
+            configuracion: "Simple",
+            id_integrantes_asignados: [],
+            orden: currentMaxOrder + 10,
+          },
+        ])
+        .select()
+        .single();
+
+      if (newRoomData) {
+        const newRoomObj = {
+          ...newRoomData,
+          occupants: [],
+          roomGender: "Mixto",
+        };
+        setRooms((prev) => [newRoomObj, ...prev]);
+        let currentRooms = [newRoomObj, ...rooms];
+        let currentMusicians = [...musicians];
+        const movedPeople = [];
+
+        idList.forEach((id) => {
+          const mIndex = currentMusicians.findIndex((m) => m.id === id);
+          if (mIndex !== -1) {
+            movedPeople.push(currentMusicians[mIndex]);
+            currentMusicians.splice(mIndex, 1);
+          } else {
+            for (let i = 1; i < currentRooms.length; i++) {
+              const r = currentRooms[i];
+              const occIdx = r.occupants.findIndex((m) => m.id === id);
+              if (occIdx !== -1) {
+                const p = r.occupants[occIdx];
+                const newSrc = {
+                  ...r,
+                  occupants: r.occupants.filter((m) => m.id !== id),
+                };
+                newSrc.roomGender = calculateRoomGender(newSrc.occupants);
+                currentRooms[i] = newSrc;
+                syncRoomOccupants(newSrc.id, newSrc.occupants);
+                movedPeople.push(p);
+                break;
+              }
+            }
+          }
+        });
+
+        const targetR = {
+          ...newRoomObj,
+          occupants: movedPeople,
+          roomGender: calculateRoomGender(movedPeople),
+        };
+        currentRooms[0] = targetR;
+        syncRoomOccupants(targetR.id, movedPeople);
+        if (onDataChange) onDataChange();
+        updateLocalState(currentRooms, currentMusicians);
+        setSelectedIds(new Set());
+        setDraggedMusician(null);
+        setIsDragging(false);
+        setShowAssignModal(false);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDropOnRoom = (e, targetRoomId) => {
@@ -1780,17 +2086,17 @@ export default function RoomingManager({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in relative">
-      <div className="bg-white p-3 border-b border-slate-200 shadow-sm shrink-0">
-        <div className="flex justify-between items-center mb-2">
-          <div className="flex items-center gap-3">
+      <div className="bg-white px-3 py-2 border-b border-slate-200 shadow-sm shrink-0">
+        <div className="flex justify-between items-center mb-1">
+          <div className="flex items-center gap-2">
             <button
               onClick={onBack}
               className="text-slate-400 hover:text-indigo-600 font-medium text-sm flex items-center gap-1"
             >
               ← Volver
             </button>
-            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              Gestión Integral Rooming
+            <h2 className="text-base lg:text-lg font-bold text-slate-800 flex items-center gap-2">
+              Rooming
             </h2>
             <button
               onClick={() => setShowHelp(true)}
@@ -1799,12 +2105,13 @@ export default function RoomingManager({
               <IconHelpCircle size={20} />
             </button>
           </div>
-          <div className="flex gap-2">
+          {/* Botonera visible solo en desktop, en móvil pasa al acordeón */}
+          <div className="hidden lg:flex gap-1.5">
             {/* --- BOTÓN DE ALERTA (NUEVO) --- */}
             {missingDataPeople.length > 0 && (
               <button
                 onClick={() => setShowMissingData(true)}
-                className="bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg border border-amber-200 text-xs font-bold hover:bg-amber-100 flex items-center gap-2 animate-pulse"
+                className="bg-amber-50 text-amber-700 px-2.5 py-1 rounded-lg border border-amber-200 text-[11px] font-bold hover:bg-amber-100 flex items-center gap-1.5"
                 title="Ver personas con datos faltantes"
               >
                 <IconAlertTriangle size={16} />
@@ -1816,50 +2123,146 @@ export default function RoomingManager({
                 setEditingHotelData(null);
                 setShowHotelForm(true);
               }}
-              className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg border border-emerald-200 text-xs font-bold hover:bg-emerald-100 flex items-center gap-2"
+              className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg border border-emerald-200 text-[11px] font-bold hover:bg-emerald-100 flex items-center gap-1.5"
             >
               <IconPlus size={16} /> Agregar Hotel
             </button>
             <button
               onClick={() => setShowInitialAdjust(true)}
-              className="bg-white text-slate-600 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-2 shadow-sm"
+              className="bg-white text-slate-600 px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-bold hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-1.5 shadow-sm"
             >
               <IconList size={16} /> Pedido Inicial
             </button>
             <button
               onClick={() => setShowReport(true)}
-              className="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-200 text-xs font-bold hover:bg-indigo-100 flex items-center gap-2"
+              className="bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-200 text-[11px] font-bold hover:bg-indigo-100 flex items-center gap-1.5"
             >
               <IconFileText size={16} /> Reporte
             </button>
           </div>
         </div>
-        <div className="flex gap-4 text-[10px] font-bold text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100 justify-center flex-wrap">
+        {/* Menú + Mujeres / Varones en una sola línea (móvil) */}
+        <div className="mt-1 lg:hidden flex gap-1">
+          <button
+            type="button"
+            onClick={() => setShowRoomingPanel((v) => !v)}
+            className="flex-[0.9] flex items-center justify-between px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-700"
+          >
+            <span>Menú</span>
+            <IconChevronDown
+              size={16}
+              className={`transition-transform ${showRoomingPanel ? "rotate-180" : ""}`}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setMobileActiveList((prev) => (prev === "women" ? null : "women"))
+            }
+            className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+              mobileActiveList === "women"
+                ? "bg-pink-100 border-pink-300 text-pink-800"
+                : "bg-white border-slate-200 text-slate-700"
+            }`}
+          >
+            Mujeres
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setMobileActiveList((prev) => (prev === "men" ? null : "men"))
+            }
+            className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+              mobileActiveList === "men"
+                ? "bg-blue-100 border-blue-300 text-blue-800"
+                : "bg-white border-slate-200 text-slate-700"
+            }`}
+          >
+            Varones
+          </button>
+        </div>
+        {/* Contenido del acordeón Menú (móvil) */}
+        <div className="lg:hidden">
+          {showRoomingPanel && (
+            <div className="mt-1 space-y-1.5 text-[10px]">
+              <div className="flex gap-1.5 flex-wrap bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-100 justify-center">
+                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-white border rounded">
+                  <div className="w-2 h-2 rounded-full bg-blue-400"></div> SGL: {stats.SGL}
+                </span>
+                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-white border rounded">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400"></div> DBL: {stats.DBL}
+                </span>
+                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-white border rounded">
+                  <div className="w-2 h-2 rounded-full bg-amber-400"></div> TPL: {stats.TPL}
+                </span>
+                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-white border rounded">
+                  <div className="w-2 h-2 rounded-full bg-rose-400"></div> 4+: {stats.QDP}
+                </span>
+                <span className="text-pink-600">♀ {stats.F} Habs</span>
+                <span className="text-blue-600">♂ {stats.M} Habs</span>
+                <span className="text-purple-600">⚤ {stats.Mix} Mixtas</span>
+                <span className="text-pink-700 font-black" title="Total Mujeres">
+                  F: {lodgedWomen}
+                </span>
+                <span className="text-blue-700 font-black" title="Total Varones">
+                  M: {lodgedMen}
+                </span>
+              </div>
+              <div className="flex flex-wrap justify-end gap-1">
+                {missingDataPeople.length > 0 && (
+                  <button
+                    onClick={() => setShowMissingData(true)}
+                    className="bg-amber-50 text-amber-700 px-2 py-1 rounded-lg border border-amber-200 text-[10px] font-bold flex items-center gap-1"
+                    title="Ver personas con datos faltantes"
+                  >
+                    <IconAlertTriangle size={14} />
+                    <span>Faltan Datos ({missingDataPeople.length})</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setEditingHotelData(null);
+                    setShowHotelForm(true);
+                  }}
+                  className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-200 text-[10px] font-bold flex items-center gap-1"
+                >
+                  <IconPlus size={14} /> Hotel
+                </button>
+                <button
+                  onClick={() => setShowInitialAdjust(true)}
+                  className="bg-white text-slate-600 px-2 py-1 rounded-lg border border-slate-200 text-[10px] font-bold flex items-center gap-1 shadow-sm"
+                >
+                  <IconList size={14} /> Pedido
+                </button>
+                <button
+                  onClick={() => setShowReport(true)}
+                  className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg border border-indigo-200 text-[10px] font-bold flex items-center gap-1"
+                >
+                  <IconFileText size={14} /> Reporte
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        {/* Resumen siempre visible en desktop, compactado */}
+        <div className="hidden lg:flex gap-3 text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-100 justify-center flex-wrap mt-1">
           <span className="flex items-center gap-1 px-2 py-0.5 bg-white border rounded">
-            <div className="w-2 h-2 rounded-full bg-blue-400"></div> SGL:{" "}
-            {stats.SGL}
+            <div className="w-2 h-2 rounded-full bg-blue-400"></div> SGL: {stats.SGL}
           </span>
           <span className="flex items-center gap-1 px-2 py-0.5 bg-white border rounded">
-            <div className="w-2 h-2 rounded-full bg-emerald-400"></div> DBL:{" "}
-            {stats.DBL}
+            <div className="w-2 h-2 rounded-full bg-emerald-400"></div> DBL: {stats.DBL}
           </span>
           <span className="flex items-center gap-1 px-2 py-0.5 bg-white border rounded">
-            <div className="w-2 h-2 rounded-full bg-amber-400"></div> TPL:{" "}
-            {stats.TPL}
+            <div className="w-2 h-2 rounded-full bg-amber-400"></div> TPL: {stats.TPL}
           </span>
           <span className="flex items-center gap-1 px-2 py-0.5 bg-white border rounded">
-            <div className="w-2 h-2 rounded-full bg-rose-400"></div> 4+:{" "}
-            {stats.QDP}
+            <div className="w-2 h-2 rounded-full bg-rose-400"></div> 4+: {stats.QDP}
           </span>
           <div className="w-px h-4 bg-slate-300 mx-1"></div>
-          {/* Conteo de Habitaciones */}
           <span className="text-pink-600">♀ {stats.F} Habs</span>
           <span className="text-blue-600">♂ {stats.M} Habs</span>
           <span className="text-purple-600">⚤ {stats.Mix} Mixtas</span>
-
           <div className="w-px h-4 bg-slate-300 mx-1"></div>
-
-          {/* Conteo de Personas (Total real independiente de la habitación) */}
           <span className="text-pink-700 font-black" title="Total Mujeres">
             F: {lodgedWomen}
           </span>
@@ -1945,26 +2348,60 @@ export default function RoomingManager({
           initialData={editingHotelData}
         />
       )}
+      {mobileActiveList && (
+        <div className="lg:hidden px-3 pt-1">
+          {mobileActiveList === "women" ? (
+            <MusicianListColumn
+              title="Mujeres"
+              color="pink"
+              musicians={women}
+              isDragging={isDragging}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDrop={handleDropOnUnassigned}
+              selectedIds={selectedIds}
+              onMusicianClick={handleMusicianClick}
+              forceExpanded
+            />
+          ) : (
+            <MusicianListColumn
+              title="Hombres"
+              color="blue"
+              musicians={men}
+              isDragging={isDragging}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDrop={handleDropOnUnassigned}
+              selectedIds={selectedIds}
+              onMusicianClick={handleMusicianClick}
+              forceExpanded
+            />
+          )}
+        </div>
+      )}
       {loading && rooms.length === 0 ? (
         <div className="text-center p-10">
           <IconLoader className="animate-spin inline text-indigo-600" />
         </div>
       ) : (
-        <div className="flex-1 overflow-hidden flex p-4 gap-4">
-          <MusicianListColumn
-            title="Mujeres"
-            color="pink"
-            musicians={women}
-            isDragging={isDragging}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDrop={handleDropOnUnassigned}
-            selectedIds={selectedIds}
-            onMusicianClick={handleMusicianClick}
-          />
-          <div className="flex-1 overflow-y-auto pr-2 space-y-8">
+        <div className="flex-1 overflow-hidden flex flex-col lg:flex-row px-3 pb-3 pt-2 gap-3">
+          {/* Listas laterales solo en desktop; en móvil se manejan con los toggles superiores */}
+          <div className="hidden lg:block">
+            <MusicianListColumn
+              title="Mujeres"
+              color="pink"
+              musicians={women}
+              isDragging={isDragging}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDrop={handleDropOnUnassigned}
+              selectedIds={selectedIds}
+              onMusicianClick={handleMusicianClick}
+            />
+          </div>
+          <div className="flex-1 overflow-y-auto pr-1 space-y-6">
             {bookings.length === 0 && (
-              <div className="text-center text-slate-400 p-10 italic border-2 border-dashed border-slate-200 rounded-xl">
+              <div className="text-center text-slate-400 p-6 italic border-2 border-dashed border-slate-200 rounded-xl text-sm">
                 No hay hoteles cargados.{" "}
                 <button
                   onClick={() => setShowHotelForm(true)}
@@ -2029,8 +2466,48 @@ export default function RoomingManager({
                       </button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="flex flex-col gap-3">
+                  {/* Filtro de género para habitaciones (móvil) */}
+                  <div className="mt-2 mb-2 flex lg:hidden gap-1 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setMobileRoomFilter("F")}
+                      className={`flex-1 px-2 py-1 rounded-full border ${
+                        mobileRoomFilter === "F"
+                          ? "bg-pink-100 border-pink-300 text-pink-800"
+                          : "bg-white border-slate-200 text-slate-600"
+                      }`}
+                    >
+                      Femenino
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMobileRoomFilter("Mix")}
+                      className={`flex-1 px-2 py-1 rounded-full border ${
+                        mobileRoomFilter === "Mix"
+                          ? "bg-purple-100 border-purple-300 text-purple-800"
+                          : "bg-white border-slate-200 text-slate-600"
+                      }`}
+                    >
+                      Mixto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMobileRoomFilter("M")}
+                      className={`flex-1 px-2 py-1 rounded-full border ${
+                        mobileRoomFilter === "M"
+                          ? "bg-blue-100 border-blue-300 text-blue-800"
+                          : "bg-white border-slate-200 text-slate-600"
+                      }`}
+                    >
+                      Masculino
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div
+                      className={`flex flex-col gap-3 ${
+                        mobileRoomFilter === "F" ? "" : "hidden lg:flex"
+                      }`}
+                    >
                       <h5 className="text-[10px] font-bold text-slate-400 text-center uppercase tracking-widest">
                         Femeninas
                       </h5>
@@ -2064,10 +2541,15 @@ export default function RoomingManager({
                           selectedIds={selectedIds}
                           onMusicianClick={handleMusicianClick}
                           onUpdateAttribute={handleUpdateRoomAttribute}
+                          onAssignSelected={(roomId) => handleMoveToRoom(roomId, Array.from(selectedIds))}
                         />
                       ))}
                     </div>
-                    <div className="flex flex-col gap-3 px-2 border-x border-slate-100">
+                    <div
+                      className={`flex flex-col gap-3 lg:px-2 lg:border-x border-slate-100 ${
+                        mobileRoomFilter === "Mix" ? "" : "hidden lg:flex"
+                      }`}
+                    >
                       <button
                         onClick={() => {
                           setActiveBookingIdForNewRoom(bk.id);
@@ -2081,7 +2563,7 @@ export default function RoomingManager({
                       <div
                         onDragOver={handleDragOver}
                         onDrop={(e) => handleDropOnNewRoom(e, bk.id)}
-                        className={`flex flex-col items-center justify-center border-2 border-dashed border-indigo-200 text-indigo-300 rounded-xl hover:bg-indigo-50 transition-all h-20 cursor-pointer mb-4 ${
+                        className={`hidden lg:flex flex-col items-center justify-center border-2 border-dashed border-indigo-200 text-indigo-300 rounded-xl hover:bg-indigo-50 transition-all h-20 cursor-pointer mb-4 ${
                           isDragging ? "bg-indigo-50 border-indigo-400" : ""
                         }`}
                       >
@@ -2123,10 +2605,15 @@ export default function RoomingManager({
                           selectedIds={selectedIds}
                           onMusicianClick={handleMusicianClick}
                           onUpdateAttribute={handleUpdateRoomAttribute}
+                          onAssignSelected={(roomId) => handleMoveToRoom(roomId, Array.from(selectedIds))}
                         />
                       ))}
                     </div>
-                    <div className="flex flex-col gap-3">
+                    <div
+                      className={`flex flex-col gap-3 ${
+                        mobileRoomFilter === "M" ? "" : "hidden lg:flex"
+                      }`}
+                    >
                       <h5 className="text-[10px] font-bold text-slate-400 text-center uppercase tracking-widest">
                         Masculinas
                       </h5>
@@ -2160,6 +2647,7 @@ export default function RoomingManager({
                           selectedIds={selectedIds}
                           onMusicianClick={handleMusicianClick}
                           onUpdateAttribute={handleUpdateRoomAttribute}
+                          onAssignSelected={(roomId) => handleMoveToRoom(roomId, Array.from(selectedIds))}
                         />
                       ))}
                     </div>
@@ -2168,19 +2656,62 @@ export default function RoomingManager({
               );
             })}
           </div>
-          <MusicianListColumn
-            title="Hombres"
-            color="blue"
-            musicians={men}
-            isDragging={isDragging}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDrop={handleDropOnUnassigned}
-            selectedIds={selectedIds}
-            onMusicianClick={handleMusicianClick}
-          />
+          <div className="hidden lg:block">
+            <MusicianListColumn
+              title="Hombres"
+              color="blue"
+              musicians={men}
+              isDragging={isDragging}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDrop={handleDropOnUnassigned}
+              selectedIds={selectedIds}
+              onMusicianClick={handleMusicianClick}
+            />
+          </div>
         </div>
       )}
+      {/* Barra de acción móvil: solo cuando hay selección y en pantalla pequeña */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-white border-t border-slate-200 shadow-lg px-4 py-3 flex items-center justify-between gap-3 safe-area-pb">
+          <span className="text-sm font-medium text-slate-700">
+            {selectedIds.size} seleccionado{selectedIds.size !== 1 ? "s" : ""}
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAssignModal(true)}
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700"
+            >
+              Asignar
+            </button>
+          </div>
+        </div>
+      )}
+      {showAssignModal &&
+        createPortal(
+          <AssignRoomModal
+            bookings={bookings}
+            rooms={rooms}
+            getCapacityLabel={getCapacityLabel}
+            onSelectRoom={(roomId) => {
+              handleMoveToRoom(roomId, Array.from(selectedIds));
+              setShowAssignModal(false);
+            }}
+            onSelectNewRoom={(bookingId) => {
+              handleMoveToNewRoom(bookingId, Array.from(selectedIds));
+            }}
+            onClose={() => setShowAssignModal(false)}
+          />,
+          document.body,
+        )}
       {showMissingData && (
         <MissingDataModal
           people={missingDataPeople}
