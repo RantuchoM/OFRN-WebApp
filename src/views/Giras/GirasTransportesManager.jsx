@@ -1298,27 +1298,91 @@ export default function GirasTransportesManager({ supabase, gira }) {
         `¿Confirmas borrar el evento y limpiar las reglas asociadas?`;
 
       if (!confirm(message)) return;
-
-      if (rulesAffectingUp.length > 0) {
-        await supabase
-          .from("giras_logistica_rutas")
-          .update({ id_evento_subida: null })
-          .eq("id_evento_subida", eventId);
-      }
-      if (rulesAffectingDown.length > 0) {
-        await supabase
-          .from("giras_logistica_rutas")
-          .update({ id_evento_bajada: null })
-          .eq("id_evento_bajada", eventId);
-      }
     } else {
       if (!confirm("¿Borrar parada?")) return;
     }
 
-    await supabase.from("eventos").delete().eq("id", eventId);
-    if (editingEventId === eventId) cancelEdit();
-    fetchData();
-    refresh();
+    try {
+      const cleanupPromises = [];
+
+      if (rulesAffectingUp.length > 0) {
+        cleanupPromises.push(
+          supabase
+            .from("giras_logistica_rutas")
+            .update({ id_evento_subida: null })
+            .eq("id_evento_subida", eventId),
+        );
+      }
+      if (rulesAffectingDown.length > 0) {
+        cleanupPromises.push(
+          supabase
+            .from("giras_logistica_rutas")
+            .update({ id_evento_bajada: null })
+            .eq("id_evento_bajada", eventId),
+        );
+      }
+
+      cleanupPromises.push(
+        supabase
+          .from("giras_logistica_reglas_transportes")
+          .update({ id_evento_subida: null })
+          .eq("id_evento_subida", eventId),
+      );
+      cleanupPromises.push(
+        supabase
+          .from("giras_logistica_reglas_transportes")
+          .update({ id_evento_bajada: null })
+          .eq("id_evento_bajada", eventId),
+      );
+
+      cleanupPromises.push(
+        supabase
+          .from("giras_logistica_reglas")
+          .update({ id_evento_checkin: null })
+          .eq("id_evento_checkin", eventId),
+      );
+      cleanupPromises.push(
+        supabase
+          .from("giras_logistica_reglas")
+          .update({ id_evento_checkout: null })
+          .eq("id_evento_checkout", eventId),
+      );
+      cleanupPromises.push(
+        supabase
+          .from("giras_logistica_reglas")
+          .update({ id_evento_comida_inicio: null })
+          .eq("id_evento_comida_inicio", eventId),
+      );
+      cleanupPromises.push(
+        supabase
+          .from("giras_logistica_reglas")
+          .update({ id_evento_comida_fin: null })
+          .eq("id_evento_comida_fin", eventId),
+      );
+
+      await Promise.all(cleanupPromises);
+
+      const { error } = await supabase.from("eventos").delete().eq("id", eventId);
+
+      if (error) {
+        console.error("Error al borrar evento", { eventId, error });
+        alert(
+          "No se pudo borrar la parada. Puede haber vínculos en otras tablas.\n\nDetalle técnico: " +
+            (error.message || JSON.stringify(error)),
+        );
+        return;
+      }
+
+      if (editingEventId === eventId) cancelEdit();
+      fetchData();
+      refresh();
+    } catch (err) {
+      console.error("Excepción al borrar evento", { eventId, err });
+      alert(
+        "Ocurrió un error inesperado al borrar la parada:\n\n" +
+          (err.message || JSON.stringify(err)),
+      );
+    }
   };
 
   const handleSaveBoarding = async (personId, subidaId, bajadaId) => {
