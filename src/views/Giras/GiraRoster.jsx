@@ -36,6 +36,7 @@ import { toast } from "sonner";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import UniversalExporter from "../../components/ui/UniversalExporter";
 import InstrumentationBadges from "../../components/instrumentation/InstrumentationBadges";
+import { useAuth } from "../../context/AuthContext";
 
 // --- CONSTANTES ---
 // ROLES_GIRA eliminado en favor de DB
@@ -109,6 +110,7 @@ export default function GiraRoster({
   isEditor = true,
   onNotificacionInicialSent,
 }) {
+  const { user } = useAuth();
   const {
     roster: rawRoster,
     loading: hookLoading,
@@ -164,7 +166,7 @@ export default function GiraRoster({
     telefono: true,
     mail: true,
     alimentacion: false,
-    localidad: false,
+    localidad: true,
     ensambles: true,
     genero: false,
   });
@@ -370,6 +372,9 @@ export default function GiraRoster({
     () => [...CONDICIONES].sort((a, b) => a.localeCompare(b)),
     [],
   );
+
+  const canSeeInstrumentationBadges =
+    ["admin", "editor", "coord_general"].includes(user?.rol_sistema);
 
   // --- FILTRADO Y ORDENAMIENTO COMPLETO ---
   useEffect(() => {
@@ -645,6 +650,27 @@ export default function GiraRoster({
       ]);
 
       if (error) throw error;
+
+    // Encolar notificación ALTA también para altas individuales detalladas
+    if (
+      notificacionInicialEnviada &&
+      notificacionesHabilitadas &&
+      newMusician.mail
+    ) {
+      const nombreCompleto =
+        newMusician.nombre_completo ||
+        `${newMusician.apellido || ""}, ${newMusician.nombre || ""}`.trim();
+      setPendingNotifications((prev) => [
+        ...prev,
+        {
+          id: `alta-detallada-${newMusician.id}-${Date.now()}`,
+          variant: "ALTA",
+          emails: [newMusician.mail],
+          nombres: [nombreCompleto],
+          reason: "Se te convoca individualmente",
+        },
+      ]);
+    }
 
       // Cerramos el modal de creación y refrescamos la lista
       setIsCreatingDetailed(false);
@@ -1240,6 +1266,33 @@ export default function GiraRoster({
     }
   };
 
+  // Notificación al asignar un titular real a una vacante
+  const handleVacancyAssigned = (musicianInfo) => {
+    if (
+      !musicianInfo ||
+      !musicianInfo.id ||
+      !musicianInfo.mail ||
+      !notificacionInicialEnviada ||
+      !notificacionesHabilitadas
+    )
+      return;
+
+    const nombreCompleto =
+      musicianInfo.nombre_completo ||
+      `${musicianInfo.apellido || ""}, ${musicianInfo.nombre || ""}`.trim();
+
+    setPendingNotifications((prev) => [
+      ...prev,
+      {
+        id: `alta-swap-${musicianInfo.id}-${Date.now()}`,
+        variant: "ALTA",
+        emails: [musicianInfo.mail],
+        nombres: [nombreCompleto],
+        reason: "Se te asignó como titular en la gira",
+      },
+    ]);
+  };
+
   const scrollToIntegranteInTable = (integranteId) => {
     const el = document.getElementById(`row-integrante-${integranteId}`);
     el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -1431,7 +1484,7 @@ export default function GiraRoster({
           <div>
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
               <span>{gira.nombre_gira}</span>
-              {instrumentationWorks.length > 0 && (
+              {canSeeInstrumentationBadges && instrumentationWorks.length > 0 && (
                 <InstrumentationBadges
                   works={instrumentationWorks}
                   roster={rawRoster}
@@ -2008,7 +2061,7 @@ export default function GiraRoster({
                 )}
                 {visibleColumns.localidad && (
                   <th className="hidden md:table-cell py-2 px-3 border-r border-slate-100">
-                    Ubicación
+                    Localidad (res. / viát.)
                   </th>
                 )}
                 <th className="hidden md:table-cell py-2 px-3 border-r border-slate-100">
@@ -2152,6 +2205,7 @@ export default function GiraRoster({
         giraId={gira.id}
         supabase={supabase}
         onRefresh={refreshRoster}
+        onAssigned={handleVacancyAssigned}
       />
 
       {notificacionInicialEnviada && (

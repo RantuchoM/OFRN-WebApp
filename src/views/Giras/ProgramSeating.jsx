@@ -549,6 +549,8 @@ export default function ProgramSeating({
   const canManageSeating = ["admin", "editor", "coord_general"].includes(
     user?.rol_sistema,
   );
+  const canSeeInstrumentationBadges =
+    ["admin", "editor", "coord_general"].includes(user?.rol_sistema);
 
   const [filteredRoster, setFilteredRoster] = useState([]);
   const [particellas, setParticellas] = useState([]);
@@ -1597,7 +1599,7 @@ export default function ProgramSeating({
         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
           <IconUsers className="text-indigo-600" />
           <span>Seating & Particellas</span>
-          {obras.length > 0 && (
+          {canSeeInstrumentationBadges && obras.length > 0 && (
             <div className="flex flex-wrap items-center gap-1 ml-3">
               <button
                 type="button"

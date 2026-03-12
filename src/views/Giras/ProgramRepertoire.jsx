@@ -516,6 +516,9 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
     return works;
   }, [repertorios]);
 
+  const canSeeInstrumentationBadges =
+    ["admin", "editor", "coord_general"].includes(user?.rol_sistema);
+
   const handleBack = () => {
     if (activeTab !== "repertoire") {
       handleTabChange("repertoire");
@@ -835,7 +838,8 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
           <div className="flex flex-col">
             <h2 className="text-m font-bold text-slate-800 flex items-center gap-2">
               <span>Repertorio</span>
-              {activeTab === "repertoire" &&
+              {canSeeInstrumentationBadges &&
+                activeTab === "repertoire" &&
                 obrasWithInstrumentation.length > 0 && (
                   <InstrumentationBadges
                     works={obrasWithInstrumentation}

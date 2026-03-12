@@ -153,8 +153,8 @@ export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, 
 };
 
 // --- MODAL 2: SWAP (ASIGNAR TITULAR) ---
-// (Este se mantiene casi igual, solo aseguramos que importe SearchableSelect)
-export const SwapVacancyModal = ({ isOpen, onClose, giraId, placeholder, supabase, onRefresh }) => {
+// onAssigned: callback opcional para notificaciones (envía info del músico real asignado)
+export const SwapVacancyModal = ({ isOpen, onClose, giraId, placeholder, supabase, onRefresh, onAssigned }) => {
     const [loading, setLoading] = useState(false);
     const [searching, setSearching] = useState(false);
     const [candidates, setCandidates] = useState([]);
@@ -169,14 +169,17 @@ export const SwapVacancyModal = ({ isOpen, onClose, giraId, placeholder, supabas
         // Filtramos para no mostrar vacantes en la lista de candidatos
         const { data } = await supabase
             .from('integrantes')
-            .select('id, nombre, apellido, dni, instrumentos(instrumento)')
+            .select('id, nombre, apellido, dni, mail, instrumentos(instrumento)')
             .eq('es_simulacion', false)
             .order('apellido');
         
         const options = (data || []).map(p => ({
             id: p.id,
             label: `${p.apellido}, ${p.nombre}`,
-            subLabel: p.dni || 'Sin DNI'
+            subLabel: p.dni || 'Sin DNI',
+            nombre: p.nombre,
+            apellido: p.apellido,
+            mail: p.mail
         }));
         setCandidates(options);
         setSearching(false);
@@ -195,6 +198,20 @@ export const SwapVacancyModal = ({ isOpen, onClose, giraId, placeholder, supabas
             });
 
             if (error) throw error;
+
+            // Notificación al padre para que encole el mail (si corresponde)
+            if (onAssigned) {
+                const realId = parseInt(selectedRealId);
+                const selected = candidates.find(c => c.id === realId);
+                if (selected) {
+                    onAssigned({
+                        id: selected.id,
+                        nombre: selected.nombre,
+                        apellido: selected.apellido,
+                        mail: selected.mail
+                    });
+                }
+            }
 
             onClose();
             

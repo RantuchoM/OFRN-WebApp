@@ -133,17 +133,40 @@ export default function RosterTableRow({
         </td>
       )}
 
-      {/* UBICACIÓN */}
+      {/* UBICACIÓN: residencia + viáticos (si aplica) */}
       {visibleColumns.localidad && (
         <td className="hidden md:table-cell py-1.5 px-3 text-xs text-slate-600 border-r border-slate-100/50">
-          {m.localidades ? (
-            <div>
-              <span className="font-semibold block">
-                {m.localidades.localidad}
-              </span>
-              <span className="text-[9px] text-slate-400 block">
-                {m.localidades.regiones?.region}
-              </span>
+          {m._loc_residencia || m.localidades ? (
+            <div className="space-y-0.5">
+              {/* Residencia */}
+              <div>
+                <span className="font-semibold block">
+                  {m._loc_residencia?.localidad || m.localidades?.localidad}{" "}
+                  {m._loc_viaticos && (
+                    <span className="text-[10px] font-normal text-slate-500">
+                      (Residencia)
+                    </span>
+                  )}
+                </span>
+                <span className="text-[9px] text-slate-400 block">
+                  {m._loc_residencia?.regiones?.region ||
+                    m.localidades?.regiones?.region}
+                </span>
+              </div>
+              {/* Viáticos (solo si tiene distinta localidad de viáticos) */}
+              {m._loc_viaticos && (
+                <div>
+                  <span className="font-semibold block">
+                    {m._loc_viaticos.localidad}{" "}
+                    <span className="text-[10px] font-normal text-slate-500">
+                      (Viáticos)
+                    </span>
+                  </span>
+                  <span className="text-[9px] text-slate-400 block">
+                    {m._loc_viaticos.regiones?.region}
+                  </span>
+                </div>
+              )}
             </div>
           ) : (
             <span className="text-slate-300">-</span>

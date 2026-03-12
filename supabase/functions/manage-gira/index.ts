@@ -285,18 +285,23 @@ async function duplicateGira(
     log(`Error Integrantes: ${e.message}`);
   }
 
-  // 7. REGLAS LOGISTICAS (sin columnas de fecha; vinculadas por evento)
+  // 7. REGLAS LOGÍSTICAS (modelo nuevo basado en targets + eventos, sin columnas de persona directa)
   try {
-    const { data: reglas } = await supabase.from("giras_logistica_reglas").select("*").eq("id_gira", original.id);
+    const { data: reglas } = await supabase
+      .from("giras_logistica_reglas")
+      .select("*")
+      .eq("id_gira", original.id);
     if (reglas?.length) {
       const newReglas = reglas.map((r: any) => ({
         id_gira: newGiraId,
         alcance: r.alcance,
         prioridad: r.prioridad,
-        id_integrante: r.id_integrante,
-        id_localidad: r.id_localidad,
-        id_region: r.id_region,
-        instrumento_familia: r.instrumento_familia,
+        // Campos de segmentación modernos
+        target_ids: r.target_ids ?? [],
+        target_regions: r.target_regions ?? [],
+        target_localities: r.target_localities ?? [],
+        target_categories: r.target_categories ?? [],
+        // Ventanas de check-in / check-out y comidas asociadas
         hora_checkin: r.hora_checkin,
         hora_checkout: r.hora_checkout,
         comida_inicio_servicio: r.comida_inicio_servicio,
@@ -305,7 +310,10 @@ async function duplicateGira(
         prov_almuerzo: r.prov_almuerzo,
         prov_merienda: r.prov_merienda,
         prov_cena: r.prov_cena,
-        target_ids: r.target_ids,
+        id_evento_checkin: r.id_evento_checkin,
+        id_evento_checkout: r.id_evento_checkout,
+        id_evento_comida_inicio: r.id_evento_comida_inicio,
+        id_evento_comida_fin: r.id_evento_comida_fin,
       }));
       await supabase.from("giras_logistica_reglas").insert(newReglas);
       log(` → OK. ${reglas.length} reglas logísticas copiadas.`);
