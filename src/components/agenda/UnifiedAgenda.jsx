@@ -25,6 +25,7 @@ import {
   IconUndo,
   IconHistory,
   IconRefresh,
+  IconTrash,
 } from "../ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../comments/CommentsManager";
@@ -68,7 +69,13 @@ export default function UnifiedAgenda({
   onOpenRepertoire = null,
   onViewChange = null,
 }) {
-  const { user, isEditor, isManagement, isGuest } = useAuth();
+  const {
+    user,
+    isEditor,
+    isManagement,
+    isGuest,
+    isAdmin: isAdminFlag,
+  } = useAuth();
   // Estado para el modal de comida en móvil
   const [mealActionTarget, setMealActionTarget] = useState(null);
   const [isTranspositionOpen, setIsTranspositionOpen] = useState(false);
@@ -127,8 +134,11 @@ export default function UnifiedAgenda({
   const userRoles = (() => {
     const r = user?.rol_sistema;
     if (r == null) return [];
-    return Array.isArray(r) ? r.map((x) => String(x).toLowerCase().trim()) : [String(r).toLowerCase().trim()];
+    return Array.isArray(r)
+      ? r.map((x) => String(x).toLowerCase().trim())
+      : [String(r).toLowerCase().trim()];
   })();
+  const isAdmin = isAdminFlag || userRoles.includes("admin");
   const isGlobalEditor = userRoles.some((role) => editorRoles.includes(role));
   const canEdit = isGlobalEditor || coordinatedEnsembles.size > 0;
 
@@ -162,6 +172,7 @@ export default function UnifiedAgenda({
 
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
+  const [showDeletedEvents, setShowDeletedEvents] = useState(false);
 
   const {
     selectedCategoryIds,
@@ -260,7 +271,13 @@ export default function UnifiedAgenda({
     isEditor,
     isManagement,
     user,
+    includeDeletedBeyond24h: isAdmin && showDeletedEvents,
   });
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetchAgenda();
+  }, [isAdmin, showDeletedEvents, fetchAgenda]);
 
   const mainProgram = useMemo(
     () => items.find((i) => i.programas)?.programas || null,
@@ -282,6 +299,7 @@ export default function UnifiedAgenda({
     messageIsHtml: false,
     hasLogisticsLinks: false,
   });
+  const [permanentDeleteTarget, setPermanentDeleteTarget] = useState(null);
   const [editingEventObj, setEditingEventObj] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
   const [newFormData, setNewFormData] = useState({});
@@ -667,6 +685,24 @@ export default function UnifiedAgenda({
       fetchAgenda(true);
     } catch (err) {
       toast.error("Error al restaurar: " + err.message);
+    }
+  };
+
+  const handlePermanentDeleteEvent = async () => {
+    if (!permanentDeleteTarget) return;
+    const id = permanentDeleteTarget.id;
+    setPermanentDeleteTarget(null);
+    setLoading(true);
+    try {
+      const { error } = await supabase.from("eventos").delete().eq("id", id);
+      if (error) throw error;
+      toast.success("Evento eliminado definitivamente.");
+      fetchAgenda(true);
+    } catch (err) {
+      console.error("Error al eliminar definitivamente:", err);
+      toast.error("Error al eliminar definitivamente: " + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1064,7 +1100,7 @@ export default function UnifiedAgenda({
                           Restablecer
                         </button>
                       </div>
-                      <div className="max-h-[60vh] overflow-y-auto">
+                          <div className="max-h-[60vh] overflow-y-auto">
                         {/* ... (Resto de filtros) ... */}
                         {isManagement && (
                           <div className="p-2 border-b border-slate-100">
@@ -1234,6 +1270,26 @@ export default function UnifiedAgenda({
                             </label>
                           </div>
                         )}
+                        {isAdmin && (
+                          <div className="p-2 border-t border-slate-100 bg-rose-50/60">
+                            <label className="flex items-center gap-2 cursor-pointer p-2">
+                              <input
+                                type="checkbox"
+                                className="accent-rose-600 w-4 h-4"
+                                checked={showDeletedEvents}
+                                onChange={(e) => setShowDeletedEvents(e.target.checked)}
+                              />
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold text-rose-900">
+                                  Ver eventos eliminados
+                                </span>
+                                <span className="text-[10px] text-rose-700">
+                                  Incluye eventos eliminados hace más de 24&nbsp;h (solo admins).
+                                </span>
+                              </div>
+                            </label>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1396,6 +1452,8 @@ export default function UnifiedAgenda({
                       new Date(evt.updated_at).getTime() >
                         Date.now() - 24 * 60 * 60 * 1000;
                     const isDeleted = evt.is_deleted === true;
+                    const canAdminEditDeleted = isAdmin && showDeletedEvents;
+                    const isReadOnlyDeleted = isDeleted && !canAdminEditDeleted;
 
                     return (
                       <React.Fragment key={evt.id}>
@@ -1489,9 +1547,10 @@ export default function UnifiedAgenda({
                           )}
                         {/* --- CONTENEDOR MÓVIL (VISIBLE SOLO EN < md) --- */}
                         <div
-                          className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-200 transition-colors group gap-2
+                        className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-200 transition-colors group gap-2
                             ${shouldDim && !isDeleted ? "opacity-50 grayscale hover:bg-slate-50" : ""}
-                            ${isDeleted ? "bg-orange-50 opacity-80 line-through pointer-events-none" : ""}
+                            ${isDeleted ? "bg-orange-50 opacity-80 line-through" : ""}
+                            ${isReadOnlyDeleted ? " pointer-events-none" : ""}
                             ${!isDeleted && evt.is_guest ? "bg-emerald-50/30 hover:bg-slate-50" : ""}
                             ${!isDeleted && isMyTransport ? "bg-indigo-50/30 border-l-4 border-l-indigo-400 hover:bg-slate-50" : ""}
                             ${isRecentlyModified && !isDeleted ? "ring-2 ring-blue-500 animate-pulse" : ""}
@@ -1725,18 +1784,36 @@ export default function UnifiedAgenda({
                           </div>
 
                           <div className="shrink-0 flex items-start gap-1 pl-2 pt-1 border-l border-slate-100 flex-col justify-between min-w-[40px]">
-                            {isDeleted && (isEditor || isManagement) ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRestoreEvent(evt.id);
-                                }}
-                                className="pointer-events-auto p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors"
-                                title="Restaurar evento"
-                              >
-                                <IconUndo size={18} />
-                              </button>
+                            {isDeleted && (isEditor || isAdmin || isManagement) ? (
+                              <div className="flex flex-col gap-1 items-end">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRestoreEvent(evt.id);
+                                  }}
+                                  className="pointer-events-auto p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors"
+                                  title="Restaurar evento"
+                                >
+                                  <IconUndo size={18} />
+                                </button>
+                              {isAdmin  && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPermanentDeleteTarget({
+                                        id: evt.id,
+                                        label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
+                                      });
+                                    }}
+                                    className="pointer-events-auto p-1.5 text-violet-600 hover:bg-violet-50 rounded-full transition-colors"
+                                    title="Eliminar definitivamente"
+                                  >
+                                    <IconTrash size={18} />
+                                  </button>
+                                )}
+                              </div>
                             ) : (
                               <>
                                 {isMeal &&
@@ -1837,7 +1914,8 @@ export default function UnifiedAgenda({
                         <div
                           className={`hidden md:grid md:grid-cols-12 gap-2 p-3 pl-4 items-start border-b border-slate-100 transition-colors group relative
                             ${shouldDim && !isDeleted ? "opacity-60 grayscale hover:bg-slate-50" : ""}
-                            ${isDeleted ? "bg-orange-50 opacity-80 line-through pointer-events-none" : ""}
+                            ${isDeleted ? "bg-orange-50 opacity-80 line-through" : ""}
+                            ${isReadOnlyDeleted ? " pointer-events-none" : ""}
                             ${!isDeleted && evt.is_guest ? "bg-emerald-50/30 hover:bg-slate-50" : ""}
                             ${!isDeleted && isMyTransport ? "bg-indigo-50/30 hover:bg-slate-50" : ""}
                             ${isRecentlyModified && !isDeleted ? "ring-2 ring-blue-500 animate-pulse" : ""}
@@ -2049,17 +2127,35 @@ export default function UnifiedAgenda({
                           {/* COLUMNA 5: ACCIONES */}
                           <div className="col-span-2 flex flex-col items-end gap-2 pl-2 border-l border-slate-100 h-full">
                             {isDeleted && (isEditor || isManagement) ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRestoreEvent(evt.id);
-                                }}
-                                className="pointer-events-auto p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors mt-auto"
-                                title="Restaurar evento"
-                              >
-                                <IconUndo size={18} />
-                              </button>
+                              <div className="flex flex-col items-end gap-1 mt-auto">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRestoreEvent(evt.id);
+                                  }}
+                                  className="pointer-events-auto p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors"
+                                  title="Restaurar evento"
+                                >
+                                  <IconUndo size={18} />
+                                </button>
+                                {isAdmin && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPermanentDeleteTarget({
+                                        id: evt.id,
+                                        label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
+                                      });
+                                    }}
+                                    className="pointer-events-auto p-1.5 text-violet-600 hover:bg-violet-50 rounded-full transition-colors"
+                                    title="Eliminar definitivamente"
+                                  >
+                                    <IconTrash size={18} />
+                                  </button>
+                                )}
+                              </div>
                             ) : (
                               <>
                             {isMeal &&
@@ -2217,6 +2313,20 @@ export default function UnifiedAgenda({
         messageIsHtml={deleteConfirm.messageIsHtml}
         confirmText="Mover a la papelera"
         cancelText="Cancelar"
+      />
+      <ConfirmModal
+        isOpen={!!permanentDeleteTarget}
+        onClose={() => setPermanentDeleteTarget(null)}
+        onConfirm={handlePermanentDeleteEvent}
+        title="Eliminar definitivamente"
+        message={
+          permanentDeleteTarget
+            ? `¿Eliminar definitivamente el evento "${permanentDeleteTarget.label}"? Esta acción no se puede deshacer.`
+            : ""
+        }
+        confirmText="Eliminar definitivamente"
+        cancelText="Cancelar"
+        confirmVariant="danger"
       />
       {isEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">

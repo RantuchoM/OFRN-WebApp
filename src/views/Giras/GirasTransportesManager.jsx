@@ -30,6 +30,8 @@ import {
   IconBus,
   IconCheckCircle,
   IconList,
+  IconEye,
+  IconEyeOff,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
@@ -826,6 +828,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     isOpen: false,
     transportId: null,
   });
+  const [activeDetailEventId, setActiveDetailEventId] = useState(null);
   const [itineraryModal, setItineraryModal] = useState({
     isOpen: false,
     transportId: null,
@@ -932,7 +935,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         const { data: evts } = await supabase
           .from("eventos")
           .select(
-            `id, fecha, hora_inicio, descripcion, id_tipo_evento, id_gira_transporte, id_locacion, locaciones(nombre, direccion, localidades(localidad))`,
+            `id, fecha, hora_inicio, descripcion, id_tipo_evento, visible_agenda, id_gira_transporte, id_locacion, locaciones(nombre, direccion, localidades(localidad))`,
           )
           .in("id_gira_transporte", tIds)
           .order("fecha", { ascending: true })
@@ -1536,6 +1539,35 @@ export default function GirasTransportesManager({ supabase, gira }) {
     setRoadmapModal({ isOpen: false, transportId: null });
   };
 
+  // Marcar automáticamente como ocultos los eventos que sean solo de bajada (sin subidas),
+  // pero solo cuando aún no tienen preferencia de visibilidad definida (visible_agenda == null)
+  useEffect(() => {
+    if (!routeRules || !transportEvents) return;
+
+    Object.entries(transportEvents).forEach(([tId, events]) => {
+      events.forEach((evt) => {
+        const upsSummary = getEventRulesSummary(evt.id, "up", tId);
+        const downsSummary = getEventRulesSummary(evt.id, "down", tId);
+        const totalUps = upsSummary.reduce((acc, curr) => acc + curr.count, 0);
+        const totalDowns = downsSummary.reduce(
+          (acc, curr) => acc + curr.count,
+          0,
+        );
+
+        // Por defecto: si solo hay bajadas y ninguna subida, y el evento aún no
+        // tiene visible_agenda definido (null/undefined), lo marcamos como oculto.
+        // Esto respeta cualquier cambio manual posterior (true/false explícito).
+        if (
+          totalUps === 0 &&
+          totalDowns > 0 &&
+          (evt.visible_agenda === null || typeof evt.visible_agenda === "undefined")
+        ) {
+          handleUpdateEvent(evt.id, "visible_agenda", false);
+        }
+      });
+    });
+  }, [transportEvents, routeRules]);
+
   const startEditingTransport = (e, t) => {
     e.stopPropagation();
     setEditingTransportId(t.id);
@@ -2064,7 +2096,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                     >
                       <thead className="bg-slate-100/50 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b">
                         <tr>
-                          <th className="p-3 w-10 text-center">
+                          <th className="p-3 text-center" style={{ width: "3%" }}>
                             <input
                               type="checkbox"
                               className="rounded border-slate-300 text-indigo-600"
@@ -2085,16 +2117,33 @@ export default function GirasTransportesManager({ supabase, gira }) {
                               }}
                             />
                           </th>
-                          <th className="p-3 w-46">Horario / Fecha</th>
-                          <th className="p-3 w-44">Locación (Destino)</th>
-                          <th className="p-3">Nota</th>
-                          <th className="p-3 w-20 text-center bg-emerald-50/50 text-emerald-600 border-l border-emerald-100">
+                          <th className="p-3" style={{ width: "12%" }}>
+                            Fecha
+                          </th>
+                          <th className="p-3" style={{ width: "10%" }}>
+                            Hora
+                          </th>
+                          <th className="p-3" style={{ width: "20%" }}>
+                            Locación (Destino)
+                          </th>
+                          <th className="p-3" style={{ width: "20%" }}>
+                            Detalle
+                          </th>
+                          <th
+                            className="p-3 text-center bg-emerald-50/50 text-emerald-600 border-l border-emerald-100"
+                            style={{ width: "15%" }}
+                          >
                             Suben
                           </th>
-                          <th className="p-3 w-20 text-center bg-rose-50/50 text-rose-600 border-l border-rose-100">
+                          <th
+                            className="p-3 text-center bg-rose-50/50 text-rose-600 border-l border-rose-100"
+                            style={{ width: "15%" }}
+                          >
                             Bajan
                           </th>
-                          <th className="p-3 w-10"></th>
+                          <th className="p-3 text-right" style={{ width: "5%" }}>
+                            Acciones
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white">
@@ -2127,7 +2176,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           return (
                             <tr
                               key={evt.id}
-                              className="hover:bg-slate-50 group transition-colors"
+                              className={`group transition-colors ${
+                                evt.visible_agenda === false
+                                  ? "bg-slate-100"
+                                  : "hover:bg-slate-50"
+                              }`}
                             >
                               <td className="p-2 text-center align-middle">
                                 <input
@@ -2144,15 +2197,16 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 />
                               </td>
                               <td className="p-2 align-middle">
-                                <div className="flex items-center gap-1">
                                   <DateInput
                                     value={evt.fecha}
                                     onChange={(v) =>
                                       handleUpdateEvent(evt.id, "fecha", v)
                                     }
                                     showDayName={false}
-                                    className={`h-7 w-24 text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "fecha")}`}
+                                  className={`h-7 w-full text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "fecha")}`}
                                   />
+                              </td>
+                              <td className="p-2 align-middle">
                                   <TimeInput
                                     value={evt.hora_inicio}
                                     onChange={(v) =>
@@ -2162,13 +2216,12 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                         v,
                                       )
                                     }
-                                    className={`h-7 w-14 text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "hora_inicio")}`}
+                                    className={`h-7 w-full text-[11px] font-bold text-center border rounded ${getInputClass(evt.id, "hora_inicio")}`}
                                   />
-                                </div>
                               </td>
                               <td
                                 className="p-2 align-middle overflow-hidden"
-                                style={{ width: "176px", maxWidth: "176px" }}
+                                style={{ maxWidth: "100%" }}
                               >
                                 <SearchableSelect
                                   options={locationOptions}
@@ -2180,24 +2233,126 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 />
                               </td>
                               <td className="p-2 align-middle">
-                                <textarea
-                                  value={evt.descripcion || ""}
-                                  onChange={(e) =>
-                                    handleUpdateEvent(
-                                      evt.id,
-                                      "descripcion",
-                                      e.target.value,
-                                    )
-                                  }
-                                  placeholder="Nota..."
-                                  className={`w-full min-h-[32px] h-auto resize-none rounded px-2 py-1.5 text-xs outline-none border ${getInputClass(evt.id, "descripcion")}`}
-                                  rows={1}
-                                  onInput={(e) => {
-                                    e.target.style.height = "auto";
-                                    e.target.style.height =
-                                      e.target.scrollHeight + "px";
-                                  }}
-                                />
+                                <div className="relative">
+                                  {activeDetailEventId === evt.id && (
+                                    <div className="absolute -top-7 left-0 flex gap-1 bg-slate-50 p-0.5 rounded border border-slate-200 shadow-sm z-10">
+                                      <button
+                                        type="button"
+                                        data-detail-id={evt.id}
+                                        onMouseDown={(e) => {
+                                          e.preventDefault();
+                                          const el = document.getElementById(
+                                            `transport-detail-${evt.id}`,
+                                          );
+                                          if (!el) return;
+                                          el.focus();
+                                          document.execCommand(
+                                            "bold",
+                                            false,
+                                            null,
+                                          );
+                                          handleUpdateEvent(
+                                            evt.id,
+                                            "descripcion",
+                                            el.innerHTML,
+                                          );
+                                        }}
+                                        className="w-5 h-5 flex items-center justify-center rounded hover:bg-white text-[10px] font-bold text-slate-700"
+                                        title="Negrita"
+                                      >
+                                        B
+                                      </button>
+                                      <button
+                                        type="button"
+                                        data-detail-id={evt.id}
+                                        onMouseDown={(e) => {
+                                          e.preventDefault();
+                                          const el = document.getElementById(
+                                            `transport-detail-${evt.id}`,
+                                          );
+                                          if (!el) return;
+                                          el.focus();
+                                          document.execCommand(
+                                            "italic",
+                                            false,
+                                            null,
+                                          );
+                                          handleUpdateEvent(
+                                            evt.id,
+                                            "descripcion",
+                                            el.innerHTML,
+                                          );
+                                        }}
+                                        className="w-5 h-5 flex items-center justify-center rounded hover:bg-white text-[10px] italic text-slate-700"
+                                        title="Cursiva"
+                                      >
+                                        I
+                                      </button>
+                                      <button
+                                        type="button"
+                                        data-detail-id={evt.id}
+                                        onMouseDown={(e) => {
+                                          e.preventDefault();
+                                          const el = document.getElementById(
+                                            `transport-detail-${evt.id}`,
+                                          );
+                                          if (!el) return;
+                                          el.focus();
+                                          document.execCommand(
+                                            "underline",
+                                            false,
+                                            null,
+                                          );
+                                          handleUpdateEvent(
+                                            evt.id,
+                                            "descripcion",
+                                            el.innerHTML,
+                                          );
+                                        }}
+                                        className="w-5 h-5 flex items-center justify-center rounded hover:bg-white text-[10px] underline text-slate-700"
+                                        title="Subrayado"
+                                      >
+                                        U
+                                      </button>
+                                    </div>
+                                  )}
+                                  <div
+                                    id={`transport-detail-${evt.id}`}
+                                    contentEditable
+                                    suppressContentEditableWarning={true}
+                                    className={`w-full min-h-[32px] max-h-[120px] overflow-y-auto rounded px-2 py-1.5 text-xs outline-none border bg-white ${getInputClass(evt.id, "descripcion")}`}
+                                    onFocus={() => setActiveDetailEventId(evt.id)}
+                                    onClick={() => setActiveDetailEventId(evt.id)}
+                                    onBlur={(e) => {
+                                      // Cerrar solo si el foco no se va a un botón del toolbar de este mismo detalle
+                                      setTimeout(() => {
+                                        const active = document.activeElement;
+                                        if (
+                                          active &&
+                                          active.dataset &&
+                                          active.dataset.detailId ===
+                                            String(evt.id)
+                                        ) {
+                                          return;
+                                        }
+                                        setActiveDetailEventId((current) =>
+                                          current === evt.id ? null : current,
+                                        );
+                                      }, 0);
+                                    }}
+                                    onInput={(e) => {
+                                      const html = e.currentTarget.innerHTML;
+                                      handleUpdateEvent(
+                                        evt.id,
+                                        "descripcion",
+                                        html,
+                                      );
+                                    }}
+                                    dangerouslySetInnerHTML={{
+                                      __html: evt.descripcion || "",
+                                    }}
+                                  />
+                                </div>
                               </td>
                               <td
                                 className={`p-2 border-l border-emerald-50/50 align-middle ${totalUps > 0 ? "bg-emerald-50/20" : ""}`}
@@ -2264,12 +2419,39 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 </button>
                               </td>
                               <td className="p-2 text-right align-middle">
-                                <button
-                                  onClick={() => handleDeleteEvent(evt.id)}
-                                  className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
-                                >
-                                  <IconTrash size={14} />
-                                </button>
+                                <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                  <button
+                                    onClick={() =>
+                                      handleUpdateEvent(
+                                        evt.id,
+                                        "visible_agenda",
+                                        evt.visible_agenda === false ? true : false,
+                                      )
+                                    }
+                                    className={`text-slate-300 hover:text-slate-600 transition-colors ${
+                                      evt.visible_agenda === false
+                                        ? "text-slate-400"
+                                        : ""
+                                    }`}
+                                    title={
+                                      evt.visible_agenda === false
+                                        ? "Mostrar en agenda"
+                                        : "Ocultar de agenda"
+                                    }
+                                  >
+                                    {evt.visible_agenda === false ? (
+                                      <IconEyeOff size={14} />
+                                    ) : (
+                                      <IconEye size={14} />
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteEvent(evt.id)}
+                                    className="text-slate-300 hover:text-rose-500 transition-colors"
+                                  >
+                                    <IconTrash size={14} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -2281,23 +2463,23 @@ export default function GirasTransportesManager({ supabase, gira }) {
                               <div className="w-4 h-4 mx-auto rounded border-2 border-indigo-300 border-t-transparent animate-spin" />
                             </td>
                             <td className="p-2 align-middle">
-                              <div className="flex items-center gap-1">
                                 <DateInput
                                   value={newEvent.fecha}
                                   onChange={(v) =>
                                     setNewEvent({ ...newEvent, fecha: v })
                                   }
                                   showDayName={false}
-                                  className="h-7 w-24 text-[11px] font-bold text-center border-indigo-300 rounded"
+                                  className="h-7 w-full text-[11px] font-bold text-center border-indigo-300 rounded"
                                 />
+                            </td>
+                            <td className="p-2 align-middle">
                                 <TimeInput
                                   value={newEvent.hora}
                                   onChange={(v) =>
                                     setNewEvent({ ...newEvent, hora: v })
                                   }
-                                  className="h-7 w-14 text-[11px] font-bold text-center border-indigo-300 rounded"
+                                  className="h-7 w-full text-[11px] font-bold text-center border-indigo-300 rounded"
                                 />
-                              </div>
                             </td>
                             <td className="p-2 align-middle">
                               <SearchableSelect
@@ -2324,7 +2506,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                               />
                             </td>
                             <td
-                              colSpan="2"
+                              colSpan="3"
                               className="p-2 align-middle text-center"
                             >
                               <div className="flex gap-1 justify-center">
@@ -2346,7 +2528,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           </tr>
                         ) : (
                           <tr>
-                            <td colSpan="7" className="p-2 bg-slate-50/50">
+                            <td colSpan="8" className="p-2 bg-slate-50/50">
                               <button
                                 onClick={() => {
                                   setEditingEventId(`new-${t.id}`);

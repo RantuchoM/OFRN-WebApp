@@ -55,6 +55,7 @@ export function getAgendaCacheKey(effectiveUserId, giraId) {
  * @param {boolean} opts.isEditor
  * @param {boolean} opts.isManagement
  * @param {object | null} opts.user - para suscripción realtime
+ * @param {boolean} [opts.includeDeletedBeyond24h=false] - si true, incluye todos los eventos con is_deleted, incluso más antiguos de 24h
  */
 export function useAgendaData({
   supabase,
@@ -71,6 +72,7 @@ export function useAgendaData({
   isEditor,
   isManagement,
   user,
+  includeDeletedBeyond24h = false,
 }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -121,6 +123,7 @@ export function useAgendaData({
       isManagement,
       setSelectedCategoryIds,
       setAvailableCategories,
+      includeDeletedBeyond24h,
     ],
   );
 
@@ -208,12 +211,15 @@ export function useAgendaData({
           Date.now() - 24 * 60 * 60 * 1000,
         ).toISOString();
 
-        let query = supabase
-          .from("eventos")
-          .select(EVENT_SELECT)
-          .or(
+        let query = supabase.from("eventos").select(EVENT_SELECT);
+
+        if (!includeDeletedBeyond24h) {
+          query = query.or(
             `is_deleted.eq.false,is_deleted.is.null,and(is_deleted.eq.true,deleted_at.gt.${timestamp24hAgo})`,
-          )
+          );
+        }
+
+        query = query
           .order("fecha", { ascending: true })
           .order("hora_inicio", { ascending: true })
           .abortSignal(signal);
@@ -365,10 +371,30 @@ export function useAgendaData({
 
         const visibleEvents = (eventsData || []).filter((item) => {
           if (!item.fecha) return false;
-          if (item.is_deleted === true && item.deleted_at) {
+
+          // Reglas especiales para eliminados:
+          if (item.is_deleted === true) {
+            // Si no hay timestamp, lo mostramos igualmente (caso borde).
+            if (!item.deleted_at) {
+              // Siempre visible para todos dentro de las 24 h (no sabemos, así que lo mostramos)
+              return includeDeletedBeyond24h || true;
+            }
+
             const deletedAt = new Date(item.deleted_at).getTime();
-            if (deletedAt < Date.now() - 24 * 60 * 60 * 1000) return false;
+            const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+            const isWithin24h = deletedAt >= twentyFourHoursAgo;
+
+            // 1) Todos ven los eliminados dentro de las 24 h, sin importar convocatoria.
+            if (isWithin24h) return true;
+
+            // 2) Solo admins con el filtro activo ven los eliminados más antiguos.
+            if (includeDeletedBeyond24h) return true;
+
+            // 3) Resto: eliminados viejos, ocultos.
+            return false;
           }
+
+          // Resto de eventos (no eliminados) siguen la lógica original de visibilidad.
           if (giraId) return true;
           const isManagementProfile = [
             "admin",

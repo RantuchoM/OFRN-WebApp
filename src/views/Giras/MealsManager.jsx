@@ -192,7 +192,7 @@ const GridLocationSelect = ({
         )}
       </div>
       {isOpen && (
-        <div className="absolute top-full left-0 w-64 bg-white border border-slate-300 shadow-xl rounded-lg z-[9999] mt-1 flex flex-col overflow-hidden">
+        <div className="absolute top-full left-0 w-64 bg-white border border-slate-300 shadow-xl rounded-lg z-[99999] mt-1 flex flex-col overflow-hidden">
           <div className="p-2 bg-slate-50 border-b border-slate-200">
             <input
               autoFocus
@@ -931,7 +931,7 @@ export default function MealsManager({ supabase, gira, roster }) {
                     <td className="px-1">
                       <TimeInput value={row.hora_inicio || ""} onChange={(v) => handleGridChange(idx, "hora_inicio", v)} disabled={isSaving} isDirty={isDirty} />
                     </td>
-                    <td className="px-1 relative z-20">
+                    <td className="px-1 relative">
                       <GridLocationSelect value={row.id_locacion || ""} onChange={(v) => handleGridChange(idx, "id_locacion", v)} options={catalogs.locaciones} disabled={isSaving} isDirty={isDirty} />
                     </td>
                     <td className="px-1">

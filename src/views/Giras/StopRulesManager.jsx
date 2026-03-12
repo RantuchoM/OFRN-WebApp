@@ -11,6 +11,7 @@ import {
 } from "../../components/ui/Icons";
 import { normalize } from "../../hooks/useLogistics";
 import { toast } from "sonner";
+import SearchableSelect from "../../components/ui/SearchableSelect";
 
 // Helpers de Etiquetado
 const getScopeLabel = (scope) => {
@@ -57,7 +58,7 @@ export default function StopRulesManager({
   const [admittedIds, setAdmittedIds] = useState(new Set());
   // Formulario nueva regla
   const [newScope, setNewScope] = useState("General");
-  const [targetId, setTargetId] = useState("");
+  const [targetIds, setTargetIds] = useState([]);
 
   const title = type === "up" ? "Gestionar Subidas" : "Gestionar Bajadas";
   const colorClass = type === "up" ? "text-emerald-700" : "text-rose-700";
@@ -152,15 +153,17 @@ export default function StopRulesManager({
   };
 
   const handleAddRule = async () => {
-    if (newScope !== "General" && !targetId)
-      return alert("Selecciona un valor objetivo.");
+    if (newScope !== "General" && (!targetIds || targetIds.length === 0)) {
+      alert("Seleccioná al menos un objetivo.");
+      return;
+    }
 
     setLoading(true);
     try {
       const fieldToUpdate = type === "up" ? "id_evento_subida" : "id_evento_bajada";
 
-      // Antes de crear una nueva regla de trayecto, verificamos si
-      // ya existe otra subida/bajada para el mismo alcance/objetivo
+      // Antes de crear nuevas reglas de trayecto, verificamos si
+      // ya existen otras subidas/bajadas para el mismo alcance/objetivo
       // en este transporte.
       const { data: existingAll, error: fetchRouteError } = await supabase
         .from("giras_logistica_rutas")
@@ -170,115 +173,124 @@ export default function StopRulesManager({
 
       if (fetchRouteError) throw fetchRouteError;
 
-      const conflict = (existingAll || []).find((r) => {
-        if (r.alcance !== newScope) return false;
+      const selectedIds =
+        newScope === "General" ? [null] : Array.from(new Set(targetIds));
 
-        const sameTarget =
-          newScope === "General"
-            ? true
-            : newScope === "Region"
-              ? String(r.id_region) === String(targetId)
-              : newScope === "Localidad"
-                ? String(r.id_localidad) === String(targetId)
-                : newScope === "Persona"
-                  ? String(r.id_integrante) === String(targetId)
-                  : newScope === "Categoria"
-                    ? (r.target_ids || [])[0] === targetId
-                    : false;
+      let anyChange = false;
 
-        if (!sameTarget) return false;
+      for (const currentId of selectedIds) {
+        const conflict = (existingAll || []).find((r) => {
+          if (r.alcance !== newScope) return false;
 
-        const currentEventId = r[fieldToUpdate];
-        if (!currentEventId) return false;
+          const sameTarget =
+            newScope === "General"
+              ? true
+              : newScope === "Region"
+                ? String(r.id_region) === String(currentId)
+                : newScope === "Localidad"
+                  ? String(r.id_localidad) === String(currentId)
+                  : newScope === "Persona"
+                    ? String(r.id_integrante) === String(currentId)
+                    : newScope === "Categoria"
+                      ? (r.target_ids || [])[0] === currentId
+                      : false;
 
-        // Si ya apunta a este mismo evento, no hacemos nada.
-        if (String(currentEventId) === String(event.id)) return false;
+          if (!sameTarget) return false;
 
-        return true;
-      });
+          const currentEventId = r[fieldToUpdate];
+          if (!currentEventId) return false;
 
-      if (conflict) {
-        const actionLabel = type === "up" ? "subida" : "bajada";
-        const confirmReplace = window.confirm(
-          `Ya existe una ${actionLabel.toUpperCase()} definida para este alcance en otro evento.\n\n` +
-            `¿Querés reemplazarla por esta parada?\n\n` +
-            `Aceptar: reemplazar la ${actionLabel} anterior.\n` +
-            `Cancelar: dejar todo como está.`,
-        );
+          // Si ya apunta a este mismo evento, no hacemos nada.
+          if (String(currentEventId) === String(event.id)) return false;
 
-        if (!confirmReplace) {
-          setLoading(false);
-          return;
+          return true;
+        });
+
+        if (conflict) {
+          const actionLabel = type === "up" ? "subida" : "bajada";
+          const confirmReplace = window.confirm(
+            `Ya existe una ${actionLabel.toUpperCase()} definida para este alcance en otro evento.\n\n` +
+              `¿Querés reemplazarla por esta parada?\n\n` +
+              `Aceptar: reemplazar la ${actionLabel} anterior.\n` +
+              `Cancelar: dejar todo como está para este objetivo.`,
+          );
+
+          if (!confirmReplace) {
+            continue;
+          }
+
+          // Reemplazamos la subida/bajada en la misma regla
+          const { error: updateErr } = await supabase
+            .from("giras_logistica_rutas")
+            .update({ [fieldToUpdate]: event.id })
+            .eq("id", conflict.id);
+
+          if (updateErr) throw updateErr;
+          anyChange = true;
+          continue;
         }
 
-        // Reemplazamos la subida/bajada en la misma regla
-        const { error: updateErr } = await supabase
+        // --- LÓGICA DE AUTO-INCLUSIÓN (por persona) ---
+        if (newScope === "Persona" && currentId) {
+          const idStr = String(currentId);
+          if (!admittedIds.has(idStr)) {
+            const { error: admError } = await supabase
+              .from("giras_logistica_admision") // <--- NOMBRE CORRECTO
+              .insert([
+                {
+                  id_gira: giraId, // Columna correcta: id_gira
+                  id_transporte_fisico: transportId,
+                  id_integrante: currentId, // Columna correcta: id_integrante
+                  alcance: "Persona",
+                  prioridad: 5,
+                  tipo: "INCLUSION",
+                },
+              ]);
+
+            if (admError) {
+              console.error("Error en auto-inclusión:", admError.message);
+            } else {
+              setAdmittedIds((prev) => {
+                const next = new Set(prev);
+                next.add(idStr);
+                return next;
+              });
+            }
+          }
+        }
+
+        // --- LÓGICA DE DEFINICIÓN DE PARADA ---
+        let priority = 1;
+        if (newScope === "Region") priority = 2;
+        if (newScope === "Localidad") priority = 3;
+        if (newScope === "Categoria") priority = 4;
+        if (newScope === "Persona") priority = 5;
+
+        const payload = {
+          id_gira: giraId,
+          id_transporte_fisico: transportId,
+          alcance: newScope,
+          prioridad: priority,
+          id_evento_subida: type === "up" ? event.id : null,
+          id_evento_bajada: type === "down" ? event.id : null,
+          id_region: newScope === "Region" ? currentId : null,
+          id_localidad: newScope === "Localidad" ? currentId : null,
+          id_integrante: newScope === "Persona" ? currentId : null,
+          target_ids: newScope === "Categoria" && currentId ? [currentId] : [],
+        };
+
+        const { error } = await supabase
           .from("giras_logistica_rutas")
-          .update({ [fieldToUpdate]: event.id })
-          .eq("id", conflict.id);
+          .insert([payload]);
+        if (error) throw error;
+        anyChange = true;
+      }
 
-        if (updateErr) throw updateErr;
-
-        setTargetId("");
+      if (anyChange) {
+        setTargetIds([]);
         await fetchRules();
         onRefresh && onRefresh();
-        setLoading(false);
-        return;
       }
-
-      // --- LÓGICA DE AUTO-INCLUSIÓN ---
-      // --- LÓGICA DE AUTO-INCLUSIÓN ---
-      if (newScope === "Persona" && !admittedIds.has(String(targetId))) {
-        // Si la persona no está en el transporte, la incluimos automáticamente
-        const { error: admError } = await supabase
-          .from("giras_logistica_admision") // <--- NOMBRE CORRECTO
-          .insert([
-            {
-              id_gira: giraId, // Columna correcta: id_gira
-              id_transporte_fisico: transportId,
-              id_integrante: targetId, // Columna correcta: id_integrante
-              alcance: "Persona",
-              prioridad: 5,
-              tipo: "INCLUSION",
-            },
-          ]);
-
-        if (admError) {
-          console.error("Error en auto-inclusión:", admError.message);
-          // Opcional: alert("No se pudo incluir al músico en el bus automáticamente");
-        } else {
-          admittedIds.add(String(targetId));
-        }
-      }
-
-      // --- LÓGICA DE DEFINICIÓN DE PARADA (Tu código original) ---
-      let priority = 1;
-      if (newScope === "Region") priority = 2;
-      if (newScope === "Localidad") priority = 3;
-      if (newScope === "Categoria") priority = 4;
-      if (newScope === "Persona") priority = 5;
-
-      const payload = {
-        id_gira: giraId,
-        id_transporte_fisico: transportId,
-        alcance: newScope,
-        prioridad: priority,
-        id_evento_subida: type === "up" ? event.id : null,
-        id_evento_bajada: type === "down" ? event.id : null,
-        id_region: newScope === "Region" ? targetId : null,
-        id_localidad: newScope === "Localidad" ? targetId : null,
-        id_integrante: newScope === "Persona" ? targetId : null,
-        target_ids: newScope === "Categoria" ? [targetId] : [],
-      };
-
-      const { error } = await supabase
-        .from("giras_logistica_rutas")
-        .insert([payload]);
-      if (error) throw error;
-
-      setTargetId("");
-      fetchRules();
-      onRefresh && onRefresh();
     } catch (err) {
       console.error(err);
       alert("Error al procesar la regla.");
@@ -489,6 +501,76 @@ export default function StopRulesManager({
     return groups;
   }, [existingRules, regions, localities, passengers]);
 
+  const regionOptions = useMemo(
+    () =>
+      (regions || []).map((r) => ({
+        id: String(r.id),
+        label: r.region,
+      })),
+    [regions],
+  );
+
+  const localityOptions = useMemo(
+    () =>
+      (localities || []).map((l) => ({
+        id: String(l.id),
+        label: l.localidad,
+      })),
+    [localities],
+  );
+
+  const categoryOptions = useMemo(
+    () => [
+      { id: "SOLISTAS", label: "Solistas" },
+      { id: "DIRECTORES", label: "Directores" },
+      { id: "PRODUCCION", label: "Producción" },
+      { id: "CHOFER", label: "Choferes" },
+      { id: "LOCALES", label: "Locales" },
+      { id: "NO_LOCALES", label: "No Locales" },
+    ],
+    [],
+  );
+
+  const personOptions = useMemo(() => {
+    const list = (passengers || []).slice();
+
+    // En bajadas, primero quienes aún no tienen bajada en este transporte,
+    // luego quienes ya tienen alguna bajada, siempre ordenados por apellido.
+    if (type === "down") {
+      list.sort((a, b) => {
+        const trA = a.logistics?.transports?.find(
+          (t) => String(t.id) === String(transportId),
+        );
+        const trB = b.logistics?.transports?.find(
+          (t) => String(t.id) === String(transportId),
+        );
+        const aHasDrop = Boolean(trA?.bajadaId);
+        const bHasDrop = Boolean(trB?.bajadaId);
+
+        if (aHasDrop !== bHasDrop) {
+          // false (0) primero, true (1) después
+          return Number(aHasDrop) - Number(bHasDrop);
+        }
+
+        return (a.apellido || "").localeCompare(b.apellido || "");
+      });
+    } else {
+      list.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
+    }
+
+    return list.map((p) => ({
+      id: String(p.id),
+      label: `${p.apellido}, ${p.nombre}`,
+      subLabel: admittedIds.has(String(p.id))
+        ? "En este transporte"
+        : "Se incluirá al bus",
+    }));
+  }, [passengers, admittedIds, type, transportId]);
+
+  const hasNewPersonToAutoInclude =
+    newScope === "Persona" &&
+    targetIds.some((id) => !admittedIds.has(String(id)));
+
   if (!isOpen || !event) return null;
 
   return (
@@ -641,10 +723,10 @@ export default function StopRulesManager({
                                         type="button"
                                         onClick={() => {
                                           setNewScope("Localidad");
-                                          setTargetId(
+                                          setTargetIds(
                                             rule.id_localidad
-                                              ? String(rule.id_localidad)
-                                              : "",
+                                              ? [String(rule.id_localidad)]
+                                              : [],
                                           );
                                         }}
                                         className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-full border border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
@@ -703,7 +785,7 @@ export default function StopRulesManager({
                   value={newScope}
                   onChange={(e) => {
                     setNewScope(e.target.value);
-                    setTargetId("");
+                    setTargetIds([]);
                   }}
                 >
                   <option value="General">General</option>
@@ -722,75 +804,46 @@ export default function StopRulesManager({
                     Aplica a todos los pasajeros
                   </div>
                 ) : newScope === "Region" ? (
-                  <select
-                    className="w-full text-xs border rounded p-2"
-                    value={targetId}
-                    onChange={(e) => setTargetId(e.target.value)}
-                  >
-                    <option value="">Seleccionar Región...</option>
-                    {regions.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.region}
-                      </option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    options={regionOptions}
+                    value={targetIds}
+                    onChange={setTargetIds}
+                    placeholder="Seleccionar regiones..."
+                    isMulti
+                  />
                 ) : newScope === "Localidad" ? (
-                  <select
-                    className="w-full text-xs border rounded p-2"
-                    value={targetId}
-                    onChange={(e) => setTargetId(e.target.value)}
-                  >
-                    <option value="">Seleccionar Localidad...</option>
-                    {localities.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.localidad}
-                      </option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    options={localityOptions}
+                    value={targetIds}
+                    onChange={setTargetIds}
+                    placeholder="Seleccionar localidades..."
+                    isMulti
+                  />
                 ) : newScope === "Categoria" ? (
-                  <select
-                    className="w-full text-xs border rounded p-2"
-                    value={targetId}
-                    onChange={(e) => setTargetId(e.target.value)}
-                  >
-                    <option value="">Seleccionar...</option>
-                    <option value="SOLISTAS">Solistas</option>
-                    <option value="DIRECTORES">Directores</option>
-                    <option value="PRODUCCION">Producción</option>
-                    <option value="CHOFER">Choferes</option>
-                    <option value="LOCALES">Locales</option>
-                    <option value="NO_LOCALES">No Locales</option>
-                  </select>
+                  <SearchableSelect
+                    options={categoryOptions}
+                    value={targetIds}
+                    onChange={setTargetIds}
+                    placeholder="Seleccionar categorías..."
+                    isMulti
+                  />
                 ) : (
-                  <select
-                    className={`w-full text-xs border rounded p-2 outline-none focus:ring-2 ${!admittedIds.has(String(targetId)) && targetId ? "border-amber-500 bg-amber-50" : "focus:border-indigo-500"}`}
-                    value={targetId}
-                    onChange={(e) => setTargetId(e.target.value)}
+                  <div
+                    className={`w-full text-xs rounded ${
+                      hasNewPersonToAutoInclude
+                        ? "border border-amber-500 bg-amber-50"
+                        : ""
+                    }`}
                   >
-                    <option value="">Buscar Persona...</option>
-
-                    <optgroup label="EN ESTE TRANSPORTE">
-                      {(passengers || [])
-                        .filter((m) => admittedIds.has(String(m.id)))
-                        .sort((a, b) => a.apellido.localeCompare(b.apellido))
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.apellido}, {p.nombre}
-                          </option>
-                        ))}
-                    </optgroup>
-
-                    <optgroup label="OTROS (SE INCLUIRÁ AL BUS)">
-                      {(passengers || [])
-                        .filter((m) => !admittedIds.has(String(m.id)))
-                        .sort((a, b) => a.apellido.localeCompare(b.apellido))
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            + {p.apellido}, {p.nombre}
-                          </option>
-                        ))}
-                    </optgroup>
-                  </select>
+                    <SearchableSelect
+                      options={personOptions}
+                      value={targetIds}
+                      onChange={setTargetIds}
+                      placeholder="Buscar personas..."
+                      isMulti
+                      className="border-0"
+                    />
+                  </div>
                 )}
               </div>
             </div>
