@@ -217,9 +217,15 @@ const MobileSeatingTable = ({
     alert(`${obra.composer}\n\n${obra.title.replace(/<[^>]*>?/gm, "")}`);
   };
 
-  const windsAndPerc = filteredRoster.filter(
-    (m) => !["01", "02", "03", "04"].includes(m.id_instr),
-  );
+  const windsAndPerc = filteredRoster.filter((m) => {
+    const idInstr = String(m.id_instr || "");
+    const role = (m.rol_gira || "").toLowerCase();
+    const esCuerda = ["01", "02", "03", "04"].includes(idInstr);
+    const esSolista = role.includes("solista");
+    // Solistas de cuerdas también aparecen en la tabla móvil
+    if (esCuerda && esSolista) return true;
+    return !esCuerda;
+  });
 
   return (
     <div className="relative w-full border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm flex flex-col h-full">
@@ -383,7 +389,7 @@ const MobileSeatingTable = ({
                   className="sticky left-0 bg-slate-200 z-20 p-1.5 pl-2 text-[9px] font-bold text-slate-600 border-r border-slate-300 uppercase tracking-wider"
                   colSpan={obras.length + 1}
                 >
-                  Vientos y Percusión
+                  Vientos, Percusión y Solistas
                 </td>
               </tr>
             )}
@@ -1383,6 +1389,16 @@ export default function ProgramSeating({
     }
   };
 
+  // Mapa rápido de rol por músico (para distinguir solistas)
+  const roleByMusicianId = useMemo(() => {
+    const map = {};
+    (filteredRoster || []).forEach((m) => {
+      const sid = String(m.id);
+      map[sid] = m.rol_gira || "";
+    });
+    return map;
+  }, [filteredRoster]);
+
   // --- MODALS & UPDATES ---
   const openCreateModal = (obraId, defaultInstrId, targetType, targetId) => {
     setCreateModalInfo({ obraId, targetType, targetId, defaultInstrId });
@@ -1510,29 +1526,58 @@ export default function ProgramSeating({
     }
   };
 
-  const otherMusicians = filteredRoster.filter((m) => !isString(m.id_instr));
+  const otherMusicians = filteredRoster.filter((m) => {
+    const idInstr = String(m.id_instr || "");
+    const role = (m.rol_gira || "").toLowerCase();
+    const esCuerda = isString(idInstr);
+    const esSolista = role.includes("solista");
+    // Excepción: solistas de cuerdas también entran en la lista individual
+    if (esCuerda && esSolista) return true;
+    return !esCuerda;
+  });
 
   // Músicos sin ninguna partitura asignada en el programa (solo aplicable en modo edición)
   const musiciansWithoutParts = useMemo(() => {
     const without = new Set();
     const allMusicians = [];
+    const seen = new Set();
+
+    // Primero, todos los músicos que están en contenedores (cuerdas)
     containers.forEach((c) =>
-      c.items.forEach((item) =>
-        allMusicians.push({ id: item.id_musico, container: c }),
-      ),
+      c.items.forEach((item) => {
+        const sid = String(item.id_musico);
+        if (!seen.has(sid)) {
+          seen.add(sid);
+          allMusicians.push({ id: item.id_musico, container: c });
+        }
+      }),
     );
-    otherMusicians.forEach((m) => allMusicians.push({ id: m.id, container: null }));
+
+    // Luego, músicos que solo existen fuera de contenedores (winds / percusión / solistas fuera de cuerdas)
+    otherMusicians.forEach((m) => {
+      const sid = String(m.id);
+      if (!seen.has(sid)) {
+        seen.add(sid);
+        allMusicians.push({ id: m.id, container: null });
+      }
+    });
 
     allMusicians.forEach(({ id, container }) => {
       const sid = String(id);
+      const role = (roleByMusicianId[sid] || "").toLowerCase();
+      const isSolista = role.includes("solista");
       let hasAnyPart = false;
+
       for (const obra of obras) {
         const individualKey = `M-${id}-${obra.obra_id}`;
         if (assignments[individualKey]) {
           hasAnyPart = true;
           break;
         }
-        if (container) {
+        // Para músicos en contenedor, solo contamos la asignación grupal
+        // como "tiene partitura" si NO es solista. Un solista debe tener
+        // al menos una asignación individual M-{id}-{obra}.
+        if (container && !isSolista) {
           const containerKey = `C-${container.id}-${obra.obra_id}`;
           if (assignments[containerKey]) {
             hasAnyPart = true;
@@ -1540,6 +1585,7 @@ export default function ProgramSeating({
           }
         }
       }
+
       if (!hasAnyPart) without.add(sid);
     });
     return without;
@@ -1815,9 +1861,14 @@ export default function ProgramSeating({
                       (i) => i.id_musico === user.id,
                     );
                     const myStandText = isMyContainer ? "Tu lugar" : null;
-                    const hasNoParts = c.items.some((i) =>
-                      musiciansWithoutParts.has(String(i.id_musico)),
-                    );
+                    // Para marcar el contenedor en naranja, solo consideramos
+                    // integrantes no solistas que realmente no tienen ninguna partitura.
+                    const hasNoParts = c.items.some((i) => {
+                      const sid = String(i.id_musico);
+                      const role = (roleByMusicianId[sid] || "").toLowerCase();
+                      if (role.includes("solista")) return false;
+                      return musiciansWithoutParts.has(sid);
+                    });
                     const hasContainerSuggestions =
                       isEditor &&
                       obras.some((obra) => {
@@ -1994,7 +2045,7 @@ export default function ProgramSeating({
                       colSpan={obras.length + 1}
                       className="p-1 px-4 text-[10px] font-bold text-slate-600 uppercase"
                     >
-                      Vientos y Percusión
+                      Vientos, Percusión y Solistas
                     </td>
                   </tr>
                   {otherMusicians.map((m) => {

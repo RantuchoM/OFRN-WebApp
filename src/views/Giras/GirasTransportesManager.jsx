@@ -2324,6 +2324,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     onFocus={() => setActiveDetailEventId(evt.id)}
                                     onClick={() => setActiveDetailEventId(evt.id)}
                                     onBlur={(e) => {
+                                      const html = e.currentTarget.innerHTML;
                                       // Cerrar solo si el foco no se va a un botón del toolbar de este mismo detalle
                                       setTimeout(() => {
                                         const active = document.activeElement;
@@ -2338,15 +2339,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                         setActiveDetailEventId((current) =>
                                           current === evt.id ? null : current,
                                         );
+                                        // Guardar solo si hubo cambios reales
+                                        if ((evt.descripcion || "") !== html) {
+                                          handleUpdateEvent(
+                                            evt.id,
+                                            "descripcion",
+                                            html,
+                                          );
+                                        }
                                       }, 0);
-                                    }}
-                                    onInput={(e) => {
-                                      const html = e.currentTarget.innerHTML;
-                                      handleUpdateEvent(
-                                        evt.id,
-                                        "descripcion",
-                                        html,
-                                      );
                                     }}
                                     dangerouslySetInnerHTML={{
                                       __html: evt.descripcion || "",

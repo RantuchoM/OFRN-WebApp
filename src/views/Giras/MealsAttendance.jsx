@@ -147,6 +147,7 @@ export default function MealsAttendance({
         .from("eventos")
         .select(`*, tipos_evento (nombre, id_categoria)`)
         .eq("id_gira", gira.id)
+        .eq("is_deleted", false)
         .order("fecha", { ascending: true })
         .order("hora_inicio", { ascending: true });
 

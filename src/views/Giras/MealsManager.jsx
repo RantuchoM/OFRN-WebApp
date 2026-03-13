@@ -462,6 +462,7 @@ export default function MealsManager({ supabase, gira, roster }) {
       .from("eventos")
       .select("*")
       .eq("id_gira", gira.id)
+      .eq("is_deleted", false)
       .in("id_tipo_evento", [7, 8, 9, 10]);
     const { data: rules } = await supabase
       .from("giras_logistica_reglas")

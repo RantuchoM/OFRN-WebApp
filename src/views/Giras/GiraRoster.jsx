@@ -127,7 +127,6 @@ export default function GiraRoster({
   const [localRoster, setLocalRoster] = useState([]);
   const [loadingAction, setLoadingAction] = useState(false);
 
-  const notificacionInicialEnviada = gira?.notificacion_inicial_enviada === true;
   const [sendingInitial, setSendingInitial] = useState(false);
   const [pendingNotifications, setPendingNotifications] = useState([]);
   const [notificacionesHabilitadas, setNotificacionesHabilitadas] = useState(
@@ -653,7 +652,7 @@ export default function GiraRoster({
 
     // Encolar notificación ALTA también para altas individuales detalladas
     if (
-      notificacionInicialEnviada &&
+      localNotificacionInicialEnviada &&
       notificacionesHabilitadas &&
       newMusician.mail
     ) {
@@ -728,7 +727,7 @@ export default function GiraRoster({
   const toggleStatus = async (musician) => {
     const newStatus =
       musician.estado_gira === "confirmado" ? "ausente" : "confirmado";
-    if (notificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
+    if (localNotificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
       const variant = newStatus === "ausente" ? "AUSENTE" : "ALTA";
       const nombreCompleto = musician.nombre_completo || `${musician.nombre || ""} ${musician.apellido || ""}`.trim();
       const reason = newStatus === "ausente" ? "Se te marcó como ausente" : undefined;
@@ -798,7 +797,7 @@ export default function GiraRoster({
       await supabase.from("giras_fuentes").insert(inserts);
     setAddMode(null);
     const newRoster = await refreshRoster();
-    if (notificacionInicialEnviada && notificacionesHabilitadas && Array.isArray(newRoster)) {
+    if (localNotificacionInicialEnviada && notificacionesHabilitadas && Array.isArray(newRoster)) {
       const newIds = new Set(newRoster.map((m) => m.id));
       const added = newRoster.filter(
         (m) =>
@@ -878,7 +877,7 @@ export default function GiraRoster({
     refreshRoster();
   };
 
-  const addManualMusician = async (musicianId, musicianData) => {
+  const addManualMusician = async (musicianId, musicianData, sendNotification = true) => {
     const { error } = await supabase.from("giras_integrantes").insert({
       id_gira: gira.id,
       id_integrante: musicianId,
@@ -886,7 +885,12 @@ export default function GiraRoster({
       rol: "musico",
     });
     if (!error) {
-      if (notificacionInicialEnviada && notificacionesHabilitadas && musicianData?.mail) {
+      if (
+        sendNotification &&
+        localNotificacionInicialEnviada &&
+        notificacionesHabilitadas &&
+        musicianData?.mail
+      ) {
         const nombreCompleto =
           musicianData.nombre_completo ||
           `${musicianData.apellido || ""}, ${musicianData.nombre || ""}`.trim();
@@ -910,7 +914,7 @@ export default function GiraRoster({
   const removeMemberManual = async (id) => {
     if (!confirm("¿Eliminar registro manual?")) return;
     const member = localRoster.find((m) => m.id === id);
-    if (notificacionInicialEnviada && notificacionesHabilitadas && member?.mail) {
+    if (localNotificacionInicialEnviada && notificacionesHabilitadas && member?.mail) {
       setPendingNotifications((prev) => [
         ...prev,
         {
@@ -962,7 +966,7 @@ export default function GiraRoster({
         },
         { onConflict: "id_gira, id_integrante" },
       );
-      if (notificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
+      if (localNotificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
         const nombreCompleto = musician.nombre_completo || `${musician.nombre || ""} ${musician.apellido || ""}`.trim();
         setPendingNotifications((prev) => [
           ...prev,
@@ -976,7 +980,7 @@ export default function GiraRoster({
         ]);
       }
     } else {
-      if (notificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
+      if (localNotificacionInicialEnviada && notificacionesHabilitadas && musician.mail) {
         setPendingNotifications((prev) => [
           ...prev,
           {
@@ -1272,7 +1276,7 @@ export default function GiraRoster({
       !musicianInfo ||
       !musicianInfo.id ||
       !musicianInfo.mail ||
-      !notificacionInicialEnviada ||
+      !localNotificacionInicialEnviada ||
       !notificacionesHabilitadas
     )
       return;
@@ -1316,21 +1320,63 @@ export default function GiraRoster({
     const idInt =
       typeof payload === "object" && payload.id ? payload.id : payload;
     if (!idInt) return;
+
     const already = localRoster.some((m) => m.id === idInt);
     if (already) {
       scrollToIntegranteInTable(idInt);
       return;
     }
-    // Información mínima para notificaciones (sin mail conocido aquí)
-    const label =
-      typeof payload === "object" && payload.label ? payload.label : "";
-    const [apellido, nombre] = label.split(",").map((p) => p.trim());
-    await addManualMusician(idInt, {
+
+    // Traer datos completos (incluyendo mail) para poder encolar notificación
+    let musicianData = {
       id: idInt,
-      apellido: apellido || "",
-      nombre: nombre || "",
+      apellido: "",
+      nombre: "",
       mail: null,
-    });
+    };
+
+    try {
+      const { data, error } = await supabase
+        .from("integrantes")
+        .select("*")
+        .eq("id", idInt)
+        .maybeSingle();
+
+      if (!error && data) {
+        musicianData = {
+          id: data.id,
+          apellido: data.apellido || "",
+          nombre: data.nombre || "",
+          mail: data.mail || null,
+          nombre_completo:
+            data.nombre_completo ||
+            `${data.apellido || ""}, ${data.nombre || ""}`.trim(),
+        };
+      } else {
+        const label =
+          typeof payload === "object" && payload.label ? payload.label : "";
+        const [apellido, nombre] = label.split(",").map((p) => p.trim());
+        musicianData = {
+          id: idInt,
+          apellido: apellido || "",
+          nombre: nombre || "",
+          mail: null,
+        };
+      }
+    } catch {
+      const label =
+        typeof payload === "object" && payload.label ? payload.label : "";
+      const [apellido, nombre] = label.split(",").map((p) => p.trim());
+      musicianData = {
+        id: idInt,
+        apellido: apellido || "",
+        nombre: nombre || "",
+        mail: null,
+      };
+    }
+
+    // Alta directa usando los datos completos del integrante
+    await addManualMusician(idInt, musicianData);
   };
 
   // --- OBTENER ESTILOS DE FILA (MODIFICADO PARA DB ROLES) ---
@@ -2208,7 +2254,7 @@ export default function GiraRoster({
         onAssigned={handleVacancyAssigned}
       />
 
-      {notificacionInicialEnviada && (
+      {localNotificacionInicialEnviada && (
         <NotificationQueuePanel
           ref={notificationQueueRef}
           pendingTasks={pendingNotifications}

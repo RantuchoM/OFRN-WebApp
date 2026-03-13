@@ -288,12 +288,13 @@ export function useLogistics(supabase, gira, trigger = 0) {
             .select("id_localidad")
             .eq("id_gira", giraId)
             .not("fecha_ultima_exportacion", "is", null),
-          supabase
-            .from("eventos")
-            .select(
-              `*, locaciones(*, localidades(*)), tipos_evento(id, nombre, id_categoria)`,
-            )
-            .eq("id_gira", giraId),
+      supabase
+        .from("eventos")
+        .select(
+          `*, locaciones(*, localidades(*)), tipos_evento(id, nombre, id_categoria)`,
+        )
+        .eq("id_gira", giraId)
+        .eq("is_deleted", false),
           supabase
             .from("programas_hospedajes")
             .select("id")

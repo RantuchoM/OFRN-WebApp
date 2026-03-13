@@ -113,6 +113,7 @@ export const getEventsByGira = async (supabase, giraId) => {
       .from("eventos")
       .select(EVENT_FOR_TRANSPOSE_SELECT)
       .eq("id_gira", giraId)
+      .eq("is_deleted", false)
       .order("fecha", { ascending: true })
       .order("hora_inicio", { ascending: true });
 

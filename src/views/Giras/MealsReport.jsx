@@ -51,6 +51,7 @@ export default function MealsReport({
           "*, tipos_evento(nombre), locaciones(nombre, localidades(localidad)), convocados",
         )
         .eq("id_gira", gira.id)
+        .eq("is_deleted", false)
         .in("id_tipo_evento", [7, 8, 9, 10])
         .order("fecha", { ascending: true })
         .order("hora_inicio", { ascending: true });

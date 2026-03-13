@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from "react";
 import { IconMail, IconLoader, IconClock, IconX, IconSend, IconTrash } from "../ui/Icons";
 
-const FLUSH_DELAY_MS = 15000;
+const FLUSH_DELAY_MS = 6000;
 
 const VARIANT_LABELS = { ALTA: "Alta", BAJA: "Baja", AUSENTE: "Ausente" };
 

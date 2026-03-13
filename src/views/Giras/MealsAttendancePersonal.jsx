@@ -103,6 +103,7 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
           "*, locaciones(nombre,localidades(localidad)), tipos_evento(nombre)",
         )
         .eq("id_gira", gira.id)
+        .eq("is_deleted", false)
         .in("id_tipo_evento", [7, 8, 9, 10]) // Desayuno, Almuerzo, Merienda, Cena
         .order("fecha", { ascending: true })
         .order("hora_inicio", { ascending: true });
