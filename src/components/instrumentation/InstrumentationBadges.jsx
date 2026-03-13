@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { IconUsers } from "../ui/Icons";
+import { IconUsers, IconCheckCircle, IconInfo } from "../ui/Icons";
 import { getInstrumentValue } from "../../utils/instrumentation";
 import InstrumentationSummaryModal from "../seating/InstrumentationSummaryModal";
 
@@ -268,7 +268,7 @@ function formatInstrumentationStandard(map) {
     .replace("0.0.0.0 - 0.0.0.0", "");
 }
 
-function renderInstrumentationStandardDiff(map, otherMap) {
+function renderInstrumentationStandardDiff(map, otherMap, validatedAdaptation = false) {
   const fl = map.Fl || 0;
   const ob = map.Ob || 0;
   const cl = map.Cl || 0;
@@ -298,13 +298,15 @@ function renderInstrumentationStandardDiff(map, otherMap) {
     return thisNorm > otherNorm;
   };
 
+  const highlightClass = validatedAdaptation
+    ? "bg-sky-200 text-sky-800 font-extrabold"
+    : "bg-orange-200 text-black font-extrabold";
+
   const tokenNumber = (value, key) => {
     const highlight = shouldHighlight(key);
     const base =
       "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-    const diffClass = highlight
-      ? "bg-orange-200 text-black font-extrabold"
-      : "text-slate-700";
+    const diffClass = highlight ? highlightClass : "text-slate-700";
     return (
       <span key={key} className={`${base} ${diffClass}`}>
         {value}.
@@ -344,9 +346,7 @@ function renderInstrumentationStandardDiff(map, otherMap) {
     const highlight = shouldHighlight(percKey);
     const base =
       "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-    const diffClass = highlight
-      ? "bg-orange-200 text-black font-extrabold"
-      : "text-slate-700";
+    const diffClass = highlight ? highlightClass : "text-slate-700";
     parts.push(
       <span key="PercTotal" className={`${base} ${diffClass}`}>
         {percLabel}
@@ -362,9 +362,7 @@ function renderInstrumentationStandardDiff(map, otherMap) {
     const highlight = shouldHighlight("Har");
     const base =
       "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-    const diffClass = highlight
-      ? "bg-orange-200 text-black font-extrabold"
-      : "text-slate-700";
+    const diffClass = highlight ? highlightClass : "text-slate-700";
     parts.push(
       <span key="Har" className={`${base} ${diffClass}`}>
         {label}
@@ -377,9 +375,7 @@ function renderInstrumentationStandardDiff(map, otherMap) {
     const highlight = shouldHighlight("Pno");
     const base =
       "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-    const diffClass = highlight
-      ? "bg-orange-200 text-black font-extrabold"
-      : "text-slate-700";
+    const diffClass = highlight ? highlightClass : "text-slate-700";
     parts.push(
       <span key="Key" className={`${base} ${diffClass}`}>
         Key
@@ -392,9 +388,7 @@ function renderInstrumentationStandardDiff(map, otherMap) {
     const highlight = shouldHighlight("Str");
     const base =
       "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-    const diffClass = highlight
-      ? "bg-orange-200 text-black font-extrabold"
-      : "text-slate-700";
+    const diffClass = highlight ? highlightClass : "text-slate-700";
     parts.push(
       <span key="Str" className={`${base} ${diffClass}`}>
         Str
@@ -409,6 +403,11 @@ export default function InstrumentationBadges({
   works = [],
   roster = [],
   className = "",
+  organicoRevisado = false,
+  organicoComentario = null,
+  programId = null,
+  supabase = null,
+  onOrganicoSave = null,
 }) {
   const [showModal, setShowModal] = useState(false);
 
@@ -433,6 +432,20 @@ export default function InstrumentationBadges({
     [required, convoked],
   );
 
+  const hasVacancies = useMemo(
+    () => (roster || []).some((r) => !!r.es_simulacion),
+    [roster],
+  );
+
+  const badgeBaseClass =
+    organicoRevisado
+      ? "bg-sky-100 text-sky-700 border-sky-300 hover:bg-sky-200"
+      : mismatch
+        ? "bg-orange-100 text-orange-700 border-orange-300 hover:bg-orange-200"
+        : hasVacancies
+          ? "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200"
+          : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100";
+
   if (!normalizedWorks || normalizedWorks.length === 0) return null;
 
   return (
@@ -440,25 +453,40 @@ export default function InstrumentationBadges({
       <div
         className={`flex flex-wrap items-center gap-1 ${className}`.trim()}
       >
+        {organicoRevisado && (
+          <IconCheckCircle
+            size={14}
+            className="text-sky-600 shrink-0"
+            title="Adaptación validada"
+          />
+        )}
+        {organicoComentario && (
+          <span
+            className="text-blue-600 cursor-help shrink-0"
+            title={organicoComentario}
+          >
+            <IconInfo size={14} />
+          </span>
+        )}
         <button
           type="button"
           onClick={() => setShowModal(true)}
-          className="px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate flex items-center gap-1 bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
+          className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate flex items-center gap-1 ${badgeBaseClass}`}
           title={formatInstrumentationStandard(convoked)}
         >
           <IconUsers size={12} className="opacity-70" />
           <span className="mr-1">Conv:</span>
-          {renderInstrumentationStandardDiff(convoked, required)}
+          {renderInstrumentationStandardDiff(convoked, required, organicoRevisado)}
         </button>
         <button
           type="button"
           onClick={() => setShowModal(true)}
-          className="px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate flex items-center gap-1 bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
+          className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate flex items-center gap-1 ${badgeBaseClass}`}
           title={formatInstrumentationStandard(required)}
         >
           <IconUsers size={12} className="opacity-70" />
           <span className="mr-1">Req:</span>
-          {renderInstrumentationStandardDiff(required, convoked)}
+          {renderInstrumentationStandardDiff(required, convoked, organicoRevisado)}
         </button>
       </div>
 
@@ -469,6 +497,11 @@ export default function InstrumentationBadges({
           works={normalizedWorks}
           required={required}
           convoked={convoked}
+          programId={programId}
+          supabase={supabase}
+          organicoRevisado={organicoRevisado}
+          organicoComentario={organicoComentario}
+          onOrganicoSave={onOrganicoSave}
         />
       )}
     </>

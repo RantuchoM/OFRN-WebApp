@@ -109,6 +109,7 @@ export default function GiraRoster({
   onBack,
   isEditor = true,
   onNotificacionInicialSent,
+  onRefreshGira = null,
 }) {
   const { user } = useAuth();
   const {
@@ -1534,6 +1535,11 @@ export default function GiraRoster({
                 <InstrumentationBadges
                   works={instrumentationWorks}
                   roster={rawRoster}
+                  organicoRevisado={!!gira?.organico_revisado}
+                  organicoComentario={gira?.organico_comentario ?? null}
+                  programId={gira?.id}
+                  supabase={supabase}
+                  onOrganicoSave={onRefreshGira}
                   className="hidden md:flex flex-wrap items-center gap-1 ml-2"
                 />
               )}

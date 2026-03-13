@@ -22,6 +22,7 @@ import {
   IconTrash,
   IconDownload,
   IconBulb,
+  IconInfo,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
@@ -545,6 +546,7 @@ export default function ProgramSeating({
   program,
   onBack,
   repertoireBlocks = [],
+  onRefreshGira = null,
 }) {
   const { isEditor, user } = useAuth();
   const { roster: rawRoster, loading: rosterLoading } = useGiraRoster(
@@ -984,6 +986,11 @@ export default function ProgramSeating({
     });
   }, [instrumentationRequired, instrumentationConvoked]);
 
+  const hasVacancies = useMemo(
+    () => (rawRoster || []).some((r) => !!r.es_simulacion),
+    [rawRoster],
+  );
+
   const formatInstrumentationStandard = (map) => {
     const fl = map.Fl || 0;
     const ob = map.Ob || 0;
@@ -1031,7 +1038,7 @@ export default function ProgramSeating({
       .replace("0.0.0.0 - 0.0.0.0", "");
   };
 
-  const renderInstrumentationStandardDiff = (map, otherMap) => {
+  const renderInstrumentationStandardDiff = (map, otherMap, validatedAdaptation = false) => {
     const fl = map.Fl || 0;
     const ob = map.Ob || 0;
     const cl = map.Cl || 0;
@@ -1063,13 +1070,15 @@ export default function ProgramSeating({
       );
     };
 
+    const highlightClass = validatedAdaptation
+      ? "bg-sky-200 text-sky-800 font-extrabold"
+      : "bg-orange-200 text-black font-extrabold";
+
     const tokenNumber = (value, key) => {
       const diff = isDiff(key);
       const base =
         "inline-flex items-center justify-center rounded-sm px-0.5 py-0 text-[9px] leading-none";
-      const diffClass = diff
-        ? "bg-orange-200 text-black font-extrabold"
-        : "text-slate-700";
+      const diffClass = diff ? highlightClass : "text-slate-700";
       return (
         <span key={key} className={`${base} ${diffClass}`}>
           {value}.
@@ -1110,9 +1119,7 @@ export default function ProgramSeating({
       const diff = isPercTotalDiff;
       const base =
         "inline-flex items-center justify-center rounded px-0.5 text-[9px] leading-none";
-      const diffClass = diff
-        ? "bg-orange-200 text-black font-extrabold"
-        : "text-slate-700";
+      const diffClass = diff ? highlightClass : "text-slate-700";
       parts.push(
         <span key="perc" className={`${base} ${diffClass}`}>
           {percStr}
@@ -1127,9 +1134,7 @@ export default function ProgramSeating({
       const diff = isDiff("Har");
       const base =
         "inline-flex items-center justify-center rounded px-0.5 text-[9px] leading-none";
-      const diffClass = diff
-        ? "bg-orange-200 text-black font-extrabold"
-        : "text-slate-700";
+      const diffClass = diff ? highlightClass : "text-slate-700";
       parts.push(
         <span key="harp" className={`${base} ${diffClass}`}>
           {hpText}
@@ -1143,9 +1148,7 @@ export default function ProgramSeating({
       const diff = isDiff("Pno");
       const base =
         "inline-flex items-center justify-center rounded px-0.5 text-[9px] leading-none";
-      const diffClass = diff
-        ? "bg-orange-200 text-black font-extrabold"
-        : "text-slate-700";
+      const diffClass = diff ? highlightClass : "text-slate-700";
       parts.push(
         <span key="key" className={`${base} ${diffClass}`}>
           Key
@@ -1159,9 +1162,7 @@ export default function ProgramSeating({
       const diff = isDiff("Str");
       const base =
         "inline-flex items-center justify-center rounded px-0.5 text-[10px]";
-      const diffClass = diff
-        ? "bg-orange-400 text-black font-semibold"
-        : "text-slate-700";
+      const diffClass = diff ? highlightClass : "text-slate-700";
       parts.push(
         <span key="str" className={`${base} ${diffClass}`}>
           Str
@@ -1637,6 +1638,11 @@ export default function ProgramSeating({
             works={obrasWithInstrumentation}
             required={instrumentationRequired}
             convoked={instrumentationConvoked}
+            programId={program?.id}
+            supabase={supabase}
+            organicoRevisado={!!program?.organico_revisado}
+            organicoComentario={program?.organico_comentario ?? null}
+            onOrganicoSave={onRefreshGira}
           />
         )}
       </Suspense>
@@ -1645,34 +1651,56 @@ export default function ProgramSeating({
         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
           <IconUsers className="text-indigo-600" />
           <span>Seating & Particellas</span>
-          {canSeeInstrumentationBadges && obras.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1 ml-3">
-              <button
-                type="button"
-                onClick={() => setShowInstrumentationModal(true)}
-                className="px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
-                title={formatInstrumentationStandard(instrumentationRequired)}
-              >
-                <span className="mr-1">Req:</span>
-                {renderInstrumentationStandardDiff(
-                  instrumentationRequired,
-                  instrumentationConvoked,
+          {canSeeInstrumentationBadges && obras.length > 0 && (() => {
+            const organicoRevisado = !!program?.organico_revisado;
+            const organicoComentario = program?.organico_comentario ?? null;
+            const badgeBaseClass =
+              organicoRevisado
+                ? "bg-sky-100 text-sky-700 border-sky-300 hover:bg-sky-200"
+                : hasInstrumentationMismatch
+                  ? "bg-orange-100 text-orange-700 border-orange-300 hover:bg-orange-200"
+                  : hasVacancies
+                    ? "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200"
+                    : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100";
+            return (
+              <div className="flex flex-wrap items-center gap-1 ml-3">
+                {organicoRevisado && (
+                  <IconCheckCircle size={14} className="text-sky-600 shrink-0" title="Adaptación validada" />
                 )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowInstrumentationModal(true)}
-                className="px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
-                title={formatInstrumentationStandard(instrumentationConvoked)}
-              >
-                <span className="mr-1">Conv:</span>
-                {renderInstrumentationStandardDiff(
-                  instrumentationConvoked,
-                  instrumentationRequired,
+                {organicoComentario && (
+                  <span className="text-sky-600 cursor-help shrink-0" title={organicoComentario}>
+                    <IconInfo size={14} />
+                  </span>
                 )}
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={() => setShowInstrumentationModal(true)}
+                  className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate ${badgeBaseClass}`}
+                  title={formatInstrumentationStandard(instrumentationRequired)}
+                >
+                  <span className="mr-1">Req:</span>
+                  {renderInstrumentationStandardDiff(
+                    instrumentationRequired,
+                    instrumentationConvoked,
+                    organicoRevisado,
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowInstrumentationModal(true)}
+                  className={`px-2 py-0 rounded-full text-[10px] font-semibold border transition-colors max-w-[260px] truncate ${badgeBaseClass}`}
+                  title={formatInstrumentationStandard(instrumentationConvoked)}
+                >
+                  <span className="mr-1">Conv:</span>
+                  {renderInstrumentationStandardDiff(
+                    instrumentationConvoked,
+                    instrumentationRequired,
+                    organicoRevisado,
+                  )}
+                </button>
+              </div>
+            );
+          })()}
         </h2>
         <div className="flex gap-2">
           <button

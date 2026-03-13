@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { IconX } from "../ui/Icons";
 import { getInstrumentValue } from "../../utils/instrumentation";
@@ -19,16 +19,83 @@ const INSTRUMENT_COLUMNS = [
   { id: "Str", label: "Cuerdas", key: "str" },
 ];
 
+const SAVE_DEBOUNCE_MS = 500;
+
 export default function InstrumentationSummaryModal({
   isOpen,
   onClose,
   works = [],
   required = {},
   convoked = {},
+  programId = null,
+  supabase = null,
+  organicoRevisado: initialOrganicoRevisado = false,
+  organicoComentario: initialOrganicoComentario = null,
+  onOrganicoSave = null,
 }) {
+  const [organicoRevisado, setOrganicoRevisado] = useState(initialOrganicoRevisado);
+  const [organicoComentario, setOrganicoComentario] = useState(initialOrganicoComentario ?? "");
+  const saveTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setOrganicoRevisado(initialOrganicoRevisado);
+    setOrganicoComentario(initialOrganicoComentario ?? "");
+  }, [isOpen, initialOrganicoRevisado, initialOrganicoComentario]);
+
+  const persistOrganico = useCallback(
+    (payload) => {
+      if (!programId || !supabase) return;
+      supabase
+        .from("programas")
+        .update(payload)
+        .eq("id", programId)
+        .then(() => {
+          onOrganicoSave?.(payload);
+        })
+        .catch((e) => console.error("Error guardando validación de orgánico:", e));
+    },
+    [programId, supabase, onOrganicoSave],
+  );
+
+  const scheduleSave = useCallback(
+    (nextRevisado, nextComentario) => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = setTimeout(() => {
+        saveTimeoutRef.current = null;
+        persistOrganico({
+          organico_revisado: !!nextRevisado,
+          organico_comentario: (nextComentario && nextComentario.trim()) || null,
+        });
+      }, SAVE_DEBOUNCE_MS);
+    },
+    [persistOrganico],
+  );
+
+  const handleRevisadoChange = (e) => {
+    const v = e.target.checked;
+    setOrganicoRevisado(v);
+    scheduleSave(v, organicoComentario);
+  };
+
+  const handleComentarioChange = (e) => {
+    const v = e.target.value;
+    setOrganicoComentario(v);
+    scheduleSave(organicoRevisado, v);
+  };
+
+  useEffect(
+    () => () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    },
+    [],
+  );
+
   if (!isOpen) return null;
 
   if (typeof document === "undefined") return null;
+
+  const showValidationSection = programId && supabase;
 
   const observationsByWorkId = useMemo(() => {
     const map = {};
@@ -205,6 +272,36 @@ export default function InstrumentationSummaryModal({
             <IconX size={16} />
           </button>
         </div>
+
+        {showValidationSection && (
+          <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/70">
+            <div className="text-[10px] font-bold uppercase text-slate-500 mb-2">
+              Validación de Orgánico
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!organicoRevisado}
+                  onChange={handleRevisadoChange}
+                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                />
+                <span className="text-xs font-medium text-slate-700">
+                  Orgánico revisado (adaptación validada)
+                </span>
+              </label>
+              <div className="flex-1 min-w-0">
+                <textarea
+                  placeholder="Comentario sobre adaptaciones artísticas (opcional)"
+                  value={organicoComentario}
+                  onChange={handleComentarioChange}
+                  className="w-full text-xs border border-slate-300 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 bg-white"
+                  rows={2}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-auto p-3">
           <div className="border border-slate-200 rounded-lg overflow-auto bg-white">

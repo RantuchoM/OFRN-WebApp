@@ -1,12 +1,21 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   IconLoader,
   IconAlertTriangle,
   IconChevronDown,
+  IconUsers,
+  IconPencil,
+  IconFolder,
+  IconX,
+  IconCheckCircle,
+  IconInfo,
 } from "../../components/ui/Icons";
 import { getInstrumentValue } from "../../utils/instrumentation";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
+import { getProgramStyle } from "../../utils/giraUtils";
 import DateInput from "../../components/ui/DateInput";
+import WorkForm from "../Repertoire/WorkForm";
 
 const INSTRUMENT_COLUMNS = [
   { id: "Fl", label: "Fl" },
@@ -203,6 +212,90 @@ function computeConvokedForProgram(roster = []) {
   return { all, real, vacants };
 }
 
+/** Mapa columna -> lista "Apellido, Nombre" de convocados confirmados para tooltips. */
+function getConvokedNamesByColumn(roster = []) {
+  const out = createEmptyInstrumentationMap();
+  Object.keys(out).forEach((k) => (out[k] = []));
+
+  const confirmed = (roster || []).filter(
+    (m) => String(m.estado_gira || "").toLowerCase() === "confirmado",
+  );
+  const skipRoles = ["staff", "produccion", "chofer"];
+  confirmed.forEach((m) => {
+    if (skipRoles.includes((m.rol_gira || "").toLowerCase())) return;
+    const name = `${m.apellido || ""}, ${m.nombre || ""}`.trim();
+    if (!name) return;
+    const idInstr = String(m.id_instr || "");
+    const instrumentName = (m.instrumentos?.instrumento || "").toLowerCase();
+    const familia = (m.instrumentos?.familia || "").toLowerCase();
+
+    if (["01", "02", "03", "04"].includes(idInstr)) return;
+    if (instrumentName.includes("flaut") || instrumentName.includes("picc")) {
+      out.Fl.push(name);
+      return;
+    }
+    if (instrumentName.includes("oboe") || instrumentName.includes("corno ing")) {
+      out.Ob.push(name);
+      return;
+    }
+    if (
+      instrumentName.includes("clarin") ||
+      instrumentName.includes("requinto") ||
+      instrumentName.includes("basset")
+    ) {
+      out.Cl.push(name);
+      return;
+    }
+    if (instrumentName.includes("fagot") || instrumentName.includes("contraf")) {
+      out.Fg.push(name);
+      return;
+    }
+    if (instrumentName.includes("corno") || instrumentName.includes("trompa")) {
+      out.Cr.push(name);
+      return;
+    }
+    if (instrumentName.includes("trompet") || instrumentName.includes("fliscorno")) {
+      out.Tp.push(name);
+      return;
+    }
+    if (instrumentName.includes("trombon") || instrumentName.includes("trombón")) {
+      out.Tb.push(name);
+      return;
+    }
+    if (instrumentName.includes("tuba") || instrumentName.includes("bombard")) {
+      out.Tba.push(name);
+      return;
+    }
+    if (instrumentName.includes("timbal")) {
+      out.Tim.push(name);
+      return;
+    }
+    if (
+      instrumentName.includes("perc") ||
+      instrumentName.includes("bombo") ||
+      instrumentName.includes("platillo") ||
+      instrumentName.includes("caja")
+    ) {
+      out.Perc.push(name);
+      return;
+    }
+    if (instrumentName.includes("arpa")) {
+      out.Har.push(name);
+      return;
+    }
+    if (
+      instrumentName.includes("piano") ||
+      instrumentName.includes("teclado") ||
+      instrumentName.includes("celesta") ||
+      instrumentName.includes("órgano") ||
+      instrumentName.includes("organo")
+    ) {
+      out.Pno.push(name);
+    }
+  });
+  return out;
+}
+
 function normalizeForCompare(_key, value) {
   return value || 0;
 }
@@ -285,7 +378,199 @@ function formatInstrumentationStandard(map) {
     .replace("0.0.0.0 - 0.0.0.0", "");
 }
 
+function buildDriveUrl(linkDrive) {
+  const s = (linkDrive || "").trim();
+  if (!s) return null;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  return `https://drive.google.com/drive/folders/${s}`;
+}
+
+/** Mismo código de colores que RepertoireManager según estado de la obra. */
+function getWorkEstadoCellClasses(estado) {
+  if (estado === "Informativo")
+    return "border-l-4 border-blue-400 bg-blue-50 hover:bg-blue-100";
+  if (estado === "Oficial")
+    return "border-l-4 border-emerald-400 bg-emerald-50 hover:bg-emerald-100";
+  if (estado)
+    return "border-l-4 border-amber-400 bg-amber-50 hover:bg-amber-100";
+  return "border-l-2 border-slate-200 bg-white";
+}
+
+/** Lazy: solo se monta cuando la gira está expandida. Renderiza el desglose de obras con acciones. */
+function ProgramWorksTable({
+  program,
+  visibleColumns,
+  convokedAll,
+  requiredPercTotal,
+  convokedPercTotal,
+  required,
+  onOpenWorkForm,
+}) {
+  const works = useMemo(() => {
+    const blocks = program._blocks || [];
+    return blocks
+      .flatMap((block) =>
+        (block.repertorio_obras || []).map((ro) => {
+          if (!ro || ro.excluir) return null;
+          const obra = ro.obras;
+          if (!obra) return null;
+          const ocList = Array.isArray(obra.obras_compositores)
+            ? obra.obras_compositores
+            : obra.obras_compositores
+              ? [obra.obras_compositores]
+              : [];
+          const composerEntry = ocList.find((oc) => oc.rol === "compositor") || ocList[0];
+          const comp = composerEntry?.compositores;
+          const composerLabel = comp
+            ? `${comp.apellido || ""}, ${comp.nombre || ""}`.trim()
+            : "";
+          return {
+            id: ro.id,
+            obra_id: obra.id,
+            title: obra.titulo || "Obra",
+            composerLabel: composerLabel || null,
+            estado: obra.estado || null,
+            instrumentacion: obra.instrumentacion || "",
+            link_drive: obra.link_drive || null,
+          };
+        }),
+      )
+      .filter(Boolean);
+  }, [program._blocks]);
+
+  const keyMap = {
+    Fl: "fl",
+    Ob: "ob",
+    Cl: "cl",
+    Fg: "bn",
+    Cr: "hn",
+    Tp: "tpt",
+    Tb: "tbn",
+    Tba: "tba",
+    Perc: "perc",
+    Har: "harp",
+    Pno: "key",
+  };
+
+  return (
+    <div className="px-4 pb-4 pt-1 border-t border-slate-100">
+      <div className="border border-slate-200 rounded-lg overflow-x-auto bg-white">
+        <table className="w-full text-xs min-w-[900px]">
+          <thead>
+            <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
+              <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-[10px] font-bold text-left uppercase tracking-wide border-r border-slate-200 w-64">
+                Obra
+              </th>
+              {visibleColumns.map((col) => (
+                <th
+                  key={col.id}
+                  className="px-2 py-1.5 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wide"
+                >
+                  {col.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {works.map((w) => (
+              <tr key={w.id} className="hover:bg-slate-50/60">
+                <td
+                  className={`sticky left-0 z-10 px-3 py-1.5 text-[11px] text-slate-800 border-r border-slate-200 max-w-[260px] ${getWorkEstadoCellClasses(w.estado)}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      {w.composerLabel && (
+                        <div className="text-[10px] text-slate-500 truncate">
+                          {w.composerLabel}
+                        </div>
+                      )}
+                      <div className="font-semibold truncate">{w.title}</div>
+                    </div>
+                    <span className="flex items-center gap-0.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => onOpenWorkForm(w.obra_id)}
+                        className="p-1 rounded text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+                        title="Editar obra"
+                      >
+                        <IconPencil size={14} />
+                      </button>
+                      {w.link_drive && (
+                        <a
+                          href={buildDriveUrl(w.link_drive)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 rounded text-slate-500 hover:bg-slate-200 hover:text-green-700"
+                          title="Abrir carpeta Drive"
+                        >
+                          <IconFolder size={14} />
+                        </a>
+                      )}
+                    </span>
+                  </div>
+                </td>
+                {visibleColumns.map((col) => {
+                  const inst = w.instrumentacion || "";
+                  let count = 0;
+                  if (inst) {
+                    if (col.id === "Perc") {
+                      let percTotalForWork = 0;
+                      const timpMatch = inst.match(/Timp\.\s*(?:\+(\d+))?/i);
+                      if (timpMatch) {
+                        const extra = parseInt(timpMatch[1] || "0", 10) || 0;
+                        percTotalForWork += 1 + extra;
+                      }
+                      const percMatch = inst.match(/Perc(?:\.x(\d+))?/i);
+                      if (percMatch) {
+                        const explicitPerc = percMatch[1]
+                          ? parseInt(percMatch[1], 10) || 0
+                          : 1;
+                        percTotalForWork += explicitPerc;
+                      }
+                      if (!timpMatch && !percMatch) {
+                        percTotalForWork =
+                          (getInstrumentValue(inst, "timp") || 0) +
+                          (getInstrumentValue(inst, "perc") || 0);
+                      }
+                      count = percTotalForWork;
+                    } else {
+                      count =
+                        getInstrumentValue(inst, keyMap[col.id]) || 0;
+                    }
+                  }
+                  const convBase =
+                    col.id === "Perc"
+                      ? convokedPercTotal
+                      : convokedAll[col.id] || 0;
+                  const isOver = count > convBase;
+                  return (
+                    <td
+                      key={col.id}
+                      className="px-2 py-1.5 text-center border-r border-slate-200"
+                    >
+                      <span
+                        className={`font-mono text-xs font-extrabold ${
+                          isOver
+                            ? "bg-orange-500 text-white rounded px-1"
+                            : "text-slate-900"
+                        }`}
+                      >
+                        {count || "-"}
+                      </span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function InstrumentationAudit({ supabase }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [programs, setPrograms] = useState([]);
   const [selectedType, setSelectedType] = useState("Sinfónico");
@@ -294,6 +579,57 @@ export default function InstrumentationAudit({ supabase }) {
     () => new Date().toISOString().split("T")[0],
   );
   const [dateTo, setDateTo] = useState("");
+  const [workFormOpen, setWorkFormOpen] = useState(false);
+  const [workFormInitialData, setWorkFormInitialData] = useState({});
+
+  const navigateToRoster = (giraId) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", "giras");
+    next.set("view", "ROSTER");
+    next.set("giraId", String(giraId));
+    setSearchParams(next);
+  };
+
+  const openWorkForm = (obraId) => {
+    setWorkFormInitialData(obraId != null ? { id: obraId } : {});
+    setWorkFormOpen(true);
+  };
+  const closeWorkForm = () => {
+    setWorkFormOpen(false);
+    setWorkFormInitialData({});
+  };
+
+  const organicoSaveTimeoutRef = useRef(null);
+  const saveOrganicoValidation = useCallback(
+    (programId, payload) => {
+      setPrograms((prev) =>
+        prev.map((q) =>
+          q.id === programId ? { ...q, ...payload } : q,
+        ),
+      );
+      if (organicoSaveTimeoutRef.current)
+        clearTimeout(organicoSaveTimeoutRef.current);
+      organicoSaveTimeoutRef.current = setTimeout(async () => {
+        organicoSaveTimeoutRef.current = null;
+        try {
+          await supabase
+            .from("programas")
+            .update(payload)
+            .eq("id", programId);
+        } catch (e) {
+          console.error("Error guardando validación de orgánico:", e);
+        }
+      }, 500);
+    },
+    [supabase],
+  );
+  useEffect(
+    () => () => {
+      if (organicoSaveTimeoutRef.current)
+        clearTimeout(organicoSaveTimeoutRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     const fetchData = async () => {
@@ -302,7 +638,7 @@ export default function InstrumentationAudit({ supabase }) {
         const { data: programRows, error: progError } = await supabase
           .from("programas")
           .select(
-            "id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta, tipo, zona",
+            "id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta, tipo, zona, organico_revisado, organico_comentario",
           )
           .order("fecha_desde", { ascending: true });
         if (progError) throw progError;
@@ -318,7 +654,7 @@ export default function InstrumentationAudit({ supabase }) {
               `id, id_programa, orden, nombre,
                repertorio_obras (
                  id, orden, excluir,
-                 obras ( id, titulo, instrumentacion )
+                 obras ( id, titulo, instrumentacion, link_drive, estado, obras_compositores ( rol, compositores ( apellido, nombre ) ) )
                )`,
             )
             .in("id_programa", programIds);
@@ -369,6 +705,7 @@ export default function InstrumentationAudit({ supabase }) {
           return {
             ...p,
             _blocks: blocks,
+            _roster: rosterByProgram[p.id] || [],
             instrumentationRequired: required,
             instrumentationConvoked: all,
             instrumentationVacants: vacants,
@@ -439,77 +776,56 @@ export default function InstrumentationAudit({ supabase }) {
 
   return (
     <div className="flex flex-col gap-4 h-full">
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <h3 className="text-sm font-bold text-slate-800">
-              Auditoría de Instrumentación
-            </h3>
-            <p className="text-xs text-slate-500">
-              Compará la instrumentación requerida por las obras con la
-              instrumentación actualmente convocada por programa.
-            </p>
-            {hasAnyMismatch && (
-              <div className="flex items-center gap-1 text-[11px] text-orange-600">
-                <IconAlertTriangle size={12} className="shrink-0" />
-                <span>
-                  Hay programas con diferencias entre lo requerido y lo
-                  convocado.
-                </span>
-              </div>
-            )}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+        <div className="flex flex-nowrap items-center gap-3 overflow-x-auto min-w-0">
+          <h3 className="text-sm font-bold text-slate-800 shrink-0">
+            Auditoría de Instrumentación
+          </h3>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[10px] font-medium text-slate-500 uppercase">Desde</span>
+            <DateInput
+              label=""
+              value={dateFrom}
+              onChange={setDateFrom}
+              className="w-28"
+            />
           </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[10px] font-medium text-slate-500 uppercase">Hasta</span>
+            <DateInput
+              label=""
+              value={dateTo}
+              onChange={setDateTo}
+              className="w-28"
+            />
+          </div>
+          <label className="sr-only">Tipo de programa</label>
+          <select
+            className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white w-44 shrink-0"
+            value={selectedType}
+            onChange={(e) => setSelectedType(e.target.value)}
+          >
+            {programTypeOptions.length === 0 && (
+              <option value="Sinfónico">Sinfónico</option>
+            )}
+            {programTypeOptions.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          {hasAnyMismatch && (
+            <div className="flex items-center gap-1 text-[11px] text-orange-600 shrink-0">
+              <IconAlertTriangle size={12} className="shrink-0" />
+              <span>Diferencias Req/Conv.</span>
+            </div>
+          )}
           {loading && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+            <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 shrink-0 ml-auto">
               <IconLoader className="animate-spin" size={14} />
-              Cargando datos...
+              Cargando...
             </span>
           )}
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="space-y-2 md:col-span-1">
-            <DateInput label="Fecha desde" value={dateFrom} onChange={setDateFrom} />
-            <DateInput label="Fecha hasta" value={dateTo} onChange={setDateTo} />
-          </div>
-          <div className="md:col-span-1">
-            <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
-              Tipo de programa
-            </label>
-            <select
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-              value={selectedType}
-              onChange={(e) => setSelectedType(e.target.value)}
-            >
-              {programTypeOptions.length === 0 && (
-                <option value="Sinfónico">Sinfónico</option>
-              )}
-              {programTypeOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="md:col-span-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
-            <p>
-              El cálculo de instrumentación requerida usa{" "}
-              <code className="text-[10px]">
-                getInstrumentValue
-              </code>{" "}
-              sobre los strings estándar de cada obra (ej.{" "}
-              <code className="text-[10px]">
-                2.2.2.2 - 4.3.3.1 - Timp+2 Perc - Hp - Key - Str
-              </code>
-              ).
-            </p>
-            <p>
-              La fila <span className="font-semibold">Req Max</span> muestra el
-              máximo requerido por obra, mientras que{" "}
-              <span className="font-semibold">Conv</span> refleja el personal
-              actualmente convocado (excluyendo ausentes).
-            </p>
-          </div>
         </div>
       </div>
 
@@ -552,36 +868,36 @@ export default function InstrumentationAudit({ supabase }) {
             return true;
           });
 
+          const convokedNamesByColumn = getConvokedNamesByColumn(p._roster || []);
+          const programStyle = getProgramStyle(p.tipo);
+          const cardClasses = programStyle?.color
+            ? programStyle.color
+            : "bg-white text-slate-800 border border-slate-200";
+
           return (
             <div
               key={p.id}
-              className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden"
+              className={`rounded-xl shadow-sm overflow-hidden border ${cardClasses}`}
             >
               <button
                 type="button"
                 onClick={() => toggleExpanded(p.id)}
-                className="w-full flex items-stretch gap-3 px-4 py-3 hover:bg-slate-50 transition-colors"
+                className="w-full flex items-stretch gap-3 px-4 py-3 hover:opacity-95 transition-opacity text-left"
               >
-                <div className="flex flex-col items-start gap-0.5 text-left min-w-[220px] max-w-xs">
-                  <span className="text-xs font-bold text-slate-800 truncate">
+                <div className="flex flex-col items-start gap-0.5 min-w-[220px] max-w-xs">
+                  <span className="text-xs font-bold truncate">
                     {p.mes_letra
                       ? `${p.mes_letra} | ${p.nomenclador || ""}. ${
                           p.nombre_gira || ""
                         }`
                       : `${p.nomenclador || ""}. ${p.nombre_gira || ""}`}
                   </span>
-                  <span className="text-[11px] text-slate-500">
+                  <span className="text-[11px] opacity-80">
                     {fechaDesde || "s/d"}{" "}
                     {fechaHasta && fechaHasta !== fechaDesde
                       ? `→ ${fechaHasta}`
                       : ""}
                     {p.zona ? ` · ${p.zona}` : ""}
-                  </span>
-                  <span className="text-[10px] text-slate-400 truncate">
-                    Formato requerido:{" "}
-                    <span className="font-mono">
-                      {formatInstrumentationStandard(required)}
-                    </span>
                   </span>
                 </div>
 
@@ -618,14 +934,27 @@ export default function InstrumentationAudit({ supabase }) {
                                 ? requiredPercTotal
                                 : required[col.id] || 0;
                             const highlight = convVal > reqVal;
+                            const namesList =
+                              col.id === "Perc"
+                                ? [
+                                    ...(convokedNamesByColumn.Tim || []),
+                                    ...(convokedNamesByColumn.Perc || []),
+                                  ]
+                                : convokedNamesByColumn[col.id] || [];
+                            const tooltipText =
+                              namesList.length > 0
+                                ? namesList.join("\n")
+                                : null;
 
+                            const mismatchStyle = p.organico_revisado
+                              ? "bg-blue-100 text-blue-700 border border-blue-300 font-bold rounded"
+                              : "bg-orange-500 text-white font-bold rounded";
                             return (
                               <td
                                 key={col.id}
-                                className={`px-1.5 py-1 text-center font-mono ${
-                                  highlight
-                                    ? "bg-orange-500 text-white font-bold rounded"
-                                    : "text-slate-800"
+                                title={tooltipText ?? undefined}
+                                className={`px-1.5 py-1 text-center font-mono cursor-default ${
+                                  highlight ? mismatchStyle : "text-slate-800"
                                 }`}
                               >
                                 {convVal}
@@ -647,14 +976,15 @@ export default function InstrumentationAudit({ supabase }) {
                                 ? requiredPercTotal
                                 : required[col.id] || 0;
                             const highlight = reqVal > convVal;
+                            const reqMismatchStyle = p.organico_revisado
+                              ? "bg-blue-100 text-blue-700 border border-blue-300 font-bold rounded"
+                              : "bg-orange-500 text-white font-bold rounded";
 
                             return (
                               <td
                                 key={col.id}
                                 className={`px-1.5 py-1 text-center font-mono ${
-                                  highlight
-                                    ? "bg-orange-500 text-white font-bold rounded"
-                                    : "text-slate-800"
+                                  highlight ? reqMismatchStyle : "text-slate-800"
                                 }`}
                               >
                                 {reqVal}
@@ -726,10 +1056,21 @@ export default function InstrumentationAudit({ supabase }) {
                       </tbody>
                     </table>
                   </div>
-                  <div className="flex flex-col items-end justify-center gap-1 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigateToRoster(p.id);
+                      }}
+                      className="p-2 rounded-lg border border-current opacity-70 hover:opacity-100 transition-opacity"
+                      title="Ir a Nómina / Staff"
+                    >
+                      <IconUsers size={16} />
+                    </button>
                     <IconChevronDown
                       size={16}
-                      className={`text-slate-400 transition-transform ${
+                      className={`opacity-70 transition-transform ${
                         isOpen ? "rotate-180" : ""
                       }`}
                     />
@@ -738,145 +1079,114 @@ export default function InstrumentationAudit({ supabase }) {
               </button>
 
               {isOpen && (
-                <div className="px-4 pb-4 pt-1 border-t border-slate-100">
-                  <div className="border border-slate-200 rounded-lg overflow-x-auto bg-white">
-                    <table className="w-full text-xs min-w-[900px]">
-                      <thead>
-                        <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
-                          <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-[10px] font-bold text-left uppercase tracking-wide border-r border-slate-200 w-64">
-                            Obra
-                          </th>
-                          {visibleColumns.map((col) => (
-                            <th
-                              key={col.id}
-                              className="px-2 py-1.5 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wide"
-                            >
-                              {col.label}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {(p._blocks || [])
-                          .flatMap((block) =>
-                            (block.repertorio_obras || []).map((ro) => {
-                              if (!ro || ro.excluir) return null;
-                              const obra = ro.obras;
-                              if (!obra) return null;
-                              return {
-                                id: ro.id,
-                                obra_id: obra.id,
-                                title: obra.titulo || "Obra",
-                                instrumentacion: obra.instrumentacion || "",
-                              };
-                            }),
-                          )
-                          .filter(Boolean)
-                          .map((w) => (
-                            <tr key={w.id} className="hover:bg-slate-50/60">
-                              <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-[11px] text-slate-800 border-r border-slate-200 max-w-[260px]">
-                                <div className="flex flex-col gap-0.5">
-                                  <span className="font-semibold truncate">
-                                    {w.title}
-                                  </span>
-                                  {w.instrumentacion && (
-                                    <span
-                                      className="text-[9px] font-mono text-slate-400 truncate"
-                                      title={w.instrumentacion}
-                                    >
-                                      {w.instrumentacion}
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                          {visibleColumns.map((col) => {
-                            const keyMap = {
-                              Fl: "fl",
-                              Ob: "ob",
-                              Cl: "cl",
-                              Fg: "bn",
-                              Cr: "hn",
-                              Tp: "tpt",
-                              Tb: "tbn",
-                              TbB: "tba",
-                              Perc: "perc",
-                              Har: "harp",
-                              Pno: "key",
-                            };
-                            const inst = w.instrumentacion || "";
-                            let count = 0;
-                            if (inst) {
-                              if (col.id === "Perc") {
-                                // Usar misma lógica que para requerido máximo: total de percusionistas por obra
-                                let percTotalForWork = 0;
-
-                                const timpMatch = inst.match(
-                                  /Timp\.\s*(?:\+(\d+))?/i,
-                                );
-                                if (timpMatch) {
-                                  const extra =
-                                    parseInt(timpMatch[1] || "0", 10) || 0;
-                                  percTotalForWork += 1 + extra;
-                                }
-
-                                const percMatch = inst.match(
-                                  /Perc(?:\.x(\d+))?/i,
-                                );
-                                if (percMatch) {
-                                  const explicitPerc = percMatch[1]
-                                    ? parseInt(percMatch[1], 10) || 0
-                                    : 1;
-                                  percTotalForWork += explicitPerc;
-                                }
-
-                                if (!timpMatch && !percMatch) {
-                                  percTotalForWork =
-                                    (getInstrumentValue(inst, "timp") || 0) +
-                                    (getInstrumentValue(inst, "perc") || 0);
-                                }
-
-                                count = percTotalForWork;
-                              } else {
-                                count =
-                                  getInstrumentValue(inst, keyMap[col.id]) || 0;
-                              }
-                            }
-
-                            let convBase =
-                              col.id === "Perc"
-                                ? convokedPercTotal
-                                : convokedAll[col.id] || 0;
-
-                            const isOver = count > convBase;
-
-                            return (
-                              <td
-                                key={col.id}
-                                className="px-2 py-1.5 text-center border-r border-slate-200"
-                              >
-                                <span
-                                  className={`font-mono text-xs font-extrabold ${
-                                    isOver
-                                      ? "bg-orange-500 text-white rounded px-1"
-                                      : "text-slate-900"
-                                  }`}
-                                >
-                                  {count || "-"}
-                                </span>
-                              </td>
-                            );
-                          })}
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
+                <>
+                  <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[10px] font-bold uppercase text-slate-500">
+                        Validación de Orgánico
+                      </span>
+                      {p.organico_revisado && (
+                        <IconCheckCircle
+                          size={14}
+                          className="text-blue-600 shrink-0"
+                          title="Adaptación validada"
+                        />
+                      )}
+                      {p.organico_comentario && (
+                        <span
+                          className="text-blue-600 cursor-help"
+                          title={p.organico_comentario}
+                        >
+                          <IconInfo size={14} />
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!p.organico_revisado}
+                          onChange={(e) =>
+                            saveOrganicoValidation(p.id, {
+                              organico_revisado: e.target.checked,
+                              organico_comentario: p.organico_comentario ?? null,
+                            })
+                          }
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="text-xs font-medium text-slate-700">
+                          Orgánico revisado (adaptación validada)
+                        </span>
+                      </label>
+                      <div className="flex-1 min-w-0">
+                        <textarea
+                          placeholder="Comentario sobre adaptaciones artísticas (opcional)"
+                          value={p.organico_comentario ?? ""}
+                          onChange={(e) =>
+                            saveOrganicoValidation(p.id, {
+                              organico_revisado: p.organico_revisado ?? false,
+                              organico_comentario: e.target.value.trim() || null,
+                            })
+                          }
+                          className="w-full text-xs border border-slate-300 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                          rows={2}
+                        />
+                      </div>
+                    </div>
                   </div>
-                </div>
+                  <ProgramWorksTable
+                    program={p}
+                    visibleColumns={visibleColumns}
+                    convokedAll={convokedAll}
+                    requiredPercTotal={requiredPercTotal}
+                    convokedPercTotal={convokedPercTotal}
+                    required={required}
+                    onOpenWorkForm={openWorkForm}
+                  />
+                </>
               )}
             </div>
           );
         })}
       </div>
+
+      {workFormOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
+          <div className="relative w-full max-w-4xl my-8 bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between shrink-0 px-4 py-3 border-b border-slate-200 bg-slate-50 rounded-t-xl">
+              <h3 className="text-sm font-bold text-slate-700">
+                {workFormInitialData?.id ? "Editar obra" : "Nueva obra"}
+              </h3>
+              <button
+                type="button"
+                onClick={closeWorkForm}
+                className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"
+                aria-label="Cerrar"
+              >
+                <IconX size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 min-h-0">
+              <WorkForm
+                key={`workform-audit-${workFormInitialData?.id ?? "new"}`}
+                supabase={supabase}
+                formData={workFormInitialData}
+                setFormData={(fn) => {
+                  if (typeof fn === "function")
+                    setWorkFormInitialData((prev) => fn(prev));
+                }}
+                onSave={(savedId, shouldClose) => {
+                  if (shouldClose !== false) closeWorkForm();
+                }}
+                onCancel={closeWorkForm}
+                isNew={!workFormInitialData?.id}
+                catalogoInstrumentos={[]}
+                context="archive"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

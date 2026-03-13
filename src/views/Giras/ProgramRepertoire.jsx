@@ -361,7 +361,7 @@ const AdvancedImportModal = ({
 };
 
 // --- COMPONENTE PRINCIPAL ---
-export default function ProgramRepertoire({ supabase, program, onBack }) {
+export default function ProgramRepertoire({ supabase, program, onBack, onRefreshGira = null }) {
   const { user, isEditor, isManagement } = useAuth();
   const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -844,6 +844,11 @@ export default function ProgramRepertoire({ supabase, program, onBack }) {
                   <InstrumentationBadges
                     works={obrasWithInstrumentation}
                     roster={roster}
+                    organicoRevisado={!!program?.organico_revisado}
+                    organicoComentario={program?.organico_comentario ?? null}
+                    programId={program?.id}
+                    supabase={supabase}
+                    onOrganicoSave={onRefreshGira}
                     className="hidden md:flex flex-wrap items-center gap-1 ml-2"
                   />
                 )}

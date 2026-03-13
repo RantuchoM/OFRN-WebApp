@@ -1321,6 +1321,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
             program={selectedGira}
             initialTab={currentTab}
             onBack={() => updateView("LIST")}
+            onRefreshGira={handleGiraUpdate}
           />
         )}
         {mode === "SEATING" && selectedGira && (
@@ -1328,6 +1329,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
             supabase={supabase}
             program={selectedGira}
             onBack={() => updateView("LIST")}
+            onRefreshGira={handleGiraUpdate}
           />
         )}
         {mode === "ROSTER" && selectedGira && (
@@ -1337,6 +1339,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
             onBack={() => updateView("LIST")}
             onDataChange={handleChildDataChange}
             onNotificacionInicialSent={() => fetchGiras()}
+            onRefreshGira={handleGiraUpdate}
           />
         )}
         {mode === "DIFUSION" && selectedGira && (
