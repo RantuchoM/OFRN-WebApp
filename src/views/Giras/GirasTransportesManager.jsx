@@ -935,9 +935,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
         const { data: evts } = await supabase
           .from("eventos")
           .select(
-            `id, fecha, hora_inicio, descripcion, id_tipo_evento, visible_agenda, id_gira_transporte, id_locacion, locaciones(nombre, direccion, localidades(localidad))`,
+            `id, fecha, hora_inicio, descripcion, id_tipo_evento, visible_agenda, id_gira_transporte, id_locacion, is_deleted, locaciones(nombre, direccion, localidades(localidad))`,
           )
           .in("id_gira_transporte", tIds)
+          .eq("is_deleted", false)
           .order("fecha", { ascending: true })
           .order("hora_inicio", { ascending: true });
 
