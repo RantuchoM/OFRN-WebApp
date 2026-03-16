@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { es } from "date-fns/locale";
@@ -103,8 +109,7 @@ export default function UnifiedAgenda({
   const [musicianOptions, setMusicianOptions] = useState([]);
 
   const effectiveUserId = viewAsUserId || user.id;
-  const isPersonalGuest =
-    isGuest && !user?.isGeneral && !!user?.token_original;
+  const isPersonalGuest = isGuest && !user?.isGeneral && !!user?.token_original;
   const defaultPersonalFilter =
     isPersonalGuest || (!isEditor && !isManagement && !user?.isGeneral);
   // --- ESTADOS ---
@@ -441,28 +446,78 @@ export default function UnifiedAgenda({
         if (item.fecha < effectiveDateFrom) return false;
         if (filterDateTo && item.fecha > filterDateTo) return false;
       }
+
+      // Detectar si este evento de transporte es MI subida/bajada
+      const isTransportEvent = !!item.id_gira_transporte;
+      let isMyTransport = false;
+      let isMyUpOrDown = false;
+      if (showOnlyMyTransport && isTransportEvent && item.id_gira_transporte) {
+        const tId = String(item.id_gira_transporte);
+        const myStatus = myTransportLogistics[tId];
+        if (myStatus?.assigned) {
+          isMyTransport = true;
+          const itemIdStr = String(item.id);
+          if (
+            String(myStatus.subidaId) === itemIdStr ||
+            String(myStatus.bajadaId) === itemIdStr
+          ) {
+            isMyUpOrDown = true;
+          }
+        }
+      }
+
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
+
+      // Filtro de giras activas: permitir siempre mi subida/bajada aunque el programa no esté vigente
       if (!showNonActive) {
         const estadoGira = item.programas?.estado || "Borrador";
         if (item.isProgramMarker) {
-          if (estadoGira !== "Vigente") return false;
+          if (
+            estadoGira !== "Vigente" &&
+            !(showOnlyMyTransport && isMyUpOrDown)
+          )
+            return false;
         } else if (item.programas && estadoGira !== "Vigente") {
-          return false;
+          if (!(showOnlyMyTransport && isMyUpOrDown)) return false;
         }
       }
+
       if (item.isProgramMarker) return true;
-      if (!isManagement && item.tecnica) return false;
+
+      // Filtro técnico: no debe ocultar mi propia subida/bajada cuando está activo "Mi transporte"
+      if (
+        !isManagement &&
+        item.tecnica &&
+        !(showOnlyMyTransport && isMyUpOrDown)
+      )
+        return false;
       if (isManagement) {
-        if (techFilter === "only_tech" && !item.tecnica) return false;
-        if (techFilter === "no_tech" && item.tecnica) return false;
+        if (
+          techFilter === "only_tech" &&
+          !item.tecnica &&
+          !(showOnlyMyTransport && isMyUpOrDown)
+        )
+          return false;
+        if (
+          techFilter === "no_tech" &&
+          item.tecnica &&
+          !(showOnlyMyTransport && isMyUpOrDown)
+        )
+          return false;
       }
+
+      // Filtro por categorías: permitir siempre mi subida/bajada aunque el tipo no esté seleccionado
       if (selectedCategoryIds.length > 0) {
-        if (catId && !selectedCategoryIds.includes(catId)) return false;
+        if (catId && !selectedCategoryIds.includes(catId)) {
+          if (!(showOnlyMyTransport && isMyUpOrDown)) return false;
+        }
       }
-      if (showOnlyMyTransport && item.id_gira_transporte) {
-        const tId = String(item.id_gira_transporte);
-        if (!myTransportLogistics[tId]?.assigned) return false;
+
+      // Filtro "Solo mi transporte": ocultar resto de logística, pero nunca mis subidas/bajadas
+      if (showOnlyMyTransport && isTransportEvent) {
+        if (!isMyTransport) return false;
       }
+
       if (showOnlyMyMeals) {
         const isMeal =
           [7, 8, 9, 10].includes(item.id_tipo_evento) ||
@@ -647,7 +702,12 @@ export default function UnifiedAgenda({
     if (!editFormData.id) return;
     const id = editFormData.id;
     const hadLinks = deleteConfirm.hasLogisticsLinks;
-    setDeleteConfirm({ isOpen: false, message: "", messageIsHtml: false, hasLogisticsLinks: false });
+    setDeleteConfirm({
+      isOpen: false,
+      message: "",
+      messageIsHtml: false,
+      hasLogisticsLinks: false,
+    });
     setLoading(true);
     try {
       const { error } = await supabase
@@ -665,7 +725,9 @@ export default function UnifiedAgenda({
           "Evento movido a la papelera. Revisá la logística de integrantes/regiones y creá un evento nuevo para viáticos si corresponde.",
         );
       } else {
-        toast.success("Evento movido a la papelera. Podés restaurarlo en 24 horas.");
+        toast.success(
+          "Evento movido a la papelera. Podés restaurarlo en 24 horas.",
+        );
       }
     } catch (err) {
       toast.error("Error al eliminar: " + err.message);
@@ -681,7 +743,10 @@ export default function UnifiedAgenda({
         .update({ is_deleted: false, deleted_at: null })
         .eq("id", eventId);
       if (error) throw error;
-      toast.success("Evento restaurado exitosamente. Ha vuelto a la agenda activa.", { icon: "✅" });
+      toast.success(
+        "Evento restaurado exitosamente. Ha vuelto a la agenda activa.",
+        { icon: "✅" },
+      );
       fetchAgenda(true);
     } catch (err) {
       toast.error("Error al restaurar: " + err.message);
@@ -794,7 +859,10 @@ export default function UnifiedAgenda({
         ? null
         : editFormData.id_estado_venue;
     if (prevStatus !== newStatus && newStatus != null) {
-      if (!editFormData.venue_status_note || !editFormData.venue_status_note.trim()) {
+      if (
+        !editFormData.venue_status_note ||
+        !editFormData.venue_status_note.trim()
+      ) {
         toast.error("Agrega una nota para el cambio de estado de venue.");
         return;
       }
@@ -868,7 +936,10 @@ export default function UnifiedAgenda({
 
     // Validar nota obligatoria si se asigna estado de venue al crear
     if (newFormData.id_estado_venue) {
-      if (!newFormData.venue_status_note || !newFormData.venue_status_note.trim()) {
+      if (
+        !newFormData.venue_status_note ||
+        !newFormData.venue_status_note.trim()
+      ) {
         toast.error("Agrega una nota para el estado de venue inicial.");
         return;
       }
@@ -908,7 +979,10 @@ export default function UnifiedAgenda({
           id_integrante: user.id,
         });
       } catch (logError) {
-        console.error("Error guardando log inicial de estado de venue:", logError);
+        console.error(
+          "Error guardando log inicial de estado de venue:",
+          logError,
+        );
       }
     }
 
@@ -979,7 +1053,13 @@ export default function UnifiedAgenda({
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 150);
     return () => clearTimeout(timer);
-  }, [loading, filteredItems.length, currentEventId, earlierTodayEventIds.size, giraId]);
+  }, [
+    loading,
+    filteredItems.length,
+    currentEventId,
+    earlierTodayEventIds.size,
+    giraId,
+  ]);
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in relative">
@@ -1037,19 +1117,20 @@ export default function UnifiedAgenda({
             {availableCategories.length > 0 && (
               <>
                 <div className="relative" ref={filterMenuRef}>
-                        <button
-                          onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-bold shadow-sm hover:shadow-md ${
-                            isFilterMenuOpen ||
-                            selectedCategoryIds.length < availableCategories.length ||
-                            showOnlyMyTransport ||
-                            showOnlyMyMeals ||
-                            showNoGray ||
-                            (filterDateFrom && filterDateFrom !== getTodayDateStringLocal()) ||
-                            filterDateTo
-                              ? "bg-slate-800 text-white border-slate-800"
-                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                          }`}
+                  <button
+                    onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-bold shadow-sm hover:shadow-md ${
+                      isFilterMenuOpen ||
+                      selectedCategoryIds.length < availableCategories.length ||
+                      showOnlyMyTransport ||
+                      showOnlyMyMeals ||
+                      showNoGray ||
+                      (filterDateFrom &&
+                        filterDateFrom !== getTodayDateStringLocal()) ||
+                      filterDateTo
+                        ? "bg-slate-800 text-white border-slate-800"
+                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    }`}
                   >
                     <IconFilter size={16} />
                     <span className="hidden sm:inline">Filtros</span>
@@ -1100,7 +1181,7 @@ export default function UnifiedAgenda({
                           Restablecer
                         </button>
                       </div>
-                          <div className="max-h-[60vh] overflow-y-auto">
+                      <div className="max-h-[60vh] overflow-y-auto">
                         {/* ... (Resto de filtros) ... */}
                         {isManagement && (
                           <div className="p-2 border-b border-slate-100">
@@ -1186,9 +1267,13 @@ export default function UnifiedAgenda({
                           <div className="grid grid-cols-2 gap-2 px-2">
                             <DateInput
                               label="Desde"
-                              value={filterDateFrom || getTodayDateStringLocal()}
+                              value={
+                                filterDateFrom || getTodayDateStringLocal()
+                              }
                               onChange={(v) =>
-                                setFilterDateFrom(v || getTodayDateStringLocal())
+                                setFilterDateFrom(
+                                  v || getTodayDateStringLocal(),
+                                )
                               }
                               className="mt-1 w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                             />
@@ -1277,14 +1362,17 @@ export default function UnifiedAgenda({
                                 type="checkbox"
                                 className="accent-rose-600 w-4 h-4"
                                 checked={showDeletedEvents}
-                                onChange={(e) => setShowDeletedEvents(e.target.checked)}
+                                onChange={(e) =>
+                                  setShowDeletedEvents(e.target.checked)
+                                }
                               />
                               <div className="flex flex-col">
                                 <span className="text-xs font-bold text-rose-900">
                                   Ver eventos eliminados
                                 </span>
                                 <span className="text-[10px] text-rose-700">
-                                  Incluye eventos eliminados hace más de 24&nbsp;h (solo admins).
+                                  Incluye eventos eliminados hace más de
+                                  24&nbsp;h (solo admins).
                                 </span>
                               </div>
                             </label>
@@ -1463,9 +1551,7 @@ export default function UnifiedAgenda({
                             {format(parseISO(evt.fecha), "EEEE d", {
                               locale: es,
                             })}
-                            {feriado && (
-                              <FeriadoBadge feriado={feriado} />
-                            )}
+                            {feriado && <FeriadoBadge feriado={feriado} />}
                           </div>
                         )}
 
@@ -1514,40 +1600,44 @@ export default function UnifiedAgenda({
                             </div>
                           )}
 
-                        {!(earlierTodayEventIds.has(evt.id) && !showEarlierToday) && (
-                        <>
-                        <div
-                          data-event-id={evt.id}
-                          className={`relative ${currentEventId === evt.id ? "scroll-mt-24" : ""}`}
-                        >
-                        {linePlacement?.type === "inside" &&
-                          linePlacement.eventId === evt.id && (
+                        {!(
+                          earlierTodayEventIds.has(evt.id) && !showEarlierToday
+                        ) && (
+                          <>
                             <div
-                              className="absolute left-0 right-0 flex items-center z-10 pointer-events-none animate-agenda-now-line"
-                              style={{ top: `${linePlacement.progress * 100}%` }}
-                              aria-hidden
+                              data-event-id={evt.id}
+                              className={`relative ${currentEventId === evt.id ? "scroll-mt-24" : ""}`}
                             >
-                              <span
-                                className="shrink-0 w-0 h-0 border-t-[7px] border-t-transparent border-b-[7px] border-b-transparent border-l-[11px] border-l-emerald-500"
-                                style={{
-                                  boxShadow:
-                                    "0 0 8px rgba(16, 185, 129, 0.4)",
-                                }}
-                                aria-hidden
-                              />
-                              <span
-                                className="flex-1 h-0.5 bg-emerald-500/90 min-w-0"
-                                style={{
-                                  boxShadow:
-                                    "0 0 10px rgba(16, 185, 129, 0.35)",
-                                }}
-                                aria-hidden
-                              />
-                            </div>
-                          )}
-                        {/* --- CONTENEDOR MÓVIL (VISIBLE SOLO EN < md) --- */}
-                        <div
-                        className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-200 transition-colors group gap-2
+                              {linePlacement?.type === "inside" &&
+                                linePlacement.eventId === evt.id && (
+                                  <div
+                                    className="absolute left-0 right-0 flex items-center z-10 pointer-events-none animate-agenda-now-line"
+                                    style={{
+                                      top: `${linePlacement.progress * 100}%`,
+                                    }}
+                                    aria-hidden
+                                  >
+                                    <span
+                                      className="shrink-0 w-0 h-0 border-t-[7px] border-t-transparent border-b-[7px] border-b-transparent border-l-[11px] border-l-emerald-500"
+                                      style={{
+                                        boxShadow:
+                                          "0 0 8px rgba(16, 185, 129, 0.4)",
+                                      }}
+                                      aria-hidden
+                                    />
+                                    <span
+                                      className="flex-1 h-0.5 bg-emerald-500/90 min-w-0"
+                                      style={{
+                                        boxShadow:
+                                          "0 0 10px rgba(16, 185, 129, 0.35)",
+                                      }}
+                                      aria-hidden
+                                    />
+                                  </div>
+                                )}
+                              {/* --- CONTENEDOR MÓVIL (VISIBLE SOLO EN < md) --- */}
+                              <div
+                                className={`md:hidden relative flex flex-row items-stretch px-4 py-2 border-b border-slate-200 transition-colors group gap-2
                             ${shouldDim && !isDeleted ? "opacity-50 grayscale hover:bg-slate-50" : ""}
                             ${isDeleted ? "bg-orange-50 opacity-80 line-through" : ""}
                             ${isReadOnlyDeleted ? " pointer-events-none" : ""}
@@ -1555,273 +1645,310 @@ export default function UnifiedAgenda({
                             ${!isDeleted && isMyTransport ? "bg-indigo-50/30 border-l-4 border-l-indigo-400 hover:bg-slate-50" : ""}
                             ${isRecentlyModified && !isDeleted ? "ring-2 ring-blue-500 animate-pulse" : ""}
                           `}
-                          style={
-                            isDeleted
-                              ? { backgroundColor: "#fff7ed" }
-                              : !shouldDim && !evt.is_guest && !isMyTransport
-                                ? cardStyle
-                                : {}
-                          }
-                        >
-                          <div
-                            className="absolute left-0 top-0 bottom-0 w-[4px]"
-                            style={{
-                              backgroundColor: evt.is_absent
-                                ? "#94a3b8"
-                                : isMyTransport
-                                  ? "transparent"
-                                  : eventColor,
-                            }}
-                          ></div>
-
-                          <div className={`w-10 font-mono text-s font-bold shrink-0 flex flex-col items-center pt-1 ${isDeleted ? "text-orange-700" : "text-slate-600"}`}>
-                            <span>{evt.hora_inicio?.slice(0, 5)}</span>
-                            {evt.hora_fin &&
-                              evt.hora_fin !== evt.hora_inicio && (
-                                <span className={`text-[9px] block ${isDeleted ? "text-orange-600" : "text-slate-400"}`}>
-                                  {evt.hora_fin.slice(0, 5)}
-                                </span>
-                              )}
-                          </div>
-
-                          <div className="flex-1 min-w-0 flex flex-col gap-1 py-1">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <span
-                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-[120px]"
-                                style={{
-                                  color: eventColor,
-                                  borderColor: `${eventColor}40`,
-                                  backgroundColor: `${eventColor}10`,
-                                }}
+                                style={
+                                  isDeleted
+                                    ? { backgroundColor: "#fff7ed" }
+                                    : !shouldDim &&
+                                        !evt.is_guest &&
+                                        !isMyTransport
+                                      ? cardStyle
+                                      : {}
+                                }
                               >
-                                {evt.tipos_evento?.nombre}
-                              </span>
-                              {evt.programas?.nomenclador && (
-                                <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
-                                  {evt.programas.nomenclador}
-                                </span>
-                              )}
-                              {(isManagement || isEditor) && (
-                                <button
-                                  onClick={(e) =>
-                                    toggleEventTechnica(e, evt.id, evt.tecnica)
-                                  }
-                                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded border transition-all text-[9px] font-bold uppercase ${evt.tecnica ? "bg-slate-700 text-white border-slate-700" : "bg-transparent text-slate-300 border-transparent"}`}
-                                >
-                                  {evt.tecnica ? (
-                                    <>
-                                      <IconEyeOff size={10} strokeWidth={4} />
-                                      <span>TÉC</span>
-                                    </>
-                                  ) : (
-                                    <IconEye size={12} />
-                                  )}
-                                </button>
-                              )}
-                            </div>
+                                <div
+                                  className="absolute left-0 top-0 bottom-0 w-[4px]"
+                                  style={{
+                                    backgroundColor: evt.is_absent
+                                      ? "#94a3b8"
+                                      : isMyTransport
+                                        ? "transparent"
+                                        : eventColor,
+                                  }}
+                                ></div>
 
-                            {/* Descripción + chips para móvil */}
-                            {evt.id_tipo_evento === 13 ? (
-                              <>
-                                {/* Descripción con chips de ensamble al costado */}
-                                <div className="flex items-start gap-2">
-                                  <div
-                                    className={`flex-1 text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
-                                  >
-                                    {evt.descripcion ? (
-                                      <div
-                                        className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold"
-                                        dangerouslySetInnerHTML={{
-                                          __html: evt.descripcion,
-                                        }}
-                                      />
-                                    ) : (
-                                      <span>{evt.tipos_evento?.nombre}</span>
+                                <div
+                                  className={`w-10 font-mono text-s font-bold shrink-0 flex flex-col items-center pt-1 ${isDeleted ? "text-orange-700" : "text-slate-600"}`}
+                                >
+                                  <span>{evt.hora_inicio?.slice(0, 5)}</span>
+                                  {evt.hora_fin &&
+                                    evt.hora_fin !== evt.hora_inicio && (
+                                      <span
+                                        className={`text-[9px] block ${isDeleted ? "text-orange-600" : "text-slate-400"}`}
+                                      >
+                                        {evt.hora_fin.slice(0, 5)}
+                                      </span>
+                                    )}
+                                </div>
+
+                                <div className="flex-1 min-w-0 flex flex-col gap-1 py-1">
+                                  <div className="flex items-center gap-2 mb-0.5">
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-[120px]"
+                                      style={{
+                                        color: eventColor,
+                                        borderColor: `${eventColor}40`,
+                                        backgroundColor: `${eventColor}10`,
+                                      }}
+                                    >
+                                      {evt.tipos_evento?.nombre}
+                                    </span>
+                                    {evt.programas?.nomenclador && (
+                                      <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
+                                        {evt.programas.nomenclador}
+                                      </span>
+                                    )}
+                                    {(isManagement || isEditor) && (
+                                      <button
+                                        onClick={(e) =>
+                                          toggleEventTechnica(
+                                            e,
+                                            evt.id,
+                                            evt.tecnica,
+                                          )
+                                        }
+                                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded border transition-all text-[9px] font-bold uppercase ${evt.tecnica ? "bg-slate-700 text-white border-slate-700" : "bg-transparent text-slate-300 border-transparent"}`}
+                                      >
+                                        {evt.tecnica ? (
+                                          <>
+                                            <IconEyeOff
+                                              size={10}
+                                              strokeWidth={4}
+                                            />
+                                            <span>TÉC</span>
+                                          </>
+                                        ) : (
+                                          <IconEye size={12} />
+                                        )}
+                                      </button>
                                     )}
                                   </div>
 
-                                  <div className="flex flex-wrap gap-1 shrink-0">
-                                    {(evt.eventos_ensambles?.length > 0
-                                      ? evt.eventos_ensambles
-                                          .map((ee) => ee.ensambles?.ensamble)
-                                          .filter(Boolean)
-                                      : []
-                                    ).length > 0 ? (
-                                      (evt.eventos_ensambles || [])
-                                        .filter((ee) => ee.ensambles?.ensamble)
-                                        .map((ee) => (
-                                          <span
-                                            key={ee.ensambles?.id}
-                                            className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-tight"
-                                          >
-                                            {ee.ensambles.ensamble}
+                                  {/* Descripción + chips para móvil */}
+                                  {evt.id_tipo_evento === 13 ? (
+                                    <>
+                                      {/* Descripción con chips de ensamble al costado */}
+                                      <div className="flex items-start gap-2">
+                                        <div
+                                          className={`flex-1 text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
+                                        >
+                                          {evt.descripcion ? (
+                                            <div
+                                              className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold"
+                                              dangerouslySetInnerHTML={{
+                                                __html: evt.descripcion,
+                                              }}
+                                            />
+                                          ) : (
+                                            <span>
+                                              {evt.tipos_evento?.nombre}
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-1 shrink-0">
+                                          {(evt.eventos_ensambles?.length > 0
+                                            ? evt.eventos_ensambles
+                                                .map(
+                                                  (ee) =>
+                                                    ee.ensambles?.ensamble,
+                                                )
+                                                .filter(Boolean)
+                                            : []
+                                          ).length > 0 ? (
+                                            (evt.eventos_ensambles || [])
+                                              .filter(
+                                                (ee) => ee.ensambles?.ensamble,
+                                              )
+                                              .map((ee) => (
+                                                <span
+                                                  key={ee.ensambles?.id}
+                                                  className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-tight"
+                                                >
+                                                  {ee.ensambles.ensamble}
+                                                </span>
+                                              ))
+                                          ) : (
+                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-tight">
+                                              S/E
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Chips de programa debajo de la descripción */}
+                                      {Array.isArray(
+                                        evt.eventos_programas_asociados,
+                                      ) &&
+                                        evt.eventos_programas_asociados.length >
+                                          0 && (
+                                          <div className="flex flex-wrap gap-1 mt-1">
+                                            {evt.eventos_programas_asociados
+                                              .map((ep) => ep.programas)
+                                              .filter(Boolean)
+                                              .map((prog) => {
+                                                const badgeClasses =
+                                                  getProgramBadgeClasses(prog);
+                                                return (
+                                                  <div
+                                                    key={prog.id}
+                                                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${badgeClasses}`}
+                                                    title={prog.nombre_gira}
+                                                  >
+                                                    <span className="font-bold">
+                                                      [
+                                                      {prog.nomenclador ||
+                                                        "Sin código"}
+                                                      ]
+                                                    </span>
+                                                    <span className="opacity-70">
+                                                      |
+                                                    </span>
+                                                    <span className="truncate max-w-[150px] italic">
+                                                      {prog.nombre_gira}
+                                                    </span>
+                                                  </div>
+                                                );
+                                              })}
+                                          </div>
+                                        )}
+                                    </>
+                                  ) : (
+                                    <div
+                                      className={`text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
+                                    >
+                                      {evt.descripcion ? (
+                                        <div
+                                          className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold"
+                                          dangerouslySetInnerHTML={{
+                                            __html: evt.descripcion,
+                                          }}
+                                        />
+                                      ) : (
+                                        <span>{evt.tipos_evento?.nombre}</span>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  <div className="flex flex-wrap gap-1">
+                                    {isTransportEvent && transportName && (
+                                      <span
+                                        className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border"
+                                        style={{
+                                          backgroundColor: isMyTransport
+                                            ? `${transportColor}30`
+                                            : `${transportColor}15`,
+                                          color: isMyTransport
+                                            ? "#1e293b"
+                                            : "#64748b",
+                                          borderColor: `${transportColor}60`,
+                                        }}
+                                      >
+                                        <IconBus
+                                          size={10}
+                                          style={{ color: transportColor }}
+                                        />
+                                        {transportName}{" "}
+                                        {transportDetail && (
+                                          <span className="font-normal opacity-80">
+                                            ({transportDetail})
                                           </span>
-                                        ))
-                                    ) : (
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-tight">
-                                        S/E
+                                        )}
                                       </span>
                                     )}
                                   </div>
-                                </div>
-
-                                {/* Chips de programa debajo de la descripción */}
-                                {Array.isArray(evt.eventos_programas_asociados) &&
-                                  evt.eventos_programas_asociados.length > 0 && (
-                                    <div className="flex flex-wrap gap-1 mt-1">
-                                      {evt.eventos_programas_asociados
-                                        .map((ep) => ep.programas)
-                                        .filter(Boolean)
-                                        .map((prog) => {
-                                          const badgeClasses =
-                                            getProgramBadgeClasses(prog);
-                                          return (
-                                            <div
-                                              key={prog.id}
-                                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${badgeClasses}`}
-                                              title={prog.nombre_gira}
+                                  <div className="flex flex-col min-w-0">
+                                    {isMyUp && (
+                                      <span className="md:hidden flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 mb-0.5">
+                                        <IconUpload size={12} /> Mi Subida
+                                      </span>
+                                    )}
+                                    {isMyDown && (
+                                      <span className="md:hidden flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 mb-0.5">
+                                        <IconDownload size={12} /> Mi Bajada
+                                      </span>
+                                    )}
+                                    {locName && (
+                                      <div
+                                        className={`flex items-start gap-1 text-xs mt-0.5 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}
+                                      >
+                                        <VenueStatusPin
+                                          eventId={evt.id}
+                                          idEstadoVenue={evt.id_estado_venue}
+                                          label={`${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`}
+                                          supabase={supabase}
+                                          className="mt-0.5"
+                                          size={14}
+                                        />
+                                        <div className="flex flex-col min-w-0">
+                                          <span
+                                            className={`font-semibold truncate ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
+                                          >
+                                            {locName}{" "}
+                                            {locCity ? `(${locCity})` : ""}
+                                          </span>
+                                          {evt.locaciones?.direccion && (
+                                            <a
+                                              href={getGoogleMapsUrl(
+                                                evt.locaciones,
+                                              )}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-[10px] text-blue-600 hover:underline truncate block w-full"
+                                              onClick={(e) =>
+                                                e.stopPropagation()
+                                              }
                                             >
-                                              <span className="font-bold">
-                                                [{prog.nomenclador || "Sin código"}]
-                                              </span>
-                                              <span className="opacity-70">|</span>
-                                              <span className="truncate max-w-[150px] italic">
-                                                {prog.nombre_gira}
-                                              </span>
-                                            </div>
-                                          );
-                                        })}
-                                    </div>
-                                  )}
-                              </>
-                            ) : (
-                              <div
-                                className={`text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
-                              >
-                                {evt.descripcion ? (
-                                  <div
-                                    className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold"
-                                    dangerouslySetInnerHTML={{
-                                      __html: evt.descripcion,
-                                    }}
-                                  />
-                                ) : (
-                                  <span>{evt.tipos_evento?.nombre}</span>
-                                )}
-                              </div>
-                            )}
-
-                            <div className="flex flex-wrap gap-1">
-                              {isTransportEvent && transportName && (
-                                <span
-                                  className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border"
-                                  style={{
-                                    backgroundColor: isMyTransport
-                                      ? `${transportColor}30`
-                                      : `${transportColor}15`,
-                                    color: isMyTransport
-                                      ? "#1e293b"
-                                      : "#64748b",
-                                    borderColor: `${transportColor}60`,
-                                  }}
-                                >
-                                  <IconBus
-                                    size={10}
-                                    style={{ color: transportColor }}
-                                  />
-                                  {transportName}{" "}
-                                  {transportDetail && (
-                                    <span className="font-normal opacity-80">
-                                      ({transportDetail})
-                                    </span>
-                                  )}
-                                </span>
-                              )}
-                              {isMyUp && (
-                                <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                  <IconUpload size={12} /> Mi Subida
-                                </span>
-                              )}
-                              {isMyDown && (
-                                <span className="flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                                  <IconDownload size={12} /> Mi Bajada
-                                </span>
-                              )}
-                            </div>
-
-                            {locName && (
-                              <div
-                                className={`flex items-start gap-1 text-xs mt-0.5 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}
-                              >
-                                <VenueStatusPin
-                                  eventId={evt.id}
-                                  idEstadoVenue={evt.id_estado_venue}
-                                  label={`${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`}
-                                  supabase={supabase}
-                                  className="mt-0.5"
-                                  size={14}
-                                />
-                                <div className="flex flex-col min-w-0">
-                                  <span
-                                    className={`font-semibold truncate ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
-                                  >
-                                    {locName} {locCity ? `(${locCity})` : ""}
-                                  </span>
-                                  {evt.locaciones?.direccion && (
-                                    <a
-                                      href={getGoogleMapsUrl(evt.locaciones)}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-[10px] text-blue-600 hover:underline truncate block w-full"
-                                      onClick={(e) => e.stopPropagation()}
-                                    >
-                                      {evt.locaciones.direccion} ↗
-                                    </a>
-                                  )}
+                                              {evt.locaciones.direccion} ↗
+                                            </a>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            )}
-                          </div>
 
-                          <div className="shrink-0 flex items-start gap-1 pl-2 pt-1 border-l border-slate-100 flex-col justify-between min-w-[40px]">
-                            {isDeleted && (isEditor || isAdmin || isManagement) ? (
-                              <div className="flex flex-col gap-1 items-end">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRestoreEvent(evt.id);
-                                  }}
-                                  className="pointer-events-auto p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors"
-                                  title="Restaurar evento"
-                                >
-                                  <IconUndo size={18} />
-                                </button>
-                              {isAdmin  && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setPermanentDeleteTarget({
-                                        id: evt.id,
-                                        label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
-                                      });
-                                    }}
-                                    className="pointer-events-auto p-1.5 text-violet-600 hover:bg-violet-50 rounded-full transition-colors"
-                                    title="Eliminar definitivamente"
-                                  >
-                                    <IconTrash size={18} />
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              <>
-                                {isMeal &&
-                                  evt.is_convoked &&
-                                  user.id !== "guest-general" && (
-                                    <button
-                                      onClick={() => setMealActionTarget(evt)}
-                                      className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm transition-all
+                                <div className="shrink-0 flex items-start gap-1 pl-2 pt-1 border-l border-slate-100 flex-col justify-between min-w-[40px]">
+                                  {isDeleted &&
+                                  (isEditor || isAdmin || isManagement) ? (
+                                    <div className="flex flex-col gap-1 items-end">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleRestoreEvent(evt.id);
+                                        }}
+                                        className="pointer-events-auto p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors"
+                                        title="Restaurar evento"
+                                      >
+                                        <IconUndo size={18} />
+                                      </button>
+                                      {isAdmin && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setPermanentDeleteTarget({
+                                              id: evt.id,
+                                              label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
+                                            });
+                                          }}
+                                          className="pointer-events-auto p-1.5 text-violet-600 hover:bg-violet-50 rounded-full transition-colors"
+                                          title="Eliminar definitivamente"
+                                        >
+                                          <IconTrash size={18} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {isMeal &&
+                                        evt.is_convoked &&
+                                        user.id !== "guest-general" && (
+                                          <button
+                                            onClick={() =>
+                                              setMealActionTarget(evt)
+                                            }
+                                            className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm transition-all
                                         ${
                                           evt.mi_asistencia === "P"
                                             ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
@@ -1830,89 +1957,92 @@ export default function UnifiedAgenda({
                                               : "bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200"
                                         }
                                       `}
-                                    >
-                                      {(() => {
-                                        const dl = getDeadlineStatus(
-                                          evt.programas
-                                            ?.fecha_confirmacion_limite,
-                                        );
-                                        const isLocked =
-                                          dl.status === "CLOSED" &&
-                                          !isManagement &&
-                                          !isEditor;
-                                        if (evt.mi_asistencia === "P")
-                                          return <IconCheck size={14} />;
-                                        if (evt.mi_asistencia === "A")
-                                          return <IconX size={14} />;
-                                        if (isLocked)
-                                          return (
-                                            <span className="text-[10px]">🔒</span>
-                                          );
-                                        return <IconUtensils size={14} />;
-                                      })()}
-                                      <span>
-                                        {evt.mi_asistencia === "P"
-                                          ? "Voy"
-                                          : evt.mi_asistencia === "A"
-                                            ? "No voy"
-                                            : getDeadlineStatus(
-                                                  evt.programas
-                                                    ?.fecha_confirmacion_limite,
-                                                ).status === "CLOSED" &&
+                                          >
+                                            {(() => {
+                                              const dl = getDeadlineStatus(
+                                                evt.programas
+                                                  ?.fecha_confirmacion_limite,
+                                              );
+                                              const isLocked =
+                                                dl.status === "CLOSED" &&
                                                 !isManagement &&
-                                                !isEditor
-                                              ? "Cerrado"
-                                              : "¿?"}
-                                      </span>
-                                    </button>
+                                                !isEditor;
+                                              if (evt.mi_asistencia === "P")
+                                                return <IconCheck size={14} />;
+                                              if (evt.mi_asistencia === "A")
+                                                return <IconX size={14} />;
+                                              if (isLocked)
+                                                return (
+                                                  <span className="text-[10px]">
+                                                    🔒
+                                                  </span>
+                                                );
+                                              return <IconUtensils size={14} />;
+                                            })()}
+                                            <span>
+                                              {evt.mi_asistencia === "P"
+                                                ? "Voy"
+                                                : evt.mi_asistencia === "A"
+                                                  ? "No voy"
+                                                  : getDeadlineStatus(
+                                                        evt.programas
+                                                          ?.fecha_confirmacion_limite,
+                                                      ).status === "CLOSED" &&
+                                                      !isManagement &&
+                                                      !isEditor
+                                                    ? "Cerrado"
+                                                    : "¿?"}
+                                            </span>
+                                          </button>
+                                        )}
+                                      <DriveSmartButton evt={evt} />
+                                      <div className="flex flex-col gap-1 items-end">
+                                        <CommentButton
+                                          supabase={supabase}
+                                          entityType="EVENTO"
+                                          entityId={evt.id}
+                                          onClick={() =>
+                                            setCommentsState({
+                                              type: "EVENTO",
+                                              id: evt.id,
+                                            })
+                                          }
+                                          className="text-slate-300 p-1"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setEventHistoryEvent({
+                                              id: evt.id,
+                                              label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
+                                            })
+                                          }
+                                          className="p-1 text-slate-300 hover:text-indigo-500 rounded-full border border-transparent hover:border-indigo-100"
+                                          title="Ver historial de cambios"
+                                        >
+                                          <IconHistory size={14} />
+                                        </button>
+                                        {!isOfflineMode &&
+                                          (isGlobalEditor ||
+                                            canUserEditEvent(evt)) && (
+                                            <button
+                                              onClick={() => openEditModal(evt)}
+                                              className="p-1 text-slate-300 bg-white rounded-full border border-slate-100"
+                                            >
+                                              <IconEdit size={14} />
+                                            </button>
+                                          )}
+                                      </div>
+                                    </>
                                   )}
-                                <DriveSmartButton evt={evt} />
-                                <div className="flex flex-col gap-1 items-end">
-                                  <CommentButton
-                                    supabase={supabase}
-                                    entityType="EVENTO"
-                                    entityId={evt.id}
-                                    onClick={() =>
-                                      setCommentsState({
-                                        type: "EVENTO",
-                                        id: evt.id,
-                                      })
-                                    }
-                                    className="text-slate-300 p-1"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setEventHistoryEvent({
-                                        id: evt.id,
-                                        label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
-                                      })
-                                    }
-                                    className="p-1 text-slate-300 hover:text-indigo-500 rounded-full border border-transparent hover:border-indigo-100"
-                                    title="Ver historial de cambios"
-                                  >
-                                    <IconHistory size={14} />
-                                  </button>
-                                  {!isOfflineMode &&
-                                    (isGlobalEditor || canUserEditEvent(evt)) && (
-                                      <button
-                                        onClick={() => openEditModal(evt)}
-                                        className="p-1 text-slate-300 bg-white rounded-full border border-slate-100"
-                                      >
-                                        <IconEdit size={14} />
-                                      </button>
-                                    )}
                                 </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
+                              </div>
 
-                        {/* ======================================================== */}
-                        {/* VISTA ESCRITORIO (Grid Columnar) - Visible solo en md+ */}
-                        {/* ======================================================== */}
-                        <div
-                          className={`hidden md:grid md:grid-cols-12 gap-2 p-3 pl-4 items-start border-b border-slate-100 transition-colors group relative
+                              {/* ======================================================== */}
+                              {/* VISTA ESCRITORIO (Grid Columnar) - Visible solo en md+ */}
+                              {/* ======================================================== */}
+                              <div
+                                className={`hidden md:grid md:grid-cols-12 gap-2 p-3 pl-4 items-start border-b border-slate-100 transition-colors group relative
                             ${shouldDim && !isDeleted ? "opacity-60 grayscale hover:bg-slate-50" : ""}
                             ${isDeleted ? "bg-orange-50 opacity-80 line-through" : ""}
                             ${isReadOnlyDeleted ? " pointer-events-none" : ""}
@@ -1920,250 +2050,299 @@ export default function UnifiedAgenda({
                             ${!isDeleted && isMyTransport ? "bg-indigo-50/30 hover:bg-slate-50" : ""}
                             ${isRecentlyModified && !isDeleted ? "ring-2 ring-blue-500 animate-pulse" : ""}
                           `}
-                          style={
-                            isDeleted
-                              ? { backgroundColor: "#fff7ed" }
-                              : !shouldDim && !evt.is_guest && !isMyTransport
-                                ? cardStyle
-                                : {}
-                          }
-                        >
-                          <div
-                            className="absolute left-0 top-0 bottom-0 w-[4px]"
-                            style={{
-                              backgroundColor: evt.is_absent
-                                ? "#94a3b8"
-                                : isMyTransport
-                                  ? "transparent"
-                                  : eventColor,
-                            }}
-                          ></div>
-
-                          {/* COLUMNA 1: HORA */}
-                          <div className="col-span-1">
-                            <div className={`font-mono text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}>
-                              {evt.hora_inicio?.slice(0, 5)}
-                            </div>
-                            {evt.hora_fin &&
-                              evt.hora_fin !== evt.hora_inicio && (
-                                <div className={`font-mono text-[10px] ${isDeleted ? "text-orange-600" : "text-slate-400"}`}>
-                                  {evt.hora_fin.slice(0, 5)}
-                                </div>
-                              )}
-                          </div>
-
-                          {/* COLUMNA 2: TIPO */}
-                          <div className="col-span-2 flex flex-col items-start gap-1.5 min-w-0">
-                            <div className="flex flex-wrap gap-1 items-center">
-                              <span
-                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full"
-                                style={{
-                                  color: eventColor,
-                                  borderColor: `${eventColor}40`,
-                                  backgroundColor: `${eventColor}10`,
-                                }}
+                                style={
+                                  isDeleted
+                                    ? { backgroundColor: "#fff7ed" }
+                                    : !shouldDim &&
+                                        !evt.is_guest &&
+                                        !isMyTransport
+                                      ? cardStyle
+                                      : {}
+                                }
                               >
-                                {evt.tipos_evento?.nombre}
-                              </span>
-                              {(isManagement || isEditor) && (
-                                <button
-                                  onClick={(e) =>
-                                    toggleEventTechnica(e, evt.id, evt.tecnica)
-                                  }
-                                  className={`flex items-center gap-1 px-1 py-0.5 rounded border transition-all text-[9px] font-bold uppercase ${evt.tecnica ? "bg-slate-700 text-white" : "text-slate-300"}`}
-                                >
-                                  {evt.tecnica ? "TÉC" : <IconEye size={10} />}
-                                </button>
-                              )}
-                            </div>
-                            {evt.programas?.nomenclador && (
-                              <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 border border-indigo-100">
-                                {evt.programas.nomenclador}
-                              </span>
-                            )}
-                            {/* Chips Transporte */}
-                            <div className="flex flex-col gap-1 w-full">
-                              {isTransportEvent && transportName && (
-                                <span
-                                  className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded border w-fit max-w-full truncate"
+                                <div
+                                  className="absolute left-0 top-0 bottom-0 w-[4px]"
                                   style={{
-                                    backgroundColor: isMyTransport
-                                      ? `${transportColor}20`
-                                      : "transparent",
-                                    color: isMyTransport
-                                      ? "#1e293b"
-                                      : "#64748b",
-                                    borderColor: `${transportColor}40`,
+                                    backgroundColor: evt.is_absent
+                                      ? "#94a3b8"
+                                      : isMyTransport
+                                        ? "transparent"
+                                        : eventColor,
                                   }}
-                                >
-                                  <IconBus
-                                    size={10}
-                                    style={{ color: transportColor }}
-                                  />
-                                  <span className="truncate">
-                                    {transportName}
-                                  </span>
-                                </span>
-                              )}
-                            </div>
+                                ></div>
 
-                          </div>
-
-                          {/* COLUMNA 3: DESCRIPCIÓN + ENSAMBLES + PROGRAMAS */}
-                          <div className="col-span-4 min-w-0">
-                            <div className="flex items-start gap-2">
-                              <div
-                                className={`flex-1 text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
-                              >
-                                {evt.descripcion ? (
+                                {/* COLUMNA 1: HORA */}
+                                <div className="col-span-1">
                                   <div
-                                    className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold text-sm"
-                                    dangerouslySetInnerHTML={{
-                                      __html: evt.descripcion,
-                                    }}
-                                  />
-                                ) : (
-                                  <span className={isDeleted ? "font-bold text-orange-700" : "font-bold text-slate-800"}>
-                                    {evt.tipos_evento?.nombre}
-                                  </span>
-                                )}
-                              </div>
+                                    className={`font-mono text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
+                                  >
+                                    {evt.hora_inicio?.slice(0, 5)}
+                                  </div>
+                                  {evt.hora_fin &&
+                                    evt.hora_fin !== evt.hora_inicio && (
+                                      <div
+                                        className={`font-mono text-[10px] ${isDeleted ? "text-orange-600" : "text-slate-400"}`}
+                                      >
+                                        {evt.hora_fin.slice(0, 5)}
+                                      </div>
+                                    )}
+                                </div>
 
-                              {/* Chip(es) de ensamble al lado de la descripción */}
-                              {evt.id_tipo_evento === 13 && (
-                                <div className="flex flex-wrap gap-1 shrink-0">
-                                  {(evt.eventos_ensambles?.length > 0
-                                    ? evt.eventos_ensambles
-                                        .map((ee) => ee.ensambles?.ensamble)
-                                        .filter(Boolean)
-                                    : []
-                                  ).length > 0 ? (
-                                    (evt.eventos_ensambles || [])
-                                      .filter((ee) => ee.ensambles?.ensamble)
-                                      .map((ee) => (
-                                        <span
-                                          key={ee.ensambles?.id}
-                                          className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-tight"
-                                        >
-                                          {ee.ensambles.ensamble}
-                                        </span>
-                                      ))
-                                  ) : (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-tight">
-                                      S/E
+                                {/* COLUMNA 2: TIPO */}
+                                <div className="col-span-2 flex flex-col items-start gap-1.5 min-w-0">
+                                  <div className="flex flex-wrap gap-1 items-center">
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border truncate max-w-full"
+                                      style={{
+                                        color: eventColor,
+                                        borderColor: `${eventColor}40`,
+                                        backgroundColor: `${eventColor}10`,
+                                      }}
+                                    >
+                                      {evt.tipos_evento?.nombre}
+                                    </span>
+                                    {(isManagement || isEditor) && (
+                                      <button
+                                        onClick={(e) =>
+                                          toggleEventTechnica(
+                                            e,
+                                            evt.id,
+                                            evt.tecnica,
+                                          )
+                                        }
+                                        className={`flex items-center gap-1 px-1 py-0.5 rounded border transition-all text-[9px] font-bold uppercase ${evt.tecnica ? "bg-slate-700 text-white" : "text-slate-300"}`}
+                                      >
+                                        {evt.tecnica ? (
+                                          "TÉC"
+                                        ) : (
+                                          <IconEye size={10} />
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
+                                  {evt.programas?.nomenclador && (
+                                    <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 border border-indigo-100">
+                                      {evt.programas.nomenclador}
                                     </span>
                                   )}
+                                  {/* Chips Transporte */}
+                                  <div className="flex flex-col gap-1 w-full">
+                                    {isTransportEvent && transportName && (
+                                      <span
+                                        className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded border w-fit max-w-full truncate"
+                                        style={{
+                                          backgroundColor: isMyTransport
+                                            ? `${transportColor}20`
+                                            : "transparent",
+                                          color: isMyTransport
+                                            ? "#1e293b"
+                                            : "#64748b",
+                                          borderColor: `${transportColor}40`,
+                                        }}
+                                      >
+                                        <IconBus
+                                          size={10}
+                                          style={{ color: transportColor }}
+                                        />
+                                        <span className="truncate">
+                                          {transportName}
+                                        </span>
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
-                              )}
-                            </div>
 
-                            {/* Chips de programas DEBAJO de la descripción */}
-                            {evt.id_tipo_evento === 13 &&
-                              Array.isArray(evt.eventos_programas_asociados) &&
-                              evt.eventos_programas_asociados.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {evt.eventos_programas_asociados
-                                    .map((ep) => ep.programas)
-                                    .filter(Boolean)
-                                    .map((prog) => {
-                                      const badgeClasses =
-                                        getProgramBadgeClasses(prog);
-                                      return (
-                                        <div
-                                          key={prog.id}
-                                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${badgeClasses}`}
-                                          title={prog.nombre_gira}
-                                        >
-                                          <span className="font-bold">
-                                            [{prog.nomenclador || "Sin código"}]
-                                          </span>
-                                          <span className="opacity-70">|</span>
-                                          <span className="truncate max-w-[150px] italic">
-                                            {prog.nombre_gira}
-                                          </span>
-                                        </div>
-                                      );
-                                    })}
-                                </div>
-                              )}
-                          </div>
-
-                          {/* COLUMNA 4: LOCACIÓN */}
-                          <div className="col-span-3 min-w-0">
-                            {locName && (
-                              <div
-                                className={`flex items-start gap-1.5 ${isDeleted ? "text-orange-700" : ""}`}
-                              >
-                                <VenueStatusPin
-                                  eventId={evt.id}
-                                  idEstadoVenue={evt.id_estado_venue}
-                                  label={`${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`}
-                                  supabase={supabase}
-                                  className="mt-0.5"
-                                  size={14}
-                                />
-                                <div className="flex flex-col min-w-0">
-                                  <span
-                                    className={`text-xs font-semibold truncate block ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
-                                  >
-                                    {locName} {locCity ? `(${locCity})` : ""}
-                                  </span>
-                                  {evt.locaciones?.direccion && (
-                                    <a
-                                      href={getGoogleMapsUrl(evt.locaciones)}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-[10px] text-blue-600 hover:underline truncate block w-full mt-0.5"
-                                      onClick={(e) => e.stopPropagation()}
+                                {/* COLUMNA 3: DESCRIPCIÓN + ENSAMBLES + PROGRAMAS */}
+                                <div className="col-span-4 min-w-0">
+                                  <div className="flex items-start gap-2">
+                                    <div
+                                      className={`flex-1 text-sm leading-tight break-words ${isDeleted ? "text-orange-700" : shouldDim ? "text-slate-400" : "text-slate-800"}`}
                                     >
-                                      {evt.locaciones.direccion} ↗
-                                    </a>
+                                      {evt.descripcion ? (
+                                        <div
+                                          className="whitespace-pre-wrap font-medium [&>b]:font-bold [&>strong]:font-bold text-sm"
+                                          dangerouslySetInnerHTML={{
+                                            __html: evt.descripcion,
+                                          }}
+                                        />
+                                      ) : (
+                                        <span
+                                          className={
+                                            isDeleted
+                                              ? "font-bold text-orange-700"
+                                              : "font-bold text-slate-800"
+                                          }
+                                        >
+                                          {evt.tipos_evento?.nombre}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Chip(es) de ensamble al lado de la descripción */}
+                                    {evt.id_tipo_evento === 13 && (
+                                      <div className="flex flex-wrap gap-1 shrink-0">
+                                        {(evt.eventos_ensambles?.length > 0
+                                          ? evt.eventos_ensambles
+                                              .map(
+                                                (ee) => ee.ensambles?.ensamble,
+                                              )
+                                              .filter(Boolean)
+                                          : []
+                                        ).length > 0 ? (
+                                          (evt.eventos_ensambles || [])
+                                            .filter(
+                                              (ee) => ee.ensambles?.ensamble,
+                                            )
+                                            .map((ee) => (
+                                              <span
+                                                key={ee.ensambles?.id}
+                                                className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-tight"
+                                              >
+                                                {ee.ensambles.ensamble}
+                                              </span>
+                                            ))
+                                        ) : (
+                                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-tight">
+                                            S/E
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                    {/* Badges de Logística Personal (Escritorio) */}
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {isMyUp && (
+                                        <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                          <IconUpload size={10} /> Mi Subida
+                                        </span>
+                                      )}
+                                      {isMyDown && (
+                                        <span className="flex items-center gap-1 text-[9px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                                          <IconDownload size={10} /> Mi Bajada
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Chips de programas DEBAJO de la descripción */}
+                                  {evt.id_tipo_evento === 13 &&
+                                    Array.isArray(
+                                      evt.eventos_programas_asociados,
+                                    ) &&
+                                    evt.eventos_programas_asociados.length >
+                                      0 && (
+                                      <div className="flex flex-wrap gap-1 mt-1">
+                                        {evt.eventos_programas_asociados
+                                          .map((ep) => ep.programas)
+                                          .filter(Boolean)
+                                          .map((prog) => {
+                                            const badgeClasses =
+                                              getProgramBadgeClasses(prog);
+                                            return (
+                                              <div
+                                                key={prog.id}
+                                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${badgeClasses}`}
+                                                title={prog.nombre_gira}
+                                              >
+                                                <span className="font-bold">
+                                                  [
+                                                  {prog.nomenclador ||
+                                                    "Sin código"}
+                                                  ]
+                                                </span>
+                                                <span className="opacity-70">
+                                                  |
+                                                </span>
+                                                <span className="truncate max-w-[150px] italic">
+                                                  {prog.nombre_gira}
+                                                </span>
+                                              </div>
+                                            );
+                                          })}
+                                      </div>
+                                    )}
+                                </div>
+
+                                {/* COLUMNA 4: LOCACIÓN */}
+                                <div className="col-span-3 min-w-0">
+                                  {locName && (
+                                    <div
+                                      className={`flex items-start gap-1.5 ${isDeleted ? "text-orange-700" : ""}`}
+                                    >
+                                      <VenueStatusPin
+                                        eventId={evt.id}
+                                        idEstadoVenue={evt.id_estado_venue}
+                                        label={`${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`}
+                                        supabase={supabase}
+                                        className="mt-0.5"
+                                        size={14}
+                                      />
+                                      <div className="flex flex-col min-w-0">
+                                        <span
+                                          className={`text-xs font-semibold truncate block ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
+                                        >
+                                          {locName}{" "}
+                                          {locCity ? `(${locCity})` : ""}
+                                        </span>
+                                        {evt.locaciones?.direccion && (
+                                          <a
+                                            href={getGoogleMapsUrl(
+                                              evt.locaciones,
+                                            )}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-[10px] text-blue-600 hover:underline truncate block w-full mt-0.5"
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
+                                            {evt.locaciones.direccion} ↗
+                                          </a>
+                                        )}
+                                      </div>
+                                    </div>
                                   )}
                                 </div>
-                              </div>
-                            )}
-                          </div>
 
-                          {/* COLUMNA 5: ACCIONES */}
-                          <div className="col-span-2 flex flex-col items-end gap-2 pl-2 border-l border-slate-100 h-full">
-                            {isDeleted && (isEditor || isManagement) ? (
-                              <div className="flex flex-col items-end gap-1 mt-auto">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRestoreEvent(evt.id);
-                                  }}
-                                  className="pointer-events-auto p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors"
-                                  title="Restaurar evento"
-                                >
-                                  <IconUndo size={18} />
-                                </button>
-                                {isAdmin && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setPermanentDeleteTarget({
-                                        id: evt.id,
-                                        label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
-                                      });
-                                    }}
-                                    className="pointer-events-auto p-1.5 text-violet-600 hover:bg-violet-50 rounded-full transition-colors"
-                                    title="Eliminar definitivamente"
-                                  >
-                                    <IconTrash size={18} />
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              <>
-                            {isMeal &&
-                              evt.is_convoked &&
-                              user.id !== "guest-general" && (
-                                <button
-                                  onClick={() => setMealActionTarget(evt)}
-                                  className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm transition-all
+                                {/* COLUMNA 5: ACCIONES */}
+                                <div className="col-span-2 flex flex-col items-end gap-2 pl-2 border-l border-slate-100 h-full">
+                                  {isDeleted && (isEditor || isManagement) ? (
+                                    <div className="flex flex-col items-end gap-1 mt-auto">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleRestoreEvent(evt.id);
+                                        }}
+                                        className="pointer-events-auto p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors"
+                                        title="Restaurar evento"
+                                      >
+                                        <IconUndo size={18} />
+                                      </button>
+                                      {isAdmin && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setPermanentDeleteTarget({
+                                              id: evt.id,
+                                              label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
+                                            });
+                                          }}
+                                          className="pointer-events-auto p-1.5 text-violet-600 hover:bg-violet-50 rounded-full transition-colors"
+                                          title="Eliminar definitivamente"
+                                        >
+                                          <IconTrash size={18} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {isMeal &&
+                                        evt.is_convoked &&
+                                        user.id !== "guest-general" && (
+                                          <button
+                                            onClick={() =>
+                                              setMealActionTarget(evt)
+                                            }
+                                            className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm transition-all
                                         ${
                                           evt.mi_asistencia === "P"
                                             ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
@@ -2172,105 +2351,116 @@ export default function UnifiedAgenda({
                                               : "bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200"
                                         }
                                       `}
-                                >
-                                  {/* Icono según estado o candado si cerró y no votó */}
-                                  {(() => {
-                                    const dl = getDeadlineStatus(
-                                      evt.programas?.fecha_confirmacion_limite,
-                                    );
-                                    const isLocked =
-                                      dl.status === "CLOSED" &&
-                                      !isManagement &&
-                                      !isEditor;
+                                          >
+                                            {/* Icono según estado o candado si cerró y no votó */}
+                                            {(() => {
+                                              const dl = getDeadlineStatus(
+                                                evt.programas
+                                                  ?.fecha_confirmacion_limite,
+                                              );
+                                              const isLocked =
+                                                dl.status === "CLOSED" &&
+                                                !isManagement &&
+                                                !isEditor;
 
-                                    if (evt.mi_asistencia === "P")
-                                      return <IconCheck size={14} />;
-                                    if (evt.mi_asistencia === "A")
-                                      return <IconX size={14} />;
-                                    if (isLocked)
-                                      return (
-                                        <span className="text-[10px]">🔒</span>
-                                      ); // Icono candado si cerró
-                                    return <IconUtensils size={14} />;
-                                  })()}
+                                              if (evt.mi_asistencia === "P")
+                                                return <IconCheck size={14} />;
+                                              if (evt.mi_asistencia === "A")
+                                                return <IconX size={14} />;
+                                              if (isLocked)
+                                                return (
+                                                  <span className="text-[10px]">
+                                                    🔒
+                                                  </span>
+                                                ); // Icono candado si cerró
+                                              return <IconUtensils size={14} />;
+                                            })()}
 
-                                  <span>
-                                    {evt.mi_asistencia === "P"
-                                      ? "Voy"
-                                      : evt.mi_asistencia === "A"
-                                        ? "No voy"
-                                        : getDeadlineStatus(
-                                              evt.programas
-                                                ?.fecha_confirmacion_limite,
-                                            ).status === "CLOSED" &&
-                                            !isManagement &&
-                                            !isEditor
-                                          ? "Cerrado"
-                                          : "¿?"}
-                                  </span>
-                                </button>
-                              )}
-                            <div className="flex flex-col items-end gap-1 mt-auto">
-                              <div className="flex gap-1">
-                                <DriveSmartButton evt={evt} />
-                                {evt.programas?.id &&
-                                  onOpenRepertoire &&
-                                  !isNonConvokedMeal && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onOpenRepertoire(evt.programas.id);
-                                      }}
-                                      className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50"
-                                    >
-                                      <IconList size={16} />
-                                    </button>
+                                            <span>
+                                              {evt.mi_asistencia === "P"
+                                                ? "Voy"
+                                                : evt.mi_asistencia === "A"
+                                                  ? "No voy"
+                                                  : getDeadlineStatus(
+                                                        evt.programas
+                                                          ?.fecha_confirmacion_limite,
+                                                      ).status === "CLOSED" &&
+                                                      !isManagement &&
+                                                      !isEditor
+                                                    ? "Cerrado"
+                                                    : "¿?"}
+                                            </span>
+                                          </button>
+                                        )}
+                                      <div className="flex flex-col items-end gap-1 mt-auto">
+                                        <div className="flex gap-1">
+                                          <DriveSmartButton evt={evt} />
+                                          {evt.programas?.id &&
+                                            onOpenRepertoire &&
+                                            !isNonConvokedMeal && (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  onOpenRepertoire(
+                                                    evt.programas.id,
+                                                  );
+                                                }}
+                                                className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50"
+                                              >
+                                                <IconList size={16} />
+                                              </button>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-1">
+                                          <CommentButton
+                                            supabase={supabase}
+                                            entityType="EVENTO"
+                                            entityId={evt.id}
+                                            onClick={() =>
+                                              setCommentsState({
+                                                type: "EVENTO",
+                                                id: evt.id,
+                                              })
+                                            }
+                                            className="p-1.5 text-slate-300 hover:text-indigo-500"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setEventHistoryEvent({
+                                                id: evt.id,
+                                                label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
+                                              })
+                                            }
+                                            className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-slate-100 rounded-full"
+                                            title="Ver historial de cambios"
+                                          >
+                                            <IconHistory size={14} />
+                                          </button>
+                                          {!isOfflineMode &&
+                                            (isGlobalEditor ||
+                                              canUserEditEvent(evt)) && (
+                                              <button
+                                                onClick={() =>
+                                                  openEditModal(evt)
+                                                }
+                                                className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-slate-100 rounded-full"
+                                              >
+                                                <IconEdit size={14} />
+                                              </button>
+                                            )}
+                                        </div>
+                                      </div>
+                                    </>
                                   )}
+                                </div>
                               </div>
-                                  <div className="flex gap-1">
-                                    <CommentButton
-                                      supabase={supabase}
-                                      entityType="EVENTO"
-                                      entityId={evt.id}
-                                      onClick={() =>
-                                        setCommentsState({
-                                          type: "EVENTO",
-                                          id: evt.id,
-                                        })
-                                      }
-                                      className="p-1.5 text-slate-300 hover:text-indigo-500"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setEventHistoryEvent({
-                                          id: evt.id,
-                                          label: `${evt.tipos_evento?.nombre || "Evento"} ${evt.fecha || ""} ${evt.hora_inicio?.slice(0, 5) || ""}`,
-                                        })
-                                      }
-                                      className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-slate-100 rounded-full"
-                                      title="Ver historial de cambios"
-                                    >
-                                      <IconHistory size={14} />
-                                    </button>
-                                    {!isOfflineMode &&
-                                      (isGlobalEditor || canUserEditEvent(evt)) && (
-                                        <button
-                                          onClick={() => openEditModal(evt)}
-                                          className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-slate-100 rounded-full"
-                                        >
-                                          <IconEdit size={14} />
-                                        </button>
-                                      )}
-                                  </div>
                             </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        </div>
-                        <div className="h-px bg-slate-300 shrink-0" aria-hidden />
-                        </>
+                            <div
+                              className="h-px bg-slate-300 shrink-0"
+                              aria-hidden
+                            />
+                          </>
                         )}
                       </React.Fragment>
                     );
@@ -2305,7 +2495,12 @@ export default function UnifiedAgenda({
       <ConfirmModal
         isOpen={deleteConfirm.isOpen}
         onClose={() =>
-          setDeleteConfirm({ isOpen: false, message: "", messageIsHtml: false, hasLogisticsLinks: false })
+          setDeleteConfirm({
+            isOpen: false,
+            message: "",
+            messageIsHtml: false,
+            hasLogisticsLinks: false,
+          })
         }
         onConfirm={handleConfirmDeleteEvent}
         title="Mover a la papelera"
