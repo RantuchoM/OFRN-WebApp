@@ -2384,7 +2384,7 @@ export default function RoomingManager({
           <IconLoader className="animate-spin inline text-indigo-600" />
         </div>
       ) : (
-        <div className="flex-1 overflow-hidden flex flex-col lg:flex-row px-3 pb-3 pt-2 gap-3">
+        <div className="flex-1 overflow-y-auto flex flex-col lg:flex-row px-3 pb-3 pt-2 gap-3">
           {/* Listas laterales solo en desktop; en móvil se manejan con los toggles superiores */}
           <div className="hidden lg:block">
             <MusicianListColumn
