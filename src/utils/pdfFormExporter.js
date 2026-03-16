@@ -172,7 +172,10 @@ export const exportViaticosToPDFForm = async (
         f("dias_computados", data.dias_computables);
         f("valor_diario", fmtMoney(data.valorDiarioCalc));
         f("porcentaje_viatico", data.porcentaje);
-        f("porcentaje_temporada", configData.factor_temporada > 0 ? "ALTA" : "BAJA");
+        f(
+          "porcentaje_temporada",
+          configData.factor_temporada > 0 ? "ALTA" : "BAJA"
+        );
 
         // Tabla Rendición
         f("viaticos_ant", fmtMoney(data.subtotal));
