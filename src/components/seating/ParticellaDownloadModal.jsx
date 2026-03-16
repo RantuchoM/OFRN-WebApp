@@ -13,14 +13,30 @@ function bytesFromBase64(base64) {
 }
 
 function getDriveFileLabel(_url, fallbackIndex) {
-  // Si no tenemos un nombre explícito en el JSON,
-  // mostramos un label genérico legible, NO derivado del link
+  // Fallback genérico mientras no tengamos nombre real
   if (fallbackIndex === 0) return "Principal";
   return `Versión ${fallbackIndex + 1}`;
 }
 
+function getDriveKeyFromUrl(url) {
+  if (!url || typeof url !== "string") return "";
+  const clean = url.split("?")[0];
+  const match = clean.match(/[-\w]{25,}/);
+  const id = match ? match[0] : null;
+  return id ? `file:${id}` : clean;
+}
+
+function getDriveKeyFromId(id) {
+  if (!id) return "";
+  return `file:${id}`;
+}
+
 const isStringInstrumentId = (id) =>
   ["01", "02", "03", "04"].includes(String(id || ""));
+
+// Carpeta raíz en Drive donde se almacenan los sets unificados de particellas.
+// Coincide con PARTICELLA_SETS_ROOT_ID en la Edge Function `manage-drive`.
+const PARTICELLA_SETS_ROOT_ID = "1BK8yhY1dvAZRrDwEDXg3VR3QlnmdOH4u";
 
 export default function ParticellaDownloadModal({
   isOpen,
@@ -36,12 +52,21 @@ export default function ParticellaDownloadModal({
   const [selectedByObra, setSelectedByObra] = useState(() => {
     const initial = {};
     obras.forEach((obra) => {
-      initial[obra.obra_id] = { enabled: true, parts: {} };
+      initial[obra.obra_id] = { enabled: false, parts: {} };
+    });
+    return initial;
+  });
+  const [expandedByObra, setExpandedByObra] = useState(() => {
+    const initial = {};
+    obras.forEach((obra) => {
+      initial[obra.obra_id] = false;
     });
     return initial;
   });
   const [linkIndexByPart, setLinkIndexByPart] = useState({});
-  const [remoteLinkNames, setRemoteLinkNames] = useState({});
+  const [driveNamesByObra, setDriveNamesByObra] = useState({}); // { [obraId]: { [key]: name } }
+  const [hasLoadedDriveNames, setHasLoadedDriveNames] = useState(false);
+  const [googleAccessToken, setGoogleAccessToken] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, label: "" });
   const [results, setResults] = useState([]);
@@ -64,6 +89,7 @@ export default function ParticellaDownloadModal({
 
       // Copias por id_particella para esta obra
       const copiesByPartId = {};
+      const whoByPartId = {};
 
       // Cuerdas: contenedores (1 copia por músico presente)
       containers.forEach((c) => {
@@ -74,6 +100,18 @@ export default function ParticellaDownloadModal({
         const copies = musiciansCount;
         copiesByPartId[assignedPartId] =
           (copiesByPartId[assignedPartId] || 0) + copies;
+
+        const containerLabel =
+          c.nombre ||
+          c.label ||
+          c.name ||
+          c.titulo ||
+          c.title ||
+          `Contenedor ${c.id}`;
+        if (!whoByPartId[assignedPartId]) whoByPartId[assignedPartId] = [];
+        whoByPartId[assignedPartId].push(
+          `${containerLabel} (${musiciansCount} músico${musiciansCount > 1 ? "s" : ""})`,
+        );
       });
 
       // Vientos / percusión: 1 copia por músico presente
@@ -83,6 +121,20 @@ export default function ParticellaDownloadModal({
         if (!assignedPartId) return;
         copiesByPartId[assignedPartId] =
           (copiesByPartId[assignedPartId] || 0) + 1;
+
+        const musicianName =
+          m.apellido_nombre ||
+          m.nombre_completo ||
+          [m.nombre, m.apellido].filter(Boolean).join(" ") ||
+          m.display_name ||
+          m.name ||
+          `Músico ${m.id}`;
+        const instrumentLabel = m.instrumento || m.instrument || m.id_instr;
+        const label = instrumentLabel
+          ? `${musicianName} (${instrumentLabel})`
+          : musicianName;
+        if (!whoByPartId[assignedPartId]) whoByPartId[assignedPartId] = [];
+        whoByPartId[assignedPartId].push(label);
       });
 
       const obraParts = particellas.filter((p) => p.id_obra === obraId);
@@ -90,7 +142,6 @@ export default function ParticellaDownloadModal({
       const rows = obraParts
         .map((p) => {
           const copies = copiesByPartId[p.id] || 0;
-
           // Parseo de links múltiple (url_archivo puede ser string o JSON de array)
           let links = [];
           if (p.url_archivo) {
@@ -99,8 +150,8 @@ export default function ParticellaDownloadModal({
               if (trimmed.startsWith("[")) {
                 const parsed = JSON.parse(trimmed);
                 if (Array.isArray(parsed)) {
-                  // Para múltiples versiones, ignoramos cualquier "name" embebido
-                  // y siempre usaremos luego el nombre real de Drive (remoteLinkNames)
+                  // Para múltiples versiones solo guardamos la URL;
+                  // el nombre real vendrá de la carpeta de la obra en Drive.
                   links = parsed.map((l) => ({
                     url: l.url,
                   }));
@@ -125,6 +176,7 @@ export default function ParticellaDownloadModal({
             copies,
             links,
             hasMultipleLinks,
+            who: whoByPartId[p.id] || [],
             displayName:
               p.nombre_archivo ||
               p.instrumentos?.instrumento ||
@@ -143,32 +195,62 @@ export default function ParticellaDownloadModal({
 
   if (!isOpen) return null;
 
-  const handleToggleWork = (obraId) => {
+  const handleToggleWork = (obraId, rows) => {
     setSelectedByObra((prev) => {
       const next = { ...prev };
-      if (!next[obraId]) next[obraId] = { enabled: true, parts: {} };
+      const current = next[obraId] || { enabled: false, parts: {} };
+      const allSelected =
+        rows && rows.length
+          ? rows.every((row) => !!current.parts[row.partKey])
+          : false;
+
+      const newEnabled = !allSelected && (rows || []).length > 0;
+      const newParts = {};
+      if (newEnabled) {
+        (rows || []).forEach((row) => {
+          newParts[row.partKey] = true;
+        });
+      }
+
       next[obraId] = {
-        ...next[obraId],
-        enabled: !next[obraId].enabled,
+        enabled: newEnabled,
+        parts: newParts,
       };
       return next;
     });
   };
 
-  const handleTogglePart = (obraId, partKey) => {
+  const handleTogglePart = (obraId, partKey, rows) => {
     setSelectedByObra((prev) => {
-      const next = { ...prev };
-      if (!next[obraId]) next[obraId] = { enabled: true, parts: {} };
-      const current = !!next[obraId].parts[partKey];
-      next[obraId] = {
-        ...next[obraId],
-        parts: {
-          ...next[obraId].parts,
-          [partKey]: !current,
+      const current = prev[obraId] || { enabled: false, parts: {} };
+      const isCurrentlySelected = !!current.parts[partKey];
+      const newParts = { ...current.parts };
+      if (isCurrentlySelected) {
+        delete newParts[partKey];
+      } else {
+        newParts[partKey] = true;
+      }
+
+      const anySelected =
+        rows && rows.length
+          ? rows.some((row) => !!newParts[row.partKey])
+          : Object.values(newParts).some(Boolean);
+
+      return {
+        ...prev,
+        [obraId]: {
+          enabled: anySelected,
+          parts: newParts,
         },
       };
-      return next;
     });
+  };
+
+  const handleToggleExpand = (obraId) => {
+    setExpandedByObra((prev) => ({
+      ...prev,
+      [obraId]: !prev[obraId],
+    }));
   };
 
   const handleChangeLinkIndex = (partId, linkIdx) => {
@@ -181,11 +263,11 @@ export default function ParticellaDownloadModal({
   const computeSelection = () => {
     const selection = [];
     tree.forEach(({ obraId, obra, rows }) => {
-      const conf = selectedByObra[obraId] || { enabled: true, parts: {} };
+      const conf = selectedByObra[obraId] || { enabled: false, parts: {} };
       if (!conf.enabled) return;
       const selectedRows = rows.filter((row) => {
         const flag = conf.parts[row.partKey];
-        return flag === undefined ? true : flag;
+        return !!flag;
       });
       if (!selectedRows.length) return;
       selection.push({ obraId, obra, rows: selectedRows });
@@ -193,74 +275,169 @@ export default function ParticellaDownloadModal({
     return selection;
   };
 
-  // Carga perezosa de nombres reales desde Drive solo para enlaces con múltiples versiones
+  // Carga perezosa de nombres de Drive al abrir el modal (una sola vez) usando list_folder_files_subfolders
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || hasLoadedDriveNames) return;
 
-    const pending = [];
+    // Marcamos inmediatamente como cargado para evitar dobles ejecuciones en modo estricto
+    setHasLoadedDriveNames(true);
 
-    tree.forEach(({ rows }) => {
-      rows.forEach((row) => {
-        if (!row.hasMultipleLinks) return;
-        row.links.forEach((link) => {
-          if (!link.url) return;
-          if (remoteLinkNames[link.url]) return;
-          pending.push(link.url);
-        });
-      });
-    });
+    const obrasToLoad = (obras || []).filter((o) => o.link);
+    if (!obrasToLoad.length) return;
 
-    if (pending.length === 0) return;
-
-    const loadNames = async () => {
-      for (const url of pending) {
+    const loadAll = async () => {
+      for (const obra of obrasToLoad) {
+        const obraId = obra.obra_id;
         try {
-          // eslint-disable-next-line no-console
-          console.log("[ParticellaDownloadModal] get_file_name for", url);
           const { data, error } = await supabase.functions.invoke(
             "manage-drive",
             {
-              body: { action: "get_file_name", sourceUrl: url },
+              body: {
+                action: "list_folder_files_subfolders",
+                folderUrl: obra.link,
+              },
             },
           );
-          if (error) {
-            // eslint-disable-next-line no-console
-            console.error(
-              "[ParticellaDownloadModal] get_file_name error",
-              url,
-              error,
-            );
-            continue;
-          }
+
           // eslint-disable-next-line no-console
           console.log(
-            "[ParticellaDownloadModal] get_file_name OK",
-            url,
-            data,
+            "[ParticellaDownloadModal] list_folder_files_subfolders respuesta",
+            obraId,
+            { data, error },
           );
-          if (data?.name) {
-            setRemoteLinkNames((prev) =>
-              prev[url]
-                ? prev
-                : {
-                    ...prev,
-                    [url]: data.name,
-                  },
-            );
+
+          if (!error && Array.isArray(data?.files)) {
+            const updates = {};
+            data.files.forEach((file) => {
+              const idKey = getDriveKeyFromId(file.id);
+              const urlKey = file.webViewLink
+                ? getDriveKeyFromUrl(file.webViewLink)
+                : null;
+              if (idKey) updates[idKey] = file.name;
+              if (urlKey) updates[urlKey] = file.name;
+            });
+
+            setDriveNamesByObra((prev) => ({
+              ...prev,
+              [obraId]: {
+                ...(prev[obraId] || {}),
+                ...updates,
+              },
+            }));
           }
         } catch (e) {
-          // eslint-disable-next-line no-console
           console.error(
-            "[ParticellaDownloadModal] get_file_name exception",
-            url,
+            "[ParticellaDownloadModal] Error en list_folder_files_subfolders",
+            obraId,
             e,
           );
         }
       }
     };
 
-    loadNames();
-  }, [isOpen, tree, supabase, remoteLinkNames]);
+    loadAll();
+  }, [isOpen, obras, supabase, hasLoadedDriveNames]);
+
+  const ensureGoogleAccessToken = async () => {
+    if (googleAccessToken) return googleAccessToken;
+    try {
+      const { data, error } = await supabase.functions.invoke("manage-drive", {
+        body: { action: "get_temp_token" },
+      });
+      if (error || !data?.accessToken) {
+        throw new Error(error?.message || "No se pudo obtener token de Drive");
+      }
+      setGoogleAccessToken(data.accessToken);
+      return data.accessToken;
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("[DownloadFlow] Error obteniendo token de Drive", e);
+      throw e;
+    }
+  };
+
+  const extractFileIdFromUrl = (url) => {
+    if (!url || typeof url !== "string") return null;
+    const match = url.match(/[-\w]{25,}/);
+    return match ? match[0] : null;
+  };
+
+  const handleCopySinglePart = async (obraSel, row) => {
+    if (!row?.links?.length) return;
+    const chosenLinkIdx =
+      linkIndexByPart[row.partId] != null ? linkIndexByPart[row.partId] : 0;
+    const chosenLink = row.links[chosenLinkIdx] || row.links[0];
+    if (!chosenLink?.url || !chosenLink.url.includes("drive.google.com")) {
+      setError("Solo se pueden copiar particellas que estén en Google Drive.");
+      return;
+    }
+
+    try {
+      setIsRunning(true);
+      setProgress((prev) => ({
+        ...prev,
+        label: `Copiando ${row.displayName}...`,
+      }));
+
+      const fileId = extractFileIdFromUrl(chosenLink.url);
+      if (!fileId) {
+        throw new Error("No se pudo extraer el ID de Drive.");
+      }
+
+      const safeComposer = (obraSel.obra.composer || "Comp").replace(
+        /[^a-zA-Z0-9-_]+/g,
+        "_",
+      );
+      const obraTitleClean =
+        typeof obraSel.obra.title === "string"
+          ? obraSel.obra.title.replace(/<[^>]*>?/gm, "")
+          : obraSel.obra.title;
+      const safeTitle = (obraTitleClean || "Obra").replace(
+        /[^a-zA-Z0-9-_]+/g,
+        "_",
+      );
+      const baseName = `${row.displayName || "Particella"}_${safeComposer}_${safeTitle}`.replace(
+        /[^a-zA-Z0-9-_]+/g,
+        "_",
+      );
+
+      const { data, error } = await supabase.functions.invoke("manage-drive", {
+        body: {
+          action: "copy_file",
+          fileId,
+          destinationFolderId: PARTICELLA_SETS_ROOT_ID,
+          newName: `${baseName}.pdf`,
+        },
+      });
+
+      if (error || !data?.success) {
+        throw new Error(
+          error?.message || data?.error || "Error al copiar particella.",
+        );
+      }
+
+      setResults((prev) => [
+        ...prev,
+        {
+          obraId: obraSel.obraId,
+          title:
+            typeof obraSel.obra.title === "string"
+              ? obraSel.obra.title.replace(/<[^>]*>?/gm, "")
+              : obraSel.obra.title,
+          link: data.file?.webViewLink || null,
+          copiedSingle: true,
+        },
+      ]);
+      setError(null);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("[ParticellaDownloadModal] Error al copiar particella:", e);
+      setError(e.message || "Error al copiar particella.");
+    } finally {
+      setIsRunning(false);
+      setProgress((prev) => ({ ...prev, label: "" }));
+    }
+  };
 
   const handleGenerateAndUpload = async () => {
     const selection = computeSelection();
@@ -305,22 +482,52 @@ export default function ParticellaDownloadModal({
             linkIndexByPart[row.partId] != null ? linkIndexByPart[row.partId] : 0;
           const chosenLink = row.links[chosenLinkIdx] || row.links[0];
 
+          if (!chosenLink || !chosenLink.url) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              "[DownloadFlow] Fila sin URL, saltando:",
+              row.displayName,
+            );
+            globalResults.push({
+              obraId: obraSel.obraId,
+              title: obraTitleClean,
+              partId: row.partId,
+              error: "Sin URL de particella configurada",
+            });
+            currentStep += 1;
+            setProgress({
+              current: currentStep,
+              total: totalSteps,
+              label: `Saltando ${row.displayName} (sin URL)`,
+            });
+            continue;
+          }
+
+          // eslint-disable-next-line no-console
+          console.log(
+            "[DownloadFlow] Iniciando descarga de:",
+            row.displayName,
+          );
+
           let buffer;
           try {
             if (chosenLink.url.includes("drive.google.com")) {
-              const { data, error } = await supabase.functions.invoke(
-                "manage-drive",
+              const fileId = extractFileIdFromUrl(chosenLink.url);
+              if (!fileId) {
+                throw new Error("No se pudo extraer ID de Drive");
+              }
+              const token = await ensureGoogleAccessToken();
+              const res = await fetch(
+                `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
                 {
-                  body: {
-                    action: "get_file_content",
-                    sourceUrl: chosenLink.url,
+                  headers: {
+                    Authorization: `Bearer ${token}`,
                   },
                 },
               );
-              if (error || !data?.fileBase64) {
-                throw new Error(error?.message || "Error get_file_content");
-              }
-              buffer = bytesFromBase64(data.fileBase64);
+              if (!res.ok) throw new Error("Error descargando desde Drive");
+              const arr = await res.arrayBuffer();
+              buffer = new Uint8Array(arr);
             } else {
               const res = await fetch(chosenLink.url);
               if (!res.ok) throw new Error("Error descargando archivo");
@@ -328,7 +535,16 @@ export default function ParticellaDownloadModal({
               buffer = new Uint8Array(arr);
             }
           } catch (e) {
-            console.error("Error descargando particella", row.partId, e);
+            // eslint-disable-next-line no-console
+            console.error(
+              "[DownloadFlow] Error descargando particella",
+              {
+                partId: row.partId,
+                displayName: row.displayName,
+                url: chosenLink?.url,
+              },
+              e,
+            );
             currentStep += 1;
             setProgress({
               current: currentStep,
@@ -377,9 +593,10 @@ export default function ParticellaDownloadModal({
           label: "Subiendo a Drive...",
         });
 
-        const base64 = btoa(
-          String.fromCharCode(...new Uint8Array(mergedBytes)),
-        );
+        const token = await ensureGoogleAccessToken();
+        const bytes = new Uint8Array(mergedBytes);
+        const blob = new Blob([bytes], { type: "application/pdf" });
+
         const safeComposer = (obraSel.obra.composer || "Comp").replace(
           /[^a-zA-Z0-9-_]+/g,
           "_",
@@ -390,27 +607,42 @@ export default function ParticellaDownloadModal({
         );
         const fileName = `SetParticellas_${program?.nomenclador || program?.id || "Prog"}_${safeComposer}_${safeTitle}.pdf`;
 
+        const metadata = {
+          name: fileName,
+          parents: [PARTICELLA_SETS_ROOT_ID],
+        };
+
+        const form = new FormData();
+        form.append(
+          "metadata",
+          new Blob([JSON.stringify(metadata)], { type: "application/json" }),
+        );
+        form.append("file", blob);
+
         try {
-          const { data, error } = await supabase.functions.invoke(
-            "manage-drive",
+          const uploadRes = await fetch(
+            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
             {
-              body: {
-                action: "upload_particella_set",
-                fileBase64: base64,
-                fileName,
-                mimeType: "application/pdf",
-                programId: program?.id,
-                obraId: obraSel.obraId,
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
               },
+              body: form,
             },
           );
-          if (error) {
-            throw new Error(error.message || "Error upload_particella_set");
+
+          if (!uploadRes.ok) {
+            const errText = await uploadRes.text();
+            throw new Error(
+              `Error al subir set de particellas: ${uploadRes.status} ${errText}`,
+            );
           }
+
+          const upData = await uploadRes.json();
           globalResults.push({
             obraId: obraSel.obraId,
             title: obraTitleClean,
-            link: data?.webViewLink || null,
+            link: upData.webViewLink || null,
           });
         } catch (e) {
           console.error("Error subiendo set a Drive", e);
@@ -478,44 +710,60 @@ export default function ParticellaDownloadModal({
                 className="border border-slate-200 rounded-lg overflow-hidden"
               >
                 <div className="flex items-center justify-between bg-slate-100 px-3 py-2">
-                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-800">
-                    <input
-                      type="checkbox"
-                      className="rounded border-slate-300 text-indigo-600"
-                      checked={
-                        (selectedByObra[obraId]?.enabled ?? true) && rows.length > 0
-                      }
-                      onChange={() => handleToggleWork(obraId)}
-                    />
-                    <span>
-                      {obra.composer} —{" "}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="text-xs text-slate-500 hover:text-slate-700 transition-transform"
+                      onClick={() => handleToggleExpand(obraId)}
+                    >
                       <span
-                        className="font-bold"
-                        dangerouslySetInnerHTML={{ __html: obra.title }}
+                        className={`inline-block transform transition-transform ${
+                          expandedByObra[obraId] ? "rotate-90" : ""
+                        }`}
+                      >
+                        ▶
+                      </span>
+                    </button>
+                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-800">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-indigo-600"
+                        checked={
+                          !!selectedByObra[obraId]?.enabled && rows.length > 0
+                        }
+                        disabled={rows.length === 0}
+                        onChange={() => handleToggleWork(obraId, rows)}
                       />
-                    </span>
-                  </label>
+                      <span>
+                        {obra.composer} —{" "}
+                        <span
+                          className="font-bold"
+                          dangerouslySetInnerHTML={{ __html: obra.title }}
+                        />
+                      </span>
+                    </label>
+                  </div>
                   <span className="text-[11px] text-slate-500">
                     {rows.length} particellas
                   </span>
                 </div>
-                {rows.length > 0 && (
+                {rows.length > 0 && expandedByObra[obraId] && (
                   <div className="divide-y divide-slate-100 bg-white">
-                    {rows.map((row) => (
+                    {rows.map((row) => {
+                      return (
                         <div
                           key={row.partKey}
                           className="flex items-center justify-between px-3 py-1.5 text-xs"
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-1">
                             <input
                               type="checkbox"
                               className="rounded border-slate-300 text-indigo-600 mt-0.5"
                               checked={
-                                selectedByObra[obraId]?.parts[row.partKey] ??
-                                true
+                                !!selectedByObra[obraId]?.parts[row.partKey]
                               }
                               onChange={() =>
-                                handleTogglePart(obraId, row.partKey)
+                                handleTogglePart(obraId, row.partKey, rows)
                               }
                             />
                             <div className="flex flex-col">
@@ -526,6 +774,13 @@ export default function ParticellaDownloadModal({
                                 {row.copies} copias sugeridas
                               </span>
                             </div>
+                          </div>
+                          <div className="flex items-center justify-center gap-2 flex-1 text-center">
+                            {row.who && row.who.length > 0 && (
+                              <span className="text-[11px] text-emerald-600 truncate">
+                                {row.who.join(", ")}
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             {row.hasMultipleLinks ? (
@@ -544,9 +799,12 @@ export default function ParticellaDownloadModal({
                                 }
                               >
                                 {row.links.map((link, idx) => {
-                                  const remoteName = remoteLinkNames[link.url];
+                                  const key = getDriveKeyFromUrl(link.url);
+                                  const remoteName =
+                                    driveNamesByObra[row.obra.obra_id]?.[key];
                                   const label =
-                                    remoteName || getDriveFileLabel(link.url, idx);
+                                    remoteName ||
+                                    getDriveFileLabel(link.url, idx);
                                   return (
                                     <option key={idx} value={idx}>
                                       {label}
@@ -557,14 +815,31 @@ export default function ParticellaDownloadModal({
                             ) : (
                               <span className="text-[11px] text-slate-600">
                                 {row.links[0]?.url
-                                  ? remoteLinkNames[row.links[0].url] ||
-                                    getDriveFileLabel(row.links[0].url, 0)
+                                  ? driveNamesByObra[row.obra.obra_id]?.[
+                                      getDriveKeyFromUrl(row.links[0].url)
+                                    ] || getDriveFileLabel(row.links[0].url, 0)
                                   : "Particella"}
                               </span>
                             )}
                           </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="text-[11px] px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                              disabled={isRunning || !row.links[0]?.url}
+                              onClick={() =>
+                                handleCopySinglePart(
+                                  { obraId, obra },
+                                  row,
+                                )
+                              }
+                            >
+                              Copiar archivo
+                            </button>
+                          </div>
                         </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

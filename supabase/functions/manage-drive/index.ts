@@ -573,7 +573,7 @@ serve(async (req) => {
     
     if (body.record && body.record.id) {
       // Es un webhook automático: procesar como assemble_full_pack
-      // Solo procesar INSERT o UPDATE, ignorar DELETE
+      // Solo procesar INSERT o UPDATE, ignorarL DELETE
       const webhookType = body.type || body.eventType;
       if (webhookType === 'DELETE') {
         console.log(`[WEBHOOK] Ignorando DELETE para integrante ID: ${body.record.id}`);
@@ -585,11 +585,32 @@ serve(async (req) => {
     }
     
     const {
-      layout, sources, fileName, programId, folderUrl,
-      folderName, parentId, fileBase64, mimeType, sourceUrl, targetParentId,
-      newName, nombreSet, obraTitulo, targetDriveId, fileId, targetEmail, role,
+      layout,
+      sources,
+      fileName,
+      programId,
+      folderUrl,
+      folderName,
+      parentId,
+      fileBase64,
+      mimeType,
+      sourceUrl,
+      targetParentId,
+      newName,
+      nombreSet,
+      obraTitulo,
+      targetDriveId,
+      fileId,
+      targetEmail,
+      role,
       giraId,
-      id_obra, link_origen, titulo: tituloObra, nombre_carpeta
+      id_obra,
+      link_origen,
+      titulo: tituloObra,
+      nombre_carpeta,
+      // Nuevos parámetros para operaciones de copia simples (server-side bypass)
+      destinationFolderId,
+      fileId: directFileId,
     } = body;
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -940,6 +961,31 @@ serve(async (req) => {
 
       return new Response(JSON.stringify({ success: true, urls: { dj: djUrl, full: fullUrl, mosaic: mosUrl } }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    // --- ACCIÓN: OBTENER TOKEN TEMPORAL DE GOOGLE (para descarga directa desde el cliente) ---
+    if (action === "get_temp_token") {
+      const tokenResponse = await authClient.getAccessToken();
+      const accessToken = tokenResponse?.token;
+      if (!accessToken) {
+        return new Response(
+          JSON.stringify({ success: false, error: "No se pudo obtener Access Token de Google" }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          accessToken,
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
     // --- ACCIÓN: DESCARGAR CONTENIDO DE ARCHIVO (Para Fusionar PDFs) ---
     if (action === "get_file_content") {
       const fileId = extractFileId(sourceUrl);
@@ -1231,7 +1277,7 @@ serve(async (req) => {
       );
     }
 
-    // --- BUSCA ESTE BLOQUE EN TU EDGE FUNCTION ---
+    // --- ACCIÓN: LISTAR ARCHIVOS DE UNA CARPETA (SOLO NIVEL SUPERIOR) ---
     if (action === "list_folder_files") {
       console.log("DEBUG [Edge]: Iniciando list_folder_files.");
       console.log("DEBUG [Edge]: URL recibida:", folderUrl);
@@ -1253,18 +1299,134 @@ serve(async (req) => {
           includeItemsFromAllDrives: true,
         });
 
-        console.log(`DEBUG [Edge]: Google API respondió. Archivos encontrados: ${res.data.files?.length || 0}`);
+        console.log(
+          `DEBUG [Edge]: Google API respondió. Archivos encontrados (nivel 1): ${
+            res.data.files?.length || 0
+          }`,
+        );
 
-        return new Response(JSON.stringify({ success: true, files: res.data.files || [] }),
+        return new Response(
+          JSON.stringify({ success: true, files: res.data.files || [] }),
           {
             headers: {
               ...corsHeaders,
-              "Content-Type": "application/json" // <--- ESTO ES LO QUE FALTA
-            }
-          });
+              "Content-Type": "application/json",
+            },
+          },
+        );
       } catch (error) {
-        console.error("DEBUG [Edge]: Error al llamar a Google Drive API:", error.message);
+        console.error(
+          "DEBUG [Edge]: Error al llamar a Google Drive API (list_folder_files):",
+          (error as Error).message,
+        );
         throw error;
+      }
+    }
+
+    // --- ACCIÓN: LISTAR ARCHIVOS DE UNA CARPETA Y TODAS SUS SUBCARPETAS ---
+    if (action === "list_folder_files_subfolders") {
+      console.log("DEBUG [Edge]: Iniciando list_folder_files_subfolders.");
+      console.log("DEBUG [Edge]: URL recibida:", folderUrl);
+
+      const rootFolderId = extractFileId(folderUrl);
+      console.log(
+        "DEBUG [Edge]: ID de carpeta raíz extraído:",
+        rootFolderId,
+      );
+
+      if (!rootFolderId) {
+        console.error(
+          "DEBUG [Edge]: No se pudo extraer el ID de la URL provista para list_folder_files_subfolders.",
+        );
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "ID de carpeta inválido en list_folder_files_subfolders",
+          }),
+          {
+            status: 400,
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      }
+
+      const allFiles: any[] = [];
+      const queue: string[] = [rootFolderId];
+
+      try {
+        while (queue.length > 0) {
+          const currentFolderId = queue.shift()!;
+          console.log(
+            "DEBUG [Edge]: Listando contenido de carpeta:",
+            currentFolderId,
+          );
+
+          let pageToken: string | undefined;
+          do {
+            const res = await drive.files.list({
+              q: `'${currentFolderId}' in parents and trashed = false`,
+              fields:
+                "nextPageToken, files(id, name, webViewLink, mimeType)",
+              pageSize: 100,
+              orderBy: "name",
+              supportsAllDrives: true,
+              includeItemsFromAllDrives: true,
+              pageToken,
+            });
+
+            const files = res.data.files || [];
+            console.log(
+              `DEBUG [Edge]: Carpeta ${currentFolderId} -> elementos encontrados: ${files.length}`,
+            );
+
+            for (const f of files) {
+              if (f.mimeType === "application/vnd.google-apps.folder") {
+                // Es subcarpeta: la encolamos para seguir profundizando
+                if (f.id) queue.push(f.id);
+              } else {
+                // Es archivo "real": lo añadimos a la colección
+                allFiles.push(f);
+              }
+            }
+
+            pageToken = res.data.nextPageToken || undefined;
+          } while (pageToken);
+        }
+
+        console.log(
+          `DEBUG [Edge]: list_folder_files_subfolders completado. Archivos totales: ${allFiles.length}`,
+        );
+
+        return new Response(
+          JSON.stringify({ success: true, files: allFiles }),
+          {
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      } catch (error) {
+        console.error(
+          "DEBUG [Edge]: Error en list_folder_files_subfolders:",
+          (error as Error).message,
+        );
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: (error as Error).message,
+          }),
+          {
+            status: 500,
+            headers: {
+              ...corsHeaders,
+              "Content-Type": "application/json",
+            },
+          },
+        );
       }
     }
     // =================================================================================
@@ -1659,17 +1821,37 @@ serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    // --- ACCIÓN: COPIAR UN ARCHIVO ÚNICO ---
+    // --- ACCIÓN: COPIAR UN ARCHIVO ÚNICO (Server-Side, sin mover bytes) ---
     if (action === "copy_file") {
-      const res = await drive.files.copy({
-        fileId: extractFileId(sourceUrl),
-        requestBody: { name: newName, parents: [targetParentId] },
+      /**
+       * Soporta dos variantes de payload:
+       * - Legacy: { sourceUrl, targetParentId, newName }
+       * - Nueva:  { fileId, destinationFolderId, newName }
+       *
+       * En ambos casos se usa drive.files.copy, que ejecuta la copia íntegramente
+       * en servidores de Google (costo de egress prácticamente nulo).
+       */
+      const legacySourceId = sourceUrl ? extractFileId(sourceUrl) : null;
+      const effectiveFileId = (directFileId as string) || fileId || legacySourceId;
+      const effectiveParentId = (destinationFolderId as string) || targetParentId;
+
+      if (!effectiveFileId || !effectiveParentId) {
+        throw new Error("Faltan parámetros para copy_file (fileId / destinationFolderId).");
+      }
+
+      const copyRes = await drive.files.copy({
+        fileId: effectiveFileId,
+        requestBody: {
+          name: newName,
+          parents: [effectiveParentId],
+        },
         fields: "id, webViewLink, name",
         supportsAllDrives: true,
       });
+
       return new Response(
-        JSON.stringify({ success: true, file: res.data }),
-        { headers: corsHeaders },
+        JSON.stringify({ success: true, file: copyRes.data }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -1848,7 +2030,7 @@ serve(async (req) => {
           }
 
           // Evitar duplicados: si ya existe un archivo con ese nombre en la carpeta destino, lo saltamos.
-          const safeNameForQuery = finalName.replace(/'/g, "\\'");
+          const safeNameForQuery = (finalName || "").replace(/'/g, "\\'");
           const existing = await drive.files.list({
             q: `'${destFolder}' in parents and name = '${safeNameForQuery}' and trashed = false`,
             fields: "files(id)",
@@ -1859,7 +2041,7 @@ serve(async (req) => {
             results.push({
               sourceId: fileId,
               destinationFolderId: destFolder,
-              name: finalName,
+            name: finalName || undefined,
               error: "ALREADY_EXISTS",
             });
             continue;

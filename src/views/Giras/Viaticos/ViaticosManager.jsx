@@ -499,20 +499,57 @@ export default function ViaticosManager({ supabase, giraId }) {
       if (!silent) setLoadingConfig(false);
     }
   };
+  const ensureGoogleAccessToken = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("manage-drive", {
+        body: { action: "get_temp_token" },
+      });
+      if (error || !data?.accessToken) {
+        throw new Error(error?.message || "No se pudo obtener token de Drive");
+      }
+      return data.accessToken;
+    } catch (e) {
+      console.error("[ViaticosManager] Error obteniendo token de Drive", e);
+      throw e;
+    }
+  };
 
   const uploadPdfToDrive = async (pdfBytes, fileName, parentId) => {
-    const fileBase64 = uint8ArrayToBase64(pdfBytes);
-    const { data, error } = await supabase.functions.invoke("manage-drive", {
-      body: {
-        action: "upload_file",
-        fileBase64,
-        fileName,
-        parentId,
-        mimeType: "application/pdf",
+    const accessToken = await ensureGoogleAccessToken();
+    const bytes = new Uint8Array(pdfBytes);
+    const blob = new Blob([bytes], { type: "application/pdf" });
+
+    const metadata = {
+      name: fileName,
+      parents: [parentId],
+    };
+
+    const form = new FormData();
+    form.append(
+      "metadata",
+      new Blob([JSON.stringify(metadata)], { type: "application/json" }),
+    );
+    form.append("file", blob);
+
+    const res = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: form,
       },
-    });
-    if (error) throw error;
-    if (data && data.error) throw new Error(data.error);
+    );
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(
+        `Error subiendo PDF a Drive: ${res.status} ${text || ""}`,
+      );
+    }
+
+    const data = await res.json();
     return data;
   };
 
@@ -523,20 +560,33 @@ export default function ViaticosManager({ supabase, giraId }) {
         const arrayBuffer = await res.arrayBuffer();
         return new Uint8Array(arrayBuffer);
       }
-      const { data, error } = await supabase.functions.invoke("manage-drive", {
-        body: { action: "get_file_content", sourceUrl: driveUrl },
-      });
-      if (error) throw error;
-      if (!data || !data.success)
-        throw new Error(data?.error || "Error descargando archivo");
 
-      const binaryString = window.atob(data.fileBase64);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      if (!driveUrl.includes("drive.google.com")) {
+        const res = await fetch(driveUrl);
+        const arrayBuffer = await res.arrayBuffer();
+        return new Uint8Array(arrayBuffer);
       }
-      return bytes;
+
+      const accessToken = await ensureGoogleAccessToken();
+      const fileIdMatch = driveUrl.match(/[-\w]{25,}/);
+      const fileId = fileIdMatch ? fileIdMatch[0] : null;
+      if (!fileId) {
+        throw new Error("No se pudo extraer ID de Drive.");
+      }
+
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+      if (!res.ok) {
+        throw new Error(`Error descargando desde Drive (${res.status})`);
+      }
+      const arrayBuffer = await res.arrayBuffer();
+      return new Uint8Array(arrayBuffer);
     } catch (err) {
       console.error("Error fetchPdfFromDrive:", err);
       return null;
@@ -545,11 +595,30 @@ export default function ViaticosManager({ supabase, giraId }) {
 
   const copyDriveFile = async (url, targetFolder, newName) => {
     const isBucket = url.includes("supabase.co");
+    if (isBucket) {
+      await supabase.functions.invoke("manage-drive", {
+        body: {
+          action: "upload_from_url",
+          sourceUrl: url,
+          targetParentId: targetFolder,
+          newName,
+        },
+      });
+      return;
+    }
+
+    // Copia server-side directa dentro de Drive (sin mover bytes por Supabase)
+    const match = url.match(/[-\w]{25,}/);
+    const fileId = match ? match[0] : null;
+    if (!fileId) {
+      throw new Error("No se pudo extraer ID de Drive para copiar archivo.");
+    }
+
     await supabase.functions.invoke("manage-drive", {
       body: {
-        action: isBucket ? "upload_from_url" : "copy_file",
-        sourceUrl: url,
-        targetParentId: targetFolder,
+        action: "copy_file",
+        fileId,
+        destinationFolderId: targetFolder,
         newName,
       },
     });
@@ -1014,10 +1083,22 @@ export default function ViaticosManager({ supabase, giraId }) {
       return;
     }
 
-    setExportStatus("Exportando individuales...");
+    // Normalizar modo de unificación:
+    // - Si ya viene definido (por ejemplo, "location"), se respeta.
+    // - Si no viene definido, usamos el toggle del panel bulk:
+    //     unifyFiles = true  -> "master" (1 PDF unificado)
+    //     unifyFiles = false -> "individual" (PDF por persona)
+    const normalizedOptions = {
+      ...options,
+      unificationMode:
+        options.unificationMode ||
+        (options.unifyFiles ? "master" : "individual"),
+    };
+
+    setExportStatus("Exportando...");
     setIsExporting(true);
     try {
-      await processExportList(selectedData, driveFolderId, options, []);
+      await processExportList(selectedData, driveFolderId, normalizedOptions, []);
       setSelection(new Set());
     } catch (e) {
       console.error(e);
