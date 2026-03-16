@@ -12,6 +12,7 @@ const corsHeaders = {
 const PROGRAMAS_ARCOS_ROOT_ID = "1te6NHhnYbEJmZNyYFI4_qz2qK0axqqtJ"; // <--- AGREGAR
 const OBRAS_REAL_STORAGE_ID = "1p2mIZhko_BGDKwxJUwzhb9pl8JXChFvO";
 const ROOT_FOLDER_ID = "1vlIkMhbc61ZPHRuXwbwVYi2E42rGok9z";
+const PARTICELLA_SETS_ROOT_ID = "1BK8yhY1dvAZRrDwEDXg3VR3QlnmdOH4u";
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const GIRAS_ROOT_ID = "1PRWEbGKUBxfhF9HIf2DgpOWKDRwslsCc";
 const ARCHIVO_OBRAS_FOLDER_ID = "10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi";
@@ -958,6 +959,31 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
+    // --- ACCIÓN: OBTENER SOLO METADATOS (nombre) DE UN ARCHIVO DE DRIVE ---
+    if (action === "get_file_name") {
+      const fileId = extractFileId(sourceUrl);
+      if (!fileId) throw new Error("ID de archivo inválido");
+
+      console.log("[get_file_name] sourceUrl:", sourceUrl, "fileId:", fileId);
+
+      const meta = await drive.files.get(
+        {
+          fileId,
+          fields: "name",
+          supportsAllDrives: true,
+        },
+      );
+
+      console.log("[get_file_name] drive.files.get ->", meta.data?.name);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          name: meta.data?.name ?? null,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
     // --- ACCIÓN: CREAR CARPETA DE ARCOS (BOWINGS) ---
     if (action === "create_bowing_set") {
       // 1. Obtener o crear carpeta del Programa dentro de la raíz de Arcos
@@ -1157,6 +1183,52 @@ serve(async (req) => {
       });
       const upData = await upRes.json();
       return new Response(JSON.stringify({ success: true, webViewLink: upData.webViewLink, fileId: upData.id }), { headers: corsHeaders });
+    }
+
+    // --- ACCIÓN: SUBIR SET DE PARTICELLAS A CARPETA FIJA ---
+    if (action === "upload_particella_set") {
+      const binaryString = atob(fileBase64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const form = new FormData();
+      form.append(
+        "metadata",
+        new Blob(
+          [
+            JSON.stringify({
+              name: fileName,
+              parents: [PARTICELLA_SETS_ROOT_ID],
+            }),
+          ],
+          { type: "application/json" },
+        ),
+      );
+      form.append("file", new Blob([bytes], { type: mimeType || "application/pdf" }));
+
+      const upRes = await fetch(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: form,
+        },
+      );
+      const upData = await upRes.json();
+      if (upData.error) {
+        throw new Error(upData.error.message || "Error subiendo set de particellas");
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          fileId: upData.id,
+          webViewLink: upData.webViewLink,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     // --- BUSCA ESTE BLOQUE EN TU EDGE FUNCTION ---

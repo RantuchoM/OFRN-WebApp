@@ -540,6 +540,9 @@ const AnnualRotationModal = React.lazy(
 const InstrumentationSummaryModal = React.lazy(
   () => import("../../components/seating/InstrumentationSummaryModal"),
 );
+const ParticellaDownloadModal = React.lazy(
+  () => import("../../components/seating/ParticellaDownloadModal"),
+);
 
 export default function ProgramSeating({
   supabase,
@@ -571,6 +574,7 @@ export default function ProgramSeating({
   const [showRotationModal, setShowRotationModal] = useState(false);
   const [showInstrumentationModal, setShowInstrumentationModal] =
     useState(false);
+  const [showParticellaModal, setShowParticellaModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [instrumentList, setInstrumentList] = useState([]);
@@ -677,7 +681,7 @@ export default function ProgramSeating({
         const { data } = await supabase
           .from("obras_particellas")
           .select(
-            "id, id_obra, nombre_archivo, id_instrumento, instrumentos(id, instrumento)",
+            "id, id_obra, nombre_archivo, id_instrumento, url_archivo, instrumentos(id, instrumento)",
           )
           .in("id_obra", chunk);
         if (data) partsData = [...partsData, ...data];
@@ -1645,6 +1649,19 @@ export default function ProgramSeating({
             onOrganicoSave={onRefreshGira}
           />
         )}
+        {showParticellaModal && (
+          <ParticellaDownloadModal
+            isOpen={showParticellaModal}
+            onClose={() => setShowParticellaModal(false)}
+            supabase={supabase}
+            program={program}
+            obras={obras}
+            assignments={assignments}
+            containers={containers}
+            particellas={particellas}
+            rawRoster={rawRoster}
+          />
+        )}
       </Suspense>
 
       <div className="px-4 py-2 border-b border-slate-200 bg-white flex justify-between items-center shrink-0">
@@ -1718,6 +1735,15 @@ export default function ProgramSeating({
           >
             <IconDownload size={16} />{" "}
             <span className="hidden sm:inline">Excel</span>
+          </button>
+          <button
+            onClick={() => setShowParticellaModal(true)}
+            disabled={isExporting}
+            className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-slate-800 text-white hover:bg-slate-900 shadow-sm active:scale-95 disabled:opacity-50"
+          >
+            <IconDownload size={16} />
+            <IconLayers size={14} />
+            <span className="hidden sm:inline">Descargar Particellas</span>
           </button>
           {canManageSeating && (
             <>
