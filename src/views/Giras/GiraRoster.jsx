@@ -1481,27 +1481,29 @@ export default function GiraRoster({
 
   const exportDataRoster = useMemo(
     () =>
-      localRoster.map((m) => ({
-        apellido: m.apellido || "",
-        nombre: m.nombre || "",
-        dni: m.dni || "",
-        cuil: m.cuil || "",
-        legajo: m.legajo || "",
-        instrumento: m.instrumentos?.instrumento || "",
-        telefono: m.telefono || "",
-        mail: m.mail || "",
-        fecha_nac: m.fecha_nac || "",
-      nacionalidad: m.nacionalidad || "",
-      domicilio: m.domicilio || "",
-      residencia: m._loc_residencia?.localidad || "",
-      viaticos: m._loc_viaticos?.localidad || "",
-      alimentacion: m.alimentacion || "",
-      cargo: m.cargo || "",
-      jornada: m.jornada || "",
-      motivo: m.motivo || "",
-        condicion: m.condicion || "",
-        estado_gira: m.estado_gira || "",
-      })),
+      localRoster
+        .filter((m) => m.estado_gira !== "ausente")
+        .map((m) => ({
+          apellido: m.apellido || "",
+          nombre: m.nombre || "",
+          dni: m.dni || "",
+          cuil: m.cuil || "",
+          legajo: m.legajo || "",
+          instrumento: m.instrumentos?.instrumento || "",
+          telefono: m.telefono || "",
+          mail: m.mail || "",
+          fecha_nac: m.fecha_nac || "",
+          nacionalidad: m.nacionalidad || "",
+          domicilio: m.domicilio || "",
+          residencia: m._loc_residencia?.localidad || "",
+          viaticos: m._loc_viaticos?.localidad || "",
+          alimentacion: m.alimentacion || "",
+          cargo: m.cargo || "",
+          jornada: m.jornada || "",
+          motivo: m.motivo || "",
+          condicion: m.condicion || "",
+          estado_gira: m.estado_gira || "",
+        })),
     [localRoster]
   );
 

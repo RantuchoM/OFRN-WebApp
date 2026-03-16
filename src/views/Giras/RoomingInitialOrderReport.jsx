@@ -152,7 +152,16 @@ const InitialOrderReportModal = ({
 
     const isPersonInPlus = (personId) => {
         if (!rooms || rooms.length === 0) return false;
-        return rooms.some(r => r.tipo === 'Plus' && r.id_integrantes_asignados?.includes(personId));
+        return rooms.some((r) => {
+            if (r.tipo !== "Plus") return false;
+            const cfg = Array.isArray(r.asignaciones_config)
+                ? r.asignaciones_config
+                : [];
+            // Consideramos "Plus" solo si ocupa cama en una habitación Plus
+            return cfg.some(
+                (c) => c && c.id === personId && c.ocupa_cama !== false,
+            );
+        });
     };
 
     const dateGroups = {};

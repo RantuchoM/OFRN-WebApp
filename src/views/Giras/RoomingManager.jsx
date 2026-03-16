@@ -17,6 +17,7 @@ import {
   IconList,
   IconHelpCircle,
   IconAlertTriangle, // <--- AGREGAR ESTE
+  IconUser,
 } from "../../components/ui/Icons";
 import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
@@ -543,9 +544,12 @@ const MusicianCard = ({
   isLocal,
   isSelected,
   onClick,
+  ocupaCama = true,
+  onToggleBed,
 }) => {
   const loc = m.localidades?.localidad || "S/D";
   const isLocalWarning = isInRoom && isLocal;
+  const isCuna = !ocupaCama;
 
   return (
     <div
@@ -557,7 +561,11 @@ const MusicianCard = ({
         e.stopPropagation();
         if (onClick) onClick(e, m);
       }}
-      className={`p-1.5 rounded border text-xs flex justify-between items-center shadow-sm cursor-grab active:cursor-grabbing select-none transition-all duration-100 
+      className={`${
+        isCuna
+          ? "px-1 py-0.5 rounded-full border text-[9px] flex justify-between items-center shadow-sm cursor-default select-none"
+          : "p-1.5 rounded border text-xs flex justify-between items-center shadow-sm cursor-grab active:cursor-grabbing select-none"
+      } transition-all duration-100 
         ${
           isSelected
             ? "bg-indigo-600 text-white border-indigo-700 ring-2 ring-indigo-300"
@@ -576,6 +584,7 @@ const MusicianCard = ({
     >
       <div className="truncate max-w-[120px]">
         <b>{m.apellido}</b> {m.nombre}
+        {isCuna && " (Cuna)"}
       </div>
       <div className="flex items-center gap-1">
         {isLocal && (
@@ -595,7 +604,28 @@ const MusicianCard = ({
         >
           {loc.slice(0, 3)}
         </span>
-        {isInRoom && (
+        {isInRoom && onToggleBed && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const next = !ocupaCama;
+              onToggleBed(m, next);
+            }}
+            className={`ml-1 flex items-center justify-center rounded-full border px-1 ${
+              isCuna
+                ? "bg-amber-100 border-amber-300 text-amber-700"
+                : "bg-emerald-50 border-emerald-300 text-emerald-700"
+            }`}
+            title={isCuna ? "Marcar como ocupa cama" : "Marcar como cuna/adicional"}
+          >
+            {isCuna ? (
+              <IconUser size={10} />
+            ) : (
+              <IconBed size={10} />
+            )}
+          </button>
+        )}
+        {isInRoom && onRemove && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -790,11 +820,19 @@ const RoomCard = ({
   onMusicianClick,
   onUpdateAttribute,
   onAssignSelected,
+  onToggleOccupancy,
 }) => {
   const isPlus = room.tipo === "Plus";
-  const count = room.occupants.length;
-  let colorClass = getRoomColor(count);
+  const bedOccupants = (room.occupants || []).filter(
+    (m) => m.ocupa_cama !== false,
+  );
+  const extraOccupants = (room.occupants || []).filter(
+    (m) => m.ocupa_cama === false,
+  );
+  const bedCount = bedOccupants.length;
+  let colorClass = getRoomColor(bedCount);
   const [isOver, setIsOver] = useState(false);
+  const [isOverCuna, setIsOverCuna] = useState(false);
   const [showMenu, setShowMenu] = useState(false); // Menu 3 puntos
 
   const handleToggleAttribute = (e, field, value) => {
@@ -828,7 +866,7 @@ const RoomCard = ({
                 room.es_matrimonial ? "text-pink-600" : "text-slate-500"
               }
             />
-            {getCapacityLabel(count)}
+            {getCapacityLabel(bedCount)}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[9px] text-slate-600">
             <button
@@ -971,7 +1009,7 @@ const RoomCard = ({
         </div>
       </div>
       <div className="p-1.5 space-y-1 min-h-[50px] flex-1">
-        {room.occupants.map((m) => (
+        {bedOccupants.map((m) => (
           <MusicianCard
             key={m.id}
             m={m}
@@ -981,11 +1019,74 @@ const RoomCard = ({
             isLocal={m.is_local}
             isSelected={selectedIds.has(m.id)}
             onClick={(e) => onMusicianClick(e, m, room.occupants)}
+            ocupaCama={m.ocupa_cama !== false}
+            onToggleBed={
+              onToggleOccupancy
+                ? (mus, next) => onToggleOccupancy(room.id, mus.id, next)
+                : undefined
+            }
           />
         ))}
-        {count === 0 && (
+        {bedCount === 0 && extraOccupants.length === 0 && (
           <div className="h-full flex items-center justify-center text-slate-400/50 text-xs italic pointer-events-none">
             Arrastra aquí
+          </div>
+        )}
+        {room.con_cuna && (
+          <div
+            className={`mt-1 pt-1 border-t border-dashed rounded-md min-h-[32px] ${
+              isOverCuna
+                ? "border-emerald-400 bg-emerald-50/80"
+                : "border-slate-200 bg-slate-50/60"
+            }`}
+            onDragOver={(e) => {
+              e.stopPropagation();
+              setIsOverCuna(true);
+              onDragOver(e);
+            }}
+            onDragLeave={(e) => {
+              e.stopPropagation();
+              setIsOverCuna(false);
+            }}
+            onDrop={(e) => {
+              e.stopPropagation();
+              setIsOverCuna(false);
+              onDrop(e, room.id, { toCuna: true });
+            }}
+          >
+            <div className="text-[9px] uppercase tracking-wide text-slate-400 mb-1">
+              Adicionales / Cunas
+            </div>
+            {extraOccupants.length === 0 ? (
+              <div
+                className={`flex items-center justify-center text-[10px] italic py-1 pointer-events-none ${
+                  isOverCuna ? "text-emerald-700 font-semibold" : "text-slate-400"
+                }`}
+              >
+                Arrastrar aquí para cuna
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1">
+                {extraOccupants.map((m) => (
+                  <MusicianCard
+                    key={m.id}
+                    m={m}
+                    onDragStart={(e) => onDragStart(e, room.id)}
+                    isInRoom={true}
+                    onRemove={(mus) => onRemoveMusician(mus, room.id)}
+                    isLocal={m.is_local}
+                    isSelected={selectedIds.has(m.id)}
+                    onClick={(e) => onMusicianClick(e, m, room.occupants)}
+                    ocupaCama={false}
+                    onToggleBed={
+                      onToggleOccupancy
+                        ? (mus, next) => onToggleOccupancy(room.id, mus.id, next)
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
         {/* Botón + en móvil para asignar selección a esta habitación */}
@@ -1120,7 +1221,9 @@ const AssignRoomModal = ({
                     >
                       <IconPlus size={16} /> Nueva habitación en {hotelName}
                     </button>
-                    {filteredRooms.map((r) => (
+                    {filteredRooms.map((r) => {
+                      const bedCount = getRoomBedCount(r);
+                      return (
                       <button
                         key={r.id}
                         type="button"
@@ -1129,7 +1232,7 @@ const AssignRoomModal = ({
                       >
                         <span className="font-medium text-slate-800">
                           <IconBed size={14} className="inline mr-1 text-slate-500" />
-                          {getCapacityLabel(r.occupants.length)}
+                          {getCapacityLabel(bedCount)}
                           {r.occupants.length > 0 && (
                             <span className="text-slate-500 font-normal ml-1">
                               —{" "}
@@ -1140,7 +1243,8 @@ const AssignRoomModal = ({
                           )}
                         </span>
                       </button>
-                    ))}
+                    );
+                  })}
                   </div>
                 </div>
               );
@@ -1289,7 +1393,7 @@ export default function RoomingManager({
     e.dataTransfer.dropEffect = "move";
   };
 
-  const processDrop = (targetRoomId, draggedIds) => {
+  const processDrop = (targetRoomId, draggedIds, options = {}) => {
     let newRooms = [...rooms];
     let newMusicians = [...musicians];
 
@@ -1330,12 +1434,16 @@ export default function RoomingManager({
         if (targetRoomId) {
           const targetRoom = newRooms[targetRoomIndex];
           if (!targetRoom.occupants.find((m) => m.id === id)) {
-            targetRoom.occupants = [...targetRoom.occupants, musicianObj];
+            const finalMusician = options.toCuna && targetRoom.con_cuna
+              ? { ...musicianObj, ocupa_cama: false }
+              : { ...musicianObj, ocupa_cama: true };
+            targetRoom.occupants = [...targetRoom.occupants, finalMusician];
             targetRoom.roomGender = calculateRoomGender(targetRoom.occupants);
             newRooms[targetRoomIndex] = targetRoom;
           }
         } else {
-          newMusicians.push(musicianObj);
+          // Al volver a la lista sin habitación, limpiamos la marca de ocupa_cama
+          newMusicians.push({ ...musicianObj, ocupa_cama: undefined });
         }
       }
     });
@@ -1461,14 +1569,14 @@ export default function RoomingManager({
     }
   };
 
-  const handleDropOnRoom = (e, targetRoomId) => {
+  const handleDropOnRoom = (e, targetRoomId, options = {}) => {
     e.preventDefault();
     const dataStr = e.dataTransfer.getData("application/json");
     if (!dataStr) return;
     try {
       const data = JSON.parse(dataStr);
       if (data.type === "PEOPLE_BATCH" && data.ids) {
-        processDrop(targetRoomId, data.ids);
+        processDrop(targetRoomId, data.ids, options);
       }
     } catch (err) {
       console.error("Error drag data", err);
@@ -1711,23 +1819,44 @@ export default function RoomingManager({
       });
       setLogisticsMap(logMap);
 
-      // 4. Mapear ocupantes a habitaciones
+      // 4. Mapear ocupantes a habitaciones usando asignaciones_config
       const roomsWithDetails = roomsData.map((room) => {
+        const asignacionesRaw = Array.isArray(room.asignaciones_config)
+          ? room.asignaciones_config
+          : [];
+        const configById = new Map();
+        asignacionesRaw.forEach((cfg) => {
+          if (cfg && typeof cfg.id === "number") {
+            configById.set(cfg.id, cfg.ocupa_cama !== false);
+          }
+        });
+
         const occupants = (room.id_integrantes_asignados || [])
           .map((id) => allMusiciansMap.get(id))
-          .filter((p) => p && p.estado_gira === "confirmado"); // <--- FILTRO CRÍTICO AQUÍ
+          .filter((p) => p && p.estado_gira === "confirmado")
+          .map((p) => ({
+            ...p,
+            ocupa_cama: configById.has(p.id)
+              ? configById.get(p.id)
+              : true,
+          }));
+
+        const roomWithMeta = {
+          ...room,
+          asignaciones_config: asignacionesRaw,
+          occupants,
+        };
 
         return {
-          ...room,
-          occupants,
+          ...roomWithMeta,
           roomGender: calculateRoomGender(occupants),
         };
       });
 
-      // 5. Determinar quiénes faltan asignar
+      // 5. Determinar quiénes faltan asignar (basado en ocupantes efectivos)
       const assignedIds = new Set();
-      roomsData.forEach((r) =>
-        (r.id_integrantes_asignados || []).forEach((id) => assignedIds.add(id)),
+      roomsWithDetails.forEach((r) =>
+        (r.occupants || []).forEach((o) => assignedIds.add(o.id)),
       );
 
       const unassigned = Array.from(allMusiciansMap.values())
@@ -1752,17 +1881,34 @@ export default function RoomingManager({
   };
   const syncRoomOccupants = async (roomId, occupants) => {
     const ids = occupants.map((m) => m.id);
+    const asignacionesConfig = occupants.map((m) => ({
+      id: m.id,
+      ocupa_cama: m.ocupa_cama !== false,
+    }));
+
     const { error } = await supabase
       .from("hospedaje_habitaciones")
-      .update({ id_integrantes_asignados: ids })
+      .update({
+        id_integrantes_asignados: ids,
+        asignaciones_config: asignacionesConfig,
+      })
       .eq("id", roomId);
 
-    // AGREGAR ESTO:
-    if (!error && onDataChange) onDataChange();
+    if (!error) {
+      setRooms((prev) =>
+        prev.map((r) =>
+          r.id === roomId ? { ...r, asignaciones_config: asignacionesConfig } : r,
+        ),
+      );
+      if (onDataChange) onDataChange();
+    }
   };
   const calculateRoomGender = (occupants) => {
-    if (!occupants || occupants.length === 0) return "Mixto";
-    const genders = new Set(occupants.map((m) => m.genero));
+    const bedOccupants = (occupants || []).filter(
+      (m) => m.ocupa_cama !== false,
+    );
+    if (bedOccupants.length === 0) return "Mixto";
+    const genders = new Set(bedOccupants.map((m) => m.genero));
     if (genders.has("F") && !genders.has("M")) return "F";
     if (genders.has("M") && !genders.has("F")) return "M";
     return "Mixto";
@@ -1951,6 +2097,20 @@ export default function RoomingManager({
     });
     updateLocalState(newRooms, newMusicians);
   };
+  const handleToggleOccupancy = async (roomId, musicianId, ocupaCama) => {
+    const room = rooms.find((r) => r.id === roomId);
+    if (!room) return;
+    const updatedOccupants = (room.occupants || []).map((m) =>
+      m.id === musicianId ? { ...m, ocupa_cama: ocupaCama } : m,
+    );
+    const updatedRoom = {
+      ...room,
+      occupants: updatedOccupants,
+      roomGender: calculateRoomGender(updatedOccupants),
+    };
+    setRooms((prev) => prev.map((r) => (r.id === roomId ? updatedRoom : r)));
+    await syncRoomOccupants(roomId, updatedOccupants);
+  };
   const handleSaveRoom = async (roomData) => {
     const currentMaxOrder =
       rooms.length > 0 ? Math.max(...rooms.map((r) => r.orden || 0)) : 0;
@@ -2036,6 +2196,9 @@ export default function RoomingManager({
       .eq("id", otherRoom.id);
   };
 
+  const getRoomBedCount = (room) =>
+    (room.occupants || []).filter((m) => m.ocupa_cama !== false).length;
+
   const getCapacityLabel = (c) => {
     if (c === 0) return "Vacía";
     if (c === 1) return "Single";
@@ -2052,16 +2215,17 @@ export default function RoomingManager({
   };
 
   const stats = {
-    SGL: rooms.filter((r) => r.occupants.length === 1).length,
-    DBL: rooms.filter((r) => r.occupants.length === 2).length,
-    TPL: rooms.filter((r) => r.occupants.length === 3).length,
-    QDP: rooms.filter((r) => r.occupants.length >= 4).length,
-    F: rooms.filter((r) => r.roomGender === "F" && r.occupants.length > 0)
+    SGL: rooms.filter((r) => getRoomBedCount(r) === 1).length,
+    DBL: rooms.filter((r) => getRoomBedCount(r) === 2).length,
+    TPL: rooms.filter((r) => getRoomBedCount(r) === 3).length,
+    QDP: rooms.filter((r) => getRoomBedCount(r) >= 4).length,
+    F: rooms.filter((r) => r.roomGender === "F" && getRoomBedCount(r) > 0)
       .length,
-    M: rooms.filter((r) => r.roomGender === "M" && r.occupants.length > 0)
+    M: rooms.filter((r) => r.roomGender === "M" && getRoomBedCount(r) > 0)
       .length,
-    Mix: rooms.filter((r) => r.roomGender === "Mixto" && r.occupants.length > 0)
-      .length,
+    Mix: rooms.filter(
+      (r) => r.roomGender === "Mixto" && getRoomBedCount(r) > 0,
+    ).length,
   };
 
   const women = musicians.filter((m) => m.genero === "F");
@@ -2069,11 +2233,19 @@ export default function RoomingManager({
 
   // --- CALCULO DE TOTALES POR GÉNERO ---
   const lodgedWomen = rooms.reduce(
-    (acc, r) => acc + r.occupants.filter((m) => m.genero === "F").length,
+    (acc, r) =>
+      acc +
+      (r.occupants || []).filter(
+        (m) => m.genero === "F" && m.ocupa_cama !== false,
+      ).length,
     0,
   );
   const lodgedMen = rooms.reduce(
-    (acc, r) => acc + r.occupants.filter((m) => m.genero !== "F").length,
+    (acc, r) =>
+      acc +
+      (r.occupants || []).filter(
+        (m) => m.genero !== "F" && m.ocupa_cama !== false,
+      ).length,
     0,
   );
 
@@ -2542,6 +2714,7 @@ export default function RoomingManager({
                           onMusicianClick={handleMusicianClick}
                           onUpdateAttribute={handleUpdateRoomAttribute}
                           onAssignSelected={(roomId) => handleMoveToRoom(roomId, Array.from(selectedIds))}
+                          onToggleOccupancy={handleToggleOccupancy}
                         />
                       ))}
                     </div>
@@ -2606,6 +2779,7 @@ export default function RoomingManager({
                           onMusicianClick={handleMusicianClick}
                           onUpdateAttribute={handleUpdateRoomAttribute}
                           onAssignSelected={(roomId) => handleMoveToRoom(roomId, Array.from(selectedIds))}
+                          onToggleOccupancy={handleToggleOccupancy}
                         />
                       ))}
                     </div>
@@ -2648,6 +2822,7 @@ export default function RoomingManager({
                           onMusicianClick={handleMusicianClick}
                           onUpdateAttribute={handleUpdateRoomAttribute}
                           onAssignSelected={(roomId) => handleMoveToRoom(roomId, Array.from(selectedIds))}
+                          onToggleOccupancy={handleToggleOccupancy}
                         />
                       ))}
                     </div>

@@ -156,9 +156,15 @@ export const exportViaticosToExcel = async (giraData, viaticosData, configData) 
   if (workbook.worksheets.length === 0) return alert("El Excel modelo está vacío.");
   const templateSheet = workbook.worksheets[0];
 
-  // 2. Procesar cada integrante
-  for (let i = 0; i < viaticosData.length; i++) {
-    const data = viaticosData[i];
+  // 2. Procesar cada integrante (excluyendo ausentes por seguridad)
+  const effectiveViaticos = (viaticosData || []).filter((row) => {
+    if (!row) return false;
+    const estado = row.estado_gira || row.estado || null;
+    return estado !== 'ausente';
+  });
+
+  for (let i = 0; i < effectiveViaticos.length; i++) {
+    const data = effectiveViaticos[i];
     
     // Nombre seguro para la hoja (Excel no permite caracteres raros)
     const safeName = `${data.apellido} ${data.nombre}`.substring(0, 30).replace(/[\\/?*\[\]]/g, '');

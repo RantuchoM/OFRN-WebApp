@@ -174,6 +174,7 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
                   ...occ,
                   dateIn,
                   dateOut,
+                  ocupa_cama: occ.ocupa_cama !== false,
                 };
               });
 
@@ -197,7 +198,13 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
                   ? sortedByOut[0].dateOut
                   : null;
 
-              const count = r.occupants.length;
+              const bedOccupants = occupantsWithDates.filter(
+                (o) => o.ocupa_cama !== false,
+              );
+              const extraOccupants = occupantsWithDates.filter(
+                (o) => o.ocupa_cama === false,
+              );
+              const count = bedOccupants.length;
               let capacityType =
                 count === 1
                   ? "Simple"
@@ -212,11 +219,14 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
                           : "Vacía";
               const isPlus = r.tipo === "Plus";
               const isMatri = r.es_matrimonial;
-              const hasCuna = r.con_cuna;
+              const hasCuna =
+                r.con_cuna || (extraOccupants && extraOccupants.length > 0);
 
               return {
                 ...r,
                 occupants: occupantsWithDates,
+                bedOccupants,
+                extraOccupants,
                 effectiveCheckIn,
                 effectiveCheckOut,
                 capacityType,
@@ -240,7 +250,7 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
 
             let totalBedNights = 0;
             processedRooms.forEach((room) => {
-              room.occupants.forEach((occ) => {
+              room.bedOccupants.forEach((occ) => {
                 if (occ.dateIn && occ.dateOut) {
                   const nights = differenceInCalendarDays(
                     occ.dateOut,
@@ -455,6 +465,7 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
                               )}
                               <td style={{ verticalAlign: "middle" }}>
                                 <b>{occ.apellido}</b>, {occ.nombre}
+                                {occ.ocupa_cama === false ? " (Cuna)" : ""}
                               </td>
                               <td className="date-col">{occ.dni || "-"}</td>
                               <td className="date-col">
