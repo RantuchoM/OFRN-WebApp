@@ -79,6 +79,24 @@ const fmtDate = (isoStr) => {
   return `${d}/${m}/${y}`;
 };
 
+const getSpanishMonthLong = (monthIndex) => {
+  const months = [
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+  ];
+  return months[monthIndex] || "";
+};
+
 const fmtTime = (timeStr) => {
   if (!timeStr) return "";
   // Si viene como HH:MM:SS, recortamos a HH:MM
@@ -98,15 +116,16 @@ const calcDiff = (ant, rend) => {
 };
 
 const sumRendicion = (data) => {
+  // Orden y campos alineados con ViaticosTable: Movilidad→transporte_otros, Otros→gasto_otros, etc.
   const fields = [
     "rendicion_viaticos",
     "rendicion_gasto_alojamiento",
-    "rendicion_gasto_pasajes",
+    "rendicion_transporte_otros", // Pasajes en PDF = columna Movilidad
     "rendicion_gasto_combustible",
     "rendicion_gastos_movil_otros",
     "rendicion_gastos_capacit",
     "rendicion_gasto_ceremonial",
-    "rendicion_transporte_otros",
+    "rendicion_gasto_otros", // columna Otros
   ];
   return fields.reduce((acc, f) => acc + parseFloat(data[f] || 0), 0);
 };
@@ -142,9 +161,13 @@ export const exportViaticosToPDFForm = async (
 
     const nombreCompleto = `${data.apellido}, ${data.nombre}`;
     const hoy = new Date();
-    const lugarFecha = `${
-      data.ciudad_origen || "Viedma"
-    }, ${hoy.toLocaleDateString("es-AR")}`;
+    const diaHoy = String(hoy.getDate()).padStart(2, "0");
+    const mesHoy = getSpanishMonthLong(hoy.getMonth());
+    // Usamos año en formato de dos dígitos (yy) para ajustarnos al tamaño del campo
+    const anioHoy = String(hoy.getFullYear()).slice(-2);
+    const lugarFecha = `${data.ciudad_origen || "Viedma"}, ${diaHoy} de ${
+      mesHoy || ""
+    } de ${anioHoy}`;
 
     const money = (val) => fmtMoney(val);
 
@@ -193,8 +216,9 @@ export const exportViaticosToPDFForm = async (
         f("alojamiento_dev", cAloj.dev);
         f("alojamiento_reint", cAloj.reint);
 
-        const antPasaje = data.gasto_pasajes || 0;
-        const rendPasaje = data.rendicion_gasto_pasajes || 0;
+        // Pasajes en el PDF = columna Movilidad de la tabla (gastos_movilidad / rendicion_transporte_otros)
+        const antPasaje = data.gastos_movilidad || 0;
+        const rendPasaje = data.rendicion_transporte_otros || 0;
         f("pasaje_ant", fmtMoney(antPasaje));
         f("pasaje_rend", fmtMoney(rendPasaje));
         const cPas = calcDiff(antPasaje, rendPasaje);
@@ -236,8 +260,9 @@ export const exportViaticosToPDFForm = async (
         f("gastos_ceremonial_dev", cCer.dev);
         f("gastos_ceremonial_reint", cCer.reint);
 
-        const antOtr = data.transporte_otros || 0;
-        const rendOtr = data.rendicion_transporte_otros || 0;
+        // "Otros gastos" en el PDF = columna "Otros" de la tabla (ViaticosTable: gasto_otros / rendicion_gasto_otros)
+        const antOtr = data.gasto_otros || 0;
+        const rendOtr = data.rendicion_gasto_otros || 0;
         f("otros_gastos_ant", fmtMoney(antOtr));
         f("otros_gastos_rend", fmtMoney(rendOtr));
         const cOtr = calcDiff(antOtr, rendOtr);
@@ -252,6 +277,7 @@ export const exportViaticosToPDFForm = async (
         f("totales_dev", cTot.dev);
         f("totales_reint", cTot.reint);
 
+        // Rendición mantiene solo el campo compuesto clásico
         f("lugar_y_fecha", lugarFecha);
         await insertImageSignature(srcDoc, form, "firma_imagen", data.firma);
       } else {
@@ -297,7 +323,10 @@ export const exportViaticosToPDFForm = async (
         f("hora_llegada", fmtTime(data.hora_llegada));
         f("dias_computados", String(data.dias_computables || 0));
 
+        // Nuevos campos de acroform: porcentaje y valor_diario
         f("valor_diario", money(data.valorDiarioCalc));
+        f("porcentaje", String(data.porcentaje || 0));
+        // Compatibilidad hacia atrás si existe el campo antiguo
         f("porcentaje_viatico", String(data.porcentaje || 0));
 // ANTES: chk("check_temporada", data.es_temporada_alta);
 chk("check_temporada", configData.factor_temporada > 0);
@@ -345,6 +374,10 @@ chk("check_temporada", configData.factor_temporada > 0);
 
         f("total_anticipo", money(data.totalFinal));
         f("lugar_y_fecha", lugarFecha);
+        // Nuevos campos de fecha descompuesta (dd, mmmm, yyyy)
+        f("dia_hoy", diaHoy);
+        f("mes_hoy", mesHoy);
+        f("anio_hoy", anioHoy);
 
         await insertImageSignature(srcDoc, form, "firma_link", data.firma);
       }
