@@ -616,7 +616,7 @@ const ProtectedApp = ({ initialTab }) => {
       id: "REPERTOIRE",
       label: "Repertorio",
       icon: <IconFileText size={20} />,
-      show: !isGuest && (isPersonal || isArchivista || isEditor || isManagement),
+      show: !isGuest && (isArchivista || isEditor || isManagement),
     },
     {
       id: "ARREGLOS",

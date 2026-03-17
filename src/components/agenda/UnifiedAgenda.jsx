@@ -81,6 +81,7 @@ export default function UnifiedAgenda({
     isManagement,
     isGuest,
     isAdmin: isAdminFlag,
+    isTechnician,
   } = useAuth();
   // Estado para el modal de comida en móvil
   const [mealActionTarget, setMealActionTarget] = useState(null);
@@ -111,7 +112,8 @@ export default function UnifiedAgenda({
   const effectiveUserId = viewAsUserId || user.id;
   const isPersonalGuest = isGuest && !user?.isGeneral && !!user?.token_original;
   const defaultPersonalFilter =
-    isPersonalGuest || (!isEditor && !isManagement && !user?.isGeneral);
+    isPersonalGuest ||
+    ((!isEditor && !isManagement && !user?.isGeneral) || isTechnician);
   // --- ESTADOS ---
   const [coordinatedEnsembles, setCoordinatedEnsembles] = useState(new Set());
   const [myEnsembleObjects, setMyEnsembleObjects] = useState([]);
@@ -206,6 +208,7 @@ export default function UnifiedAgenda({
     availableCategories,
     defaultPersonalFilter,
     isPersonalGuest,
+    isTechnician,
   });
 
   const [userProfile, setUserProfile] = useState(null);
@@ -485,13 +488,14 @@ export default function UnifiedAgenda({
       if (item.isProgramMarker) return true;
 
       // Filtro técnico: no debe ocultar mi propia subida/bajada cuando está activo "Mi transporte"
+      const hasTechVisibility = isManagement || isTechnician;
       if (
-        !isManagement &&
+        !hasTechVisibility &&
         item.tecnica &&
         !(showOnlyMyTransport && isMyUpOrDown)
       )
         return false;
-      if (isManagement) {
+      if (hasTechVisibility) {
         if (
           techFilter === "only_tech" &&
           !item.tecnica &&
@@ -537,6 +541,7 @@ export default function UnifiedAgenda({
     myTransportLogistics,
     techFilter,
     isManagement,
+    isTechnician,
     isEditor,
   ]);
 
@@ -1072,7 +1077,7 @@ export default function UnifiedAgenda({
 
       <div className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-30 shrink-0">
         <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 overflow-hidden flex-1">
+          <div className="flex items-center gap-3 overflow-hidden flex-1">
             {onBack && (
               <button
                 onClick={onBack}
@@ -1082,9 +1087,16 @@ export default function UnifiedAgenda({
               </button>
             )}
             <div className="min-w-0 flex-1">
-              <h2 className="text-base sm:text-lg font-bold text-slate-800 truncate leading-tight">
-                {title}
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-bold text-slate-800 truncate leading-tight">
+                  {title}
+                </h2>
+                {isTechnician && !isEditor && !isManagement && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-900 text-slate-50 uppercase tracking-wide shrink-0">
+                    Téc
+                  </span>
+                )}
+              </div>
               {giraId && (
                 <p className="text-xs text-slate-500 truncate">
                   Vista Compacta
@@ -1721,6 +1733,14 @@ export default function UnifiedAgenda({
                                         )}
                                       </button>
                                     )}
+                                    {!isManagement &&
+                                      !isEditor &&
+                                      isTechnician &&
+                                      evt.tecnica && (
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-800 text-white text-[9px] font-bold uppercase">
+                                          TÉC
+                                        </span>
+                                      )}
                                   </div>
 
                                   {/* Descripción + chips para móvil */}
@@ -2119,6 +2139,14 @@ export default function UnifiedAgenda({
                                         )}
                                       </button>
                                     )}
+                                    {!isManagement &&
+                                      !isEditor &&
+                                      isTechnician &&
+                                      evt.tecnica && (
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-800 text-white text-[9px] font-bold uppercase">
+                                          TÉC
+                                        </span>
+                                      )}
                                   </div>
                                   {evt.programas?.nomenclador && (
                                     <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 border border-indigo-100">

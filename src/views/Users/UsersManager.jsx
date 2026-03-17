@@ -29,6 +29,7 @@ const ROLES_OPTIONS = [
   { id: "archivista", label: "📁 Archivista" },
   // Curador de Repertorio: acceso global a programación de repertorio de todos los ensambles
   { id: "curador", label: "🎼 Curador Repertorio" },
+  { id: "tecnico", label: "🛠️ Técnico" },
   { id: "editor", label: "✏️ Editor" },
   { id: "coord_general", label: "⚙️ Coord. General" },
   { id: "produccion_general", label: "🎬 Producción General" },

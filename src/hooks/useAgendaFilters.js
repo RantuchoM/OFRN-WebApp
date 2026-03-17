@@ -44,13 +44,15 @@ export function useAgendaFilters({
   availableCategories = [],
   defaultPersonalFilter = false,
   isPersonalGuest = false,
+  isTechnician = false,
 }) {
   const baseKey = `${STORAGE_KEY_PREFIX}${effectiveUserId}`;
   const storageKey = isPersonalGuest ? `${baseKey}_personal_link` : baseKey;
 
   const [selectedCategoryIds, setSelectedCategoryIds] = useState(() => {
     const saved = getInitialFilterState(storageKey, "categories", []);
-    if (!isEditor && !isManagement) {
+    const hasLogisticsAccess = isEditor || isManagement || isTechnician;
+    if (!hasLogisticsAccess) {
       return saved.filter((id) => id !== 3);
     }
     return saved;
@@ -72,12 +74,13 @@ export function useAgendaFilters({
   );
   const [filterDateTo, setFilterDateTo] = useState(null);
   const [techFilter, setTechFilter] = useState(
-    isManagement ? "all" : "no_tech",
+    isManagement || isTechnician ? "all" : "no_tech",
   );
 
   useEffect(() => {
-    if (!isManagement) setTechFilter("no_tech");
-  }, [isManagement]);
+    if (!isManagement && !isTechnician) setTechFilter("no_tech");
+    if (isTechnician) setTechFilter("all");
+  }, [isManagement, isTechnician]);
 
   // Persistencia: solo cuando no hay gira
   useEffect(() => {
@@ -109,7 +112,8 @@ export function useAgendaFilters({
         if (saved) {
           const p = JSON.parse(saved);
           let loadedCats = p.categories || [];
-          if (!isEditor && !isManagement) {
+          const hasLogisticsAccess = isEditor || isManagement || isTechnician;
+          if (!hasLogisticsAccess) {
             loadedCats = loadedCats.filter((id) => id !== 3);
           }
           setSelectedCategoryIds(loadedCats);
@@ -131,7 +135,7 @@ export function useAgendaFilters({
       }
       prevUserIdRef.current = effectiveUserId;
     }
-  }, [effectiveUserId, storageKey, isEditor, isManagement]);
+  }, [effectiveUserId, storageKey, isEditor, isManagement, isTechnician]);
 
   // Gira defaults: cuando hay gira y categorías cargadas, aplicar todos los filtros (todas las categorías, sin logística personal)
   const hasAppliedGiraDefaultsRef = useRef(false);
@@ -144,16 +148,24 @@ export function useAgendaFilters({
     if (hasAppliedGiraDefaultsRef.current || availableCategories.length === 0)
       return;
     hasAppliedGiraDefaultsRef.current = true;
+    const hasLogisticsAccess = isEditor || isManagement || isTechnician;
     const allCategoryIds = availableCategories
-      .filter((c) => (isEditor || isManagement ? true : c.id !== 3))
+      .filter((c) => (hasLogisticsAccess ? true : c.id !== 3))
       .map((c) => c.id);
     setSelectedCategoryIds(allCategoryIds);
     setShowOnlyMyTransport(false);
     setShowOnlyMyMeals(false);
     setShowNoGray(false);
     setShowNonActive(false);
-    if (isManagement) setTechFilter("all");
-  }, [giraId, availableCategories, isEditor, isManagement, isPersonalGuest]);
+    if (isManagement || isTechnician) setTechFilter("all");
+  }, [
+    giraId,
+    availableCategories,
+    isEditor,
+    isManagement,
+    isPersonalGuest,
+    isTechnician,
+  ]);
 
   const handleCategoryToggle = (catId) => {
     setSelectedCategoryIds((prev) =>
