@@ -17,9 +17,27 @@ export default function TransportStopsExportModal({ transport, events, onClose, 
     if (!evt) return "-";
     const hora = evt.hora_inicio?.slice(0, 5) || "--:--";
     const [y, m, d] = (evt.fecha || "2000-01-01").split("-");
-    const nota = evt.descripcion?.trim() || "";
+
+    const cleanText = (input) => {
+      const raw = String(input || "").trim();
+      if (!raw) return "";
+      try {
+        if (typeof window !== "undefined" && typeof DOMParser !== "undefined") {
+          const doc = new DOMParser().parseFromString(raw, "text/html");
+          return (doc.body?.textContent || "")
+            .replace(/\u00a0/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+        }
+      } catch {
+        // fall back
+      }
+      return raw.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    };
+
+    const nota = cleanText(evt.descripcion);
     const loc = evt.locaciones?.nombre || "Parada";
-    return `${d}/${m} ${hora}HS - ${nota ? nota.toUpperCase() : loc}`;
+    return `${d}/${m} ${hora}HS - ${nota || loc}`;
   };
 
   return (

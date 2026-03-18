@@ -28,6 +28,7 @@ export default function CnrtExportModal({
   const [endId, setEndId] = useState(
     String(sortedEvents[sortedEvents.length - 1]?.id || ""),
   );
+  const [exportFormat, setExportFormat] = useState("pdf");
 
   // 3. Formateador de etiquetas para los selectores
   const formatLabel = (evt) => {
@@ -36,13 +37,30 @@ export default function CnrtExportModal({
     const [y, m, d] = (evt.fecha || "2000-01-01").split("-");
     const fechaFormateada = `${d}/${m}`;
 
-    const nota = evt.descripcion?.trim();
+    const cleanText = (input) => {
+      const raw = String(input || "").trim();
+      if (!raw) return "";
+      try {
+        if (typeof window !== "undefined" && typeof DOMParser !== "undefined") {
+          const doc = new DOMParser().parseFromString(raw, "text/html");
+          return (doc.body?.textContent || "")
+            .replace(/\u00a0/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+        }
+      } catch {
+        // fall back
+      }
+      return raw.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    };
+
+    const nota = cleanText(evt.descripcion);
     const locacion = evt.locaciones?.nombre || "";
 
     if (nota) {
       const notaCorta =
         nota.length > 30 ? nota.substring(0, 27) + "..." : nota;
-      return `${notaCorta.toUpperCase()} - ${fechaFormateada} ${hora}HS (${locacion})`;
+      return `${notaCorta} - ${fechaFormateada} ${hora}HS (${locacion})`;
     }
     return `${locacion || "PARADA"} - ${fechaFormateada} ${hora}HS`;
   };
@@ -73,6 +91,40 @@ export default function CnrtExportModal({
           </div>
 
           <div className="space-y-4">
+            {/* Formato de exportación */}
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+              <label className="block text-[10px] font-black text-slate-400 mb-2 uppercase tracking-wider">
+                Formato
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExportFormat("pdf")}
+                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                    exportFormat === "pdf"
+                      ? "bg-indigo-600 text-white border-indigo-600"
+                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExportFormat("excel")}
+                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                    exportFormat === "excel"
+                      ? "bg-indigo-600 text-white border-indigo-600"
+                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  Excel
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Por defecto: <b>PDF</b>
+              </p>
+            </div>
+
             {/* SELECT DESDE */}
             <div>
               <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase tracking-wider">
@@ -139,11 +191,11 @@ export default function CnrtExportModal({
           </button>
           <button
             // Ya no enviamos el tercer argumento, solo start y end
-            onClick={() => onExport(startId, endId)}
+            onClick={() => onExport(startId, endId, exportFormat)}
             className="px-5 py-2 text-xs font-bold text-white rounded-lg shadow-lg transition-all flex items-center gap-2 active:scale-95 bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700"
           >
             <IconDownload size={14} />
-            Descargar Archivo
+            Descargar {exportFormat === "pdf" ? "PDF" : "Excel"}
           </button>
         </div>
       </div>
