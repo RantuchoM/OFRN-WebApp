@@ -457,8 +457,11 @@ export default function ViaticosTable({
                     <th className="px-2 py-3 text-blue-700 w-32 sticky top-0 z-30 bg-blue-50 border-b border-blue-100">
                       Oficial
                     </th>
-                    <th className="px-2 py-3 text-blue-700 w-32 sticky top-0 z-30 bg-blue-50 border-b border-blue-100 border-r border-blue-200">
+                    <th className="px-2 py-3 text-blue-700 w-32 sticky top-0 z-30 bg-blue-50 border-b border-blue-100">
                       Particular
+                    </th>
+                    <th className="px-2 py-3 text-blue-700 w-32 sticky top-0 z-30 bg-blue-50 border-b border-blue-100 border-r border-blue-200">
+                      Otros
                     </th>
                   </>
                 )}
@@ -806,7 +809,7 @@ export default function ViaticosTable({
                             </div>
                           </div>
                         </td>
-                        <td className="px-2 py-2 border-b border-r border-slate-200">
+                        <td className="px-2 py-2 border-b border-slate-100">
                           <div className="flex flex-col gap-1 text-[9px]">
                             <label className="text-slate-500">
                               <input
@@ -838,6 +841,32 @@ export default function ViaticosTable({
                                   );
                               }}
                               className={`bg-slate-50 rounded px-1 w-full ${getInputClass(row.id, "patente_particular")}`}
+                            />
+                          </div>
+                        </td>
+                        {/* Otros (detalle de texto) */}
+                        <td className="px-2 py-2 border-b border-r border-slate-200">
+                          <div className="flex flex-col gap-1 text-[9px] items-stretch">
+                            <span className="text-slate-500 font-semibold">
+                              Otros (detalle)
+                            </span>
+                            <input
+                              type="text"
+                              placeholder="Ej: Taxi, Remis, Otro"
+                              defaultValue={row.transporte_otros || ""}
+                              onBlur={(e) => {
+                                if (e.target.value !== (row.transporte_otros || "")) {
+                                  onUpdateRow(
+                                    row.id,
+                                    "transporte_otros",
+                                    e.target.value,
+                                  );
+                                }
+                              }}
+                              className={`bg-white border rounded px-1 py-0.5 text-[10px] ${getInputClass(
+                                row.id,
+                                "transporte_otros",
+                              )}`}
                             />
                           </div>
                         </td>

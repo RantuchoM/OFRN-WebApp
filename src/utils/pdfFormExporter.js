@@ -388,7 +388,17 @@ chk("check_temporada", configData.factor_temporada > 0);
         chk("check_particular", data.check_patente_particular);
         f("patente_particular", data.patente_particular);
         chk("check_otro", data.check_otros);
-        f("descripcion_otro", data.transporte_otros_detalle || "");
+        // Detalle de transporte \"Otros\":
+        // - En ViáticosManual se llama transporte_otros_detalle
+        // - En Viáticos de Giras (tabla) usamos transporte_otros como texto
+        const detalleOtro =
+          (data.transporte_otros && String(data.transporte_otros).trim()) ||
+          data.transporte_otros_detalle ||
+          "";
+        // Campo de texto principal en la plantilla
+        f("transporte_otros", detalleOtro);
+        // Campo auxiliar de descripción (usado en versiones anteriores)
+        f("descripcion_otro", detalleOtro);
 
         // Gastos con helper money()
         f(

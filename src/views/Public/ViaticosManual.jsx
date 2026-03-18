@@ -178,7 +178,7 @@ const DEFAULT_FORM = {
   patente_oficial: "",
   check_patente_particular: false,
   patente_particular: "",
-  check_otros: false,
+  transporte_otros: "",
   transporte_otros_detalle: "",
 
   // Gastos
@@ -456,7 +456,7 @@ export default function ViaticosManual() {
       patente_oficial: form.patente_oficial || "",
       check_patente_particular: !!form.check_patente_particular,
       patente_particular: form.patente_particular || "",
-      check_otros: !!form.check_otros,
+      transporte_otros: form.transporte_otros || form.transporte_otros_detalle || "",
       transporte_otros_detalle: form.transporte_otros_detalle || "",
 
       gasto_alojamiento: toNumber(form.gasto_alojamiento),
@@ -1008,21 +1008,20 @@ export default function ViaticosManual() {
                     </label>
                   </div>
                   <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-3">
-                    <label className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={form.check_otros}
-                        onChange={update("check_otros")}
-                        className="h-5 w-5 accent-indigo-600"
-                      />
-                      <span className="text-sm font-bold text-slate-700">Otro</span>
-                    </label>
+                    <div className="text-sm font-bold text-slate-700">Otro</div>
                     <label className="text-xs font-bold text-slate-600">
                       Descripción “Otro”
                       <input
-                        className={`mt-1 w-full ${inputClass(form.transporte_otros_detalle)}`}
-                        value={form.transporte_otros_detalle}
-                        onChange={update("transporte_otros_detalle")}
+                        className={`mt-1 w-full ${inputClass(form.transporte_otros_detalle || form.transporte_otros)}`}
+                        value={form.transporte_otros_detalle || form.transporte_otros}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setForm((prev) => ({
+                            ...prev,
+                            transporte_otros_detalle: v,
+                            transporte_otros: v,
+                          }));
+                        }}
                         placeholder="Detalle"
                       />
                     </label>
