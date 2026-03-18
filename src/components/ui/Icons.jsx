@@ -1858,6 +1858,9 @@ export const IconDownload = ({ size = 24, className = "" }) => (
   </svg>
 );
 
+// Alias semántico (usado por herramientas de exportación)
+export const IconFileDownload = IconDownload;
+
 // src/components/ui/Icons.jsx
 export const IconSortAsc = ({ size = 16, className = "" }) => (
   <svg

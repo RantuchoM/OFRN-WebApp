@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName, PDFNumber } from "pdf-lib";
+import { PDFArray, PDFBool, PDFDocument, PDFName, PDFNumber, PDFString } from "pdf-lib";
 import { saveAs } from "file-saver";
 
 // --- HELPERS ---
@@ -115,7 +115,7 @@ const calcDiff = (ant, rend) => {
   };
 };
 
-const sumRendicion = (data) => {
+export const sumRendicion = (data) => {
   // Orden y campos alineados con ViaticosTable: Movilidad→transporte_otros, Otros→gasto_otros, etc.
   const fields = [
     "rendicion_viaticos",
@@ -136,6 +136,7 @@ export const exportViaticosToPDFForm = async (
   configData,
   mode = "viatico"
 ) => {
+  const keepEditable = !!configData?.keep_editable;
   // Destaque usa la misma plantilla que Viatico
   const templateName =
     mode === "rendicion" ? "plantilla_rendicion.pdf" : "plantilla_viaticos.pdf";
@@ -159,6 +160,13 @@ export const exportViaticosToPDFForm = async (
     const srcDoc = await PDFDocument.load(templateBuffer);
     const form = srcDoc.getForm();
 
+    const removeFieldSafe = (fieldName) => {
+      try {
+        const field = form.getField(fieldName);
+        if (field) form.removeField(field);
+      } catch (e) {}
+    };
+
     const nombreCompleto = `${data.apellido}, ${data.nombre}`;
     const hoy = new Date();
     const diaHoy = String(hoy.getDate()).padStart(2, "0");
@@ -169,7 +177,13 @@ export const exportViaticosToPDFForm = async (
       mesHoy || ""
     } de ${anioHoy}`;
 
-    const money = (val) => fmtMoney(val);
+    const money = (val) => {
+      if (!keepEditable) return fmtMoney(val);
+      const num = Number(val);
+      if (!Number.isFinite(num)) return "";
+      // Exportación editable: número visible, sin formato moneda.
+      return String(num);
+    };
 
     try {
       if (mode === "rendicion") {
@@ -187,28 +201,32 @@ export const exportViaticosToPDFForm = async (
         f("ciudad_origen", data.ciudad_origen || "Viedma");
         f("lugar_comision", configData.lugar_comision);
         f("motivo", data.motivo || configData.motivo);
-        f("asiento_habitual", data.ciudad_origen || "Viedma");
+        f(
+          "asiento_habitual",
+          data.asiento_habitual || data.ciudad_origen || "Viedma"
+        );
         f("dia_salida", fmtDate(data.fecha_salida));
         f("hora_salida", fmtTime(data.hora_salida));
         f("dia_llegada", fmtDate(data.fecha_llegada));
         f("hora_llegada", fmtTime(data.hora_llegada));
         f("dias_computados", data.dias_computables);
-        f("valor_diario", fmtMoney(data.valorDiarioCalc));
-        f("porcentaje_viatico", data.porcentaje);
+        f("valor_diario", money(data.valorDiarioCalc));
+        // En este formulario el campo "porcentaje_viatico" espera Sí/No (no el número).
+        f("porcentaje_viatico", Number(data.porcentaje || 0) > 0 ? "Sí" : "No");
         f(
           "porcentaje_temporada",
           configData.factor_temporada > 0 ? "ALTA" : "BAJA"
         );
 
         // Tabla Rendición
-        f("viaticos_ant", fmtMoney(data.subtotal));
-        f("viaticos_rend", fmtMoney(data.rendicion_viaticos));
+        f("viaticos_ant", money(data.subtotal));
+        f("viaticos_rend", money(data.rendicion_viaticos));
         const cViat = calcDiff(data.subtotal, data.rendicion_viaticos);
         f("viaticos_dev", cViat.dev);
         f("viaticos_reint", cViat.reint);
 
-        f("alojamiento_ant", fmtMoney(data.gasto_alojamiento));
-        f("alojamiento_rend", fmtMoney(data.rendicion_gasto_alojamiento));
+        f("alojamiento_ant", money(data.gasto_alojamiento));
+        f("alojamiento_rend", money(data.rendicion_gasto_alojamiento));
         const cAloj = calcDiff(
           data.gasto_alojamiento,
           data.rendicion_gasto_alojamiento
@@ -219,14 +237,14 @@ export const exportViaticosToPDFForm = async (
         // Pasajes en el PDF = columna Movilidad de la tabla (gastos_movilidad / rendicion_transporte_otros)
         const antPasaje = data.gastos_movilidad || 0;
         const rendPasaje = data.rendicion_transporte_otros || 0;
-        f("pasaje_ant", fmtMoney(antPasaje));
-        f("pasaje_rend", fmtMoney(rendPasaje));
+        f("pasaje_ant", money(antPasaje));
+        f("pasaje_rend", money(rendPasaje));
         const cPas = calcDiff(antPasaje, rendPasaje);
         f("pasaje_dev", cPas.dev);
         f("pasaje_reint", cPas.reint);
 
-        f("combustible_ant", fmtMoney(data.gasto_combustible));
-        f("combustible_rend", fmtMoney(data.rendicion_gasto_combustible));
+        f("combustible_ant", money(data.gasto_combustible));
+        f("combustible_rend", money(data.rendicion_gasto_combustible));
         const cComb = calcDiff(
           data.gasto_combustible,
           data.rendicion_gasto_combustible
@@ -234,8 +252,8 @@ export const exportViaticosToPDFForm = async (
         f("combustible_dev", cComb.dev);
         f("combustible_reint", cComb.reint);
 
-        f("otros_movilidad_ant", fmtMoney(data.gastos_movil_otros));
-        f("otros_movilidad_rend", fmtMoney(data.rendicion_gastos_movil_otros));
+        f("otros_movilidad_ant", money(data.gastos_movil_otros));
+        f("otros_movilidad_rend", money(data.rendicion_gastos_movil_otros));
         const cMovOtr = calcDiff(
           data.gastos_movil_otros,
           data.rendicion_gastos_movil_otros
@@ -243,8 +261,8 @@ export const exportViaticosToPDFForm = async (
         f("otros_movilidad_dev", cMovOtr.dev);
         f("otros_movilidad_reint", cMovOtr.reint);
 
-        f("capacitacion_ant", fmtMoney(data.gastos_capacit));
-        f("capacitacion_rend", fmtMoney(data.rendicion_gastos_capacit));
+        f("capacitacion_ant", money(data.gastos_capacit));
+        f("capacitacion_rend", money(data.rendicion_gastos_capacit));
         const cCap = calcDiff(
           data.gastos_capacit,
           data.rendicion_gastos_capacit
@@ -254,8 +272,8 @@ export const exportViaticosToPDFForm = async (
 
         const antCer = data.gasto_ceremonial || 0;
         const rendCer = data.rendicion_gasto_ceremonial || 0;
-        f("gastos_ceremonial_ant", fmtMoney(antCer));
-        f("gastos_ceremonial_rend", fmtMoney(rendCer));
+        f("gastos_ceremonial_ant", money(antCer));
+        f("gastos_ceremonial_rend", money(rendCer));
         const cCer = calcDiff(antCer, rendCer);
         f("gastos_ceremonial_dev", cCer.dev);
         f("gastos_ceremonial_reint", cCer.reint);
@@ -263,16 +281,16 @@ export const exportViaticosToPDFForm = async (
         // "Otros gastos" en el PDF = columna "Otros" de la tabla (ViaticosTable: gasto_otros / rendicion_gasto_otros)
         const antOtr = data.gasto_otros || 0;
         const rendOtr = data.rendicion_gasto_otros || 0;
-        f("otros_gastos_ant", fmtMoney(antOtr));
-        f("otros_gastos_rend", fmtMoney(rendOtr));
+        f("otros_gastos_ant", money(antOtr));
+        f("otros_gastos_rend", money(rendOtr));
         const cOtr = calcDiff(antOtr, rendOtr);
         f("otros_gastos_dev", cOtr.dev);
         f("otros_gastos_reint", cOtr.reint);
 
         const totalAnt = data.totalFinal || 0;
         const totalRend = sumRendicion(data);
-        f("totales_ant", fmtMoney(totalAnt));
-        f("totales_rend", fmtMoney(totalRend));
+        f("totales_ant", money(totalAnt));
+        f("totales_rend", money(totalRend));
         const cTot = calcDiff(totalAnt, totalRend);
         f("totales_dev", cTot.dev);
         f("totales_reint", cTot.reint);
@@ -315,7 +333,10 @@ export const exportViaticosToPDFForm = async (
             ? configData.motivo_destaques_exportacion
             : configData.motivo);
         f("motivo", motivoParaDoc || "");
-        f("asiento_habitual", data.ciudad_origen || "Viedma");
+        f(
+          "asiento_habitual",
+          data.asiento_habitual || data.ciudad_origen || "Viedma"
+        );
 
         f("dia_salida", fmtDate(data.fecha_salida));
         f("hora_salida", fmtTime(data.hora_salida));
@@ -326,8 +347,9 @@ export const exportViaticosToPDFForm = async (
         // Nuevos campos de acroform: porcentaje y valor_diario
         f("valor_diario", money(data.valorDiarioCalc));
         f("porcentaje", String(data.porcentaje || 0));
-        // Compatibilidad hacia atrás si existe el campo antiguo
-        f("porcentaje_viatico", String(data.porcentaje || 0));
+        // Compatibilidad hacia atrás si existe el campo antiguo:
+        // el campo "porcentaje_viatico" espera Sí/No.
+        f("porcentaje_viatico", Number(data.porcentaje || 0) > 0 ? "Sí" : "No");
 // ANTES: chk("check_temporada", data.es_temporada_alta);
 chk("check_temporada", configData.factor_temporada > 0);
             f("gasto_alojamiento", money(data.gasto_alojamiento));
@@ -372,6 +394,7 @@ chk("check_temporada", configData.factor_temporada > 0);
         f("gasto_ceremonial", money(data.gasto_ceremonial));
         f("gasto_otros_movilidad", money(data.gastos_movil_otros));
 
+        // Total final del anticipo (en editable: número crudo)
         f("total_anticipo", money(data.totalFinal));
         f("lugar_y_fecha", lugarFecha);
         // Nuevos campos de fecha descompuesta (dd, mmmm, yyyy)
@@ -385,7 +408,22 @@ chk("check_temporada", configData.factor_temporada > 0);
       console.warn("Error rellenando campos PDF:", err);
     }
 
-    form.flatten();
+    // Exportación editable: eliminar campo de firma (si existe) para firma ológrafa posterior
+    if (keepEditable) {
+      removeFieldSafe("firma_link");
+      removeFieldSafe("firma_imagen");
+    }
+
+    // Exportación editable: forzar generación/visualización de apariencias
+    if (keepEditable) {
+      setNeedAppearances(srcDoc, true);
+      try {
+        // Forzar apariencias para evitar que el valor quede "invisible" hasta click
+        form.updateFieldAppearances();
+      } catch (e) {}
+    }
+
+    if (!keepEditable) form.flatten();
     const [copiedPage] = await finalPdf.copyPages(srcDoc, [0]);
     finalPdf.addPage(copiedPage);
   }
@@ -469,5 +507,65 @@ async function insertImageSignature(pdfDoc, form, fieldName, firmaUrl) {
     firmaField.setText("");
   } catch (e) {
     console.error("Error insertando firma:", e);
+  }
+}
+
+// --- CÁLCULO (PDF AcroForm JS) ---
+function setFieldCalculationJs(form, fieldName, jsCode) {
+  try {
+    const field = form.getField(fieldName);
+    const dict = field?.acroField?.dict;
+    if (!dict) return;
+
+    // /AA << /C << /S /JavaScript /JS (...) >> >>
+    const ctx = dict.context;
+    const jsAction = ctx.obj({
+      S: PDFName.of("JavaScript"),
+      JS: PDFString.of(jsCode),
+    });
+    const aa = ctx.obj({
+      C: jsAction,
+    });
+    dict.set(PDFName.of("AA"), aa);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function ensureInCalculationOrder(pdfDoc, form, fieldName) {
+  try {
+    const field = form.getField(fieldName);
+    const fieldRef = field?.acroField?.ref;
+    if (!fieldRef) return;
+
+    const acroForm = pdfDoc.catalog.lookup(PDFName.of("AcroForm"));
+    if (!acroForm) return;
+    const ctx = acroForm.context;
+
+    const existing = acroForm.lookup(PDFName.of("CO"));
+    if (!existing) {
+      acroForm.set(PDFName.of("CO"), ctx.obj([fieldRef]));
+      return;
+    }
+    if (!(existing instanceof PDFArray)) return;
+
+    // Evitar duplicados
+    for (let i = 0; i < existing.size(); i++) {
+      const r = existing.get(i);
+      if (r === fieldRef) return;
+    }
+    existing.push(fieldRef);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function setNeedAppearances(pdfDoc, enable = true) {
+  try {
+    const acroForm = pdfDoc.catalog.lookup(PDFName.of("AcroForm"));
+    if (!acroForm) return;
+    acroForm.set(PDFName.of("NeedAppearances"), enable ? PDFBool.True : PDFBool.False);
+  } catch (e) {
+    // ignore
   }
 }

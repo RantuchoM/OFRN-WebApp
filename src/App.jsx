@@ -28,6 +28,8 @@ import EnsembleCoordinatorView from "./views/Ensembles/EnsembleCoordinatorView";
 import MyPartsViewer from "./views/Giras/MyPartsViewer";
 import MealsAttendancePersonal from "./views/Giras/MealsAttendancePersonal";
 import PublicLinkHandler from "./views/Public/PublicLinkHandler";
+import ViaticosManual from "./views/Public/ViaticosManual";
+import RendicionesManual from "./views/Public/RendicionesManual";
 import DashboardGeneral from "./views/Dashboard/DashboardGeneral";
 import NewsModal from "./components/news/NewsModal";
 import NewsManager from "./components/news/NewsManager";
@@ -1251,6 +1253,8 @@ export default function App() {
           <CommandPaletteProvider>
             <Routes>
               <Route path="/share/:token" element={<PublicLinkHandler />} />
+              <Route path="/viaticos-manual" element={<ViaticosManual />} />
+              <Route path="/rendiciones-manual" element={<RendicionesManual />} />
               <Route
                 path="/management/*"
                 element={<AppContent initialTab="management" />}

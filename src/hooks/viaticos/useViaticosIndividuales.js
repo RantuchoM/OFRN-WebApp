@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 
 // --- UTILIDADES DE CÁLCULO INTERNAS ---
-const calculateDaysDiff = (dSal, hSal, dLleg, hLleg) => {
+export const calculateDaysDiff = (dSal, hSal, dLleg, hLleg) => {
   if (!dSal || !dLleg) return 0;
   const start = new Date(dSal + "T00:00:00");
   const end = new Date(dLleg + "T00:00:00");

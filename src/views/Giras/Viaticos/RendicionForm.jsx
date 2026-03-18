@@ -1,7 +1,13 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import "./Rendicion.css";
 
 export default function RendicionForm({ data, configData }) {
+  const toNumber = (v) => {
+    if (v === null || v === undefined || v === "") return 0;
+    const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+    return Number.isFinite(n) ? n : 0;
+  };
+
   // Formateador de moneda: $0.000.000,00
   const fM = (v) => {
     return new Intl.NumberFormat("es-AR", {
@@ -18,7 +24,41 @@ export default function RendicionForm({ data, configData }) {
     return { dev: d < 0 ? fM(Math.abs(d)) : "", rei: d > 0 ? fM(d) : "" };
   };
 
-  const totalAnt = parseFloat(data.totalFinal || 0);
+  // Anticipo viáticos: por defecto, cálculo (días * valor diario) pero editable.
+  const computedViaticosAnt = toNumber(data?.dias_computables) * toNumber(data?.valorDiarioCalc);
+  const autoViaticosAntRef = useRef(computedViaticosAnt);
+  const [viaticosAnt, setViaticosAnt] = useState(() => {
+    // fallback al valor que venga en data.subtotal si existe
+    const raw = data?.subtotal ?? "";
+    const n = toNumber(raw);
+    if (n > 0) return String(raw);
+    return String(computedViaticosAnt || 0);
+  });
+
+  useEffect(() => {
+    const nextAuto = computedViaticosAnt;
+    const prevAuto = toNumber(autoViaticosAntRef.current);
+    autoViaticosAntRef.current = nextAuto;
+    setViaticosAnt((prev) => {
+      const prevNum = toNumber(prev);
+      const isEmpty = String(prev ?? "").trim() === "";
+      const isStillAuto = Math.abs(prevNum - prevAuto) < 0.000001;
+      if (!isEmpty && !isStillAuto) return prev; // no pisar edición manual
+      return String(nextAuto || 0);
+    });
+  }, [computedViaticosAnt]);
+
+  const viaticosAntNum = toNumber(viaticosAnt);
+  const totalAnt =
+    viaticosAntNum +
+    [
+      data.gasto_alojamiento,
+      data.gasto_otros,
+      data.gasto_combustible,
+      data.gastos_movil_otros,
+      data.gastos_capacit,
+      data.transporte_otros,
+    ].reduce((acc, v) => acc + toNumber(v), 0);
   const totalRend = [
     data.rendicion_viaticos,
     data.rendicion_gasto_alojamiento,
@@ -191,13 +231,35 @@ export default function RendicionForm({ data, configData }) {
               <td className="s27">
                 <span style={{ textDecoration: "underline" }}>Viáticos</span>:
               </td>
-              <td className="s19">{fM(data.subtotal)}</td>
+              <td className="s19">
+                <input
+                  value={viaticosAnt}
+                  onChange={(e) => setViaticosAnt(e.target.value)}
+                  onFocus={(e) => {
+                    if (String(viaticosAnt ?? "").trim() === "0") setViaticosAnt("");
+                    setTimeout(() => {
+                      try {
+                        e.target.select();
+                      } catch {}
+                    }, 0);
+                  }}
+                  inputMode="decimal"
+                  style={{
+                    width: "100%",
+                    border: "none",
+                    outline: "none",
+                    background: "transparent",
+                    textAlign: "right",
+                    fontWeight: "bold",
+                  }}
+                />
+              </td>
               <td className="s19">{fM(data.rendicion_viaticos)}</td>
               <td className="s28">
-                {calc(data.subtotal, data.rendicion_viaticos).dev}
+                {calc(viaticosAntNum, data.rendicion_viaticos).dev}
               </td>
               <td className="s28">
-                {calc(data.subtotal, data.rendicion_viaticos).rei}
+                {calc(viaticosAntNum, data.rendicion_viaticos).rei}
               </td>
             </tr>
             <tr style={{ height: "51px" }}>
