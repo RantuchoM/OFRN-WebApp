@@ -104,14 +104,20 @@ const fmtTime = (timeStr) => {
 };
 
 // Calcula Devolución (negativo) o Reintegro (positivo)
-const calcDiff = (ant, rend) => {
+// En exportación editable queremos números crudos (sin $ ni formato local).
+const calcDiff = (ant, rend, keepEditable = false) => {
   const a = parseFloat(ant || 0);
   const r = parseFloat(rend || 0);
   const diff = r - a;
+  const raw = (n) => {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return "";
+    return String(num);
+  };
 
   return {
-    dev: diff < 0 ? fmtMoney(Math.abs(diff)) : "",
-    reint: diff > 0 ? fmtMoney(diff) : "",
+    dev: diff < 0 ? (keepEditable ? raw(Math.abs(diff)) : fmtMoney(Math.abs(diff))) : "",
+    reint: diff > 0 ? (keepEditable ? raw(diff) : fmtMoney(diff)) : "",
   };
 };
 
@@ -211,8 +217,7 @@ export const exportViaticosToPDFForm = async (
         f("hora_llegada", fmtTime(data.hora_llegada));
         f("dias_computados", data.dias_computables);
         f("valor_diario", money(data.valorDiarioCalc));
-        // En este formulario el campo "porcentaje_viatico" espera Sí/No (no el número).
-        f("porcentaje_viatico", Number(data.porcentaje || 0) > 0 ? "Sí" : "No");
+        f("porcentaje_viatico", String(data.porcentaje || 0));
         f(
           "porcentaje_temporada",
           configData.factor_temporada > 0 ? "ALTA" : "BAJA"
@@ -221,7 +226,7 @@ export const exportViaticosToPDFForm = async (
         // Tabla Rendición
         f("viaticos_ant", money(data.subtotal));
         f("viaticos_rend", money(data.rendicion_viaticos));
-        const cViat = calcDiff(data.subtotal, data.rendicion_viaticos);
+        const cViat = calcDiff(data.subtotal, data.rendicion_viaticos, keepEditable);
         f("viaticos_dev", cViat.dev);
         f("viaticos_reint", cViat.reint);
 
@@ -229,7 +234,8 @@ export const exportViaticosToPDFForm = async (
         f("alojamiento_rend", money(data.rendicion_gasto_alojamiento));
         const cAloj = calcDiff(
           data.gasto_alojamiento,
-          data.rendicion_gasto_alojamiento
+          data.rendicion_gasto_alojamiento,
+          keepEditable
         );
         f("alojamiento_dev", cAloj.dev);
         f("alojamiento_reint", cAloj.reint);
@@ -239,7 +245,7 @@ export const exportViaticosToPDFForm = async (
         const rendPasaje = data.rendicion_transporte_otros || 0;
         f("pasaje_ant", money(antPasaje));
         f("pasaje_rend", money(rendPasaje));
-        const cPas = calcDiff(antPasaje, rendPasaje);
+        const cPas = calcDiff(antPasaje, rendPasaje, keepEditable);
         f("pasaje_dev", cPas.dev);
         f("pasaje_reint", cPas.reint);
 
@@ -247,7 +253,8 @@ export const exportViaticosToPDFForm = async (
         f("combustible_rend", money(data.rendicion_gasto_combustible));
         const cComb = calcDiff(
           data.gasto_combustible,
-          data.rendicion_gasto_combustible
+          data.rendicion_gasto_combustible,
+          keepEditable
         );
         f("combustible_dev", cComb.dev);
         f("combustible_reint", cComb.reint);
@@ -256,7 +263,8 @@ export const exportViaticosToPDFForm = async (
         f("otros_movilidad_rend", money(data.rendicion_gastos_movil_otros));
         const cMovOtr = calcDiff(
           data.gastos_movil_otros,
-          data.rendicion_gastos_movil_otros
+          data.rendicion_gastos_movil_otros,
+          keepEditable
         );
         f("otros_movilidad_dev", cMovOtr.dev);
         f("otros_movilidad_reint", cMovOtr.reint);
@@ -265,7 +273,8 @@ export const exportViaticosToPDFForm = async (
         f("capacitacion_rend", money(data.rendicion_gastos_capacit));
         const cCap = calcDiff(
           data.gastos_capacit,
-          data.rendicion_gastos_capacit
+          data.rendicion_gastos_capacit,
+          keepEditable
         );
         f("capacitacion_dev", cCap.dev);
         f("capacitacion_reint", cCap.reint);
@@ -274,7 +283,7 @@ export const exportViaticosToPDFForm = async (
         const rendCer = data.rendicion_gasto_ceremonial || 0;
         f("gastos_ceremonial_ant", money(antCer));
         f("gastos_ceremonial_rend", money(rendCer));
-        const cCer = calcDiff(antCer, rendCer);
+        const cCer = calcDiff(antCer, rendCer, keepEditable);
         f("gastos_ceremonial_dev", cCer.dev);
         f("gastos_ceremonial_reint", cCer.reint);
 
@@ -283,7 +292,7 @@ export const exportViaticosToPDFForm = async (
         const rendOtr = data.rendicion_gasto_otros || 0;
         f("otros_gastos_ant", money(antOtr));
         f("otros_gastos_rend", money(rendOtr));
-        const cOtr = calcDiff(antOtr, rendOtr);
+        const cOtr = calcDiff(antOtr, rendOtr, keepEditable);
         f("otros_gastos_dev", cOtr.dev);
         f("otros_gastos_reint", cOtr.reint);
 
@@ -291,7 +300,7 @@ export const exportViaticosToPDFForm = async (
         const totalRend = sumRendicion(data);
         f("totales_ant", money(totalAnt));
         f("totales_rend", money(totalRend));
-        const cTot = calcDiff(totalAnt, totalRend);
+        const cTot = calcDiff(totalAnt, totalRend, keepEditable);
         f("totales_dev", cTot.dev);
         f("totales_reint", cTot.reint);
 
@@ -347,9 +356,8 @@ export const exportViaticosToPDFForm = async (
         // Nuevos campos de acroform: porcentaje y valor_diario
         f("valor_diario", money(data.valorDiarioCalc));
         f("porcentaje", String(data.porcentaje || 0));
-        // Compatibilidad hacia atrás si existe el campo antiguo:
-        // el campo "porcentaje_viatico" espera Sí/No.
-        f("porcentaje_viatico", Number(data.porcentaje || 0) > 0 ? "Sí" : "No");
+        // Compatibilidad hacia atrás si existe el campo antiguo
+        f("porcentaje_viatico", String(data.porcentaje || 0));
 // ANTES: chk("check_temporada", data.es_temporada_alta);
 chk("check_temporada", configData.factor_temporada > 0);
             f("gasto_alojamiento", money(data.gasto_alojamiento));
@@ -364,9 +372,9 @@ chk("check_temporada", configData.factor_temporada > 0);
         } else {
           descAnticipo = `( ${
             data.dias_computables || 0
-          } días de viáticos a razón de ${fmtMoney(
-            data.valorDiarioCalc
-          )} diarios -equivalentes al ${
+          } días de viáticos a razón de ${
+            keepEditable ? String(Number(data.valorDiarioCalc || 0)) : fmtMoney(data.valorDiarioCalc)
+          } diarios -equivalentes al ${
             data.porcentaje || 0
           }% del viático diario)`;
         }
