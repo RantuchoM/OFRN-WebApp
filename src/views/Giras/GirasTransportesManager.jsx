@@ -2133,12 +2133,44 @@ export default function GirasTransportesManager({ supabase, gira }) {
             ? "text-rose-600 bg-rose-50 border-rose-200"
             : "text-indigo-600 bg-indigo-50 border-indigo-100";
 
-          const incompletePax = tPax.filter((p) => {
+          const routeRulesForTransport = (routeRules || []).filter(
+            (r) => String(r.id_transporte_fisico) === String(t.id),
+          );
+
+          // 1) Pasajeros admitidos al transporte pero con faltantes de subbida/bajada
+          const incompletePaxFromRoutes = tPax.filter((p) => {
             const tr = p.logistics?.transports?.find(
               (x) => String(x.id) === String(t.id),
             );
             return tr && (!tr.subidaId || !tr.bajadaId);
           });
+
+          // 2) Pasajeros NO admitidos (el transporte no aparece en logistics),
+          // pero que ESPECÍFICAMENTE tienen reglas de subida+bajada para este transporte
+          // (localidad / persona / región / etc. según alcance de las reglas).
+          const missingAdmissionPax = passengerList.filter((p) => {
+            const tr = p.logistics?.transports?.find(
+              (x) => String(x.id) === String(t.id),
+            );
+            if (tr) return false; // ya está admitido: pertenece al caso (1)
+
+            const hasUp = routeRulesForTransport.some(
+              (r) => r.id_evento_subida && matchesRule(r, p, localitiesList),
+            );
+            const hasDown = routeRulesForTransport.some(
+              (r) => r.id_evento_bajada && matchesRule(r, p, localitiesList),
+            );
+            return hasUp && hasDown;
+          });
+
+          // Unificar sin duplicados por id
+          const incompletePax = (() => {
+            const map = new Map();
+            [...incompletePaxFromRoutes, ...missingAdmissionPax].forEach((p) =>
+              map.set(p.id, p),
+            );
+            return Array.from(map.values());
+          })();
 
           const isEditing = editingTransportId === t.id;
 
@@ -2709,7 +2741,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                   {upsSummary.map((s, i) => (
                                     <span
                                       key={i}
-                                      className="px-1 truncate w-full text-[9px] opacity-60"
+                                      className={`px-1 truncate w-full text-[9px] ${
+                                        s.count === 0
+                                          ? "text-amber-800 opacity-100 font-bold bg-amber-100 rounded-sm py-[1px]"
+                                          : "opacity-60"
+                                      }`}
                                     >
                                       {s.label} ({s.count})
                                     </span>
@@ -2741,7 +2777,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                   {downsSummary.map((s, i) => (
                                     <span
                                       key={i}
-                                      className="px-1 truncate w-full text-[9px] opacity-60"
+                                      className={`px-1 truncate w-full text-[9px] ${
+                                        s.count === 0
+                                          ? "text-amber-800 opacity-100 font-bold bg-amber-100 rounded-sm py-[1px]"
+                                          : "opacity-60"
+                                      }`}
                                     >
                                       {s.label} ({s.count})
                                     </span>

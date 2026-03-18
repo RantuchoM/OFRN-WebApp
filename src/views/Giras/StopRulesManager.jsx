@@ -71,62 +71,17 @@ export default function StopRulesManager({
     }
   }, [isOpen, transportId, event]);
   const fetchAdmissions = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("giras_logistica_admision") // <--- NOMBRE CORRECTO
-        .select("id_integrante, id_localidad, id_region, target_ids, alcance, tipo")
-        .eq("id_transporte_fisico", transportId)
-        .eq("id_gira", giraId);
-
-      if (error) throw error;
-
-      const ids = new Set();
-      data?.forEach((reg) => {
-        // Solo consideramos inclusiones para armar el set de "ya admitidos"
-        if (!(reg.tipo === "INCLUSION" || !reg.tipo)) return;
-
-        const alcanceNorm = normalize(reg.alcance);
-
-        // 1) Reglas individuales/personales
-        if (alcanceNorm === "persona" && reg.id_integrante) {
-          ids.add(String(reg.id_integrante));
-          return;
-        }
-
-        // 2) Reglas por localidad: incluimos a TODAS las personas de esa localidad
-        if (alcanceNorm === "localidad" && reg.id_localidad) {
-          (passengers || [])
-            .filter(
-              (p) =>
-                String(p.id_localidad) === String(reg.id_localidad) ||
-                String(p.localidades?.id) === String(reg.id_localidad),
-            )
-            .forEach((p) => ids.add(String(p.id)));
-          return;
-        }
-
-        // 3) Reglas por región: incluimos a quienes pertenezcan a una localidad de esa región
-        if (alcanceNorm === "region" && reg.id_region) {
-          (passengers || [])
-            .filter(
-              (p) =>
-                String(p.localidades?.id_region) === String(reg.id_region) ||
-                String(p.localidades?.region?.id) === String(reg.id_region),
-            )
-            .forEach((p) => ids.add(String(p.id)));
-          return;
-        }
-
-        // 4) Reglas por categoría u otros usos que vengan vía target_ids:
-        // mantenemos compatibilidad anterior (pueden ser IDs de personas u otro esquema)
-        if (reg.target_ids && Array.isArray(reg.target_ids)) {
-          reg.target_ids.forEach((id) => ids.add(String(id)));
-        }
-      });
-      setAdmittedIds(ids);
-    } catch (err) {
-      console.error("Error cargando admisiones:", err.message);
-    }
+    // Centralizamos: si useLogistics ya resolvió que un pasajero "viaja en este transporte",
+    // entonces ya respetó la lógica de rol/condición. Usamos eso como fuente de verdad.
+    const ids = new Set();
+    (passengers || []).forEach((p) => {
+      const trans = p?.logistics?.transports || [];
+      const isInTransport = trans.some(
+        (t) => String(t.id) === String(transportId),
+      );
+      if (isInTransport) ids.add(String(p.id));
+    });
+    setAdmittedIds(ids);
   };
   const fetchRules = async () => {
     setLoading(true);
@@ -311,21 +266,50 @@ export default function StopRulesManager({
     }
   };
 
-  const handleAutoCreateLocalityRule = async () => {
+  const handleAutoCreateMissingAdmissionRule = async () => {
     try {
-      const problematic = existingRules.find(
-        (r) => r.alcance === "Localidad" && getAffectedPeople(r).length === 0,
+      // Priorizamos el primer caso detectado (Localidad -> Región -> Persona)
+      const problematicLocalidad = existingRules.find(
+        (r) =>
+          r.alcance === "Localidad" && getAffectedPeople(r).length === 0,
       );
-      if (!problematic || !problematic.id_localidad) {
-        toast.info(
-          "No se encontró ninguna regla de localidad vacía para este transporte.",
-        );
+      const problematicRegion = existingRules.find(
+        (r) =>
+          r.alcance === "Region" && getAffectedPeople(r).length === 0,
+      );
+      const problematicPersona = existingRules.find(
+        (r) =>
+          r.alcance === "Persona" &&
+          r.id_integrante &&
+          !admittedIds.has(String(r.id_integrante)),
+      );
+
+      const problematic =
+        problematicLocalidad || problematicRegion || problematicPersona;
+
+      if (!problematic) {
+        toast.info("No se encontró ninguna admisión faltante para este caso.");
+        return;
+      }
+
+      const scope = problematic.alcance;
+      const idValue =
+        scope === "Localidad"
+          ? problematic.id_localidad
+          : scope === "Region"
+            ? problematic.id_region
+            : scope === "Persona"
+              ? problematic.id_integrante
+              : null;
+
+      if (!scope || !idValue) {
+        toast.info("No se pudo determinar el alcance/ID de la regla faltante.");
         return;
       }
 
       const confirmed = window.confirm(
-        "Se creará una REGLA DE ADMISIÓN por Localidad para este transporte,\n" +
-          "incluyendo automáticamente a todas las personas de esa localidad en este bus.\n\n" +
+        `Se creará una REGLA DE ADMISIÓN (${scope}) para este transporte,\n` +
+          "incluyendo automáticamente a las personas alcanzadas por esa regla en este bus.\n\n" +
           "¿Deseás continuar?",
       );
       if (!confirmed) return;
@@ -338,10 +322,13 @@ export default function StopRulesManager({
           {
             id_gira: giraId,
             id_transporte_fisico: transportId,
-            alcance: "Localidad",
-            prioridad: 3,
+            alcance: scope,
+            prioridad:
+              scope === "Persona" ? 5 : scope === "Region" ? 2 : 3,
             tipo: "INCLUSION",
-            id_localidad: problematic.id_localidad,
+            id_localidad: scope === "Localidad" ? idValue : null,
+            id_region: scope === "Region" ? idValue : null,
+            id_integrante: scope === "Persona" ? idValue : null,
           },
         ]);
 
@@ -350,16 +337,11 @@ export default function StopRulesManager({
       await fetchAdmissions();
       onRefresh && onRefresh();
 
-      toast.success(
-        "Se creó la regla de admisión por localidad para este transporte.",
-      );
+      toast.success(`Se creó la regla de admisión por ${scope.toLowerCase()}.`);
     } catch (e) {
-      console.error(
-        "Error en creación automática de regla de admisión por localidad:",
-        e,
-      );
+      console.error("Error en creación automática de regla de admisión:", e);
       toast.error(
-        "No se pudo crear automáticamente la regla de admisión por localidad.",
+        "No se pudo crear automáticamente la regla de admisión.",
       );
     } finally {
       setLoading(false);
@@ -465,6 +447,29 @@ export default function StopRulesManager({
       return true;
     });
   };
+
+  const missingAdmissionRules = useMemo(() => {
+    if (!existingRules || existingRules.length === 0) return [];
+
+    const list = [];
+
+    (existingRules || []).forEach((r) => {
+      // Para Localidad/Región, si no hay afectados para esta regla en el evento,
+      // interpretamos que falta la admisión para ese alcance/objetivo.
+      if (r.alcance === "Localidad" || r.alcance === "Region") {
+        const affected = getAffectedPeople(r);
+        if (affected.length === 0) list.push(r);
+        return;
+      }
+
+      // Para Persona: está faltando admisión si no está en admittedIds.
+      if (r.alcance === "Persona" && r.id_integrante) {
+        if (!admittedIds.has(String(r.id_integrante))) list.push(r);
+      }
+    });
+
+    return list;
+  }, [existingRules, passengers, admittedIds, type, transportId, event, localities]);
 
   const groupedRules = useMemo(() => {
     if (!existingRules || existingRules.length === 0) return [];
@@ -646,13 +651,9 @@ export default function StopRulesManager({
                     <div className="divide-y divide-slate-100">
                       {group.rules.map((rule) => {
                         const isPersonaRule = rule.alcance === "Persona";
-                        const affectedPeople = isPersonaRule
-                          ? []
-                          : getAffectedPeople(rule);
+                        const affectedPeople = getAffectedPeople(rule);
                         const isExpanded = expandedRuleId === rule.id;
-                        const displayCount = isPersonaRule
-                          ? 1
-                          : affectedPeople.length;
+                        const displayCount = affectedPeople.length;
 
                         return (
                           <div key={rule.id} className="flex flex-col">
@@ -671,7 +672,13 @@ export default function StopRulesManager({
                                 </span>
                               </div>
                               <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
+                                <span
+                                  className={`text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-full ${
+                                    displayCount === 0
+                                      ? "text-amber-700 bg-amber-100"
+                                      : "text-slate-400 bg-slate-100"
+                                  }`}
+                                >
                                   <IconUsers size={12} /> {displayCount}
                                 </span>
                                 <button
@@ -683,18 +690,18 @@ export default function StopRulesManager({
                                 >
                                   <IconTrash size={14} />
                                 </button>
-                                {!isPersonaRule && (
-                                  <button
-                                    type="button"
-                                    className="text-slate-400"
-                                  >
-                                    {isExpanded ? (
-                                      <IconChevronUp size={14} />
-                                    ) : (
-                                      <IconChevronDown size={14} />
-                                    )}
-                                  </button>
+                            {!isPersonaRule && (
+                              <button
+                                type="button"
+                                className="text-slate-400"
+                              >
+                                {isExpanded ? (
+                                  <IconChevronUp size={14} />
+                                ) : (
+                                  <IconChevronDown size={14} />
                                 )}
+                              </button>
+                            )}
                               </div>
                             </div>
 
@@ -735,6 +742,23 @@ export default function StopRulesManager({
                                         localidad
                                       </button>
                                     )}
+                                    {rule.alcance === "Region" && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setNewScope("Region");
+                                          setTargetIds(
+                                            rule.id_region
+                                              ? [String(rule.id_region)]
+                                              : [],
+                                          );
+                                        }}
+                                        className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-full border border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
+                                      >
+                                        Sugerir regla de admisión para esta
+                                        región
+                                      </button>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -755,20 +779,26 @@ export default function StopRulesManager({
               Agregar Nueva Regla
             </h4>
             {/* Hint cuando hay reglas de localidad sin nadie admitido */}
-            {existingRules.some(
-              (r) => r.alcance === "Localidad" && getAffectedPeople(r).length === 0,
-            ) && (
+            {missingAdmissionRules.length > 0 && (
               <div className="mb-3 flex items-center justify-between gap-3 text-[10px] bg-amber-50 border border-amber-200 px-2 py-1.5 rounded">
                 <div className="text-amber-700">
-                  Detectamos reglas por <strong>Localidad</strong> sin pasajeros asignados.{" "}
-                  Podés crear la regla correspondiente seleccionando
-                  <span className="font-semibold"> Alcance = Localidad</span> y la
-                  localidad adecuada, y luego presionando{" "}
-                  <span className="font-semibold">Asignar Parada</span>.
+                  Faltan las siguientes reglas:{" "}
+                  <div className="mt-1">
+                    <ul className="space-y-1">
+                      {missingAdmissionRules.map((r) => (
+                        <li key={r.id} className="flex items-center gap-2">
+                          <span className="inline-flex w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                          <span>
+                            {r.alcance} — {resolveTargetName(r)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
                 <button
                   type="button"
-                  onClick={handleAutoCreateLocalityRule}
+                  onClick={handleAutoCreateMissingAdmissionRule}
                   className="shrink-0 px-2 py-1 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-semibold"
                 >
                   Crear regla automáticamente
