@@ -167,11 +167,12 @@ export function AuthProvider({ children }) {
     // --- LÓGICA DE PERMISOS (multi-rol: flags por includes) ---
     isAdmin: roles.includes("admin"),
     isDifusion: roles.includes("difusion"),
+    isCoordGeneral: roles.includes("coord_general"),
     // Rol técnico: acceso a eventos técnicos y logística, pero fuera de Management/Editor
     isTechnician: roles.includes("tecnico"),
     // Rol específico de curaduría de repertorio (acceso global a programación de repertorio por ensamble)
     isCurador: roles.includes("curador"),
-    // Editor global de datos: incluye admin, editor y curador
+    // Editor global de datos: incluye admin, editor y curador (NO coord_general)
     isEditor: roles.some((r) => ["admin", "editor", "curador"].includes(r)),
     // Vista de gestión general (agenda, ensembles, repertorio por ensamble, etc.)
     isManagement: roles.some((r) =>

@@ -123,6 +123,28 @@ export default function UnifiedAgenda({
   useEffect(() => {
     const fetchCoordination = async () => {
       if (!user) return;
+      // Si el usuario es Coordinador General, tiene alcance sobre todos los ensambles.
+      const userRoles = (() => {
+        const r = user.rol_sistema;
+        if (r == null) return [];
+        return Array.isArray(r)
+          ? r.map((x) => String(x).toLowerCase().trim())
+          : [String(r).toLowerCase().trim()];
+      })();
+      const isCoordGeneralUser = userRoles.includes("coord_general");
+
+      if (isCoordGeneralUser) {
+        const { data } = await supabase
+          .from("ensambles")
+          .select("id, ensamble");
+        if (data) {
+          const ids = new Set(data.map((d) => d.id));
+          setCoordinatedEnsembles(ids);
+          setMyEnsembleObjects(data);
+        }
+        return;
+      }
+
       const { data } = await supabase
         .from("ensambles_coordinadores")
         .select("id_ensamble, ensambles(id, ensamble)")

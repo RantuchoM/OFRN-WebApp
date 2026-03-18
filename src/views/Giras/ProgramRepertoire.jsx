@@ -362,7 +362,7 @@ const AdvancedImportModal = ({
 
 // --- COMPONENTE PRINCIPAL ---
 export default function ProgramRepertoire({ supabase, program, onBack, onRefreshGira = null }) {
-  const { user, isEditor, isManagement } = useAuth();
+  const { user, isEditor, isManagement, isCoordGeneral } = useAuth();
   const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("subTab") || "repertoire";
@@ -387,6 +387,11 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
         return;
       }
       if (program?.tipo === "Ensamble") {
+        // Coordinador General: puede editar cualquier programa de tipo Ensamble
+        if (isCoordGeneral) {
+          setCanEdit(true);
+          return;
+        }
         const fuentes = program.giras_fuentes || [];
         const { data: coordData, error } = await supabase
           .from("ensambles_coordinadores")
@@ -406,7 +411,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
       }
     };
     if (program && user) checkPermissions();
-  }, [user, isEditor, program, supabase]);
+  }, [user, isEditor, isCoordGeneral, program, supabase]);
 
   // 2. Efecto de Carga de Datos
   const fetchFullRepertoire = async () => {

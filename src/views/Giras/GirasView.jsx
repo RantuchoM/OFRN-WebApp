@@ -58,8 +58,16 @@ import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 
 export default function GirasView({ supabase, trigger = 0 }) {
-  const { user, isEditor, isManagement, isPersonal, isGuest, isDifusion, role } =
-    useAuth();
+  const {
+    user,
+    isEditor,
+    isManagement,
+    isPersonal,
+    isGuest,
+    isDifusion,
+    role,
+    isCoordGeneral,
+  } = useAuth();
   const userRole = role ?? "";
   const [statsRefreshTrigger, setStatsRefreshTrigger] = useState(0);
 
@@ -231,6 +239,17 @@ export default function GirasView({ supabase, trigger = 0 }) {
   useEffect(() => {
     const fetchCoordinations = async () => {
       if (!user) return;
+      if (isCoordGeneral) {
+        const { data, error } = await supabase
+          .from("ensambles")
+          .select("id");
+        if (data && !error) {
+          const ids = new Set(data.map((item) => item.id));
+          setCoordinatedEnsembles(ids);
+        }
+        return;
+      }
+
       const { data, error } = await supabase
         .from("ensambles_coordinadores")
         .select("id_ensamble")
@@ -1424,9 +1443,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
                     onClick={() => {
                       setIsAdding(true);
 
-                      // 1. PRE-SELECCIONAR ENSAMBLES SI ES COORDINADOR
+                      // 1. PRE-SELECCIONAR ENSAMBLES SI ES COORDINADOR (pero no coordinador general)
                       let initialSources = [];
-                      if (isCoordinator) {
+                      if (isCoordinator && !isCoordGeneral) {
                         initialSources = Array.from(coordinatedEnsembles).map(
                           (id) => {
                             const ens = ensemblesList.find(
