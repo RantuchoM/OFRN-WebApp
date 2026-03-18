@@ -31,6 +31,7 @@ export default function MultiSelect({
                 <div 
                   key={opt.id} 
                   onClick={() => handleToggle(opt.id)}
+                  title={opt?.tooltip || opt?.title || undefined}
                   className={`flex items-center justify-between p-1.5 rounded cursor-pointer text-xs transition-colors ${isSelected ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-50'}`}
                 >
                   <div className="flex flex-col">
@@ -57,6 +58,7 @@ export default function MultiSelect({
               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold border border-indigo-200 animate-in fade-in zoom-in duration-200 ${
                 o.badgeClass || ""
               }`}
+              title={o?.tooltip || o?.title || undefined}
             >
               {o.label}
               <button

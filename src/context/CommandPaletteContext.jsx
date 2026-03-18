@@ -55,7 +55,23 @@ export const CommandPaletteProvider = ({ children }) => {
                         label: `${gira.nomenclador || ''} ${gira.nombre_gira} (${gira.mes_letra || ''} ${year})`.trim(),
                         icon: <IconMusic size={14} className="text-indigo-500" />,
                         section: 'Historial de Giras',
-                        run: () => navigate(`/?tab=giras&view=AGENDA&giraId=${gira.id}`) 
+                        // Al cambiar de gira, preservamos la misma "pantalla"
+                        // (tab/view/subTab) y solo reemplazamos `giraId`.
+                        run: () => {
+                          const params = new URLSearchParams(window.location.search);
+                          const tab = params.get('tab');
+                          const view = params.get('view');
+                          
+                          // Solo preservamos pantalla si ya estamos dentro de una vista de Giras.
+                          // Si estamos en LIST (view omitido o view=LIST), abrimos AGENDA como fallback.
+                          if (tab === 'giras' && view && view !== 'LIST') {
+                            params.set('giraId', String(gira.id));
+                            return navigate(`/?${params.toString()}`);
+                          }
+
+                          // Fallback: si no estamos en el panel de giras, abrimos AGENDA.
+                          return navigate(`/?tab=giras&view=AGENDA&giraId=${gira.id}`);
+                        }
                     };
                 });
                 setGirasCommands(cmds);
@@ -145,45 +161,44 @@ export const CommandPaletteProvider = ({ children }) => {
               );
 
               // Sub-navegación LOGÍSTICA (Solo Management)
-              if (currentView === 'LOGISTICS') {
-                  cmds.push(
-                      {
-                          id: 'log-summary',
-                          label: 'Logística > Resumen General',
-                          icon: <IconGrid size={14} className="text-amber-600"/>,
-                          section: 'Navegación Logística',
-                          run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=summary`)
-                      },
-                      {
-                          id: 'log-transport',
-                          label: 'Logística > Transportes',
-                          icon: <IconTruck size={14} className="text-amber-600"/>,
-                          section: 'Navegación Logística',
-                          run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=transport`)
-                      },
-                      {
-                          id: 'log-meals',
-                          label: 'Logística > Comidas (Gestión)',
-                          icon: <IconUtensils size={14} className="text-amber-600"/>,
-                          section: 'Navegación Logística',
-                          run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=meals`)
-                      },
-                      {
-                        id: 'log-attendance',
-                        label: 'Logística > Asistencia Comidas (QR/Lista)',
-                        icon: <IconCheckSquare size={14} className="text-amber-600"/>,
-                        section: 'Navegación Logística',
-                        run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=attendance`)
-                    },
-                      {
-                          id: 'log-rooming',
-                          label: 'Logística > Hotelería (Rooming)',
-                          icon: <IconBed size={14} className="text-amber-600"/>,
-                          section: 'Navegación Logística',
-                          run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=rooming`)
-                      }
-                  );
-              }
+              // Disponible desde cualquier vista dentro de la misma gira.
+              cmds.push(
+                  {
+                      id: 'log-summary',
+                      label: 'Logística > Resumen General',
+                      icon: <IconGrid size={14} className="text-amber-600"/>,
+                      section: 'Navegación Logística',
+                      run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=summary`)
+                  },
+                  {
+                      id: 'log-transport',
+                      label: 'Logística > Transportes',
+                      icon: <IconTruck size={14} className="text-amber-600"/>,
+                      section: 'Navegación Logística',
+                      run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=transporte`)
+                  },
+                  {
+                      id: 'log-meals',
+                      label: 'Logística > Comidas (Gestión)',
+                      icon: <IconUtensils size={14} className="text-amber-600"/>,
+                      section: 'Navegación Logística',
+                      run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=meals`)
+                  },
+                  {
+                    id: 'log-attendance',
+                    label: 'Logística > Asistencia Comidas (QR/Lista)',
+                    icon: <IconCheckSquare size={14} className="text-amber-600"/>,
+                    section: 'Navegación Logística',
+                    run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=attendance`)
+                  },
+                  {
+                      id: 'log-rooming',
+                      label: 'Logística > Hotelería (Rooming)',
+                      icon: <IconBed size={14} className="text-amber-600"/>,
+                      section: 'Navegación Logística',
+                      run: () => navigate(`/?tab=giras&view=LOGISTICS&giraId=${gid}&subTab=rooming`)
+                  }
+              );
 
           } else {
               // *** VISTA PERSONAL (Músicos / Staff no admin) ***

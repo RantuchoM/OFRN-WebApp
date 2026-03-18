@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getProgramStyle } from "../../utils/giraUtils";
+import { getProgramStyle, PROGRAM_TYPES } from "../../utils/giraUtils";
 import { toast } from "sonner";
 import {
   IconCalendar,
@@ -546,7 +546,8 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
             : "—"}
         </div>
       </div>
-      <div className="mt-3 pt-2 border-t border-slate-100">
+      {/* Reduce espacio vertical para que entren más tarjetas */}
+      <div className="mt-1 pt-1 border-t border-slate-100">
         <button
           type="button"
           onClick={handleToggleDetail}
@@ -2262,6 +2263,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [rawRelationships, setRawRelationships] = useState([]);
   const [memberMetadata, setMemberMetadata] = useState({});
   const [adminFilterIds, setAdminFilterIds] = useState([]);
+  const [ensembleTooltipMap, setEnsembleTooltipMap] = useState({});
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [feriados, setFeriados] = useState([]);
   // Listas para Selectores
@@ -2453,6 +2455,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   // UI States
   const [activeTab, setActiveTab] = useState("ensayos");
+  const [programTypeFilter, setProgramTypeFilter] = useState("ALL");
   const [showOverlapOptions, setShowOverlapOptions] = useState(false);
   const [overlapCategories, setOverlapCategories] = useState([]);
   const [categoryOptions, setCategoryOptions] = useState([]);
@@ -2495,6 +2498,10 @@ export default function EnsembleCoordinatorView({ supabase }) {
     end: "",
   });
 
+  // Picker de ensambles para admins / coordinadores en el header principal
+  const [showHeaderEnsemblesPicker, setShowHeaderEnsemblesPicker] =
+    useState(false);
+
   // Bulk Edit
   const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState(false);
   const [bulkFormData, setBulkFormData] = useState({
@@ -2526,6 +2533,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
     userRoles.includes("admin") ||
     userRoles.includes("produccion_general") ||
     userRoles.includes("curador");
+
+  // Coordinador general puede ver/gestionar todos los ensambles para filtrar.
+  const canSelectAllEnsembles = isSuperUser || userRoles.includes("coord_general");
 
   // --- CARGA DE DATOS ESTÁTICOS ---
   useEffect(() => {
@@ -2582,11 +2592,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
         setAllEnsembles(globalEnsembles || []);
 
         let ensemblesToManage = [];
-        if (isSuperUser) {
-          // Si es superusuario, puede gestionar todos los que acabamos de bajar
+        if (canSelectAllEnsembles) {
+          // Admin / coordinador general: puede gestionar todos los que acabamos de bajar
           ensemblesToManage = globalEnsembles || [];
         } else {
-          // Si es coordinador, buscamos solo los que tiene asignados
+          // Coordinador "normal": solo los que tiene asignados
           const { data: coordData } = await supabase
             .from("ensambles_coordinadores")
             .select(`id_ensamble, ensambles ( id, ensamble, descripcion )`)
@@ -2596,6 +2606,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
             : [];
         }
         setMyEnsembles(ensemblesToManage);
+        // Por defecto, mostramos "todos" los ensambles que gestiona el usuario.
+        // Así el multiselect colapsado puede renderizar los chips sin confundir con "Elegir...".
+        setAdminFilterIds((prev) =>
+          prev?.length > 0 ? prev : ensemblesToManage.map((e) => e.id),
+        );
         setEnsamblesOptions(
           ensemblesToManage.map((e) => ({ id: e.id, label: e.ensamble })),
         );
@@ -2607,6 +2622,70 @@ export default function EnsembleCoordinatorView({ supabase }) {
             .select("id_integrante, id_ensamble")
             .in("id_ensamble", ids);
           setRawRelationships(relData || []);
+
+          // Tooltip por ensamble: integrantes + instrumento
+          // (para mostrar en filtros "plegado" y "desplegado" al hacer hover).
+          const { data: ensCoordRels, error: ensCoordsError } =
+            await supabase
+              .from("ensambles_coordinadores")
+              .select("id_ensamble, integrantes(apellido, nombre)")
+              .in("id_ensamble", ids);
+
+          if (ensCoordsError) throw ensCoordsError;
+
+          const coordMap = {};
+          (ensCoordRels || []).forEach((r) => {
+            const ensembleId = r?.id_ensamble;
+            const ap = r?.integrantes?.apellido;
+            const nom = r?.integrantes?.nombre;
+            if (!ensembleId || !ap || !nom) return;
+            const entry = `${ap}, ${nom} (coord.)`;
+            if (!coordMap[ensembleId]) coordMap[ensembleId] = [];
+            coordMap[ensembleId].push(entry);
+          });
+
+          const { data: ensMemberRels, error: ensMembersError } = await supabase
+            .from("integrantes_ensambles")
+            .select(
+              "id_ensamble, integrantes(apellido, nombre, instrumentos ( instrumento ))",
+            )
+            .in("id_ensamble", ids);
+
+          if (ensMembersError) throw ensMembersError;
+
+          const memberMap = {};
+          (ensMemberRels || []).forEach((r) => {
+            const ensembleId = r?.id_ensamble;
+            const ap = r?.integrantes?.apellido;
+            const nom = r?.integrantes?.nombre;
+            const inst = r?.integrantes?.instrumentos?.instrumento;
+            if (!ensembleId || !ap || !nom) return;
+            const entry = inst
+              ? `${ap}, ${nom} (${String(inst).trim()})`
+              : `${ap}, ${nom}`;
+            if (!memberMap[ensembleId]) memberMap[ensembleId] = [];
+            memberMap[ensembleId].push(entry);
+          });
+
+          Object.keys(coordMap).forEach((ensembleId) => {
+            coordMap[ensembleId].sort((a, b) => a.localeCompare(b));
+          });
+          Object.keys(memberMap).forEach((ensembleId) => {
+            memberMap[ensembleId].sort((a, b) => a.localeCompare(b));
+          });
+
+          // Tooltip final: arriba coordinadores, luego integrantes (con salto si hay ambos)
+          const tooltipMap = {};
+          ids.forEach((ensembleId) => {
+            const coords = coordMap[ensembleId] || [];
+            const members = memberMap[ensembleId] || [];
+            const spacer = coords.length > 0 && members.length > 0 ? [""] : [];
+            tooltipMap[ensembleId] = [...coords, ...spacer, ...members].join(
+              "\n",
+            );
+          });
+
+          setEnsembleTooltipMap(tooltipMap);
 
           const uniqueMemberIds = [
             ...new Set(relData?.map((r) => r.id_integrante) || []),
@@ -2709,11 +2788,14 @@ export default function EnsembleCoordinatorView({ supabase }) {
     fetchContext();
   }, [user, supabase, isSuperUser]);
 
+  const canUseEnsembleFilter = canSelectAllEnsembles || myEnsembles.length > 0;
+
   const activeEnsembles = useMemo(() => {
-    if (isSuperUser && adminFilterIds.length > 0)
+    if (canUseEnsembleFilter && adminFilterIds.length > 0) {
       return myEnsembles.filter((e) => adminFilterIds.includes(e.id));
+    }
     return myEnsembles;
-  }, [isSuperUser, adminFilterIds, myEnsembles]);
+  }, [canUseEnsembleFilter, adminFilterIds, myEnsembles]);
 
   const activeMembersSet = useMemo(() => {
     const activeEnsembleIds = new Set(activeEnsembles.map((e) => e.id));
@@ -2988,6 +3070,29 @@ export default function EnsembleCoordinatorView({ supabase }) {
       return candidates || [];
     },
   });
+
+  const programTypeOptions = useMemo(() => {
+    const tipos = Array.from(new Set(programs.map((p) => p?.tipo).filter(Boolean)));
+    const order = Object.keys(PROGRAM_TYPES).filter((k) => k !== "default");
+
+    return tipos
+      .map((tipo) => ({
+        value: tipo,
+        label: PROGRAM_TYPES[tipo]?.label || tipo,
+      }))
+      .sort((a, b) => order.indexOf(a.value) - order.indexOf(b.value));
+  }, [programs]);
+
+  const filteredPrograms = useMemo(() => {
+    if (programTypeFilter === "ALL") return programs;
+    return programs.filter((p) => p?.tipo === programTypeFilter);
+  }, [programs, programTypeFilter]);
+
+  useEffect(() => {
+    if (programTypeFilter === "ALL") return;
+    const stillExists = programs.some((p) => p?.tipo === programTypeFilter);
+    if (!stillExists) setProgramTypeFilter("ALL");
+  }, [programTypeFilter, programs]);
 
   const refreshData = () => {
     queryClient.invalidateQueries(["rehearsals"]);
@@ -3330,7 +3435,21 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const adminOptions = allEnsembles.map((e) => ({
     id: e.id,
     label: e.ensamble,
+    tooltip: ensembleTooltipMap[e.id],
   }));
+
+  // Opciones concretas que efectivamente puede gestionar este usuario
+  const manageableEnsembleOptions = myEnsembles.map((e) => ({
+    id: e.id,
+    label: e.ensamble,
+    tooltip: ensembleTooltipMap[e.id],
+  }));
+
+  // Opciones que se muestran dentro del selector de ensambles del header
+  const headerEnsembleOptions = isSuperUser
+    ? adminOptions
+    : manageableEnsembleOptions;
+  const headerEnsembleAllIds = headerEnsembleOptions.map((o) => o.id);
 
   const weekDays = [
     { val: "1", label: "Lu" },
@@ -3376,12 +3495,13 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 </span>
               )}
             </h1>
-            {!isSuperUser && (
+            {!isSuperUser && !canUseEnsembleFilter && (
               <div className="flex gap-1 overflow-x-auto max-w-[200px] md:max-w-none no-scrollbar">
                 {activeEnsembles.map((e) => (
                   <span
                     key={e.id}
                     className="text-[10px] font-bold px-2 py-0.5 bg-white text-slate-600 rounded border border-slate-200 shadow-sm flex items-center gap-1 whitespace-nowrap"
+                    title={ensembleTooltipMap[e.id] || undefined}
                   >
                     <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>{" "}
                     {e.ensamble}
@@ -3442,9 +3562,153 @@ export default function EnsembleCoordinatorView({ supabase }) {
               )}
             </div>
 
+            {/* Filtro ensambles: móvil */}
+            {canUseEnsembleFilter && (
+              <div className="md:hidden relative">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowHeaderEnsemblesPicker((prev) => !prev)
+                  }
+                  className="inline-flex items-center gap-1 px-2 py-1.5 text-[11px] font-bold rounded shadow-sm border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  title="Filtrar ensambles"
+                >
+                  <IconFilter size={14} className="text-slate-500" />
+                  <div className="flex flex-nowrap items-center gap-1 overflow-x-auto no-scrollbar max-w-[120px]">
+                    {activeEnsembles.length > 0 ? (
+                      activeEnsembles.map((e) => (
+                        <span
+                          key={e.id}
+                          className="text-[10px] font-bold px-2 py-0.5 bg-white text-slate-600 rounded border border-slate-200 shadow-sm flex items-center whitespace-nowrap"
+                          title={ensembleTooltipMap[e.id] || undefined}
+                        >
+                          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                          {e.ensamble}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-slate-500">Elegir...</span>
+                    )}
+                  </div>
+                  <IconChevronDown
+                    size={10}
+                    className={`transition-transform ${
+                      showHeaderEnsemblesPicker ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+
+                {showHeaderEnsemblesPicker && (
+                  <div className="absolute left-0 top-full mt-1 w-72 max-w-[calc(100vw-2rem)] border border-slate-200 rounded-lg bg-white shadow-lg p-2 z-50">
+                    <div className="flex items-center justify-between gap-2 mb-2 px-1">
+                      <button
+                        type="button"
+                        onClick={() => setAdminFilterIds(headerEnsembleAllIds)}
+                        className="text-[11px] font-bold text-indigo-700 hover:bg-indigo-50 border border-indigo-200 rounded px-2 py-1"
+                        disabled={headerEnsembleAllIds.length === 0}
+                      >
+                        Seleccionar todo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAdminFilterIds([])}
+                        className="text-[11px] font-bold text-slate-600 hover:bg-slate-50 border border-slate-200 rounded px-2 py-1"
+                        disabled={adminFilterIds.length === 0}
+                      >
+                        Deseleccionar todo
+                      </button>
+                    </div>
+                    <MultiSelect
+                      placeholder="Elegí uno o varios ensambles..."
+                      options={
+                        isSuperUser ? adminOptions : manageableEnsembleOptions
+                      }
+                      selectedIds={adminFilterIds}
+                      onChange={(ids) => {
+                        const next = Array.isArray(ids) ? ids : [];
+                        setAdminFilterIds(next);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* BOTONES ESCRITORIO: TEXTO COMPLETO */}
 
             <div className="hidden md:flex gap-2">
+              {/* Filtro ensambles: escritorio (izquierda de Nuevo Programa) */}
+              {canUseEnsembleFilter && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowHeaderEnsemblesPicker((prev) => !prev)
+                    }
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-[11px] font-bold rounded shadow-sm border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    title="Filtrar ensambles"
+                  >
+                    <IconFilter size={14} className="text-slate-500" />
+                    <div className="flex flex-nowrap items-center gap-1 overflow-x-auto no-scrollbar max-w-[240px]">
+                      {activeEnsembles.length > 0 ? (
+                        activeEnsembles.map((e) => (
+                          <span
+                            key={e.id}
+                            className="text-[10px] font-bold px-2 py-0.5 bg-white text-slate-600 rounded border border-slate-200 shadow-sm flex items-center whitespace-nowrap"
+                            title={ensembleTooltipMap[e.id] || undefined}
+                          >
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                            {e.ensamble}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-slate-500">Elegir...</span>
+                      )}
+                    </div>
+                    <IconChevronDown
+                      size={10}
+                      className={`transition-transform ${
+                        showHeaderEnsemblesPicker ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+
+                  {showHeaderEnsemblesPicker && (
+                    <div className="absolute left-0 top-full mt-1 w-72 max-w-[calc(100vw-2rem)] border border-slate-200 rounded-lg bg-white shadow-lg p-2 z-50">
+                      <div className="flex items-center justify-between gap-2 mb-2 px-1">
+                        <button
+                          type="button"
+                          onClick={() => setAdminFilterIds(headerEnsembleAllIds)}
+                          className="text-[11px] font-bold text-indigo-700 hover:bg-indigo-50 border border-indigo-200 rounded px-2 py-1"
+                          disabled={headerEnsembleAllIds.length === 0}
+                        >
+                          Seleccionar todo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAdminFilterIds([])}
+                          className="text-[11px] font-bold text-slate-600 hover:bg-slate-50 border border-slate-200 rounded px-2 py-1"
+                          disabled={adminFilterIds.length === 0}
+                        >
+                          Deseleccionar todo
+                        </button>
+                      </div>
+                      <MultiSelect
+                        placeholder="Elegí uno o varios ensambles..."
+                        options={
+                          isSuperUser ? adminOptions : manageableEnsembleOptions
+                        }
+                        selectedIds={adminFilterIds}
+                        onChange={(ids) => {
+                          const next = Array.isArray(ids) ? ids : [];
+                          setAdminFilterIds(next);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button
                 onClick={() => setIsGiraModalOpen(true)}
                 className="bg-white border border-indigo-200 text-indigo-700 px-3 py-1.5 rounded shadow-sm text-xs font-bold flex gap-2 hover:bg-indigo-50 items-center transition-colors"
@@ -3453,6 +3717,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 <IconMusic size={14} />
                 <span className="hidden sm:inline">Nuevo Programa</span>
               </button>
+
               <button
                 onClick={() => setIsLocationModalOpen(true)}
                 className="bg-white border px-3 py-1.5 rounded shadow-sm text-xs font-bold flex gap-2 text-slate-700 hover:bg-slate-50"
@@ -3487,18 +3752,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
             </button>
           </div>
         </div>
-
-        {/* Filtros Admin */}
-        {isSuperUser && (
-          <div className="w-full md:w-1/3">
-            <FilterDropdown
-              placeholder="Filtrar por Ensamble..."
-              options={adminOptions}
-              selectedIds={adminFilterIds}
-              onChange={setAdminFilterIds}
-            />
-          </div>
-        )}
 
         {/* Filtros Inteligentes */}
         {showSmartSelect && (
@@ -3794,16 +4047,52 @@ export default function EnsembleCoordinatorView({ supabase }) {
               </div>
             )}
             {activeTab === "programas" && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {programs.map((prog) => (
-                  <ProgramCardItem
-                    key={prog.id}
-                    program={prog}
-                    activeMembersSet={activeMembersSet}
-                    supabase={supabase}
-                    onEdit={handleEditProgram}
-                  />
-                ))}
+              <div className="flex flex-col gap-3">
+                {/* Filtro por tipo de programa */}
+                <div className="flex items-center justify-between gap-3 pb-1 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">
+                      Tipo
+                    </label>
+                    <select
+                      value={programTypeFilter}
+                      onChange={(e) => setProgramTypeFilter(e.target.value)}
+                      className="border border-slate-300 rounded px-2 py-1 text-xs bg-white outline-none"
+                    >
+                      <option value="ALL">Todos</option>
+                      {programTypeOptions.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="text-[10px] font-bold text-slate-500">
+                    {filteredPrograms.length}{" "}
+                    {filteredPrograms.length === 1 ? "programa" : "programas"}
+                  </div>
+                </div>
+
+                {programsLoading ? (
+                  <div className="text-center py-6 text-slate-400 text-xs font-bold">
+                    Cargando programas...
+                  </div>
+                ) : filteredPrograms.length > 0 ? (
+                  filteredPrograms.map((prog) => (
+                    <ProgramCardItem
+                      key={prog.id}
+                      program={prog}
+                      activeMembersSet={activeMembersSet}
+                      supabase={supabase}
+                      onEdit={handleEditProgram}
+                    />
+                  ))
+                ) : (
+                  <div className="text-center py-10 text-slate-400 text-xs font-bold">
+                    No hay programas con ese tipo.
+                  </div>
+                )}
               </div>
             )}
             {activeTab === "repertorio" && (

@@ -177,15 +177,19 @@ export default function SearchableSelect({
                         {filteredOptions.length > 0 ? (
                             filteredOptions.map(opt => {
                                 const isSelected = isMulti ? (value || []).includes(opt.id) : value === opt.id;
+                                const optionStatusClass = opt.optionClassName || "";
+                                const optionLabelClass = opt.labelClassName || "text-slate-700";
+                                const optionSubLabelClass = opt.subLabelClassName || "text-[10px] text-slate-500";
+                                const hoverClass = optionStatusClass ? "" : "hover:bg-slate-50";
                                 return (
                                     <div 
                                         key={opt.id} 
                                         onClick={() => handleSelect(opt.id)} 
-                                        className={`px-3 py-2 text-xs cursor-pointer border-b border-slate-50 last:border-0 flex items-center justify-between ${isSelected ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
+                                        className={`px-3 py-2 text-xs cursor-pointer border-b border-slate-50 last:border-0 flex items-center justify-between ${isSelected ? 'bg-indigo-50' : ''} ${hoverClass} ${optionStatusClass}`}
                                     >
                                         <div className="flex flex-col">
-                                            <span className="font-bold text-slate-700">{opt.label}</span>
-                                            {opt.subLabel && <span className="text-[10px] text-slate-500">{opt.subLabel}</span>}
+                                            <span className={`font-bold ${optionLabelClass}`}>{opt.label}</span>
+                                            {opt.subLabel && <span className={optionSubLabelClass}>{opt.subLabel}</span>}
                                         </div>
                                         {isSelected && <IconCheck size={14} className="text-indigo-600"/>}
                                     </div>

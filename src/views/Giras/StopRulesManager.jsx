@@ -538,6 +538,8 @@ export default function StopRulesManager({
 
   const personOptions = useMemo(() => {
     const list = (passengers || []).slice();
+    const fieldKey = type === "up" ? "subidaId" : "bajadaId";
+    const eventId = event?.id;
 
     // En bajadas, primero quienes aún no tienen bajada en este transporte,
     // luego quienes ya tienen alguna bajada, siempre ordenados por apellido.
@@ -563,14 +565,67 @@ export default function StopRulesManager({
       list.sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
     }
 
-    return list.map((p) => ({
-      id: String(p.id),
-      label: `${p.apellido}, ${p.nombre}`,
-      subLabel: admittedIds.has(String(p.id))
-        ? "En este transporte"
-        : "Se incluirá al bus",
-    }));
-  }, [passengers, admittedIds, type, transportId]);
+    return list.map((p) => {
+      const idStr = String(p.id);
+      const inBus = admittedIds.has(idStr);
+      const tr = p.logistics?.transports?.find(
+        (t) => String(t.id) === String(transportId),
+      );
+
+      const assignedStopId = tr ? tr[fieldKey] : null;
+      const hasAnyStop = inBus && Boolean(assignedStopId);
+      const hasAnotherStop =
+        inBus &&
+        hasAnyStop &&
+        eventId != null &&
+        String(assignedStopId) !== String(eventId);
+      const isThisStop =
+        inBus &&
+        hasAnyStop &&
+        eventId != null &&
+        String(assignedStopId) === String(eventId);
+
+      const loc = p.localidades?.localidad || "";
+      const label = loc
+        ? `${p.apellido}, ${p.nombre} (${loc})`
+        : `${p.apellido}, ${p.nombre}`;
+
+      if (!inBus) {
+        return {
+          id: idStr,
+          label,
+          subLabel: "Se incluirá al bus",
+          optionClassName: "bg-amber-50",
+          labelClassName: "text-amber-700",
+          subLabelClassName: "text-[10px] text-amber-600",
+        };
+      }
+
+      if (hasAnotherStop) {
+        return {
+          id: idStr,
+          label,
+          subLabel: "Ya tiene otra parada",
+          optionClassName: "bg-cyan-50",
+          labelClassName: "text-cyan-700",
+          subLabelClassName: "text-[10px] text-cyan-600",
+        };
+      }
+
+      const subLabel = isThisStop
+        ? "Ya está asignado a esta parada"
+        : "Sin parada aún";
+
+      return {
+        id: idStr,
+        label,
+        subLabel,
+        optionClassName: "bg-emerald-50",
+        labelClassName: "text-emerald-700",
+        subLabelClassName: "text-[10px] text-emerald-600",
+      };
+    });
+  }, [passengers, admittedIds, type, transportId, event?.id]);
 
   const hasNewPersonToAutoInclude =
     newScope === "Persona" &&
