@@ -266,16 +266,7 @@ export default function ViaticosManual() {
           const row = rawRows[r];
           if (!row || row.length === 0) continue;
 
-          const apellido = String(get(row, "apellido") || "").trim();
-          const nombre = String(get(row, "nombre") || "").trim();
-          if (!apellido || !nombre) continue;
-
-          const dni = String(get(row, "dni") || "").trim();
-          const cargo = String(get(row, "cargo") || "").trim();
-          const jornada = String(get(row, "jornada") || "").trim();
-          const ciudad_origen = String(get(row, "ciudad_origen") || "").trim();
-          const asiento_habitual = String(get(row, "asiento_habitual") || "").trim();
-
+          // Localidades y valor diario pueden venir en filas no asociadas a una persona.
           const locRaw = String(getByIdx(row, idxLocalidades) || "").trim();
           if (locRaw) {
             locRaw
@@ -288,6 +279,16 @@ export default function ViaticosManual() {
           const valorDiarioRaw = get(row, "valor_diario");
           const valorDiario = toNumber(valorDiarioRaw);
           if (valorDiario > maxValorDiario) maxValorDiario = valorDiario;
+
+          const apellido = String(get(row, "apellido") || "").trim();
+          const nombre = String(get(row, "nombre") || "").trim();
+          if (!apellido || !nombre) continue;
+
+          const dni = String(get(row, "dni") || "").trim();
+          const cargo = String(get(row, "cargo") || "").trim();
+          const jornada = String(get(row, "jornada") || "").trim();
+          const ciudad_origen = String(get(row, "ciudad_origen") || "").trim();
+          const asiento_habitual = String(get(row, "asiento_habitual") || "").trim();
 
           people.push({
             id: `${apellido}__${nombre}__${dni || r}`,
