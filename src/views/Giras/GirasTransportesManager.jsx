@@ -394,7 +394,7 @@ const generateStopsOnlyExcel = async (
   const addDaySeparatorRow = (label) => {
     const sepRow = worksheet.addRow({ dia_hora: label });
     worksheet.mergeCells(sepRow.number, 1, sepRow.number, worksheet.columnCount);
-    sepRow.height = 22;
+    sepRow.height = 34;
     const cell = sepRow.getCell(1);
     cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 13 };
     cell.fill = {
