@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Routes,
   Route,
@@ -314,8 +315,13 @@ const ProtectedApp = ({ initialTab }) => {
     isCurador,
     role,
     roles,
+    availableRoles,
+    currentRole,
+    toggleSystemRole,
+    setRoleFilterExplicit,
+    setDefaultRole,
   } = useAuth();
-  const userRole = role ?? "";
+  const userRole = currentRole || role || "";
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -360,6 +366,12 @@ const ProtectedApp = ({ initialTab }) => {
   const [pendingFields, setPendingFields] = useState([]);
 
   const { toggleVisibility, showTriggers } = useManual();
+
+  // Desplegable de selección de rol
+  const [isRoleMenuOpen, setIsRoleMenuOpen] = useState(false);
+  const [draftRoles, setDraftRoles] = useState(roles);
+  const roleButtonRef = useRef(null);
+  const [roleMenuPos, setRoleMenuPos] = useState({ top: 0, right: 16 });
 
   // Estado para badges de comentarios
   const [commentCounts, setCommentCounts] = useState({
@@ -960,8 +972,8 @@ const ProtectedApp = ({ initialTab }) => {
           </div>
 
           {/* 2. SECCIÓN CENTRAL (BARRA DE COMANDOS) */}
-          <div className="flex-1 hidden md:flex justify-center max-w-xl mx-auto px-4">
-            <CommandBarTrigger className="w-full shadow-none bg-slate-50 border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:border-indigo-400" />
+          <div className="hidden md:flex flex-1 justify-center max-w-sm mx-auto px-2">
+            <CommandBarTrigger className="w-full shadow-none bg-slate-50 border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:border-indigo-400 py-1.5" />
           </div>
           {/* 3. SECCIÓN DERECHA (Acciones/Perfil) */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -996,6 +1008,36 @@ const ProtectedApp = ({ initialTab }) => {
                 />
               )}
             </div>
+
+            {/* Selector de Rol de Sistema */}
+            {Array.isArray(availableRoles) && availableRoles.length > 1 && (
+              <div className="relative">
+                <button
+                  ref={roleButtonRef}
+                  type="button"
+                  onClick={() => {
+                    setDraftRoles(roles);
+                    if (!isRoleMenuOpen && roleButtonRef.current) {
+                      const rect =
+                        roleButtonRef.current.getBoundingClientRect();
+                      setRoleMenuPos({
+                        top: rect.bottom + 6,
+                        right: window.innerWidth - rect.right,
+                      });
+                    }
+                    setIsRoleMenuOpen((v) => !v);
+                  }}
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-full border border-slate-200 bg-white text-[11px] font-bold text-slate-600 cursor-pointer select-none"
+                >
+                  <span className="uppercase tracking-wide">
+                    {roles.length <= 1
+                      ? roles[0] || role || "todos"
+                      : `${roles[0] || role} +${roles.length - 1}`}
+                  </span>
+                  <span className="text-slate-400 text-xs">▾</span>
+                </button>
+              </div>
+            )}
 
             <NewsModal supabase={supabase} />
 
@@ -1076,7 +1118,10 @@ const ProtectedApp = ({ initialTab }) => {
           </div>
         )}
 
-        <main className="flex-1 overflow-hidden relative bg-slate-50 print:overflow-visible print:static">
+        <main
+          key={roles.join(",") || "all"}
+          className="flex-1 overflow-hidden relative bg-slate-50 print:overflow-visible print:static"
+        >
           {" "}
           {renderContent()}
           {/* MODAL GLOBAL DE COMENTARIOS */}
@@ -1106,6 +1151,81 @@ const ProtectedApp = ({ initialTab }) => {
         userId={user?.id}
         isAdmin={isManagement}
       />
+      {isRoleMenuOpen &&
+        createPortal(
+          <div
+            className="fixed w-52 bg-white border border-slate-200 rounded-lg shadow-lg z-[9999] text-xs"
+            style={{ top: roleMenuPos.top, right: roleMenuPos.right }}
+          >
+            <div className="max-h-64 overflow-auto py-1">
+              {availableRoles.map((r) => {
+                const isSelected = draftRoles.includes(r);
+                return (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => {
+                      setDraftRoles((prev) => {
+                        const list = Array.isArray(prev) ? prev : [];
+                        return list.includes(r)
+                          ? list.filter((x) => x !== r)
+                          : [...list, r];
+                      });
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-slate-50 ${
+                      isSelected
+                        ? "font-bold text-indigo-600"
+                        : "text-slate-600"
+                    }`}
+                  >
+                    <span className="uppercase">{r}</span>
+                    <span
+                      className={`ml-2 text-[10px] ${
+                        isSelected ? "text-indigo-500" : "text-slate-300"
+                      }`}
+                    >
+                      ✓
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="border-t border-slate-200 flex items-center justify-between px-3 py-1.5 bg-slate-50">
+              <button
+                type="button"
+                onClick={() => {
+                  setDraftRoles([]);
+                }}
+                className="text-[10px] text-slate-500 hover:text-slate-700 font-bold"
+              >
+                Todos
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDefaultRole(draftRoles);
+                  }}
+                  className="text-[10px] text-amber-500 hover:text-amber-600 font-bold"
+                  title="Guardar como predeterminado"
+                >
+                  ★ Predeterminado
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRoleFilterExplicit(draftRoles);
+                    setIsRoleMenuOpen(false);
+                  }}
+                  className="text-[10px] px-2 py-1 rounded bg-indigo-600 text-white font-bold hover:bg-indigo-700"
+                >
+                  Aplicar
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
       <FeedbackWidget supabase={supabase} userEmail={user?.email} />
     </div>
   );

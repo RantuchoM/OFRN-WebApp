@@ -1396,7 +1396,7 @@ export default function UnifiedAgenda({
                 </div>
 
                 {canEdit && musicianOptions.length > 0 && (
-                  <div className="shrink-0 w-[40px] md:w-[160px]">
+                  <div className="w-[140px] sm:w-[160px]">
                     <SearchableSelect
                       options={musicianOptions}
                       value={viewAsUserId}
