@@ -13,8 +13,45 @@ import {
 } from "../../utils/musicTranslationFlow";
 import {
   normalizeRepeticion,
+  normalizeRima,
   segmentRimaFieldClasses,
 } from "../../utils/musicTranslationPoetics";
+
+function rimaBadgeTintClass(rima) {
+  const r = normalizeRima(rima);
+  switch (r) {
+    case "A":
+      return "border-red-500/60 bg-red-500/25 text-red-900 dark:text-red-100";
+    case "B":
+      return "border-blue-500/60 bg-blue-500/25 text-blue-900 dark:text-blue-100";
+    case "C":
+      return "border-yellow-500/60 bg-yellow-500/25 text-yellow-900 dark:text-yellow-100";
+    case "D":
+      return "border-green-500/60 bg-green-500/25 text-green-900 dark:text-green-100";
+    case "E":
+      return "border-orange-500/60 bg-orange-500/25 text-orange-900 dark:text-orange-100";
+    case "F":
+      return "border-purple-500/60 bg-purple-500/25 text-purple-900 dark:text-purple-100";
+    default:
+      return "";
+  }
+}
+
+function repeticionBadgeTintClass(rep) {
+  const r = normalizeRepeticion(rep);
+  switch (r) {
+    case "R1":
+      return "border-slate-500/60 bg-slate-500/25 text-slate-900 dark:text-slate-100";
+    case "R2":
+      return "border-emerald-500/60 bg-emerald-500/25 text-emerald-900 dark:text-emerald-100";
+    case "R3":
+      return "border-violet-500/60 bg-violet-500/25 text-violet-900 dark:text-violet-100";
+    case "R4":
+      return "border-orange-500/60 bg-orange-500/25 text-orange-900 dark:text-orange-100";
+    default:
+      return "";
+  }
+}
 
 function FlowSuperscript({ segment, flow, onCycle, onSegmentContextMenu }) {
   return (
@@ -37,10 +74,10 @@ function FlowSuperscript({ segment, flow, onCycle, onSegmentContextMenu }) {
 }
 
 const textareaEs =
-  "box-border min-h-[2.125rem] min-w-[3ch] resize-none overflow-hidden whitespace-pre-wrap rounded border border-slate-300/90 bg-white px-1.5 py-1 text-sm leading-snug text-slate-900 transition-colors duration-300 [scrollbar-width:none] placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500/25 dark:border-slate-500 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 [&::-webkit-scrollbar]:hidden";
+  "box-border min-h-[2.125rem] min-w-[3ch] resize-none overflow-hidden whitespace-pre-wrap rounded border border-slate-300/90 bg-white px-0.5 py-1 text-left text-sm leading-snug text-slate-900 transition-colors duration-300 [scrollbar-width:none] placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500/25 dark:border-slate-500 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 [&::-webkit-scrollbar]:hidden";
 
 const textareaEn =
-  "box-border min-h-[2.125rem] min-w-[3ch] resize-none overflow-hidden whitespace-pre-wrap rounded border border-dashed border-slate-500/55 bg-white/75 px-1.5 py-1 text-sm italic leading-snug text-slate-700 transition-colors duration-300 [scrollbar-width:none] placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400/25 dark:border-slate-400 dark:bg-slate-950/45 dark:text-slate-300 dark:placeholder:text-slate-500 [&::-webkit-scrollbar]:hidden";
+  "box-border min-h-[2.125rem] min-w-[3ch] resize-none overflow-hidden whitespace-pre-wrap rounded border border-dashed border-slate-500/55 bg-white/75 px-0.5 py-1 text-left text-sm italic leading-snug text-slate-700 transition-colors duration-300 [scrollbar-width:none] placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-400/25 dark:border-slate-400 dark:bg-slate-950/45 dark:text-slate-300 dark:placeholder:text-slate-500 [&::-webkit-scrollbar]:hidden";
 
 /** Máximo de segmentos por fila visual (misma línea lógica puede partirse en varias subfilas). */
 const MAX_SEGMENTS_PER_ROW = 12;
@@ -223,20 +260,18 @@ export default function StructureEditor({
                     {batches.map((batch, bi) => (
                       <div
                         key={`${ri}-${bi}`}
-                        className={`flex min-w-0 gap-1 bg-white/90 px-0.5 py-0.5 dark:bg-slate-900/90 ${bi > 0 ? "mt-1 border-t border-slate-100 pt-1 dark:border-slate-800" : ""}`}
+                        className={`grid w-full min-w-0 grid-cols-[47%_6%_47%] gap-1 bg-white/90 px-0.5 py-0.5 dark:bg-slate-900/90 ${bi > 0 ? "mt-1 border-t border-slate-100 pt-1 dark:border-slate-800" : ""}`}
                       >
-                        <div className="flex min-w-0 flex-1 flex-row items-stretch border-r border-slate-200 pr-1 dark:border-slate-700">
+                        <div className="flex min-w-0 flex-row items-stretch">
                           {batch.map((seg, si) => {
                             const flow = normalizeControlFlujo(
                               controlFlujoById[seg.id],
                             );
                             const boxFlash = flashKeys.has(`box-${seg.id}`);
-                            const rimaTint = segmentRimaFieldClasses(
-                              rimaById[seg.id],
-                            );
-                            const repCode = normalizeRepeticion(
-                              repeticionById[seg.id],
-                            );
+                            const rimaVal = normalizeRima(rimaById[seg.id]);
+                            const rimaTint = rimaVal
+                              ? segmentRimaFieldClasses(rimaVal)
+                              : "";
                             const mlClass =
                               si > 0
                                 ? structureInterSegmentMarginClass(
@@ -246,13 +281,8 @@ export default function StructureEditor({
                             return (
                               <div
                                 key={`${seg.id}-es-row`}
-                                className={`relative flex w-max max-w-full min-w-0 flex-none flex-col ${mlClass}`}
+                                className={`relative flex w-max max-w-full min-w-0 flex-none flex-col items-start ${mlClass}`}
                               >
-                                {repCode && (
-                                  <span className="pointer-events-none absolute left-0 top-0 z-[15] rounded-br-md bg-slate-800 px-1 py-px text-[9px] font-bold leading-none text-white shadow-sm dark:bg-slate-700">
-                                    {repCode}
-                                  </span>
-                                )}
                                 <div className="flex h-3.5 w-full min-w-0 shrink-0 items-start justify-end pr-px pt-px">
                                   <FlowSuperscript
                                     segment={seg}
@@ -316,32 +346,72 @@ export default function StructureEditor({
                           })}
                         </div>
 
-                        <div className="flex min-h-0 min-w-0 flex-1 flex-row items-stretch overflow-x-auto rounded bg-slate-100/65 px-1 py-0.5 dark:bg-slate-800/40">
+                        {/* Columna Badge (ancho fijo 10%) */}
+                        <div className="flex min-h-0 min-w-0 items-center justify-center gap-1 bg-sky-100/70 border-x border-sky-200/70 overflow-hidden whitespace-nowrap py-0.5">
+                          <div className="flex flex-nowrap items-center justify-center gap-1">
+                            {batch.map((seg) => {
+                              const rimaVal = normalizeRima(rimaById[seg.id]);
+                              const repCode = normalizeRepeticion(
+                                repeticionById[seg.id],
+                              );
+
+                              return (
+                                <React.Fragment key={seg.id}>
+                                  {rimaVal && (
+                                    <span
+                                      className={`inline-flex h-[22px] w-[26px] items-center justify-center rounded-none border px-0 py-[2px] text-center text-[11px] font-bold leading-none tabular-nums ${rimaBadgeTintClass(
+                                        rimaVal,
+                                      )}`}
+                                    >
+                                      {rimaVal}
+                                    </span>
+                                  )}
+                                  {repCode && (
+                                    <span
+                                      className={`inline-flex h-[22px] w-[26px] items-center justify-center rounded-none border px-0 py-[2px] text-center text-[11px] font-bold leading-none tabular-nums ${repeticionBadgeTintClass(
+                                        repCode,
+                                      )}`}
+                                    >
+                                      {repCode}
+                                    </span>
+                                  )}
+                                </React.Fragment>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Columna de Inglés */}
+                        <div className="flex min-w-0 flex-1 flex-row items-stretch overflow-x-auto rounded bg-slate-100/65 py-0.5 dark:bg-slate-800/40">
                           {batch.map((seg, si) => {
                             const flow = normalizeControlFlujo(
                               controlFlujoById[seg.id],
                             );
                             const boxFlash = flashKeys.has(`box-${seg.id}`);
-                            const rimaTint = segmentRimaFieldClasses(
-                              rimaById[seg.id],
-                            );
+                            const rimaVal = normalizeRima(rimaById[seg.id]);
+                            const rimaTint = rimaVal
+                              ? segmentRimaFieldClasses(rimaVal)
+                              : "";
                             const mlClass =
                               si > 0
                                 ? structureInterSegmentMarginClass(
                                     spanishById[batch[si - 1].id] ?? "",
                                   )
                                 : "";
+
                             return (
                               <div
                                 key={`${seg.id}-en-row`}
-                                className={`flex w-max max-w-full min-w-0 flex-none flex-col ${mlClass}`}
+                                className={`flex w-max max-w-full min-w-0 flex-none flex-col items-start ${mlClass}`}
                               >
                                 <div className="flex h-3.5 w-full min-w-0 shrink-0 items-start justify-end pr-px pt-px">
                                   <FlowSuperscript
                                     segment={seg}
                                     flow={flow}
                                     onCycle={onCycleControlFlow}
-                                    onSegmentContextMenu={onSegmentContextMenu}
+                                    onSegmentContextMenu={
+                                      onSegmentContextMenu
+                                    }
                                   />
                                 </div>
                                 <div
@@ -371,7 +441,10 @@ export default function StructureEditor({
                                       ""
                                     }
                                     onChange={(e) => {
-                                      onEnglishChange(seg.id, e.target.value);
+                                      onEnglishChange(
+                                        seg.id,
+                                        e.target.value,
+                                      );
                                       scheduleSaveEnglish(
                                         seg.id,
                                         e.target.value,

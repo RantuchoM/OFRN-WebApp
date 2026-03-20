@@ -33,6 +33,11 @@ import {
   normalizeControlFlujo,
 } from "../../utils/musicTranslationFlow";
 import LiveEditor from "./LiveEditor";
+import {
+  normalizeRima,
+  normalizeRepeticion,
+  segmentRimaFieldClasses,
+} from "../../utils/musicTranslationPoetics";
 
 const HIGH_DASH_RE =
   /[-\u2010\u2011\u2013\u2014\u2015\u2212\u00AD]/u;
@@ -84,18 +89,96 @@ function buildPreviewTranslationBlocks(
   };
 
   const buildForSegments = (segments) => {
-    /** @type {{text: string; isActive: boolean; key: string}[]} */
+    /**
+     * @typedef {{key: string; kind: 'sep'|'segment'; text: string;
+     *   rima?: string|null; repeticion?: string|null; segId?: string}} PreviewPart
+     */
+
+    const repeticionTint = (rep) => {
+      const r = normalizeRepeticion(rep);
+      switch (r) {
+        case "R1":
+          return "bg-slate-500/20 border-slate-500/50 ring-1 ring-slate-500/30";
+        case "R2":
+          return "bg-emerald-500/20 border-emerald-500/50 ring-1 ring-emerald-500/30";
+        case "R3":
+          return "bg-violet-500/20 border-violet-500/50 ring-1 ring-violet-500/30";
+        case "R4":
+          return "bg-orange-500/20 border-orange-500/50 ring-1 ring-orange-500/30";
+        default:
+          return "";
+      }
+    };
+
+    const repeticionBadgeTint = (rep) => {
+      const r = normalizeRepeticion(rep);
+      switch (r) {
+        case "R1":
+          return "border-slate-500/60 bg-slate-500/25 text-slate-900 dark:text-slate-100";
+        case "R2":
+          return "border-emerald-500/60 bg-emerald-500/25 text-emerald-900 dark:text-emerald-100";
+        case "R3":
+          return "border-violet-500/60 bg-violet-500/25 text-violet-900 dark:text-violet-100";
+        case "R4":
+          return "border-orange-500/60 bg-orange-500/25 text-orange-900 dark:text-orange-100";
+        default:
+          return "";
+      }
+    };
+
+    const rimaBadgeTint = (rima) => {
+      const r = normalizeRima(rima);
+      switch (r) {
+        case "A":
+          return "border-red-500/60 bg-red-500/25 text-red-900 dark:text-red-100";
+        case "B":
+          return "border-blue-500/60 bg-blue-500/25 text-blue-900 dark:text-blue-100";
+        case "C":
+          return "border-yellow-500/60 bg-yellow-500/25 text-yellow-900 dark:text-yellow-100";
+        case "D":
+          return "border-green-500/60 bg-green-500/25 text-green-900 dark:text-green-100";
+        case "E":
+          return "border-orange-500/60 bg-orange-500/25 text-orange-900 dark:text-orange-100";
+        case "F":
+          return "border-purple-500/60 bg-purple-500/25 text-purple-900 dark:text-purple-100";
+        default:
+          return "";
+      }
+    };
+
+    const rimaTintStrong = (rima) => {
+      const r = normalizeRima(rima);
+      switch (r) {
+        case "A":
+          return "bg-red-500/20 border-red-500/50";
+        case "B":
+          return "bg-blue-500/20 border-blue-500/50";
+        case "C":
+          return "bg-yellow-500/20 border-yellow-500/50";
+        case "D":
+          return "bg-green-500/20 border-green-500/50";
+        case "E":
+          return "bg-orange-500/20 border-orange-500/50";
+        case "F":
+          return "bg-purple-500/20 border-purple-500/50";
+        default:
+          return "";
+      }
+    };
+
+    /** @type {{parts: PreviewPart[]; isActive: boolean; key: string}[]} */
     const lines = [];
-    let lineAcc = "";
+    /** @type {PreviewPart[]} */
+    let partsAcc = [];
     let lineHasActive = false;
 
     const pushLine = () => {
       lines.push({
-        text: lineAcc,
+        parts: partsAcc,
         isActive: lineHasActive,
         key: `l-${lines.length}`,
       });
-      lineAcc = "";
+      partsAcc = [];
       lineHasActive = false;
     };
 
@@ -108,33 +191,58 @@ function buildPreviewTranslationBlocks(
       if (i > 0) {
         const prevSeg = segments[i - 1];
         const prevFlow = normalizeControlFlujo(prevSeg?.control_flujo);
-        // Si el segmento actual está vacío (sin traducir aún), evitamos
-        // insertar separadores extra para que las líneas "en blanco" no queden
-        // con basura (espacios).
+        // No agregamos separador si el segmento actual está vacío.
         if (text && !controlFlujoBreaksLineAfter(prevFlow)) {
-          lineAcc += getSeparatorFromPrev(pickText(prevSeg));
+          partsAcc.push({
+            key: `p-${partsAcc.length}-sep`,
+            kind: "sep",
+            text: getSeparatorFromPrev(pickText(prevSeg)),
+          });
         }
       }
 
-      // Si este segmento es el que estamos editando, la línea actual se marca.
-      if (activeSpanishEditingSegmentId && seg?.id === activeSpanishEditingSegmentId) {
+      if (
+        activeSpanishEditingSegmentId &&
+        seg?.id === activeSpanishEditingSegmentId
+      ) {
         lineHasActive = true;
       }
 
-      lineAcc += text;
+      const segRima = normalizeRima(seg?.rima);
+      const segRepeticion = normalizeRepeticion(seg?.repeticion);
 
-      // Si el segmento no tiene traducción (vacío), evitamos “ensuciar” el texto
-      // con símbolos inline (semifrase/cesura) para mantener líneas en blanco.
+      // Para mantener líneas en blanco sin “ruido”, si no hay traducción
+      // (texto vacío), no renderizamos ni el símbolo inline ni badges.
       if (rawText) {
         const inlineSuffix = controlFlujoInlineSuffix(flow);
-        if (inlineSuffix) lineAcc += inlineSuffix;
+        const segText = text + (inlineSuffix ? inlineSuffix : "");
+
+        const rimaTint = segRima ? rimaTintStrong(segRima) : "";
+        const repTint = segRepeticion ? repeticionTint(segRepeticion) : "";
+        const repBadgeTint = segRepeticion
+          ? repeticionBadgeTint(segRepeticion)
+          : "";
+        const rimaBadgeTintVal = segRima ? rimaBadgeTint(segRima) : "";
+
+        partsAcc.push({
+          key: `p-${partsAcc.length}-seg`,
+          kind: "segment",
+          text: segText,
+          rima: segRima,
+          repeticion: segRepeticion,
+          segId: seg?.id,
+          rimaTint,
+          repTint,
+          repBadgeTint,
+          rimaBadgeTint: rimaBadgeTintVal,
+        });
       }
 
       if (controlFlujoBreaksLineAfter(flow)) {
         pushLine();
         if (controlFlujoIsParagraph(flow)) {
           lines.push({
-            text: "",
+            parts: [],
             isActive: false,
             key: `l-${lines.length}-blank`,
           });
@@ -142,10 +250,9 @@ function buildPreviewTranslationBlocks(
       }
     }
 
-    // Empujar la última línea (aunque sea vacía, para conservar estructura).
     if (segments.length) {
       lines.push({
-        text: lineAcc,
+        parts: partsAcc,
         isActive: lineHasActive,
         key: `l-${lines.length}-tail`,
       });
@@ -957,22 +1064,81 @@ export default function MusicTranslationView() {
                                 {b.heading}
                               </div>
                             </div>
-                            <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-slate-900 dark:text-slate-100">
-                              {b.lines.map((line, idx) => (
-                                <React.Fragment key={line.key ?? idx}>
-                                  {idx > 0 ? "\n" : ""}
-                                  <span
-                                    className={
+                            <div className="font-mono text-sm leading-relaxed text-slate-900 dark:text-slate-100">
+                              {b.lines.map((line, idx) => {
+                                /** @type {React.ReactNode[]} */
+                                const textNodes = [];
+                                /** @type {React.ReactNode[]} */
+                                const badgeNodes = [];
+
+                                for (const part of line.parts) {
+                                  if (part.kind === "sep") {
+                                    textNodes.push(
+                                      <span key={part.key}>
+                                        {part.text}
+                                      </span>,
+                                    );
+                                    continue;
+                                  }
+
+                                  const segBase =
+                                    "inline-block rounded-sm px-0.5 py-px";
+                                  const rimaTint = part.rimaTint ?? "";
+                                  const repTint = part.repTint ?? "";
+                                  const segClass = `${segBase} ${rimaTint} ${repTint} ${
+                                    rimaTint || repTint ? "border" : ""
+                                  }`;
+
+                                  textNodes.push(
+                                    <span key={part.key} className={segClass}>
+                                      {part.text}
+                                    </span>,
+                                  );
+
+                                  if (part.rima && part.rimaBadgeTint) {
+                                    badgeNodes.push(
+                                      <span
+                                        key={`${part.key}-rima`}
+                                        className={`inline-flex min-w-[26px] shrink-0 items-center justify-center rounded-none border px-1.5 py-[2px] text-[11px] font-bold leading-none tabular-nums ${part.rimaBadgeTint}`}
+                                      >
+                                        {part.rima}
+                                      </span>,
+                                    );
+                                  }
+
+                                  if (part.repeticion && part.repBadgeTint) {
+                                    badgeNodes.push(
+                                      <span
+                                        key={`${part.key}-rep`}
+                                        className={`inline-flex min-w-[26px] shrink-0 items-center justify-center rounded-none border px-1.5 py-[2px] text-[11px] font-bold leading-none tabular-nums ${part.repBadgeTint}`}
+                                      >
+                                        {part.repeticion}
+                                      </span>,
+                                    );
+                                  }
+                                }
+
+                                return (
+                                  <div
+                                    key={line.key ?? idx}
+                                    className={`min-h-[1.25em] ${
                                       line.isActive
                                         ? "font-bold text-slate-900 dark:text-slate-100"
                                         : ""
-                                    }
+                                    }`}
                                   >
-                                    {line.text}
-                                  </span>
-                                </React.Fragment>
-                              ))}
-                            </pre>
+                                    <div className="flex w-full items-start justify-between gap-2">
+                                      <div className="flex-1 whitespace-pre-wrap">
+                                        {textNodes}
+                                      </div>
+                                      <div className="flex-none flex items-start justify-end gap-1 whitespace-nowrap">
+                                        {badgeNodes}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         ))}
                         {!activePreviewBlocks.length && (

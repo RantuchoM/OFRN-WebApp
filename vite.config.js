@@ -15,7 +15,7 @@ export default defineConfig({
       workbox: {
         // CORRECCIÓN: Aquí es donde debe estar el aumento de límite
         // 6 MiB = 6 * 1024 * 1024 bytes (aprox 6.3 millones de bytes)
-        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024, 
+        maximumFileSizeToCacheInBytes: 8000000,
         
         cleanupOutdatedCaches: true,
         clientsClaim: true,
@@ -61,5 +61,34 @@ export default defineConfig({
   },
   define: {
     global: "window",
+  },
+  build: {
+    // Reduce ruido en consola durante builds grandes
+    chunkSizeWarningLimit: 2000,
+    // Ahorra espacio/despliegue; evita sourcemaps en producción
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          const vendorPdf =
+            id.includes("node_modules/pdfjs-dist") || id.includes("pdfjs-dist") ||
+            id.includes("node_modules/pdf-lib") || id.includes("pdf-lib");
+          if (vendorPdf) return "vendor-pdf";
+
+          const vendorReact =
+            id.includes("node_modules/react/") ||
+            id.includes("node_modules/react-dom/") ||
+            id.includes("node_modules/react-router-dom/");
+          if (vendorReact) return "vendor-react";
+
+          const vendorUi =
+            id.includes("node_modules/lucide-react/") ||
+            id.includes("node_modules/framer-motion/");
+          if (vendorUi) return "vendor-ui";
+
+          return undefined;
+        },
+      },
+    },
   },
 });
