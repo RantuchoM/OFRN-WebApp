@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo } from '
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from './AuthContext'; 
 import { supabase } from '../services/supabase'; 
+import { canAccessMusicTranslation } from '../constants/musicTranslationAccess';
 import CommandPalette from '../components/ui/CommandPalette';
 import { 
     IconHome, IconSettings, IconMusic, IconCalendar, 
@@ -377,8 +378,18 @@ export const CommandPaletteProvider = ({ children }) => {
         );
     }
 
+    if (canAccessMusicTranslation(user?.id)) {
+        cmds.push({
+            id: 'global-music-translation',
+            label: 'Ir a Traducción musical (AcroForm)',
+            icon: <IconMusic size={14} className="text-violet-500" />,
+            section: 'Gestión',
+            run: () => navigate('/?tab=music_translation'),
+        });
+    }
+
     return cmds;
-  }, [navigate, isManagement]);
+  }, [navigate, isManagement, user?.id]);
 
   // ===========================================================================
   // 5. COMBINACIÓN

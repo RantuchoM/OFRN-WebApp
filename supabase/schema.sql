@@ -1022,3 +1022,37 @@ CREATE TABLE public.venue_status_types (
   slug text NOT NULL UNIQUE,
   CONSTRAINT venue_status_types_pkey PRIMARY KEY (id)
 );
+
+-- Traducción musical (AcroForm WYSIWYG). Bucket `translations` y RLS: ver docs/specs/music-translation.md
+CREATE TABLE public.traduccion_partituras (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  titulo_en text NOT NULL,
+  titulo_es text,
+  fecha_limite date,
+  pdf_url text,
+  created_at timestamp with time zone DEFAULT now(),
+  created_by bigint,
+  CONSTRAINT traduccion_partituras_pkey PRIMARY KEY (id),
+  CONSTRAINT traduccion_partituras_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.integrantes(id)
+);
+CREATE TABLE public.traduccion_segments (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  partitura_id bigint NOT NULL,
+  segment_name text NOT NULL,
+  segment_english text,
+  segment_spanish text,
+  rect_x double precision,
+  rect_y double precision,
+  rect_w double precision,
+  rect_h double precision,
+  page_number integer DEFAULT 1,
+  verse_group integer,
+  orden_secuencia integer,
+  control_flujo text DEFAULT 'none'::text,
+  rima text,
+  repeticion text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT traduccion_segments_pkey PRIMARY KEY (id),
+  CONSTRAINT traduccion_segments_partitura_id_fkey FOREIGN KEY (partitura_id) REFERENCES public.traduccion_partituras(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_segment_name_prefix ON public.traduccion_segments USING btree (partitura_id, segment_name);

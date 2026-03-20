@@ -47,6 +47,8 @@ import AIAssistant from "./components/ui/AIAssistant";
 import { CommandPaletteProvider } from "./context/CommandPaletteContext";
 import CommandBarTrigger from "./components/ui/CommandBarTrigger";
 import ManagementView from "./views/Management/ManagementView";
+import MusicTranslationView from "./views/MusicTranslation/MusicTranslationView";
+import { canAccessMusicTranslation } from "./constants/musicTranslationAccess";
 import {
   IconLayoutDashboard,
   CuratorIcon,
@@ -345,7 +347,7 @@ const ProtectedApp = ({ initialTab }) => {
   );
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
 
-  // El sidebar se ve expandido si NO está colapsado O si el usuario tiene el mouse encima
+  // Expandido si no está colapsado o si el ratón está sobre la franja de iconos
   const isDesktopExpanded = !isSidebarCollapsed || isSidebarHovered;
 
   const toggleSidebarCollapse = () => {
@@ -542,6 +544,7 @@ const ProtectedApp = ({ initialTab }) => {
     manual: "MANUAL_INDEX",
     manual_admin: "MANUAL_ADMIN",
     management: "MANAGEMENT",
+    music_translation: "MUSIC_TRANSLATION",
   };
   const modeToTab = Object.fromEntries(
     Object.entries(tabToMode).map(([k, v]) => [v, k]),
@@ -631,6 +634,12 @@ const ProtectedApp = ({ initialTab }) => {
       label: "Repertorio",
       icon: <IconFileText size={20} />,
       show: !isGuest && (isArchivista || isEditor || isManagement),
+    },
+    {
+      id: "MUSIC_TRANSLATION",
+      label: "Traducción musical",
+      icon: <IconMusicNote size={20} />,
+      show: canAccessMusicTranslation(user?.id),
     },
     {
       id: "ARREGLOS",
@@ -743,6 +752,15 @@ const ProtectedApp = ({ initialTab }) => {
         return <DataView {...commonProps} />;
       case "MANAGEMENT":
         return <ManagementView {...commonProps} />;
+      case "MUSIC_TRANSLATION":
+        if (!canAccessMusicTranslation(user?.id)) {
+          return (
+            <div className="flex h-full items-center justify-center p-10 text-center text-slate-500 dark:text-slate-400">
+              No tenés permiso para acceder a Traducción musical.
+            </div>
+          );
+        }
+        return <MusicTranslationView {...commonProps} />;
       case "CURADORIA":
         return <CuradoriaView {...commonProps} />;
       case "USERS":
@@ -772,6 +790,7 @@ const ProtectedApp = ({ initialTab }) => {
     if (mode === "GIRAS" && activeGiraId)
       return `gira_${searchParams.get("view") || "resumen"}`;
     if (mode === "GIRAS" && !activeGiraId) return "giras_listado";
+    if (mode === "MUSIC_TRANSLATION") return "music_translation";
     return tabToMode[currentTab]?.toLowerCase() || "app_intro_general";
   })();
 
@@ -828,11 +847,11 @@ const ProtectedApp = ({ initialTab }) => {
               <IconX size={20} />
             </button>
 
-            {/* BOTÓN COLAPSAR ESCRITORIO */}
             <button
+              type="button"
               onClick={toggleSidebarCollapse}
               className={`hidden lg:flex p-1 rounded hover:bg-slate-100 text-slate-400 ${!isDesktopExpanded ? "hidden" : ""}`}
-              title={isSidebarCollapsed ? "Fijar menú" : "Colapsar menú"}
+              title={isSidebarCollapsed ? "Fijar menú expandido" : "Colapsar menú"}
             >
               {isSidebarCollapsed ? (
                 <IconChevronRight size={18} />
