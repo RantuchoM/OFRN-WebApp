@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import UniversalTable from "./UniversalTable";
 import {
   IconMap,
@@ -14,12 +14,15 @@ import {
   IconTag,
   IconBuilding,
   IconAlertTriangle,
+  IconChevronDown,
 } from "../../components/ui/Icons";
 import SheetEditor from "./SheetEditor";
 
 export default function DataView({ supabase }) {
   const [activeTab, setActiveTab] = useState("regiones");
   const [isDirty, setIsDirty] = useState(false);
+  const [mobilePickerOpen, setMobilePickerOpen] = useState(false);
+  const mobilePickerRef = useRef(null);
 
   // --- ESTADO PARA LOS SELECTS (Catálogos Compartidos) ---
   const [catalogos, setCatalogos] = useState({
@@ -90,19 +93,32 @@ export default function DataView({ supabase }) {
     fetchCatalogos();
   }, []);
 
+  useEffect(() => {
+    if (!mobilePickerOpen) return;
+    const onDocDown = (e) => {
+      if (mobilePickerRef.current && !mobilePickerRef.current.contains(e.target)) {
+        setMobilePickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
+  }, [mobilePickerOpen]);
+
+  /** @returns {boolean} true si la pestaña cambió (o ya era la activa) */
   const handleTabChange = (newTabKey) => {
-    if (activeTab === newTabKey) return;
+    if (activeTab === newTabKey) return true;
     if (isDirty) {
       if (
         !window.confirm(
           "Tienes elementos nuevos sin guardar. ¿Seguro que quieres cambiar de tabla y perderlos?",
         )
       ) {
-        return;
+        return false;
       }
     }
     setActiveTab(newTabKey);
     setIsDirty(false);
+    return true;
   };
 
   // --- CONFIGURACIÓN DE TABLAS ---
@@ -333,10 +349,95 @@ export default function DataView({ supabase }) {
 
   const currentConfig = tableConfigs[activeTab];
 
+  const mobileNavItems = [
+    ...Object.keys(tableConfigs).map((key) => ({
+      value: key,
+      label: tableConfigs[key].label,
+      Icon: tableConfigs[key].icon,
+    })),
+    {
+      value: "hoja_calculo",
+      label: "Hoja de Cálculo / PDF",
+      Icon: IconFileText,
+    },
+  ].sort((a, b) =>
+    a.label.localeCompare(b.label, "es", { sensitivity: "base" }),
+  );
+
+  const selectedMobileItem =
+    mobileNavItems.find((i) => i.value === activeTab) ?? mobileNavItems[0];
+  const SelectedMobileIcon = selectedMobileItem?.Icon ?? IconFileText;
+
   return (
-    <div className="flex flex-col md:flex-row h-full bg-slate-50 gap-4 p-4">
-      {/* Sidebar de Navegación */}
-      <div className="w-full md:w-64 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col shrink-0 overflow-hidden">
+    <div className="flex flex-col md:flex-row h-full min-h-0 bg-slate-50 gap-4 p-4">
+      {/* Móvil / tablet: desplegable con iconos (orden alfabético) */}
+      <div
+        ref={mobilePickerRef}
+        className="block md:hidden w-full shrink-0 bg-white rounded-xl shadow-sm border border-slate-200 p-3 relative z-30"
+      >
+        <span className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+          Tabla activa
+        </span>
+        <button
+          type="button"
+          onClick={() => setMobilePickerOpen((o) => !o)}
+          className="w-full flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 min-h-[44px] text-left text-sm font-medium text-slate-800 shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+        >
+          <SelectedMobileIcon
+            size={18}
+            className="shrink-0 text-indigo-600"
+            aria-hidden
+          />
+          <span className="flex-1 min-w-0 truncate">
+            {selectedMobileItem?.label}
+          </span>
+          <IconChevronDown
+            size={18}
+            className={`shrink-0 text-slate-400 transition-transform ${mobilePickerOpen ? "rotate-180" : ""}`}
+            aria-hidden
+          />
+        </button>
+        {mobilePickerOpen && (
+          <ul
+            className="absolute left-3 right-3 top-full mt-1 max-h-[min(22rem,70vh)] overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-xl z-40"
+            role="listbox"
+          >
+            {mobileNavItems.map((item) => {
+              const isActive = activeTab === item.value;
+              const ItemIcon = item.Icon;
+              return (
+                <li key={item.value} role="option" aria-selected={isActive}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (handleTabChange(item.value)) {
+                        setMobilePickerOpen(false);
+                      }
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                      isActive
+                        ? "bg-indigo-50 text-indigo-700"
+                        : "text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <ItemIcon
+                      size={18}
+                      className={
+                        isActive ? "text-indigo-600 shrink-0" : "text-slate-400 shrink-0"
+                      }
+                      aria-hidden
+                    />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Desktop: Sidebar de Navegación */}
+      <div className="hidden md:flex w-full md:w-64 bg-white rounded-xl shadow-sm border border-slate-200 flex-col shrink-0 overflow-hidden">
         <div className="p-4 border-b border-slate-100 bg-slate-50">
           <h2 className="font-bold text-slate-800">Administrar Datos</h2>
           <p className="text-xs text-slate-500">Tablas maestras del sistema</p>
@@ -388,21 +489,27 @@ export default function DataView({ supabase }) {
       </div>
 
       {/* Área Principal */}
-      <div className="flex-1 min-w-0 h-[600px] md:h-auto">
-        {activeTab === "hoja_calculo" && <SheetEditor supabase={supabase} />}
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col h-[calc(100vh-200px)] md:h-auto md:min-h-0">
+        {activeTab === "hoja_calculo" && (
+          <div className="flex-1 min-h-0 overflow-auto">
+            <SheetEditor supabase={supabase} />
+          </div>
+        )}
 
         {currentConfig && (
-          <UniversalTable
-            key={activeTab}
-            supabase={supabase}
-            tableName={currentConfig.table}
-            columns={currentConfig.columns}
-            primaryKey={currentConfig.primaryKey}
-            defaultSort={currentConfig.defaultSort}
-            onDataChange={fetchCatalogos}
-            onDirtyChange={setIsDirty}
-            warningMessage={currentConfig.warning}
-          />
+          <div className="flex-1 min-h-0 flex flex-col">
+            <UniversalTable
+              key={activeTab}
+              supabase={supabase}
+              tableName={currentConfig.table}
+              columns={currentConfig.columns}
+              primaryKey={currentConfig.primaryKey}
+              defaultSort={currentConfig.defaultSort}
+              onDataChange={fetchCatalogos}
+              onDirtyChange={setIsDirty}
+              warningMessage={currentConfig.warning}
+            />
+          </div>
         )}
       </div>
     </div>
