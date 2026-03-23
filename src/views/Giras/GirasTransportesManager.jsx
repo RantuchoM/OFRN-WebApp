@@ -44,7 +44,12 @@ import BoardingManagerModal from "./BoardingManagerModal";
 import StopRulesManager from "./StopRulesManager";
 import TransportAdmissionModal from "./TransportAdmissionModal";
 import DataIntegrityIndicator from "../../components/DataIntegrityIndicator";
+import ConfirmModal from "../../components/ui/ConfirmModal";
 import { useLogistics, matchesRule, normalize } from "../../hooks/useLogistics";
+import {
+  countEventosByGiraTransporte,
+  deleteGiraTransporteCascade,
+} from "../../services/giraService";
 
 import { toast } from "sonner";
 
@@ -1144,6 +1149,12 @@ export default function GirasTransportesManager({ supabase, gira }) {
     id_tipo_evento: String(TIPO_EVENTO_DEFAULT),
   });
 
+  const deleteTransportTargetRef = useRef(null);
+  const [deleteTransportModal, setDeleteTransportModal] = useState({
+    isOpen: false,
+    eventCount: 0,
+  });
+
   const [cnrtModal, setCnrtModal] = useState({
     isOpen: false,
     transportId: null,
@@ -1543,10 +1554,36 @@ export default function GirasTransportesManager({ supabase, gira }) {
     fetchData();
   };
 
-  const handleDeleteTransport = async (id) => {
-    if (!confirm("Se borrará el transporte y SUS EVENTOS. ¿Seguro?")) return;
-    await supabase.from("giras_transportes").delete().eq("id", id);
-    fetchData();
+  const openDeleteTransportModal = async (transportId) => {
+    deleteTransportTargetRef.current = transportId;
+    const toastId = toast.loading("Preparando confirmación…");
+    const n = await countEventosByGiraTransporte(supabase, transportId);
+    toast.dismiss(toastId);
+    setDeleteTransportModal({ isOpen: true, eventCount: n });
+  };
+
+  const closeDeleteTransportModal = () => {
+    deleteTransportTargetRef.current = null;
+    setDeleteTransportModal({ isOpen: false, eventCount: 0 });
+  };
+
+  const handleConfirmDeleteTransport = async () => {
+    const tid = deleteTransportTargetRef.current;
+    if (!tid) return;
+    const toastId = toast.loading("Eliminando transporte…");
+    const result = await deleteGiraTransporteCascade(supabase, tid);
+    toast.dismiss(toastId);
+    closeDeleteTransportModal();
+    if (!result.ok) {
+      toast.error(
+        result.error ||
+          "No se pudo eliminar el transporte. Revisa vínculos en la base de datos.",
+      );
+      return;
+    }
+    toast.success("Transporte y eventos de traslado eliminados correctamente");
+    await fetchData();
+    refresh();
   };
 
   const handleSaveEvent = async (transportId) => {
@@ -2434,7 +2471,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                     </div>
 
                     <button
-                      onClick={() => handleDeleteTransport(t.id)}
+                      onClick={() => openDeleteTransportModal(t.id)}
                       className="p-1.5 text-slate-300 hover:text-rose-600 ml-1"
                     >
                       <IconTrash size={16} />
@@ -3053,6 +3090,18 @@ export default function GirasTransportesManager({ supabase, gira }) {
           handleApplyShiftSchedule(offset);
           clearSelection();
         }}
+      />
+
+      <ConfirmModal
+        isOpen={deleteTransportModal.isOpen}
+        onClose={closeDeleteTransportModal}
+        onConfirm={() => {
+          void handleConfirmDeleteTransport();
+        }}
+        title="Eliminar transporte"
+        message={`¿Estás seguro? Se eliminarán también ${deleteTransportModal.eventCount} evento${deleteTransportModal.eventCount === 1 ? "" : "s"} de traslado asociado${deleteTransportModal.eventCount === 1 ? "" : "s"} a este vehículo.`}
+        confirmText="Eliminar"
+        cancelText="Cancelar"
       />
     </div>
   );

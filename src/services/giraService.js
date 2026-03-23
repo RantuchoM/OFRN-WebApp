@@ -236,15 +236,35 @@ export const copyFilesBatchToDrive = async (supabase, { files, giraId }) => {
 };
 
 export const syncProgramRepertoire = async (supabase, programId) => {
-  const { data, error } = await supabase.functions.invoke("manage-drive", {
+  const runShortcutsSync = async () => {
+    const { data, error } = await supabase.functions.invoke("manage-drive", {
+      body: {
+        action: "sync_repertoire_shortcuts",
+        programId,
+      },
+    });
+    return { data, error };
+  };
+
+  let { data, error } = await runShortcutsSync();
+  if (!error) return data;
+
+  // Fallback: si la carpeta raíz de Drive no existe todavía, la creamos/sincronizamos
+  // y reintentamos la sincronización de accesos directos.
+  const { error: metadataError } = await supabase.functions.invoke("manage-drive", {
     body: {
-      action: "sync_repertoire_shortcuts",
+      action: "sync_program_metadata",
       programId,
     },
   });
 
-  if (error) throw error;
-  return data;
+  if (metadataError) {
+    throw metadataError;
+  }
+
+  const retry = await runShortcutsSync();
+  if (retry.error) throw retry.error;
+  return retry.data;
 };
 
 /**
@@ -448,6 +468,126 @@ export const getEventLogs = async (supabase, eventId) => {
   } catch (err) {
     console.error("[GiraService] getEventLogs:", err);
     return [];
+  }
+};
+
+/**
+ * Cuenta eventos de agenda activos (no borrados lógicamente) vinculados a un
+ * registro de `giras_transportes` vía `eventos.id_gira_transporte`.
+ */
+export const countEventosByGiraTransporte = async (supabase, giraTransporteId) => {
+  if (!supabase || giraTransporteId == null) return 0;
+  try {
+    const { count, error } = await supabase
+      .from("eventos")
+      .select("id", { count: "exact", head: true })
+      .eq("id_gira_transporte", giraTransporteId)
+      .eq("is_deleted", false);
+    if (error) throw error;
+    return count ?? 0;
+  } catch (err) {
+    console.error("[GiraService] countEventosByGiraTransporte:", err);
+    return 0;
+  }
+};
+
+/**
+ * Elimina un transporte de la planificación de la gira y todos los vínculos
+ * coherentes: eventos de traslado, reglas de logística y filas auxiliares.
+ * Orden respetando FKs (equivalente a una eliminación en cascada a nivel app).
+ *
+ * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
+ */
+export const deleteGiraTransporteCascade = async (supabase, giraTransporteId) => {
+  if (!supabase || giraTransporteId == null) {
+    return { ok: false, error: "Cliente o transporte no válido" };
+  }
+  const tid = giraTransporteId;
+  try {
+    const { data: evRows, error: evFetchErr } = await supabase
+      .from("eventos")
+      .select("id")
+      .eq("id_gira_transporte", tid);
+    if (evFetchErr) throw evFetchErr;
+    const eventIds = (evRows || []).map((r) => r.id).filter((id) => id != null);
+
+    const { error: delReglasTransporteErr } = await supabase
+      .from("giras_logistica_reglas_transportes")
+      .delete()
+      .eq("id_gira_transporte", tid);
+    if (delReglasTransporteErr) throw delReglasTransporteErr;
+
+    if (eventIds.length > 0) {
+      const cleanup = await Promise.all([
+        supabase
+          .from("giras_logistica_rutas")
+          .update({ id_evento_subida: null })
+          .in("id_evento_subida", eventIds),
+        supabase
+          .from("giras_logistica_rutas")
+          .update({ id_evento_bajada: null })
+          .in("id_evento_bajada", eventIds),
+        supabase
+          .from("giras_logistica_reglas_transportes")
+          .update({ id_evento_subida: null })
+          .in("id_evento_subida", eventIds),
+        supabase
+          .from("giras_logistica_reglas_transportes")
+          .update({ id_evento_bajada: null })
+          .in("id_evento_bajada", eventIds),
+        supabase
+          .from("giras_logistica_reglas")
+          .update({ id_evento_checkin: null })
+          .in("id_evento_checkin", eventIds),
+        supabase
+          .from("giras_logistica_reglas")
+          .update({ id_evento_checkout: null })
+          .in("id_evento_checkout", eventIds),
+        supabase
+          .from("giras_logistica_reglas")
+          .update({ id_evento_comida_inicio: null })
+          .in("id_evento_comida_inicio", eventIds),
+        supabase
+          .from("giras_logistica_reglas")
+          .update({ id_evento_comida_fin: null })
+          .in("id_evento_comida_fin", eventIds),
+      ]);
+      for (const r of cleanup) {
+        if (r.error) throw r.error;
+      }
+    }
+
+    const { error: delEventosErr } = await supabase
+      .from("eventos")
+      .delete()
+      .eq("id_gira_transporte", tid);
+    if (delEventosErr) throw delEventosErr;
+
+    const { error: delRutasErr } = await supabase
+      .from("giras_logistica_rutas")
+      .delete()
+      .eq("id_transporte_fisico", tid);
+    if (delRutasErr) throw delRutasErr;
+
+    const { error: delAdmErr } = await supabase
+      .from("giras_logistica_admision")
+      .delete()
+      .eq("id_transporte_fisico", tid);
+    if (delAdmErr) throw delAdmErr;
+
+    const { error: delTransportErr } = await supabase
+      .from("giras_transportes")
+      .delete()
+      .eq("id", tid);
+    if (delTransportErr) throw delTransportErr;
+
+    return { ok: true };
+  } catch (err) {
+    console.error("[GiraService] deleteGiraTransporteCascade:", err);
+    return {
+      ok: false,
+      error: err?.message || String(err),
+    };
   }
 };
 

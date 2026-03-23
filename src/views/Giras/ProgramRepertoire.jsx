@@ -26,6 +26,7 @@ import {
   syncBowingToProgram,
   syncProgramRepertoire,
 } from "../../services/giraService";
+import { calculateInstrumentation } from "../../utils/instrumentation";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { toast } from "sonner";
 
