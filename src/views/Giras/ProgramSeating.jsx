@@ -691,13 +691,49 @@ export default function ProgramSeating({
     fetchParts();
   }, [obras, supabase]);
 
+  const otherMusicians = useMemo(() => {
+    return filteredRoster.filter((m) => {
+      const idInstr = String(m.id_instr || "");
+      const role = (m.rol_gira || "").toLowerCase();
+      const esCuerda = ["01", "02", "03", "04"].includes(idInstr);
+      const esSolista = role.includes("solista");
+      // Excepción: solistas de cuerdas también entran en la lista individual
+      if (esCuerda && esSolista) return true;
+      return !esCuerda;
+    });
+  }, [filteredRoster]);
+
   const particellaCounts = useMemo(() => {
     const counts = {};
-    Object.values(assignments).forEach((partId) => {
+
+    // Contamos solo asignaciones visibles en la grilla actual para evitar "x2/x3"
+    // inflados por músicos desvinculados o ausentes.
+    const visibleKeys = new Set();
+
+    containers.forEach((c) => {
+      obras.forEach((obra) => {
+        visibleKeys.add(`C-${c.id}-${obra.obra_id}`);
+      });
+      c.items.forEach((item) => {
+        obras.forEach((obra) => {
+          visibleKeys.add(`M-${item.id_musico}-${obra.obra_id}`);
+        });
+      });
+    });
+
+    otherMusicians.forEach((m) => {
+      obras.forEach((obra) => {
+        visibleKeys.add(`M-${m.id}-${obra.obra_id}`);
+      });
+    });
+
+    visibleKeys.forEach((key) => {
+      const partId = assignments[key];
       if (partId) counts[partId] = (counts[partId] || 0) + 1;
     });
+
     return counts;
-  }, [assignments]);
+  }, [assignments, containers, obras, otherMusicians]);
 
   function createEmptyInstrumentationMap() {
     return {
@@ -1530,16 +1566,6 @@ export default function ProgramSeating({
       await Promise.all(updates);
     }
   };
-
-  const otherMusicians = filteredRoster.filter((m) => {
-    const idInstr = String(m.id_instr || "");
-    const role = (m.rol_gira || "").toLowerCase();
-    const esCuerda = isString(idInstr);
-    const esSolista = role.includes("solista");
-    // Excepción: solistas de cuerdas también entran en la lista individual
-    if (esCuerda && esSolista) return true;
-    return !esCuerda;
-  });
 
   // Músicos sin ninguna partitura asignada en el programa (solo aplicable en modo edición)
   const musiciansWithoutParts = useMemo(() => {
