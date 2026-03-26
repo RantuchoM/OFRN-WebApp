@@ -929,8 +929,8 @@ export default function LogisticsManager({ supabase, gira }) {
         {/* HEADER */}
         <div className="bg-white border-2 border-slate-300 rounded-xl shadow-2xl overflow-hidden overflow-x-auto">
           {/* TABLA ADAPTATIVA */}
-          <div className="bg-white border-b border-slate-300 p-3 flex justify-between items-center z-0 shrink-0 mb-2">
-            <div className="flex items-center gap-4">
+          <div className="bg-white border-b border-slate-300 p-1.5 md:p-2 flex justify-between items-center z-0 shrink-0 mb-2">
+            <div className="flex items-center gap-2.5">
               <h3 className="text-sm font-black text-slate-800 uppercase flex items-center gap-2">
                 <IconSettings className="text-indigo-500" size={18} /> Logística
               </h3>
@@ -938,13 +938,13 @@ export default function LogisticsManager({ supabase, gira }) {
 
               <button
                 onClick={() => setCriteriaCollapsed(!criteriaCollapsed)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all border-2 ${criteriaCollapsed ? "bg-indigo-600 text-white border-indigo-800 shadow-sm" : "bg-white text-slate-500 border-slate-300"}`}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[8px] md:text-[9px] font-black uppercase transition-all border-2 ${criteriaCollapsed ? "bg-indigo-600 text-white border-indigo-800 shadow-sm" : "bg-white text-slate-500 border-slate-300"}`}
               >
                 {criteriaCollapsed ? "Chips" : "Editor"}
               </button>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-1">
               {[
                 { key: "hotel", label: "Hotel", color: "bg-orange-600" },
                 { key: "range", label: "Comidas", color: "bg-emerald-600" },
@@ -955,7 +955,7 @@ export default function LogisticsManager({ supabase, gira }) {
                   onClick={() =>
                     setCollapsedGroups((p) => ({ ...p, [g.key]: !p[g.key] }))
                   }
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border-2 transition-all ${!collapsedGroups[g.key] ? `${g.color} text-white border-black/10` : "bg-slate-300 text-slate-500 border-slate-400"}`}
+                  className={`px-2 py-0.5 rounded-md text-[8px] md:text-[9px] font-black uppercase border-2 transition-all ${!collapsedGroups[g.key] ? `${g.color} text-white border-black/10` : "bg-slate-300 text-slate-500 border-slate-400"}`}
                 >
                   {g.label}
                 </button>
@@ -1258,7 +1258,7 @@ export default function LogisticsManager({ supabase, gira }) {
                 <input
                   type="text"
                   placeholder="BUSCAR POR NOMBRE..."
-                  className="pl-3 pr-8 py-2 bg-white border-2 border-slate-200 rounded-xl text-[10px] font-black uppercase outline-none focus:border-indigo-400 w-48 transition-all placeholder:text-slate-300"
+                  className="pl-3 pr-8 py-1.5 bg-white border-2 border-slate-200 rounded-xl text-[10px] font-black uppercase outline-none focus:border-indigo-400 w-44 transition-all placeholder:text-slate-300"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -1275,7 +1275,7 @@ export default function LogisticsManager({ supabase, gira }) {
               {/* BOTÓN FALTANTES */}
               <button
                 onClick={() => setShowOnlyMissing(!showOnlyMissing)}
-                className={`px-4 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-[9px] md:text-[10px] font-black border-2 transition-all ${
                   showOnlyMissing
                     ? "bg-red-600 text-white border-red-700 shadow-md"
                     : "bg-white text-slate-400 border-slate-200"
@@ -1333,7 +1333,7 @@ export default function LogisticsManager({ supabase, gira }) {
                                     });
                                   }}
                                   title={`Filtrar: sin ${m?.label}`}
-                                  className={`p-1.5 rounded-lg border-2 transition-all ${
+                                  className={`p-1 rounded-lg border-2 transition-all ${
                                     isActive ? buttonActiveClass : buttonInactiveClass
                                   }`}
                                 >

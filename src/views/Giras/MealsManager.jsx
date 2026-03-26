@@ -32,6 +32,45 @@ const ID_TO_SERVICE = {
 };
 const SERVICIOS = ["Desayuno", "Almuerzo", "Merienda", "Cena"];
 const SERVICE_VALS = { Desayuno: 0, Almuerzo: 1, Merienda: 2, Cena: 3 };
+const DEFAULT_SERVICE_FILTER = new Set(["Almuerzo", "Merienda", "Cena"]);
+const GROUP_DEFS = [
+  {
+    id: "GRP:TUTTI",
+    label: "Tutti",
+    color: "bg-indigo-100 text-indigo-700",
+    filter: (p) => p.estado_gira === "confirmado",
+  },
+  {
+    id: "GRP:NO_LOCALES",
+    label: "No Locales",
+    color: "bg-purple-100 text-purple-700",
+    filter: (p) => !p.is_local && p.estado_gira === "confirmado",
+  },
+  {
+    id: "GRP:LOCALES",
+    label: "Locales",
+    color: "bg-orange-100 text-orange-700",
+    filter: (p) => p.is_local && p.estado_gira === "confirmado",
+  },
+  {
+    id: "GRP:PRODUCCION",
+    label: "Prod.",
+    color: "bg-slate-100 text-slate-700",
+    filter: (p) => p.rol_gira === "produccion" && p.estado_gira === "confirmado",
+  },
+  {
+    id: "GRP:SOLISTAS",
+    label: "Sol.",
+    color: "bg-amber-100 text-amber-700",
+    filter: (p) => p.rol_gira === "solista" && p.estado_gira === "confirmado",
+  },
+  {
+    id: "GRP:DIRECTORES",
+    label: "Dir.",
+    color: "bg-red-100 text-red-700",
+    filter: (p) => p.rol_gira === "director" && p.estado_gira === "confirmado",
+  },
+];
 
 const getGroupLabelShort = (id, catalogs) => {
   if (id === "GRP:TUTTI") return "Tutti";
@@ -55,51 +94,10 @@ const getGroupLabelShort = (id, catalogs) => {
 const GroupInspectorHeader = ({ roster, catalogs }) => {
   const [selectedGroup, setSelectedGroup] = useState(null);
 
-  const groups = [
-    {
-      id: "GRP:TUTTI",
-      label: "Tutti",
-      color: "bg-indigo-100 text-indigo-700",
-      filter: (p) => p.estado_gira === "confirmado",
-    },
-    {
-      id: "GRP:NO_LOCALES",
-      label: "No Locales",
-      color: "bg-purple-100 text-purple-700",
-      filter: (p) => !p.is_local && p.estado_gira === "confirmado",
-    },
-    {
-      id: "GRP:LOCALES",
-      label: "Locales",
-      color: "bg-orange-100 text-orange-700",
-      filter: (p) => p.is_local && p.estado_gira === "confirmado",
-    },
-    {
-      id: "GRP:PRODUCCION",
-      label: "Prod.",
-      color: "bg-slate-100 text-slate-700",
-      filter: (p) =>
-        p.rol_gira === "produccion" && p.estado_gira === "confirmado",
-    },
-    {
-      id: "GRP:SOLISTAS",
-      label: "Sol.",
-      color: "bg-amber-100 text-amber-700",
-      filter: (p) => p.rol_gira === "solista" && p.estado_gira === "confirmado",
-    },
-    {
-      id: "GRP:DIRECTORES",
-      label: "Dir.",
-      color: "bg-red-100 text-red-700",
-      filter: (p) =>
-        p.rol_gira === "director" && p.estado_gira === "confirmado",
-    },
-  ];
-
   return (
     <div className="flex items-center gap-2 ml-4 border-l border-slate-200 pl-4 relative">
       <style>{`.tooltip-bridge::after { content: ""; position: absolute; top: 100%; left: 0; width: 100%; height: 15px; background: transparent; }`}</style>
-      {groups.map((g) => {
+      {GROUP_DEFS.map((g) => {
         const count = roster.filter(g.filter).length;
         return (
           <div
@@ -420,7 +418,9 @@ export default function MealsManager({ supabase, gira, roster }) {
   const [expandedStats, setExpandedStats] = useState(null);
   const [selectedRows, setSelectedRows] = useState(new Set());
   // Filtros por tipo de servicio (D/A/M/C)
-  const [serviceFilter, setServiceFilter] = useState(new Set(SERVICIOS));
+  const [serviceFilter, setServiceFilter] = useState(
+    new Set(DEFAULT_SERVICE_FILTER),
+  );
   const debounceRef = useRef({});
 
   useEffect(() => {
@@ -591,10 +591,26 @@ export default function MealsManager({ supabase, gira, roster }) {
     });
   };
 
+  const normalizeTimeHHMM = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const digits = raw.replace(/[^\d]/g, "");
+    if (!digits) return "";
+    const h = parseInt(digits.slice(0, 2), 10);
+    const m = parseInt(digits.slice(2, 4) || "0", 10);
+    const hh = Number.isNaN(h) ? 0 : Math.min(23, Math.max(0, h));
+    const mm = Number.isNaN(m) ? 0 : Math.min(59, Math.max(0, m));
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  };
+
   const handleGridChange = (idx, field, val) => {
     setGrid((prev) => {
       const copy = [...prev];
-      let row = { ...copy[idx], [field]: val, dirty: true };
+      const normalizedVal =
+        field === "hora_inicio" || field === "hora_fin"
+          ? normalizeTimeHHMM(val)
+          : val;
+      let row = { ...copy[idx], [field]: normalizedVal, dirty: true };
       if (field === "convocados") {
         const labels = val.map((id) => getGroupLabelShort(id, catalogs));
         const autoDesc = `${row.servicio} ${labels.join(" + ")}`;
@@ -711,6 +727,10 @@ export default function MealsManager({ supabase, gira, roster }) {
   const [editingDescValue, setEditingDescValue] = useState("");
   const [toolbarPos, setToolbarPos] = useState({ top: 0, left: 0, visible: false });
   const editorRef = useRef(null);
+  const [mobileEditingRow, setMobileEditingRow] = useState(null);
+  const [mobileComensalesRow, setMobileComensalesRow] = useState(null);
+  const [mobileGroupsOpen, setMobileGroupsOpen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const filteredGrid = useMemo(() => {
     if (serviceFilter.size === 0) return [];
@@ -773,15 +793,17 @@ export default function MealsManager({ supabase, gira, roster }) {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
-      <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex justify-between items-center shrink-0 z-10 relative">
-        <div className="flex items-center">
+      <div className="bg-white p-3 md:p-4 border-b border-slate-200 shadow-sm flex justify-between items-center shrink-0 z-10 relative">
+        <div className="flex items-center min-w-0">
           <div className="flex items-center gap-2">
             <IconUtensils className="text-orange-500" />
-            <h2 className="text-lg font-bold text-slate-800">Matriz de Comidas</h2>
+            <h2 className="text-lg font-bold text-slate-800 whitespace-nowrap">Comidas</h2>
           </div>
-          <GroupInspectorHeader roster={roster} catalogs={catalogs} />
+          <div className="hidden md:block">
+            <GroupInspectorHeader roster={roster} catalogs={catalogs} />
+          </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="hidden md:flex items-center gap-4">
           {/* Filtros rápidos por tipo de servicio: D/A/M/C */}
           <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
             <span className="mr-1 uppercase">Servicios:</span>
@@ -814,6 +836,75 @@ export default function MealsManager({ supabase, gira, roster }) {
           </div>
           <FoodMatrix roster={roster} />
           {loading && <IconLoader className="animate-spin text-orange-500" />}
+        </div>
+        <div className="md:hidden flex items-center gap-2 relative">
+          <button
+            type="button"
+            onClick={() => {
+              setMobileGroupsOpen((v) => !v);
+              setMobileFiltersOpen(false);
+            }}
+            className="text-[11px] font-bold px-2 py-1 rounded border border-slate-300 bg-white text-slate-600 flex items-center gap-1"
+          >
+            Grupos <IconChevronDown size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMobileFiltersOpen((v) => !v);
+              setMobileGroupsOpen(false);
+            }}
+            className="text-[11px] font-bold px-2 py-1 rounded border border-slate-300 bg-white text-slate-600 flex items-center gap-1"
+          >
+            Filtros <IconChevronDown size={12} />
+          </button>
+          {loading && <IconLoader className="animate-spin text-orange-500" size={14} />}
+
+          {mobileGroupsOpen && (
+            <div className="absolute right-0 top-[calc(100%+6px)] z-40 bg-white border border-slate-200 rounded-lg shadow-xl p-2 w-44 space-y-1">
+              {GROUP_DEFS.map((g) => (
+                <div key={`mg-${g.id}`} className="flex items-center justify-between text-[10px]">
+                  <span className="text-slate-600">{g.label}</span>
+                  <span className={`px-1.5 py-0.5 rounded font-bold ${g.color}`}>
+                    {roster.filter(g.filter).length}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {mobileFiltersOpen && (
+            <div className="absolute right-0 top-[calc(100%+6px)] z-40 bg-white border border-slate-200 rounded-lg shadow-xl p-2 w-44">
+              <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Servicios</div>
+              <div className="flex items-center gap-1">
+                {SERVICIOS.map((svc) => {
+                  const isActive = serviceFilter.has(svc);
+                  const short =
+                    svc === "Desayuno"
+                      ? "D"
+                      : svc === "Almuerzo"
+                      ? "A"
+                      : svc === "Merienda"
+                      ? "M"
+                      : "C";
+                  return (
+                    <button
+                      key={`mf-${svc}`}
+                      type="button"
+                      onClick={() => toggleServiceFilter(svc)}
+                      className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+                        isActive
+                          ? "bg-indigo-600 text-white border-indigo-600"
+                          : "bg-slate-50 text-slate-500 border-slate-300"
+                      }`}
+                    >
+                      {short}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -861,9 +952,10 @@ export default function MealsManager({ supabase, gira, roster }) {
         </div>
       )}
 
-      <div className="flex-1 p-4 overflow-auto">
-        <div className="bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden flex flex-col relative">
-          <table className="w-full text-left text-sm min-w-[1300px] border-separate border-spacing-0">
+      <div className="flex-1 p-2 md:p-4 overflow-hidden">
+        <div className="bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden flex flex-col relative h-full">
+          <div className="hidden md:block h-full overflow-auto">
+          <table className="w-full text-left text-sm min-w-[1380px] border-separate border-spacing-0">
             <thead className="bg-slate-100 text-slate-500 uppercase font-bold text-[10px] sticky top-0 z-30 shadow-sm">
               <tr>
                 <th className="w-1 border-b border-slate-200"></th>
@@ -983,8 +1075,345 @@ export default function MealsManager({ supabase, gira, roster }) {
               })}
             </tbody>
           </table>
+          </div>
+
+          <div className="md:hidden h-full overflow-y-auto bg-slate-50 p-1.5 space-y-1.5">
+            {filteredGrid.map((row) => {
+              const eligible = getEligiblePeople(row);
+              const isDirty = row.dirty;
+              const tone =
+                row.servicio === "Almuerzo"
+                  ? {
+                      tag: "bg-amber-50 text-amber-700 border-amber-200",
+                      card: "bg-amber-50/25 border-amber-200",
+                    }
+                  : row.servicio === "Cena"
+                    ? {
+                        tag: "bg-indigo-50 text-indigo-700 border-indigo-200",
+                        card: "bg-indigo-50/25 border-indigo-200",
+                      }
+                    : {
+                        tag: "bg-slate-100 text-slate-500 border-slate-200",
+                        card: "bg-slate-50/50 border-slate-200",
+                      };
+
+              return (
+                <div
+                  key={`mobile-${row.id}`}
+                  className={`border rounded-md px-2 py-1.5 text-[11px] leading-tight ${
+                    isDirty ? "border-amber-300 bg-amber-50/50" : tone.card
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold text-slate-700 truncate flex items-center gap-2">
+                      <span>{format(parseISO(row.fecha), "EEE dd/MM", { locale: es })}</span>
+                      <span className="text-slate-400 font-normal">
+                        {row.hora_inicio || "-"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${tone.tag}`}
+                      >
+                        {row.servicio}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setMobileEditingRow(row)}
+                        className="p-1 rounded border border-slate-200 text-slate-600 bg-white"
+                        title="Editar"
+                      >
+                        <IconEdit size={12} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-1 text-slate-700 truncate">
+                    <span className="text-slate-400">Lugar:</span>{" "}
+                    {catalogs.locaciones.find((l) => String(l.id) === String(row.id_locacion))
+                      ?.label || "-"}
+                  </div>
+
+                  <div className="mt-1 text-slate-700 line-clamp-2">
+                    <span className="text-slate-400">Descripción:</span>{" "}
+                    <span
+                      dangerouslySetInnerHTML={{ __html: row.descripcion || "-" }}
+                    />
+                  </div>
+
+                  <div className="mt-1 flex items-center gap-2">
+                    <div className="flex-1 truncate text-slate-700">
+                      <span className="text-slate-400">Convocados:</span>{" "}
+                      {(row.convocados || []).length > 0
+                        ? row.convocados
+                            .map((id) => getGroupLabelShort(id, catalogs))
+                            .join(", ")
+                        : "-"}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setMobileComensalesRow(row)}
+                      className="shrink-0 text-[10px] px-2 py-1 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-bold"
+                    >
+                      <IconUsers size={11} className="inline mr-1" />
+                      {eligible.length}
+                    </button>
+                  </div>
+
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
+
+      {mobileComensalesRow && (
+        <div className="fixed inset-0 z-[90] bg-black/40 flex items-end md:hidden">
+          <div className="w-full max-h-[70vh] bg-white rounded-t-xl border-t border-slate-200 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-black text-slate-700 uppercase tracking-wide">
+                Comensales ({getEligiblePeople(mobileComensalesRow).length})
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileComensalesRow(null)}
+                className="p-1 rounded text-slate-500"
+              >
+                <IconX size={16} />
+              </button>
+            </div>
+            <div className="overflow-y-auto max-h-[56vh] space-y-1">
+              {getEligiblePeople(mobileComensalesRow)
+                .sort((a, b) => a.apellido.localeCompare(b.apellido))
+                .map((p) => (
+                  <div
+                    key={`mobile-eater-${p.id}`}
+                    className="text-xs py-1 border-b border-slate-100 flex items-center justify-between"
+                  >
+                    <span className="truncate pr-2">
+                      {p.apellido}, {p.nombre}
+                    </span>
+                    <span className="text-[10px] text-slate-400 truncate max-w-[35%]">
+                      {p.instrumentos?.instrumento || ""}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mobileEditingRow && (
+        <MobileMealEditor
+          row={mobileEditingRow}
+          catalogs={catalogs}
+          onCancel={() => setMobileEditingRow(null)}
+          onSave={(draft) => {
+            const idx = grid.findIndex((r) => r.id === mobileEditingRow.id);
+            if (idx < 0) {
+              setMobileEditingRow(null);
+              return;
+            }
+            const normalizedDraft = {
+              ...draft,
+              hora_inicio: normalizeTimeHHMM(draft.hora_inicio),
+              hora_fin: normalizeTimeHHMM(draft.hora_fin),
+            };
+            const updated = { ...grid[idx], ...normalizedDraft, dirty: true };
+            setGrid((prev) =>
+              prev.map((r) => (r.id === updated.id ? updated : r)),
+            );
+            if (updated.hora_inicio && updated.fecha) {
+              saveRow(updated);
+            }
+            setMobileEditingRow(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function MobileMealEditor({ row, catalogs, onCancel, onSave }) {
+  const descEditorRef = useRef(null);
+  const initialRef = useRef({
+    hora_inicio: row.hora_inicio || "",
+    id_locacion: row.id_locacion || "",
+    descripcion: row.descripcion || "",
+    convocados: row.convocados || [],
+  });
+  const [draft, setDraft] = useState({
+    hora_inicio: row.hora_inicio || "",
+    id_locacion: row.id_locacion || "",
+    descripcion: row.descripcion || "",
+    convocados: row.convocados || [],
+  });
+
+  const execMobileDescCmd = (command) => {
+    document.execCommand(command, false, null);
+    if (descEditorRef.current) descEditorRef.current.focus();
+  };
+
+  const hasUnsavedChanges = useMemo(() => {
+    const initial = initialRef.current;
+    return (
+      String(draft.hora_inicio || "") !== String(initial.hora_inicio || "") ||
+      String(draft.id_locacion || "") !== String(initial.id_locacion || "") ||
+      String(draft.descripcion || "") !== String(initial.descripcion || "") ||
+      JSON.stringify(draft.convocados || []) !==
+        JSON.stringify(initial.convocados || [])
+    );
+  }, [draft]);
+
+  const handleRequestClose = () => {
+    if (hasUnsavedChanges) {
+      const shouldClose = window.confirm(
+        "Hay cambios sin guardar. ¿Deseas cerrar sin guardar?",
+      );
+      if (!shouldClose) return;
+    }
+    onCancel();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[95] bg-black/40 md:hidden flex items-end">
+      <div className="w-full h-[80vh] bg-white rounded-t-2xl border-t border-slate-200 flex flex-col">
+      <div className="shrink-0 p-2 border-b border-slate-200 flex items-center justify-between">
+        <div className="text-sm font-black text-slate-700">Editar Comida</div>
+        <button
+          type="button"
+          onClick={handleRequestClose}
+          className="p-1 text-slate-500"
+        >
+          <IconX size={18} />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-2 space-y-2">
+        <div className="text-[11px] text-slate-500">
+          {format(parseISO(row.fecha), "EEE dd/MM", { locale: es })} -{" "}
+          {row.servicio}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[9px] font-bold text-slate-500 uppercase">
+              Horario
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="HHMM / HH:MM"
+              value={draft.hora_inicio}
+              onChange={(e) =>
+                setDraft((p) => ({ ...p, hora_inicio: e.target.value }))
+              }
+              className="w-full mt-1 border border-slate-300 rounded px-2 py-1.5 text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[9px] font-bold text-slate-500 uppercase">
+              Lugar
+            </label>
+            <div className="mt-1">
+              <GridLocationSelect
+                value={draft.id_locacion}
+                onChange={(v) => setDraft((p) => ({ ...p, id_locacion: v }))}
+                options={catalogs.locaciones}
+              />
+            </div>
+          </div>
+        </div>
+        <div>
+          <label className="text-[9px] font-bold text-slate-500 uppercase">
+            Descripción
+          </label>
+          <div className="mt-1 border border-slate-300 rounded overflow-hidden">
+            <div className="flex items-center gap-1 p-0.5 border-b border-slate-200 bg-slate-50">
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  execMobileDescCmd("bold");
+                }}
+                className="p-1 rounded hover:bg-slate-200 text-slate-700"
+                title="Negrita"
+              >
+                <IconBold size={12} />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  execMobileDescCmd("italic");
+                }}
+                className="p-1 rounded hover:bg-slate-200 text-slate-700"
+                title="Itálica"
+              >
+                <IconItalic size={12} />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  execMobileDescCmd("underline");
+                }}
+                className="p-1 rounded hover:bg-slate-200 text-slate-700"
+                title="Subrayado"
+              >
+                <IconUnderline size={12} />
+              </button>
+            </div>
+            <div
+              ref={descEditorRef}
+              contentEditable
+              suppressContentEditableWarning
+              onInput={(e) =>
+                setDraft((p) => ({
+                  ...p,
+                  descripcion: e.currentTarget.innerHTML,
+                }))
+              }
+              onPaste={(e) => {
+                e.preventDefault();
+                const text = e.clipboardData.getData("text/plain");
+                document.execCommand("insertText", false, text);
+              }}
+              dangerouslySetInnerHTML={{ __html: draft.descripcion || "" }}
+              className="min-h-[72px] max-h-[88px] p-1.5 text-xs outline-none overflow-y-auto"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="text-[9px] font-bold text-slate-500 uppercase">
+            Convocados
+          </label>
+          <div className="mt-1">
+            <MultiGroupSelect
+              value={draft.convocados}
+              onChange={(v) => setDraft((p) => ({ ...p, convocados: v }))}
+              catalogs={catalogs}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="shrink-0 p-2 border-t border-slate-200 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={handleRequestClose}
+          className="px-2.5 py-1.5 text-[11px] font-bold text-slate-600"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={() => onSave(draft)}
+          className="px-2.5 py-1.5 text-[11px] font-bold rounded bg-indigo-600 text-white"
+        >
+          Guardar
+        </button>
+      </div>
+    </div>
     </div>
   );
 }

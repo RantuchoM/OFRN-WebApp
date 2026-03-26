@@ -935,14 +935,14 @@ const ProtectedApp = ({ initialTab }) => {
 
       {/* MAIN */}
       <div className="flex-1 flex flex-col h-full relative overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-8 shrink-0 z-30 gap-4">
+        <header className="h-14 md:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-4 sm:px-8 shrink-0 z-30 gap-2 md:gap-4">
           {/* 1. SECCIÓN IZQUIERDA (Logo/Título/Suplantación) */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="p-2 -ml-2 text-slate-600 lg:hidden"
+              className="p-1.5 -ml-1 text-slate-600 lg:hidden"
             >
-              <IconMenu size={24} />
+              <IconMenu size={22} />
             </button>
             {isActuallyAdmin && (
               <div className="hidden lg:flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
@@ -999,10 +999,10 @@ const ProtectedApp = ({ initialTab }) => {
           {/* 3. SECCIÓN DERECHA (Acciones/Perfil) */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {/* BOTÓN MANUAL (MODIFICADO) */}
-            <div className="flex items-center bg-slate-50 border border-slate-200 rounded-full p-1">
+            <div className="flex items-center bg-slate-50 border border-slate-200 rounded-full p-0.5 md:p-1">
               <button
                 onClick={toggleVisibility}
-                className={`p-1.5 rounded-full transition-colors ${
+                className={`p-1 md:p-1.5 rounded-full transition-colors ${
                   !showTriggers
                     ? "text-slate-400"
                     : "text-sky-600 bg-white shadow-sm"
@@ -1015,10 +1015,10 @@ const ProtectedApp = ({ initialTab }) => {
               >
                 {showTriggers ? (
                   // Icono Manual Tachado (Ocultar)
-                  <IconEyeOff size={18} />
+                  <IconEyeOff size={16} />
                 ) : (
                   // Icono Manual Abierto (Mostrar)
-                  <IconBookOpen size={18} />
+                  <IconBookOpen size={16} />
                 )}
               </button>
               {showTriggers && (
@@ -1048,7 +1048,7 @@ const ProtectedApp = ({ initialTab }) => {
                     }
                     setIsRoleMenuOpen((v) => !v);
                   }}
-                  className="flex items-center gap-1 px-2 py-1.5 rounded-full border border-slate-200 bg-white text-[11px] font-bold text-slate-600 cursor-pointer select-none"
+                  className="flex items-center gap-1 px-2 py-1 md:py-1.5 rounded-full border border-slate-200 bg-white text-[10px] md:text-[11px] font-bold text-slate-600 cursor-pointer select-none"
                 >
                   <span className="uppercase tracking-wide">
                     {roles.length <= 1
@@ -1065,14 +1065,14 @@ const ProtectedApp = ({ initialTab }) => {
             {isEditor && (
               <button
                 onClick={() => setGlobalCommentsOpen(true)}
-                className={`relative p-2 rounded-full transition-all duration-200 ${
+                className={`relative p-1.5 md:p-2 rounded-full transition-all duration-200 ${
                   globalCommentsOpen
                     ? "bg-indigo-50 text-indigo-600"
                     : "text-slate-500 hover:text-indigo-600 hover:bg-slate-100"
                 }`}
                 title="Avisos y Pendientes"
               >
-                <IconMessageSquare size={22} />
+                <IconMessageSquare size={20} />
                 {commentCounts.total > 0 && (
                   <span className="absolute top-0 right-0 transform translate-x-1 -translate-y-1 h-4 min-w-[16px] px-1 bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center rounded-full shadow-sm border border-white z-10">
                     {commentCounts.total > 9 ? "9+" : commentCounts.total}
@@ -1090,10 +1090,10 @@ const ProtectedApp = ({ initialTab }) => {
             <button
               onClick={() => setCalendarModalOpen(true)}
               // Se cambió 'hidden xl:flex' por 'flex' para que siempre se vea
-              className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 font-bold text-xs hover:bg-indigo-100"
+              className="flex items-center gap-1.5 px-2.5 md:px-3 py-1 md:py-1.5 bg-indigo-50 text-indigo-600 rounded-full border border-indigo-100 font-bold text-[10px] md:text-xs hover:bg-indigo-100"
               title="Sincronizar Calendario"
             >
-              <IconCalendar size={14} />
+              <IconCalendar size={13} />
               {/* El texto se oculta en móvil para ahorrar espacio, aparece en pantallas grandes */}
               <span className="hidden xl:inline">Sincronizar</span>
             </button>
@@ -1109,7 +1109,7 @@ const ProtectedApp = ({ initialTab }) => {
                 />
               )}
               <div
-                className="w-9 h-9 rounded-full border-2 border-white shadow-sm flex items-center justify-center overflow-hidden ring-2 ring-transparent group-hover:ring-indigo-100 transition-all"
+                className="w-8 h-8 md:w-9 md:h-9 rounded-full border-2 border-white shadow-sm flex items-center justify-center overflow-hidden ring-2 ring-transparent group-hover:ring-indigo-100 transition-all"
                 style={{
                   backgroundColor: userAvatar ? "transparent" : userColor,
                 }}

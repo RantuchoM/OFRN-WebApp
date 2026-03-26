@@ -95,12 +95,12 @@ export default function LogisticsDashboard({
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
       {/* HEADER UNIF ICADO */}
-      <div className="bg-white border-b border-slate-200 shadow-sm px-3 sm:px-4 pt-2.5 pb-1 flex flex-row items-center justify-between gap-2 sm:gap-4 shrink-0 print:hidden relative z-20 min-h-[3.25rem]">
+      <div className="bg-white border-b border-slate-200 shadow-sm px-2.5 sm:px-4 pt-1.5 sm:pt-2.5 pb-0.5 sm:pb-1 flex flex-row items-center justify-between gap-1.5 sm:gap-4 shrink-0 print:hidden relative z-20 min-h-[2.75rem] sm:min-h-[3.25rem]">
         {/* IZQUIERDA: Botón Volver + Loader */}
-        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-4 shrink-0">
           <button
             onClick={onBack}
-            className="text-slate-400 hover:text-indigo-600 font-bold text-xs flex items-center gap-1 transition-colors uppercase tracking-wider"
+            className="text-slate-400 hover:text-indigo-600 font-bold text-[10px] sm:text-xs flex items-center gap-1 transition-colors uppercase tracking-wider"
             title="Salir del Dashboard"
           >
             <IconArrowLeft size={16} />
@@ -115,7 +115,7 @@ export default function LogisticsDashboard({
         </div>
 
         {/* DERECHA: Cuadro Resumen + Pestañas */}
-        <div className="flex items-end justify-end gap-2 sm:gap-4 h-full min-w-0 flex-1 ml-4 sm:ml-8">
+        <div className="flex items-end justify-end gap-1.5 sm:gap-4 h-full min-w-0 flex-1 ml-2 sm:ml-8">
           {/* CUADRO RESUMEN (DOBLE ENTRADA) */}
           {!loading && (
             <div className="hidden lg:grid grid-cols-4 gap-x-2 gap-y-0.5 bg-slate-50 border border-slate-200 rounded-md p-1.5 mb-2 shadow-sm select-none text-[9px] leading-none">
@@ -177,7 +177,7 @@ export default function LogisticsDashboard({
 
           {/* PESTAÑAS */}
           <div className="flex-1 min-w-0">
-            <div className="flex gap-0.5 sm:gap-1 h-full overflow-x-auto items-end pb-[1px] scrollbar-none lg:overflow-visible">
+            <div className="flex gap-0.5 sm:gap-1 h-full overflow-x-auto items-end pb-0 scrollbar-none lg:overflow-visible">
               <TabButton
                 active={activeTab === "coverage"}
                 onClick={() => handleTabChange("coverage")}
@@ -211,7 +211,7 @@ export default function LogisticsDashboard({
                 <button
                   type="button"
                   onClick={() => setIsMealsMenuOpen((open) => !open)}
-                  className={`px-2.5 sm:px-4 pb-2 sm:pb-3 pt-1.5 sm:pt-2 text-xs sm:text-sm font-bold border-b-[3px] flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap ${
+                  className={`px-2 sm:px-4 pb-1.5 sm:pb-3 pt-1 sm:pt-2 text-[10px] sm:text-sm font-bold border-b-[3px] flex items-center gap-1 sm:gap-2 transition-colors whitespace-nowrap ${
                     ["meals", "attendance", "report"].includes(activeTab)
                       ? "border-orange-500 text-orange-600 bg-gradient-to-t from-orange-50/50 to-transparent"
                       : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"
@@ -351,7 +351,7 @@ export default function LogisticsDashboard({
 
 function TabButton({ active, onClick, icon, label }) {
   const baseClasses =
-    "px-2.5 sm:px-4 pb-2 sm:pb-3 pt-1.5 sm:pt-2 text-xs sm:text-sm font-bold border-b-[3px] flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap";
+    "px-2 sm:px-4 pb-1.5 sm:pb-3 pt-1 sm:pt-2 text-[10px] sm:text-sm font-bold border-b-[3px] flex items-center gap-1 sm:gap-2 transition-colors whitespace-nowrap";
   const stateClasses = active
     ? "border-indigo-600 text-indigo-700 bg-gradient-to-t from-indigo-50/50 to-transparent"
     : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50";

@@ -1170,11 +1170,11 @@ export default function GirasView({ supabase, trigger = 0 }) {
     <div className="flex flex-col h-full bg-slate-50 relative">
       <div className="bg-white border-b border-slate-200 sticky top-0 shadow-sm shrink-0 z-40">
         {isDetailView ? (
-          <div className="px-4 py-2 flex flex-col sm:flex-row items-center justify-between gap-3 print:hidden">
-            <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="px-2.5 sm:px-4 py-1.5 sm:py-2 flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-3 print:hidden">
+            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
               <button
                 onClick={() => updateView("LIST")}
-                className={`p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors ${
+                className={`p-1.5 sm:p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors ${
                   isGuest ? "invisible" : ""
                 }`}
                 title="Volver al listado"
@@ -1183,8 +1183,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 <IconArrowLeft size={20} />{" "}
               </button>
               <div className="flex flex-col overflow-hidden">
-                <h2 className="text-m font-bold text-slate-800 truncate leading-tight">{`${selectedGira.mes_letra} | ${selectedGira.nomenclador}. ${selectedGira.nombre_gira}`}</h2>
-                <div className="flex items-center gap-2">
+                <h2 className="text-sm sm:text-m font-bold text-slate-800 truncate leading-tight">{`${selectedGira.mes_letra} | ${selectedGira.nomenclador}. ${selectedGira.nombre_gira}`}</h2>
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   {isGuest && !user.isGeneral && (
                     <div className="hidden sm:flex animate-in fade-in items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[10px] font-bold border border-indigo-200 whitespace-nowrap">
                       <IconUsers size={12} />
@@ -1232,7 +1232,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
               </div>
             )}
             {(isEditor || isPersonal || isGuest || isDifusion) && ( // <--- AGREGAR isDifusion aquí
-              <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg overflow-x-auto max-w-full no-scrollbar">
+              <div className="flex items-center justify-between gap-0.5 bg-slate-100 p-0.5 sm:p-1 rounded-lg w-full sm:w-auto overflow-hidden max-w-full">
                 {tourNavItems
                   .filter((item) => {
                     // RESTRICCIÓN PARA ROL DIFUSIÓN: Solo ve la tab de Difusión
@@ -1256,17 +1256,15 @@ export default function GirasView({ supabase, trigger = 0 }) {
                       <button
                         key={item.mode}
                         onClick={() => updateView(item.mode, selectedGira.id)}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap ${
+                        className={`flex items-center justify-center ${isActive ? "gap-1" : "gap-0.5"} px-1 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-bold transition-all whitespace-nowrap ${isActive ? "flex-[1.4] sm:flex-none" : "flex-1 sm:flex-none"} min-w-0 ${
                           isActive
                             ? "bg-white text-indigo-600 shadow-sm"
                             : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
                         }`}
                         title={item.label}
                       >
-                        <item.icon size={16} strokeWidth={isActive ? 2.5 : 2} />
-                        <span
-                          className={`${isActive ? "inline" : "hidden 2xl:inline"}`}
-                        >
+                        <item.icon size={14} strokeWidth={isActive ? 2.5 : 2} />
+                        <span className={`${isActive ? "inline" : "hidden"} sm:hidden 2xl:inline truncate max-w-[72px]`}>
                           {item.label}
                         </span>
                       </button>
