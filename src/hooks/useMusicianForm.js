@@ -183,10 +183,28 @@ export function useMusicianForm(musician, supabase, onSave) {
   }, [musician?.id, supabase]);
 
   useEffect(() => {
-    if (musician?.id) {
-      reset(getDefaultValues(musician));
-    }
-  }, [musician?.id, reset]);
+    const hydrateFromDb = async () => {
+      if (!musician?.id || !supabase) return;
+      try {
+        const { data: fullMusician, error } = await supabase
+          .from("integrantes")
+          .select("*")
+          .eq("id", musician.id)
+          .single();
+
+        if (error) throw error;
+        reset(getDefaultValues({ ...musician, ...(fullMusician || {}) }));
+      } catch (err) {
+        console.warn(
+          "[useMusicianForm] No se pudo reconsultar integrante, usando datos de entrada.",
+          err,
+        );
+        reset(getDefaultValues(musician));
+      }
+    };
+
+    hydrateFromDb();
+  }, [musician?.id, supabase, reset]);
 
   const getInputStatusClass = useCallback(
     (fieldName) => {

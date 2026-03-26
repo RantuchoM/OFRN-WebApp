@@ -1318,8 +1318,23 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   };
 
   const startEditModal = async (item) => {
-    setEditingId(item.id);
-    setEditFormData({ ...item });
+    try {
+      const { data: fullMusician, error } = await supabase
+        .from("integrantes")
+        .select("*")
+        .eq("id", item.id)
+        .single();
+
+      if (error) throw error;
+
+      setEditFormData({ ...item, ...(fullMusician || {}) });
+    } catch (err) {
+      console.error("[MusiciansView] Error cargando ficha completa:", err);
+      toast.error("No se pudo cargar la ficha completa. Se abrirá con datos parciales.");
+      setEditFormData({ ...item });
+    } finally {
+      setEditingId(item.id);
+    }
   };
 
   const processedResultados = useMemo(() => {
