@@ -58,7 +58,8 @@ const getTypeColor = (tipo) => {
 
 const InteractiveSectionItem = ({
   item, gira, go, supabase, userId, onStatusChange,
-  roster, onRequestRefresh, isRosterLoading, externalStats
+  roster, onRequestRefresh, isRosterLoading, externalStats,
+  hospedajeExcluidosIds = [],
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [childStats, setChildStats] = useState(null);
@@ -76,11 +77,12 @@ const InteractiveSectionItem = ({
     if (item.statusKey && hasCalculator(item.statusKey)) {
         return calculateStatsFromData(item.statusKey, { 
             roster, 
-            vacantesCount: gira.vacantesCount // Dato clave para Staff/Nómina
+            vacantesCount: gira.vacantesCount, // Staff/Nómina
+            hospedajeExcluidosIds,
         });
     }
     return null;
-  }, [externalStats, childStats, roster, item.statusKey, isExcluded, gira.vacantesCount]);
+  }, [externalStats, childStats, roster, item.statusKey, isExcluded, gira.vacantesCount, hospedajeExcluidosIds]);
 
   const stripColorClass = useMemo(() => {
     if (isExcluded) return "border-l-4 border-slate-200 bg-slate-50 opacity-60";
@@ -179,7 +181,10 @@ const InteractiveSectionItem = ({
             roster={roster} 
             onRefreshRequest={onRequestRefresh} 
             // Inyectamos vacantesCount en la data de cálculo
-            calculationData={{ vacantesCount: gira.vacantesCount }}
+            calculationData={{
+              vacantesCount: gira.vacantesCount,
+              hospedajeExcluidosIds,
+            }}
           />
         </div>
       )}
@@ -191,6 +196,28 @@ export default function DashboardTourCard({ gira, onViewChange, supabase, onStat
   const { user } = useAuth();
   
   const { summary: roster, loading: isRosterLoading, refresh } = useLogistics(supabase, gira);
+  const [hospedajeExcluidosIds, setHospedajeExcluidosIds] = useState([]);
+
+  useEffect(() => {
+    if (!gira?.id || !supabase) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("giras_hospedajes_excluidos")
+        .select("id_integrante")
+        .eq("id_programa", gira.id);
+      if (cancelled) return;
+      if (error) {
+        console.warn("[DashboardTourCard] giras_hospedajes_excluidos:", error.message);
+        setHospedajeExcluidosIds([]);
+        return;
+      }
+      setHospedajeExcluidosIds((data || []).map((r) => r.id_integrante));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gira?.id, supabase, roster]);
   
   const [calculationResults, setCalculationResults] = useState({});
   const go = (view, subTab) => onViewChange("GIRAS", gira.id, view, subTab);
@@ -205,7 +232,8 @@ export default function DashboardTourCard({ gira, onViewChange, supabase, onStat
                 if (!isExcluded && item.statusKey && hasCalculator(item.statusKey)) {
                     const res = calculateStatsFromData(item.statusKey, { 
                         roster,
-                        vacantesCount: gira.vacantesCount // Pasamos dato al global también
+                        vacantesCount: gira.vacantesCount,
+                        hospedajeExcluidosIds,
                     });
                     if(res) results[item.statusKey] = res;
                 }
@@ -213,7 +241,7 @@ export default function DashboardTourCard({ gira, onViewChange, supabase, onStat
         });
         setCalculationResults(results);
     }
-  }, [roster, gira.statusMap, gira.vacantesCount]); 
+  }, [roster, gira.statusMap, gira.vacantesCount, hospedajeExcluidosIds]); 
 
   const handleAnalyzeGira = (e) => {
     if(e) e.stopPropagation();
@@ -281,6 +309,7 @@ export default function DashboardTourCard({ gira, onViewChange, supabase, onStat
                     onRequestRefresh={refresh}
                     isRosterLoading={isRosterLoading}
                     externalStats={calculationResults[item.statusKey]} 
+                    hospedajeExcluidosIds={hospedajeExcluidosIds}
                 />
               ))}</div>
           </div>

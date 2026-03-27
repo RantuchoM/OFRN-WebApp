@@ -43,12 +43,16 @@ export const computeRosterRaw = (data) => {
 
 // 2. ROOMING
 export const computeRoomingRaw = (data) => {
-  const { roster } = data;
+  const { roster, hospedajeExcluidosIds } = data;
   if (!roster || !Array.isArray(roster)) return null;
+  const excludedNoAlojado = new Set(
+    (hospedajeExcluidosIds || []).map((id) => Number(id)),
+  );
   const paxQueRequierenHotel = roster.filter((p) => {
     const estado = normalize(p.estado_gira || p.estado);
     const esActivo = estado !== "ausente" && estado !== "baja";
-    const esLocal = p.is_local === true; 
+    const esLocal = p.is_local === true;
+    if (excludedNoAlojado.has(Number(p.id))) return false;
     return esActivo && !esLocal;
   });
   const totalNecesitanHotel = paxQueRequierenHotel.length;

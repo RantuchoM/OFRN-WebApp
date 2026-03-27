@@ -70,6 +70,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
   } = useAuth();
   const userRole = role ?? "";
   const [statsRefreshTrigger, setStatsRefreshTrigger] = useState(0);
+  const [hospedajeExcluidosIds, setHospedajeExcluidosIds] = useState([]);
 
   const handleChildDataChange = () => {
     setStatsRefreshTrigger((prev) => prev + 1);
@@ -127,6 +128,26 @@ export default function GirasView({ supabase, trigger = 0 }) {
       sessionStorage.setItem("last_active_gira_id", selectedGira.id);
     }
   }, [selectedGira]);
+
+  useEffect(() => {
+    if (!selectedGira?.id || !supabase) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("giras_hospedajes_excluidos")
+        .select("id_integrante")
+        .eq("id_programa", selectedGira.id);
+      if (cancelled) return;
+      if (error) {
+        setHospedajeExcluidosIds([]);
+        return;
+      }
+      setHospedajeExcluidosIds((data || []).map((r) => r.id_integrante));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGira?.id, supabase, statsRefreshTrigger]);
 
   const updateView = (newMode, newGiraId = null, newSubTab = null) => {
     if (mode === "LIST" && newMode !== "LIST" && scrollContainerRef.current) {
@@ -1222,6 +1243,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                   currentUserId={user.id}
                   onUpdate={fetchGiras}
                   roster={enrichedRoster}
+                  calculationData={{ hospedajeExcluidosIds }}
                 />
                 <CommentButton
                   supabase={supabase}

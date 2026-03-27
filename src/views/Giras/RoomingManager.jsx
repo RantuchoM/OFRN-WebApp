@@ -1,5 +1,5 @@
 // src/views/Giras/RoomingManager.jsx
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   IconHotel,
@@ -18,14 +18,51 @@ import {
   IconHelpCircle,
   IconAlertTriangle, // <--- AGREGAR ESTE
   IconUser,
+  IconHome,
+  IconCopy,
 } from "../../components/ui/Icons";
 import CommentsManager from "../../components/comments/CommentsManager";
 import CommentButton from "../../components/comments/CommentButton";
 import RoomingReportModal from "./RoomingReport";
 import InitialOrderReportModal from "./RoomingInitialOrderReport";
 import RoomingInitialAdjustmentModal from "./RoomingInitialAdjustmentModal";
+import ImportHotelModal from "./ImportHotelModal";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { useLogistics } from "../../hooks/useLogistics"; // <--- CAMBIO CLAVE
+
+const normalizeIntegranteId = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const hospedajeExclusionErrorMessage = (err) => {
+  const code = err?.code;
+  const msg = (
+    err?.message ||
+    err?.error_description ||
+    err?.details ||
+    ""
+  ).trim();
+  const hint = err?.hint;
+  if (
+    code === "23503" ||
+    /foreign key constraint/i.test(msg) ||
+    /violates foreign key/i.test(msg)
+  ) {
+    return [
+      "No se pudo guardar en «no alojados».",
+      "Suele ocurrir si el integrante no existe en la tabla maestra (integrantes) o el id llegó en formato incorrecto.",
+      "Revisá en consola el detalle o en Supabase que el id_integrante sea válido.",
+    ].join(" ");
+  }
+  if (code === "23505" || /duplicate key/i.test(msg)) {
+    return "Ya estaba registrado como no alojado.";
+  }
+  if (msg) return `No se pudo marcar como no alojado: ${msg}`;
+  if (hint) return `No se pudo marcar como no alojado: ${hint}`;
+  return "No se pudo marcar como no alojado (error desconocido). Revisá la consola.";
+};
+
 // --- MODAL DE AYUDA ---
 const HelpModal = ({ onClose }) => (
   <div
@@ -693,7 +730,7 @@ const MusicianListColumn = ({
 
   return (
     <div
-      className={`w-full lg:w-48 flex flex-col rounded-xl border p-3 overflow-hidden transition-colors ${c.bg} ${c.border} ${
+      className={`w-full lg:w-48 flex flex-col rounded-xl border p-3 overflow-hidden transition-colors h-full min-h-0 ${c.bg} ${c.border} ${
         isDragging ? `${c.bgDrag} ${c.border} border-dashed` : ""
       }`}
       onDragOver={onDragOver}
@@ -724,7 +761,7 @@ const MusicianListColumn = ({
       </button>
       {/* Contenido: en móvil solo visible cuando no está colapsado */}
       <div
-        className={`space-y-3 flex-1 overflow-y-auto ${
+        className={`space-y-3 flex-1 min-h-0 overflow-y-auto ${
           isCollapsed ? "hidden lg:block" : "block"
         }`}
       >
@@ -1303,6 +1340,11 @@ export default function RoomingManager({
   const [showRoomingPanel, setShowRoomingPanel] = useState(false);
   const [mobileActiveList, setMobileActiveList] = useState(null); // "women" | "men" | null
   const [mobileRoomFilter, setMobileRoomFilter] = useState("F"); // F | Mix | M
+  const [excludedHospedajeIds, setExcludedHospedajeIds] = useState([]);
+  const [showExcludedPanel, setShowExcludedPanel] = useState(false);
+  const [showImportHotelModal, setShowImportHotelModal] = useState(false);
+  const [importingHotel, setImportingHotel] = useState(false);
+  const hotelsScrollRef = useRef(null);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1391,6 +1433,25 @@ export default function RoomingManager({
   const handleDragOver = (e) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
+  };
+
+  /** Auto-scroll del panel central de hoteles al arrastrar cerca de los bordes. */
+  const handleHotelsDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const el = hotelsScrollRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const margin = 60;
+    const step = 14;
+    if (e.clientY < rect.top + margin) {
+      el.scrollTop = Math.max(0, el.scrollTop - step);
+    } else if (e.clientY > rect.bottom - margin) {
+      el.scrollTop = Math.min(
+        el.scrollHeight - el.clientHeight,
+        el.scrollTop + step,
+      );
+    }
   };
 
   const processDrop = (targetRoomId, draggedIds, options = {}) => {
@@ -1595,6 +1656,117 @@ export default function RoomingManager({
     }
   };
 
+  const handleReactivateExcluded = async (id) => {
+    const nid = normalizeIntegranteId(id);
+    if (nid == null) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from("giras_hospedajes_excluidos")
+        .delete()
+        .eq("id_programa", program.id)
+        .eq("id_integrante", nid);
+      if (error) throw error;
+      await fetchInitialData();
+      if (onDataChange) onDataChange();
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo quitar de la lista de no alojados.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExcludeMusicians = async (rawIds) => {
+    const ids = [
+      ...new Set(
+        rawIds.map(normalizeIntegranteId).filter((n) => n != null),
+      ),
+    ];
+    if (!ids.length || !program?.id) return;
+    setLoading(true);
+    try {
+      const pid = normalizeIntegranteId(program.id) ?? program.id;
+      const rows = ids.map((id_integrante) => ({
+        id_programa: pid,
+        id_integrante,
+      }));
+      const { error: insErr } = await supabase
+        .from("giras_hospedajes_excluidos")
+        .upsert(rows, { onConflict: "id_programa,id_integrante" });
+      if (insErr) throw insErr;
+
+      const idSet = new Set(ids);
+      let newRooms = [...rooms];
+
+      for (let i = newRooms.length - 1; i >= 0; i--) {
+        const r = newRooms[i];
+        const nextOcc = r.occupants.filter(
+          (o) => !idSet.has(normalizeIntegranteId(o.id)),
+        );
+        if (nextOcc.length === r.occupants.length) continue;
+
+        if (nextOcc.length === 0) {
+          await supabase.from("hospedaje_habitaciones").delete().eq("id", r.id);
+          newRooms.splice(i, 1);
+        } else {
+          const idsArr = nextOcc.map((m) => m.id);
+          const asignacionesConfig = nextOcc.map((m) => ({
+            id: m.id,
+            ocupa_cama: m.ocupa_cama !== false,
+          }));
+          const { error } = await supabase
+            .from("hospedaje_habitaciones")
+            .update({
+              id_integrantes_asignados: idsArr,
+              asignaciones_config: asignacionesConfig,
+            })
+            .eq("id", r.id);
+          if (error) throw error;
+          newRooms[i] = {
+            ...r,
+            occupants: nextOcc,
+            roomGender: calculateRoomGender(nextOcc),
+            asignaciones_config: asignacionesConfig,
+          };
+        }
+      }
+
+      const newMusicians = musicians.filter(
+        (m) => !idSet.has(normalizeIntegranteId(m.id)),
+      );
+      setExcludedHospedajeIds((prev) => {
+        const s = new Set(prev);
+        ids.forEach((id) => s.add(id));
+        return Array.from(s);
+      });
+      updateLocalState(newRooms, newMusicians);
+      setSelectedIds(new Set());
+      setDraggedMusician(null);
+      setIsDragging(false);
+      if (onDataChange) onDataChange();
+    } catch (err) {
+      console.error("[handleExcludeMusicians]", err);
+      alert(hospedajeExclusionErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDropOnExclude = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const dataStr = e.dataTransfer.getData("application/json");
+    if (!dataStr) return;
+    try {
+      const data = JSON.parse(dataStr);
+      if (data.type === "PEOPLE_BATCH" && data.ids?.length)
+        handleExcludeMusicians(data.ids);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleDropOnNewRoom = async (e, bookingId) => {
     e.preventDefault();
     const dataStr = e.dataTransfer.getData("application/json");
@@ -1787,6 +1959,22 @@ export default function RoomingManager({
   const fetchInitialData = async () => {
     setLoading(true);
     try {
+      let excludedSet = new Set();
+      const { data: excludedRows, error: excludedErr } = await supabase
+        .from("giras_hospedajes_excluidos")
+        .select("id_integrante")
+        .eq("id_programa", program.id);
+
+      if (excludedErr) {
+        console.warn("giras_hospedajes_excluidos:", excludedErr.message);
+        setExcludedHospedajeIds([]);
+      } else {
+        excludedRows?.forEach((row) => excludedSet.add(row.id_integrante));
+        setExcludedHospedajeIds(
+          (excludedRows || []).map((r) => r.id_integrante),
+        );
+      }
+
       // 1. Cargar Bookings (Hoteles de la gira)
       const { data: bookingsData } = await supabase
         .from("programas_hospedajes")
@@ -1861,7 +2049,10 @@ export default function RoomingManager({
 
       const unassigned = Array.from(allMusiciansMap.values())
         .filter(
-          (m) => !assignedIds.has(m.id) && m.estado_gira === "confirmado", // <--- CAMBIO: Solo permitimos confirmados
+          (m) =>
+            !assignedIds.has(m.id) &&
+            m.estado_gira === "confirmado" &&
+            !excludedSet.has(m.id),
         )
         .sort((a, b) => {
           if (a.is_local !== b.is_local) return a.is_local ? 1 : -1;
@@ -2014,6 +2205,68 @@ export default function RoomingManager({
     await fetchInitialData();
     setLoading(false);
   };
+
+  const handleImportHotel = async (sourceBookingId) => {
+    if (!sourceBookingId || !program?.id) return;
+    setImportingHotel(true);
+    try {
+      const { data: srcBooking, error: bErr } = await supabase
+        .from("programas_hospedajes")
+        .select("*")
+        .eq("id", sourceBookingId)
+        .single();
+      if (bErr || !srcBooking) throw new Error("No se encontró la reserva origen.");
+
+      if (bookings.some((b) => b.id_hotel === srcBooking.id_hotel)) {
+        alert("Este hotel ya está cargado en el programa actual.");
+        return;
+      }
+
+      const { id, id_programa, created_at, ...bookingRest } = srcBooking;
+      const { data: newBooking, error: insBk } = await supabase
+        .from("programas_hospedajes")
+        .insert([{ ...bookingRest, id_programa: program.id }])
+        .select()
+        .single();
+      if (insBk) throw insBk;
+      if (!newBooking?.id) throw new Error("No se pudo crear la reserva.");
+
+      const { data: srcRooms, error: rErr } = await supabase
+        .from("hospedaje_habitaciones")
+        .select("*")
+        .eq("id_hospedaje", sourceBookingId)
+        .order("orden", { ascending: false });
+      if (rErr) throw rErr;
+
+      if (srcRooms?.length) {
+        const rows = srcRooms.map((r) => {
+          const { id, id_hospedaje, created_at, ...rest } = r;
+          return {
+            ...rest,
+            id_hospedaje: newBooking.id,
+            id_integrantes_asignados: Array.isArray(r.id_integrantes_asignados)
+              ? r.id_integrantes_asignados
+              : [],
+          };
+        });
+        const { error: insRooms } = await supabase
+          .from("hospedaje_habitaciones")
+          .insert(rows);
+        if (insRooms) throw insRooms;
+      }
+
+      await fetchInitialData();
+      refreshLogistics();
+      if (onDataChange) onDataChange();
+      setShowImportHotelModal(false);
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Error al importar hotel.");
+    } finally {
+      setImportingHotel(false);
+    }
+  };
+
   const handleMergeHotels = async (sourceId, targetId) => {
     setLoading(true);
     try {
@@ -2231,6 +2484,13 @@ export default function RoomingManager({
   const women = musicians.filter((m) => m.genero === "F");
   const men = musicians.filter((m) => m.genero !== "F");
 
+  const excludedPeople = useMemo(() => {
+    return excludedHospedajeIds
+      .map((id) => roster.find((r) => r.id === id))
+      .filter(Boolean)
+      .sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
+  }, [excludedHospedajeIds, roster]);
+
   // --- CALCULO DE TOTALES POR GÉNERO ---
   const lodgedWomen = rooms.reduce(
     (acc, r) =>
@@ -2298,6 +2558,13 @@ export default function RoomingManager({
               className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg border border-emerald-200 text-[11px] font-bold hover:bg-emerald-100 flex items-center gap-1.5"
             >
               <IconPlus size={16} /> Agregar Hotel
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowImportHotelModal(true)}
+              className="bg-white text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-200 text-[11px] font-bold hover:bg-indigo-50 flex items-center gap-1.5"
+            >
+              <IconCopy size={16} /> Importar hotel
             </button>
             <button
               onClick={() => setShowInitialAdjust(true)}
@@ -2379,6 +2646,59 @@ export default function RoomingManager({
                 <span className="text-blue-700 font-black" title="Total Varones">
                   M: {lodgedMen}
                 </span>
+                <div className="relative w-full flex justify-center mt-1">
+                  <button
+                    type="button"
+                    title="Soltar aquí a quien no requiere hotel"
+                    onClick={() => setShowExcludedPanel((v) => !v)}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={handleDropOnExclude}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold whitespace-nowrap transition-colors ${
+                      isDragging
+                        ? "border-indigo-400 bg-indigo-50 text-indigo-800"
+                        : "border-slate-200 bg-white text-slate-600"
+                    }`}
+                  >
+                    <IconHome size={12} className="shrink-0 text-slate-500" />
+                    No alojados ({excludedHospedajeIds.length})
+                    <IconChevronDown
+                      size={12}
+                      className={`shrink-0 transition-transform ${showExcludedPanel ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  {showExcludedPanel && (
+                    <div className="absolute left-0 right-0 top-full z-[60] mt-1 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                      {excludedPeople.length === 0 ? (
+                        <p className="px-3 py-2 text-[10px] text-slate-500">
+                          Arrastra un músico al botón «No alojados».
+                        </p>
+                      ) : (
+                        <div className="max-h-48 overflow-y-auto px-2">
+                          {excludedPeople.map((p) => (
+                            <div
+                              key={p.id}
+                              className="flex items-center justify-between gap-2 border-b border-slate-50 py-1.5 text-[10px] last:border-0"
+                            >
+                              <span className="truncate text-slate-700">
+                                {p.apellido}, {p.nombre}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleReactivateExcluded(p.id)}
+                                className="shrink-0 font-bold text-indigo-600"
+                              >
+                                Quitar
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex flex-wrap justify-end gap-1">
                 {missingDataPeople.length > 0 && (
@@ -2399,6 +2719,13 @@ export default function RoomingManager({
                   className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-200 text-[10px] font-bold flex items-center gap-1"
                 >
                   <IconPlus size={14} /> Hotel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowImportHotelModal(true)}
+                  className="bg-white text-indigo-700 px-2 py-1 rounded-lg border border-indigo-200 text-[10px] font-bold flex items-center gap-1"
+                >
+                  <IconCopy size={14} /> Importar
                 </button>
                 <button
                   onClick={() => setShowInitialAdjust(true)}
@@ -2441,6 +2768,61 @@ export default function RoomingManager({
           <span className="text-blue-700 font-black" title="Total Varones">
             M: {lodgedMen}
           </span>
+          <div className="w-px h-4 bg-slate-300 mx-1" />
+          <div className="relative">
+            <button
+              type="button"
+              title="Soltar aquí a quien no requiere hotel"
+              onClick={() => setShowExcludedPanel((v) => !v)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={handleDropOnExclude}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold whitespace-nowrap transition-colors ${
+                isDragging
+                  ? "border-indigo-400 bg-indigo-50 text-indigo-800"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+              }`}
+            >
+              <IconHome size={12} className="shrink-0 text-slate-500" />
+              No alojados ({excludedHospedajeIds.length})
+              <IconChevronDown
+                size={12}
+                className={`shrink-0 transition-transform ${showExcludedPanel ? "rotate-180" : ""}`}
+              />
+            </button>
+            {showExcludedPanel && (
+              <div className="absolute right-0 top-full z-[60] mt-1 min-w-[220px] max-w-[min(100vw-2rem,280px)] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                {excludedPeople.length === 0 ? (
+                  <p className="px-3 py-2 text-[10px] text-slate-500">
+                    Nadie en esta lista. Arrastra un músico al botón «No
+                    alojados».
+                  </p>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto px-2">
+                    {excludedPeople.map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between gap-2 border-b border-slate-50 py-1.5 text-[10px] last:border-0"
+                      >
+                        <span className="truncate text-slate-700">
+                          {p.apellido}, {p.nombre}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleReactivateExcluded(p.id)}
+                          className="shrink-0 font-bold text-indigo-600 hover:text-indigo-800"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
@@ -2520,6 +2902,15 @@ export default function RoomingManager({
           initialData={editingHotelData}
         />
       )}
+      {showImportHotelModal && (
+        <ImportHotelModal
+          supabase={supabase}
+          currentProgramId={program.id}
+          onClose={() => !importingHotel && setShowImportHotelModal(false)}
+          onConfirmImport={handleImportHotel}
+          importing={importingHotel}
+        />
+      )}
       {mobileActiveList && (
         <div className="lg:hidden px-3 pt-1">
           {mobileActiveList === "women" ? (
@@ -2556,9 +2947,9 @@ export default function RoomingManager({
           <IconLoader className="animate-spin inline text-indigo-600" />
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto flex flex-col lg:flex-row px-3 pb-3 pt-2 gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 px-3 pb-3 pt-2 lg:h-[calc(100vh-200px)] lg:flex-row">
           {/* Listas laterales solo en desktop; en móvil se manejan con los toggles superiores */}
-          <div className="hidden lg:block">
+          <div className="hidden h-full min-h-0 w-48 shrink-0 lg:flex lg:flex-col">
             <MusicianListColumn
               title="Mujeres"
               color="pink"
@@ -2571,7 +2962,11 @@ export default function RoomingManager({
               onMusicianClick={handleMusicianClick}
             />
           </div>
-          <div className="flex-1 overflow-y-auto pr-1 space-y-6">
+          <div
+            ref={hotelsScrollRef}
+            className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1"
+            onDragOverCapture={handleHotelsDragOver}
+          >
             {bookings.length === 0 && (
               <div className="text-center text-slate-400 p-6 italic border-2 border-dashed border-slate-200 rounded-xl text-sm">
                 No hay hoteles cargados.{" "}
@@ -2831,7 +3226,7 @@ export default function RoomingManager({
               );
             })}
           </div>
-          <div className="hidden lg:block">
+          <div className="hidden h-full min-h-0 w-48 shrink-0 lg:flex lg:flex-col">
             <MusicianListColumn
               title="Hombres"
               color="blue"
