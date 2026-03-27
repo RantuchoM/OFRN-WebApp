@@ -371,6 +371,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
           !isDifusion;
         let myEnsembles = new Set();
         let myFamily = null;
+        // Misma regla que MusicianTourManager: FAMILIA solo "levanta" a Estable/Contratado;
+        // Invitados entran solo si están en giras_integrantes o califican por ENSAMBLE.
+        let isFamiliaSourceApplicable = false;
         if (isPersonalRoleForDB) {
           const { data: me } = await supabase
             .from("integrantes")
@@ -384,6 +387,12 @@ export default function GirasView({ supabase, trigger = 0 }) {
             me.integrantes_ensambles?.forEach((ie) =>
               myEnsembles.add(ie.id_ensamble),
             );
+            const nc = (me.condicion || "")
+              .toString()
+              .toLowerCase()
+              .trim();
+            isFamiliaSourceApplicable =
+              nc === "estable" || nc === "contratado";
           }
         }
         const { data, error } = await supabase
@@ -428,7 +437,9 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 (s.tipo === "ENSAMBLE" &&
                   (myEnsembles.has(s.valor_id) ||
                     coordinatedEnsembles.has(s.valor_id))) ||
-                (s.tipo === "FAMILIA" && s.valor_texto === myFamily),
+                (s.tipo === "FAMILIA" &&
+                  s.valor_texto === myFamily &&
+                  isFamiliaSourceApplicable),
             );
             if (isIncluded) {
               const excludedEnsembles = sources
