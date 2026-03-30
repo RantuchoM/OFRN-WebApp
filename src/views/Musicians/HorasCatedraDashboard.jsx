@@ -1,10 +1,28 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
-  IconLoader, IconFilter, IconPlus, IconCheck, IconX, IconUser, IconTrash, IconEdit, IconChevronDown
+  IconLoader, IconFilter, IconPlus, IconX, IconUser, IconTrash, IconEdit,
+  IconCloudUpload,
+  IconFileText,
+  IconCalendar,
+  IconChevronDown,
+  IconFolder,
 } from "../../components/ui/Icons";
+import { toast } from "sonner";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import NovedadModal from "./NovedadModal";
 import BulkNovedadModal from "./BulkNovedadModal";
+import {
+  buildFilledHorasDocxBlob,
+  downloadFilledHorasDocx,
+  getPreviousHorasRecord,
+  uploadHorasNotaToDrive,
+  buildHorasNotaDocxFilename,
+  HORAS_NOTA_DOCX_MIME,
+  collectNovedadesMesDocJobs,
+  downloadNovedadesMesZip,
+  uploadAllNovedadesMesToDrive,
+  HORAS_NOTAS_DRIVE_FOLDER_ID,
+} from "../../utils/horasPdfExporter";
 
 const CONCEPTOS = [
   { id: "h_basico", label: "Básico" },
@@ -48,6 +66,10 @@ export default function HorasCatedraDashboard({ supabase }) {
   const [selectedMusician, setSelectedMusician] = useState(null);
   const [selectedHistory, setSelectedHistory] = useState([]); 
   const [recordToEdit, setRecordToEdit] = useState(null);
+  const [uploadingNotaId, setUploadingNotaId] = useState(null);
+  const [novedadesMesOpen, setNovedadesMesOpen] = useState(false);
+  const [novedadesMesBusy, setNovedadesMesBusy] = useState(false);
+  const novedadesMesRef = useRef(null);
 
   const MAIN_CONCEPTOS = CONCEPTOS.filter(c => c.id !== "h_otros");
 
@@ -61,7 +83,7 @@ export default function HorasCatedraDashboard({ supabase }) {
       const { data: musData } = await supabase
         .from("integrantes")
         .select(`
-            id, nombre, apellido, condicion, 
+            id, nombre, apellido, condicion, dni,
             instrumentos(nombre:instrumento, familia),
             integrantes_ensambles(
                 ensambles(id, ensamble)
@@ -136,6 +158,22 @@ export default function HorasCatedraDashboard({ supabase }) {
     });
   }, [musicians, allRecords, selectedMonth, selectedYear, searchTerm, selectedEnsembles]);
 
+  const novedadesMesJobs = useMemo(
+    () => collectNovedadesMesDocJobs(reportData, selectedYear, selectedMonth),
+    [reportData, selectedYear, selectedMonth],
+  );
+
+  useEffect(() => {
+    if (!novedadesMesOpen) return undefined;
+    const close = (e) => {
+      if (novedadesMesRef.current && !novedadesMesRef.current.contains(e.target)) {
+        setNovedadesMesOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [novedadesMesOpen]);
+
   // --- CÁLCULO DE TOTALES (CORREGIDO) ---
   const footerTotals = useMemo(() => {
       const totals = {
@@ -209,6 +247,78 @@ export default function HorasCatedraDashboard({ supabase }) {
       if(selectedMusician) setSelectedMusician(null); 
   };
 
+  const handleDownloadNotaWord = async (record) => {
+    if (!selectedMusician) return;
+    const prev = getPreviousHorasRecord(selectedMusician.records, record);
+    try {
+      await downloadFilledHorasDocx(selectedMusician, record, prev);
+      toast.success("Word descargado");
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || "No se pudo generar el Word");
+    }
+  };
+
+  const handleNovedadesMesZip = async () => {
+    setNovedadesMesOpen(false);
+    if (novedadesMesJobs.length === 0) {
+      toast.error(
+        "No hay novedades para el mes y año seleccionados (sin cambio en la nómina respecto del mes anterior).",
+      );
+      return;
+    }
+    const t = toast.loading(`Generando ZIP (${novedadesMesJobs.length} notas)...`);
+    setNovedadesMesBusy(true);
+    try {
+      await downloadNovedadesMesZip(novedadesMesJobs, selectedYear, selectedMonth);
+      toast.success(`ZIP descargado (${novedadesMesJobs.length} archivos)`, { id: t });
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || "Error al generar el ZIP", { id: t });
+    } finally {
+      setNovedadesMesBusy(false);
+    }
+  };
+
+  const handleNovedadesMesDrive = async () => {
+    setNovedadesMesOpen(false);
+    if (novedadesMesJobs.length === 0) {
+      toast.error(
+        "No hay novedades para el mes y año seleccionados (sin cambio en la nómina respecto del mes anterior).",
+      );
+      return;
+    }
+    const total = novedadesMesJobs.length;
+    const t = toast.loading(`Subiendo a Drive (0/${total})...`);
+    setNovedadesMesBusy(true);
+    try {
+      const n = await uploadAllNovedadesMesToDrive(supabase, novedadesMesJobs);
+      toast.success(`${n} archivos subidos a Drive`, { id: t });
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || "Error al subir a Drive", { id: t });
+    } finally {
+      setNovedadesMesBusy(false);
+    }
+  };
+
+  const handleUploadNotaToDrive = async (record) => {
+    if (!selectedMusician) return;
+    const prev = getPreviousHorasRecord(selectedMusician.records, record);
+    const fileName = buildHorasNotaDocxFilename(selectedMusician, record);
+    setUploadingNotaId(record.id);
+    try {
+      const docxBlob = await buildFilledHorasDocxBlob(selectedMusician, record, prev);
+      await uploadHorasNotaToDrive(supabase, docxBlob, fileName, HORAS_NOTA_DOCX_MIME);
+      toast.success("Nota (Word) subida a Google Drive");
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || "Error al subir a Drive");
+    } finally {
+      setUploadingNotaId(null);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-50">
         {/* HEADER CONTROL */}
@@ -237,18 +347,62 @@ export default function HorasCatedraDashboard({ supabase }) {
                 />
             </div>
 
-            <div className="ml-auto flex gap-2">
-                <button onClick={() => setBulkModalOpen(true)} className="px-4 py-1.5 bg-white border border-indigo-200 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-50 flex items-center gap-2 shadow-sm">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => setBulkModalOpen(true)} className="px-4 py-1.5 bg-white border border-indigo-200 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-50 flex items-center gap-2 shadow-sm">
                     <IconPlus size={14} /> Incorporar Estables
                 </button>
-                <button onClick={() => { setSelectedMusician(null); setRecordToEdit(null); setModalOpen(true); }} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
+                <div className="flex items-center gap-1">
+                  <div className="relative" ref={novedadesMesRef}>
+                    <button
+                      type="button"
+                      disabled={novedadesMesBusy || loading}
+                      onClick={() => setNovedadesMesOpen((o) => !o)}
+                      className="px-4 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-50 flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                      title={`Mes ${selectedMonth}/${selectedYear}: ${novedadesMesJobs.length} nota(s) según la nómina mostrada (cambio vs. mes anterior)`}
+                    >
+                      <IconCalendar size={14} className="text-indigo-500 shrink-0" />
+                      Novedades del mes
+                      <IconChevronDown size={14} className={`text-slate-400 shrink-0 transition-transform ${novedadesMesOpen ? "rotate-180" : ""}`} />
+                    </button>
+                    {novedadesMesOpen && (
+                      <div className="absolute right-0 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-xl z-[60] text-xs">
+                        <button
+                          type="button"
+                          disabled={novedadesMesBusy}
+                          className="block w-full px-3 py-2 text-left font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                          onClick={handleNovedadesMesZip}
+                        >
+                          Descargar ZIP ({novedadesMesJobs.length})
+                        </button>
+                        <button
+                          type="button"
+                          disabled={novedadesMesBusy}
+                          className="block w-full px-3 py-2 text-left font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                          onClick={handleNovedadesMesDrive}
+                        >
+                          Subir todo a Drive ({novedadesMesJobs.length})
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <a
+                    href={`https://drive.google.com/drive/folders/${HORAS_NOTAS_DRIVE_FOLDER_ID}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-green-700 shadow-sm"
+                    title="Abrir carpeta de notas en Google Drive"
+                  >
+                    <IconFolder size={16} />
+                  </a>
+                </div>
+                <button type="button" onClick={() => { setSelectedMusician(null); setRecordToEdit(null); setModalOpen(true); }} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
                     <IconPlus size={14} /> Nueva Novedad
                 </button>
             </div>
         </div>
 
-        <div className="flex flex-1 overflow-hidden relative"> {/* Agregado relative */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 pb-20"> {/* Agregado pb-20 para dar aire al final del scroll */}
+        <div className="flex flex-1 overflow-hidden relative flex-col lg:flex-row min-h-0">
+            <div className="flex-1 min-w-0 min-h-0 overflow-y-auto custom-scrollbar p-4 pb-20 lg:pb-4">
                 <table className="w-full border-collapse text-left text-sm bg-white rounded-xl shadow-sm border-spacing-0"> {/* Eliminado overflow-hidden de aquí para que el sticky funcione mejor */}
                     <thead className="bg-slate-100 text-slate-500 font-bold uppercase text-[10px] tracking-wider sticky top-0 z-30 shadow-sm">
                         <tr>
@@ -374,26 +528,44 @@ export default function HorasCatedraDashboard({ supabase }) {
             </div>
 
             {selectedMusician && (
-                <div className="w-96 bg-white border-l border-slate-200 shadow-xl flex flex-col animate-in slide-in-from-right duration-300 z-20">
+                <div className="w-full lg:w-96 lg:shrink-0 max-h-[min(420px,50vh)] lg:max-h-none bg-white border-t lg:border-t-0 lg:border-l border-slate-200 shadow-xl flex flex-col animate-in slide-in-from-right duration-300 z-20">
                     <div className="p-4 border-b bg-slate-50 flex justify-between items-center shrink-0">
                         <div>
                             <h4 className="font-black text-slate-700 text-sm">Historial</h4>
-                            <p className="text-xs text-slate-500 truncate w-60">{selectedMusician.apellido}, {selectedMusician.nombre}</p>
+                            <p className="text-xs text-slate-500 truncate max-w-[min(16rem,70vw)]">{selectedMusician.apellido}, {selectedMusician.nombre}</p>
+                            <p className="text-[10px] text-slate-400 mt-1">Cada registro: Word y Drive.</p>
                         </div>
-                        <button onClick={() => setSelectedMusician(null)}><IconX className="text-slate-400 hover:text-red-500" /></button>
+                        <button type="button" onClick={() => setSelectedMusician(null)} aria-label="Cerrar historial"><IconX className="text-slate-400 hover:text-red-500" /></button>
                     </div>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
+                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
                         {selectedHistory.map((h) => (
                             <div key={h.id} className="relative pl-4 border-l-2 border-slate-200 pb-6 last:pb-0 group">
                                 <div className={`absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full border-2 border-white ${h.origen === 'CULTURA' ? 'bg-orange-400' : 'bg-blue-400'}`}></div>
-                                <div className="flex justify-between items-start mb-1">
-                                    <div className="text-[10px] font-bold text-slate-400">
-                                        {h.mes_inicio}/{h.anio_inicio} • <span className={h.origen === 'CULTURA' ? 'text-orange-500' : 'text-blue-500'}>{h.origen}</span>
-                                    </div>
-                                    <div className="flex gap-1">
-                                        <button onClick={() => handleEditRecord(h)} className="p-1 bg-slate-50 hover:bg-indigo-50 border border-slate-200 rounded text-slate-400 hover:text-indigo-600 transition-colors" title="Editar"><IconEdit size={12}/></button>
-                                        <button onClick={() => handleDeleteRecord(h.id)} className="p-1 bg-slate-50 hover:bg-red-50 border border-slate-200 rounded text-slate-400 hover:text-red-500 transition-colors" title="Eliminar"><IconTrash size={12}/></button>
-                                    </div>
+                                <div className="text-[10px] font-bold text-slate-400 mb-2">
+                                    {h.mes_inicio}/{h.anio_inicio} • <span className={h.origen === 'CULTURA' ? 'text-orange-500' : 'text-blue-500'}>{h.origen}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5 mb-2">
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); handleDownloadNotaWord(h); }}
+                                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 text-[10px] font-bold hover:bg-indigo-100 transition-colors"
+                                        title="Descargar nota en Word (.docx)"
+                                    >
+                                        <IconFileText size={14} />
+                                        Word
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); handleUploadNotaToDrive(h); }}
+                                        disabled={uploadingNotaId === h.id}
+                                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-bold hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                                        title="Subir PDF a Drive"
+                                    >
+                                        <IconCloudUpload size={14} />
+                                        Drive
+                                    </button>
+                                    <button type="button" onClick={(e) => { e.stopPropagation(); handleEditRecord(h); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 text-[10px] font-bold hover:bg-indigo-50 hover:text-indigo-600 transition-colors" title="Editar"><IconEdit size={12}/> Editar</button>
+                                    <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteRecord(h.id); }} className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 text-[10px] font-bold hover:bg-red-50 hover:text-red-600 transition-colors" title="Eliminar"><IconTrash size={12}/></button>
                                 </div>
                                 <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs text-slate-700 shadow-sm leading-relaxed">
                                     {h.diffText}

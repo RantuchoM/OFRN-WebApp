@@ -636,12 +636,6 @@ const ProtectedApp = ({ initialTab }) => {
       show: !isGuest && (isArchivista || isEditor || isManagement),
     },
     {
-      id: "MUSIC_TRANSLATION",
-      label: "Traducción musical",
-      icon: <IconMusicNote size={20} />,
-      show: canAccessMusicTranslation(user?.id),
-    },
-    {
       id: "ARREGLOS",
       label: "Arreglos",
       icon: <IconMusicNote size={20} />,
@@ -700,6 +694,12 @@ const ProtectedApp = ({ initialTab }) => {
       label: "Feedback",
       icon: <IconBulb size={20} />,
       show: !isGuest,
+    },
+    {
+      id: "MUSIC_TRANSLATION",
+      label: "Traducción musical",
+      icon: <IconMusicNote size={20} />,
+      show: canAccessMusicTranslation(user?.id),
     },
   ];
   const visibleMenuItems = allMenuItems.filter((i) => i.show);
