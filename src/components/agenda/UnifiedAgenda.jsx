@@ -24,6 +24,12 @@ import {
   IconUpload,
   IconDownload,
   IconBus,
+  IconBusGrande,
+  IconTruck,
+  IconCar,
+  IconVan,
+  IconPlane,
+  IconCalculator,
   IconAlertTriangle,
   IconEyeOff,
   IconUtensils,
@@ -69,6 +75,22 @@ import EventTranspositionModal from "./EventTranspositionModal";
 
 /** tipos_evento.id: Traslado interno — "mi transporte" para todo integrante activo (sin reglas de asignación). */
 const ID_TIPO_TRASLADO_INTERNO = 35;
+const TRANSPORT_ICON_MAP = {
+  IconBus,
+  IconBusGrande,
+  IconTruck,
+  IconCar,
+  IconVan,
+  IconPlane,
+  IconCalculator,
+  Bus: IconBus,
+  BusGrande: IconBusGrande,
+  Truck: IconTruck,
+  Car: IconCar,
+  Van: IconVan,
+  Plane: IconPlane,
+  Calculator: IconCalculator,
+};
 
 export default function UnifiedAgenda({
   supabase,
@@ -1533,6 +1555,10 @@ export default function UnifiedAgenda({
                     const transportDetail = evt.giras_transportes?.detalle;
                     const transportColor =
                       evt.giras_transportes?.transportes?.color || "#6366f1";
+                    const transportIconName =
+                      evt.giras_transportes?.transportes?.icon || "IconBus";
+                    const TransportIcon =
+                      TRANSPORT_ICON_MAP[transportIconName] || IconBus;
 
                     if (isTransportEvent && evt.id_gira_transporte) {
                       const transportIdStr = String(evt.id_gira_transporte);
@@ -1895,7 +1921,7 @@ export default function UnifiedAgenda({
                                           borderColor: `${transportColor}60`,
                                         }}
                                       >
-                                        <IconBus
+                                        <TransportIcon
                                           size={10}
                                           style={{ color: transportColor }}
                                         />
@@ -2193,14 +2219,14 @@ export default function UnifiedAgenda({
                                         style={{
                                           backgroundColor: isMyTransport
                                             ? `${transportColor}20`
-                                            : "transparent",
+                                            : `${transportColor}12`,
                                           color: isMyTransport
                                             ? "#1e293b"
                                             : "#64748b",
                                           borderColor: `${transportColor}40`,
                                         }}
                                       >
-                                        <IconBus
+                                        <TransportIcon
                                           size={10}
                                           style={{ color: transportColor }}
                                         />

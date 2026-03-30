@@ -4,6 +4,7 @@ import {
 } from "../../components/ui/Icons";
 import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import NovedadModal from "./NovedadModal";
+import BulkNovedadModal from "./BulkNovedadModal";
 
 const CONCEPTOS = [
   { id: "h_basico", label: "Básico" },
@@ -43,6 +44,7 @@ export default function HorasCatedraDashboard({ supabase }) {
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
 
   const [modalOpen, setModalOpen] = useState(false);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
   const [selectedMusician, setSelectedMusician] = useState(null);
   const [selectedHistory, setSelectedHistory] = useState([]); 
   const [recordToEdit, setRecordToEdit] = useState(null);
@@ -236,6 +238,9 @@ export default function HorasCatedraDashboard({ supabase }) {
             </div>
 
             <div className="ml-auto flex gap-2">
+                <button onClick={() => setBulkModalOpen(true)} className="px-4 py-1.5 bg-white border border-indigo-200 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-50 flex items-center gap-2 shadow-sm">
+                    <IconCheck size={14} /> Incorporar Estables
+                </button>
                 <button onClick={() => { setSelectedMusician(null); setRecordToEdit(null); setModalOpen(true); }} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
                     <IconPlus size={14} /> Nueva Novedad
                 </button>
@@ -415,6 +420,13 @@ export default function HorasCatedraDashboard({ supabase }) {
             allMusicians={musicians}
             recordToEdit={recordToEdit} 
             onSuccess={() => { fetchData(); if(selectedMusician) handleSelectRow({...selectedMusician, records: allRecords.filter(r=>r.id_integrante===selectedMusician.id)}); }} 
+        />
+
+        <BulkNovedadModal
+            isOpen={bulkModalOpen}
+            onClose={() => setBulkModalOpen(false)}
+            supabase={supabase}
+            onSuccess={fetchData}
         />
     </div>
   );

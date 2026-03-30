@@ -44,8 +44,7 @@ export const CommandPaletteProvider = ({ children }) => {
             const { data } = await supabase
                 .from('programas')
                 .select('id, nombre_gira, nomenclador, mes_letra, fecha_desde')
-                .order('fecha_desde', { ascending: false })
-                .limit(50); 
+                .order('fecha_desde', { ascending: false });
 
             if (data) {
                 const cmds = data.map(gira => {

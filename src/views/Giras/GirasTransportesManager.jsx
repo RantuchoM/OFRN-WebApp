@@ -15,6 +15,10 @@ import { es } from "date-fns/locale";
 import {
   IconTrash,
   IconTruck,
+  IconCar,
+  IconVan,
+  IconPlane,
+  IconCalculator,
   IconPlus,
   IconMapPin,
   IconSearch,
@@ -31,6 +35,7 @@ import {
   IconUsers,
   IconAlertTriangle,
   IconBus,
+  IconBusGrande,
   IconCheckCircle,
   IconList,
   IconEye,
@@ -59,6 +64,23 @@ const CATEGORIAS_TRANSPORTE = {
   PASAJEROS: 11,
   LOGISTICO: 12,
   INTERNO: 35,
+};
+
+const TRANSPORT_ICON_MAP = {
+  IconBus,
+  IconBusGrande,
+  IconTruck,
+  IconCar,
+  IconVan,
+  IconPlane,
+  IconCalculator,
+  Bus: IconBus,
+  BusGrande: IconBusGrande,
+  Truck: IconTruck,
+  Car: IconCar,
+  Van: IconVan,
+  Plane: IconPlane,
+  Calculator: IconCalculator,
 };
 
 function eventTypeIdForCategoria(categoria) {
@@ -1206,6 +1228,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
     costo: "",
     capacidad: "",
   });
+  const [showAddTransportForm, setShowAddTransportForm] = useState(false);
+  const [transportTypeFilter, setTransportTypeFilter] = useState(
+    new Set(["PASAJEROS", "LOGISTICO", "INTERNO"]),
+  );
+  const [combinedStopsModal, setCombinedStopsModal] = useState({
+    isOpen: false,
+    selectedTransportIds: [],
+    exportFormat: "pdf",
+  });
   const [activeTransportId, setActiveTransportId] = useState(null);
   const [editingTransportId, setEditingTransportId] = useState(null);
 
@@ -1317,6 +1348,25 @@ export default function GirasTransportesManager({ supabase, gira }) {
     return stats;
   }, [passengerList, transports]);
 
+  const filteredTransports = useMemo(() => {
+    if (!transportTypeFilter || transportTypeFilter.size === 0) return [];
+    return (transports || []).filter(
+      (t) =>
+        transportTypeFilter.has(
+          String(t.categoria_logistica || "PASAJEROS").toUpperCase(),
+        ),
+    );
+  }, [transports, transportTypeFilter]);
+
+  const toggleTransportTypeFilter = (key) => {
+    setTransportTypeFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   useEffect(() => {
     if (giraId) fetchData();
   }, [giraId]);
@@ -1365,7 +1415,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       const { data: list } = await supabase
         .from("giras_transportes")
         .select(
-          `id, detalle, costo, capacidad_maxima, id_transporte, categoria_logistica, transportes ( nombre, patente)`,
+          `id, detalle, costo, capacidad_maxima, id_transporte, categoria_logistica, transportes ( nombre, patente, icon )`,
         )
         .eq("id_gira", giraId)
         .order("id");
@@ -1656,7 +1706,281 @@ export default function GirasTransportesManager({ supabase, gira }) {
       },
     ]);
     setNewTransp({ id_transporte: "", detalle: "", costo: "", capacidad: "" });
+    setShowAddTransportForm(false);
     fetchData();
+  };
+
+  const handleToggleCombinedTransport = (transportId, checked) => {
+    setCombinedStopsModal((prev) => {
+      const current = new Set(prev.selectedTransportIds);
+      if (checked) current.add(transportId);
+      else current.delete(transportId);
+      return { ...prev, selectedTransportIds: Array.from(current) };
+    });
+  };
+
+  const handleExportCombinedStops = async () => {
+    const selectedIds = combinedStopsModal.selectedTransportIds || [];
+    if (selectedIds.length < 2) {
+      alert("Selecciona al menos 2 transportes.");
+      return;
+    }
+
+    const compactTransportLabel = (fullName) => {
+      const raw = String(fullName || "").trim();
+      if (!raw) return "Transporte";
+      const parts = raw.split("-");
+      if (parts.length < 2) return raw;
+      const right = parts.slice(1).join("-").trim();
+      return right || raw;
+    };
+
+    const rows = [];
+    selectedIds.forEach((tid) => {
+      const t = (transports || []).find((x) => String(x.id) === String(tid));
+      const tName = t
+        ? `${t.transportes?.nombre || "Transporte"}${t.detalle ? ` - ${t.detalle}` : ""}`
+        : "Transporte";
+      const evts = [...(transportEvents[tid] || [])].sort((a, b) =>
+        (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
+      );
+      evts.forEach((evt) => {
+        rows.push({
+          transporte: compactTransportLabel(tName),
+          fecha: evt.fecha || "",
+          hora: evt.hora_inicio ? evt.hora_inicio.slice(0, 5) : "",
+          nota: htmlToPlainText(evt.descripcion || ""),
+          locacion: evt.locaciones?.nombre || "",
+          localidad: evt.locaciones?.localidades?.localidad || "",
+          direccion: evt.locaciones?.direccion || "",
+        });
+      });
+    });
+
+    if (rows.length === 0) {
+      alert("No hay paradas para exportar.");
+      return;
+    }
+
+    rows.sort((a, b) =>
+      `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`),
+    );
+
+    if (combinedStopsModal.exportFormat === "excel") {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Paradas Combinadas");
+      worksheet.pageSetup = {
+        paperSize: 9,
+        orientation: "portrait",
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        horizontalCentered: true,
+        margins: { left: 0.35, right: 0.35, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
+      };
+
+      worksheet.columns = [
+        { header: "DIA\nHORA", key: "dia_hora", width: 20 },
+        { header: "Nota", key: "nota", width: 39 },
+        { header: "Locacion\nLocalidad", key: "loc_localidad", width: 30 },
+        { header: "Direccion", key: "direccion", width: 36 },
+        { header: "Transp.", key: "transporte", width: 13 },
+      ];
+
+      worksheet.insertRow(1, []);
+      const titleCell = worksheet.getCell(1, 1);
+      titleCell.value = "Paradas Combinadas";
+      worksheet.mergeCells(1, 1, 1, worksheet.columnCount);
+      worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" }, size: 13 };
+      worksheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+      worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF312E81" } };
+      worksheet.getRow(1).height = 24;
+
+      worksheet.getRow(2).font = { bold: true, color: { argb: "FFFFFFFF" }, size: 12 };
+      worksheet.getRow(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4F46E5" } };
+      worksheet.getRow(2).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+      worksheet.getRow(2).height = 30;
+
+      const dayLabelFromDate = (dateStr) => {
+        if (!dateStr) return "-";
+        const dateObj = new Date(dateStr + "T12:00:00");
+        const label = format(dateObj, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: es });
+        return label.charAt(0).toUpperCase() + label.slice(1);
+      };
+
+      let lastDayKey = null;
+      rows.forEach((r) => {
+        if (r.fecha !== lastDayKey) {
+          const sepRow = worksheet.addRow({ transporte: dayLabelFromDate(r.fecha) });
+          worksheet.mergeCells(sepRow.number, 1, sepRow.number, worksheet.columnCount);
+          sepRow.height = 30;
+          const cell = sepRow.getCell(1);
+          cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 12 };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF312E81" } };
+          cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+          lastDayKey = r.fecha;
+        }
+        const row = worksheet.addRow({
+          dia_hora: `${dayLabelFromDate(r.fecha)}\n${r.hora || "--:--"} hs.`,
+          nota: r.nota || "",
+          loc_localidad: {
+            richText: [
+              { text: (r.locacion || "-").trim(), font: { size: 12 } },
+              { text: "\n" },
+              { text: (r.localidad || "-").trim(), font: { size: 12, italic: true } },
+            ],
+          },
+          direccion: (r.direccion || "-").trim(),
+          transporte: r.transporte,
+        });
+        row.getCell(5).font = { ...(row.getCell(5).font || {}), size: 8 };
+      });
+
+      worksheet.eachRow((row, rowNumber) => {
+        row.eachCell((cell) => {
+          cell.border = {
+            top: { style: "thin" },
+            left: { style: "thin" },
+            bottom: { style: "thin" },
+            right: { style: "thin" },
+          };
+          if (rowNumber >= 3) {
+            cell.alignment = {
+              vertical: "top",
+              horizontal: cell.col === 1 ? "center" : "left",
+              wrapText: true,
+            };
+          }
+        });
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `Paradas_Combinadas_Gira${giraId}.xlsx`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+    } else {
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.text("Paradas Combinadas", 105, 14, { align: "center" });
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text("Cronograma de paradas", 105, 19, { align: "center" });
+
+      const dayLabelFromDate = (dateStr) => {
+        if (!dateStr) return "-";
+        const dateObj = new Date(dateStr + "T12:00:00");
+        const label = format(dateObj, "EEEE, dd 'de' MMMM 'de' yyyy", { locale: es });
+        return label.charAt(0).toUpperCase() + label.slice(1);
+      };
+
+      const body = [];
+      let lastDayKey = null;
+      rows.forEach((r) => {
+        if (r.fecha !== lastDayKey) {
+          body.push([
+            {
+              content: dayLabelFromDate(r.fecha),
+              colSpan: 5,
+              styles: {
+                fillColor: [49, 46, 129],
+                textColor: 255,
+                fontStyle: "bold",
+                halign: "center",
+                valign: "middle",
+              },
+            },
+          ]);
+          lastDayKey = r.fecha;
+        }
+        body.push([
+          `${dayLabelFromDate(r.fecha)}\n${r.hora || "--:--"} hs.`,
+          r.nota || "",
+          `${(r.locacion || "-").trim()}\n${(r.localidad || "-").trim()}`,
+          (r.direccion || "-").trim(),
+          r.transporte || "",
+        ]);
+      });
+
+      autoTable(doc, {
+        startY: 24,
+        head: [["Dia\nHora", "Nota", "Locacion\nLocalidad", "Direccion", "Transp."]],
+        body,
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 10,
+          cellPadding: 2.2,
+          overflow: "linebreak",
+          valign: "top",
+          lineWidth: 0.1,
+        },
+        headStyles: {
+          fillColor: [79, 70, 229],
+          textColor: 255,
+          fontStyle: "bold",
+          halign: "center",
+          valign: "middle",
+        },
+        columnStyles: {
+          0: { cellWidth: 29, halign: "center" },
+          1: { cellWidth: 63 },
+          2: { cellWidth: 36 },
+          3: { cellWidth: 40 },
+          4: { cellWidth: 14, fontSize: 7 },
+        },
+        margin: { left: 8, right: 8 },
+        didParseCell: (data) => {
+          if (data.section === "body" && data.column.index === 4) {
+            data.cell.styles.fontSize = 7;
+          }
+          if (data.section === "body" && data.column.index === 2) {
+            data.cell.styles.fontSize = 9;
+            data.cell.styles.textColor = [255, 255, 255];
+          }
+        },
+        didDrawCell: (data) => {
+          if (data.section !== "body" || data.column.index !== 2) return;
+          if (!data.cell?.raw || typeof data.cell.raw !== "string") return;
+          if (data.cell.raw.includes("colSpan")) return;
+          const [loc = "", localidad = ""] = String(data.cell.raw).split("\n");
+          const maxWidth =
+            data.cell.width - data.cell.padding("left") - data.cell.padding("right");
+          const fontSize = data.cell.styles.fontSize || 9;
+          const scaleFactor = doc.internal?.scaleFactor || 1;
+          const lhFactor = data.cell.styles.lineHeight || 1.15;
+          const lineHeight = (fontSize / scaleFactor) * lhFactor;
+          const textPos = data.cell.textPos || {
+            x: data.cell.x + data.cell.padding("left"),
+            y: data.cell.y + data.cell.padding("top") + lineHeight,
+          };
+          doc.setTextColor(0, 0, 0);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(fontSize);
+          const locLines = doc.splitTextToSize(loc, maxWidth);
+          locLines.forEach((line, idx) => {
+            doc.text(line, textPos.x, textPos.y + lineHeight * idx);
+          });
+          doc.setFont("helvetica", "italic");
+          const localidadLines = doc.splitTextToSize(localidad, maxWidth);
+          const localityStartIdx = Math.max(1, locLines.length);
+          localidadLines.forEach((line, idx) => {
+            doc.text(line, textPos.x, textPos.y + lineHeight * (localityStartIdx + idx));
+          });
+          doc.setFont("helvetica", "normal");
+        },
+      });
+
+      doc.save(`Paradas_Combinadas_Gira${giraId}.pdf`);
+    }
+
+    setCombinedStopsModal({ isOpen: false, selectedTransportIds: [], exportFormat: "pdf" });
   };
 
   const openDeleteTransportModal = async (transportId) => {
@@ -2140,7 +2464,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   return (
     <div className="h-full overflow-y-auto p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
-      <div className="mb-6 grid grid-cols-4 gap-4 w-full">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="font-bold text-slate-700 flex items-center gap-2">
+          <IconTruck className="text-indigo-600" /> Gestion de Transportes
+        </h3>
+      </div>
+
+      <div className="mb-4 grid grid-cols-4 gap-4 w-full">
         <div
           onClick={() =>
             setInfoListModal({
@@ -2242,13 +2572,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
         </div>
       </div>
 
-      <div className="flex justify-between items-center mb-4 border-b pb-2">
-        <h3 className="font-bold text-slate-700 flex items-center gap-2">
-          <IconTruck className="text-indigo-600" /> Gestión de Transportes
-        </h3>
-
-        <div className="flex gap-2 items-center">
-          <DataIntegrityIndicator passengers={passengerList} />
+      <div className="mb-4 border-b pb-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setShowAddTransportForm((v) => !v)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition-colors shadow-sm"
+          >
+            <IconPlus size={14} /> Transporte
+          </button>
           <button
             onClick={handleExportGlobal}
             className="flex items-center gap-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-bold transition-colors shadow-sm"
@@ -2263,9 +2594,48 @@ export default function GirasTransportesManager({ supabase, gira }) {
           >
             <IconMapPin size={14} /> Gestor de Itinerarios
           </button>
+          <button
+            onClick={() =>
+              setCombinedStopsModal({
+                isOpen: true,
+                selectedTransportIds: [],
+                exportFormat: "pdf",
+              })
+            }
+            className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-xs font-bold hover:bg-emerald-100"
+          >
+            <IconList size={14} /> Paradas Combinadas
+          </button>
+          <DataIntegrityIndicator passengers={passengerList} />
+          <div className="ml-auto flex bg-slate-50 p-0.5 rounded-lg border border-slate-200 min-w-fit">
+            {[
+              { key: "PASAJEROS", label: "Pasajeros", activeColor: "text-fixed-indigo-600" },
+              { key: "LOGISTICO", label: "Logistico", activeColor: "text-amber-600" },
+              { key: "INTERNO", label: "Interno", activeColor: "text-sky-600" },
+            ].map((opt, idx) => {
+              const isActive = transportTypeFilter.has(opt.key);
+              return (
+                <React.Fragment key={opt.key}>
+                  {idx > 0 && <div className="w-px bg-slate-200 my-1"></div>}
+                  <button
+                    type="button"
+                    onClick={() => toggleTransportTypeFilter(opt.key)}
+                    className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all ${
+                      isActive
+                        ? `bg-white shadow-sm border border-slate-100 ${opt.activeColor}`
+                        : "text-slate-400 hover:text-slate-600"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                </React.Fragment>
+              );
+            })}
+          </div>
         </div>
       </div>
 
+      {showAddTransportForm && (
       <div className="flex gap-2 mb-6 items-end bg-slate-50 p-3 rounded-lg border border-slate-200">
         <div className="w-1/4">
           <label className="text-[10px] font-bold text-slate-500">TIPO</label>
@@ -2320,9 +2690,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
           <IconPlus size={18} />
         </button>
       </div>
+      )}
 
       <div className="space-y-4">
-        {transports.map((t) => {
+        {filteredTransports.map((t) => {
           const isExpanded = activeTransportId === t.id;
           const myEvents = transportEvents[t.id] || [];
           const isMediosPropios = String(t.id_transporte) === "9";
@@ -2384,11 +2755,20 @@ export default function GirasTransportesManager({ supabase, gira }) {
           })();
 
           const isEditing = editingTransportId === t.id;
+          const transportIconName = t.transportes?.icon || "IconBus";
+          const TransportIcon = TRANSPORT_ICON_MAP[transportIconName] || IconBus;
+          const categoria = String(t.categoria_logistica || "PASAJEROS").toUpperCase();
+          const cardTintClass =
+            categoria === "INTERNO"
+              ? "bg-sky-50/40"
+              : categoria === "LOGISTICO"
+                ? "bg-amber-50/40"
+                : "bg-fixed-indigo-50/10";
 
           return (
             <div
               key={t.id}
-              className={`group border rounded-2xl transition-all duration-300 ${isExpanded ? "border-indigo-300 shadow-xl ring-4 ring-indigo-50/50 bg-white" : "border-slate-200 bg-white hover:border-slate-300 shadow-sm"}`}
+              className={`group border rounded-2xl transition-all duration-300 ${isExpanded ? "border-indigo-300 shadow-xl ring-4 ring-indigo-50/50 bg-white" : `border-slate-200 ${cardTintClass} hover:border-slate-300 shadow-sm`}`}
             >
               <div
                 className="p-2 md:p-3 flex flex-col md:flex-row justify-between md:items-center gap-2 cursor-pointer"
@@ -2400,7 +2780,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                   <div
                     className={`p-2 rounded-xl shrink-0 transition-colors ${isExpanded ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-indigo-100"}`}
                   >
-                    <IconTruck size={20} />
+                    <TransportIcon size={20} />
                   </div>
 
                   <div className="min-w-0 flex-1">
@@ -3233,6 +3613,99 @@ export default function GirasTransportesManager({ supabase, gira }) {
           }
           onExport={(sid, eid, format) => handleExportOnlyStops(sid, eid, format)}
         />
+      )}
+
+      {combinedStopsModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <IconList className="text-emerald-600" /> Paradas Combinadas
+              </h3>
+              <button
+                onClick={() =>
+                  setCombinedStopsModal({ isOpen: false, selectedTransportIds: [] })
+                }
+                className="p-1 hover:bg-slate-200 rounded-full text-slate-400"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1 space-y-2">
+              <p className="text-xs text-slate-500">
+                Selecciona 2 o mas transportes para exportar una sola lista de paradas.
+              </p>
+              <div className="flex gap-2 pb-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCombinedStopsModal((prev) => ({ ...prev, exportFormat: "pdf" }))
+                  }
+                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                    combinedStopsModal.exportFormat === "pdf"
+                      ? "bg-indigo-600 text-white border-indigo-600"
+                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCombinedStopsModal((prev) => ({ ...prev, exportFormat: "excel" }))
+                  }
+                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                    combinedStopsModal.exportFormat === "excel"
+                      ? "bg-indigo-600 text-white border-indigo-600"
+                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  Excel
+                </button>
+              </div>
+              {(transports || []).map((t) => (
+                <label
+                  key={t.id}
+                  className="flex items-center justify-between gap-2 p-2 rounded border border-slate-200 hover:bg-slate-50"
+                >
+                  <span className="text-sm text-slate-700">
+                    {t.transportes?.nombre || "Transporte"}
+                    {t.detalle ? ` - ${t.detalle}` : ""}
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-emerald-600"
+                    checked={combinedStopsModal.selectedTransportIds.includes(t.id)}
+                    onChange={(e) =>
+                      handleToggleCombinedTransport(t.id, e.target.checked)
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+              <button
+                onClick={() =>
+                  setCombinedStopsModal({
+                    isOpen: false,
+                    selectedTransportIds: [],
+                    exportFormat: "pdf",
+                  })
+                }
+                className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleExportCombinedStops}
+                className="px-5 py-2 text-xs font-bold text-white rounded-lg shadow-lg transition-all flex items-center gap-2 active:scale-95 bg-emerald-600 shadow-emerald-200 hover:bg-emerald-700"
+              >
+                <IconDownload size={14} />
+                Exportar {combinedStopsModal.exportFormat === "pdf" ? "PDF" : "Excel"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {roadmapModal.isOpen && (

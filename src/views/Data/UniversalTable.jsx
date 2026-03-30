@@ -22,6 +22,12 @@ const toDateInputValue = (v) => {
   return s.length >= 10 ? s.slice(0, 10) : s;
 };
 
+const normalizeIconValue = (v) => {
+  const raw = String(v || "").trim();
+  if (!raw) return "";
+  return raw.toLowerCase().replace(/^icon/, "");
+};
+
 function RowEditModal({
   isOpen,
   onClose,
@@ -212,7 +218,19 @@ function RowEditModal({
                 {!readOnlyId && col.type === "select" && (
                   <select
                     className={fieldClass}
-                    value={v === null || v === undefined ? "" : String(v)}
+                    value={(() => {
+                      if (v === null || v === undefined) return "";
+                      const raw = String(v);
+                      const exact = col.options?.find(
+                        (o) => String(o.value) === raw,
+                      );
+                      if (exact) return raw;
+                      const byIconAlias = col.options?.find(
+                        (o) =>
+                          normalizeIconValue(o.value) === normalizeIconValue(raw),
+                      );
+                      return byIconAlias ? String(byIconAlias.value) : raw;
+                    })()}
                     onChange={(e) => {
                       const raw = e.target.value;
                       const opt = col.options?.find(
@@ -353,7 +371,12 @@ const SearchableSelect = ({ value, options, onChange, onBlur, className }) => {
       setSearchTerm("");
       return;
     }
-    const selected = options.find(opt => String(opt.value) === String(value));
+    const selected =
+      options.find((opt) => String(opt.value) === String(value)) ||
+      options.find(
+        (opt) =>
+          normalizeIconValue(opt.value) === normalizeIconValue(String(value)),
+      );
     setSearchTerm(selected ? selected.label : "");
   }, [value, options]);
 
@@ -854,7 +877,12 @@ export default function UniversalTable({
           const cellVal = String(row[key] || "").toLowerCase();
           const colDef = columns.find(c => c.key === key);
           if (colDef?.type === 'select') {
-             const option = colDef.options?.find(opt => String(opt.value) === String(row[key]));
+             const option =
+               colDef.options?.find(opt => String(opt.value) === String(row[key])) ||
+               colDef.options?.find(
+                 (opt) =>
+                   normalizeIconValue(opt.value) === normalizeIconValue(String(row[key])),
+               );
              const label = option ? option.label.toLowerCase() : "";
              return cellVal.includes(filterVal) || label.includes(filterVal);
           }
