@@ -239,7 +239,7 @@ export default function HorasCatedraDashboard({ supabase }) {
 
             <div className="ml-auto flex gap-2">
                 <button onClick={() => setBulkModalOpen(true)} className="px-4 py-1.5 bg-white border border-indigo-200 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-50 flex items-center gap-2 shadow-sm">
-                    <IconCheck size={14} /> Incorporar Estables
+                    <IconPlus size={14} /> Incorporar Estables
                 </button>
                 <button onClick={() => { setSelectedMusician(null); setRecordToEdit(null); setModalOpen(true); }} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
                     <IconPlus size={14} /> Nueva Novedad
