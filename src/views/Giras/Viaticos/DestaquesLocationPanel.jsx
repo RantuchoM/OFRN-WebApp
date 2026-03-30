@@ -66,6 +66,13 @@ const areDifferentTimes = (shortTime, longTime) => {
     return shortTime.slice(0, 5) !== longTime.slice(0, 5);
 };
 
+const normalizeScope = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
 // --- CONFIGURACIÓN DE COLUMNAS ---
 const MASSIVE_COLS = [
     { label: "Movilidad", exp: "gastos_movilidad", ren: "rendicion_transporte_otros" },
@@ -562,20 +569,59 @@ export default function DestaquesLocationPanel({
             const locName = locNameRaw.trim(); 
             const currentLocId = person.id_localidad || 'unknown';
 
-            // ... (Lógica de agrupación idéntica a la anterior) ...
-            const getRuleForId = (lid) => routeRules?.find(r => r.alcance === 'Localidad' && String(r.id_localidad) === String(lid) && r.evento_subida);
+            // Buscamos reglas por Localidad y, si no hay match directo, también por Región.
+            // Prioridad: Localidad > Región > General.
+            const currentRegionId =
+              person.id_region ||
+              person.localidades?.id_region ||
+              person.localidades?.regiones?.id ||
+              null;
+            const findBestRouteRule = (lid, rid, eventField) => {
+                const rules = Array.isArray(routeRules) ? routeRules : [];
+                let best = null;
+                let bestScore = -1;
+
+                rules.forEach((r) => {
+                    if (!r?.[eventField]) return;
+                    const scope = normalizeScope(r.alcance);
+                    const byLocalidad =
+                      String(r.id_localidad || "") === String(lid) ||
+                      (Array.isArray(r.target_localities) &&
+                        r.target_localities.some((x) => String(x) === String(lid)));
+                    const byRegion =
+                      String(r.id_region || "") === String(rid) ||
+                      (Array.isArray(r.target_regions) &&
+                        r.target_regions.some((x) => String(x) === String(rid)));
+
+                    let score = 0;
+                    if (scope === "localidad" && byLocalidad) score = 3;
+                    else if (scope === "region" && byRegion) score = 2;
+                    else if (scope === "general") score = 1;
+                    else if (byLocalidad) score = 3;
+                    else if (byRegion) score = 2;
+
+                    if (score > bestScore) {
+                        best = r;
+                        bestScore = score;
+                    }
+                });
+
+                return best;
+            };
             
-            const buildHeaderInfo = (rule) => {
-                if (!rule || !rule.evento_subida) return null;
-                const evt = rule.evento_subida;
-                const evtLlegada = rule.evento_bajada; 
-                const bus = transportMap[rule.id_transporte_fisico];
+            const buildHeaderInfo = (ruleSubida, ruleBajada = null) => {
+                const subidaRule = ruleSubida || null;
+                const bajadaRule = ruleBajada || ruleSubida || null;
+                if (!subidaRule?.evento_subida && !bajadaRule?.evento_bajada) return null;
+                const evt = subidaRule?.evento_subida || null;
+                const evtLlegada = bajadaRule?.evento_bajada || null;
+                const bus = transportMap[subidaRule?.id_transporte_fisico || bajadaRule?.id_transporte_fisico];
                 const tNombre = bus?.transportes?.nombre || bus?.nombre || "Transporte";
                 const tDetalle = bus?.detalle ? ` - ${bus.detalle}` : ""; 
                 return { 
-                    hora: evt.hora_inicio ? evt.hora_inicio.slice(0,5) : "??:??", 
-                    fecha: formatDateVisual(evt.fecha), 
-                    fecha_iso: evt.fecha,
+                    hora: evt?.hora_inicio ? evt.hora_inicio.slice(0,5) : null, 
+                    fecha: evt?.fecha ? formatDateVisual(evt.fecha) : null, 
+                    fecha_iso: evt?.fecha || null,
                     hora_llegada: evtLlegada?.hora_inicio ? evtLlegada.hora_inicio.slice(0,5) : null,
                     fecha_llegada: evtLlegada?.fecha ? formatDateVisual(evtLlegada.fecha) : null,
                     fecha_llegada_iso: evtLlegada?.fecha || null,
@@ -584,8 +630,9 @@ export default function DestaquesLocationPanel({
             };
 
             if(!groups[locName]) {
-                const locRule = getRuleForId(currentLocId);
-                const headerInfo = buildHeaderInfo(locRule);
+                const bestSubidaRule = findBestRouteRule(currentLocId, currentRegionId, "evento_subida");
+                const bestBajadaRule = findBestRouteRule(currentLocId, currentRegionId, "evento_bajada");
+                const headerInfo = buildHeaderInfo(bestSubidaRule, bestBajadaRule);
                 groups[locName] = { 
                     id: currentLocId, 
                     name: locName, 
@@ -594,10 +641,11 @@ export default function DestaquesLocationPanel({
                 };
             } else {
                 if (!groups[locName].headerInfo) {
-                    const betterRule = getRuleForId(currentLocId);
-                    if (betterRule) {
+                    const betterSubidaRule = findBestRouteRule(currentLocId, currentRegionId, "evento_subida");
+                    const betterBajadaRule = findBestRouteRule(currentLocId, currentRegionId, "evento_bajada");
+                    if (betterSubidaRule || betterBajadaRule) {
                         groups[locName].id = currentLocId;
-                        groups[locName].headerInfo = buildHeaderInfo(betterRule);
+                        groups[locName].headerInfo = buildHeaderInfo(betterSubidaRule, betterBajadaRule);
                     }
                 }
             }

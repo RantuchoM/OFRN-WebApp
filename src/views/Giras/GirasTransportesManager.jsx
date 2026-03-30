@@ -21,6 +21,7 @@ import {
   IconX,
   IconClock,
   IconChevronDown,
+  IconChevronUp,
   IconEdit,
   IconSave,
   IconCheck,
@@ -898,8 +899,40 @@ export default function GirasTransportesManager({ supabase, gira }) {
   });
 
   const [selectedEventIds, setSelectedEventIds] = useState(new Set());
+  const [lastSelectedEventId, setLastSelectedEventId] = useState(null);
 
-  const clearSelection = () => setSelectedEventIds(new Set());
+  const clearSelection = () => {
+    setSelectedEventIds(new Set());
+    setLastSelectedEventId(null);
+  };
+
+  const handleEventSelectionToggle = (evtId, checked, orderedEvents, withRange) => {
+    setSelectedEventIds((prev) => {
+      const next = new Set(prev);
+      if (!withRange || !lastSelectedEventId) {
+        if (checked) next.add(evtId);
+        else next.delete(evtId);
+        return next;
+      }
+
+      const currentIndex = orderedEvents.findIndex((e) => e.id === evtId);
+      const anchorIndex = orderedEvents.findIndex((e) => e.id === lastSelectedEventId);
+      if (currentIndex === -1 || anchorIndex === -1) {
+        if (checked) next.add(evtId);
+        else next.delete(evtId);
+        return next;
+      }
+
+      const start = Math.min(currentIndex, anchorIndex);
+      const end = Math.max(currentIndex, anchorIndex);
+      orderedEvents.slice(start, end + 1).forEach((e) => {
+        if (checked) next.add(e.id);
+        else next.delete(e.id);
+      });
+      return next;
+    });
+    setLastSelectedEventId(evtId);
+  };
 
   const handleApplyShiftSchedule = async (offset) => {
     const tId = shiftModal.transportId;
@@ -974,6 +1007,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
     title: "",
     list: [],
     transportId: null,
+    allowInternalToggle: false,
+    showInternal: false,
   });
 
   const [admissionModal, setAdmissionModal] = useState({
@@ -989,56 +1024,112 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const InfoListModal = () => {
     if (!infoListModal.isOpen) return null;
     const isValidationMode = !!infoListModal.transportId;
+    const transportCategoriaById = Object.fromEntries(
+      (transports || []).map((t) => [
+        String(t.id),
+        String(t.categoria_logistica || "PASAJEROS").toUpperCase(),
+      ]),
+    );
 
     const renderContent = () => {
-      if (isValidationMode && infoListModal.list.length > 0) {
-        const grouped = {};
-        infoListModal.list.forEach((p) => {
-          const locName =
-            paxLocalities[p.id] ||
-            p.localidades?.localidad ||
-            "Sin registro de localidad";
-          if (!grouped[locName]) grouped[locName] = [];
-          grouped[locName].push(p);
-        });
+      const grouped = {};
+      infoListModal.list.forEach((p) => {
+        const locName =
+          paxLocalities[p.id] || p.localidades?.localidad || "Sin registro de localidad";
+        if (!grouped[locName]) grouped[locName] = [];
+        grouped[locName].push(p);
+      });
 
-        return (
-          <div className="space-y-4">
-            {Object.keys(grouped)
-              .sort()
-              .map((locName) => (
-                <div key={locName}>
-                  <h4 className="bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 uppercase tracking-wider mb-1 rounded flex justify-between items-center">
-                    <span>{locName}</span>
-                    <span className="bg-white px-2 py-0.5 rounded text-slate-400 border text-[10px]">
+      return (
+        <div className="space-y-3">
+          {Object.keys(grouped)
+            .sort((a, b) => a.localeCompare(b, "es"))
+            .map((locName) => (
+              <details key={locName} open className="group rounded-lg border border-slate-200 bg-white">
+                <summary className="list-none cursor-pointer bg-slate-50 hover:bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between rounded-t-lg">
+                  <span className="truncate">{locName}</span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span className="bg-white px-2 py-0.5 rounded text-slate-500 border text-[10px]">
                       {grouped[locName].length}
                     </span>
-                  </h4>
-                  <ul className="divide-y divide-slate-50">
-                    {grouped[locName].map((p) => {
-                      const trData = p.logistics?.transports?.find(
-                        (t) =>
-                          String(t.id) === String(infoListModal.transportId),
+                    <IconChevronDown
+                      size={14}
+                      className="text-slate-400 group-open:hidden"
+                    />
+                    <IconChevronUp
+                      size={14}
+                      className="text-slate-400 hidden group-open:block"
+                    />
+                  </span>
+                </summary>
+                <ul className="divide-y divide-slate-100">
+                  {grouped[locName]
+                    .sort((a, b) =>
+                      `${a.apellido || ""} ${a.nombre || ""}`.localeCompare(
+                        `${b.apellido || ""} ${b.nombre || ""}`,
+                        "es",
+                      ),
+                    )
+                    .map((p) => {
+                      const personTransports = p.logistics?.transports || [];
+                      const trData = personTransports.find(
+                        (t) => String(t.id) === String(infoListModal.transportId),
                       );
-                      const missingUp = !trData?.subidaId;
-                      const missingDown = !trData?.bajadaId;
+                      const missingUp = isValidationMode && !trData?.subidaId;
+                      const missingDown = isValidationMode && !trData?.bajadaId;
 
                       return (
                         <li
                           key={p.id}
-                          className="py-2 text-sm flex justify-between items-center pl-2 hover:bg-white"
+                          className="py-2 px-3 text-sm flex items-start justify-between gap-3 hover:bg-slate-50"
                         >
-                          <span className="font-medium text-slate-700">
+                          <span className="font-semibold text-slate-700">
                             {p.apellido}, {p.nombre}
                           </span>
-                          <div className="flex gap-1 text-[10px] font-bold">
+                          <div className="flex flex-col items-end gap-1">
+                            {personTransports
+                              .filter((tr) => {
+                                if (isValidationMode || infoListModal.showInternal) {
+                                  return true;
+                                }
+                                const categoria = String(
+                                  tr.categoria_logistica ||
+                                    transportCategoriaById[String(tr.id)] ||
+                                    "PASAJEROS",
+                                ).toUpperCase();
+                                return categoria !== "INTERNO";
+                              })
+                              .map((tr, idx) => {
+                              const categoria =
+                                String(
+                                  tr.categoria_logistica ||
+                                    transportCategoriaById[String(tr.id)] ||
+                                    "PASAJEROS",
+                                ).toUpperCase();
+                              const chipClass =
+                                categoria === "INTERNO"
+                                  ? "bg-sky-50 text-sky-700 border-sky-200"
+                                  : categoria === "LOGISTICO"
+                                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                                    : "bg-indigo-50 text-indigo-700 border-indigo-200";
+                              return (
+                                <span
+                                  key={`${p.id}-${tr.id}-${idx}`}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${chipClass}`}
+                                >
+                                  <IconBus size={10} />
+                                  {tr.nombre}
+                                  {tr.detalle ? ` (${tr.detalle})` : ""}
+                                </span>
+                              );
+                            })}
                             {missingUp && (
-                              <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
+                              <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-[10px] font-bold">
                                 <IconAlertTriangle size={10} /> Falta Subida
                               </span>
                             )}
                             {missingDown && (
-                              <span className="bg-orange-50 text-orange-600 px-2 py-0.5 rounded border border-orange-100 flex items-center gap-1">
+                              <span className="inline-flex items-center gap-1 bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded text-[10px] font-bold">
                                 <IconAlertTriangle size={10} /> Falta Bajada
                               </span>
                             )}
@@ -1046,55 +1137,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         </li>
                       );
                     })}
-                  </ul>
-                </div>
-              ))}
-          </div>
-        );
-      }
-
-      return (
-        <ul className="divide-y divide-slate-100">
-          {infoListModal.list.map((p) => {
-            const locNombre =
-              paxLocalities[p.id] || p.localidades?.localidad || "Sin datos";
-
-            return (
-              <li key={p.id} className="py-3 text-sm flex flex-col gap-1">
-                <div className="flex justify-between items-start">
-                  <div className="flex flex-col">
-                    <span className="font-bold text-slate-700">
-                      {p.apellido}, {p.nombre}
-                    </span>
-                    <span className="text-[10px] text-slate-400 uppercase font-medium">
-                      {locNombre}
-                    </span>
-                  </div>
-                  <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-black">
-                    {p.logistics?.transports?.length} BUSES
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap gap-1.5 mt-1">
-                  {p.logistics?.transports?.map((tr, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-1 px-2 py-0.5 bg-indigo-50 border border-indigo-100 rounded-md text-[9px] font-bold text-indigo-600 shadow-sm"
-                    >
-                      <IconBus size={10} />
-                      <span>{tr.nombre}</span>
-                      {tr.detalle && (
-                        <span className="opacity-60 font-normal">
-                          ({tr.detalle})
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                </ul>
+              </details>
+            ))}
+        </div>
       );
     };
 
@@ -1112,6 +1158,24 @@ export default function GirasTransportesManager({ supabase, gira }) {
               <IconX size={20} />
             </button>
           </div>
+          {!isValidationMode && infoListModal.allowInternalToggle && (
+            <div className="px-4 py-2 border-b bg-white flex justify-end">
+              <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 select-none cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!infoListModal.showInternal}
+                  onChange={(e) =>
+                    setInfoListModal({
+                      ...infoListModal,
+                      showInternal: e.target.checked,
+                    })
+                  }
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                Mostrar transporte interno
+              </label>
+            </div>
+          )}
           <div className="p-4 overflow-y-auto flex-1 bg-white/50">
             {infoListModal.list.length === 0 ? (
               <p className="text-center text-slate-500 italic">
@@ -1212,18 +1276,46 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   const coverageStats = useMemo(() => {
     if (!passengerList || passengerList.length === 0)
-      return { none: [], single: [], multiple: [] };
+      return { none: [], single: [], multiple: [], internal: [] };
 
-    const stats = { none: [], single: [], multiple: [] };
+    const nonInternalTransportIds = new Set(
+      (transports || [])
+        .filter(
+          (t) =>
+            String(t.categoria_logistica || "PASAJEROS").toUpperCase() !==
+            "INTERNO",
+        )
+        .map((t) => String(t.id)),
+    );
+    const internalTransportIds = new Set(
+      (transports || [])
+        .filter(
+          (t) =>
+            String(t.categoria_logistica || "PASAJEROS").toUpperCase() ===
+            "INTERNO",
+        )
+        .map((t) => String(t.id)),
+    );
+    const stats = { none: [], single: [], multiple: [], internal: [] };
     passengerList.forEach((p) => {
       // Nota: El filtro de 'ausente' ya se hizo en el useMemo de passengerList
-      const count = p.logistics?.transports?.length || 0;
+      const transportsForPax = p.logistics?.transports || [];
+      const coveredCount = transportsForPax.filter((t) =>
+        nonInternalTransportIds.has(String(t.id)),
+      ).length;
+      const hasInternal = transportsForPax.some((t) =>
+        internalTransportIds.has(String(t.id)),
+      );
+
+      if (hasInternal) stats.internal.push(p);
+
+      const count = coveredCount;
       if (count === 0) stats.none.push(p);
       else if (count === 1) stats.single.push(p);
       else stats.multiple.push(p);
     });
     return stats;
-  }, [passengerList]);
+  }, [passengerList, transports]);
 
   useEffect(() => {
     if (giraId) fetchData();
@@ -1872,26 +1964,44 @@ export default function GirasTransportesManager({ supabase, gira }) {
       const sortedEvts = [...events].sort((a, b) =>
         (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
       );
-      const startIndex = sortedEvts.findIndex(
-        (e) => String(e.id) === String(startId),
-      );
-      const endIndex = sortedEvts.findIndex(
-        (e) => String(e.id) === String(endId),
-      );
+      const startIndex = sortedEvts.findIndex((e) => String(e.id) === String(startId));
+      const endIndex = sortedEvts.findIndex((e) => String(e.id) === String(endId));
+      if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) {
+        alert("Rango inválido");
+        return;
+      }
 
-      // passengerList ya está filtrado (sin ausentes)
-      const tPax = passengerList.filter((p) => {
+      // Base CNRT: TODOS los pasajeros asignados al transporte.
+      // 1) Preferimos pasajeros_ids del transporte.
+      // 2) Fallback al roster logístico si ese array no está disponible.
+      const transportPassengerIds = Array.isArray(tInfo.pasajeros_ids)
+        ? tInfo.pasajeros_ids.map((id) => Number(id))
+        : [];
+      const tPaxBase =
+        transportPassengerIds.length > 0
+          ? passengerList.filter((p) => transportPassengerIds.includes(Number(p.id)))
+          : passengerList.filter((p) =>
+              p.logistics?.transports?.some(
+                (t) => String(t.id) === String(currentTransportId),
+              ),
+            );
+
+      // Inyectamos fallback de paradas para quienes no tengan subida/bajada definidas.
+      // Esto evita exclusiones por datos de ruta incompletos.
+      const tPax = tPaxBase.map((p) => {
         const transportData = p.logistics?.transports?.find(
           (t) => String(t.id) === String(currentTransportId),
         );
-        if (!transportData) return false;
-        const pInIdx = sortedEvts.findIndex(
-          (e) => String(e.id) === String(transportData.subidaId),
-        );
-        const pOutIdx = sortedEvts.findIndex(
-          (e) => String(e.id) === String(transportData.bajadaId),
-        );
-        return pInIdx < endIndex && pOutIdx > startIndex;
+        const subidaId = transportData?.subidaId ?? startId;
+        const bajadaId = transportData?.bajadaId ?? endId;
+        return {
+          ...p,
+          cnrtStops: {
+            subidaId,
+            bajadaId,
+            usedFallback: !transportData?.subidaId || !transportData?.bajadaId,
+          },
+        };
       });
 
       await downloadStyledExcel(tPax, `CNRT_${tInfo.detalle}.xlsx`);
@@ -2030,8 +2140,19 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
   return (
     <div className="h-full overflow-y-auto p-4 bg-white rounded-lg shadow-sm border border-slate-200 max-w-6xl mx-auto">
-      <div className="mb-6 grid grid-cols-3 gap-4 w-full">
-        <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
+      <div className="mb-6 grid grid-cols-4 gap-4 w-full">
+        <div
+          onClick={() =>
+            setInfoListModal({
+              isOpen: true,
+              title: "Pasajeros Asignados",
+              list: coverageStats.single,
+              allowInternalToggle: true,
+              showInternal: false,
+            })
+          }
+          className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm cursor-pointer hover:bg-emerald-100 hover:border-emerald-200 transition-all group"
+        >
           <div className="p-2.5 bg-emerald-100 rounded-xl text-emerald-600 shrink-0">
             <IconCheckCircle size={22} />
           </div>
@@ -2051,6 +2172,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
               isOpen: true,
               title: "Pasajeros en Múltiples Transportes",
               list: coverageStats.multiple,
+              allowInternalToggle: true,
+              showInternal: false,
             })
           }
           className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm cursor-pointer hover:bg-amber-100 hover:border-amber-200 transition-all group"
@@ -2074,6 +2197,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
               isOpen: true,
               title: "Lista de Espera (Sin Transporte)",
               list: coverageStats.none,
+              allowInternalToggle: true,
+              showInternal: false,
             })
           }
           className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm cursor-pointer hover:bg-rose-100 hover:border-rose-200 transition-all group"
@@ -2087,6 +2212,31 @@ export default function GirasTransportesManager({ supabase, gira }) {
             </div>
             <div className="text-[10px] text-rose-600 font-bold uppercase tracking-tight mt-1 underline decoration-dashed underline-offset-4">
               Sin Transporte
+            </div>
+          </div>
+        </div>
+
+        <div
+          onClick={() =>
+            setInfoListModal({
+              isOpen: true,
+              title: "Pasajeros en Traslado Interno",
+              list: coverageStats.internal,
+              allowInternalToggle: false,
+              showInternal: true,
+            })
+          }
+          className="bg-sky-50 border border-sky-100 p-4 rounded-2xl flex items-center gap-3 shadow-sm cursor-pointer hover:bg-sky-100 hover:border-sky-200 transition-all group"
+        >
+          <div className="p-2.5 bg-sky-100 rounded-xl text-sky-600 shrink-0 group-hover:scale-110 transition-transform">
+            <IconBus size={22} />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xl font-black text-sky-700 leading-none">
+              {coverageStats.internal.length}
+            </div>
+            <div className="text-[10px] text-sky-600 font-bold uppercase tracking-tight mt-1 underline decoration-dashed underline-offset-4">
+              Traslado Interno
             </div>
           </div>
         </div>
@@ -2428,9 +2578,9 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             <span
                               className="ml-1 text-[9px] px-1.5 py-0.5 rounded font-bold border inline-flex items-center gap-0.5"
                               style={{
-                                backgroundColor: "#F5F3FF",
-                                color: "#6D28D9",
-                                borderColor: "#C4B5FD",
+                                backgroundColor: "#E0F2FE",
+                                color: "#0369A1",
+                                borderColor: "#7DD3FC",
                               }}
                             >
                               <IconBus size={10} /> Trasl. interno
@@ -2655,12 +2805,13 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                   type="checkbox"
                                   className="rounded border-slate-300 text-indigo-600"
                                   checked={selectedEventIds.has(evt.id)}
-                                  onChange={() => {
-                                    const next = new Set(selectedEventIds);
-                                    next.has(evt.id)
-                                      ? next.delete(evt.id)
-                                      : next.add(evt.id);
-                                    setSelectedEventIds(next);
+                                  onChange={(e) => {
+                                    handleEventSelectionToggle(
+                                      evt.id,
+                                      e.target.checked,
+                                      myEvents,
+                                      !!e.nativeEvent?.shiftKey,
+                                    );
                                   }}
                                 />
                               </td>

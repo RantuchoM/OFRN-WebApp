@@ -158,13 +158,37 @@ export const calculateLogisticsSummary = (
     });
 
     // --- BLOQUE B: TRANSPORTE (con prioridad de reglas personales) ---
+    const internalTids = new Set(
+      (transportesFisicos || [])
+        .filter(
+          (t) =>
+            String(t.categoria_logistica || "PASAJEROS").toUpperCase() ===
+            "INTERNO",
+        )
+        .map((t) => Number(t.id))
+        .filter((id) => !Number.isNaN(id)),
+    );
     const allowedTids = new Set();
+    const excludedInternalTids = new Set();
     (admissionRules || []).forEach((r) => {
-      if (matchesRule(r, person, allLocalities)) {
-        if (r.tipo === "EXCLUSION" || r.es_exclusion)
-          allowedTids.delete(r.id_transporte_fisico);
-        else allowedTids.add(r.id_transporte_fisico);
+      if (!matchesRule(r, person, allLocalities)) return;
+      const tid = Number(r.id_transporte_fisico);
+      if (Number.isNaN(tid)) return;
+
+      const isExclusion = r.tipo === "EXCLUSION" || r.es_exclusion;
+      if (internalTids.has(tid)) {
+        // INTERNO: base "todos", pero respetando vetos/exclusiones.
+        if (isExclusion) excludedInternalTids.add(tid);
+        return;
       }
+
+      if (isExclusion) allowedTids.delete(tid);
+      else allowedTids.add(tid);
+    });
+
+    // INTERNO aplica a todo el roster activo salvo que exista veto/exclusión.
+    internalTids.forEach((tid) => {
+      if (!excludedInternalTids.has(tid)) allowedTids.add(tid);
     });
 
     // Reglas de trayecto único:
@@ -212,6 +236,8 @@ export const calculateLogisticsSummary = (
 
       log.transports.push({
         id: Number(tid),
+        categoria_logistica:
+          String(transportMap[tid]?.categoria_logistica || "PASAJEROS").toUpperCase(),
         nombre: transportMap[tid]?.transportes?.nombre || "Bus",
         detalle: transportMap[tid]?.detalle || "",
         patente: transportMap[tid]?.transportes?.patente || "",
@@ -222,28 +248,6 @@ export const calculateLogisticsSummary = (
         subidaScope: sub.scope,
         bajadaScope: baj.scope,
         priority: maxPrio,
-      });
-    });
-
-    // Traslado interno (INTERNO): visible para todo el roster activo sin reglas de asignación.
-    (transportesFisicos || []).forEach((gt) => {
-      const cat = String(gt.categoria_logistica || "PASAJEROS").toUpperCase();
-      if (cat !== "INTERNO") return;
-      const tid = Number(gt.id);
-      if (Number.isNaN(tid)) return;
-      if (log.transports.some((x) => x.id === tid)) return;
-      log.transports.push({
-        id: tid,
-        nombre: transportMap[tid]?.transportes?.nombre || "Bus",
-        detalle: transportMap[tid]?.detalle || "",
-        patente: transportMap[tid]?.transportes?.patente || "",
-        subidaId: null,
-        bajadaId: null,
-        subidaData: null,
-        bajadaData: null,
-        subidaScope: null,
-        bajadaScope: null,
-        priority: 0,
       });
     });
 

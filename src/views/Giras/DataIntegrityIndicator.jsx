@@ -880,12 +880,27 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
     if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) return alert("Rango inválido");
 
-    const tPax = passengerList.filter((p) => {
-      const transportData = p.logistics?.transports?.find((t) => t.id === tId);
-      if (!transportData) return false;
-      const pInIdx = sortedEvts.findIndex((e) => String(e.id) === String(transportData.subidaId));
-      const pOutIdx = sortedEvts.findIndex((e) => String(e.id) === String(transportData.bajadaId));
-      return pInIdx < endIndex && pOutIdx > startIndex;
+    const transportPassengerIds = Array.isArray(tInfo.pasajeros_ids)
+      ? tInfo.pasajeros_ids.map((id) => Number(id))
+      : [];
+    const tPaxBase =
+      transportPassengerIds.length > 0
+        ? passengerList.filter((p) => transportPassengerIds.includes(Number(p.id)))
+        : passengerList.filter((p) =>
+            p.logistics?.transports?.some((t) => String(t.id) === String(tId))
+          );
+    const tPax = tPaxBase.map((p) => {
+      const transportData = p.logistics?.transports?.find((t) => String(t.id) === String(tId));
+      const subidaId = transportData?.subidaId ?? startId;
+      const bajadaId = transportData?.bajadaId ?? endId;
+      return {
+        ...p,
+        cnrtStops: {
+          subidaId,
+          bajadaId,
+          usedFallback: !transportData?.subidaId || !transportData?.bajadaId,
+        },
+      };
     });
 
     downloadStyledExcel(tPax, `CNRT_${tInfo.detalle}.xlsx`);
