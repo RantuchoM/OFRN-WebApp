@@ -67,6 +67,9 @@ import EventHistoryModal from "../giras/EventHistoryModal";
 import ConfirmModal from "../ui/ConfirmModal";
 import EventTranspositionModal from "./EventTranspositionModal";
 
+/** tipos_evento.id: Traslado interno — "mi transporte" para todo integrante activo (sin reglas de asignación). */
+const ID_TIPO_TRASLADO_INTERNO = 35;
+
 export default function UnifiedAgenda({
   supabase,
   giraId = null,
@@ -479,12 +482,15 @@ export default function UnifiedAgenda({
       if (showOnlyMyTransport && isTransportEvent && item.id_gira_transporte) {
         const tId = String(item.id_gira_transporte);
         const myStatus = myTransportLogistics[tId];
-        if (myStatus?.assigned) {
+        const isTrasladoInterno =
+          Number(item.id_tipo_evento) === ID_TIPO_TRASLADO_INTERNO;
+        if (isTrasladoInterno || myStatus?.assigned) {
           isMyTransport = true;
           const itemIdStr = String(item.id);
           if (
-            String(myStatus.subidaId) === itemIdStr ||
-            String(myStatus.bajadaId) === itemIdStr
+            isTrasladoInterno ||
+            String(myStatus?.subidaId) === itemIdStr ||
+            String(myStatus?.bajadaId) === itemIdStr
           ) {
             isMyUpOrDown = true;
           }
@@ -1531,12 +1537,14 @@ export default function UnifiedAgenda({
                     if (isTransportEvent && evt.id_gira_transporte) {
                       const transportIdStr = String(evt.id_gira_transporte);
                       const myStatus = myTransportLogistics[transportIdStr];
+                      const isTrasladoInterno =
+                        Number(evt.id_tipo_evento) === ID_TIPO_TRASLADO_INTERNO;
 
-                      if (myStatus && myStatus.assigned) {
+                      if (isTrasladoInterno || (myStatus && myStatus.assigned)) {
                         isMyTransport = true;
-                        if (String(myStatus.subidaId) === String(evt.id))
+                        if (myStatus && String(myStatus.subidaId) === String(evt.id))
                           isMyUp = true;
-                        if (String(myStatus.bajadaId) === String(evt.id))
+                        if (myStatus && String(myStatus.bajadaId) === String(evt.id))
                           isMyDown = true;
                       } else {
                         const tourHasRules = toursWithRules.has(evt.id_gira);
@@ -1546,6 +1554,8 @@ export default function UnifiedAgenda({
 
                     let isTransportDimmed = isTransportEvent && !isMyTransport;
                     if (showNoGray && isTransportEvent)
+                      isTransportDimmed = false;
+                    if (Number(evt.id_tipo_evento) === ID_TIPO_TRASLADO_INTERNO)
                       isTransportDimmed = false;
 
                     let shouldDim = isTransportDimmed || evt.is_absent;

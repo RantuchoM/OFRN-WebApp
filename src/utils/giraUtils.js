@@ -105,14 +105,42 @@ export const calculateLogisticsForMusician = (person, rules) => {
 
 /* --- MOTOR DE REGLAS DE LOGÍSTICA --- */
 
-/** Categoría logística según rol (usa p.rol de giras_integrantes o rol_gira). */
+/** Roles de producción / staff que no entran en EXTERNOS. */
+const ROLES_EXCLUIDOS_EXTERNOS = new Set([
+  "staff",
+  "produccion",
+  "director",
+  "chofer",
+]);
+
+/**
+ * Categoría logística según rol, condición y sede local de la gira (`is_local`).
+ * EXTERNOS: contratados / no planta estable, no residentes locales, no staff-producción.
+ */
 export const getCategoriaLogistica = (person) => {
   const rol = normalize(person?.rol ?? person?.rol_gira ?? "musico");
+  const condicion = normalize(
+    person?.condicion ?? person?.integrantes?.condicion ?? "",
+  );
+
   if (rol === "solista") return "SOLISTAS";
   if (rol === "director") return "DIRECTORES";
   if (rol === "produccion") return "PRODUCCION";
   if (rol === "staff") return "STAFF";
-  return person?.is_local ? "LOCALES" : "NO_LOCALES";
+  if (rol === "chofer") return "CHOFER";
+
+  const isPlantaEstable = condicion === "estable";
+  const isLocal = Boolean(person?.is_local);
+
+  if (
+    !ROLES_EXCLUIDOS_EXTERNOS.has(rol) &&
+    !isPlantaEstable &&
+    !isLocal
+  ) {
+    return "EXTERNOS";
+  }
+
+  return isLocal ? "LOCALES" : "NO_LOCALES";
 };
 
 /** Fuerza del match para ordenar reglas. Si estado_gira === 'ausente', siempre 0. */

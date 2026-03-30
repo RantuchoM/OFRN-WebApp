@@ -42,6 +42,27 @@ CREATE TABLE public.categorias_tipos_eventos (
   created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
   CONSTRAINT categorias_tipos_eventos_pkey PRIMARY KEY (id)
 );
+CREATE TABLE public.ciclos_ensambles_anios (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_ensamble bigint,
+  anio integer NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  comentarios_generales text,
+  CONSTRAINT ciclos_ensambles_anios_pkey PRIMARY KEY (id),
+  CONSTRAINT ciclos_ensambles_anios_id_ensamble_fkey FOREIGN KEY (id_ensamble) REFERENCES public.ensambles(id)
+);
+CREATE TABLE public.ciclos_propuestas (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_ciclo bigint,
+  nombre_programa text NOT NULL,
+  ventana_fechas text,
+  observaciones text,
+  id_programa bigint,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT ciclos_propuestas_pkey PRIMARY KEY (id),
+  CONSTRAINT ciclos_propuestas_id_ciclo_fkey FOREIGN KEY (id_ciclo) REFERENCES public.ciclos_ensambles_anios(id),
+  CONSTRAINT ciclos_propuestas_id_programa_fkey FOREIGN KEY (id_programa) REFERENCES public.programas(id)
+);
 CREATE TABLE public.comentarios_lecturas (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   user_id bigint NOT NULL,
@@ -105,8 +126,8 @@ CREATE TABLE public.eventos (
   CONSTRAINT eventos_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
   CONSTRAINT eventos_id_tipo_evento_fkey FOREIGN KEY (id_tipo_evento) REFERENCES public.tipos_evento(id),
   CONSTRAINT eventos_id_locacion_fkey FOREIGN KEY (id_locacion) REFERENCES public.locaciones(id),
-  CONSTRAINT eventos_id_gira_transporte_fkey FOREIGN KEY (id_gira_transporte) REFERENCES public.giras_transportes(id),
-  CONSTRAINT eventos_id_estado_venue_fkey FOREIGN KEY (id_estado_venue) REFERENCES public.venue_status_types(id)
+  CONSTRAINT eventos_id_estado_venue_fkey FOREIGN KEY (id_estado_venue) REFERENCES public.venue_status_types(id),
+  CONSTRAINT eventos_id_gira_transporte_fkey FOREIGN KEY (id_gira_transporte) REFERENCES public.giras_transportes(id)
 );
 CREATE TABLE public.eventos_asistencia (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -290,6 +311,14 @@ CREATE TABLE public.giras_fuentes (
   CONSTRAINT giras_fuentes_pkey PRIMARY KEY (id),
   CONSTRAINT giras_fuentes_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id)
 );
+CREATE TABLE public.giras_hospedajes_excluidos (
+  id_programa bigint NOT NULL,
+  id_integrante bigint NOT NULL,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT giras_hospedajes_excluidos_pkey PRIMARY KEY (id_programa, id_integrante),
+  CONSTRAINT giras_hospedajes_excluidos_id_programa_fkey FOREIGN KEY (id_programa) REFERENCES public.programas(id),
+  CONSTRAINT giras_hospedajes_excluidos_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id)
+);
 CREATE TABLE public.giras_integrantes (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   id_gira bigint,
@@ -326,10 +355,10 @@ CREATE TABLE public.giras_logistica_admision (
   prioridad integer DEFAULT 1,
   CONSTRAINT giras_logistica_admision_pkey PRIMARY KEY (id),
   CONSTRAINT giras_logistica_admision_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
-  CONSTRAINT giras_logistica_admision_id_transporte_fisico_fkey FOREIGN KEY (id_transporte_fisico) REFERENCES public.giras_transportes(id),
   CONSTRAINT giras_logistica_admision_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id),
   CONSTRAINT giras_logistica_admision_id_region_fkey FOREIGN KEY (id_region) REFERENCES public.regiones(id),
-  CONSTRAINT giras_logistica_admision_id_localidad_fkey FOREIGN KEY (id_localidad) REFERENCES public.localidades(id)
+  CONSTRAINT giras_logistica_admision_id_localidad_fkey FOREIGN KEY (id_localidad) REFERENCES public.localidades(id),
+  CONSTRAINT giras_logistica_admision_id_transporte_fisico_fkey FOREIGN KEY (id_transporte_fisico) REFERENCES public.giras_transportes(id)
 );
 CREATE TABLE public.giras_logistica_reglas (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -473,7 +502,7 @@ CREATE TABLE public.giras_transportes (
   created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
   capacidad_maxima integer,
   patente text,
-  es_tipo_alternativo boolean DEFAULT false,
+  categoria_logistica text DEFAULT 'PASAJEROS'::text,
   CONSTRAINT giras_transportes_pkey PRIMARY KEY (id),
   CONSTRAINT giras_transportes_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
   CONSTRAINT giras_transportes_id_transporte_fkey FOREIGN KEY (id_transporte) REFERENCES public.transportes(id)
@@ -505,6 +534,7 @@ CREATE TABLE public.giras_viaticos_config (
   lugar_comision text,
   link_drive text,
   motivo_destaques_exportacion text,
+  lugar_comision_destaques_exportacion text,
   CONSTRAINT giras_viaticos_config_pkey PRIMARY KEY (id_gira),
   CONSTRAINT giras_viaticos_config_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id)
 );
@@ -583,6 +613,7 @@ CREATE TABLE public.hospedaje_habitaciones (
   created_at timestamp with time zone DEFAULT now(),
   es_matrimonial boolean DEFAULT false,
   orden integer DEFAULT 1000,
+  asignaciones_config jsonb DEFAULT '[]'::jsonb,
   CONSTRAINT hospedaje_habitaciones_pkey PRIMARY KEY (id),
   CONSTRAINT hospedaje_habitaciones_id_hospedaje_fkey FOREIGN KEY (id_hospedaje) REFERENCES public.programas_hospedajes(id)
 );
@@ -738,16 +769,16 @@ CREATE TABLE public.obras_compositores (
   id_compositor bigint,
   rol text DEFAULT 'compositor'::text,
   CONSTRAINT obras_compositores_pkey PRIMARY KEY (id),
-  CONSTRAINT obras_compositores_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id),
-  CONSTRAINT obras_compositores_id_compositor_fkey FOREIGN KEY (id_compositor) REFERENCES public.compositores(id)
+  CONSTRAINT obras_compositores_id_compositor_fkey FOREIGN KEY (id_compositor) REFERENCES public.compositores(id),
+  CONSTRAINT obras_compositores_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id)
 );
 CREATE TABLE public.obras_palabras_clave (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   id_obra bigint,
   id_palabra_clave bigint,
   CONSTRAINT obras_palabras_clave_pkey PRIMARY KEY (id),
-  CONSTRAINT obras_palabras_clave_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id),
-  CONSTRAINT obras_palabras_clave_id_palabra_clave_fkey FOREIGN KEY (id_palabra_clave) REFERENCES public.palabras_clave(id)
+  CONSTRAINT obras_palabras_clave_id_palabra_clave_fkey FOREIGN KEY (id_palabra_clave) REFERENCES public.palabras_clave(id),
+  CONSTRAINT obras_palabras_clave_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id)
 );
 CREATE TABLE public.obras_particellas (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -759,8 +790,8 @@ CREATE TABLE public.obras_particellas (
   nota_organico text,
   es_solista boolean DEFAULT false,
   CONSTRAINT obras_particellas_pkey PRIMARY KEY (id),
-  CONSTRAINT obras_particellas_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id),
-  CONSTRAINT obras_particellas_id_instrumento_fkey FOREIGN KEY (id_instrumento) REFERENCES public.instrumentos(id)
+  CONSTRAINT obras_particellas_id_instrumento_fkey FOREIGN KEY (id_instrumento) REFERENCES public.instrumentos(id),
+  CONSTRAINT obras_particellas_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id)
 );
 CREATE TABLE public.obras_produccion_log (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -771,8 +802,8 @@ CREATE TABLE public.obras_produccion_log (
   link_entregado text,
   fecha timestamp with time zone DEFAULT now(),
   CONSTRAINT obras_produccion_log_pkey PRIMARY KEY (id),
-  CONSTRAINT obras_produccion_log_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id),
-  CONSTRAINT obras_produccion_log_id_usuario_accion_fkey FOREIGN KEY (id_usuario_accion) REFERENCES public.integrantes(id)
+  CONSTRAINT obras_produccion_log_id_usuario_accion_fkey FOREIGN KEY (id_usuario_accion) REFERENCES public.integrantes(id),
+  CONSTRAINT obras_produccion_log_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id)
 );
 CREATE TABLE public.paises (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -841,6 +872,8 @@ CREATE TABLE public.programas (
   id_shortcut_arcos_drive text,
   notificacion_inicial_enviada boolean DEFAULT false,
   notificaciones_habilitadas boolean DEFAULT true,
+  organico_revisado boolean DEFAULT false,
+  organico_comentario text,
   CONSTRAINT programas_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.programas_agenda_comidas (
@@ -900,10 +933,13 @@ CREATE TABLE public.repertorio_obras (
   excluir boolean DEFAULT false,
   id_arco_seleccionado bigint,
   ids_solistas ARRAY DEFAULT '{}'::bigint[],
+  estado_curaduria text DEFAULT 'Propuesto'::text CHECK (estado_curaduria = ANY (ARRAY['Propuesto'::text, 'Aceptado'::text, 'Rechazado'::text])),
+  observacion_curaduria text,
+  en_definicion boolean DEFAULT false,
   CONSTRAINT repertorio_obras_pkey PRIMARY KEY (id),
   CONSTRAINT repertorio_obras_id_repertorio_fkey FOREIGN KEY (id_repertorio) REFERENCES public.programas_repertorios(id),
-  CONSTRAINT repertorio_obras_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id),
-  CONSTRAINT repertorio_obras_id_arco_seleccionado_fkey FOREIGN KEY (id_arco_seleccionado) REFERENCES public.obras_arcos(id)
+  CONSTRAINT repertorio_obras_id_arco_seleccionado_fkey FOREIGN KEY (id_arco_seleccionado) REFERENCES public.obras_arcos(id),
+  CONSTRAINT repertorio_obras_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id)
 );
 CREATE TABLE public.roles (
   id text NOT NULL,
@@ -922,8 +958,8 @@ CREATE TABLE public.seating_asignaciones (
   CONSTRAINT seating_asignaciones_pkey PRIMARY KEY (id),
   CONSTRAINT seating_asignaciones_id_programa_fkey FOREIGN KEY (id_programa) REFERENCES public.programas(id),
   CONSTRAINT seating_asignaciones_id_particella_fkey FOREIGN KEY (id_particella) REFERENCES public.obras_particellas(id),
-  CONSTRAINT seating_asignaciones_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id),
-  CONSTRAINT seating_asignaciones_id_contenedor_fkey FOREIGN KEY (id_contenedor) REFERENCES public.seating_contenedores(id)
+  CONSTRAINT seating_asignaciones_id_contenedor_fkey FOREIGN KEY (id_contenedor) REFERENCES public.seating_contenedores(id),
+  CONSTRAINT seating_asignaciones_id_obra_fkey FOREIGN KEY (id_obra) REFERENCES public.obras(id)
 );
 CREATE TABLE public.seating_contenedores (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -999,6 +1035,37 @@ CREATE TABLE public.tipos_evento (
   CONSTRAINT tipos_evento_pkey PRIMARY KEY (id),
   CONSTRAINT tipos_evento_id_categoria_fkey FOREIGN KEY (id_categoria) REFERENCES public.categorias_tipos_eventos(id)
 );
+CREATE TABLE public.traduccion_partituras (
+  id integer NOT NULL DEFAULT nextval('traduccion_partituras_id_seq'::regclass),
+  titulo_en text NOT NULL,
+  titulo_es text,
+  fecha_limite date,
+  pdf_url text,
+  created_at timestamp with time zone DEFAULT now(),
+  created_by integer,
+  CONSTRAINT traduccion_partituras_pkey PRIMARY KEY (id),
+  CONSTRAINT traduccion_partituras_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.integrantes(id)
+);
+CREATE TABLE public.traduccion_segments (
+  id integer NOT NULL DEFAULT nextval('traduccion_segments_id_seq'::regclass),
+  partitura_id integer,
+  segment_name text NOT NULL,
+  segment_english text,
+  segment_spanish text,
+  rect_x double precision,
+  rect_y double precision,
+  rect_w double precision,
+  rect_h double precision,
+  page_number integer DEFAULT 1,
+  verse_group integer,
+  orden_secuencia integer,
+  created_at timestamp with time zone DEFAULT now(),
+  control_flujo text DEFAULT 'none'::text,
+  rima text,
+  repeticion text,
+  CONSTRAINT traduccion_segments_pkey PRIMARY KEY (id),
+  CONSTRAINT traduccion_segments_partitura_id_fkey FOREIGN KEY (partitura_id) REFERENCES public.traduccion_partituras(id)
+);
 CREATE TABLE public.transportes (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   nombre text NOT NULL UNIQUE,
@@ -1022,37 +1089,3 @@ CREATE TABLE public.venue_status_types (
   slug text NOT NULL UNIQUE,
   CONSTRAINT venue_status_types_pkey PRIMARY KEY (id)
 );
-
--- Traducción musical (AcroForm WYSIWYG). Bucket `translations` y RLS: ver docs/specs/music-translation.md
-CREATE TABLE public.traduccion_partituras (
-  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
-  titulo_en text NOT NULL,
-  titulo_es text,
-  fecha_limite date,
-  pdf_url text,
-  created_at timestamp with time zone DEFAULT now(),
-  created_by bigint,
-  CONSTRAINT traduccion_partituras_pkey PRIMARY KEY (id),
-  CONSTRAINT traduccion_partituras_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.integrantes(id)
-);
-CREATE TABLE public.traduccion_segments (
-  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
-  partitura_id bigint NOT NULL,
-  segment_name text NOT NULL,
-  segment_english text,
-  segment_spanish text,
-  rect_x double precision,
-  rect_y double precision,
-  rect_w double precision,
-  rect_h double precision,
-  page_number integer DEFAULT 1,
-  verse_group integer,
-  orden_secuencia integer,
-  control_flujo text DEFAULT 'none'::text,
-  rima text,
-  repeticion text,
-  created_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT traduccion_segments_pkey PRIMARY KEY (id),
-  CONSTRAINT traduccion_segments_partitura_id_fkey FOREIGN KEY (partitura_id) REFERENCES public.traduccion_partituras(id) ON DELETE CASCADE
-);
-CREATE INDEX idx_segment_name_prefix ON public.traduccion_segments USING btree (partitura_id, segment_name);

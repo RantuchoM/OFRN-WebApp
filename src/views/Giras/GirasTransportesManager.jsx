@@ -53,8 +53,19 @@ import {
 
 import { toast } from "sonner";
 
-const TIPO_EVENTO_DEFAULT = 11;
-const TIPO_EVENTO_ALT = 12;
+/** Categoría de uso del transporte → id_tipo_evento de las paradas en `eventos`. */
+const CATEGORIAS_TRANSPORTE = {
+  PASAJEROS: 11,
+  LOGISTICO: 12,
+  INTERNO: 35,
+};
+
+function eventTypeIdForCategoria(categoria) {
+  const c = String(categoria || "PASAJEROS").toUpperCase();
+  if (c === "LOGISTICO") return CATEGORIAS_TRANSPORTE.LOGISTICO;
+  if (c === "INTERNO") return CATEGORIAS_TRANSPORTE.INTERNO;
+  return CATEGORIAS_TRANSPORTE.PASAJEROS;
+}
 
 // --- UTILIDADES ---
 const formatDateSafe = (dateString) => {
@@ -1138,7 +1149,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     detalle: "",
     capacidad: "",
     costo: "",
-    es_tipo_alternativo: false,
+    categoria_logistica: "PASAJEROS",
   });
   const [editingEventId, setEditingEventId] = useState(null);
   const [newEvent, setNewEvent] = useState({
@@ -1146,7 +1157,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     hora: "",
     id_locacion: null,
     descripcion: "",
-    id_tipo_evento: String(TIPO_EVENTO_DEFAULT),
+    id_tipo_evento: String(CATEGORIAS_TRANSPORTE.PASAJEROS),
   });
 
   const deleteTransportTargetRef = useRef(null);
@@ -1262,7 +1273,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       const { data: list } = await supabase
         .from("giras_transportes")
         .select(
-          `id, detalle, costo, capacidad_maxima, id_transporte, es_tipo_alternativo, transportes ( nombre, patente)`,
+          `id, detalle, costo, capacidad_maxima, id_transporte, categoria_logistica, transportes ( nombre, patente)`,
         )
         .eq("id_gira", giraId)
         .order("id");
@@ -1422,6 +1433,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
 
     setLoading(true);
     try {
+      const transportRow = transports.find((x) => x.id === tId);
+      const defaultTipo = eventTypeIdForCategoria(transportRow?.categoria_logistica);
       const tramos = (template.plantillas_recorridos_tramos || []).sort(
         (a, b) => a.orden - b.orden,
       );
@@ -1435,7 +1448,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           hora: format(currentDateTime, "HH:mm:ss"),
           id_locacion: primerTramo.id_locacion_origen,
           descripcion: primerTramo.nota || "Inicio Recorrido",
-          id_tipo_evento: primerTramo.id_tipo_evento || TIPO_EVENTO_DEFAULT,
+          id_tipo_evento: primerTramo.id_tipo_evento || defaultTipo,
           suben: primerTramo.ids_localidades_suben || [],
           subenInd: primerTramo.ids_integrantes_suben || [],
 
@@ -1459,8 +1472,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
             ? siguienteTramo.nota || "Escala"
             : "Fin de Recorrido",
           id_tipo_evento: siguienteTramo
-            ? siguienteTramo.id_tipo_evento || TIPO_EVENTO_DEFAULT
-            : TIPO_EVENTO_DEFAULT,
+            ? siguienteTramo.id_tipo_evento || defaultTipo
+            : defaultTipo,
 
           bajan: tramo.ids_localidades_bajan || [],
           bajanInd: tramo.ids_integrantes_bajan || [],
@@ -1615,7 +1628,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
         hora: "",
         id_locacion: null,
         descripcion: "",
-        id_tipo_evento: String(TIPO_EVENTO_DEFAULT),
+        id_tipo_evento: String(CATEGORIAS_TRANSPORTE.PASAJEROS),
       });
       await fetchData();
       refresh();
@@ -1635,7 +1648,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       descripcion: evt.descripcion || "",
       id_tipo_evento: evt.id_tipo_evento
         ? evt.id_tipo_evento.toString()
-        : String(TIPO_EVENTO_DEFAULT),
+        : String(CATEGORIAS_TRANSPORTE.PASAJEROS),
     });
   };
 
@@ -1646,7 +1659,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       hora: "",
       id_locacion: null,
       descripcion: "",
-      id_tipo_evento: String(TIPO_EVENTO_DEFAULT),
+      id_tipo_evento: String(CATEGORIAS_TRANSPORTE.PASAJEROS),
     });
   };
 
@@ -1937,11 +1950,17 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const startEditingTransport = (e, t) => {
     e.stopPropagation();
     setEditingTransportId(t.id);
+    const catRaw = String(t.categoria_logistica || "PASAJEROS").toUpperCase();
+    const categoria_logistica = ["LOGISTICO", "INTERNO", "PASAJEROS"].includes(
+      catRaw,
+    )
+      ? catRaw
+      : "PASAJEROS";
     setEditFormData({
       detalle: t.detalle || "",
       capacidad: t.capacidad_maxima || "",
       costo: t.costo || "",
-      es_tipo_alternativo: t.es_tipo_alternativo || false,
+      categoria_logistica,
     });
   };
 
@@ -1958,10 +1977,15 @@ export default function GirasTransportesManager({ supabase, gira }) {
     const toastId = toast.loading("Guardando cambios...");
 
     try {
-      const targetEventType = editFormData.es_tipo_alternativo ? 12 : 11;
-      const typeName = editFormData.es_tipo_alternativo
-        ? "Solo Logístico"
-        : "de Pasajeros";
+      const targetEventType = eventTypeIdForCategoria(
+        editFormData.categoria_logistica,
+      );
+      const typeName =
+        editFormData.categoria_logistica === "LOGISTICO"
+          ? "Solo logístico"
+          : editFormData.categoria_logistica === "INTERNO"
+            ? "Traslado interno"
+            : "De pasajeros";
 
       const { error: transportError } = await supabase
         .from("giras_transportes")
@@ -1971,7 +1995,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
             ? parseInt(editFormData.capacidad, 10)
             : null,
           costo: parseFloat(editFormData.costo) || 0,
-          es_tipo_alternativo: editFormData.es_tipo_alternativo,
+          categoria_logistica: editFormData.categoria_logistica,
         })
         .eq("id", editingTransportId);
 
@@ -2289,31 +2313,63 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           }
                           className="border border-indigo-300 rounded px-2 py-1 text-xs w-24"
                         />
-                        <label
-                          className={`flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer select-none ${editFormData.es_tipo_alternativo ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-slate-50 border-slate-200 text-slate-400"}`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="hidden"
-                            checked={editFormData.es_tipo_alternativo}
-                            onChange={(e) =>
-                              setEditFormData({
-                                ...editFormData,
-                                es_tipo_alternativo: e.target.checked,
-                              })
-                            }
-                          />
-                          {editFormData.es_tipo_alternativo ? (
-                            <IconAlertTriangle size={14} />
-                          ) : (
-                            <IconBus size={14} />
-                          )}
-                          <span className="text-[9px] font-bold uppercase">
-                            {editFormData.es_tipo_alternativo
-                              ? "Solo logístico"
-                              : "De pasajeros"}
-                          </span>
-                        </label>
+                        <div className="flex flex-wrap gap-1 items-center">
+                          {[
+                            {
+                              key: "PASAJEROS",
+                              label: "De pasajeros",
+                              Icon: IconBus,
+                              activeClass:
+                                "bg-slate-50 border-slate-300 text-slate-800",
+                            },
+                            {
+                              key: "LOGISTICO",
+                              label: "Solo logístico",
+                              Icon: IconAlertTriangle,
+                              activeClass:
+                                "bg-amber-50 border-amber-200 text-amber-700",
+                            },
+                            {
+                              key: "INTERNO",
+                              label: "Trasl. interno",
+                              Icon: IconBus,
+                              activeClass:
+                                "bg-violet-50 border-violet-300 text-violet-700",
+                            },
+                          ].map(({ key, label, Icon, activeClass }) => {
+                            const active =
+                              editFormData.categoria_logistica === key;
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() =>
+                                  setEditFormData({
+                                    ...editFormData,
+                                    categoria_logistica: key,
+                                  })
+                                }
+                                className={`flex items-center gap-1 px-2 py-1 rounded border text-[9px] font-bold uppercase transition-colors ${
+                                  active
+                                    ? activeClass
+                                    : "bg-slate-50 border-slate-200 text-slate-400"
+                                }`}
+                                style={
+                                  key === "INTERNO" && active
+                                    ? {
+                                        borderColor: "#8B5CF6",
+                                        color: "#6D28D9",
+                                        backgroundColor: "#F5F3FF",
+                                      }
+                                    : undefined
+                                }
+                              >
+                                <Icon size={14} />
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
                         <div className="flex gap-1">
                           <button
                             onClick={saveTransportChanges}
@@ -2361,9 +2417,23 @@ export default function GirasTransportesManager({ supabase, gira }) {
                               : ""}{" "}
                             butacas {maxCap > 0 ? ` / ${maxCap}` : ""}
                           </span>
-                          {t.es_tipo_alternativo && (
+                          {String(t.categoria_logistica || "").toUpperCase() ===
+                            "LOGISTICO" && (
                             <span className="ml-1 text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold border border-amber-200">
                               Solo logístico
+                            </span>
+                          )}
+                          {String(t.categoria_logistica || "").toUpperCase() ===
+                            "INTERNO" && (
+                            <span
+                              className="ml-1 text-[9px] px-1.5 py-0.5 rounded font-bold border inline-flex items-center gap-0.5"
+                              style={{
+                                backgroundColor: "#F5F3FF",
+                                color: "#6D28D9",
+                                borderColor: "#C4B5FD",
+                              }}
+                            >
+                              <IconBus size={10} /> Trasl. interno
                             </span>
                           )}
                         </div>
@@ -2946,9 +3016,11 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                     hora: "08:00:00",
                                     id_locacion: null,
                                     descripcion: "",
-                                    id_tipo_evento: t.es_tipo_alternativo
-                                      ? String(TIPO_EVENTO_ALT)
-                                      : String(TIPO_EVENTO_DEFAULT),
+                                    id_tipo_evento: String(
+                                      eventTypeIdForCategoria(
+                                        t.categoria_logistica,
+                                      ),
+                                    ),
                                   });
                                 }}
                                 className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all uppercase tracking-[0.2em] bg-white"

@@ -8,6 +8,7 @@ import {
 } from "../utils/giraUtils";
 
 // --- 1. RE-EXPORTS PARA COMPATIBILIDAD ---
+/** Incluye categoría EXTERNOS (ver `getCategoriaLogistica` en `giraUtils.js`). */
 export { normalize, getMatchStrength, matchesRule, getCategoriaLogistica };
 
 export const getPriorityValue = (scope) => {
@@ -221,6 +222,28 @@ export const calculateLogisticsSummary = (
         subidaScope: sub.scope,
         bajadaScope: baj.scope,
         priority: maxPrio,
+      });
+    });
+
+    // Traslado interno (INTERNO): visible para todo el roster activo sin reglas de asignación.
+    (transportesFisicos || []).forEach((gt) => {
+      const cat = String(gt.categoria_logistica || "PASAJEROS").toUpperCase();
+      if (cat !== "INTERNO") return;
+      const tid = Number(gt.id);
+      if (Number.isNaN(tid)) return;
+      if (log.transports.some((x) => x.id === tid)) return;
+      log.transports.push({
+        id: tid,
+        nombre: transportMap[tid]?.transportes?.nombre || "Bus",
+        detalle: transportMap[tid]?.detalle || "",
+        patente: transportMap[tid]?.transportes?.patente || "",
+        subidaId: null,
+        bajadaId: null,
+        subidaData: null,
+        bajadaData: null,
+        subidaScope: null,
+        bajadaScope: null,
+        priority: 0,
       });
     });
 

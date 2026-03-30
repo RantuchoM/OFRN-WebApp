@@ -347,7 +347,9 @@ export const getTransportesByGira = async (supabase, giraId) => {
     // Intentar con join a transportes (nombre viene de la tabla maestra transportes)
     const { data, error } = await supabase
       .from("giras_transportes")
-      .select("id, detalle, id_transporte, transportes(nombre, patente)")
+      .select(
+        "id, detalle, id_transporte, categoria_logistica, transportes(nombre, patente)",
+      )
       .eq("id_gira", idGira)
       .order("id");
 

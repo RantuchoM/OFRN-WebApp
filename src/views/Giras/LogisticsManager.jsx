@@ -21,10 +21,15 @@ import {
   IconSearch,
   IconLinkOff,
   IconExchange,
+  IconHelpCircle,
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
-import { useLogistics } from "../../hooks/useLogistics";
+import {
+  useLogistics,
+  getMatchStrength,
+  getCategoriaLogistica,
+} from "../../hooks/useLogistics";
 import EventForm from "../../components/forms/EventForm";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
@@ -33,6 +38,7 @@ const CATEGORIA_OPTIONS = [
   { val: "SOLISTAS", label: "Solistas" },
   { val: "DIRECTORES", label: "Directores" },
   { val: "PRODUCCION", label: "Producción" },
+  { val: "EXTERNOS", label: "Externos" },
   { val: "LOCALES", label: "Locales" },
   { val: "NO_LOCALES", label: "No Locales" },
 ];
@@ -126,6 +132,57 @@ const formatDiff = (ms) => {
   const days = Math.floor(totalHrs / 24);
   const remHrs = totalHrs % 24;
   return days > 0 ? `${days}d ${remHrs}h` : `${remHrs}h`;
+};
+
+/** Persona coincide con el chip (criterio) y la regla le aplica (fuerza > 0). */
+const personMatchesLogisticsChip = (
+  row,
+  chipKey,
+  chipId,
+  person,
+  allLocalities,
+) => {
+  if (getMatchStrength(row, person, allLocalities) <= 0) return false;
+  const pId = String(person.id ?? person.id_integrante);
+  const pLoc = person.id_localidad ? String(person.id_localidad) : "";
+  const locInfo = (allLocalities || []).find((l) => String(l.id) === pLoc);
+  const pReg = String(
+    person.id_region ??
+      person.localidades?.id_region ??
+      locInfo?.id_region ??
+      "",
+  );
+  const pCat = getCategoriaLogistica(person);
+  switch (chipKey) {
+    case "target_ids":
+      return pId === String(chipId);
+    case "target_localities":
+      return pLoc === String(chipId);
+    case "target_regions":
+      return pReg === String(chipId);
+    case "target_categories":
+      return pCat === chipId;
+    default:
+      return false;
+  }
+};
+
+/** Misma lógica que calculateLogisticsSummary: última regla aplicada gana (mayor fuerza; empate → última en el listado). */
+const getWinningLogisticsRule = (person, rules, allLocalities) => {
+  if (!rules?.length) return null;
+  const matched = rules
+    .map((r, idx) => ({
+      r,
+      s: getMatchStrength(r, person, allLocalities),
+      idx,
+    }))
+    .filter((x) => x.s > 0)
+    .sort((a, b) => {
+      if (a.s !== b.s) return a.s - b.s;
+      return a.idx - b.idx;
+    });
+  if (matched.length === 0) return null;
+  return matched[matched.length - 1].r;
 };
 
 const getProviderColorClass = (p) => {
@@ -523,8 +580,15 @@ const TimelineNode = ({
 
 // --- 4. COMPONENTE PRINCIPAL ---
 export default function LogisticsManager({ supabase, gira }) {
-  const { summary, roster, logisticsRules, allEvents, sedeIds, refresh } =
-    useLogistics(supabase, gira);
+  const {
+    summary,
+    roster,
+    logisticsRules,
+    allEvents,
+    sedeIds,
+    refresh,
+    allLocalities,
+  } = useLogistics(supabase, gira);
   const [localRules, setLocalRules] = useState([]);
   const [savingStatus, setSavingStatus] = useState({});
   const [collapsedGroups, setCollapsedGroups] = useState({
@@ -542,6 +606,7 @@ export default function LogisticsManager({ supabase, gira }) {
   const [editingFormData, setEditingFormData] = useState(null);
   
   const [conflictModal, setConflictModal] = useState(null);
+  const [chipPreviewModal, setChipPreviewModal] = useState(null);
 
   const debounceRef = useRef({});
 
@@ -592,6 +657,45 @@ export default function LogisticsManager({ supabase, gira }) {
         .sort((a, b) => a.label.localeCompare(b.label)),
     [roster],
   );
+
+  const chipPreviewGrouped = useMemo(() => {
+    if (!chipPreviewModal || !roster?.length) return null;
+    const { row, chipKey, chipId } = chipPreviewModal;
+    const filtered = roster.filter(
+      (p) =>
+        normalize(p.estado_gira) !== "ausente" &&
+        personMatchesLogisticsChip(
+          row,
+          chipKey,
+          chipId,
+          p,
+          allLocalities,
+        ),
+    );
+    const byCity = {};
+    filtered.forEach((p) => {
+      const city = p.localidades?.localidad || "Sin localidad";
+      if (!byCity[city]) byCity[city] = [];
+      const winner = getWinningLogisticsRule(p, logisticsRules, allLocalities);
+      byCity[city].push({
+        person: p,
+        overridden: Boolean(
+          winner && Number(winner.id) !== Number(row.id),
+        ),
+        winnerRule: winner,
+      });
+    });
+    Object.values(byCity).forEach((arr) =>
+      arr.sort((a, b) =>
+        `${a.person.apellido || ""}, ${a.person.nombre || ""}`.localeCompare(
+          `${b.person.apellido || ""}, ${b.person.nombre || ""}`,
+          "es",
+        ),
+      ),
+    );
+    const cities = Object.keys(byCity).sort((a, b) => a.localeCompare(b, "es"));
+    return { byCity, cities, total: filtered.length };
+  }, [chipPreviewModal, roster, logisticsRules, allLocalities]);
 
   const listBeforeMilestoneFilter = useMemo(() => {
     // Excluir ausentes de todos los filtros de la Línea de Tiempo
@@ -1021,26 +1125,48 @@ export default function LogisticsManager({ supabase, gira }) {
                           { k: "target_localities", c: "bg-cyan-600" },
                           { k: "target_categories", c: "bg-purple-600" },
                           { k: "target_ids", c: "bg-amber-600" },
-                        ].map((s) =>
-                          row[s.k]?.map((id) => (
-                            <div
-                              key={id}
-                              className={`${s.c} text-white px-1.5 py-0.5 rounded text-[7px] font-black uppercase truncate shadow-sm`}
-                            >
-                              {
-                                (s.k === "target_regions"
-                                  ? catalogs.regions
-                                  : s.k === "target_localities"
-                                    ? catalogs.locations
-                                    : s.k === "target_categories"
-                                      ? CATEGORIA_OPTIONS
-                                      : rosterOptions
-                                )?.find(
-                                  (o) => String(o.val || o.id) === String(id),
-                                )?.label
-                              }
-                            </div>
-                          )),
+                        ].flatMap((s) =>
+                          (row[s.k] || []).map((id) => {
+                            const chipLabel =
+                              (s.k === "target_regions"
+                                ? catalogs.regions
+                                : s.k === "target_localities"
+                                  ? catalogs.locations
+                                  : s.k === "target_categories"
+                                    ? CATEGORIA_OPTIONS
+                                    : rosterOptions
+                              )?.find(
+                                (o) => String(o.val || o.id) === String(id),
+                              )?.label ?? "?";
+                            return (
+                              <div
+                                key={`${row.id}-${s.k}-${id}`}
+                                className="flex items-stretch gap-0.5 min-w-0"
+                              >
+                                <div
+                                  className={`${s.c} text-white px-1.5 py-0.5 rounded text-[7px] font-black uppercase truncate shadow-sm flex-1 min-w-0`}
+                                >
+                                  {chipLabel}
+                                </div>
+                                <button
+                                  type="button"
+                                  title="Ver quiénes aplican por este criterio"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setChipPreviewModal({
+                                      row,
+                                      chipKey: s.k,
+                                      chipId: id,
+                                      chipLabel,
+                                    });
+                                  }}
+                                  className="shrink-0 flex items-center justify-center w-5 rounded border border-white/30 bg-white/15 text-white/90 hover:bg-white hover:text-indigo-700 hover:border-indigo-300 transition-colors"
+                                >
+                                  <IconHelpCircle size={12} />
+                                </button>
+                              </div>
+                            );
+                          }),
                         )}
                       </div>
                     ) : (
@@ -1607,6 +1733,101 @@ export default function LogisticsManager({ supabase, gira }) {
             >
               Cerrar
             </button>
+          </div>
+        </div>
+      )}
+
+      {chipPreviewModal && (
+        <div
+          className="fixed inset-0 bg-slate-900/55 backdrop-blur-sm z-[280] flex items-center justify-center p-4"
+          onClick={() => setChipPreviewModal(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 animate-in zoom-in-95"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-start gap-2 bg-slate-50">
+              <div className="min-w-0">
+                <h3 className="text-sm font-black text-slate-800 uppercase flex items-center gap-2">
+                  <IconHelpCircle className="text-indigo-500 shrink-0" size={18} />
+                  <span className="truncate">
+                    {chipPreviewModal.chipLabel}
+                  </span>
+                </h3>
+                <p className="text-[10px] text-slate-500 mt-1 font-medium">
+                  Criterio en regla #{chipPreviewModal.row.id}
+                  {chipPreviewGrouped != null && (
+                    <span className="text-slate-700">
+                      {" "}
+                      · {chipPreviewGrouped.total} persona
+                      {chipPreviewGrouped.total !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChipPreviewModal(null)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-200"
+                aria-label="Cerrar"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            <div className="px-4 py-2 bg-amber-50/80 border-b border-amber-100">
+              <p className="text-[10px] text-amber-900 leading-snug">
+                <span className="font-bold">Prioridad:</span> si una persona
+                aparece en ámbar, otra regla con mayor especificidad (persona
+                &gt; categoría &gt; localidad &gt; región &gt; general) es la
+                que define los hitos en la práctica.
+              </p>
+            </div>
+            <div className="overflow-y-auto flex-1 p-0 min-h-0">
+              {!chipPreviewGrouped || chipPreviewGrouped.total === 0 ? (
+                <p className="p-6 text-sm text-slate-500 text-center">
+                  Nadie del roster coincide con este criterio bajo esta regla
+                  (o todos están ausentes).
+                </p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {chipPreviewGrouped.cities.map((city) => (
+                    <div key={city} className="px-4 py-3">
+                      <div className="text-[10px] font-black uppercase text-slate-400 mb-2 flex items-center gap-1 border-b border-slate-100 pb-1">
+                        <IconMapPin size={12} className="text-cyan-500" />
+                        {city}
+                      </div>
+                      <ul className="space-y-1.5">
+                        {chipPreviewGrouped.byCity[city].map(
+                          ({ person, overridden, winnerRule }) => (
+                            <li
+                              key={person.id}
+                              className={`text-[11px] rounded-lg px-2 py-1.5 border ${
+                                overridden
+                                  ? "bg-amber-50 border-amber-200 text-amber-950"
+                                  : "bg-slate-50 border-slate-100 text-slate-800"
+                              }`}
+                            >
+                              <div className="font-bold">
+                                {person.apellido}, {person.nombre}
+                              </div>
+                              {overridden && winnerRule && (
+                                <div className="text-[9px] mt-0.5 font-semibold text-amber-800">
+                                  Gana otra regla (más específica): #
+                                  {winnerRule.id}
+                                  {normalize(winnerRule.alcance) === "general"
+                                    ? " · alcance general"
+                                    : ""}
+                                </div>
+                              )}
+                            </li>
+                          ),
+                        )}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

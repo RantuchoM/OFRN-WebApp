@@ -9,9 +9,20 @@ import {
   IconChevronDown,
   IconChevronUp,
 } from "../../components/ui/Icons";
-import { normalize } from "../../hooks/useLogistics";
+import { normalize, getCategoriaLogistica } from "../../hooks/useLogistics";
 import { toast } from "sonner";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+
+/** Opciones de categoría logística (valor guardado en reglas = `id`). */
+const CATEGORIA_LOGISTICA_OPTIONS = [
+  { id: "SOLISTAS", label: "Solistas" },
+  { id: "DIRECTORES", label: "Directores" },
+  { id: "PRODUCCION", label: "Producción" },
+  { id: "CHOFER", label: "Choferes" },
+  { id: "EXTERNOS", label: "Externos (No estables)" },
+  { id: "LOCALES", label: "Locales" },
+  { id: "NO_LOCALES", label: "No Locales" },
+];
 
 // Helpers de Etiquetado
 const getScopeLabel = (scope) => {
@@ -373,7 +384,10 @@ export default function StopRulesManager({
     }
 
     if (rule.alcance === "Categoria") {
-      return rule.target_ids?.[0] || "Categoría";
+      const raw = rule.target_ids?.[0];
+      if (!raw) return "Categoría";
+      const opt = CATEGORIA_LOGISTICA_OPTIONS.find((c) => c.id === raw);
+      return opt ? opt.label : raw;
     }
 
     return "-";
@@ -439,8 +453,10 @@ export default function StopRulesManager({
       }
 
       if (rule.alcance === "Categoria" && (rule.target_ids || []).length > 0) {
-        const cat = p.categoria_logistica || p.categoria || "";
-        return normalize(cat) === normalize(rule.target_ids[0]);
+        return (
+          normalize(getCategoriaLogistica(p)) ===
+          normalize(rule.target_ids[0])
+        );
       }
 
       // General u otros casos: ya alcanza con el scope ganador.
@@ -524,17 +540,7 @@ export default function StopRulesManager({
     [localities],
   );
 
-  const categoryOptions = useMemo(
-    () => [
-      { id: "SOLISTAS", label: "Solistas" },
-      { id: "DIRECTORES", label: "Directores" },
-      { id: "PRODUCCION", label: "Producción" },
-      { id: "CHOFER", label: "Choferes" },
-      { id: "LOCALES", label: "Locales" },
-      { id: "NO_LOCALES", label: "No Locales" },
-    ],
-    [],
-  );
+  const categoryOptions = useMemo(() => CATEGORIA_LOGISTICA_OPTIONS, []);
 
   const personOptions = useMemo(() => {
     const list = (passengers || []).slice();

@@ -260,7 +260,7 @@ export function useAgendaData({
               .in("id_gira", Array.from(activeTourIds)),
             supabase
               .from("giras_transportes")
-              .select("id, id_gira, detalle, transportes(nombre)")
+              .select("id, id_gira, detalle, categoria_logistica, transportes(nombre)")
               .in("id_gira", Array.from(activeTourIds)),
           ]);
 

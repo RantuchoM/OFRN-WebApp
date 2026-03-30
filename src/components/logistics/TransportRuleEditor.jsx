@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { IconTrash, IconPlus, IconArrowRight, IconLoader } from '../ui/Icons';
 
+// Las categorías de matching (p. ej. EXTERNOS) se resuelven en `getCategoriaLogistica` / reglas de ruta, no aquí.
+
 export default function TransportRuleEditor({ 
   supabase, 
   ruleId, 
@@ -69,7 +71,10 @@ export default function TransportRuleEditor({
           
           // Condición 2: Que sea tipo 11 o 12 (Transporte)
           // Esto es opcional, pero ayuda a filtrar "ruido" si hubiera error de carga
-          const isTransportType = e.id_tipo_evento === 11 || e.id_tipo_evento === 12;
+          const isTransportType =
+            e.id_tipo_evento === 11 ||
+            e.id_tipo_evento === 12 ||
+            e.id_tipo_evento === 35;
 
           return matchesTransport && isTransportType;
       });
