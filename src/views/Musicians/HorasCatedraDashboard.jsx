@@ -22,6 +22,8 @@ import {
   collectNovedadesMesDocJobs,
   downloadNovedadesMesZip,
   uploadAllNovedadesMesToDrive,
+  downloadNovedadesMesUnifiedDocx,
+  uploadNovedadesMesUnifiedDocxToDrive,
   HORAS_NOTAS_DRIVE_FOLDER_ID,
 } from "../../utils/horasPdfExporter";
 import { downloadHorasNominaTablePdf } from "../../utils/horasNominaTablePdf";
@@ -314,6 +316,37 @@ export default function HorasCatedraDashboard({ supabase }) {
     }
   };
 
+  const handleNovedadesMesWordUnifiedDownload = async () => {
+    setNovedadesMesOpen(false);
+    if (novedadesMesJobs.length === 0) {
+      toast.error(
+        "No hay novedades para el mes y año seleccionados (sin cambio en la nómina respecto del mes anterior).",
+      );
+      return;
+    }
+    setNovedadesMesBusy(true);
+    const t = toast.loading(
+      `Generando Word unificado (${novedadesMesJobs.length} nota${
+        novedadesMesJobs.length === 1 ? "" : "s"
+      })...`,
+    );
+    try {
+      await downloadNovedadesMesUnifiedDocx(
+        novedadesMesJobs,
+        selectedYear,
+        selectedMonth,
+      );
+      toast.success("Word unificado descargado", { id: t });
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || "Error al generar el Word unificado", {
+        id: t,
+      });
+    } finally {
+      setNovedadesMesBusy(false);
+    }
+  };
+
   const handleDownloadTablaPdf = () => {
     if (!reportData.length) {
       toast.error("No hay datos en la tabla para este período.");
@@ -347,10 +380,43 @@ export default function HorasCatedraDashboard({ supabase }) {
     setNovedadesMesBusy(true);
     try {
       const n = await uploadAllNovedadesMesToDrive(supabase, novedadesMesJobs);
-      toast.success(`${n} archivos subidos a Drive`, { id: t });
+      toast.success(`${n} archivos Word subidos a Drive`, { id: t });
     } catch (err) {
       console.error(err);
       toast.error(err.message || "Error al subir a Drive", { id: t });
+    } finally {
+      setNovedadesMesBusy(false);
+    }
+  };
+
+  const handleNovedadesMesWordUnifiedDrive = async () => {
+    setNovedadesMesOpen(false);
+    if (novedadesMesJobs.length === 0) {
+      toast.error(
+        "No hay novedades para el mes y año seleccionados (sin cambio en la nómina respecto del mes anterior).",
+      );
+      return;
+    }
+    const total = novedadesMesJobs.length;
+    const t = toast.loading(
+      `Generando y subiendo Word unificado (${total} nota${
+        total === 1 ? "" : "s"
+      })...`,
+    );
+    setNovedadesMesBusy(true);
+    try {
+      await uploadNovedadesMesUnifiedDocxToDrive(
+        supabase,
+        novedadesMesJobs,
+        selectedYear,
+        selectedMonth,
+      );
+      toast.success("Word unificado subido a Drive", { id: t });
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || "Error al subir Word unificado a Drive", {
+        id: t,
+      });
     } finally {
       setNovedadesMesBusy(false);
     }
@@ -447,6 +513,23 @@ export default function HorasCatedraDashboard({ supabase }) {
                           onClick={handleNovedadesMesDrive}
                         >
                           Subir todo a Drive ({novedadesMesJobs.length})
+                        </button>
+                        <div className="my-1 border-t border-slate-100" />
+                        <button
+                          type="button"
+                          disabled={novedadesMesBusy}
+                          className="block w-full px-3 py-2 text-left font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                          onClick={handleNovedadesMesWordUnifiedDownload}
+                        >
+                          Descargar Word unificado
+                        </button>
+                        <button
+                          type="button"
+                          disabled={novedadesMesBusy}
+                          className="block w-full px-3 py-2 text-left font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                          onClick={handleNovedadesMesWordUnifiedDrive}
+                        >
+                          Subir Word unificado a Drive
                         </button>
                       </div>,
                       document.body,

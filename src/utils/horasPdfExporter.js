@@ -8,6 +8,7 @@ import jsPDF from "jspdf";
 export const HORAS_NOTAS_DRIVE_FOLDER_ID = "1kPOHAfOo_pNWSLbqhuVQ87WSij2f4_A_";
 
 export const MODELO_HORAS_DOCX_URL = "/plantillas/modelo_horas.docx";
+export const MODELO_HORAS_LOTE_DOCX_URL = "/plantillas/modelo_horas_lote.docx";
 
 /**
  * Texto de respaldo si falla la plantilla .docx (mismo contenido que el modelo Google).
@@ -263,6 +264,60 @@ export async function uploadAllNovedadesMesToDrive(supabase, jobs) {
     n++;
   }
   return n;
+}
+
+/**
+ * Word unificado con todas las notas del lote (una nota por página), usando
+ * la plantilla modelo_horas_lote.docx con un bloque repetible [#notas]...[/notas].
+ * @param {Array<{ integrante: any, registro: any, prev: any }>} jobs
+ * @returns {Promise<Blob>} application/vnd.openxmlformats-officedocument.wordprocessingml.document
+ */
+export async function buildUnifiedNotasHorasDocxBlob(jobs) {
+  if (!jobs?.length) {
+    throw new Error(
+      "No hay novedades para el mes seleccionado (sin cambio en la nómina respecto del mes anterior).",
+    );
+  }
+  const buf = await fetchTemplateArrayBuffer(MODELO_HORAS_LOTE_DOCX_URL);
+  const zip = new PizZip(buf);
+  const doc = new Docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true,
+    delimiters: { start: "[", end: "]" },
+  });
+  const notas = jobs.map((job) =>
+    buildHorasNotaTemplateData(job.integrante, job.registro, job.prev),
+  );
+  doc.render({ notas });
+  return doc.getZip().generate({
+    type: "blob",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+}
+
+/**
+ * Descarga un único Word unificado con todas las notas del lote.
+ */
+export async function downloadNovedadesMesUnifiedDocx(jobs, year, month) {
+  const blob = await buildUnifiedNotasHorasDocxBlob(jobs);
+  const fn = `Novedades_horas_${String(month).padStart(2, "0")}_${year}_unificado.docx`;
+  saveAs(blob, fn);
+}
+
+/**
+ * Sube un único Word unificado con todas las notas del lote a Drive.
+ * @returns {Promise<void>}
+ */
+export async function uploadNovedadesMesUnifiedDocxToDrive(
+  supabase,
+  jobs,
+  year,
+  month,
+) {
+  const blob = await buildUnifiedNotasHorasDocxBlob(jobs);
+  const fn = `Novedades_horas_${String(month).padStart(2, "0")}_${year}_unificado.docx`;
+  await uploadHorasNotaToDrive(supabase, blob, fn, HORAS_NOTA_DOCX_MIME);
 }
 
 /**
