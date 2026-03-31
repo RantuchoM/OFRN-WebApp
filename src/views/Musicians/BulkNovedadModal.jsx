@@ -190,7 +190,7 @@ export default function BulkNovedadModal({
           <div>
             <h3 className="font-black text-slate-800 uppercase tracking-wide flex items-center gap-2">
               <IconPlus className="text-indigo-500" />
-              Incorporar Estables
+              Estables
             </h3>
             <p className="text-xs text-slate-500 mt-1">
               Selecciona integrantes estables sin historial y aplica una novedad inicial comun.

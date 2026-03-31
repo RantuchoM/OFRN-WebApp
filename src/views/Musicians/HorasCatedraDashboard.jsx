@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   IconLoader, IconFilter, IconPlus, IconX, IconUser, IconTrash, IconEdit,
   IconCloudUpload,
@@ -23,6 +24,7 @@ import {
   uploadAllNovedadesMesToDrive,
   HORAS_NOTAS_DRIVE_FOLDER_ID,
 } from "../../utils/horasPdfExporter";
+import { downloadHorasNominaTablePdf } from "../../utils/horasNominaTablePdf";
 
 const CONCEPTOS = [
   { id: "h_basico", label: "Básico" },
@@ -69,7 +71,10 @@ export default function HorasCatedraDashboard({ supabase }) {
   const [uploadingNotaId, setUploadingNotaId] = useState(null);
   const [novedadesMesOpen, setNovedadesMesOpen] = useState(false);
   const [novedadesMesBusy, setNovedadesMesBusy] = useState(false);
-  const novedadesMesRef = useRef(null);
+  const novedadesMesTriggerRef = useRef(null);
+  const novedadesMesMenuRef = useRef(null);
+  const [novedadesMesMenuPos, setNovedadesMesMenuPos] = useState({ top: 0, left: 0 });
+  const NOVEDADES_MES_MENU_W = 224; // w-56
 
   const MAIN_CONCEPTOS = CONCEPTOS.filter(c => c.id !== "h_otros");
 
@@ -163,12 +168,41 @@ export default function HorasCatedraDashboard({ supabase }) {
     [reportData, selectedYear, selectedMonth],
   );
 
+  const updateNovedadesMesMenuPosition = useCallback(() => {
+    const el = novedadesMesTriggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const pad = 8;
+    let left = rect.right - NOVEDADES_MES_MENU_W;
+    left = Math.max(pad, Math.min(left, window.innerWidth - NOVEDADES_MES_MENU_W - pad));
+    setNovedadesMesMenuPos({
+      top: rect.bottom + 4,
+      left,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!novedadesMesOpen) return undefined;
+    updateNovedadesMesMenuPosition();
+    window.addEventListener("scroll", updateNovedadesMesMenuPosition, true);
+    window.addEventListener("resize", updateNovedadesMesMenuPosition);
+    return () => {
+      window.removeEventListener("scroll", updateNovedadesMesMenuPosition, true);
+      window.removeEventListener("resize", updateNovedadesMesMenuPosition);
+    };
+  }, [novedadesMesOpen, updateNovedadesMesMenuPosition]);
+
   useEffect(() => {
     if (!novedadesMesOpen) return undefined;
     const close = (e) => {
-      if (novedadesMesRef.current && !novedadesMesRef.current.contains(e.target)) {
-        setNovedadesMesOpen(false);
+      const t = e.target;
+      if (
+        novedadesMesTriggerRef.current?.contains(t) ||
+        novedadesMesMenuRef.current?.contains(t)
+      ) {
+        return;
       }
+      setNovedadesMesOpen(false);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
@@ -280,6 +314,26 @@ export default function HorasCatedraDashboard({ supabase }) {
     }
   };
 
+  const handleDownloadTablaPdf = () => {
+    if (!reportData.length) {
+      toast.error("No hay datos en la tabla para este período.");
+      return;
+    }
+    try {
+      downloadHorasNominaTablePdf({
+        reportData,
+        footerTotals,
+        month: selectedMonth,
+        year: selectedYear,
+        mainConceptos: MAIN_CONCEPTOS,
+      });
+      toast.success("PDF de la nómina descargado");
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || "No se pudo generar el PDF");
+    }
+  };
+
   const handleNovedadesMesDrive = async () => {
     setNovedadesMesOpen(false);
     if (novedadesMesJobs.length === 0) {
@@ -321,24 +375,26 @@ export default function HorasCatedraDashboard({ supabase }) {
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
-        {/* HEADER CONTROL */}
-        <div className="bg-white border-b border-slate-200 p-4 flex flex-wrap items-center gap-4 shrink-0">
-            <h2 className="text-lg font-black text-slate-800 uppercase tracking-tighter flex items-center gap-2">
-                <IconFilter className="text-indigo-500" /> Nómina Horas
+        {/* HEADER CONTROL — una sola fila; overflow horizontal en viewports muy estrechos */}
+        <div className="bg-white border-b border-slate-200 px-3 py-2.5 sm:px-4 sm:py-3 flex flex-nowrap items-center gap-2 sm:gap-3 min-w-0 shrink-0 overflow-x-auto">
+            <h2 className="text-sm sm:text-lg font-black text-slate-800 uppercase tracking-tighter flex items-center gap-1.5 sm:gap-2 shrink-0 whitespace-nowrap">
+                <IconFilter className="text-indigo-500 shrink-0" /> Nómina Horas
             </h2>
-            <div className="flex bg-slate-100 rounded-lg p-1">
-                <input type="number" min="1" max="12" className="w-12 bg-transparent text-center font-bold outline-none text-sm" value={selectedMonth} onChange={e => setSelectedMonth(parseInt(e.target.value))}/>
+            <div className="flex bg-slate-100 rounded-lg p-1 shrink-0">
+                <input type="number" min="1" max="12" className="w-10 sm:w-12 bg-transparent text-center font-bold outline-none text-xs sm:text-sm" value={selectedMonth} onChange={e => setSelectedMonth(parseInt(e.target.value))}/>
                 <span className="text-slate-300 font-light">/</span>
-                <input type="number" min="2020" max="2030" className="w-16 bg-transparent text-center font-bold outline-none text-sm" value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))}/>
+                <input type="number" min="2020" max="2030" className="w-14 sm:w-16 bg-transparent text-center font-bold outline-none text-xs sm:text-sm" value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))}/>
             </div>
             
-            <div className="flex items-center gap-2">
-                <div className="relative">
-                    <input type="text" placeholder="Buscar músico..." className="pl-8 pr-3 py-1.5 rounded-lg border border-slate-300 text-xs w-48 outline-none focus:ring-2 ring-indigo-100" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="relative min-w-0 max-w-[11rem] sm:max-w-[12rem] flex-1">
+                    <input type="text" placeholder="Buscar músico..." className="pl-8 pr-2 py-1.5 rounded-lg border border-slate-300 text-xs w-full min-w-0 outline-none focus:ring-2 ring-indigo-100" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
                     <IconUser size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
                 
                 <MultiSelectDropdown
+                    compact
+                    className="w-[9.5rem] sm:w-44 shrink-0"
                     options={ensemblesList.map((e) => ({ value: e.id, label: e.label }))}
                     value={Array.from(selectedEnsembles)}
                     onChange={(arr) => setSelectedEnsembles(new Set(arr))}
@@ -347,25 +403,35 @@ export default function HorasCatedraDashboard({ supabase }) {
                 />
             </div>
 
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-                <button type="button" onClick={() => setBulkModalOpen(true)} className="px-4 py-1.5 bg-white border border-indigo-200 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-50 flex items-center gap-2 shadow-sm">
-                    <IconPlus size={14} /> Incorporar Estables
+            <div className="ml-auto flex flex-nowrap items-center gap-1.5 sm:gap-2 shrink-0">
+                <button type="button" onClick={() => setBulkModalOpen(true)} className="px-3 sm:px-4 py-1.5 bg-white border border-indigo-200 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-50 flex items-center gap-1.5 sm:gap-2 shadow-sm shrink-0 whitespace-nowrap">
+                    <IconPlus size={14} /> Estables
                 </button>
                 <div className="flex items-center gap-1">
-                  <div className="relative" ref={novedadesMesRef}>
+                  <div className="shrink-0" ref={novedadesMesTriggerRef}>
                     <button
                       type="button"
                       disabled={novedadesMesBusy || loading}
                       onClick={() => setNovedadesMesOpen((o) => !o)}
-                      className="px-4 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-50 flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                      className="px-3 sm:px-4 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-50 flex items-center gap-1.5 shadow-sm disabled:opacity-50 shrink-0 whitespace-nowrap"
                       title={`Mes ${selectedMonth}/${selectedYear}: ${novedadesMesJobs.length} nota(s) según la nómina mostrada (cambio vs. mes anterior)`}
                     >
                       <IconCalendar size={14} className="text-indigo-500 shrink-0" />
                       Novedades del mes
                       <IconChevronDown size={14} className={`text-slate-400 shrink-0 transition-transform ${novedadesMesOpen ? "rotate-180" : ""}`} />
                     </button>
-                    {novedadesMesOpen && (
-                      <div className="absolute right-0 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-xl z-[60] text-xs">
+                  </div>
+                  {novedadesMesOpen &&
+                    createPortal(
+                      <div
+                        ref={novedadesMesMenuRef}
+                        className="fixed z-[10050] w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-xl text-xs"
+                        style={{
+                          top: novedadesMesMenuPos.top,
+                          left: novedadesMesMenuPos.left,
+                        }}
+                        role="menu"
+                      >
                         <button
                           type="button"
                           disabled={novedadesMesBusy}
@@ -382,27 +448,36 @@ export default function HorasCatedraDashboard({ supabase }) {
                         >
                           Subir todo a Drive ({novedadesMesJobs.length})
                         </button>
-                      </div>
+                      </div>,
+                      document.body,
                     )}
-                  </div>
                   <a
                     href={`https://drive.google.com/drive/folders/${HORAS_NOTAS_DRIVE_FOLDER_ID}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-green-700 shadow-sm"
+                    className="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-green-700 shadow-sm shrink-0"
                     title="Abrir carpeta de notas en Google Drive"
                   >
                     <IconFolder size={16} />
                   </a>
                 </div>
-                <button type="button" onClick={() => { setSelectedMusician(null); setRecordToEdit(null); setModalOpen(true); }} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
-                    <IconPlus size={14} /> Nueva Novedad
+                <button
+                  type="button"
+                  onClick={handleDownloadTablaPdf}
+                  disabled={loading || reportData.length === 0}
+                  className="px-3 sm:px-4 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-50 flex items-center gap-1.5 shadow-sm shrink-0 whitespace-nowrap disabled:opacity-50"
+                  title="Descargar la tabla del mes y año seleccionados en PDF"
+                >
+                  <IconFileText size={14} className="text-rose-600 shrink-0" /> PDF
+                </button>
+                <button type="button" onClick={() => { setSelectedMusician(null); setRecordToEdit(null); setModalOpen(true); }} className="px-3 sm:px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center gap-1.5 sm:gap-2 shadow-sm shrink-0 whitespace-nowrap">
+                    <IconPlus size={14} /> Novedad
                 </button>
             </div>
         </div>
 
         <div className="flex flex-1 overflow-hidden relative flex-col lg:flex-row min-h-0">
-            <div className="flex-1 min-w-0 min-h-0 overflow-y-auto custom-scrollbar p-4 pb-20 lg:pb-4">
+            <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar p-4 pb-32 lg:pb-12 scroll-pb-8">
                 <table className="w-full border-collapse text-left text-sm bg-white rounded-xl shadow-sm border-spacing-0"> {/* Eliminado overflow-hidden de aquí para que el sticky funcione mejor */}
                     <thead className="bg-slate-100 text-slate-500 font-bold uppercase text-[10px] tracking-wider sticky top-0 z-30 shadow-sm">
                         <tr>
@@ -480,40 +555,31 @@ export default function HorasCatedraDashboard({ supabase }) {
                         ))}
                     </tbody>
                     
-                    {/* --- FOOTER STICKY CORREGIDO --- */}
-                    <tfoot className="sticky bottom-0 z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
-                        {/* FILA 1: SUBTOTALES */}
+                    {/* --- FOOTER: sticky en <tfoot> para que subtotal + total vayan pegados (sin hueco entre filas) --- */}
+                    <tfoot className="sticky bottom-0 z-30 bg-white shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
                         <tr className="text-xs font-bold text-slate-600">
-                            {/* Celda "Subtotales" (Intersección: z-50 para ganar a todo) */}
-                            <td className="p-3 sticky left-0 bottom-[38px] z-50 bg-slate-100 border-t border-r border-slate-300 text-right uppercase tracking-wider shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                            <td className="p-3 sticky left-0 z-50 bg-slate-100 border-t border-r border-slate-300 text-right uppercase tracking-wider shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                 Subtotales
                             </td>
-                            
                             <td className="p-3 border-t border-l border-slate-300 bg-slate-100"></td>
-                            
                             {MAIN_CONCEPTOS.map(c => (
                                 <td key={c.id} className="p-2 text-center border-t border-l border-slate-300 bg-slate-100">
                                     {footerTotals.concepts[c.id] > 0 ? footerTotals.concepts[c.id] : "-"}
                                 </td>
                             ))}
-                            
                             <td className="p-3 text-center border-t border-l border-orange-200 bg-orange-100 text-orange-800">{footerTotals.totalCult}</td>
                             <td className="p-3 text-center border-t border-l border-blue-200 bg-blue-100 text-blue-800">{footerTotals.totalEdu}</td>
                             <td className="p-3 text-center border-t border-l border-slate-400 bg-slate-300 text-slate-800">{footerTotals.totalOtros}</td>
                             <td className="bg-slate-100 border-t border-slate-300"></td>
                         </tr>
 
-                        {/* FILA 2: TOTAL GENERAL */}
                         <tr className="bg-slate-800 text-white text-sm font-black">
-                            {/* Celda "Total General" (Intersección: z-50) */}
-                            <td className="p-3 sticky left-0 bottom-0 z-50 bg-slate-800 border-r border-slate-700 text-right uppercase tracking-widest text-indigo-300 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                            <td className="p-3 sticky left-0 z-50 bg-slate-800 border-r border-slate-700 text-right uppercase tracking-widest text-indigo-300 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                 Total General
                             </td>
-                            
-                            <td colSpan={MAIN_CONCEPTOS.length + 1} className="bg-slate-800 border-t border-slate-700"></td> 
-                            
+                            <td colSpan={MAIN_CONCEPTOS.length + 1} className="bg-slate-800 border-t border-slate-700"></td>
                             <td colSpan={3} className="p-3 text-center border-l border-slate-600 bg-slate-700 border-t border-slate-600">
-                                <div className="flex items-center justify-center gap-2">
+                                <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
                                     <span className="text-white text-xs opacity-70">({footerTotals.totalCult} + {footerTotals.totalEdu})</span>
                                     <span className="text-slate-400 font-normal">-</span>
                                     <span className="text-slate-300 text-xs font-normal">Otros ({footerTotals.totalOtros})</span>
@@ -577,7 +643,7 @@ export default function HorasCatedraDashboard({ supabase }) {
                     </div>
                     <div className="p-4 border-t bg-slate-50 shrink-0">
                         <button onClick={() => { setRecordToEdit(null); setModalOpen(true); }} className="w-full py-3 rounded-xl bg-slate-900 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-slate-800 transition-all">
-                            <IconPlus size={14} /> Nueva Novedad
+                            <IconPlus size={14} /> Novedad
                         </button>
                     </div>
                 </div>
