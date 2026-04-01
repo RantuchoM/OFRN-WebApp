@@ -376,192 +376,376 @@ export default function UsersManager({ supabase }) {
       )}
 
       <div className="flex-1 overflow-auto p-6">
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b border-slate-200">
-              <tr>
-                <th className="p-4 w-1/3">Integrante</th>
-                <th className="p-4 w-1/4">Rol de Sistema</th>
-                <th className="p-4 w-1/4">Clave</th>
-                <th className="p-4 text-center w-20">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredUsers.map((u) => {
-                const isPasswordVisible = visiblePasswords.has(u.id);
-                return (
-                  <tr
-                    key={u.id}
-                    className="hover:bg-slate-50 transition-colors"
-                  >
-                    <td className="p-4">
-                      <div className="font-bold text-slate-700 mb-1">
-                        {u.nombre} {u.apellido}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <IconMail
-                          size={14}
-                          className="text-slate-400 shrink-0"
-                        />
-                        <input
-                          type="text"
-                          readOnly={!isEditing(u.id, "mail")}
-                          className="bg-transparent border-b border-transparent focus:border-indigo-500 outline-none w-full text-xs text-slate-600 disabled:bg-transparent"
-                          value={u.mail || ""}
-                          onChange={(e) =>
-                            handleLocalChange(u.id, "mail", e.target.value)
-                          }
-                        />
-                        {!isEditing(u.id, "mail") ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(u.mail)}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 rounded transition-colors"
-                              title="Copiar"
-                            >
-                              <IconCopy size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => startEdit(u, "mail")}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 rounded transition-colors"
-                              title="Editar"
-                            >
-                              <IconEdit size={14} />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => saveEdit(u, "mail")}
-                              className="p-1.5 text-slate-400 hover:text-emerald-600 rounded transition-colors"
-                              title="Guardar"
-                            >
-                              <IconCheck size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => cancelEdit(u.id)}
-                              className="p-1.5 text-slate-400 hover:text-red-600 rounded transition-colors"
-                              title="Cancelar"
-                            >
-                              <IconX size={14} />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
+        {/* Vista escritorio: tabla */}
+        <div className="hidden md:block">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b border-slate-200">
+                <tr>
+                  <th className="p-4 w-1/3">Integrante</th>
+                  <th className="p-4 w-1/4">Rol de Sistema</th>
+                  <th className="p-4 w-1/4">Clave</th>
+                  <th className="p-4 text-center w-20">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredUsers.map((u) => {
+                  const isPasswordVisible = visiblePasswords.has(u.id);
+                  return (
+                    <tr
+                      key={u.id}
+                      className="hover:bg-slate-50 transition-colors"
+                    >
+                      <td className="p-4">
+                        <div className="font-bold text-slate-700 mb-1">
+                          {u.nombre} {u.apellido}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <IconMail
+                            size={14}
+                            className="text-slate-400 shrink-0"
+                          />
+                          <input
+                            type="text"
+                            readOnly={!isEditing(u.id, "mail")}
+                            className="bg-transparent border-b border-transparent focus:border-indigo-500 outline-none w-full text-xs text-slate-600 disabled:bg-transparent"
+                            value={u.mail || ""}
+                            onChange={(e) =>
+                              handleLocalChange(u.id, "mail", e.target.value)
+                            }
+                          />
+                          {!isEditing(u.id, "mail") ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(u.mail)}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 rounded transition-colors"
+                                title="Copiar"
+                              >
+                                <IconCopy size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(u, "mail")}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 rounded transition-colors"
+                                title="Editar"
+                              >
+                                <IconEdit size={14} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => saveEdit(u, "mail")}
+                                className="p-1.5 text-slate-400 hover:text-emerald-600 rounded transition-colors"
+                                title="Guardar"
+                              >
+                                <IconCheck size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => cancelEdit(u.id)}
+                                className="p-1.5 text-slate-400 hover:text-red-600 rounded transition-colors"
+                                title="Cancelar"
+                              >
+                                <IconX size={14} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
 
-                    <td className="p-4 min-w-[200px]">
-                      <SearchableSelect
-                        options={ROLES_OPTIONS}
-                        value={normalizeRolSistema(u.rol_sistema)}
-                        onChange={(ids) =>
-                          handleUpdateUser(u.id, "rol_sistema", ids && ids.length ? ids : ["personal"])
+                      <td className="p-4 min-w-[200px]">
+                        <SearchableSelect
+                          options={ROLES_OPTIONS}
+                          value={normalizeRolSistema(u.rol_sistema)}
+                          onChange={(ids) =>
+                            handleUpdateUser(u.id, "rol_sistema", ids && ids.length ? ids : ["personal"])
+                          }
+                          placeholder="Roles..."
+                          isMulti
+                          className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white min-h-[36px] w-full outline-none focus:ring-2 focus:ring-indigo-500"
+                          dropdownMinWidth={280}
+                        />
+                      </td>
+
+                      <td className="p-4">
+                        <div className="flex items-center gap-2 border-b border-slate-200 pb-1 w-full max-w-[220px]">
+                          <IconLock size={14} className="text-slate-300 shrink-0" />
+                          <input
+                            type={isPasswordVisible ? "text" : "password"}
+                            readOnly={!isEditing(u.id, "clave_acceso")}
+                            className="bg-transparent text-xs outline-none w-full text-slate-600 font-mono disabled:bg-transparent"
+                            value={u.clave_acceso || ""}
+                            onChange={(e) =>
+                              handleLocalChange(
+                                u.id,
+                                "clave_acceso",
+                                e.target.value,
+                              )
+                            }
+                          />
+                          {!isEditing(u.id, "clave_acceso") ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(u.clave_acceso)}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                                title="Copiar"
+                              >
+                                <IconCopy size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(u, "clave_acceso")}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                                title="Editar"
+                              >
+                                <IconEdit size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => togglePasswordVisibility(u.id)}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                                title={isPasswordVisible ? "Ocultar" : "Ver"}
+                              >
+                                {isPasswordVisible ? (
+                                  <IconEyeOff size={14} />
+                                ) : (
+                                  <IconEye size={14} />
+                                )}
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => saveEdit(u, "clave_acceso")}
+                                className="p-1.5 text-slate-400 hover:text-emerald-600 shrink-0"
+                                title="Guardar"
+                              >
+                                <IconCheck size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => cancelEdit(u.id)}
+                                className="p-1.5 text-slate-400 hover:text-red-600 shrink-0"
+                                title="Cancelar"
+                              >
+                                <IconX size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => togglePasswordVisibility(u.id)}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                              >
+                                {isPasswordVisible ? (
+                                  <IconEyeOff size={14} />
+                                ) : (
+                                  <IconEye size={14} />
+                                )}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="p-4 text-center">
+                        <button
+                          onClick={() => handleDelete(u.id)}
+                          className="text-slate-400 hover:text-red-600 p-2"
+                        >
+                          <IconTrash size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Vista móvil: tarjetas */}
+        <div className="md:hidden space-y-4">
+          {filteredUsers.map((u) => {
+            const isPasswordVisible = visiblePasswords.has(u.id);
+            return (
+              <div
+                key={u.id}
+                className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col gap-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-800">
+                      {u.nombre} {u.apellido}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                      <IconMail size={14} className="text-slate-400 shrink-0" />
+                      <input
+                        type="text"
+                        readOnly={!isEditing(u.id, "mail")}
+                        className="bg-transparent border-b border-transparent focus:border-indigo-500 outline-none w-full text-xs text-slate-600 disabled:bg-transparent"
+                        value={u.mail || ""}
+                        onChange={(e) =>
+                          handleLocalChange(u.id, "mail", e.target.value)
                         }
-                        placeholder="Roles..."
-                        isMulti
-                        className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white min-h-[36px] w-full outline-none focus:ring-2 focus:ring-indigo-500"
-                        dropdownMinWidth={280}
                       />
-                    </td>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {!isEditing(u.id, "mail") ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(u.mail)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-full transition-colors"
+                          title="Copiar email"
+                        >
+                          <IconCopy size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => startEdit(u, "mail")}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-full transition-colors"
+                          title="Editar email"
+                        >
+                          <IconEdit size={14} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => saveEdit(u, "mail")}
+                          className="p-1.5 text-slate-400 hover:text-emerald-600 rounded-full transition-colors"
+                          title="Guardar email"
+                        >
+                          <IconCheck size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => cancelEdit(u.id)}
+                          className="p-1.5 text-slate-400 hover:text-red-600 rounded-full transition-colors"
+                          title="Cancelar"
+                        >
+                          <IconX size={14} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
 
-                    <td className="p-4">
-                      <div className="flex items-center gap-2 border-b border-slate-200 pb-1 w-full max-w-[220px]">
-                        <IconLock size={14} className="text-slate-300 shrink-0" />
-                        <input
-                          type={isPasswordVisible ? "text" : "password"}
-                          readOnly={!isEditing(u.id, "clave_acceso")}
-                          className="bg-transparent text-xs outline-none w-full text-slate-600 font-mono disabled:bg-transparent"
-                          value={u.clave_acceso || ""}
-                          onChange={(e) =>
-                            handleLocalChange(
-                              u.id,
-                              "clave_acceso",
-                              e.target.value,
-                            )
-                          }
-                        />
-                        {!isEditing(u.id, "clave_acceso") ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(u.clave_acceso)}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
-                              title="Copiar"
-                            >
-                              <IconCopy size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => startEdit(u, "clave_acceso")}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
-                              title="Editar"
-                            >
-                              <IconEdit size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => togglePasswordVisibility(u.id)}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
-                              title={isPasswordVisible ? "Ocultar" : "Ver"}
-                            >
-                              {isPasswordVisible ? (
-                                <IconEyeOff size={14} />
-                              ) : (
-                                <IconEye size={14} />
-                              )}
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => saveEdit(u, "clave_acceso")}
-                              className="p-1.5 text-slate-400 hover:text-emerald-600 shrink-0"
-                              title="Guardar"
-                            >
-                              <IconCheck size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => cancelEdit(u.id)}
-                              className="p-1.5 text-slate-400 hover:text-red-600 shrink-0"
-                              title="Cancelar"
-                            >
-                              <IconX size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => togglePasswordVisibility(u.id)}
-                              className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
-                            >
-                              {isPasswordVisible ? (
-                                <IconEyeOff size={14} />
-                              ) : (
-                                <IconEye size={14} />
-                              )}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
+                <div>
+                  <div className="label-text mb-1">Roles de sistema</div>
+                  <SearchableSelect
+                    options={ROLES_OPTIONS}
+                    value={normalizeRolSistema(u.rol_sistema)}
+                    onChange={(ids) =>
+                      handleUpdateUser(u.id, "rol_sistema", ids && ids.length ? ids : ["personal"])
+                    }
+                    placeholder="Roles..."
+                    isMulti
+                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white min-h-[36px] w-full outline-none focus:ring-2 focus:ring-indigo-500"
+                    dropdownMinWidth={260}
+                  />
+                </div>
 
-                    <td className="p-4 text-center">
-                      <button
-                        onClick={() => handleDelete(u.id)}
-                        className="text-slate-400 hover:text-red-600 p-2"
-                      >
-                        <IconTrash size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                <div>
+                  <div className="label-text mb-1">Clave de acceso</div>
+                  <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-2 py-1.5 bg-slate-50">
+                    <IconLock size={14} className="text-slate-300 shrink-0" />
+                    <input
+                      type={isPasswordVisible ? "text" : "password"}
+                      readOnly={!isEditing(u.id, "clave_acceso")}
+                      className="bg-transparent text-xs outline-none w-full text-slate-600 font-mono disabled:bg-transparent"
+                      value={u.clave_acceso || ""}
+                      onChange={(e) =>
+                        handleLocalChange(
+                          u.id,
+                          "clave_acceso",
+                          e.target.value,
+                        )
+                      }
+                    />
+                    {!isEditing(u.id, "clave_acceso") ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(u.clave_acceso)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                          title="Copiar clave"
+                        >
+                          <IconCopy size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => startEdit(u, "clave_acceso")}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                          title="Editar clave"
+                        >
+                          <IconEdit size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => togglePasswordVisibility(u.id)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                          title={isPasswordVisible ? "Ocultar" : "Ver"}
+                        >
+                          {isPasswordVisible ? (
+                            <IconEyeOff size={14} />
+                          ) : (
+                            <IconEye size={14} />
+                          )}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => saveEdit(u, "clave_acceso")}
+                          className="p-1.5 text-slate-400 hover:text-emerald-600 shrink-0"
+                          title="Guardar clave"
+                        >
+                          <IconCheck size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => cancelEdit(u.id)}
+                          className="p-1.5 text-slate-400 hover:text-red-600 shrink-0"
+                          title="Cancelar"
+                        >
+                          <IconX size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => togglePasswordVisibility(u.id)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                        >
+                          {isPasswordVisible ? (
+                            <IconEyeOff size={14} />
+                          ) : (
+                            <IconEye size={14} />
+                          )}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    onClick={() => handleDelete(u.id)}
+                    className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600 font-medium"
+                  >
+                    <IconTrash size={14} />
+                    Eliminar
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
