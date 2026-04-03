@@ -1,6 +1,23 @@
 import { format, parseISO } from "date-fns";
 
 /**
+ * Primer lunes estrictamente posterior a una fecha (yyyy-MM-dd).
+ * Útil para fecha límite de rendición por defecto (posterior al fin de gira).
+ */
+export function firstMondayAfter(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return "";
+  try {
+    const d = parseISO(dateStr);
+    if (isNaN(d.getTime())) return "";
+    d.setDate(d.getDate() + 1);
+    while (d.getDay() !== 1) d.setDate(d.getDate() + 1);
+    return format(d, "yyyy-MM-dd");
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Utilidades de fecha y hora en hora local del navegador.
  * Usar este módulo para "hoy", "hora actual" y formato de fechas en la app.
  * No forzar GMT-3 salvo donde una spec lo indique.

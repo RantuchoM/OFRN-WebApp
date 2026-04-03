@@ -150,6 +150,10 @@ export function useViaticosIndividuales(
         const factorTempGlobal = parseFloat(config?.factor_temporada || 0);
         const valorDiarioCalc = round2(basePorcentaje * (1 + factorTempGlobal));
         const subtotal = round2(dias * valorDiarioCalc);
+        const anticipoParaTotal =
+          row.anticipo_custom != null && row.anticipo_custom !== ""
+            ? round2(parseFloat(row.anticipo_custom))
+            : subtotal;
 
         const gastos =
           parseFloat(row.gastos_movilidad || 0) +
@@ -161,7 +165,7 @@ export function useViaticosIndividuales(
           parseFloat(row.gasto_pasajes || 0) +
           parseFloat(row.transporte_otros || 0);
 
-        const totalFinal = round2(subtotal + gastos);
+        const totalFinal = round2(anticipoParaTotal + gastos);
 
         return {
           ...rowWithLogistics,
@@ -180,6 +184,7 @@ export function useViaticosIndividuales(
           noEstaEnRoster: esBajaLogica,
           valorDiarioCalc,
           subtotal,
+          anticipoParaTotal,
           totalFinal,
         };
       })
@@ -215,6 +220,14 @@ export function useViaticosIndividuales(
       valueToSave = cleanValue === "" ? 100 : parseFloat(cleanValue);
       if (isNaN(valueToSave)) valueToSave = 100;
     }
+    if (field === "anticipo_custom") {
+      if (value === null || value === "" || value === undefined) {
+        valueToSave = null;
+      } else {
+        const n = parseFloat(value);
+        valueToSave = Number.isFinite(n) ? round2(n) : null;
+      }
+    }
 
     const updatedRow = { ...currentRow, [field]: valueToSave };
     setRows((prev) => prev.map((r) => (r.id === id ? updatedRow : r)));
@@ -238,8 +251,18 @@ export function useViaticosIndividuales(
       }, 2000);
     } catch (err) {
       console.error("Error al guardar:", err);
+      const hint =
+        field === "anticipo_custom"
+          ? " ¿Ejecutaste la migración SQL (columna anticipo_custom en giras_viaticos_detalle)?"
+          : "";
+      const msg =
+        err?.message ||
+        err?.details ||
+        err?.hint ||
+        (typeof err === "string" ? err : JSON.stringify(err));
+      toast.error(`No se guardó: ${msg}${hint}`);
       setErrorFields((prev) => new Set(prev).add(fieldKey));
-      // Revertir en caso de error crítico podría implementarse aquí recargando fetchRows
+      await fetchRows();
     } finally {
       setUpdatingFields((prev) => {
         const next = new Set(prev);

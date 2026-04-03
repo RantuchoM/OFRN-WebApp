@@ -29,6 +29,9 @@ import ConfirmModal from "../../../components/ui/ConfirmModal";
 import ManualTrigger from "../../../components/manual/ManualTrigger";
 import { useViaticosIndividuales } from "../../../hooks/viaticos/useViaticosIndividuales";
 import { useViaticosMasivos } from "../../../hooks/viaticos/useViaticosMasivos";
+import DateInput from "../../../components/ui/DateInput";
+import { firstMondayAfter } from "../../../utils/dates";
+import { getAnticipoSubtotalForExport } from "../../../utils/viaticosAnticipo";
 
 const uint8ArrayToBase64 = (uint8Array) => {
   let binary = "";
@@ -79,6 +82,7 @@ const zeroDestaqueMonetaryFields = (data) => {
     "rendicion_viatico_monto",
     "total_percibir",
     "valorDiarioCalc",
+    "anticipo_custom",
   ];
 
   const cloned = { ...data };
@@ -197,6 +201,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     lugar_comision_destaques_exportacion: "",
     link_drive: "",
     porcentaje_destaques: 100,
+    rendicion_fecha: null,
   });
   const [latestGlobalValue, setLatestGlobalValue] = useState(0);
   const saveTimeoutRef = useRef(null);
@@ -419,8 +424,9 @@ export default function ViaticosManager({ supabase, giraId }) {
     }, 1000);
   };
 
-  const individualsPendingCount = useMemo(() => {
-    if (!roster || roster.length === 0) return 0;
+  /** Integrantes del roster que aún no tienen fila en viáticos (no ausentes, no perfil masivo). */
+  const individualsPending = useMemo(() => {
+    if (!roster || roster.length === 0) return [];
     const existingIds = new Set(
       viaticosRows.map((r) => String(r.id_integrante)),
     );
@@ -429,8 +435,43 @@ export default function ViaticosManager({ supabase, giraId }) {
       if (existingIds.has(String(p.id))) return false;
       if (esPerfilMasivo(p)) return false;
       return true;
-    }).length;
+    });
   }, [roster, viaticosRows]);
+
+  const individualsPendingCount = individualsPending.length;
+
+  const individualsPendingNamesSorted = useMemo(() => {
+    return [...individualsPending]
+      .map((p) =>
+        `${p.apellido || ""}, ${p.nombre || ""}`.trim() ||
+        p.rol_gira ||
+        p.rol ||
+        "Sin nombre",
+      )
+      .sort((a, b) => a.localeCompare(b, "es"));
+  }, [individualsPending]);
+
+  const rendicionFechaDefault = useMemo(
+    () => firstMondayAfter(giraData?.fecha_hasta),
+    [giraData?.fecha_hasta],
+  );
+
+  const rendicionFechaForInput =
+    config.rendicion_fecha || rendicionFechaDefault || "";
+
+  const sumGastosViaticoRow = (row) => {
+    if (!row) return 0;
+    return (
+      parseFloat(row.gastos_movilidad || 0) +
+      parseFloat(row.gasto_combustible || 0) +
+      parseFloat(row.gasto_otros || 0) +
+      parseFloat(row.gastos_movil_otros || 0) +
+      parseFloat(row.gastos_capacit || 0) +
+      parseFloat(row.gasto_alojamiento || 0) +
+      parseFloat(row.gasto_pasajes || 0) +
+      parseFloat(row.transporte_otros || 0)
+    );
+  };
 
   const candidateOptions = useMemo(() => {
     if (!roster) return [];
@@ -1001,7 +1042,10 @@ export default function ViaticosManager({ supabase, giraId }) {
             : 100;
         const valDiario = Math.round(base * factor * (pctGlobal / 100));
 
-        rich.subtotal = Math.round(dias * valDiario * 100) / 100;
+        const computedSub = Math.round(dias * valDiario * 100) / 100;
+        rich.valorDiarioCalc = valDiario;
+        rich.subtotal = computedSub;
+        rich.subtotal = getAnticipoSubtotalForExport(rich, useHistoricalCalc);
 
         const totalGastos =
           parseFloat(rich.gasto_alojamiento) +
@@ -1049,28 +1093,20 @@ export default function ViaticosManager({ supabase, giraId }) {
       return;
     }
 
-    // Helper: viático efectivo para export/enviar (histórico si toggle activo)
-    const getEffectiveSubtotalForExport = (row) => {
-      if (!useHistoricalCalc) return parseFloat(row.subtotal || row.monto_viatico || row.subtotal_viatico || 0);
-      const backupVal = row.backup_viatico != null && row.backup_viatico !== "" ? parseFloat(row.backup_viatico) : NaN;
-      if (!Number.isNaN(backupVal)) return backupVal;
-      const dias = parseFloat(row.backup_dias_computables ?? 0);
-      const val = parseFloat(row.valorDiarioCalc ?? 0);
-      return Math.round((dias * val) * 100) / 100;
-    };
-
-    // --- NORMALIZACIÓN DE DATOS (subtotal efectivo si "Calcular según Histórico" activo) ---
+    // --- NORMALIZACIÓN DE DATOS (anticipo custom > histórico > calculado) ---
     const selectedData = viaticosRows
       .filter((r) => selection.has(r.id_integrante))
       .map((row) => {
         const person = row.integrantes || {};
-        const effectiveSubtotal = getEffectiveSubtotalForExport(row);
+        const effectiveSubtotal = getAnticipoSubtotalForExport(row, useHistoricalCalc);
+        const totalFinalNorm = effectiveSubtotal + sumGastosViaticoRow(row);
         return {
           // Datos base de la persona (nombre, apellido, etc.)
           ...person,
           // Datos editados de la fila (incluye row.motivo, que debe prevalecer)
           ...row,
           subtotal: effectiveSubtotal,
+          totalFinal: totalFinalNorm,
           documentacion:
             person.documentacion || row.documentacion,
           docred: person.docred || row.docred,
@@ -1147,17 +1183,8 @@ export default function ViaticosManager({ supabase, giraId }) {
           continue;
         }
 
-        // Viático efectivo: según histórico (backup) o calculado actual
-        let effectiveSubtotal = parseFloat(row.subtotal || row.monto_viatico || row.subtotal_viatico || 0);
-        if (useHistoricalCalc) {
-          const backupVal = row.backup_viatico != null && row.backup_viatico !== "" ? parseFloat(row.backup_viatico) : NaN;
-          if (!Number.isNaN(backupVal)) effectiveSubtotal = backupVal;
-          else {
-            const dias = parseFloat(row.backup_dias_computables ?? 0);
-            const val = parseFloat(row.valorDiarioCalc ?? 0);
-            effectiveSubtotal = Math.round((dias * val) * 100) / 100;
-          }
-        }
+        const effectiveSubtotal = getAnticipoSubtotalForExport(row, useHistoricalCalc);
+        const totalPercibir = effectiveSubtotal + sumGastosViaticoRow(row);
 
         // PAYLOAD COMPLETO (Igual que Legacy)
         const detalleCompleto = {
@@ -1172,7 +1199,7 @@ export default function ViaticosManager({ supabase, giraId }) {
           gastos_movilidad: parseFloat(row.gastos_movilidad || 0),
           gastos_movil_otros: parseFloat(row.gastos_movil_otros || 0),
           gastos_capacit: parseFloat(row.gastos_capacit || 0),
-          total_percibir: parseFloat(row.total_percibir || row.totalFinal || 0),
+          total_percibir: totalPercibir,
         };
 
         const { error } = await supabase.functions.invoke("mails_produccion", {
@@ -1361,19 +1388,44 @@ export default function ViaticosManager({ supabase, giraId }) {
 
                   <div className="w-px h-8 bg-slate-200 mx-2"></div>
 
-                  <button
-                    onClick={handleAddIndividuals}
-                    disabled={rowsLoading || rosterLoading}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors shadow-sm disabled:opacity-50 relative"
-                  >
-                    <IconBriefcase size={16} />{" "}
-                    {rosterLoading ? "..." : "+ Todos los Indiv."}
+                  <div className="relative group inline-flex">
+                    <button
+                      type="button"
+                      onClick={handleAddIndividuals}
+                      disabled={rowsLoading || rosterLoading}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors shadow-sm disabled:opacity-50 relative"
+                    >
+                      <IconBriefcase size={16} />{" "}
+                      {rosterLoading ? "..." : "+ Todos los Indiv."}
+                      {individualsPendingCount > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border border-white">
+                          {individualsPendingCount}
+                        </span>
+                      )}
+                    </button>
                     {individualsPendingCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border border-white">
-                        {individualsPendingCount}
-                      </span>
+                      <div
+                        className="pointer-events-none invisible absolute bottom-full left-1/2 z-[200] flex w-max max-w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 flex-col items-stretch opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100"
+                        role="tooltip"
+                      >
+                        <div className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-left text-xs text-white shadow-xl">
+                          <p className="mb-1.5 border-b border-slate-600 pb-1 text-[11px] font-bold uppercase tracking-wide text-amber-200/90">
+                            Pendientes ({individualsPendingCount})
+                          </p>
+                          <ul className="max-h-64 list-none space-y-0.5 overflow-y-auto pr-1 font-normal leading-snug">
+                            {individualsPendingNamesSorted.map((name, i) => (
+                              <li key={`${name}-${i}`}>{name}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        {/* Puente invisible: mismo ancho que el panel para mantener hover al cruzar desde el botón */}
+                        <div
+                          className="h-3 w-full min-w-[8rem] shrink-0"
+                          aria-hidden
+                        />
+                      </div>
                     )}
-                  </button>
+                  </div>
 
                   <div className="relative">
                     <button
@@ -1454,23 +1506,52 @@ export default function ViaticosManager({ supabase, giraId }) {
                     </span>
                   </div>
                 </div>
-                <div className="flex flex-1 gap-2">
+                <div className="flex flex-1 gap-2 flex-wrap items-center">
                   <input
                     type="text"
-                    className="flex-1 bg-white border border-slate-200 rounded px-2 py-1 text-sm"
+                    className="flex-1 min-w-[120px] bg-white border border-slate-200 rounded px-2 py-1 text-sm"
                     placeholder="Motivo"
                     value={config.motivo || ""}
                     onChange={(e) => updateConfig("motivo", e.target.value)}
                   />
                   <input
                     type="text"
-                    className="flex-1 bg-white border border-slate-200 rounded px-2 py-1 text-sm"
+                    className="flex-1 min-w-[120px] bg-white border border-slate-200 rounded px-2 py-1 text-sm"
                     placeholder="Lugar"
                     value={config.lugar_comision || ""}
                     onChange={(e) =>
                       updateConfig("lugar_comision", e.target.value)
                     }
                   />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">
+                      Fecha de Rendición
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <DateInput
+                        value={rendicionFechaForInput}
+                        onChange={(v) =>
+                          updateConfig("rendicion_fecha", v || null)
+                        }
+                        showDayName={false}
+                        className={
+                          config.rendicion_fecha
+                            ? "h-8 min-w-[140px] border border-blue-300 bg-blue-100 text-sm font-medium text-blue-900 shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-400 [&_input]:!text-blue-900 [&_span]:!text-blue-400/80"
+                            : "h-8 min-w-[140px] border border-slate-200 bg-white text-sm focus-within:ring-2 focus-within:ring-indigo-500"
+                        }
+                      />
+                      {config.rendicion_fecha ? (
+                        <button
+                          type="button"
+                          title="Volver a la fecha por defecto (primer lunes posterior al fin de gira)"
+                          className="inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200/90 bg-white p-1 text-slate-400 shadow-sm hover:border-emerald-300 hover:text-emerald-600 hover:shadow"
+                          onClick={() => updateConfig("rendicion_fecha", null)}
+                        >
+                          <IconRefresh size={10} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
               </div>
 

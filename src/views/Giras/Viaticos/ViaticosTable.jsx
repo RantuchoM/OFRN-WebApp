@@ -4,6 +4,7 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconHistory,
+  IconRefresh,
 } from "../../../components/ui/Icons";
 import "./ViaticosSheet.css";
 
@@ -40,6 +41,100 @@ const isDiff = (valA, valB) => {
 };
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
+
+/** Anticipo manual o calculado: mismo bloque con ojo de rendiciones on/off. */
+function AnticipoEditableBlock({
+  row,
+  getAnticipoDisplay,
+  getEffectiveSubtotal,
+  getInputClass,
+  onUpdateRow,
+  CurrencyInput,
+}) {
+  const hasCustom =
+    row.anticipo_custom != null && row.anticipo_custom !== "";
+  const anticipoVal = getAnticipoDisplay(row);
+  const baseCalc = getEffectiveSubtotal(row);
+
+  const commitAnticipo = (val) => {
+    if (Math.abs(val - baseCalc) < 0.01) {
+      onUpdateRow(row.id, "anticipo_custom", null);
+    } else {
+      onUpdateRow(row.id, "anticipo_custom", val);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <CurrencyInput
+        value={anticipoVal}
+        onCommit={commitAnticipo}
+        className={`w-full min-w-0 text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 ${getInputClass(
+          row.id,
+          "anticipo_custom",
+          hasCustom ? "bg-blue-100" : "bg-orange-100",
+          hasCustom ? "text-blue-800" : "text-orange-900",
+        )}`}
+        placeholder="0"
+      />
+      {hasCustom && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            title="Volver al cálculo automático"
+            className="inline-flex items-center justify-center rounded-full border border-slate-200/90 bg-white p-0.5 text-slate-400 shadow-sm hover:border-emerald-300 hover:text-emerald-600 hover:shadow"
+            onClick={() => onUpdateRow(row.id, "anticipo_custom", null)}
+          >
+            <IconRefresh size={7} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Columna Viático con rendiciones: anticipo + rendición viáticos + diff. */
+function AnticipoViaticoRendicionCell({
+  row,
+  getAnticipoDisplay,
+  getEffectiveSubtotal,
+  getInputClass,
+  onUpdateRow,
+  showExpenses,
+  CurrencyInput,
+}) {
+  const anticipoVal = getAnticipoDisplay(row);
+  const numRen = parseFloat(row.rendicion_viaticos || 0);
+  const diff = anticipoVal - numRen;
+
+  return (
+    <div className="flex flex-col gap-1 justify-center h-full py-1">
+      <AnticipoEditableBlock
+        row={row}
+        getAnticipoDisplay={getAnticipoDisplay}
+        getEffectiveSubtotal={getEffectiveSubtotal}
+        getInputClass={getInputClass}
+        onUpdateRow={onUpdateRow}
+        CurrencyInput={CurrencyInput}
+      />
+      <div className="relative">
+        <CurrencyInput
+          value={row.rendicion_viaticos}
+          onCommit={(val) => onUpdateRow(row.id, "rendicion_viaticos", val)}
+          className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 ${getInputClass(row.id, "rendicion_viaticos", "bg-emerald-50", "text-emerald-900")}`}
+          placeholder="0"
+        />
+      </div>
+      {showExpenses && (
+        <div
+          className={`text-right text-xs border border-slate-200 bg-white px-1 rounded-sm shadow-sm ${diff < 0 ? "text-red-600 font-black" : "text-slate-500 font-bold"}`}
+        >
+          {diff !== 0 ? diff.toLocaleString("es-AR") : "-"}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // --- COMPONENTE INPUT MONEDA INTELIGENTE (DISPLAY VS EDIT) ---
 const CurrencyInput = ({
@@ -205,6 +300,15 @@ export default function ViaticosTable({
     return diff === 0 ? null : diff;
   };
 
+  /** Anticipo mostrado y para totales: manual (`anticipo_custom`) o cálculo (histórico / subtotal). */
+  const getAnticipoDisplay = (row) => {
+    if (row.anticipo_custom != null && row.anticipo_custom !== "") {
+      const v = parseFloat(row.anticipo_custom);
+      if (!Number.isNaN(v)) return v;
+    }
+    return getEffectiveSubtotal(row);
+  };
+
   // --- GESTIÓN DE COLORES DE ESTADO (PRIORIDAD AL FEEDBACK BD) ---
   const getInputClass = (
     rowId,
@@ -229,10 +333,7 @@ export default function ViaticosTable({
   };
 
   // --- CÁLCULOS GLOBALES (respeta histórico si toggle activo) ---
-  const totalAnticipo = rows.reduce(
-    (acc, r) => acc + getEffectiveSubtotal(r),
-    0,
-  );
+  const totalAnticipo = rows.reduce((acc, r) => acc + getAnticipoDisplay(r), 0);
   const totalGastos = rows.reduce((acc, r) => {
     let sum = 0;
     FINANCIAL_COLS.forEach((col) => {
@@ -247,12 +348,11 @@ export default function ViaticosTable({
     row,
     colDef,
     isReadOnly = false,
-    forceValue = null,
   }) => {
     const fieldExp = colDef.exp;
     const fieldRen = colDef.ren;
 
-    const estVal = forceValue !== null ? forceValue : row[fieldExp];
+    const estVal = row[fieldExp];
     const renVal = row[fieldRen];
 
     const numEst = parseFloat(estVal || 0);
@@ -302,7 +402,7 @@ export default function ViaticosTable({
 
   // --- CELDA DE TOTAL FINAL (3 FILAS) ---
   const TotalFinalCell = ({ row }) => {
-    let totalEst = getEffectiveSubtotal(row);
+    let totalEst = getAnticipoDisplay(row);
     let totalRen = parseFloat(row.rendicion_viaticos || 0);
 
     FINANCIAL_COLS.forEach((c) => {
@@ -442,7 +542,7 @@ export default function ViaticosTable({
                     <th className="px-1 py-3 text-center w-12 sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
                       %
                     </th>
-                    <th className={`px-2 py-3 text-right font-bold w-28 border-r sticky top-0 z-30 border-b ${isHistorical ? "text-amber-800 bg-amber-50 border-amber-100" : "text-indigo-800 bg-indigo-50 border-indigo-100 border-slate-200"}`}>
+                    <th className={`px-2 py-3 text-right font-bold min-w-[100px] border-r sticky top-0 z-30 border-b ${isHistorical ? "text-amber-800 bg-amber-50 border-amber-100" : "text-indigo-800 bg-indigo-50 border-indigo-100 border-slate-200"}`}>
                       Viático
                     </th>
                   </>
@@ -526,6 +626,10 @@ export default function ViaticosTable({
 
                 const transportNameSalida = logData?.transporte_salida;
                 const transportNameLlegada = logData?.transporte_llegada;
+
+                const hasViaticoCustom =
+                  row.anticipo_custom != null &&
+                  String(row.anticipo_custom).trim() !== "";
 
                 let rowBgClass = "bg-white group-hover:bg-slate-50";
                 if (row.noEstaEnRoster)
@@ -723,18 +827,41 @@ export default function ViaticosTable({
 
                         {/* CELDA VIÁTICO (histórico o calculado) + subida/bajada vs último backup */}
                         <td
-                          className={`px-2 py-1 border-r border-b ${isHistorical ? "bg-amber-50/80 border-amber-100 text-amber-900" : "border-indigo-100"} ${!isHistorical && (showExpenses && showRendiciones ? "bg-slate-50/30" : showExpenses ? "bg-orange-50/10" : "bg-emerald-50/10")}`}
+                          className={`min-w-[100px] px-2 py-1 border-r border-b ${isHistorical ? "bg-amber-50/80 border-amber-100 text-amber-900" : "border-indigo-100"} ${!isHistorical && (showExpenses && showRendiciones ? "bg-slate-50/30" : showExpenses ? "bg-orange-50/10" : "bg-emerald-50/10")}`}
                         >
                           <div className="flex flex-col gap-0.5">
-                            <StackedFinancialCell
-                              row={row}
-                              colDef={{
-                                exp: "subtotal",
-                                ren: "rendicion_viaticos",
-                              }}
-                              isReadOnly={true}
-                              forceValue={getEffectiveSubtotal(row)}
-                            />
+                            {showRendiciones ? (
+                              <AnticipoViaticoRendicionCell
+                                row={row}
+                                getAnticipoDisplay={getAnticipoDisplay}
+                                getEffectiveSubtotal={getEffectiveSubtotal}
+                                getInputClass={getInputClass}
+                                onUpdateRow={onUpdateRow}
+                                showExpenses={showExpenses}
+                                CurrencyInput={CurrencyInput}
+                              />
+                            ) : (
+                              <AnticipoEditableBlock
+                                row={row}
+                                getAnticipoDisplay={getAnticipoDisplay}
+                                getEffectiveSubtotal={getEffectiveSubtotal}
+                                getInputClass={getInputClass}
+                                onUpdateRow={onUpdateRow}
+                                CurrencyInput={CurrencyInput}
+                              />
+                            )}
+                            {!showRendiciones &&
+                              hasViaticoCustom && (
+                                <div
+                                  className="text-[9px] font-medium text-right leading-tight text-blue-700 tabular-nums"
+                                  title="Viático calculado automáticamente (sin override manual)"
+                                >
+                                  calc.{" "}
+                                  {round2(
+                                    getEffectiveSubtotal(row),
+                                  ).toLocaleString("es-AR")}
+                                </div>
+                              )}
                             {(() => {
                               const diff = getViaticoDiffVsBackup(row);
                               if (diff == null) return null;

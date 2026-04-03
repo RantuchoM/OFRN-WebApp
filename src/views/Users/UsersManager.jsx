@@ -14,6 +14,7 @@ import {
   IconEyeOff,
   IconCopy,
   IconEdit,
+  IconMusic,
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import SearchableSelect from "../../components/ui/SearchableSelect";
@@ -77,7 +78,11 @@ export default function UsersManager({ supabase }) {
     try {
       const { data, error } = await supabase
         .from("integrantes")
-        .select("*")
+        .select(
+          `*,
+           instrumentos(instrumento),
+           integrantes_ensambles(ensambles(id, ensamble))`,
+        )
         .order("apellido", { ascending: true });
 
       if (error) throw error;
@@ -392,14 +397,14 @@ export default function UsersManager({ supabase }) {
                 {filteredUsers.map((u) => {
                   const isPasswordVisible = visiblePasswords.has(u.id);
                   return (
-                    <tr
-                      key={u.id}
-                      className="hover:bg-slate-50 transition-colors"
-                    >
+                  <tr
+                    key={u.id}
+                    className="hover:bg-slate-50 transition-colors"
+                  >
                       <td className="p-4">
-                        <div className="font-bold text-slate-700 mb-1">
-                          {u.nombre} {u.apellido}
-                        </div>
+                      <div className="font-bold text-slate-700 mb-1">
+                        {u.nombre} {u.apellido}
+                      </div>
                         <div className="flex items-center gap-2">
                           <IconMail
                             size={14}
@@ -453,7 +458,33 @@ export default function UsersManager({ supabase }) {
                               </button>
                             </>
                           )}
-                        </div>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                        <span className="inline-flex items-center gap-1">
+                          <IconMusic size={12} className="text-slate-400" />
+                          <span className="font-medium">
+                            {u.instrumentos?.instrumento || "Sin instrumento"}
+                          </span>
+                        </span>
+                        {u.integrantes_ensambles &&
+                          u.integrantes_ensambles.length > 0 && (
+                            <span className="inline-flex flex-wrap items-center gap-1">
+                              <span className="text-slate-400">•</span>
+                              {u.integrantes_ensambles
+                                .map((ie) => ie.ensambles?.ensamble)
+                                .filter(Boolean)
+                                .slice(0, 3)
+                                .map((ens, idx) => (
+                                  <span
+                                    key={`${u.id}-ens-${idx}`}
+                                    className="px-1.5 py-0.5 rounded-full bg-slate-100 text-[10px] text-slate-600 border border-slate-200"
+                                  >
+                                    {ens}
+                                  </span>
+                                ))}
+                            </span>
+                          )}
+                      </div>
                       </td>
 
                       <td className="p-4 min-w-[200px]">
@@ -571,6 +602,10 @@ export default function UsersManager({ supabase }) {
         <div className="md:hidden space-y-4">
           {filteredUsers.map((u) => {
             const isPasswordVisible = visiblePasswords.has(u.id);
+            const ensembles =
+              (u.integrantes_ensambles || [])
+                .map((ie) => ie.ensambles?.ensamble)
+                .filter(Boolean) || [];
             return (
               <div
                 key={u.id}
@@ -592,6 +627,26 @@ export default function UsersManager({ supabase }) {
                           handleLocalChange(u.id, "mail", e.target.value)
                         }
                       />
+                    </div>
+                    <div className="mt-1 space-y-1">
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500">
+                        <IconMusic size={12} className="text-slate-400" />
+                        <span className="font-medium">
+                          {u.instrumentos?.instrumento || "Sin instrumento"}
+                        </span>
+                      </div>
+                      {ensembles.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {ensembles.slice(0, 4).map((ens, idx) => (
+                            <span
+                              key={`${u.id}-ens-mobile-${idx}`}
+                              className="px-1.5 py-0.5 rounded-full bg-slate-100 text-[10px] text-slate-600 border border-slate-200"
+                            >
+                              {ens}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-1">

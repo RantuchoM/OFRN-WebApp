@@ -337,7 +337,7 @@ export default function DateInput({ value, onChange, label, className, showCalen
                     </>
                 )}
                 <div
-                    className={`flex items-center justify-start gap-0 w-full outline-none transition-colors p-1 pl-8 pr-1 rounded border border-slate-300 bg-white focus-within:ring-2 focus-within:ring-indigo-500 ${className || ''}`}
+                    className={`flex items-center justify-start gap-0 w-full outline-none transition-colors p-1 pl-8 pr-1 rounded ${className || 'border border-slate-300 bg-white focus-within:ring-2 focus-within:ring-indigo-500'}`}
                     onPaste={handleContainerPaste}
                 >
                     <input

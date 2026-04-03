@@ -631,3 +631,51 @@ export const getAllConcertVenues = async (supabase) => {
     return [];
   }
 };
+
+/**
+ * Helpers para conversión entre índice lineal (orden) y matriz de seating
+ * basada en (atril_num, lado). Se mantiene el convenio:
+ *   orden = (atril_num - 1) * 2 + lado
+ */
+export const seatingOrderToMatrix = (orden) => {
+  if (orden == null || Number.isNaN(Number(orden))) {
+    return { atril_num: null, lado: null };
+  }
+  const idx = Number(orden);
+  const atril_num = Math.floor(idx / 2) + 1;
+  const lado = idx % 2;
+  return { atril_num, lado };
+};
+
+export const seatingMatrixToOrder = (atril_num, lado) => {
+  if (
+    atril_num == null ||
+    lado == null ||
+    Number.isNaN(Number(atril_num)) ||
+    Number.isNaN(Number(lado))
+  ) {
+    return null;
+  }
+  const a = Number(atril_num);
+  const l = Number(lado);
+  return (a - 1) * 2 + l;
+};
+
+/**
+ * Wrapper de conveniencia para el RPC shift_seating_line en Supabase.
+ * Permite desplazar únicamente una línea (lado) de un contenedor de cuerdas.
+ */
+export const shiftSeatingLine = async (
+  supabase,
+  { containerId, startAtril, lado, direction },
+) => {
+  if (!supabase) return { error: "Supabase client is required" };
+  const payload = {
+    target_cont_id: containerId,
+    start_atril: startAtril,
+    target_lado: lado,
+    direction,
+  };
+  const { data, error } = await supabase.rpc("shift_seating_line", payload);
+  return { data, error };
+};

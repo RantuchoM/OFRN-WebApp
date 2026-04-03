@@ -1,5 +1,6 @@
 import { PDFArray, PDFBool, PDFDocument, PDFName, PDFNumber, PDFString } from "pdf-lib";
 import { saveAs } from "file-saver";
+import { firstMondayAfter } from "./dates";
 
 // --- HELPERS ---
 const fetchFileBuffer = async (url) => {
@@ -61,6 +62,7 @@ const zeroDestaqueMonetaryFields = (data) => {
     "rendicion_viatico_monto",
     "total_percibir",
     "valorDiarioCalc",
+    "anticipo_custom",
   ];
 
   const cloned = { ...data };
@@ -95,6 +97,37 @@ const getSpanishMonthLong = (monthIndex) => {
     "diciembre",
   ];
   return months[monthIndex] || "";
+};
+
+/**
+ * Texto del acrofield `lugar_y_fecha` (pie del formulario): ciudad + fecha límite de rendición
+ * (`rendicion_fecha` o primer lunes posterior a `fecha_hasta`). Mismo estilo que antes
+ * ("Ciudad, dd de mes de yy"). Si no hay fecha válida, usa la fecha de hoy.
+ */
+const buildLugarYFecha = (data, giraData, configData) => {
+  const lugar = data.ciudad_origen || "Viedma";
+  const rawIso =
+    configData?.rendicion_fecha || firstMondayAfter(giraData?.fecha_hasta);
+  if (rawIso && typeof rawIso === "string") {
+    const parts = rawIso.split("-");
+    if (parts.length >= 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const d = parseInt(parts[2], 10);
+      if (!Number.isNaN(y) && !Number.isNaN(m) && !Number.isNaN(d)) {
+        const dateObj = new Date(y, m - 1, d);
+        const dia = String(dateObj.getDate()).padStart(2, "0");
+        const mesNom = getSpanishMonthLong(dateObj.getMonth());
+        const anioYy = String(dateObj.getFullYear()).slice(-2);
+        return `${lugar}, ${dia} de ${mesNom} de ${anioYy}`;
+      }
+    }
+  }
+  const hoy = new Date();
+  const diaHoy = String(hoy.getDate()).padStart(2, "0");
+  const mesHoy = getSpanishMonthLong(hoy.getMonth());
+  const anioHoy = String(hoy.getFullYear()).slice(-2);
+  return `${lugar}, ${diaHoy} de ${mesHoy} de ${anioHoy}`;
 };
 
 const fmtTime = (timeStr) => {
@@ -179,9 +212,7 @@ export const exportViaticosToPDFForm = async (
     const mesHoy = getSpanishMonthLong(hoy.getMonth());
     // Usamos año en formato de dos dígitos (yy) para ajustarnos al tamaño del campo
     const anioHoy = String(hoy.getFullYear()).slice(-2);
-    const lugarFecha = `${data.ciudad_origen || "Viedma"}, ${diaHoy} de ${
-      mesHoy || ""
-    } de ${anioHoy}`;
+    const lugarYFecha = buildLugarYFecha(data, giraData, configData);
 
     const money = (val) => {
       if (!keepEditable) return fmtMoney(val);
@@ -304,8 +335,8 @@ export const exportViaticosToPDFForm = async (
         f("totales_dev", cTot.dev);
         f("totales_reint", cTot.reint);
 
-        // Rendición mantiene solo el campo compuesto clásico
-        f("lugar_y_fecha", lugarFecha);
+        // Pie del formulario: lugar + fecha límite de rendición (config o lunes post-gira)
+        f("lugar_y_fecha", lugarYFecha);
         await insertImageSignature(srcDoc, form, "firma_imagen", data.firma);
       } else {
         // ---------------------------------------------------------
@@ -414,7 +445,7 @@ chk("check_temporada", configData.factor_temporada > 0);
 
         // Total final del anticipo (en editable: número crudo)
         f("total_anticipo", money(data.totalFinal));
-        f("lugar_y_fecha", lugarFecha);
+        f("lugar_y_fecha", lugarYFecha);
         // Nuevos campos de fecha descompuesta (dd, mmmm, yyyy)
         f("dia_hoy", diaHoy);
         f("mes_hoy", mesHoy);

@@ -518,6 +518,7 @@ CREATE TABLE public.giras_viaticos (
   monto_destaque numeric DEFAULT 0,
   total_destaque numeric DEFAULT 0,
   total_percibir numeric DEFAULT 0,
+  anticipo_custom numeric,
   estado text DEFAULT 'borrador'::text,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
@@ -535,6 +536,7 @@ CREATE TABLE public.giras_viaticos_config (
   link_drive text,
   motivo_destaques_exportacion text,
   lugar_comision_destaques_exportacion text,
+  rendicion_fecha date,
   CONSTRAINT giras_viaticos_config_pkey PRIMARY KEY (id_gira),
   CONSTRAINT giras_viaticos_config_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id)
 );
@@ -577,6 +579,7 @@ CREATE TABLE public.giras_viaticos_detalle (
   backup_dias_computables numeric,
   fecha_ultima_exportacion timestamp with time zone,
   motivo text,
+  anticipo_custom numeric,
   CONSTRAINT giras_viaticos_detalle_pkey PRIMARY KEY (id),
   CONSTRAINT giras_viaticos_detalle_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
   CONSTRAINT giras_viaticos_detalle_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id)
