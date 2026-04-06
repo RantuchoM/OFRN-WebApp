@@ -1,6 +1,10 @@
 import { PDFArray, PDFBool, PDFDocument, PDFName, PDFNumber, PDFString } from "pdf-lib";
 import { saveAs } from "file-saver";
 import { firstMondayAfter } from "./dates";
+import {
+  getAnticipoSubtotalForExport,
+  sumGastosViaticoRow,
+} from "./viaticosAnticipo";
 
 // --- HELPERS ---
 const fetchFileBuffer = async (url) => {
@@ -195,7 +199,17 @@ export const exportViaticosToPDFForm = async (
       ? viaticosData.map((d) => zeroDestaqueMonetaryFields(d))
       : viaticosData;
 
-  for (const data of effectiveDataList) {
+  const useHistorical = !!configData?.useHistoricalCalc;
+
+  for (const rawData of effectiveDataList) {
+    const data =
+      mode === "destaque"
+        ? rawData
+        : (() => {
+            const sub = getAnticipoSubtotalForExport(rawData, useHistorical);
+            const gastos = sumGastosViaticoRow(rawData);
+            return { ...rawData, subtotal: sub, totalFinal: sub + gastos };
+          })();
     const srcDoc = await PDFDocument.load(templateBuffer);
     const form = srcDoc.getForm();
 

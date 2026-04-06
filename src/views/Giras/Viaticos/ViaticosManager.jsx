@@ -31,7 +31,10 @@ import { useViaticosIndividuales } from "../../../hooks/viaticos/useViaticosIndi
 import { useViaticosMasivos } from "../../../hooks/viaticos/useViaticosMasivos";
 import DateInput from "../../../components/ui/DateInput";
 import { firstMondayAfter } from "../../../utils/dates";
-import { getAnticipoSubtotalForExport } from "../../../utils/viaticosAnticipo";
+import {
+  getAnticipoSubtotalForExport,
+  sumGastosViaticoRow,
+} from "../../../utils/viaticosAnticipo";
 
 const uint8ArrayToBase64 = (uint8Array) => {
   let binary = "";
@@ -459,20 +462,6 @@ export default function ViaticosManager({ supabase, giraId }) {
   const rendicionFechaForInput =
     config.rendicion_fecha || rendicionFechaDefault || "";
 
-  const sumGastosViaticoRow = (row) => {
-    if (!row) return 0;
-    return (
-      parseFloat(row.gastos_movilidad || 0) +
-      parseFloat(row.gasto_combustible || 0) +
-      parseFloat(row.gasto_otros || 0) +
-      parseFloat(row.gastos_movil_otros || 0) +
-      parseFloat(row.gastos_capacit || 0) +
-      parseFloat(row.gasto_alojamiento || 0) +
-      parseFloat(row.gasto_pasajes || 0) +
-      parseFloat(row.transporte_otros || 0)
-    );
-  };
-
   const candidateOptions = useMemo(() => {
     if (!roster) return [];
     const existingIds = new Set(
@@ -670,7 +659,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     personData,
     options,
     giraData,
-    config,
+    pdfExportConfig,
     setDetail,
   ) => {
     const name = personData.apellido;
@@ -700,7 +689,7 @@ export default function ViaticosManager({ supabase, giraId }) {
         await exportViaticosToPDFForm(
           giraData,
           singleDestaque,
-          config,
+          pdfExportConfig,
           "destaque",
         ),
         "Destaque",
@@ -709,14 +698,24 @@ export default function ViaticosManager({ supabase, giraId }) {
     if (options.viatico) {
       if (setDetail) setDetail(`Generando Viático (${name})...`);
       await mergeBytes(
-        await exportViaticosToPDFForm(giraData, single, config, "viatico"),
+        await exportViaticosToPDFForm(
+          giraData,
+          single,
+          pdfExportConfig,
+          "viatico",
+        ),
         "Viático",
       );
     }
     if (options.rendicion) {
       if (setDetail) setDetail(`Generando Rendición (${name})...`);
       await mergeBytes(
-        await exportViaticosToPDFForm(giraData, single, config, "rendicion"),
+        await exportViaticosToPDFForm(
+          giraData,
+          single,
+          pdfExportConfig,
+          "rendicion",
+        ),
         "Rendición",
       );
     }
@@ -746,6 +745,8 @@ export default function ViaticosManager({ supabase, giraId }) {
     setExportStatus("Iniciando...");
     setExportDetail("Actualizando registros en BD...");
 
+    const pdfExportConfig = { ...config, useHistoricalCalc };
+
     const individualUpdates = dataList
       .filter((r) => r.id)
       .map((row) =>
@@ -758,7 +759,7 @@ export default function ViaticosManager({ supabase, giraId }) {
             backup_fecha_llegada: row.fecha_llegada,
             backup_hora_llegada: row.hora_llegada,
             backup_dias_computables: row.dias_computables,
-            backup_viatico: row.subtotal != null ? parseFloat(row.subtotal) : null,
+            backup_viatico: getAnticipoSubtotalForExport(row, useHistoricalCalc),
           })
           .eq("id", row.id),
       );
@@ -809,7 +810,7 @@ export default function ViaticosManager({ supabase, giraId }) {
           personData,
           options,
           giraData,
-          config,
+          pdfExportConfig,
           setExportDetail,
         );
         pagesAdded++;
@@ -866,7 +867,7 @@ export default function ViaticosManager({ supabase, giraId }) {
             personData,
             options,
             giraData,
-            config,
+            pdfExportConfig,
             setExportDetail,
           );
           pagesInLoc++;
@@ -900,7 +901,7 @@ export default function ViaticosManager({ supabase, giraId }) {
           const pdfBytes = await exportViaticosToPDFForm(
             giraData,
             [personData],
-            config,
+            pdfExportConfig,
             "viatico",
           );
           setExportDetail("Subiendo PDF Viático...");
@@ -916,7 +917,7 @@ export default function ViaticosManager({ supabase, giraId }) {
           const pdfBytes = await exportViaticosToPDFForm(
             giraData,
             [destaqueData],
-            config,
+            pdfExportConfig,
             "destaque",
           );
           setExportDetail("Subiendo PDF Destaque...");
@@ -931,7 +932,7 @@ export default function ViaticosManager({ supabase, giraId }) {
           const pdfBytes = await exportViaticosToPDFForm(
             giraData,
             [personData],
-            config,
+            pdfExportConfig,
             "rendicion",
           );
           setExportDetail("Subiendo PDF Rendición...");

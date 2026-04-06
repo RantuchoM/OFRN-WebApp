@@ -19,3 +19,18 @@ export function getAnticipoSubtotalForExport(row, useHistoricalCalc) {
   const val = parseFloat(row.valorDiarioCalc ?? 0);
   return Math.round((dias * val) * 100) / 100;
 }
+
+/** Suma de columnas de gastos (misma lógica que ViaticosManager / tabla). */
+export function sumGastosViaticoRow(row) {
+  if (!row) return 0;
+  return (
+    parseFloat(row.gastos_movilidad || 0) +
+    parseFloat(row.gasto_combustible || 0) +
+    parseFloat(row.gasto_otros || 0) +
+    parseFloat(row.gastos_movil_otros || 0) +
+    parseFloat(row.gastos_capacit || 0) +
+    parseFloat(row.gasto_alojamiento || 0) +
+    parseFloat(row.gasto_pasajes || 0) +
+    parseFloat(row.transporte_otros || 0)
+  );
+}
