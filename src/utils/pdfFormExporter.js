@@ -105,8 +105,8 @@ const getSpanishMonthLong = (monthIndex) => {
 
 /**
  * Texto del acrofield `lugar_y_fecha` (pie del formulario): ciudad + fecha límite de rendición
- * (`rendicion_fecha` o primer lunes posterior a `fecha_hasta`). Mismo estilo que antes
- * ("Ciudad, dd de mes de yy"). Si no hay fecha válida, usa la fecha de hoy.
+ * (`rendicion_fecha` o primer lunes posterior a `fecha_hasta`).
+ * Formato: "Ciudad, dd de mes de YYYY". Si no hay fecha válida, usa la fecha de hoy.
  */
 const buildLugarYFecha = (data, giraData, configData) => {
   const lugar = data.ciudad_origen || "Viedma";
@@ -122,16 +122,16 @@ const buildLugarYFecha = (data, giraData, configData) => {
         const dateObj = new Date(y, m - 1, d);
         const dia = String(dateObj.getDate()).padStart(2, "0");
         const mesNom = getSpanishMonthLong(dateObj.getMonth());
-        const anioYy = String(dateObj.getFullYear()).slice(-2);
-        return `${lugar}, ${dia} de ${mesNom} de ${anioYy}`;
+        const anioYyyy = String(dateObj.getFullYear());
+        return `${lugar}, ${dia} de ${mesNom} de ${anioYyyy}`;
       }
     }
   }
   const hoy = new Date();
   const diaHoy = String(hoy.getDate()).padStart(2, "0");
   const mesHoy = getSpanishMonthLong(hoy.getMonth());
-  const anioHoy = String(hoy.getFullYear()).slice(-2);
-  return `${lugar}, ${diaHoy} de ${mesHoy} de ${anioHoy}`;
+  const anioYyyy = String(hoy.getFullYear());
+  return `${lugar}, ${diaHoy} de ${mesHoy} de ${anioYyyy}`;
 };
 
 const fmtTime = (timeStr) => {
@@ -224,8 +224,7 @@ export const exportViaticosToPDFForm = async (
     const hoy = new Date();
     const diaHoy = String(hoy.getDate()).padStart(2, "0");
     const mesHoy = getSpanishMonthLong(hoy.getMonth());
-    // Usamos año en formato de dos dígitos (yy) para ajustarnos al tamaño del campo
-    const anioHoy = String(hoy.getFullYear()).slice(-2);
+    const anioHoy = String(hoy.getFullYear());
     const lugarYFecha = buildLugarYFecha(data, giraData, configData);
 
     const money = (val) => {
