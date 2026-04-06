@@ -1513,7 +1513,7 @@ export default function ViaticosManager({ supabase, giraId }) {
                     className="flex-1 min-w-[120px] bg-white border border-slate-200 rounded px-2 py-1 text-sm"
                     placeholder="Motivo"
                     value={config.motivo || ""}
-                    onChange={(e) => updateConfig("motivo", e.target.value)}
+                    onChange={(e) => updateConfig("motivo",  e.target.value)}
                   />
                   <input
                     type="text"
