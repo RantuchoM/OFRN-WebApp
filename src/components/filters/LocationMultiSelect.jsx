@@ -1,7 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { IconMap, IconChevronDown, IconCheck } from '../ui/Icons';
 
-export default function LocationMultiSelect({ locations, selectedIds, onChange }) {
+export default function LocationMultiSelect({
+    locations,
+    selectedIds,
+    onChange,
+    showLabel = true,
+    buttonClassName = "",
+}) {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef(null);
 
@@ -27,11 +33,13 @@ export default function LocationMultiSelect({ locations, selectedIds, onChange }
 
     return (
         <div className="relative" ref={dropdownRef}>
-            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Localidades / Sedes</label>
+            {showLabel && (
+                <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Localía</label>
+            )}
             <button 
                 type="button"
                 onClick={() => setIsOpen(!isOpen)} 
-                className="w-full flex items-center justify-between gap-2 p-2 bg-white border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none transition-colors text-left"
+                className={`w-full flex items-center justify-between gap-2 p-2 bg-white border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none transition-colors text-left ${buttonClassName}`}
             >
                 <div className="flex items-center gap-2 overflow-hidden">
                     <IconMap size={16} className="text-slate-400 shrink-0"/>

@@ -916,7 +916,7 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
         {/* --- COMENTARIOS --- */}
         <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
           <EditableField
-            label="Otros Comentarios"
+            label="Observación para Redes y Difusión"
             value={difusionData?.otros_comentarios}
             timestamp={difusionData?.timestamp_otros_comentarios}
             editorId={difusionData?.editor_otros_comentarios}

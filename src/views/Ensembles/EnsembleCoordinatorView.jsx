@@ -2293,6 +2293,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
     estado: "Borrador",
     zona: "",
     token_publico: null,
+    otros_comentarios: "",
   });
 
   // Necesitamos este estado adicional para que GiraForm gestione los ensambles seleccionados
@@ -2320,10 +2321,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
   }, [isGiraModalOpen, myEnsembles]);
   const handleSaveGira = async () => {
     try {
+      const { otros_comentarios, ...programPayload } = giraFormData;
       // 1. Insertar la Gira/Programa
       const { data: newGira, error: giraError } = await supabase
         .from("programas")
-        .insert([giraFormData])
+        .insert([programPayload])
         .select()
         .single();
 
@@ -2372,7 +2374,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
     async (program) => {
       if (!supabase || !program?.id) return;
       try {
-        const [progRes, locRes, fuentesRes, staffRes] = await Promise.all([
+        const [progRes, locRes, fuentesRes, staffRes, difusionRes] = await Promise.all([
           supabase
             .from("programas")
             .select("*")
@@ -2391,6 +2393,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
             .select("id_integrante, rol, integrantes(apellido, nombre)")
             .eq("id_gira", program.id)
             .in("rol", ["director", "solista"]),
+          supabase
+            .from("gira_difusion")
+            .select("otros_comentarios")
+            .eq("id_gira", program.id)
+            .maybeSingle(),
         ]);
 
         const gira = progRes.data;
@@ -2410,6 +2417,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
           token_publico: gira.token_publico ?? null,
           nomenclador: gira.nomenclador ?? "",
           notificaciones_habilitadas: gira.notificaciones_habilitadas !== false,
+          otros_comentarios: difusionRes.data?.otros_comentarios ?? "",
         });
 
         setSelectedLocations(

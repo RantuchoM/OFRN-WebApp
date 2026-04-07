@@ -533,6 +533,12 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
   const loadGiraIntoForm = async (gira) => {
     setEditingId(gira.id);
+    const { data: difusionData } = await supabase
+      .from("gira_difusion")
+      .select("otros_comentarios")
+      .eq("id_gira", gira.id)
+      .maybeSingle();
+
     setFormData({
       nombre_gira: gira.nombre_gira,
       subtitulo: gira.subtitulo || "",
@@ -544,6 +550,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       nomenclador: gira.nomenclador || "",
       estado: gira.estado || "Borrador",
       notificaciones_habilitadas: gira.notificaciones_habilitadas !== false, // default true
+      otros_comentarios: difusionData?.otros_comentarios || "",
     });
     const { data } = await supabase
       .from("giras_localidades")
@@ -1057,6 +1064,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       fecha_hasta: "",
       tipo: "Sinfónico",
       zona: "",
+      otros_comentarios: "",
     });
     setSelectedLocations(new Set());
     setSelectedSources([]);
@@ -1504,6 +1512,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                             : "Ensamble",
                         zona: "",
                         token_publico: "",
+                        otros_comentarios: "",
                       });
 
                       setSelectedLocations(new Set());

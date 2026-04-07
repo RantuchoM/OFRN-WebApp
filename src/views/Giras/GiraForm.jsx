@@ -22,6 +22,7 @@ import {
   IconCopy,
   IconCloud,
   IconSettings,
+  IconFileText,
 } from "../../components/ui/Icons";
 import LocationMultiSelect from "../../components/filters/LocationMultiSelect";
 import DateInput from "../../components/ui/DateInput";
@@ -30,6 +31,7 @@ import MusicianForm from "../Musicians/MusicianForm";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
+import { getProgramStyle } from "../../utils/giraUtils";
 
 // --- COMPONENTE INTERNO: Modal de Edición de Concierto ---
 const ConcertFormModal = ({
@@ -423,13 +425,29 @@ export default function GiraForm({
 }) {
   const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
   const [tempName, setTempName] = useState({ nombre: "", apellido: "" });
-  const [savingField, setSavingField] = useState(null);
+  const [fieldStatuses, setFieldStatuses] = useState({});
+  const fieldStatusTimersRef = useRef({});
   const [globalSaving, setGlobalSaving] = useState(false);
   const [isShifting, setIsShifting] = useState(false);
   const [shiftNewDate, setShiftNewDate] = useState("");
   const [shiftLoading, setShiftLoading] = useState(false);
   const [staffRole, setStaffRole] = useState("director");
-  const [syncStatus, setSyncStatus] = useState("idle"); // idle | saving | saved | error
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle | pending | saving | saved | error
+  const trackedFields = useMemo(
+    () => [
+      "nombre_gira",
+      "subtitulo",
+      "tipo",
+      "fecha_desde",
+      "fecha_hasta",
+      "zona",
+      "estado",
+      "token_publico",
+      "otros_comentarios",
+    ],
+    [],
+  );
+  const [lastSavedValues, setLastSavedValues] = useState({});
 
   useEffect(() => {
     if (syncStatus === "saved") {
@@ -439,6 +457,33 @@ export default function GiraForm({
       return () => clearTimeout(timeout);
     }
   }, [syncStatus]);
+
+  useEffect(() => {
+    if (isNew || !enableAutoSave) return;
+    const baseline = {};
+    trackedFields.forEach((field) => {
+      baseline[field] = formData[field] ?? "";
+    });
+    setLastSavedValues(baseline);
+  }, [giraId, isNew, enableAutoSave, trackedFields]);
+
+  useEffect(() => {
+    if (isNew || !enableAutoSave || syncStatus === "saving") return;
+    if (Object.keys(lastSavedValues).length === 0) return;
+    const hasPendingChanges = trackedFields.some(
+      (field) => (formData[field] ?? "") !== (lastSavedValues[field] ?? ""),
+    );
+    if (hasPendingChanges && syncStatus !== "error") {
+      setSyncStatus("pending");
+    }
+  }, [
+    formData,
+    isNew,
+    enableAutoSave,
+    syncStatus,
+    trackedFields,
+    lastSavedValues,
+  ]);
 
   // Estados para Conciertos
   const [concerts, setConcerts] = useState([]);
@@ -480,12 +525,48 @@ export default function GiraForm({
 
   const FAMILIES = ["Cuerdas", "Maderas", "Bronces", "Percusión", "-"];
 
+  const setFieldStatus = useCallback((field, status, resetAfterMs = 0) => {
+    if (fieldStatusTimersRef.current[field]) {
+      clearTimeout(fieldStatusTimersRef.current[field]);
+      delete fieldStatusTimersRef.current[field];
+    }
+    setFieldStatuses((prev) => ({ ...prev, [field]: status }));
+    if (resetAfterMs > 0) {
+      fieldStatusTimersRef.current[field] = setTimeout(() => {
+        setFieldStatuses((prev) => ({ ...prev, [field]: "idle" }));
+        delete fieldStatusTimersRef.current[field];
+      }, resetAfterMs);
+    }
+  }, []);
+
+  const getFieldStatusClass = useCallback(
+    (field, defaultClass = "bg-white") => {
+      const status = fieldStatuses[field] || "idle";
+      if (status === "saving")
+        return "bg-yellow-100 text-yellow-900 border-yellow-300 ring-1 ring-yellow-300 transition-colors duration-200";
+      if (status === "saved")
+        return "bg-green-100 text-green-900 border-green-300 ring-1 ring-green-300 transition-colors duration-1000";
+      if (status === "error")
+        return "bg-red-100 text-red-900 border-red-300 ring-1 ring-red-300 transition-colors duration-200";
+      return defaultClass;
+    },
+    [fieldStatuses],
+  );
+
   const StatusIndicator = ({ field }) => {
-    if (savingField === field)
-      return (
-        <IconLoader size={14} className="animate-spin text-fixed-indigo-600" />
-      );
-    return null;
+    const status = fieldStatuses[field] || "idle";
+    if (status === "idle") return null;
+    return (
+      <span
+        className={`inline-block w-2.5 h-2.5 rounded-full ${
+          status === "saving"
+            ? "bg-amber-500 animate-pulse"
+            : status === "saved"
+              ? "bg-emerald-500"
+              : "bg-red-500"
+        }`}
+      />
+    );
   };
 
   // --- LÓGICA DE VALIDACIÓN COORDINADOR ---
@@ -567,7 +648,7 @@ export default function GiraForm({
     if (isNew || !enableAutoSave || !giraId) return;
     const value = valueOverride !== null ? valueOverride : formData[fieldName];
     setSyncStatus("saving");
-    setSavingField(fieldName);
+    setFieldStatus(fieldName, "saving");
     setGlobalSaving(true);
     try {
       const { error } = await supabase
@@ -575,14 +656,53 @@ export default function GiraForm({
         .update({ [fieldName]: value })
         .eq("id", giraId);
       if (error) throw error;
+      setLastSavedValues((prev) => ({ ...prev, [fieldName]: value ?? "" }));
       if (onRefresh) onRefresh();
       setSyncStatus("saved");
+      setFieldStatus(fieldName, "saved", 2000);
     } catch (err) {
       console.error("Error auto-guardando:", err);
       setSyncStatus("error");
+      setFieldStatus(fieldName, "error");
     } finally {
       setTimeout(() => {
-        setSavingField(null);
+        setGlobalSaving(false);
+      }, 500);
+    }
+  };
+
+  const handleDifusionAutoSave = async (fieldName, valueOverride = null) => {
+    if (isNew || !enableAutoSave || !giraId) return;
+    const value = valueOverride !== null ? valueOverride : formData[fieldName];
+    setSyncStatus("saving");
+    setFieldStatus(fieldName, "saving");
+    setGlobalSaving(true);
+    try {
+      const { data: updatedRows, error: updateError } = await supabase
+        .from("gira_difusion")
+        .update({ [fieldName]: value })
+        .eq("id_gira", giraId)
+        .select("id_gira");
+
+      if (updateError) throw updateError;
+
+      if (!updatedRows || updatedRows.length === 0) {
+        const { error: insertError } = await supabase.from("gira_difusion").insert(
+          [{ id_gira: giraId, [fieldName]: value }],
+        );
+        if (insertError) throw insertError;
+      }
+
+      setLastSavedValues((prev) => ({ ...prev, [fieldName]: value ?? "" }));
+      if (onRefresh) onRefresh();
+      setSyncStatus("saved");
+      setFieldStatus(fieldName, "saved", 2000);
+    } catch (err) {
+      console.error("Error auto-guardando difusión:", err);
+      setSyncStatus("error");
+      setFieldStatus(fieldName, "error");
+    } finally {
+      setTimeout(() => {
         setGlobalSaving(false);
       }, 500);
     }
@@ -849,55 +969,117 @@ export default function GiraForm({
     setIsShifting(false);
   };
 
+  const getProgramBackgroundClass = () => {
+    const style = getProgramStyle(formData.tipo);
+    const colorTokens = (style?.color || "").split(" ");
+    const bgToken = colorTokens.find((token) => token.startsWith("bg-"));
+    return bgToken || "bg-white";
+  };
+
+  const programTypeOptions = [
+    {
+      value: "Sinfónico",
+      label: "SINFÓNICO",
+      style: { backgroundColor: "#eef2ff", color: "#3730a3" },
+    },
+    {
+      value: "Camerata Filarmónica",
+      label: "CAMERATA FILARMÓNICA",
+      style: { backgroundColor: "#fdf2f8", color: "#a21caf" },
+    },
+    {
+      value: "Ensamble",
+      label: "ENSAMBLE",
+      style: { backgroundColor: "#ecfdf5", color: "#047857" },
+    },
+    {
+      value: "Jazz Band",
+      label: "JAZZ BAND",
+      style: { backgroundColor: "#fffbeb", color: "#b45309" },
+    },
+    {
+      value: "Comisión",
+      label: "COMISIÓN",
+      style: { backgroundColor: "#f0f9ff", color: "#0369a1" },
+    },
+  ];
+
+  const getProgramTypeSelectBaseClass = () => {
+    const style = getProgramStyle(formData.tipo);
+    const tokens = (style?.color || "").split(" ");
+    return tokens.filter((t) => t.startsWith("bg-") || t.startsWith("text-") || t.startsWith("border-")).join(" ");
+  };
+
   return (
     <div
-      className={`p-4 rounded-xl border shadow-sm animate-in fade-in zoom-in-95 duration-200 relative ${isNew ? "bg-fixed-indigo-50 border-fixed-indigo-200" : "bg-white ring-2 ring-fixed-indigo-500 border-fixed-indigo-500 z-10"}`}
+      className={`p-4 rounded-xl border shadow-sm animate-in fade-in zoom-in-95 duration-200 relative ${isNew ? "bg-fixed-indigo-50 border-fixed-indigo-200" : `${getProgramBackgroundClass()} ring-2 ring-fixed-indigo-500 border-fixed-indigo-500 z-10`}`}
     >
-      <div className="flex justify-between items-center mb-4 border-b border-fixed-indigo-100 pb-2">
-        <h3 className="text-fixed-indigo-900 font-bold flex items-center gap-2">
-          {isNew ? (
-            <>
-              {" "}
-              <IconPlus size={18} />{" "}
-              {isCoordinator
-                ? "Nuevo Programa de Ensamble"
-                : "Nuevo Programa"}{" "}
-            </>
-          ) : (
-            <>
-              {" "}
-              <IconEdit size={18} /> Configuración de Gira{" "}
-            </>
-          )}
-        </h3>
-        <div className="flex items-center gap-3">
-          {!isNew && enableAutoSave && (
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase">
-              {syncStatus === "saving" && (
-                <span className="inline-flex items-center gap-1 text-amber-500">
-                  <IconLoader size={14} className="animate-spin" />
-                  <span>Guardando...</span>
-                </span>
-              )}
-              {syncStatus === "saved" && (
-                <span className="inline-flex items-center gap-1 text-emerald-600">
-                  <IconCheck size={14} />
-                  <span>Cambios guardados</span>
-                </span>
-              )}
-              {syncStatus === "error" && (
-                <span className="inline-flex items-center gap-1 text-red-600">
-                  <IconAlertTriangle size={14} />
-                  <span>Error al guardar</span>
-                </span>
-              )}
+      <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-4 border-b border-fixed-indigo-100 pb-2 gap-2">
+        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
+          <h3 className="text-fixed-indigo-900 font-bold flex items-center gap-2">
+            {isNew ? (
+              <>
+                {" "}
+                <IconPlus size={18} />{" "}
+                {isCoordinator
+                  ? "Nuevo Programa de Ensamble"
+                  : "Nuevo Programa"}{" "}
+              </>
+            ) : (
+              <>
+                {" "}
+                <IconEdit size={18} /> Configuración del Programa{" "}
+              </>
+            )}
+          </h3>
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <div className="relative w-1/2 md:w-auto md:min-w-[180px]">
+              <select
+                value={formData.estado || "Borrador"}
+                onChange={(e) => {
+                  const newVal = e.target.value;
+                  setFormData({ ...formData, estado: newVal });
+                  handleAutoSave("estado", newVal);
+                }}
+                className={`w-full md:w-[200px] h-9 p-1.5 rounded-lg border appearance-none outline-none text-sm text-center font-bold uppercase tracking-wide focus:ring-2 focus:ring-fixed-indigo-500 ${getFieldStatusClass(
+                  "estado",
+                  formData.estado === "Vigente"
+                    ? "bg-green-50 border-green-200 text-green-700"
+                    : formData.estado === "Pausada"
+                      ? "bg-amber-50 border-amber-200 text-amber-700"
+                      : "bg-slate-50 border-slate-200 text-slate-600",
+                )}`}
+              >
+                <option value="Borrador">BORRADOR</option>
+                <option value="Vigente">VIGENTE</option>
+                <option value="Pausada">PAUSADA</option>
+              </select>
             </div>
-          )}
-
+            <div className="relative w-1/2 md:w-auto md:min-w-[180px]">
+              <select
+                value={formData.tipo || "Sinfónico"}
+                disabled={isCoordinator}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setFormData({ ...formData, tipo: next });
+                  handleAutoSave("tipo", next);
+                }}
+                className={`w-full md:w-[220px] h-9 p-1.5 rounded-lg border appearance-none outline-none text-sm text-center uppercase font-bold focus:ring-2 focus:ring-fixed-indigo-500 ${isCoordinator ? "opacity-80 bg-slate-100 text-slate-600 border-slate-300 cursor-not-allowed" : getFieldStatusClass("tipo", getProgramTypeSelectBaseClass())}`}
+              >
+                {programTypeOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value} style={opt.style}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 w-full md:w-auto">
           {!isNew && !isShifting && (
             <button
               onClick={() => setIsShifting(true)}
-              className="text-xs bg-fixed-indigo-50 text-fixed-indigo-700 px-3 py-1 rounded-full border border-fixed-indigo-100 hover:bg-fixed-indigo-100 flex items-center gap-1 transition-colors"
+              className="w-full md:w-auto text-xs bg-fixed-indigo-50 text-fixed-indigo-700 px-3 py-1 rounded-full border border-fixed-indigo-100 hover:bg-fixed-indigo-100 flex items-center justify-center gap-1 transition-colors"
             >
               <IconCalendar size={14} /> Trasladar Gira
             </button>
@@ -937,31 +1119,28 @@ export default function GiraForm({
 
       {/* DATOS GENERALES */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-        <div className="md:col-span-8 flex gap-4">
-          <div className="flex-1 relative">
-            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
-              Nombre Interno (Obligatorio)
+        <div className="col-span-12 md:col-span-12 flex flex-col sm:flex-row gap-4">
+          <div className="flex-1 w-full">
+            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block min-h-[16px]">
+              Título
             </label>
             <input
               type="text"
-              className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-fixed-indigo-500 outline-none bg-white font-medium text-lg"
+              className={`w-full h-[46px] border border-slate-300 p-2 rounded focus:ring-2 focus:ring-fixed-indigo-500 outline-none font-medium text-lg ${getFieldStatusClass("nombre_gira", "bg-white")}`}
               value={formData.nombre_gira}
               onChange={(e) =>
                 setFormData({ ...formData, nombre_gira: e.target.value })
               }
               onBlur={() => handleAutoSave("nombre_gira")}
             />
-            <div className="absolute right-2 top-8">
-              <StatusIndicator field="nombre_gira" />
-            </div>
           </div>
-          <div className="w-1/3 relative">
-            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
+          <div className="w-full sm:w-1/3">
+            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block min-h-[16px]">
               Subtítulo
             </label>
             <input
               type="text"
-              className="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-fixed-indigo-500 outline-none bg-white text-sm"
+              className={`w-full h-[46px] border border-slate-300 p-2 rounded focus:ring-2 focus:ring-fixed-indigo-500 outline-none text-sm ${getFieldStatusClass("subtitulo", "bg-white")}`}
               placeholder="Ej. Ciclo 2025"
               value={formData.subtitulo || ""}
               onChange={(e) =>
@@ -969,106 +1148,47 @@ export default function GiraForm({
               }
               onBlur={() => handleAutoSave("subtitulo")}
             />
-            <div className="absolute right-2 top-8">
-              <StatusIndicator field="subtitulo" />
-            </div>
           </div>
         </div>
-        <div className="md:col-span-4 relative">
-          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
-            Tipo de Programa
-          </label>
-          <select
-            className={`w-full border border-slate-300 p-2 rounded bg-white h-[46px] ${isCoordinator ? "opacity-80 bg-slate-100 cursor-not-allowed font-medium text-slate-600" : ""}`}
-            value={formData.tipo || "Sinfónico"}
-            disabled={isCoordinator}
-            onChange={(e) => {
-              setFormData({ ...formData, tipo: e.target.value });
-              handleAutoSave("tipo", e.target.value);
-            }}
-          >
-            <option value="Sinfónico">Sinfónico</option>
-            <option value="Camerata Filarmónica">Camerata Filarmónica</option>
-            <option value="Ensamble">Ensamble</option>
-            <option value="Jazz Band">Jazz Band</option>
-            <option value="Comisión">Comisión</option>
-          </select>
-          {!isCoordinator && (
-            <div className="absolute right-8 top-8">
-              <StatusIndicator field="tipo" />
-            </div>
-          )}
-        </div>
-
-        <div className="md:col-span-3">
+        <div className="col-span-12 md:col-span-2">
           <DateInput
             label="Fecha Inicio"
             value={formData.fecha_desde}
+            className={getFieldStatusClass("fecha_desde", "bg-white h-[42px]")}
             onChange={(val) => {
               setFormData({ ...formData, fecha_desde: val });
               handleAutoSave("fecha_desde", val);
             }}
           />
         </div>
-        <div className="md:col-span-3">
+        <div className="col-span-12 md:col-span-2">
           <DateInput
             label="Fecha Fin"
             value={formData.fecha_hasta}
+            className={getFieldStatusClass("fecha_hasta", "bg-white h-[42px]")}
             onChange={(val) => {
               setFormData({ ...formData, fecha_hasta: val });
               handleAutoSave("fecha_hasta", val);
             }}
           />
         </div>
-        <div className="flex flex-col gap-1 md:col-span-3">
-          <label className="text-xs font-bold text-slate-500 uppercase">
-            Estado
-          </label>
-          <div className="relative">
-            <select
-              value={formData.estado || "Borrador"}
-              onChange={(e) => {
-                const newVal = e.target.value;
-                setFormData({ ...formData, estado: newVal });
-                handleAutoSave("estado", newVal);
-              }}
-              className={`w-full p-2 pl-9 rounded-lg border appearance-none outline-none font-medium focus:ring-2 focus:ring-fixed-indigo-500 ${formData.estado === "Vigente" ? "bg-green-50 border-green-200 text-green-700" : formData.estado === "Pausada" ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-slate-50 border-slate-200 text-slate-600"}`}
-            >
-              <option value="Borrador">📝 Borrador</option>
-              <option value="Vigente">✅ Vigente</option>
-              <option value="Pausada">⏸️ Pausada</option>
-            </select>
-            <IconSettings
-              size={16}
-              className="absolute left-3 top-3 text-slate-400 pointer-events-none"
-            />
-            <div className="absolute right-8 top-3">
-              <StatusIndicator field="estado" />
-            </div>
-          </div>
-        </div>
-        <div className="md:col-span-6 relative">
-          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">
+        <div className="col-span-12 md:col-span-4">
+          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block min-h-[16px]">
             Zona
           </label>
           <input
             type="text"
-            className="w-full border border-slate-300 p-2 rounded bg-white"
+            className={`w-full h-[42px] border border-slate-300 p-2 rounded ${getFieldStatusClass("zona", "bg-white")}`}
             value={formData.zona || ""}
             onChange={(e) => setFormData({ ...formData, zona: e.target.value })}
             onBlur={() => handleAutoSave("zona")}
           />
-          <div className="absolute right-2 top-8">
-            <StatusIndicator field="zona" />
-          </div>
         </div>
-        <div className="md:col-span-12 pt-2 border-t border-slate-100 mt-2">
-          <LocationMultiSelect
-            locations={locationsList}
-            selectedIds={selectedLocations}
-            onChange={handleLocationChange}
-          />
-          <div className="flex flex-wrap gap-2 mt-2">
+        <div className="col-span-12 md:col-span-4">
+          <div className="flex items-center gap-1 mb-1 min-h-[16px] overflow-x-auto whitespace-nowrap">
+            <label className="text-[10px] uppercase font-bold text-slate-400 shrink-0">
+              Localía
+            </label>
             {Array.from(selectedLocations).map((locId) => {
               const locName = locationsList.find(
                 (l) => l.id === locId,
@@ -1077,19 +1197,42 @@ export default function GiraForm({
               return (
                 <span
                   key={locId}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 bg-fixed-indigo-50 text-fixed-indigo-700 border border-fixed-indigo-100 rounded text-xs font-bold uppercase animate-in zoom-in-95"
+                  className="inline-flex items-center gap-1 px-1.5 h-4 bg-fixed-indigo-50 text-fixed-indigo-700 border border-fixed-indigo-100 rounded text-[10px] font-bold uppercase leading-none animate-in zoom-in-95 shrink-0"
                 >
                   {locName}
                   <button
                     onClick={() => removeLocation(locId)}
-                    className="hover:text-red-500 rounded-full p-0.5"
+                    className="hover:text-red-500 rounded-full p-0"
                   >
-                    <IconX size={12} />
+                    <IconX size={10} />
                   </button>
                 </span>
               );
             })}
           </div>
+          <LocationMultiSelect
+            locations={locationsList}
+            selectedIds={selectedLocations}
+            onChange={handleLocationChange}
+            showLabel={false}
+            buttonClassName="h-[42px]"
+          />
+        </div>
+        <div className="col-span-12 pt-2 border-t border-slate-100 mt-2">
+          <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 mb-1">
+            <IconFileText size={14} />
+            Observaciones para Difusión y Redes
+          </label>
+          <textarea
+            rows={3}
+            className={`w-full border border-slate-300 p-2 rounded text-sm focus:ring-2 focus:ring-fixed-indigo-500 outline-none ${getFieldStatusClass("otros_comentarios", "bg-white")}`}
+            value={formData.otros_comentarios || ""}
+            onChange={(e) =>
+              setFormData({ ...formData, otros_comentarios: e.target.value })
+            }
+            onBlur={() => handleDifusionAutoSave("otros_comentarios")}
+            placeholder="Comentarios útiles para equipo de difusión y redes..."
+          />
         </div>
       </div>
 
@@ -1165,7 +1308,7 @@ export default function GiraForm({
           <h4 className="text-sm font-bold text-fixed-indigo-900 flex items-center gap-2">
             <IconLayers size={16} /> Configuración de Personal
           </h4>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
             <div className="relative">
               <SourceMultiSelect
                 title="Ensambles"
