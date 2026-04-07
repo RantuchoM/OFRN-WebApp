@@ -37,6 +37,11 @@ import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCre
 import UniversalExporter from "../../components/ui/UniversalExporter";
 import InstrumentationBadges from "../../components/instrumentation/InstrumentationBadges";
 import { useAuth } from "../../context/AuthContext";
+import {
+  integranteKey,
+  integranteIdForDb,
+  isForeignKeyViolation,
+} from "../../utils/integranteIds";
 
 // --- CONSTANTES ---
 // ROLES_GIRA eliminado en favor de DB
@@ -562,8 +567,11 @@ export default function GiraRoster({
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [pendingNotifications.length]);
 
-  const generateNumericId = () =>
-    Math.floor(10000000 + Math.random() * 90000000);
+  /** 23505 = unique_violation (p. ej. ya existe id_gira + id_integrante). */
+  const isUniqueViolation = (err) =>
+    err?.code === "23505" ||
+    (typeof err?.message === "string" &&
+      err.message.toLowerCase().includes("duplicate"));
 
   const handleOpenDetailedCreate = () => {
     const parts = searchTerm.trim().split(" ");
@@ -640,16 +648,37 @@ export default function GiraRoster({
 
     try {
       // Vinculamos el nuevo integrante a la gira actual
+      const idLink = integranteIdForDb(newMusician.id);
+      if (idLink == null) {
+        toast.error("ID de integrante inválido al vincular a la gira.");
+        return;
+      }
+
       const { error } = await supabase.from("giras_integrantes").insert([
         {
           id_gira: gira.id,
-          id_integrante: newMusician.id, // Usamos el ID real de la BD
+          id_integrante: idLink,
           rol: "musico", // Rol por defecto
           estado: "confirmado",
         },
       ]);
 
-      if (error) throw error;
+      if (error) {
+        if (isUniqueViolation(error)) {
+          toast.info("Este integrante ya estaba vinculado a la gira.");
+          setIsCreatingDetailed(false);
+          setSearchTerm("");
+          await refreshRoster();
+          return;
+        }
+        if (isForeignKeyViolation(error)) {
+          toast.error(
+            "No se pudo vincular: la base no reconoce ese integrante. Si acabás de crearlo, recargá la página e intentá de nuevo.",
+          );
+          return;
+        }
+        throw error;
+      }
 
     // Encolar notificación ALTA también para altas individuales detalladas
     if (
@@ -879,37 +908,58 @@ export default function GiraRoster({
   };
 
   const addManualMusician = async (musicianId, musicianData, sendNotification = true) => {
+    const idLink = integranteIdForDb(musicianId);
+    if (idLink == null) {
+      toast.error("ID de integrante inválido.");
+      return;
+    }
     const { error } = await supabase.from("giras_integrantes").insert({
       id_gira: gira.id,
-      id_integrante: musicianId,
+      id_integrante: idLink,
       estado: "confirmado",
       rol: "musico",
     });
-    if (!error) {
-      if (
-        sendNotification &&
-        localNotificacionInicialEnviada &&
-        notificacionesHabilitadas &&
-        musicianData?.mail
-      ) {
-        const nombreCompleto =
-          musicianData.nombre_completo ||
-          `${musicianData.apellido || ""}, ${musicianData.nombre || ""}`.trim();
-        setPendingNotifications((prev) => [
-          ...prev,
-          {
-            id: `alta-manual-${musicianId}-${Date.now()}`,
-            variant: "ALTA",
-            emails: [musicianData.mail],
-            nombres: [nombreCompleto],
-            reason: "Se te convoca individualmente",
-          },
-        ]);
+    if (error) {
+      if (isUniqueViolation(error)) {
+        toast.info("Esta persona ya está convocada en esta gira.");
+        setSearchTerm("");
+        setSearchResults([]);
+        await refreshRoster();
+        scrollToIntegranteInTable(idLink);
+        return;
       }
-      setSearchTerm("");
-      setSearchResults([]);
-      refreshRoster();
+      if (isForeignKeyViolation(error)) {
+        toast.error(
+          "No se pudo agregar: el integrante no existe en la base o el ID llegó mal. Si lo creaste recién, recargá e intentá otra vez.",
+        );
+        return;
+      }
+      toast.error("No se pudo agregar a la gira: " + error.message);
+      return;
     }
+    if (
+      sendNotification &&
+      localNotificacionInicialEnviada &&
+      notificacionesHabilitadas &&
+      musicianData?.mail
+    ) {
+      const nombreCompleto =
+        musicianData.nombre_completo ||
+        `${musicianData.apellido || ""}, ${musicianData.nombre || ""}`.trim();
+      setPendingNotifications((prev) => [
+        ...prev,
+        {
+          id: `alta-manual-${integranteKey(idLink)}-${Date.now()}`,
+          variant: "ALTA",
+          emails: [musicianData.mail],
+          nombres: [nombreCompleto],
+          reason: "Se te convoca individualmente",
+        },
+      ]);
+    }
+    setSearchTerm("");
+    setSearchResults([]);
+    refreshRoster();
   };
 
   const removeMemberManual = async (id) => {
@@ -1213,10 +1263,10 @@ export default function GiraRoster({
       );
     }
     const { data } = await query.limit(30);
-    const currentIds = new Set(localRoster.map((r) => r.id));
+    const currentIds = new Set(localRoster.map((r) => integranteKey(r.id)));
     const withFlag = (data || []).map((m) => ({
       ...m,
-      isAlreadyInTour: currentIds.has(m.id),
+      isAlreadyInTour: currentIds.has(integranteKey(m.id)),
     }));
     setSearchResults(withFlag);
   };
@@ -1320,17 +1370,23 @@ export default function GiraRoster({
     if (!payload) return;
     const idInt =
       typeof payload === "object" && payload.id ? payload.id : payload;
-    if (!idInt) return;
+    if (idInt == null || idInt === "") return;
 
-    const already = localRoster.some((m) => m.id === idInt);
+    const idKey = integranteKey(idInt);
+    const already = localRoster.some((m) => integranteKey(m.id) === idKey);
+    const idForQuery = integranteIdForDb(idInt);
+    if (idForQuery == null) {
+      toast.error("ID de integrante inválido.");
+      return;
+    }
     if (already) {
-      scrollToIntegranteInTable(idInt);
+      scrollToIntegranteInTable(idForQuery);
       return;
     }
 
     // Traer datos completos (incluyendo mail) para poder encolar notificación
     let musicianData = {
-      id: idInt,
+      id: idForQuery,
       apellido: "",
       nombre: "",
       mail: null,
@@ -1340,7 +1396,7 @@ export default function GiraRoster({
       const { data, error } = await supabase
         .from("integrantes")
         .select("*")
-        .eq("id", idInt)
+        .eq("id", idForQuery)
         .maybeSingle();
 
       if (!error && data) {
@@ -1358,7 +1414,7 @@ export default function GiraRoster({
           typeof payload === "object" && payload.label ? payload.label : "";
         const [apellido, nombre] = label.split(",").map((p) => p.trim());
         musicianData = {
-          id: idInt,
+          id: idForQuery,
           apellido: apellido || "",
           nombre: nombre || "",
           mail: null,
@@ -1369,7 +1425,7 @@ export default function GiraRoster({
         typeof payload === "object" && payload.label ? payload.label : "";
       const [apellido, nombre] = label.split(",").map((p) => p.trim());
       musicianData = {
-        id: idInt,
+        id: idForQuery,
         apellido: apellido || "",
         nombre: nombre || "",
         mail: null,
@@ -1377,7 +1433,7 @@ export default function GiraRoster({
     }
 
     // Alta directa usando los datos completos del integrante
-    await addManualMusician(idInt, musicianData);
+    await addManualMusician(idForQuery, musicianData);
   };
 
   // --- OBTENER ESTILOS DE FILA (MODIFICADO PARA DB ROLES) ---

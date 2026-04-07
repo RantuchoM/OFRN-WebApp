@@ -24,7 +24,6 @@ export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, 
         
         setLoading(true);
         try {
-            const generatedId = Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 10000);
             const uniqueToken = Date.now().toString().slice(-6);
 
             // CORRECCIÓN 1: 'giraNomenclador' ahora viene de las props y está definido
@@ -32,10 +31,10 @@ export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, 
             
             const apellidoCompuesto = `${formData.rol} ${etiquetaGira}`.trim();
 
-            const { error: userError } = await supabase
+            // id lo asigna la BD (IDENTITY); evita colisiones con secuencias o IDs legacy/cliente.
+            const { data: newVacancy, error: userError } = await supabase
                 .from('integrantes')
                 .insert([{
-                    id: generatedId,
                     nombre: 'Vacante',
                     apellido: apellidoCompuesto,
                     es_simulacion: true,
@@ -45,7 +44,9 @@ export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, 
                     dni: `SIM-${uniqueToken}`, 
                     mail: `vacante-${uniqueToken}@placeholder.system`,
                     condicion: 'Refuerzo' // <--- CORRECCIÓN: Asignar condición "Refuerzo" explícitamente
-                }]);
+                }])
+                .select('id')
+                .single();
 
             if (userError) throw userError;
 
@@ -54,7 +55,7 @@ export const AddVacancyModal = ({ isOpen, onClose, giraId, supabase, onRefresh, 
                 .from('giras_integrantes')
                 .insert([{
                     id_gira: giraId,
-                    id_integrante: generatedId, // CORRECCIÓN 2: Usar 'generatedId' en lugar de 'newPlaceholder.id'
+                    id_integrante: newVacancy.id,
                     rol: 'musico', 
                     estado: 'confirmado' 
                 }]);

@@ -339,6 +339,90 @@ export default function UnifiedAgenda({
     [items],
   );
 
+  /** Primer y último día con evento en la gira (solo con giraId). */
+  const { giraFirstDate, giraLastDate } = useMemo(() => {
+    if (!giraId || !items.length) return { giraFirstDate: null, giraLastDate: null };
+    const fechas = items.map((i) => i.fecha).filter(Boolean);
+    if (!fechas.length) return { giraFirstDate: null, giraLastDate: null };
+    const sorted = [...fechas].sort();
+    return {
+      giraFirstDate: sorted[0],
+      giraLastDate: sorted[sorted.length - 1],
+    };
+  }, [giraId, items]);
+
+  const todayStr = getTodayDateStringLocal();
+  const isGiraFinishedTour = Boolean(
+    giraId && giraLastDate && todayStr > giraLastDate,
+  );
+
+  /** Gira ya cerrada: el "desde hoy" por defecto excluye todos los eventos; mostrar desde el inicio. */
+  const effectiveDateFromForFilter = useMemo(() => {
+    if (!giraId || !giraFirstDate || !giraLastDate) return effectiveDateFrom;
+    if (todayStr <= giraLastDate) return effectiveDateFrom;
+    if (effectiveDateFrom > giraLastDate || effectiveDateFrom < giraFirstDate) {
+      return giraFirstDate;
+    }
+    return effectiveDateFrom;
+  }, [
+    giraId,
+    giraFirstDate,
+    giraLastDate,
+    effectiveDateFrom,
+    todayStr,
+  ]);
+
+  const showNonActiveForFilter = showNonActive || isGiraFinishedTour;
+
+  /** En gira terminada, "Desde" = primer evento no cuenta como filtro activo (vista completa por defecto). */
+  const dateRangeFilterLooksActive = Boolean(
+    filterDateTo ||
+      (filterDateFrom &&
+        filterDateFrom !== getTodayDateStringLocal() &&
+        !(
+          isGiraFinishedTour &&
+          giraFirstDate &&
+          filterDateFrom === giraFirstDate
+        )),
+  );
+
+  const finishedGiraTechDefaultsRef = useRef(false);
+  useEffect(() => {
+    finishedGiraTechDefaultsRef.current = false;
+  }, [giraId]);
+
+  // Gira ya terminada: una vez, técnica "Todos" (equivalente a quitar ese filtro); el usuario puede volver a acotar después.
+  useEffect(() => {
+    if (
+      !isGiraFinishedTour ||
+      loading ||
+      finishedGiraTechDefaultsRef.current ||
+      !(isManagement || isTechnician)
+    )
+      return;
+    finishedGiraTechDefaultsRef.current = true;
+    setTechFilter("all");
+  }, [isGiraFinishedTour, loading, isManagement, isTechnician]);
+
+  // Alinear el control "Desde" con la fecha real del filtro (evita mostrar "hoy" cuando la vista ya es toda la gira)
+  useEffect(() => {
+    if (!isGiraFinishedTour || !giraFirstDate || !giraLastDate || loading) return;
+    if (filterDateFrom > giraLastDate) {
+      setFilterDateFrom(giraFirstDate);
+      setFilterDateTo(null);
+    } else if (filterDateFrom < giraFirstDate) {
+      setFilterDateFrom(giraFirstDate);
+    }
+  }, [
+    isGiraFinishedTour,
+    giraFirstDate,
+    giraLastDate,
+    loading,
+    filterDateFrom,
+    setFilterDateFrom,
+    setFilterDateTo,
+  ]);
+
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const filterMenuRef = useRef(null);
   useClickOutside(filterMenuRef, () => setIsFilterMenuOpen(false));
@@ -493,7 +577,7 @@ export default function UnifiedAgenda({
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       if (item.fecha) {
-        if (item.fecha < effectiveDateFrom) return false;
+        if (item.fecha < effectiveDateFromForFilter) return false;
         if (filterDateTo && item.fecha > filterDateTo) return false;
       }
 
@@ -522,7 +606,7 @@ export default function UnifiedAgenda({
       const catId = item.tipos_evento?.categorias_tipos_eventos?.id;
 
       // Filtro de giras activas: permitir siempre mi subida/bajada aunque el programa no esté vigente
-      if (!showNonActive) {
+      if (!showNonActiveForFilter) {
         const estadoGira = item.programas?.estado || "Borrador";
         if (item.isProgramMarker) {
           if (
@@ -582,10 +666,10 @@ export default function UnifiedAgenda({
     });
   }, [
     items,
-    effectiveDateFrom,
+    effectiveDateFromForFilter,
     filterDateTo,
     selectedCategoryIds,
-    showNonActive,
+    showNonActiveForFilter,
     showOnlyMyTransport,
     showOnlyMyMeals,
     myTransportLogistics,
@@ -667,7 +751,7 @@ export default function UnifiedAgenda({
     if (userProfile && userProfile.id !== user.id) {
       subTitle = `Vista simulada: ${userProfile.apellido}, ${userProfile.nombre}`;
     }
-    if (showNonActive) {
+    if (showNonActiveForFilter) {
       subTitle += subTitle ? " | Incluye Borradores" : "Incluye Borradores";
     }
     const hideGiraColumn = !!giraId;
@@ -1187,9 +1271,7 @@ export default function UnifiedAgenda({
                       showOnlyMyTransport ||
                       showOnlyMyMeals ||
                       showNoGray ||
-                      (filterDateFrom &&
-                        filterDateFrom !== getTodayDateStringLocal()) ||
-                      filterDateTo
+                      dateRangeFilterLooksActive
                         ? "bg-slate-800 text-white border-slate-800"
                         : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                     }`}
@@ -1234,8 +1316,13 @@ export default function UnifiedAgenda({
                             setShowOnlyMyTransport(false);
                             setShowOnlyMyMeals(false);
                             setShowNoGray(false);
-                            setFilterDateFrom(getTodayDateStringLocal());
+                            if (isGiraFinishedTour && giraFirstDate) {
+                              setFilterDateFrom(giraFirstDate);
+                            } else {
+                              setFilterDateFrom(getTodayDateStringLocal());
+                            }
                             setFilterDateTo(null);
+                            if (isGiraFinishedTour) setShowNonActive(true);
                             if (isManagement) setTechFilter("all");
                           }}
                           className="text-[10px] text-indigo-600 hover:underline font-bold"
@@ -1402,17 +1489,27 @@ export default function UnifiedAgenda({
                         </div>
                         {canEdit && (
                           <div className="p-2 border-t border-slate-100 bg-amber-50/50">
-                            <label className="flex items-center gap-2 cursor-pointer p-2">
+                            <label
+                              className={`flex items-center gap-2 p-2 ${isGiraFinishedTour ? "cursor-default opacity-90" : "cursor-pointer"}`}
+                            >
                               <input
                                 type="checkbox"
                                 className="accent-amber-600 w-4 h-4"
-                                checked={showNonActive}
+                                checked={showNonActiveForFilter}
+                                disabled={isGiraFinishedTour}
                                 onChange={(e) =>
+                                  !isGiraFinishedTour &&
                                   setShowNonActive(e.target.checked)
                                 }
                               />
                               <span className="text-xs font-bold text-amber-800">
                                 Mostrar borradores
+                                {isGiraFinishedTour && (
+                                  <span className="block font-normal text-[10px] text-amber-700/90 mt-0.5">
+                                    En giras finalizadas siempre se incluyen
+                                    programas no vigentes.
+                                  </span>
+                                )}
                               </span>
                             </label>
                           </div>

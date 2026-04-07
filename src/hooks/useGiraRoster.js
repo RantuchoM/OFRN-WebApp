@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { integranteKey } from "../utils/integranteIds";
 
 /**
  * Obtiene el roster completo de una gira (fuentes + overrides + lógica de negocio).
@@ -31,7 +32,8 @@ export async function fetchRosterForGira(supabase, gira) {
 
   const overrideMap = {};
   overrides?.forEach((o) => {
-    const kid = Number(o.id_integrante);
+    const kid = integranteKey(o.id_integrante);
+    if (!kid) return;
     overrideMap[kid] = { estado: o.estado, rol: o.rol };
   });
 
@@ -47,18 +49,24 @@ export async function fetchRosterForGira(supabase, gira) {
       : Promise.resolve([]),
   ]);
 
-  const num = (id) => Number(id);
   const baseIncludedIds = new Set([
-    ...membersEns.map((m) => num(m.id_integrante)),
-    ...membersFam.map((m) => num(m.id)),
+    ...membersEns.map((m) => integranteKey(m.id_integrante)),
+    ...membersFam.map((m) => integranteKey(m.id)),
   ]);
-  const excludedIds = new Set(membersExcl.map((m) => num(m.id_integrante)));
-  const manualIds = new Set(overrides.map((o) => num(o.id_integrante)));
-  const allPotentialIds = new Set([...baseIncludedIds, ...excludedIds, ...manualIds]);
+  const excludedIds = new Set(
+    membersExcl.map((m) => integranteKey(m.id_integrante)),
+  );
+  const manualIds = new Set(
+    (overrides || []).map((o) => integranteKey(o.id_integrante)).filter(Boolean),
+  );
+  const allPotentialIds = new Set([
+    ...baseIncludedIds,
+    ...excludedIds,
+    ...manualIds,
+  ]);
 
-  if (allPotentialIds.size === 0) return { roster: [], sources: fuentes || [] };
-
-  const allIds = Array.from(allPotentialIds);
+  const allIds = Array.from(allPotentialIds).filter(Boolean);
+  if (allIds.length === 0) return { roster: [], sources: fuentes || [] };
   const chunkSize = 20;
   const chunks = [];
   for (let i = 0; i < allIds.length; i += chunkSize) chunks.push(allIds.slice(i, i + chunkSize));
@@ -77,7 +85,11 @@ export async function fetchRosterForGira(supabase, gira) {
            viaticos:localidades!id_loc_viaticos(id, localidad, id_region, regiones(region)),
            integrantes_ensambles(id_ensamble, ensambles(id, ensamble))`
         )
-        .in("id", chunk)
+        // chunk son claves string unificadas; PostgREST acepta string para bigint
+        .in(
+          "id",
+          chunk.map((k) => (Number.isSafeInteger(Number(k)) ? Number(k) : k)),
+        )
     )
   );
 
@@ -96,7 +108,7 @@ export async function fetchRosterForGira(supabase, gira) {
 
   const finalRoster = [];
   musicians.forEach((m) => {
-    const id = num(m.id);
+    const id = integranteKey(m.id);
     const manualData = overrideMap[id];
     const isManual = manualIds.has(id);
     const isExcluded = excludedIds.has(id);
@@ -125,13 +137,15 @@ export async function fetchRosterForGira(supabase, gira) {
     }
     if (m.instrumentos?.familia?.includes("Prod")) rolReal = "produccion";
 
-    if (isExcluded) {
-      keep = false;
-    } else if (isManual) {
-      estadoReal = manualData.estado;
-      rolReal = manualData.rol || rolReal;
+    // Convocatoria explícita en giras_integrantes debe verse siempre; si no, EXCL_ENSAMBLE
+    // ocultaba filas aunque el INSERT ya hubiera creado el vínculo (409 "duplicado").
+    if (isManual) {
+      estadoReal = manualData?.estado ?? "confirmado";
+      rolReal = manualData?.rol || rolReal;
       keep = true;
       esAdicional = isBaseValid ? false : estadoReal === "confirmado";
+    } else if (isExcluded) {
+      keep = false;
     } else {
       if (isBaseValid) {
         keep = true;

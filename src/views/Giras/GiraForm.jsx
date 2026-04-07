@@ -844,8 +844,6 @@ export default function GiraForm({
     );
     alert("Copiado");
   };
-  const generateNumericId = () =>
-    Math.floor(10000000 + Math.random() * 90000000);
   const handleShiftProgram = async () => {
     alert("En desarrollo");
     setIsShifting(false);
@@ -1416,15 +1414,14 @@ export default function GiraForm({
           style={{ zIndex: 99999 }}
         >
           <div className="w-full max-w-2xl animate-in zoom-in-95 duration-200">
-            <MusicianForm
-              supabase={supabase}
-              musician={{
-                id: generateNumericId(),
-                nombre: tempName.nombre,
-                apellido: tempName.apellido,
-                condicion: "Invitado",
-              }}
-              onSave={handleDetailedSave}
+              <MusicianForm
+                supabase={supabase}
+                musician={{
+                  nombre: tempName.nombre,
+                  apellido: tempName.apellido,
+                  condicion: "Invitado",
+                }}
+                onSave={handleDetailedSave}
               onCancel={() => setIsCreatingDetailed(false)}
             />
           </div>
