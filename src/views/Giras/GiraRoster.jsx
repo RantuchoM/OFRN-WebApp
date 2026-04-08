@@ -1099,12 +1099,13 @@ export default function GiraRoster({
     try {
       const linkRepertorio = `${window.location.origin}${window.location.pathname}?tab=giras&view=REPERTOIRE&giraId=${gira.id}`;
       const bcc = confirmados.map((m) => m.mail);
+      const primero = confirmados[0];
       const { error } = await supabase.functions.invoke("mails_produccion", {
         body: {
           action: "enviar_mail",
           templateId: "convocatoria_gira",
           bcc,
-          nombre: confirmados[0]?.nombre_completo || "Participante",
+          nombre: primero?.nombre_completo || "Participante",
           gira: gira.nombre_gira,
           detalle: {
             variant: "INITIAL_BROADCAST",
@@ -1113,6 +1114,8 @@ export default function GiraRoster({
             fecha_desde: gira.fecha_desde || "",
             fecha_hasta: gira.fecha_hasta || "",
             zona: gira.zona || "",
+            primer_integrante_nombre: primero?.nombre ?? "",
+            primer_integrante_apellido: primero?.apellido ?? "",
           },
         },
       });

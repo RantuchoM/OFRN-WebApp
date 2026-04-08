@@ -11,6 +11,21 @@
 
     const fmt = (v: any) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(v || 0);
 
+    /**
+     * Convocatoria por BCC: el cuerpo usa un único saludo; si viene nombre y apellido del primer integrante
+     * en detalle, armar "Nombre Apellido". Si no, usar payload.nombre (p. ej. "Apellido, Nombre" o un solo nombre).
+     */
+    function nombreSaludoConvocatoria(payloadNombre: string, d: any): string {
+      const nRaw = d?.primer_integrante_nombre ?? d?.nombre_primero;
+      const aRaw = d?.primer_integrante_apellido ?? d?.apellido_primero;
+      const n = nRaw != null ? String(nRaw).trim() : "";
+      const a = aRaw != null ? String(aRaw).trim() : "";
+      if (n && a) return `${n} ${a}`;
+      if (n) return n;
+      if (a) return a;
+      return (payloadNombre || "").trim();
+    }
+
     // --- COLECCIÓN DE TEMPLATES ---
     const templates = {
       // 1. Template de Viáticos (Individual)
@@ -500,7 +515,12 @@
           }
           const generateHTML = templates[tid as keyof typeof templates];
           const nombreGira = gira || "";
-          const htmlContent = generateHTML(nombre || "", nombreGira, detalle || {});
+          const det = detalle || {};
+          const nombreParaTemplate =
+            tid === "convocatoria_gira"
+              ? nombreSaludoConvocatoria(nombre || "", det)
+              : nombre || "";
+          const htmlContent = generateHTML(nombreParaTemplate, nombreGira, det);
 
           let subject = `Aviso OFRN`;
           if (tid === 'viaticos_simple') {

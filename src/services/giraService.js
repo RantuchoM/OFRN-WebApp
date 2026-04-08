@@ -4,12 +4,12 @@
  */
 
 /**
- * 1. FUNCIÓN INTERNA (NO EXPORTADA)
  * Resuelve los IDs de los integrantes de una gira:
  * (Miembros de Ensambles Convocados + Familias Convocadas + Overrides) MINUS (Miembros de Ensambles Excluidos) MINUS (Ausentes).
  * La exclusión de ensamble manda: si un ensamble está en EXCL_ENSAMBLE, sus miembros no entran aunque su familia esté convocada.
+ * @see docs/roster-spec.md
  */
-const resolveGiraRosterIds = async (supabase, giraId) => {
+export const resolveGiraRosterIds = async (supabase, giraId) => {
   try {
     const num = (id) => Number(id);
 
@@ -92,6 +92,85 @@ const resolveGiraRosterIds = async (supabase, giraId) => {
   } catch (error) {
     console.error("[GiraService] Error resolviendo roster IDs:", error);
     return [];
+  }
+};
+
+/** Valores de `programas.tipo` (enum tipo_programa) usados en filtros del reporte de matriz. */
+export const TIPOS_PROGRAMA_ASISTENCIA_MATRIZ = [
+  "Sinfónico",
+  "Camerata Filarmónica",
+  "Ensamble",
+  "Jazz Band",
+  "Comisión",
+];
+
+/**
+ * Carga datos base para el reporte Matriz de Asistencia (programas recientes, integrantes con instrumento, ensambles).
+ * Los programas se traen desde el 1-ene del año anterior para no perder giras que cruzan de año.
+ */
+export const fetchAsistenciaMatrixBaseData = async (supabase) => {
+  if (!supabase) {
+    return {
+      programas: [],
+      integrantes: [],
+      ensambles: [],
+      memberships: [],
+      error: null,
+    };
+  }
+  const y = new Date().getFullYear();
+  const minFechaDesde = `${y - 1}-01-01`;
+  try {
+    const [programasRes, integrantesRes, ensRes, ieRes] = await Promise.all([
+      supabase
+        .from("programas")
+        .select(
+          "id, nomenclador, mes_letra, nombre_gira, subtitulo, tipo, fecha_desde, fecha_hasta",
+        )
+        .gte("fecha_desde", minFechaDesde)
+        .order("fecha_desde", { ascending: true }),
+      supabase
+        .from("integrantes")
+        .select(
+          "id, nombre, apellido, id_instr, instrumentos ( id, instrumento, familia, abreviatura )",
+        )
+        .order("id_instr", { ascending: true }),
+      supabase.from("ensambles").select("id, ensamble").order("ensamble"),
+      supabase.from("integrantes_ensambles").select("id_ensamble, id_integrante"),
+    ]);
+
+    const err =
+      programasRes.error ||
+      integrantesRes.error ||
+      ensRes.error ||
+      ieRes.error;
+    if (err) {
+      console.error("[GiraService] fetchAsistenciaMatrixBaseData:", err);
+      return {
+        programas: [],
+        integrantes: [],
+        ensambles: [],
+        memberships: [],
+        error: err,
+      };
+    }
+
+    return {
+      programas: programasRes.data || [],
+      integrantes: integrantesRes.data || [],
+      ensambles: ensRes.data || [],
+      memberships: ieRes.data || [],
+      error: null,
+    };
+  } catch (e) {
+    console.error("[GiraService] fetchAsistenciaMatrixBaseData:", e);
+    return {
+      programas: [],
+      integrantes: [],
+      ensambles: [],
+      memberships: [],
+      error: e,
+    };
   }
 };
 
