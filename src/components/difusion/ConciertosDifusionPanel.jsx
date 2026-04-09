@@ -10,6 +10,7 @@ import {
 import ConfirmModal from "../ui/ConfirmModal";
 import MassiveEditModal from "./MassiveEditModal";
 import { toast } from "sonner";
+import { getProgramTypeColor } from "../../utils/giraUtils";
 
 export const DIFUSION_ESTADOS = [
   { value: "en_proceso", label: "En proceso" },
@@ -30,9 +31,76 @@ function estadoBadgeClass(estado) {
   }
 }
 
+/** Fondo muy tenue para fila de tabla o tarjeta móvil */
+function estadoFilaBgClass(estado) {
+  if (estado == null || estado === "") {
+    return "bg-slate-50/40 dark:bg-slate-900/80";
+  }
+  switch (estado) {
+    case "listo":
+      return "bg-green-50/70 dark:bg-green-950/30";
+    case "compartido":
+      return "bg-blue-50/70 dark:bg-blue-950/30";
+    case "en_proceso":
+      return "bg-amber-50/80 dark:bg-amber-950/25";
+    default:
+      return "bg-slate-50/40 dark:bg-slate-900/80";
+  }
+}
+
 function labelEstado(estado) {
   if (estado == null || estado === "") return null;
   return DIFUSION_ESTADOS.find((e) => e.value === estado)?.label ?? estado;
+}
+
+/** Relación programas puede ser objeto o array según embed */
+function programaEmbed(ev) {
+  const p = ev?.programas;
+  if (Array.isArray(p)) return p[0] ?? null;
+  return p ?? null;
+}
+
+function nomenMesLinea(prog) {
+  if (!prog) return "";
+  const mes =
+    prog.mes_letra != null && String(prog.mes_letra).trim() !== ""
+      ? String(prog.mes_letra).trim()
+      : "";
+  const nom =
+    prog.nomenclador != null && String(prog.nomenclador).trim() !== ""
+      ? String(prog.nomenclador).trim()
+      : "";
+  const parts = [mes, nom].filter(Boolean);
+  return parts.join(" | ");
+}
+
+/** Abreviatura + clave para getProgramTypeColor (mismos tipos que PROGRAM_TYPES) */
+const TIPO_PROGRAMA_BADGE = {
+  Sinfónico: { abbr: "Sinf", colorKey: "Sinfónico" },
+  "Camerata Filarmónica": { abbr: "CF", colorKey: "Camerata Filarmónica" },
+  Ensamble: { abbr: "Ens", colorKey: "Ensamble" },
+  "Jazz Band": { abbr: "JB", colorKey: "Jazz Band" },
+  Comisión: { abbr: "Com", colorKey: "Comisión" },
+};
+
+function tipoProgramaBadgeSpec(tipo) {
+  const t = String(tipo ?? "").trim();
+  return TIPO_PROGRAMA_BADGE[t] ?? null;
+}
+
+function TipoProgramaMiniBadge({ tipo }) {
+  const t = String(tipo ?? "").trim();
+  const spec = tipoProgramaBadgeSpec(t);
+  if (!spec) return null;
+  const color = getProgramTypeColor(spec.colorKey);
+  return (
+    <span
+      className={`inline-flex items-center justify-center rounded border px-0.5 py-px text-[8px] font-black uppercase leading-tight tracking-tight shrink-0 ${color}`}
+      title={t}
+    >
+      {spec.abbr}
+    </span>
+  );
 }
 
 function locacionLabel(ev) {
@@ -476,6 +544,54 @@ export default function ConciertosDifusionPanel({
     ? allLogsByEvent[historyEventId] || []
     : [];
 
+  const buildRow = (ev) => {
+    const last = latestFor(ev.id);
+    const estado = last?.estado ?? null;
+    const obs = last?.observaciones || "";
+    const deleted = !!ev.is_deleted;
+    const prog = programaEmbed(ev);
+    const tituloPrograma =
+      prog?.nombre_gira || `Programa #${ev.id_gira}`;
+    const lineaNomenMes = nomenMesLinea(prog);
+    const tipoPrograma =
+      prog?.tipo != null && String(prog.tipo).trim() !== ""
+        ? String(prog.tipo).trim()
+        : "";
+    const isEditing = editingId === ev.id;
+    const curFecha = normalizeFechaVal(ev.fecha);
+    const curHora = normalizeHoraVal(ev.hora_inicio);
+    const curLoc = locacionLabel(ev);
+    const snapTip = tooltipUltimoRegistro(last);
+    const warnF =
+      last?.fecha_snapshot != null &&
+      curFecha !== normalizeFechaVal(last.fecha_snapshot);
+    const warnH =
+      last?.hora_snapshot != null &&
+      (curHora || null) !== normalizeHoraVal(last.hora_snapshot);
+    const warnL =
+      last?.locacion_snapshot != null &&
+      curLoc !== (last.locacion_snapshot || "");
+    const strikeCls = deleted ? "opacity-50 line-through" : "";
+    return {
+      last,
+      estado,
+      obs,
+      deleted,
+      tituloPrograma,
+      lineaNomenMes,
+      tipoPrograma,
+      isEditing,
+      curFecha,
+      curHora,
+      curLoc,
+      snapTip,
+      warnF,
+      warnH,
+      warnL,
+      strikeCls,
+    };
+  };
+
   return (
     <div className="space-y-4">
       {canEdit && selected.size > 0 && (
@@ -490,7 +606,209 @@ export default function ConciertosDifusionPanel({
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
+      {/* Vista móvil: tarjetas compactas */}
+      <div className="md:hidden space-y-1.5">
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-10 text-slate-400 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+            <IconLoader className="animate-spin" size={18} />
+            Cargando…
+          </div>
+        ) : events.length === 0 ? (
+          <div className="py-10 text-center text-slate-500 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3">
+            No hay conciertos con los filtros actuales.
+          </div>
+        ) : (
+          events.map((ev) => {
+            const r = buildRow(ev);
+            const estadoFondo = r.isEditing
+              ? draft.estado || null
+              : (r.estado ?? null);
+            return (
+              <article
+                key={ev.id}
+                className={`rounded-lg border border-slate-200/80 dark:border-slate-700 p-2 shadow-sm ${estadoFilaBgClass(estadoFondo)} ${r.deleted ? "opacity-60" : ""}`}
+              >
+                <div className="flex items-start gap-2">
+                  {canEdit && (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(ev.id)}
+                      onChange={() => toggleOne(ev.id)}
+                      disabled={r.isEditing}
+                      className="mt-0.5 rounded border-slate-300 shrink-0"
+                      aria-label="Seleccionar"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="text-[11px] leading-tight text-slate-800 dark:text-slate-100">
+                          <SnapshotWarn warn={r.warnF} tooltip={r.snapTip}>
+                            <span className="font-semibold">
+                              {ev.fecha
+                                ? formatFechaDifusionLinea(ev.fecha)
+                                : "—"}
+                            </span>
+                          </SnapshotWarn>
+                        </div>
+                        {ev.fecha && (
+                          <div className="text-[9px] text-slate-400">
+                            {formatDiaSemanaLinea(ev.fecha)}
+                          </div>
+                        )}
+                        <div className="text-[11px] text-slate-800 dark:text-slate-100">
+                          <SnapshotWarn warn={r.warnH} tooltip={r.snapTip}>
+                            <span>{r.curHora || "—"}</span>
+                          </SnapshotWarn>
+                        </div>
+                        <div
+                          className={`text-[10px] text-slate-600 dark:text-slate-300 leading-snug ${r.strikeCls}`}
+                        >
+                          <SnapshotWarn warn={r.warnL} tooltip={r.snapTip}>
+                            {r.curLoc}
+                          </SnapshotWarn>
+                        </div>
+                      </div>
+                      <div className="shrink-0">
+                        {r.isEditing ? (
+                          <select
+                            className="text-[10px] py-0.5 px-1 border border-slate-200 rounded-md bg-white dark:bg-slate-800 max-w-[112px]"
+                            value={draft.estado}
+                            onChange={(e) =>
+                              setDraft((d) => ({
+                                ...d,
+                                estado: e.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">—</option>
+                            {DIFUSION_ESTADOS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : labelEstado(r.estado) ? (
+                          <span
+                            className={`inline-flex text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${estadoBadgeClass(r.estado)}`}
+                          >
+                            {labelEstado(r.estado)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-[10px]">—</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className={`text-[11px] font-semibold leading-snug ${r.strikeCls}`}>
+                      {r.tituloPrograma}
+                    </div>
+                    {(r.lineaNomenMes ||
+                      tipoProgramaBadgeSpec(r.tipoPrograma)) && (
+                      <div
+                        className={`flex flex-wrap items-center gap-1.5 text-[9px] text-slate-500 leading-tight ${r.strikeCls}`}
+                      >
+                        {r.lineaNomenMes ? (
+                          <span>{r.lineaNomenMes}</span>
+                        ) : null}
+                        <TipoProgramaMiniBadge tipo={r.tipoPrograma} />
+                      </div>
+                    )}
+                    {r.isEditing ? (
+                      <div className="flex gap-1.5 items-start mt-0.5">
+                        <span className="text-[10px] font-bold text-slate-700 dark:text-slate-200 shrink-0 pt-1">
+                          Nota:
+                        </span>
+                        <textarea
+                          className="flex-1 min-w-0 text-[11px] p-1.5 border border-slate-200 rounded-md bg-white dark:bg-slate-800 min-h-[44px]"
+                          value={draft.observaciones}
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              observaciones: e.target.value,
+                            }))
+                          }
+                          placeholder="…"
+                          aria-label="Nota"
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-slate-600 dark:text-slate-400 line-clamp-4 whitespace-pre-wrap break-words flex gap-1.5 items-start">
+                        <span className="font-bold text-slate-700 dark:text-slate-200 shrink-0">
+                          Nota:
+                        </span>
+                        <span className="min-w-0">
+                          {r.obs || (
+                            <span className="text-slate-400 italic">—</span>
+                          )}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-1.5 flex flex-wrap justify-end gap-0.5 border-t border-slate-100 dark:border-slate-800 pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryEventId(ev.id)}
+                    className="p-1 text-slate-500 hover:text-indigo-600 rounded"
+                    title="Historial"
+                  >
+                    <IconHistory size={15} />
+                  </button>
+                  {canEdit &&
+                    (r.isEditing ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => saveEdit(ev.id)}
+                          disabled={savingId === ev.id}
+                          className="p-1 text-green-600 rounded"
+                          title="Guardar"
+                        >
+                          {savingId === ev.id ? (
+                            <IconLoader className="animate-spin" size={15} />
+                          ) : (
+                            <IconCheck size={15} />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={requestCloseEdit}
+                          className="p-1 text-slate-400 rounded"
+                          title="Cancelar"
+                        >
+                          <IconX size={15} />
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => startEdit(ev)}
+                        className="p-1 text-slate-500 hover:text-indigo-600 rounded"
+                        title="Editar"
+                      >
+                        <IconEdit size={15} />
+                      </button>
+                    ))}
+                  {showGiraShortcut &&
+                    onNavigateToGiraDifusion &&
+                    ev.id_gira && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigateToGiraDifusion(ev.id_gira)}
+                        className="p-1 text-slate-500 hover:text-indigo-600 rounded"
+                        title="Gira"
+                      >
+                        <IconArrowRight size={15} />
+                      </button>
+                    )}
+                </div>
+              </article>
+            );
+          })
+        )}
+      </div>
+
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
         <table className="w-full text-sm min-w-[1000px]">
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-800/80 text-left text-[10px] font-black uppercase tracking-wider text-slate-500">
@@ -538,50 +856,28 @@ export default function ConciertosDifusionPanel({
               </tr>
             ) : (
               events.map((ev) => {
-                const last = latestFor(ev.id);
-                const estado = last?.estado ?? null;
-                const obs = last?.observaciones || "";
-                const deleted = !!ev.is_deleted;
-                const tituloPrograma =
-                  ev.programas?.nombre_gira || `Programa #${ev.id_gira}`;
-                const nomen = ev.programas?.nomenclador?.trim();
-                const mesLetra = ev.programas?.mes_letra?.trim();
-                const isEditing = editingId === ev.id;
-
-                const curFecha = normalizeFechaVal(ev.fecha);
-                const curHora = normalizeHoraVal(ev.hora_inicio);
-                const curLoc = locacionLabel(ev);
-                const snapTip = tooltipUltimoRegistro(last);
-                const warnF =
-                  last?.fecha_snapshot != null &&
-                  curFecha !== normalizeFechaVal(last.fecha_snapshot);
-                const warnH =
-                  last?.hora_snapshot != null &&
-                  (curHora || null) !==
-                    normalizeHoraVal(last.hora_snapshot);
-                const warnL =
-                  last?.locacion_snapshot != null &&
-                  curLoc !== (last.locacion_snapshot || "");
-
-                const strikeCls = deleted ? "opacity-50 line-through" : "";
+                const r = buildRow(ev);
+                const estadoFondo = r.isEditing
+                  ? draft.estado || null
+                  : (r.estado ?? null);
                 return (
                   <tr
                     key={ev.id}
-                    className="border-t border-slate-100 dark:border-slate-800"
+                    className={`border-t border-slate-100/90 dark:border-slate-800 ${estadoFilaBgClass(estadoFondo)} ${r.deleted ? "opacity-60" : ""}`}
                   >
                     {canEdit && (
-                      <td className={`p-2 align-top ${deleted ? "opacity-50" : ""}`}>
+                      <td className={`p-2 align-top ${r.deleted ? "opacity-50" : ""}`}>
                         <input
                           type="checkbox"
                           checked={selected.has(ev.id)}
                           onChange={() => toggleOne(ev.id)}
-                          disabled={isEditing}
+                          disabled={r.isEditing}
                           className="rounded border-slate-300"
                         />
                       </td>
                     )}
-                    <td className={`p-2 align-top text-xs ${strikeCls}`}>
-                      <SnapshotWarn warn={warnF} tooltip={snapTip}>
+                    <td className={`p-2 align-top text-xs ${r.strikeCls}`}>
+                      <SnapshotWarn warn={r.warnF} tooltip={r.snapTip}>
                         <div className="leading-tight">
                           <div className="font-medium">
                             {ev.fecha
@@ -596,30 +892,32 @@ export default function ConciertosDifusionPanel({
                         </div>
                       </SnapshotWarn>
                     </td>
-                    <td className={`p-2 align-top text-xs whitespace-nowrap ${strikeCls}`}>
-                      <SnapshotWarn warn={warnH} tooltip={snapTip}>
-                        {curHora || "—"}
+                    <td className={`p-2 align-top text-xs whitespace-nowrap ${r.strikeCls}`}>
+                      <SnapshotWarn warn={r.warnH} tooltip={r.snapTip}>
+                        {r.curHora || "—"}
                       </SnapshotWarn>
                     </td>
-                    <td className={`p-2 align-top text-xs break-words ${strikeCls}`}>
-                      <SnapshotWarn warn={warnL} tooltip={snapTip}>
-                        {curLoc}
+                    <td className={`p-2 align-top text-xs break-words ${r.strikeCls}`}>
+                      <SnapshotWarn warn={r.warnL} tooltip={r.snapTip}>
+                        {r.curLoc}
                       </SnapshotWarn>
                     </td>
-                    <td className={`p-2 align-top text-xs ${strikeCls}`}>
+                    <td className={`p-2 align-top text-xs ${r.strikeCls}`}>
                       <div className="font-semibold text-slate-800 dark:text-slate-100 leading-snug">
-                        {tituloPrograma}
+                        {r.tituloPrograma}
                       </div>
-                      {(nomen || mesLetra) && (
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-normal mt-0.5 leading-snug">
-                          {nomen && <span>{nomen}</span>}
-                          {nomen && mesLetra && <span> · </span>}
-                          {mesLetra && <span>{mesLetra}</span>}
+                      {(r.lineaNomenMes ||
+                        tipoProgramaBadgeSpec(r.tipoPrograma)) && (
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-normal mt-0.5 leading-snug flex flex-wrap items-center gap-1.5">
+                          {r.lineaNomenMes ? (
+                            <span>{r.lineaNomenMes}</span>
+                          ) : null}
+                          <TipoProgramaMiniBadge tipo={r.tipoPrograma} />
                         </div>
                       )}
                     </td>
-                    <td className={`p-2 align-top ${strikeCls}`}>
-                      {isEditing ? (
+                    <td className={`p-2 align-top ${r.strikeCls}`}>
+                      {r.isEditing ? (
                         <select
                           className="text-xs p-1.5 border border-slate-200 rounded-lg bg-white dark:bg-slate-800 w-full max-w-[130px]"
                           value={draft.estado}
@@ -634,18 +932,18 @@ export default function ConciertosDifusionPanel({
                             </option>
                           ))}
                         </select>
-                      ) : labelEstado(estado) ? (
+                      ) : labelEstado(r.estado) ? (
                         <span
-                          className={`inline-flex text-[10px] font-bold uppercase px-2 py-1 rounded-full ${estadoBadgeClass(estado)}`}
+                          className={`inline-flex text-[10px] font-bold uppercase px-2 py-1 rounded-full ${estadoBadgeClass(r.estado)}`}
                         >
-                          {labelEstado(estado)}
+                          {labelEstado(r.estado)}
                         </span>
                       ) : (
                         <span className="text-slate-400 text-sm font-medium">—</span>
                       )}
                     </td>
-                    <td className={`p-2 align-top max-w-[220px] ${strikeCls}`}>
-                      {isEditing ? (
+                    <td className={`p-2 align-top max-w-[220px] ${r.strikeCls}`}>
+                      {r.isEditing ? (
                         <textarea
                           className="w-full text-xs p-2 border border-slate-200 rounded-lg bg-white dark:bg-slate-800 min-h-[56px]"
                           value={draft.observaciones}
@@ -659,13 +957,13 @@ export default function ConciertosDifusionPanel({
                         />
                       ) : (
                         <span className="text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-words">
-                          {obs || (
+                          {r.obs || (
                             <span className="text-slate-400 italic">—</span>
                           )}
                         </span>
                       )}
                     </td>
-                    <td className={`p-2 align-top text-right ${deleted ? "opacity-50" : ""}`}>
+                    <td className={`p-2 align-top text-right ${r.deleted ? "opacity-50" : ""}`}>
                       <div className="flex flex-wrap justify-end gap-0.5">
                         <button
                           type="button"
@@ -676,7 +974,7 @@ export default function ConciertosDifusionPanel({
                           <IconHistory size={16} />
                         </button>
                         {canEdit &&
-                          (isEditing ? (
+                          (r.isEditing ? (
                             <>
                               <button
                                 type="button"
