@@ -127,6 +127,39 @@ const EXCLUDED_ROLES = [
   "acompañante",
 ];
 
+// Construye una matriz de atriles a partir de la lista plana de items
+// Cada entrada contiene hasta dos músicos: left (lado 0) y right (lado 1)
+const buildSeatingStands = (items = []) => {
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  const byAtril = new Map();
+
+  items.forEach((item) => {
+    // Compatibilidad: si atril_num/lado vienen nulos (datos viejos),
+    // los derivamos desde orden siguiendo la convención matricial.
+    const rawOrden =
+      item.orden != null ? Number(item.orden) : Number(item?.orden ?? 0);
+    const atril =
+      item.atril_num != null && !Number.isNaN(Number(item.atril_num))
+        ? Number(item.atril_num)
+        : Math.floor(rawOrden / 2) + 1;
+    const lado =
+      item.lado != null && !Number.isNaN(Number(item.lado))
+        ? Number(item.lado)
+        : rawOrden % 2;
+
+    const key = atril;
+    const current = byAtril.get(key) || { atril, left: null, right: null };
+
+    if (lado === 0) current.left = item;
+    else if (lado === 1) current.right = item;
+
+    byAtril.set(key, current);
+  });
+
+  return Array.from(byAtril.values()).sort((a, b) => a.atril - b.atril);
+};
+
 // Helpers nombres de partes (para matching inteligente)
 const stripExtension = (name = "") =>
   name.replace(/\.(pdf|docx?)$/i, "").trim();
@@ -310,75 +343,109 @@ const MobileSeatingTable = ({
 
                   {/* FILAS HIJAS: MÚSICOS (Solo si expandido) */}
                   {isExpanded &&
-                    c.items.map((item, idx) => {
-                      const isMe = String(item.id_musico) === String(user.id);
-                      const deskNum = Math.floor(idx / 2) + 1;
-                      const hasNoParts = musiciansWithoutParts.has(
-                        String(item.id_musico),
-                      );
+                    buildSeatingStands(c.items).flatMap(
+                      ({ atril, left, right }) => {
+                        const rows = [];
 
-                      // Lógica del separador: Cada índice impar es el segundo músico del atril
-                      const isEndOfDesk =
-                        idx % 2 === 1 && idx !== c.items.length - 1;
+                        const pushRow = (item, ladoLabel) => {
+                          const isPlaceholder = !item;
+                          const musicianId = item?.id_musico;
+                          const isMe =
+                            !isPlaceholder &&
+                            String(musicianId) === String(user.id);
+                          const hasNoParts =
+                            !isPlaceholder &&
+                            musiciansWithoutParts.has(String(musicianId));
 
-                      return (
-                        <tr
-                          key={item.id}
-                          className={`transition-colors ${
-                            isEditor && hasNoParts
-                              ? "bg-orange-50 hover:bg-orange-100/80"
-                              : isMe
-                                ? "bg-amber-50"
-                                : "bg-white"
-                          } ${isEndOfDesk ? "border-b-2 border-slate-300" : ""}`}
-                        >
-                          <td
-                            className={`p-1 pl-4 sticky left-0 z-20 border-r border-slate-200 border-b border-slate-50 align-middle ${isMe ? "bg-amber-50" : "bg-white"}`}
-                          >
-                            <div className="flex flex-col leading-none border-l-2 border-slate-200 pl-2">
-                              <span
-                                className={`text-[10px] font-medium truncate ${isMe ? "text-amber-900 font-bold" : "text-slate-600"}`}
-                              >
-                                {item.integrantes?.apellido},{" "}
-                                {item.integrantes?.nombre?.charAt(0)}.
-                              </span>
-                              <span className="text-[8px] text-slate-400 mt-0.5">
-                                Atril {deskNum}
-                              </span>
-                            </div>
-                          </td>
-
-                          {obras.map((obra) => {
-                            const individualPartId =
-                              assignments[
-                                `M-${item.id_musico}-${obra.obra_id}`
-                              ];
-                            const containerPartId =
-                              assignments[`C-${c.id}-${obra.obra_id}`];
-                            const showPart =
-                              individualPartId &&
-                              individualPartId !== containerPartId;
-
-                            return (
+                          rows.push(
+                            <tr
+                              key={`${c.id}-${atril}-${ladoLabel}`}
+                              className={`transition-colors ${
+                                isPlaceholder
+                                  ? "bg-slate-50"
+                                  : isEditor && hasNoParts
+                                    ? "bg-orange-50 hover:bg-orange-100/80"
+                                    : isMe
+                                      ? "bg-amber-50"
+                                      : "bg-white"
+                              }`}
+                            >
                               <td
-                                key={`${item.id}-${obra.id}`}
-                                className="p-1 border-l border-slate-100 border-b border-slate-50 text-center align-middle"
+                                className={`p-1 pl-4 sticky left-0 z-20 border-r border-slate-200 border-b border-slate-50 align-middle ${
+                                  isMe ? "bg-amber-50" : "bg-white"
+                                }`}
                               >
-                                {showPart ? (
-                                  <span className="text-[9px] text-indigo-600 font-bold bg-indigo-50 px-1 rounded truncate max-w-[70px] block mx-auto">
-                                    {getPartName(individualPartId)}
+                                <div className="flex flex-col leading-none border-l-2 border-slate-200 pl-2">
+                                  <span
+                                    className={`text-[10px] font-medium truncate ${
+                                      isPlaceholder
+                                        ? "text-slate-300 italic"
+                                        : isMe
+                                          ? "text-amber-900 font-bold"
+                                          : "text-slate-600"
+                                    }`}
+                                  >
+                                    {isPlaceholder
+                                      ? "Hueco"
+                                      : `${item.integrantes?.apellido}, ${item.integrantes?.nombre?.charAt(0)}.`}
                                   </span>
-                                ) : (
-                                  <span className="text-[10px] text-slate-300 select-none">
-                                    〃
+                                  <span className="text-[8px] text-slate-400 mt-0.5">
+                                    Atril {atril} · {ladoLabel}
                                   </span>
-                                )}
+                                </div>
                               </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
+
+                              {obras.map((obra) => {
+                                if (isPlaceholder) {
+                                  return (
+                                    <td
+                                      key={`${c.id}-${atril}-${ladoLabel}-${obra.id}`}
+                                      className="p-1 border-l border-slate-100 border-b border-slate-50 text-center align-middle"
+                                    >
+                                      <span className="text-[10px] text-slate-200 select-none">
+                                        —
+                                      </span>
+                                    </td>
+                                  );
+                                }
+
+                                const individualPartId =
+                                  assignments[
+                                    `M-${musicianId}-${obra.obra_id}`
+                                  ];
+                                const containerPartId =
+                                  assignments[`C-${c.id}-${obra.obra_id}`];
+                                const showPart =
+                                  individualPartId &&
+                                  individualPartId !== containerPartId;
+
+                                return (
+                                  <td
+                                    key={`${item.id}-${obra.id}-${ladoLabel}`}
+                                    className="p-1 border-l border-slate-100 border-b border-slate-50 text-center align-middle"
+                                  >
+                                    {showPart ? (
+                                      <span className="text-[9px] text-indigo-600 font-bold bg-indigo-50 px-1 rounded truncate max-w-[70px] block mx-auto">
+                                        {getPartName(individualPartId)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-300 select-none">
+                                        〃
+                                      </span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>,
+                          );
+                        };
+
+                        pushRow(left, "Izq");
+                        pushRow(right, "Der");
+
+                        return rows;
+                      },
+                    )}
                 </React.Fragment>
               );
             })}
@@ -551,17 +618,26 @@ export default function ProgramSeating({
   repertoireBlocks = [],
   onRefreshGira = null,
 }) {
-  const { isEditor, user } = useAuth();
+  const { isAdmin, isEditor, user } = useAuth();
   const { roster: rawRoster, loading: rosterLoading } = useGiraRoster(
     supabase,
     program,
   );
 
-  const canManageSeating = ["admin", "editor", "coord_general"].includes(
-    user?.rol_sistema,
-  );
-  const canSeeInstrumentationBadges =
-    ["admin", "editor", "coord_general"].includes(user?.rol_sistema);
+  const normalizedRoles = (() => {
+    const raw = user?.rol_sistema;
+    if (!raw) return [];
+    if (Array.isArray(raw)) {
+      return raw.map((r) => String(r).toLowerCase().trim()).filter(Boolean);
+    }
+    return [String(raw).toLowerCase().trim()].filter(Boolean);
+  })();
+  const hasSystemRole = (allowedRoles = []) =>
+    normalizedRoles.some((r) => allowedRoles.includes(r));
+
+  const canManageSeating = hasSystemRole(["admin", "editor", "coord_general"]);
+  const canDownloadSeatingReports = hasSystemRole(["admin", "editor"]);
+  const canSeeInstrumentationBadges = isAdmin || isEditor;
 
   const [filteredRoster, setFilteredRoster] = useState([]);
   const [particellas, setParticellas] = useState([]);
@@ -638,9 +714,8 @@ export default function ProgramSeating({
 
           const firstEntry =
             ocList.find(
-              (oc) =>
-                (oc.rol && oc.rol.toLowerCase() === "compositor") || !oc.rol,
-            ) || ocList[0] || null;
+              (oc) => String(oc?.rol || "").toLowerCase().trim() === "compositor",
+            ) || null;
 
           const lastName =
             firstEntry && firstEntry.compositores
@@ -1276,7 +1351,9 @@ export default function ProgramSeating({
           "id_contenedor",
           conts.map((c) => c.id),
         )
-        .order("orden");
+        .order("atril_num", { ascending: true, nullsFirst: true })
+        .order("lado", { ascending: true, nullsFirst: true })
+        .order("id", { ascending: true });
 
       // IDs de integrantes confirmados en esta gira (roster ya filtrado por exclusiones de ensamble)
       const confirmedRosterIds = new Set(
@@ -1668,6 +1745,7 @@ export default function ProgramSeating({
             works={obrasWithInstrumentation}
             required={instrumentationRequired}
             convoked={instrumentationConvoked}
+            roster={filteredRoster}
             programId={program?.id}
             supabase={supabase}
             organicoRevisado={!!program?.organico_revisado}
@@ -1746,32 +1824,36 @@ export default function ProgramSeating({
           })()}
         </h2>
         <div className="flex gap-2">
-          <button
-            onClick={handleExportReport}
-            disabled={isExporting}
-            className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm active:scale-95 disabled:opacity-50"
-          >
-            <IconDownload size={16} />{" "}
-            <span className="hidden sm:inline">Reporte</span>
-          </button>
-          <button
-            onClick={handleExportExcel}
-            disabled={isExporting}
-            className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm active:scale-95 disabled:opacity-50"
-          >
-            <IconDownload size={16} />{" "}
-            <span className="hidden sm:inline">Excel</span>
-          </button>
-          <button
-            onClick={() => setShowParticellaModal(true)}
-            disabled={isExporting}
-            className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-slate-800 text-white hover:bg-slate-900 shadow-sm active:scale-95 disabled:opacity-50"
-          >
-            <IconDownload size={16} />
-            <IconLayers size={14} />
-            <span className="hidden sm:inline">Descargar Particellas</span>
-          </button>
-          {canManageSeating && (
+          {canDownloadSeatingReports && (
+            <>
+              <button
+                onClick={handleExportReport}
+                disabled={isExporting}
+                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm active:scale-95 disabled:opacity-50"
+              >
+                <IconDownload size={16} />{" "}
+                <span className="hidden sm:inline">Reporte</span>
+              </button>
+              <button
+                onClick={handleExportExcel}
+                disabled={isExporting}
+                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm active:scale-95 disabled:opacity-50"
+              >
+                <IconDownload size={16} />{" "}
+                <span className="hidden sm:inline">Excel</span>
+              </button>
+              <button
+                onClick={() => setShowParticellaModal(true)}
+                disabled={isExporting}
+                className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-all bg-slate-800 text-white hover:bg-slate-900 shadow-sm active:scale-95 disabled:opacity-50"
+              >
+                <IconDownload size={16} />
+                <IconLayers size={14} />
+                <span className="hidden sm:inline">Descargar Particellas</span>
+              </button>
+            </>
+          )}
+          {(isEditor || canManageSeating) && (
             <>
               <button
                 onClick={() => setShowRotationModal(true)}
@@ -1810,7 +1892,7 @@ export default function ProgramSeating({
             <div className="p-4 text-center text-slate-400">Cargando...</div>
           }
         >
-          {showConfig && canManageSeating && (
+          {showConfig && (isEditor || canManageSeating) && (
             <GlobalStringsManager
               programId={program.id}
               roster={filteredRoster}

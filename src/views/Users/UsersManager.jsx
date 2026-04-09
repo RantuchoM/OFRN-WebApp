@@ -45,6 +45,20 @@ function normalizeRolSistema(rolSistema) {
   return s ? [s] : [];
 }
 
+function normalizeSystemRoleValue(role) {
+  const base = String(role || "").toLowerCase().trim().replace(/\s+/g, "_");
+  if (!base) return "";
+  if (base === "consulta_general") return "consulta_general";
+  if (base === "consulta_personal") return "consulta_personal";
+  return base;
+}
+
+function normalizeSystemRolesList(roles) {
+  const list = Array.isArray(roles) ? roles : [roles];
+  const normalized = list.map(normalizeSystemRoleValue).filter(Boolean);
+  return Array.from(new Set(normalized));
+}
+
 export default function UsersManager({ supabase }) {
   const [integrantes, setIntegrantes] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -196,9 +210,17 @@ export default function UsersManager({ supabase }) {
       return;
     }
 
+    const payload = {
+      ...newMember,
+      rol_sistema: (() => {
+        const normalized = normalizeSystemRolesList(newMember.rol_sistema);
+        return normalized.length > 0 ? normalized : ["personal"];
+      })(),
+    };
+
     const { data, error } = await supabase
       .from("integrantes")
-      .insert([newMember])
+      .insert([payload])
       .select()
       .single();
 
@@ -221,12 +243,23 @@ export default function UsersManager({ supabase }) {
   };
 
   const handleUpdateUser = async (userId, field, value) => {
+    const normalizedValue =
+      field === "rol_sistema"
+        ? (() => {
+            const normalized = normalizeSystemRolesList(value);
+            return normalized.length > 0 ? normalized : ["personal"];
+          })()
+        : value;
+
     const updatedList = integrantes.map((u) =>
-      u.id === userId ? { ...u, [field]: value } : u,
+      u.id === userId ? { ...u, [field]: normalizedValue } : u,
     );
     setIntegrantes(updatedList);
 
-    const payload = field === "rol_sistema" && Array.isArray(value) ? { rol_sistema: value } : { [field]: value };
+    const payload =
+      field === "rol_sistema"
+        ? { rol_sistema: normalizedValue }
+        : { [field]: normalizedValue };
     const { error } = await supabase
       .from("integrantes")
       .update(payload)

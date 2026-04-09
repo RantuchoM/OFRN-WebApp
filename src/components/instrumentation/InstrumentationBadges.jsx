@@ -497,6 +497,7 @@ export default function InstrumentationBadges({
           works={normalizedWorks}
           required={required}
           convoked={convoked}
+          roster={roster}
           programId={programId}
           supabase={supabase}
           organicoRevisado={organicoRevisado}

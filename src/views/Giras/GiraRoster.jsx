@@ -252,9 +252,8 @@ export default function GiraRoster({
               const firstEntry =
                 ocList.find(
                   (oc) =>
-                    (oc.rol && oc.rol.toLowerCase() === "compositor") ||
-                    !oc.rol,
-                ) || ocList[0] || null;
+                    String(oc?.rol || "").toLowerCase().trim() === "compositor",
+                ) || null;
               const lastName =
                 firstEntry && firstEntry.compositores
                   ? firstEntry.compositores.apellido || ""
@@ -377,9 +376,6 @@ export default function GiraRoster({
     () => [...CONDICIONES].sort((a, b) => a.localeCompare(b)),
     [],
   );
-
-  const canSeeInstrumentationBadges =
-    ["admin", "editor", "coord_general"].includes(user?.rol_sistema);
 
   // --- FILTRADO Y ORDENAMIENTO COMPLETO ---
   useEffect(() => {
@@ -1592,7 +1588,7 @@ export default function GiraRoster({
           <div>
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
               <span>{gira.nombre_gira}</span>
-              {canSeeInstrumentationBadges && instrumentationWorks.length > 0 && (
+              {instrumentationWorks.length > 0 && (
                 <InstrumentationBadges
                   works={instrumentationWorks}
                   roster={rawRoster}

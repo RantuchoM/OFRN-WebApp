@@ -12,11 +12,9 @@ const INSTRUMENT_COLUMNS = [
   { id: "Tp", label: "Tp", key: "tpt" },
   { id: "Tb", label: "Tb", key: "tbn" },
   { id: "Tba", label: "Tba", key: "tba" },
-  { id: "Tim", label: "Tim", key: "timp" },
   { id: "Perc", label: "Perc", key: "perc" },
   { id: "Har", label: "Har", key: "harp" },
   { id: "Pno", label: "Pno", key: "key" },
-  { id: "Str", label: "Cuerdas", key: "str" },
 ];
 
 const SAVE_DEBOUNCE_MS = 500;
@@ -27,6 +25,7 @@ export default function InstrumentationSummaryModal({
   works = [],
   required = {},
   convoked = {},
+  roster = [],
   programId = null,
   supabase = null,
   organicoRevisado: initialOrganicoRevisado = false,
@@ -113,6 +112,122 @@ export default function InstrumentationSummaryModal({
     return map;
   }, [works]);
 
+  const convokedNamesByColumn = useMemo(() => {
+    const out = {
+      Fl: [],
+      Ob: [],
+      Cl: [],
+      Fg: [],
+      Cr: [],
+      Tp: [],
+      Tb: [],
+      Tba: [],
+      Tim: [],
+      Perc: [],
+      Har: [],
+      Pno: [],
+    };
+    const confirmed = (roster || []).filter(
+      (m) => String(m.estado_gira || "").toLowerCase() === "confirmado",
+    );
+    const skipRoles = ["staff", "produccion", "producción", "chofer"];
+
+    confirmed.forEach((m) => {
+      if (skipRoles.includes(String(m.rol_gira || "").toLowerCase())) return;
+      const name = `${m.apellido || ""}, ${m.nombre || ""}`.trim();
+      if (!name) return;
+
+      const idInstr = String(m.id_instr || "");
+      const instrumentName = String(
+        m.instrumentos?.instrumento || "",
+      ).toLowerCase();
+
+      // Mismo criterio audit: excluir cuerdas del conteo/tips de instrumentación
+      if (["01", "02", "03", "04"].includes(idInstr)) return;
+      if (instrumentName.includes("flaut") || instrumentName.includes("picc")) {
+        out.Fl.push(name);
+        return;
+      }
+      if (
+        instrumentName.includes("oboe") ||
+        instrumentName.includes("corno ing")
+      ) {
+        out.Ob.push(name);
+        return;
+      }
+      if (
+        instrumentName.includes("clarin") ||
+        instrumentName.includes("requinto") ||
+        instrumentName.includes("basset")
+      ) {
+        out.Cl.push(name);
+        return;
+      }
+      if (
+        instrumentName.includes("fagot") ||
+        instrumentName.includes("contraf")
+      ) {
+        out.Fg.push(name);
+        return;
+      }
+      if (
+        instrumentName.includes("corno") ||
+        instrumentName.includes("trompa")
+      ) {
+        out.Cr.push(name);
+        return;
+      }
+      if (
+        instrumentName.includes("trompet") ||
+        instrumentName.includes("fliscorno")
+      ) {
+        out.Tp.push(name);
+        return;
+      }
+      if (
+        instrumentName.includes("trombon") ||
+        instrumentName.includes("trombón")
+      ) {
+        out.Tb.push(name);
+        return;
+      }
+      if (
+        instrumentName.includes("tuba") ||
+        instrumentName.includes("bombard")
+      ) {
+        out.Tba.push(name);
+        return;
+      }
+      if (instrumentName.includes("timbal")) {
+        out.Tim.push(name);
+        return;
+      }
+      if (
+        instrumentName.includes("perc") ||
+        instrumentName.includes("bombo") ||
+        instrumentName.includes("platillo") ||
+        instrumentName.includes("caja")
+      ) {
+        out.Perc.push(name);
+        return;
+      }
+      if (instrumentName.includes("arpa")) {
+        out.Har.push(name);
+        return;
+      }
+      if (
+        instrumentName.includes("piano") ||
+        instrumentName.includes("teclado") ||
+        instrumentName.includes("celesta") ||
+        instrumentName.includes("órgano") ||
+        instrumentName.includes("organo")
+      ) {
+        out.Pno.push(name);
+      }
+    });
+    return out;
+  }, [roster]);
+
   const formatInstrumentationStandard = (map) => {
     const fl = map.Fl || 0;
     const ob = map.Ob || 0;
@@ -126,8 +241,6 @@ export default function InstrumentationSummaryModal({
     const percTotal = (map.Tim || 0) + (map.Perc || 0);
     const harpCount = map.Har || 0;
     const keyCount = map.Pno || 0;
-    const hasStr = (map.Str || 0) > 0;
-
     let standardStr = `${fl}.${ob}.${cl}.${bn} - ${hn}.${tpt}.${tbn}.${tba}`;
 
     if (percTotal === 1) {
@@ -139,12 +252,9 @@ export default function InstrumentationSummaryModal({
     if (harpCount > 0)
       standardStr += ` - ${harpCount > 1 ? harpCount : ""}Hp`;
     if (keyCount > 0) standardStr += ` - Key`;
-    if (hasStr) standardStr += " - Str";
-
     const isStandardEmpty =
       standardStr.startsWith("0.0.0.0 - 0.0.0.0") &&
       percTotal === 0 &&
-      !hasStr &&
       harpCount === 0 &&
       keyCount === 0;
 
@@ -155,12 +265,7 @@ export default function InstrumentationSummaryModal({
       .replace("0.0.0.0 - 0.0.0.0", "");
   };
 
-  const normalizeCompare = (id, value) => {
-    if (id === "Str") {
-      return value > 0 ? 1 : 0;
-    }
-    return value || 0;
-  };
+  const normalizeCompare = (_id, value) => value || 0;
 
   const hasMismatch = useMemo(() => {
     const requiredPercTotal = (required.Tim || 0) + (required.Perc || 0);
@@ -172,8 +277,6 @@ export default function InstrumentationSummaryModal({
         const c = normalizeCompare("Perc", convokedPercTotal);
         return r !== c;
       }
-      if (col.id === "Tim") return false;
-
       const r = normalizeCompare(col.id, required[col.id] || 0);
       const c = normalizeCompare(col.id, convoked[col.id] || 0);
       return r !== c;
@@ -189,29 +292,44 @@ export default function InstrumentationSummaryModal({
       r = (required.Tim || 0) + (required.Perc || 0);
       c = (convoked.Tim || 0) + (convoked.Perc || 0);
     }
-    if (col.id === "Tim" || col.id === "Str") return 0;
-
     return r - c;
+  };
+
+  const getPercTotalForInstrumentation = (instString) => {
+    if (!instString) return 0;
+    let percTotalForWork = 0;
+    const timpMatch = instString.match(/Timp\.\s*(?:\+(\d+))?/i);
+    if (timpMatch) {
+      const extra = parseInt(timpMatch[1] || "0", 10) || 0;
+      percTotalForWork += 1 + extra;
+    }
+    const percMatch = instString.match(/Perc(?:\.x(\d+))?/i);
+    if (percMatch) {
+      const explicitPerc = percMatch[1] ? parseInt(percMatch[1], 10) || 0 : 1;
+      percTotalForWork += explicitPerc;
+    }
+    if (!timpMatch && !percMatch) {
+      percTotalForWork =
+        (getInstrumentValue(instString, "timp") || 0) +
+        (getInstrumentValue(instString, "perc") || 0);
+    }
+    return percTotalForWork;
   };
 
   const renderCellContent = (work, col) => {
     const inst = work.instrumentacion_effective || work.instrumentacion || "";
     let count = 0;
     if (inst) {
-      count = getInstrumentValue(inst, col.key) || 0;
-    }
-    if (col.id === "Str") {
-      // Para cuerdas nos basta presencia/ausencia según el string
-      const hasStr =
-        getInstrumentValue(inst, "str") > 0 ||
-        /str|cuerd|viol|vln|vla|vlc|cb|arco|contrab/i.test(inst);
-      count = hasStr ? 1 : 0;
+      count =
+        col.id === "Perc"
+          ? getPercTotalForInstrumentation(inst)
+          : getInstrumentValue(inst, col.key) || 0;
     }
 
     const obs = observationsByWorkId[work.obra_id];
 
     let convBase = convoked[col.id] || 0;
-    if (col.id === "Tim" || col.id === "Perc") {
+    if (col.id === "Perc") {
       convBase = (convoked.Tim || 0) + (convoked.Perc || 0);
     }
     const convLimit = convBase;
@@ -318,7 +436,24 @@ export default function InstrumentationSummaryModal({
                     >
                       <div className="flex flex-col items-center gap-0.5">
                         <span className="font-mono text-xs text-slate-800">
-                          {convoked[col.id] || 0}
+                          {(() => {
+                            const namesList =
+                              col.id === "Perc"
+                                ? [
+                                    ...(convokedNamesByColumn.Tim || []),
+                                    ...(convokedNamesByColumn.Perc || []),
+                                  ]
+                                : convokedNamesByColumn[col.id] || [];
+                            const tooltipText =
+                              namesList.length > 0
+                                ? namesList.join("\n")
+                                : "Sin convocados";
+                            const value =
+                              col.id === "Perc"
+                                ? (convoked.Tim || 0) + (convoked.Perc || 0)
+                                : convoked[col.id] || 0;
+                            return <span title={tooltipText}>{value}</span>;
+                          })()}
                         </span>
                         <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
                           {col.label}

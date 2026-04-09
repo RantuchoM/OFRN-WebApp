@@ -363,7 +363,7 @@ const AdvancedImportModal = ({
 
 // --- COMPONENTE PRINCIPAL ---
 export default function ProgramRepertoire({ supabase, program, onBack, onRefreshGira = null }) {
-  const { user, isEditor, isManagement, isCoordGeneral } = useAuth();
+  const { user, isAdmin, isEditor, isManagement, isCoordGeneral } = useAuth();
   const { roster, loading: rosterLoading } = useGiraRoster(supabase, program);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("subTab") || "repertoire";
@@ -500,6 +500,17 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
       (block.repertorio_obras || []).forEach((ro) => {
         const obra = ro.obras;
         if (!obra) return;
+        const ocList = Array.isArray(obra.obras_compositores)
+          ? obra.obras_compositores
+          : obra.obras_compositores
+            ? [obra.obras_compositores]
+            : [];
+        const firstComposerEntry =
+          ocList.find(
+            (oc) => String(oc?.rol || "").toLowerCase().trim() === "compositor",
+          ) || null;
+        const composerLastName =
+          firstComposerEntry?.compositores?.apellido || "";
         const title = obra.titulo || "Obra";
         const cleanTitle =
           typeof title === "string"
@@ -509,7 +520,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
           id: ro.id,
           obra_id: obra.id,
           title: cleanTitle,
-          composer: "", // no necesitamos aquí el apellido
+          composer: composerLastName || "S/D",
           shortTitle: cleanTitle.split(/\s+/).slice(0, 3).join(" "),
           obras_particellas: obra.obras_particellas || [],
           instrumentacion_effective:
@@ -522,8 +533,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     return works;
   }, [repertorios]);
 
-  const canSeeInstrumentationBadges =
-    ["admin", "editor", "coord_general"].includes(user?.rol_sistema);
+  const canSeeInstrumentationBadges = isAdmin || isEditor;
 
   const handleBack = () => {
     if (activeTab !== "repertoire") {
