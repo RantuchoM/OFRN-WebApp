@@ -17,6 +17,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { generateSeatingPdf } from "../../utils/seatingPdfExporter"; // <--- IMPORTAR AQUÍ
+import ConciertosDifusionPanel from "../../components/difusion/ConciertosDifusionPanel";
 
 // --- UTILIDAD: RENDERER DE TEXTO RICO ---
 const RichTextPreview = ({ content, className = "" }) => {
@@ -454,8 +455,12 @@ const SpecificLogoPreview = ({ url }) => {
 
 // --- COMPONENTE PRINCIPAL ---
 export default function GiraDifusion({ supabase, gira, onBack }) {
-  const { user, isEditor, isDifusion } = useAuth();
+  const { user, isEditor, isDifusion, isAdmin, roles } = useAuth();
   const canEditDifusion = isEditor || isDifusion;
+  const canEditConciertosDifusion =
+    isAdmin ||
+    (Array.isArray(roles) && roles.includes("editor")) ||
+    isDifusion;
   const [difusionData, setDifusionData] = useState(null);
   const [allIntegrantes, setAllIntegrantes] = useState([]);
   const [localEvents, setLocalEvents] = useState([]);
@@ -924,6 +929,23 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
             onSave={(val) => handleUpdateDifusion("otros_comentarios", val)}
             canEdit={canEditDifusion}
             textArea
+          />
+        </section>
+
+        {/* --- ESTADO DE DIFUSIÓN POR CONCIERTO --- */}
+        <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+          <h3 className="text-sm font-bold text-indigo-700 uppercase mb-4 border-b border-indigo-100 pb-2">
+            Estado de Difusión de Conciertos
+          </h3>
+          <p className="text-xs text-slate-500 mb-4">
+            Seguimiento de estados solo para conciertos de este programa.
+          </p>
+          <ConciertosDifusionPanel
+            supabase={supabase}
+            user={user}
+            canEdit={canEditConciertosDifusion}
+            idGiraFilter={gira.id}
+            showGiraShortcut={false}
           />
         </section>
       </div>

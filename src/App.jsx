@@ -31,6 +31,7 @@ import PublicLinkHandler from "./views/Public/PublicLinkHandler";
 import ViaticosManual from "./views/Public/ViaticosManual";
 import RendicionesManual from "./views/Public/RendicionesManual";
 import DashboardGeneral from "./views/Dashboard/DashboardGeneral";
+import DifusionGeneral from "./views/Difusion/DifusionGeneral";
 import NewsModal from "./components/news/NewsModal";
 import NewsManager from "./components/news/NewsManager";
 import FeedbackWidget from "./components/ui/FeedbackWidget";
@@ -89,6 +90,7 @@ import {
   IconSun,
   IconMoon,
   IconBookOff,
+  IconMegaphone,
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal";
 import SearchableSelect from "./components/ui/SearchableSelect";
@@ -545,6 +547,7 @@ const ProtectedApp = ({ initialTab }) => {
     manual_admin: "MANUAL_ADMIN",
     management: "MANAGEMENT",
     music_translation: "MUSIC_TRANSLATION",
+    difusion: "DIFUSION_GENERAL",
   };
   const modeToTab = Object.fromEntries(
     Object.entries(tabToMode).map(([k, v]) => [v, k]),
@@ -617,6 +620,15 @@ const ProtectedApp = ({ initialTab }) => {
       show: !isGuest && (isPersonal || isEditor || isManagement),
     },
     { id: "GIRAS", label: "Giras", icon: <IconMap size={20} />, show: true },
+    {
+      id: "DIFUSION_GENERAL",
+      label: "Difusión",
+      icon: <IconMegaphone size={20} />,
+      show:
+        isAdmin ||
+        (Array.isArray(roles) && roles.includes("editor")) ||
+        isDifusion,
+    },
     {
       id: "ENSAMBLES",
       label: "Ensambles",
@@ -709,6 +721,8 @@ const ProtectedApp = ({ initialTab }) => {
     switch (mode) {
       case "DASHBOARD":
         return <DashboardGeneral {...commonProps} onViewChange={updateView} />;
+      case "DIFUSION_GENERAL":
+        return <DifusionGeneral {...commonProps} onViewChange={updateView} />;
       case "GIRAS":
         return (
           <GirasView
