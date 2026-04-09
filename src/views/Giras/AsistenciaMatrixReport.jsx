@@ -183,7 +183,9 @@ export default function AsistenciaMatrixReport({ supabase }) {
   const [ensambles, setEnsambles] = useState([]);
   const [memberships, setMemberships] = useState([]);
 
-  const [selectedTypes, setSelectedTypes] = useState(() => new Set(["Sinfónico"]));
+  const [selectedTypes, setSelectedTypes] = useState(
+    () => new Set(["Sinfónico", "Camerata Filarmónica"]),
+  );
   const [showPastInYear, setShowPastInYear] = useState(false);
   const [selectedIntegranteIds, setSelectedIntegranteIds] = useState(
     () => new Set(),
