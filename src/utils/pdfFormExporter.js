@@ -208,7 +208,9 @@ export const exportViaticosToPDFForm = async (
         : (() => {
             const sub = getAnticipoSubtotalForExport(rawData, useHistorical);
             const gastos = sumGastosViaticoRow(rawData);
-            return { ...rawData, subtotal: sub, totalFinal: sub + gastos };
+            const totalFinal =
+              Math.round((sub + gastos + Number.EPSILON) * 100) / 100;
+            return { ...rawData, subtotal: sub, totalFinal };
           })();
     const srcDoc = await PDFDocument.load(templateBuffer);
     const form = srcDoc.getForm();

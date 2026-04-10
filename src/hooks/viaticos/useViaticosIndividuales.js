@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { toast } from "sonner";
+import { sumGastosViaticoRow } from "../../utils/viaticosAnticipo";
 
 // --- UTILIDADES DE CÁLCULO INTERNAS ---
 export const calculateDaysDiff = (dSal, hSal, dLleg, hLleg) => {
@@ -155,15 +156,7 @@ export function useViaticosIndividuales(
             ? round2(parseFloat(row.anticipo_custom))
             : subtotal;
 
-        const gastos =
-          parseFloat(row.gastos_movilidad || 0) +
-          parseFloat(row.gasto_combustible || 0) +
-          parseFloat(row.gasto_otros || 0) +
-          parseFloat(row.gastos_capacit || 0) +
-          parseFloat(row.gastos_movil_otros || 0) +
-          parseFloat(row.gasto_alojamiento || 0) +
-          parseFloat(row.gasto_pasajes || 0) +
-          parseFloat(row.transporte_otros || 0);
+        const gastos = sumGastosViaticoRow(row);
 
         const totalFinal = round2(anticipoParaTotal + gastos);
 
