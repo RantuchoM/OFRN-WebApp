@@ -1,6 +1,6 @@
 import { PDFArray, PDFBool, PDFDocument, PDFName, PDFNumber, PDFString } from "pdf-lib";
 import { saveAs } from "file-saver";
-import { firstMondayAfter } from "./dates";
+import { firstMondayAfter, formatDdMmYy, formatDdMmYyyy } from "./dates";
 import {
   getAnticipoSubtotalForExport,
   sumGastosViaticoRow,
@@ -79,12 +79,6 @@ const zeroDestaqueMonetaryFields = (data) => {
   return cloned;
 };
 
-const fmtDate = (isoStr) => {
-  if (!isoStr) return "";
-  const [y, m, d] = isoStr.split("-");
-  return `${d}/${m}/${y}`;
-};
-
 const getSpanishMonthLong = (monthIndex) => {
   const months = [
     "enero",
@@ -113,13 +107,19 @@ const buildLugarYFecha = (data, giraData, configData) => {
   const rawIso =
     configData?.rendicion_fecha || firstMondayAfter(giraData?.fecha_hasta);
   if (rawIso && typeof rawIso === "string") {
-    const parts = rawIso.split("-");
-    if (parts.length >= 3) {
-      const y = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10);
-      const d = parseInt(parts[2], 10);
-      if (!Number.isNaN(y) && !Number.isNaN(m) && !Number.isNaN(d)) {
-        const dateObj = new Date(y, m - 1, d);
+    const head = rawIso.slice(0, 10);
+    const matchYm = head.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (matchYm) {
+      const y = parseInt(matchYm[1], 10);
+      const m = parseInt(matchYm[2], 10);
+      const d = parseInt(matchYm[3], 10);
+      const dateObj = new Date(y, m - 1, d);
+      if (
+        !Number.isNaN(dateObj.getTime()) &&
+        dateObj.getFullYear() === y &&
+        dateObj.getMonth() === m - 1 &&
+        dateObj.getDate() === d
+      ) {
         const dia = String(dateObj.getDate()).padStart(2, "0");
         const mesNom = getSpanishMonthLong(dateObj.getMonth());
         const anioYyyy = String(dateObj.getFullYear());
@@ -224,7 +224,8 @@ export const exportViaticosToPDFForm = async (
     const hoy = new Date();
     const diaHoy = String(hoy.getDate()).padStart(2, "0");
     const mesHoy = getSpanishMonthLong(hoy.getMonth());
-    const anioHoy = String(hoy.getFullYear());
+    // plantilla_viaticos.pdf: acrofield anio_hoy tiene maxLength 2 (solo cabe "26", no "2026")
+    const anioHoy = String(hoy.getFullYear()).slice(-2);
     const lugarYFecha = buildLugarYFecha(data, giraData, configData);
 
     const money = (val) => {
@@ -255,9 +256,9 @@ export const exportViaticosToPDFForm = async (
           "asiento_habitual",
           data.asiento_habitual || data.ciudad_origen || "Viedma"
         );
-        f("dia_salida", fmtDate(data.fecha_salida));
+        f("dia_salida", formatDdMmYyyy(data.fecha_salida));
         f("hora_salida", fmtTime(data.hora_salida));
-        f("dia_llegada", fmtDate(data.fecha_llegada));
+        f("dia_llegada", formatDdMmYyyy(data.fecha_llegada));
         f("hora_llegada", fmtTime(data.hora_llegada));
         f("dias_computados", data.dias_computables);
         f("valor_diario", money(data.valorDiarioCalc));
@@ -391,9 +392,9 @@ export const exportViaticosToPDFForm = async (
           data.asiento_habitual || data.ciudad_origen || "Viedma"
         );
 
-        f("dia_salida", fmtDate(data.fecha_salida));
+        f("dia_salida", formatDdMmYy(data.fecha_salida));
         f("hora_salida", fmtTime(data.hora_salida));
-        f("dia_llegada", fmtDate(data.fecha_llegada));
+        f("dia_llegada", formatDdMmYy(data.fecha_llegada));
         f("hora_llegada", fmtTime(data.hora_llegada));
         f("dias_computados", String(data.dias_computables || 0));
 

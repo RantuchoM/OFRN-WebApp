@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { DEFAULT_CARGO } from './giraUtils';
+import { formatDdMmYy } from './dates';
 
 // --- CONFIGURACIÓN DE CELDAS (Mapeo Actualizado) ---
 const CELL_MAP = {
@@ -61,12 +62,6 @@ const FIRMA_COORDS = {
 
 // --- HELPERS ---
 const fmtMoney = (val) => (val && val !== '' ? parseFloat(val) : 0);
-
-const fmtDate = (isoStr) => {
-  if (!isoStr) return '';
-  const [y, m, d] = isoStr.split('-');
-  return `${d}/${m}/${y}`;
-};
 
 // Devuelve X para marcar la celda. 
 // Asegúrate de que en el Excel la celda tenga Alineación: Centro.
@@ -198,9 +193,9 @@ export const exportViaticosToExcel = async (giraData, viaticosData, configData) 
     // Motivo: primero el valor propio de la fila, si no hay usamos el motivo general
     setVal(CELL_MAP.motivo, data.motivo || configData.motivo);
 
-    setVal(CELL_MAP.fecha_salida, fmtDate(data.fecha_salida));
+    setVal(CELL_MAP.fecha_salida, formatDdMmYy(data.fecha_salida));
     setVal(CELL_MAP.hora_salida, data.hora_salida);
-    setVal(CELL_MAP.fecha_llegada, fmtDate(data.fecha_llegada));
+    setVal(CELL_MAP.fecha_llegada, formatDdMmYy(data.fecha_llegada));
     setVal(CELL_MAP.hora_llegada, data.hora_llegada);
     
     setVal(CELL_MAP.dias_computables, data.dias_computables);
@@ -232,9 +227,8 @@ export const exportViaticosToExcel = async (giraData, viaticosData, configData) 
     
     setVal(CELL_MAP.total_final, fmtMoney(data.totalFinal));
     
-    // Pie
-    const today = new Date();
-    const dateStr = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`;
+    // Pie (fecha con año YYYY)
+    const dateStr = formatDdMmYy(new Date());
     setVal(CELL_MAP.lugar_fecha_pie, `${localidad}, ${dateStr}`);
 
     // --- INSERTAR FIRMA ---

@@ -67,17 +67,63 @@ export function formatForDateInput(date) {
 }
 
 /**
+ * @param {string|Date|number} value
+ * @param {"dd/MM/yyyy"|"dd/MM/yy"} outputPattern
+ */
+function formatDdMm(value, outputPattern) {
+  if (value == null || value === "") return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return format(value, outputPattern);
+  }
+  const s = String(value).trim();
+  if (!s) return "";
+  const head = s.slice(0, 10);
+  const ymd = head.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (ymd) {
+    const y = parseInt(ymd[1], 10);
+    const mo = parseInt(ymd[2], 10);
+    const d = parseInt(ymd[3], 10);
+    const dateObj = new Date(y, mo - 1, d);
+    if (
+      dateObj.getFullYear() !== y ||
+      dateObj.getMonth() !== mo - 1 ||
+      dateObj.getDate() !== d
+    ) {
+      return "";
+    }
+    return format(dateObj, outputPattern);
+  }
+  try {
+    const date = parseISO(s);
+    if (!Number.isNaN(date.getTime())) return format(date, outputPattern);
+  } catch {
+    /* ignore */
+  }
+  return "";
+}
+
+/**
+ * dd/MM/yy — exportación viáticos (PDF/Excel).
+ * Acepta "yyyy-MM-dd", ISO con hora, u objeto Date.
+ */
+export function formatDdMmYy(value) {
+  return formatDdMm(value, "dd/MM/yy");
+}
+
+/**
+ * dd/MM/yyyy — exportación rendiciones (PDF) y pantallas.
+ * Acepta "yyyy-MM-dd", ISO con hora, u objeto Date.
+ */
+export function formatDdMmYyyy(value) {
+  return formatDdMm(value, "dd/MM/yyyy");
+}
+
+/**
  * Formato de fecha para mostrar al usuario: dd/MM/yyyy.
  * @param {string} dateStr - Fecha en formato "yyyy-MM-dd"
  * @returns {string} "dd/MM/yyyy" o "" si la fecha no es válida
  */
 export function formatDisplayDate(dateStr) {
   if (!dateStr || typeof dateStr !== "string") return "";
-  try {
-    const date = parseISO(dateStr);
-    if (isNaN(date.getTime())) return "";
-    return format(date, "dd/MM/yyyy");
-  } catch {
-    return "";
-  }
+  return formatDdMmYyyy(dateStr);
 }
