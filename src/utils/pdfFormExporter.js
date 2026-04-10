@@ -6,6 +6,24 @@ import {
   sumGastosViaticoRow,
 } from "./viaticosAnticipo";
 
+/**
+ * Lectura de plantillas (suelen salir de Acrobat): limita números raros que a veces rompen parsers.
+ * @type {import("pdf-lib").LoadOptions}
+ */
+const PDF_LOAD_TEMPLATE_OPTIONS = {
+  capNumbers: true,
+};
+
+/**
+ * Guardado más compatible: sin object streams (PDF un poco más grande; mejor con lectores antiguos o políticas estrictas).
+ * `updateFieldAppearances` al serializar refuerza /AP de AcroForm.
+ * @type {import("pdf-lib").SaveOptions}
+ */
+const PDF_SAVE_OPTIONS = {
+  useObjectStreams: false,
+  updateFieldAppearances: true,
+};
+
 // --- HELPERS ---
 const fetchFileBuffer = async (url) => {
   try {
@@ -212,7 +230,10 @@ export const exportViaticosToPDFForm = async (
               Math.round((sub + gastos + Number.EPSILON) * 100) / 100;
             return { ...rawData, subtotal: sub, totalFinal };
           })();
-    const srcDoc = await PDFDocument.load(templateBuffer);
+    const srcDoc = await PDFDocument.load(
+      templateBuffer,
+      PDF_LOAD_TEMPLATE_OPTIONS,
+    );
     const form = srcDoc.getForm();
 
     const removeFieldSafe = (fieldName) => {
@@ -479,21 +500,19 @@ chk("check_temporada", configData.factor_temporada > 0);
       removeFieldSafe("firma_imagen");
     }
 
-    // Exportación editable: forzar generación/visualización de apariencias
-    if (keepEditable) {
-      setNeedAppearances(srcDoc, true);
-      try {
-        // Forzar apariencias para evitar que el valor quede "invisible" hasta click
-        form.updateFieldAppearances();
-      } catch (e) {}
-    }
+    // Apariencias de AcroForm antes de aplanar o de entregar el PDF: sin /AP actualizado,
+    // algunos visores muestran campos vacíos o el flatten no “hornea” bien el texto.
+    setNeedAppearances(srcDoc, true);
+    try {
+      form.updateFieldAppearances();
+    } catch (e) {}
 
     if (!keepEditable) form.flatten();
     const [copiedPage] = await finalPdf.copyPages(srcDoc, [0]);
     finalPdf.addPage(copiedPage);
   }
 
-  const pdfBytes = await finalPdf.save();
+  const pdfBytes = await finalPdf.save(PDF_SAVE_OPTIONS);
   return pdfBytes;
 };
 
