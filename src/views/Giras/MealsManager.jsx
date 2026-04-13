@@ -582,11 +582,11 @@ export default function MealsManager({ supabase, gira, roster }) {
         return false;
       });
       if (!isTechnicallyConvoked) return false;
-      const cFrom = p.logistics?.comida_inicio?.date,
-        cTo = p.logistics?.comida_fin?.date;
-      if (cFrom && cTo) {
-        if (row.fecha < cFrom || row.fecha > cTo) return false;
-      } else if (!p.is_local) return false;
+      const cFrom = p.logistics?.comida_inicio?.date;
+      const cTo = p.logistics?.comida_fin?.date;
+      if (cFrom && row.fecha < cFrom) return false;
+      if (cTo && row.fecha > cTo) return false;
+      if (!p.is_local && !cFrom && !cTo) return false;
       return true;
     });
   };

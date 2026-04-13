@@ -67,11 +67,9 @@ const checkEligibility = (evt, person) => {
   const coverageFrom = person.logistics?.comida_inicio?.date;
   const coverageTo = person.logistics?.comida_fin?.date;
 
-  if (coverageFrom && coverageTo) {
-    if (eventDate < coverageFrom || eventDate > coverageTo) return false;
-  } else {
-    if (!person.is_local) return false;
-  }
+  if (coverageFrom && eventDate < coverageFrom) return false;
+  if (coverageTo && eventDate > coverageTo) return false;
+  if (!person.is_local && !coverageFrom && !coverageTo) return false;
 
   return true;
 };

@@ -134,6 +134,17 @@ const formatDiff = (ms) => {
   return days > 0 ? `${days}d ${remHrs}h` : `${remHrs}h`;
 };
 
+// Mantiene consistencia con el motor central: NO_LOCALES incluye EXTERNOS.
+const matchesCategoryChip = (chipCategory, personCategory, person) => {
+  if (!chipCategory || !personCategory) return false;
+  if (chipCategory === "LOCALES") return Boolean(person?.is_local);
+  if (chipCategory === "NO_LOCALES") return !Boolean(person?.is_local);
+  if (chipCategory === personCategory) return true;
+  if (chipCategory === "NO_LOCALES" && personCategory === "EXTERNOS")
+    return true;
+  return false;
+};
+
 /** Persona coincide con el chip (criterio) y la regla le aplica (fuerza > 0). */
 const personMatchesLogisticsChip = (
   row,
@@ -161,7 +172,7 @@ const personMatchesLogisticsChip = (
     case "target_regions":
       return pReg === String(chipId);
     case "target_categories":
-      return pCat === chipId;
+      return matchesCategoryChip(chipId, pCat, person);
     default:
       return false;
   }

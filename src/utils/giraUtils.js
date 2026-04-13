@@ -143,6 +143,21 @@ export const getCategoriaLogistica = (person) => {
   return isLocal ? "LOCALES" : "NO_LOCALES";
 };
 
+/**
+ * Compatibilidad de categorías para reglas logísticas.
+ * "NO_LOCALES" debe abarcar también perfiles clasificados como "EXTERNOS".
+ */
+const categoryMatches = (ruleCategory, personCategory, person = null) => {
+  if (!ruleCategory || !personCategory) return false;
+  // "Locales / No Locales" deben regirse SIEMPRE por localidad sede, no por rol.
+  if (ruleCategory === "LOCALES") return Boolean(person?.is_local);
+  if (ruleCategory === "NO_LOCALES") return !Boolean(person?.is_local);
+  if (ruleCategory === personCategory) return true;
+  if (ruleCategory === "NO_LOCALES" && personCategory === "EXTERNOS")
+    return true;
+  return false;
+};
+
 /** Fuerza del match para ordenar reglas. Si estado_gira === 'ausente', siempre 0. */
 export const getMatchStrength = (rule, person, allLocalities = []) => {
   if (!rule || !person) return 0;
@@ -167,7 +182,12 @@ export const getMatchStrength = (rule, person, allLocalities = []) => {
   )
     return 5;
 
-  if ((rule.target_categories || []).includes(pCat)) return 4;
+  if (
+    (rule.target_categories || []).some((cat) =>
+      categoryMatches(cat, pCat, person),
+    )
+  )
+    return 4;
   if (
     normalize(rule.alcance) === "categoria" ||
     normalize(rule.alcance) === "instrumento"
@@ -235,7 +255,11 @@ export const matchesRule = (rule, person, allLocalities = []) => {
   if ((rule.target_ids || []).map(String).includes(pId)) return true;
   if ((rule.target_regions || []).map(String).includes(pReg)) return true;
   if ((rule.target_localities || []).map(String).includes(pLoc)) return true;
-  if ((rule.target_categories || []).includes(getCategoriaLogistica(person)))
+  if (
+    (rule.target_categories || []).some((cat) =>
+      categoryMatches(cat, getCategoriaLogistica(person), person),
+    )
+  )
     return true;
 
   if (scope === "general") return true;

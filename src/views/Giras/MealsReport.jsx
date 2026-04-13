@@ -119,15 +119,10 @@ export default function MealsReport({
           const coverageFrom = person.logistics?.comida_inicio?.date;
           const coverageTo = person.logistics?.comida_fin?.date;
 
-          if (coverageFrom && coverageTo) {
-            // Si la fecha del evento de comida está fuera del rango asignado, NO CUENTA
-            if (eventDate < coverageFrom || eventDate > coverageTo) {
-              return;
-            }
-          } else {
-            // Si no tiene reglas logísticas y NO es local, no debería comer (según tu lógica de Tutti)
-            if (!person.is_local) return;
-          }
+          if (coverageFrom && eventDate < coverageFrom) return;
+          if (coverageTo && eventDate > coverageTo) return;
+          // Si no hay ningún hito de comida y no es local, queda fuera.
+          if (!person.is_local && !coverageFrom && !coverageTo) return;
 
           // C. Validar asistencia manual (Presente / Ausente / Pendiente)
           const status = attendanceMap[`${evt.id}-${person.id}`];

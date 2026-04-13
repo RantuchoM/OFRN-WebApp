@@ -395,22 +395,27 @@ export function useLogistics(supabase, gira, trigger = 0) {
 
   const summary = useMemo(() => {
     const rosterEnriquecido = (baseRoster || []).map((p) => {
-      // 1. Detección robusta de Localidad (ID y Objeto)
+      // 1. Localidad efectiva para logística:
+      //    prioriza viáticos y luego residencia/base.
       const rawLocId =
-        p.id_localidad ||
-        p.integrante?.id_localidad ||
-        p.integrantes?.id_localidad ||
+        p.id_loc_viaticos ??
+        p.viaticos?.id ??
+        p._loc_viaticos?.id ??
+        p.localidades?.id ??
+        p.id_localidad ??
+        p.integrante?.id_localidad ??
+        p.integrantes?.id_localidad ??
         "";
-      const locId = rawLocId ? String(rawLocId) : "";
+      const locId = rawLocId != null && rawLocId !== "" ? String(rawLocId) : "";
       const locObj = db.locs.find((l) => String(l.id) === locId);
 
-      // 2. is_local contra las sedes (comparando como números para el Dashboard)
-      const isLocal = db.sedes.includes(Number(locId)) && locId !== "";
+      // 2. Criterio único: local solo si su localidad está en sedes de la gira.
+      const isLocal = locId !== "" && db.sedes.some((sid) => String(sid) === locId);
 
       return {
         ...p,
         id_localidad: locId,
-        localidades: locObj,
+        localidades: locObj || p.localidades || null,
         is_local: isLocal,
       };
     });
