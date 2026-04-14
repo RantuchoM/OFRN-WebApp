@@ -257,6 +257,33 @@ export default function EventTranspositionModal({
     );
   }, [originEvents, selectedTypeIds]);
 
+  // Los checkboxes solo existen para eventos visibles por filtro de tipo; los IDs
+  // seleccionados deben mantenerse alineados para no importar tipos ocultos.
+  useEffect(() => {
+    if (!isOpen || !originEvents.length) return;
+    const visible = new Set(
+      (() => {
+        if (!selectedTypeIds || selectedTypeIds.length === 0) {
+          return originEvents.map((e) => e.id);
+        }
+        const allowed = new Set(selectedTypeIds);
+        return originEvents
+          .filter((e) =>
+            e.id_tipo_evento != null ? allowed.has(e.id_tipo_evento) : true,
+          )
+          .map((e) => e.id);
+      })(),
+    );
+    setSelectedEventIds((prev) => {
+      const next = new Set();
+      prev.forEach((id) => {
+        if (visible.has(id)) next.add(id);
+      });
+      if (next.size === prev.size) return prev;
+      return next;
+    });
+  }, [isOpen, originEvents, selectedTypeIds]);
+
   const toggleType = (id) => {
     setSelectedTypeIds((prev) => {
       if (!prev || prev.length === 0) return [id];
@@ -419,7 +446,7 @@ export default function EventTranspositionModal({
 
     const destinationId = giraDestino?.id || giraId;
     const payload = [];
-    originEvents.forEach((evt) => {
+    filteredOriginEvents.forEach((evt) => {
       if (!selectedEventIds.has(evt.id)) return;
       const newIso = computeNewDateIso(evt);
       if (!newIso) return;

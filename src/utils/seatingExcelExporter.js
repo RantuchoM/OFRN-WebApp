@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
+import { sortSeatingItems } from "../services/giraService";
 
 const EXCLUDED_ROLES = [
   "staff",
@@ -146,7 +147,8 @@ export const exportSeatingToExcel = async (
 
       for (let i = 0; i < maxRows; i++) {
         const rowValues = validContainers.map((c) => {
-          const item = c.items?.[i];
+          const sorted = sortSeatingItems(c.items || []);
+          const item = sorted[i];
           if (!item?.integrantes) return "";
           return `${item.integrantes.apellido}, ${item.integrantes.nombre || ""}.`;
         });

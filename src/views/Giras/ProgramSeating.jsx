@@ -32,6 +32,10 @@ import {
   CreateParticellaModal,
 } from "../../components/seating/SeatingControls";
 import { exportSeatingToExcel } from "../../utils/seatingExcelExporter";
+import {
+  seatingItemMatrixPosition,
+  sortSeatingItems,
+} from "../../services/giraService";
 import { createPortal } from "react-dom";
 
 // Librerías para reporte PDF
@@ -134,19 +138,10 @@ const buildSeatingStands = (items = []) => {
 
   const byAtril = new Map();
 
-  items.forEach((item) => {
-    // Compatibilidad: si atril_num/lado vienen nulos (datos viejos),
-    // los derivamos desde orden siguiendo la convención matricial.
-    const rawOrden =
-      item.orden != null ? Number(item.orden) : Number(item?.orden ?? 0);
-    const atril =
-      item.atril_num != null && !Number.isNaN(Number(item.atril_num))
-        ? Number(item.atril_num)
-        : Math.floor(rawOrden / 2) + 1;
-    const lado =
-      item.lado != null && !Number.isNaN(Number(item.lado))
-        ? Number(item.lado)
-        : rawOrden % 2;
+  items.forEach((item, idx) => {
+    // Compatibilidad: matriz (atril_num, lado) o `orden` (1-based nuevo o legado 0-based).
+    const { atril_num: atril, lado } = seatingItemMatrixPosition(item, idx);
+    if (atril == null || lado == null) return;
 
     const key = atril;
     const current = byAtril.get(key) || { atril, left: null, right: null };
@@ -343,7 +338,7 @@ const MobileSeatingTable = ({
 
                   {/* FILAS HIJAS: MÚSICOS (Solo si expandido) */}
                   {isExpanded &&
-                    buildSeatingStands(c.items).flatMap(
+                    buildSeatingStands(sortSeatingItems(c.items || [])).flatMap(
                       ({ atril, left, right }) => {
                         const rows = [];
 
@@ -563,30 +558,32 @@ const ContainerInfoCell = ({ container, myStandInfo }) => {
                 Vacío
               </span>
             )}
-            {container.items.map((item, idx) => {
-              const standNum = Math.floor(idx / 2) + 1;
+            {(() => {
+              const sorted = sortSeatingItems(container.items || []);
+              return sorted.map((item, idx) => {
+                const pos = seatingItemMatrixPosition(item, idx);
+                const standNum = pos.atril_num ?? 1;
+                const isEndOfDesk =
+                  pos.lado === 1 && idx !== sorted.length - 1;
 
-              // Definimos si es el final del atril para poner el separador
-              const isEndOfDesk =
-                idx % 2 === 1 && idx !== container.items.length - 1;
-
-              return (
-                <div
-                  key={item.id}
-                  className={`text-[9px] text-slate-700 truncate leading-tight py-1 flex justify-between px-1 ${
-                    isEndOfDesk ? "border-b-2 border-slate-300 mb-2 pb-1" : ""
-                  }`}
-                >
-                  <span>
-                    {item.integrantes?.apellido},{" "}
-                    {item.integrantes?.nombre?.charAt(0)}.
-                  </span>
-                  <span className="text-slate-400 text-[8px] ml-1">
-                    Atril {standNum}
-                  </span>
-                </div>
-              );
-            })}
+                return (
+                  <div
+                    key={item.id}
+                    className={`text-[9px] text-slate-700 truncate leading-tight py-1 flex justify-between px-1 ${
+                      isEndOfDesk ? "border-b-2 border-slate-300 mb-2 pb-1" : ""
+                    }`}
+                  >
+                    <span>
+                      {item.integrantes?.apellido},{" "}
+                      {item.integrantes?.nombre?.charAt(0)}.
+                    </span>
+                    <span className="text-slate-400 text-[8px] ml-1">
+                      Atril {standNum}
+                    </span>
+                  </div>
+                );
+              });
+            })()}
           </div>
         )}
       </div>
@@ -1411,7 +1408,8 @@ export default function ProgramSeating({
       for (let i = 0; i < maxMembers; i++) {
         containerBody.push(
           containers.map((c) => {
-            const item = c.items[i];
+            const sorted = sortSeatingItems(c.items || []);
+            const item = sorted[i];
             if (!item?.integrantes) return "";
             return `${item.integrantes.apellido}, ${item.integrantes.nombre || ""}.`;
           }),

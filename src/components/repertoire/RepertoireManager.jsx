@@ -32,7 +32,11 @@ import {
   IconGripVertical,
   IconCopy,
 } from "../ui/Icons";
-import { updateWorkPosition, normalizeRepertorioBlockOrden } from "../../services/giraService";
+import {
+  updateWorkPosition,
+  normalizeRepertorioBlockOrden,
+  seatingItemMatrixPosition,
+} from "../../services/giraService";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import {
   calculateInstrumentation,
@@ -395,7 +399,7 @@ export default function RepertoireManager({
 
     const { data: items } = await supabase
       .from("seating_contenedores_items")
-      .select("id_contenedor, id_musico, orden")
+      .select("id_contenedor, id_musico, orden, atril_num, lado")
       .in("id_contenedor", containers?.map((c) => c.id) || []);
 
     const { data: asigns } = await supabase
@@ -410,16 +414,16 @@ export default function RepertoireManager({
       if (item.id_musico) {
         const container = containers.find((c) => c.id === item.id_contenedor);
 
-        // Cálculo de la parte numérica: 0 y 1 -> 1, 2 y 3 -> 2, etc.
-        const deskNumber = Math.floor((item.orden || 0) / 2) + 1;
-
-        // Identificador de asiento: Par -> 'a', Impar -> 'b'
-        const deskSuffix = (item.orden || 0) % 2 === 0 ? "a" : "b";
+        const { atril_num: deskNumber, lado } = seatingItemMatrixPosition(
+          item,
+          0,
+        );
+        const deskSuffix = lado === 0 ? "a" : "b";
 
         newMap[String(item.id_musico)] = {
           containerId: item.id_contenedor,
           containerName: container?.nombre,
-          desk: `${deskNumber}${deskSuffix}`, // Resultado: "1a", "1b", etc.
+          desk: `${deskNumber ?? 1}${deskSuffix}`, // Resultado: "1a", "1b", etc.
         };
       }
     });

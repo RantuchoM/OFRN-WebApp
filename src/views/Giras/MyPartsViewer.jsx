@@ -10,6 +10,7 @@ import {
   IconChevronDown,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
+import { seatingItemMatrixPosition } from "../../services/giraService";
 
 // --- SUB-COMPONENTE: TARJETA MÓVIL COMPACTA ---
 const MobilePartCard = ({ item }) => {
@@ -179,6 +180,8 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
         .select(`
             id_contenedor, 
             orden,
+            atril_num,
+            lado,
             seating_contenedores!inner (id_programa, nombre)
         `)
         .eq("id_musico", user.id)
@@ -189,10 +192,10 @@ export default function MyPartsViewer({ supabase, gira, onOpenSeating }) {
 
       // Calcular info de atril si existe
       if (seatingJoin) {
-          const deskNumber = Math.floor(seatingJoin.orden) + 1;
+          const { atril_num } = seatingItemMatrixPosition(seatingJoin, 0);
           setSeatingInfo({
               container: seatingJoin.seating_contenedores.nombre,
-              desk: deskNumber
+              desk: atril_num ?? 1,
           });
       } else {
           setSeatingInfo(null);

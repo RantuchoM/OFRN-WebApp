@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { IconHistory, IconX, IconLoader, IconPlus } from "../ui/Icons";
+import { seatingItemMatrixPosition } from "../../services/giraService";
 
 export default function SeatingHistoryModal({ isOpen, onClose, roster, supabase }) {
   const [historyData, setHistoryData] = useState({});
@@ -47,7 +48,9 @@ export default function SeatingHistoryModal({ isOpen, onClose, roster, supabase 
       // 2. Obtener la data de seating
       const { data: items } = await supabase
         .from("seating_contenedores_items")
-        .select(`orden, id_musico, seating_contenedores!inner (id_programa, nombre)`)
+        .select(
+          `atril_num, lado, orden, id_musico, seating_contenedores!inner (id_programa, nombre)`,
+        )
         .in("seating_contenedores.id_programa", progIds);
 
       // 3. Mapear datos
@@ -55,7 +58,17 @@ export default function SeatingHistoryModal({ isOpen, onClose, roster, supabase 
       items?.forEach((item) => {
         const mId = item.id_musico;
         const pId = item.seating_contenedores.id_programa;
-        const label = `${item.seating_contenedores.nombre} (${item.orden + 1})`;
+        const pos = seatingItemMatrixPosition(item, 0);
+        const atril = pos.atril_num ?? null;
+        const lado =
+          pos.lado === 0
+            ? "Izq"
+            : pos.lado === 1
+              ? "Der"
+              : "?";
+        const label = atril
+          ? `${item.seating_contenedores.nombre} (Atril ${atril} · ${lado})`
+          : item.seating_contenedores.nombre;
         if (!newMap[mId]) newMap[mId] = {};
         newMap[mId][pId] = label;
       });

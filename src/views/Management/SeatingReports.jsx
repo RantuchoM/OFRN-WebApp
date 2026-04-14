@@ -13,6 +13,7 @@ import { getProgramTypeColor } from "../../utils/giraUtils";
 import { generateSeatingPdf } from "../../utils/seatingPdfExporter";
 import { exportSeatingToExcel } from "../../utils/seatingExcelExporter";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
+import { sortSeatingItems } from "../../services/giraService";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import ExcelJS from "exceljs";
@@ -179,7 +180,9 @@ export default function SeatingReports({ supabase }) {
           "id_contenedor",
           conts.map((c) => c.id),
         )
-        .order("orden");
+        .order("atril_num", { ascending: true, nullsFirst: true })
+        .order("lado", { ascending: true, nullsFirst: true })
+        .order("id", { ascending: true });
       if (itemsError) throw itemsError;
 
       const confirmedRosterIds = new Set(
@@ -337,9 +340,9 @@ export default function SeatingReports({ supabase }) {
         for (let r = 0; r < maxRows; r++) {
           containerBody.push(
             containers.map((c) => {
-              const groupItems = validItems
-                .filter((i) => i.id_contenedor === c.id)
-                .sort((a, b) => (a.orden || 0) - (b.orden || 0));
+              const groupItems = sortSeatingItems(
+                validItems.filter((i) => i.id_contenedor === c.id),
+              );
               const item = groupItems[r];
               if (!item?.integrantes) return "";
               return `${item.integrantes.apellido || ""}, ${

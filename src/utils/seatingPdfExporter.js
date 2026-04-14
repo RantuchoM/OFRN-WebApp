@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { sortSeatingItems } from "../services/giraService";
 
 // --- CONSTANTES ---
 const EXCLUDED_ROLES = [
@@ -39,7 +40,13 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
 
     const [contsRes, itemsRes, assignsRes, partsRes] = await Promise.all([
       supabase.from("seating_contenedores").select("*").eq("id_programa", gira.id).order("orden"),
-      supabase.from("seating_contenedores_items").select("*, integrantes(nombre, apellido)").order("orden"),
+      supabase
+        .from("seating_contenedores_items")
+        .select("*, integrantes(nombre, apellido)")
+        .order("atril_num", { ascending: true, nullsFirst: true })
+        .order("lado", { ascending: true, nullsFirst: true })
+        .order("orden", { ascending: true, nullsFirst: true })
+        .order("id", { ascending: true }),
       supabase.from("seating_asignaciones").select("*").eq("id_programa", gira.id),
       supabase.from("obras_particellas").select("id, nombre_archivo").in("id_obra", workIds)
     ]);
@@ -78,10 +85,9 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
     for (let i = 0; i < maxRows; i++) {
       containerBody.push(
         conts.map((c) => {
-          const groupItems = validItems.filter(item => item.id_contenedor === c.id);
-          // Asegurar orden visual correcto
-          groupItems.sort((a,b) => a.orden - b.orden);
-          
+          const groupItems = sortSeatingItems(
+            validItems.filter((item) => item.id_contenedor === c.id),
+          );
           const item = groupItems[i];
           if (!item?.integrantes) return "";
           return `${item.integrantes.apellido}, ${item.integrantes.nombre}.` || "";

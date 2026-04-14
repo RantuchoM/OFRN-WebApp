@@ -712,18 +712,77 @@ export const getAllConcertVenues = async (supabase) => {
 };
 
 /**
- * Helpers para conversión entre índice lineal (orden) y matriz de seating
- * basada en (atril_num, lado). Se mantiene el convenio:
- *   orden = (atril_num - 1) * 2 + lado
+ * Helpers para conversión entre índice lineal `orden` y matriz (atril_num, lado).
+ *
+ * **Convención almacenada (1-based, para legados / exportaciones):**
+ *   `orden = 2 * (fila - 1) + lado_mano`
+ * con `lado_mano` 1 = izquierdo, 2 = derecho (columna física).
+ * En DB seguimos guardando `lado` como 0 = izq, 1 = der, por lo que:
+ *   `orden = (atril_num - 1) * 2 + lado_db + 1`  → valores 1, 2, 3, 4, …
+ *
+ * **Legado (solo `orden` sin matriz):** índice 0-based
+ *   `orden = (atril_num - 1) * 2 + lado_db`  → 0, 1, 2, 3, …
  */
+
+/** Inverso de `seatingMatrixToOrder` (convención 1-based, orden ≥ 1). */
 export const seatingOrderToMatrix = (orden) => {
   if (orden == null || Number.isNaN(Number(orden))) {
     return { atril_num: null, lado: null };
   }
-  const idx = Number(orden);
-  const atril_num = Math.floor(idx / 2) + 1;
-  const lado = idx % 2;
-  return { atril_num, lado };
+  const o = Math.trunc(Number(orden));
+  if (o < 1) return { atril_num: null, lado: null };
+  return {
+    atril_num: Math.floor((o - 1) / 2) + 1,
+    lado: (o - 1) % 2,
+  };
+};
+
+/** Legado: `orden` 0-based (primera silla izquierda = 0). */
+export const seatingOrderToMatrixLegacyZeroBased = (orden) => {
+  if (orden == null || Number.isNaN(Number(orden))) {
+    return { atril_num: null, lado: null };
+  }
+  const o = Math.trunc(Number(orden));
+  if (o < 0) return { atril_num: null, lado: null };
+  return {
+    atril_num: Math.floor(o / 2) + 1,
+    lado: o % 2,
+  };
+};
+
+/**
+ * Resuelve (atril_num, lado DB 0/1) desde un ítem de `seating_contenedores_items`.
+ * Prioriza coordenadas matriciales; si faltan, infiere desde `orden` (legado 0-based).
+ */
+export const seatingItemMatrixPosition = (item, fallbackIndex = 0) => {
+  const fb = Number(fallbackIndex) || 0;
+
+  const hasAtril =
+    item?.atril_num != null && !Number.isNaN(Number(item.atril_num));
+  const hasLado =
+    item?.lado != null && !Number.isNaN(Number(item.lado));
+
+  if (hasAtril) {
+    const atril_num = Number(item.atril_num);
+    if (hasLado) return { atril_num, lado: Number(item.lado) };
+    if (item?.orden != null && !Number.isNaN(Number(item.orden))) {
+      const o = Math.trunc(Number(item.orden));
+      const fromOne = seatingOrderToMatrix(o);
+      if (fromOne.atril_num === atril_num) return { atril_num, lado: fromOne.lado };
+      const fromZero = seatingOrderToMatrixLegacyZeroBased(o);
+      if (fromZero.atril_num === atril_num) return { atril_num, lado: fromZero.lado };
+    }
+    return { atril_num, lado: fb % 2 };
+  }
+
+  if (item?.orden != null && !Number.isNaN(Number(item.orden))) {
+    return seatingOrderToMatrixLegacyZeroBased(Math.trunc(Number(item.orden)));
+  }
+
+  return {
+    atril_num: Math.floor(fb / 2) + 1,
+    lado: fb % 2,
+  };
 };
 
 export const seatingMatrixToOrder = (atril_num, lado) => {
@@ -737,7 +796,35 @@ export const seatingMatrixToOrder = (atril_num, lado) => {
   }
   const a = Number(atril_num);
   const l = Number(lado);
-  return (a - 1) * 2 + l;
+  return (a - 1) * 2 + l + 1;
+};
+
+/**
+ * Orden estable para listas de `seating_contenedores_items`: primero por fila (atril_num),
+ * luego lado (0 izq, 1 der), luego id. Usa la misma lógica que `seatingItemMatrixPosition`
+ * respetando el índice original solo como fallback para datos sin matriz.
+ */
+export const compareSeatingItems = (a, b, indexA = 0, indexB = 0) => {
+  const pa = seatingItemMatrixPosition(a, indexA);
+  const pb = seatingItemMatrixPosition(b, indexB);
+  const da = (pa.atril_num ?? 0) - (pb.atril_num ?? 0);
+  if (da !== 0) return da;
+  const dl = (pa.lado ?? 0) - (pb.lado ?? 0);
+  if (dl !== 0) return dl;
+  return Number(a?.id ?? 0) - Number(b?.id ?? 0);
+};
+
+export const sortSeatingItems = (items = []) => {
+  const list = [...items];
+  const indexById = new Map();
+  list.forEach((item, idx) => {
+    if (item?.id != null) indexById.set(item.id, idx);
+  });
+  return list.sort((a, b) => {
+    const ia = indexById.has(a?.id) ? indexById.get(a.id) : 0;
+    const ib = indexById.has(b?.id) ? indexById.get(b.id) : 0;
+    return compareSeatingItems(a, b, ia, ib);
+  });
 };
 
 /**
