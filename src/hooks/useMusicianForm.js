@@ -530,7 +530,25 @@ export function useMusicianForm(musician, supabase, onSave) {
 
   const handleFullPack = useCallback(async () => {
     const vals = getValues();
-    if (!vals.id || !vals.firma) { toast.error("Faltan datos o firma."); return; }
+    if (!vals.id) {
+      toast.error("Guarda la ficha primero.");
+      return;
+    }
+
+    const missingFields = [];
+    if (!(vals.domicilio || "").trim()) missingFields.push("Domicilio");
+    if (!vals.link_dni_img) missingFields.push("DNI");
+    if (!vals.link_cuil) missingFields.push("CUIL");
+    if (!vals.link_cbu_img) missingFields.push("CBU");
+    if (!vals.firma) missingFields.push("Firma");
+
+    if (missingFields.length > 0) {
+      toast.error(
+        `Faltan datos obligatorios para generar el expediente completo: ${missingFields.join(", ")}`,
+      );
+      return;
+    }
+
     setAssemblingType("all");
     setFieldStatuses((p) => ({
       ...p,
