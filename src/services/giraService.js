@@ -712,6 +712,215 @@ export const getAllConcertVenues = async (supabase) => {
 };
 
 /**
+ * Obtiene la grilla completa de conciertos para el módulo de Gestión.
+ * Incluye relaciones de programa, venue, ensambles, familias convocadas y repertorio.
+ */
+export const getConciertosFullData = async (
+  supabase,
+  { dateFrom = null, dateTo = null } = {},
+) => {
+  if (!supabase) return [];
+  try {
+    let query = supabase
+      .from("eventos")
+      .select(
+        `
+        id,
+        fecha,
+        hora_inicio,
+        convocados,
+        id_tipo_evento,
+        id_gira,
+        id_locacion,
+        id_estado_venue,
+        programas (
+          id,
+          nombre_gira,
+          nomenclador,
+          mes_letra,
+          tipo,
+          giras_fuentes ( tipo, valor_id, valor_texto ),
+          programas_repertorios (
+            id,
+            orden,
+            repertorio_obras (
+              id,
+              orden,
+              obras (
+                id,
+                titulo,
+                obras_compositores (
+                  rol,
+                  compositores ( nombre, apellido )
+                )
+              )
+            )
+          )
+        ),
+        locaciones ( id, nombre, localidades ( localidad ) ),
+        venue_status_types ( id, nombre, color, slug ),
+        eventos_ensambles ( ensambles ( id, ensamble ) )
+      `,
+      )
+      .eq("id_tipo_evento", 1)
+      .eq("is_deleted", false)
+      .order("fecha", { ascending: true })
+      .order("hora_inicio", { ascending: true });
+
+    if (dateFrom) query = query.gte("fecha", dateFrom);
+    if (dateTo) query = query.lte("fecha", dateTo);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    const events = data || [];
+
+    const ensambleIdsFromEvents = new Set();
+    events.forEach((evt) => {
+      (evt.eventos_ensambles || []).forEach((ee) => {
+        const eid = Number(ee?.ensambles?.id);
+        if (!Number.isNaN(eid) && eid > 0) ensambleIdsFromEvents.add(eid);
+      });
+      (evt.programas?.giras_fuentes || [])
+        .filter((f) => f?.tipo === "ENSAMBLE")
+        .forEach((f) => {
+          const eid = Number(f?.valor_id);
+          if (!Number.isNaN(eid) && eid > 0) ensambleIdsFromEvents.add(eid);
+        });
+    });
+
+    const ensambleNameMap = new Map();
+    if (ensambleIdsFromEvents.size > 0) {
+      const { data: ensRows, error: ensErr } = await supabase
+        .from("ensambles")
+        .select("id, ensamble")
+        .in("id", Array.from(ensambleIdsFromEvents));
+      if (ensErr) throw ensErr;
+      (ensRows || []).forEach((ens) => {
+        ensambleNameMap.set(Number(ens.id), ens.ensamble || "");
+      });
+    }
+
+    const decodeEntities = (input) =>
+      String(input || "")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&amp;/gi, "&")
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">");
+
+    const toFirstLine = (txt) => {
+      if (!txt) return "";
+      const withBreaks = String(txt)
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/(div|p|li|h[1-6])>/gi, "\n");
+      const plain = withBreaks.replace(/<[^>]*>/g, " ");
+      const decoded = decodeEntities(plain)
+        .replace(/\r/g, "")
+        .replace(/\u00a0/g, " ")
+        .replace(/[ \t]+/g, " ")
+        .replace(/\n{2,}/g, "\n")
+        .trim();
+      return decoded.split("\n")[0]?.trim() || "";
+    };
+
+    return events.map((evt) => {
+      const ensamblesEvent = (evt.eventos_ensambles || [])
+        .map((ee) => ee?.ensambles)
+        .filter(Boolean)
+        .map((ens) => ({
+          id: Number(ens.id),
+          nombre: ens.ensamble || "",
+        }))
+        .filter((ens) => ens.id > 0);
+
+      const ensamblesFromSources = (evt.programas?.giras_fuentes || [])
+        .filter((f) => f?.tipo === "ENSAMBLE")
+        .map((f) => Number(f?.valor_id))
+        .filter((id) => !Number.isNaN(id) && id > 0)
+        .map((id) => ({
+          id,
+          nombre: ensambleNameMap.get(id) || `Ensamble ${id}`,
+        }));
+
+      const ensambleMap = new Map();
+      [...ensamblesFromSources, ...ensamblesEvent].forEach((ens) => {
+        if (!ens || !ens.id) return;
+        if (!ensambleMap.has(ens.id)) ensambleMap.set(ens.id, ens.nombre || "");
+      });
+      const ensambles = Array.from(ensambleMap.entries())
+        .map(([id, nombre]) => ({ id, nombre }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+      const familiasFromConvocados = (evt.convocados || [])
+        .filter((tag) => String(tag).startsWith("FAM:"))
+        .map((tag) => String(tag).slice(4).trim())
+        .filter(Boolean);
+      const familiasFromProgram = (evt.programas?.giras_fuentes || [])
+        .filter((f) => f?.tipo === "FAMILIA" && f?.valor_texto)
+        .map((f) => String(f.valor_texto).trim())
+        .filter(Boolean);
+      const familiasBase =
+        familiasFromConvocados.length > 0
+          ? familiasFromConvocados
+          : familiasFromProgram;
+      const familias = Array.from(new Set(familiasBase)).sort((a, b) =>
+        a.localeCompare(b),
+      );
+
+      const repertorio = (evt.programas?.programas_repertorios || [])
+        .sort((a, b) => {
+          const ao = Number(a?.orden ?? 999999);
+          const bo = Number(b?.orden ?? 999999);
+          return ao - bo;
+        })
+        .flatMap((bloque) =>
+          (bloque?.repertorio_obras || [])
+            .sort((a, b) => {
+              const ao = Number(a?.orden ?? 999999);
+              const bo = Number(b?.orden ?? 999999);
+              return ao - bo;
+            })
+            .map((row) => {
+              const obra = row?.obras || {};
+              const comps = (obra?.obras_compositores || [])
+                .filter((oc) => !oc?.rol || oc.rol === "compositor")
+                .map((oc) => oc?.compositores)
+                .filter(Boolean);
+              const composerNames = comps
+                .map((c) => [c?.apellido, c?.nombre].filter(Boolean).join(", ").trim())
+                .filter(Boolean);
+              return {
+                compositor: composerNames.join(" / "),
+                titulo: toFirstLine(obra?.titulo),
+              };
+            }),
+        );
+
+      return {
+        id: evt.id,
+        fecha: evt.fecha,
+        hora_inicio: evt.hora_inicio,
+        tipo_programa: evt.programas?.tipo || "",
+        nombre_gira: evt.programas?.nombre_gira || "",
+        nomenclador: evt.programas?.nomenclador || "",
+        mes_letra: evt.programas?.mes_letra || "",
+        locacion: evt.locaciones?.nombre || "",
+        localidad: evt.locaciones?.localidades?.localidad || "",
+        venue_estado: evt.venue_status_types?.nombre || "",
+        venue_estado_color: evt.venue_status_types?.color || "",
+        ensambles,
+        familias,
+        repertorio,
+      };
+    });
+  } catch (err) {
+    console.error("[GiraService] getConciertosFullData:", err);
+    return [];
+  }
+};
+
+/**
  * Helpers para conversión entre índice lineal `orden` y matriz (atril_num, lado).
  *
  * **Convención almacenada (1-based, para legados / exportaciones):**

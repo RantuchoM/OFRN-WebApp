@@ -252,3 +252,151 @@ export const exportViaticosToExcel = async (giraData, viaticosData, configData) 
   const safeName = (giraData?.nombre_gira || 'Gira').replace(/[^a-z0-9]/gi, '_');
   saveAs(new Blob([buffer]), `Viaticos_${safeName}.xlsx`);
 };
+
+/**
+ * Exporta la grilla de conciertos filtrada a Excel.
+ */
+export const exportConciertosToExcel = async (
+  rows,
+  fileName = "Gestion_Conciertos",
+) => {
+  const hexToRgb = (hex) => {
+    const clean = String(hex || "").trim().replace("#", "");
+    if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
+    return {
+      r: parseInt(clean.slice(0, 2), 16),
+      g: parseInt(clean.slice(2, 4), 16),
+      b: parseInt(clean.slice(4, 6), 16),
+    };
+  };
+
+  const pastelFromHex = (hex, intensity = 0.85) => {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return null;
+    const blend = (value) =>
+      Math.round(value * (1 - intensity) + 255 * intensity)
+        .toString(16)
+        .padStart(2, "0");
+    return `FF${blend(rgb.r)}${blend(rgb.g)}${blend(rgb.b)}`.toUpperCase();
+  };
+
+  const argbFromHex = (hex) => {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return null;
+    return `FF${String(hex).trim().replace("#", "").toUpperCase()}`;
+  };
+
+  const workbook = new ExcelJS.Workbook();
+  const ws = workbook.addWorksheet("Conciertos");
+  const WRAP_COLUMN_KEYS = [
+    "programa",
+    "participantes",
+    "locacionLocalidad",
+    "repertorio",
+  ];
+
+  const estimateCellLines = (value, columnWidth) => {
+    if (value == null) return 1;
+    const txt = String(value);
+    if (!txt.trim()) return 1;
+    const hardLines = txt.split(/\r?\n/);
+    const charsPerVisualLine = Math.max(8, Math.floor((columnWidth || 20) * 1.15));
+    return hardLines.reduce((total, line) => {
+      const len = String(line || "").length;
+      const wrapped = Math.max(1, Math.ceil(len / charsPerVisualLine));
+      return total + wrapped;
+    }, 0);
+  };
+
+  ws.columns = [
+    { header: "Fecha", key: "fecha", width: 12 },
+    { header: "Hora", key: "hora", width: 10 },
+    { header: "Programa", key: "programa", width: 36 },
+    { header: "Ensambles/Familias", key: "participantes", width: 48 },
+    { header: "Locación/Localidad", key: "locacionLocalidad", width: 34 },
+    { header: "Estado del Venue", key: "estadoVenue", width: 22 },
+    { header: "Repertorio", key: "repertorio", width: 64 },
+  ];
+
+  ws.getRow(1).font = { bold: true };
+  ws.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+
+  (rows || []).forEach((row) => {
+    const repertorioLines = Array.isArray(row.repertorioLines)
+      ? row.repertorioLines
+      : String(row.repertorio || "")
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
+    ws.addRow({
+      fecha: row.fecha || "",
+      hora: row.hora || "",
+      programa: row.programa || "",
+      participantes: row.participantes || "",
+      locacionLocalidad: row.locacionLocalidad || "",
+      estadoVenue: row.estadoVenue || "",
+      repertorio:
+        repertorioLines.length > 0
+          ? repertorioLines.map((line) => `• ${line}`).join("\n")
+          : row.repertorio || "",
+    });
+  });
+
+  ws.eachRow((excelRow, rowNumber) => {
+    excelRow.alignment = {
+      vertical: "top",
+      horizontal: rowNumber === 1 ? "center" : "left",
+      wrapText: true,
+    };
+
+    excelRow.eachCell({ includeEmpty: true }, (cell) => {
+      cell.border = {
+        top: { style: "thin", color: { argb: "FF1F2937" } },
+        left: { style: "thin", color: { argb: "FF1F2937" } },
+        bottom: { style: "thin", color: { argb: "FF1F2937" } },
+        right: { style: "thin", color: { argb: "FF1F2937" } },
+      };
+    });
+
+    if (rowNumber > 1) {
+      const source = rows[rowNumber - 2] || {};
+      const maxLines = WRAP_COLUMN_KEYS.reduce((acc, key) => {
+        const col = ws.columns.find((c) => c.key === key);
+        const lines = estimateCellLines(source[key], col?.width);
+        return Math.max(acc, lines);
+      }, 1);
+      excelRow.height = Math.max(22, Math.min(240, maxLines * 14));
+    }
+  });
+
+  (rows || []).forEach((row, idx) => {
+    const excelRow = ws.getRow(idx + 2);
+    const statusCell = excelRow.getCell("estadoVenue");
+    const bgColor = pastelFromHex(row?.estadoVenueColor);
+    const fgColor = argbFromHex(row?.estadoVenueColor);
+    if (bgColor) {
+      statusCell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: bgColor },
+      };
+      statusCell.font = {
+        ...(statusCell.font || {}),
+        bold: true,
+        color: fgColor ? { argb: fgColor } : undefined,
+      };
+      statusCell.alignment = {
+        ...(statusCell.alignment || {}),
+        horizontal: "center",
+        vertical: "middle",
+      };
+    }
+  });
+
+  const safeName = String(fileName || "Gestion_Conciertos").replace(
+    /[^a-z0-9_-]/gi,
+    "_",
+  );
+  const buffer = await workbook.xlsx.writeBuffer();
+  saveAs(new Blob([buffer]), `${safeName}.xlsx`);
+};

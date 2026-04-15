@@ -498,3 +498,126 @@ export const exportAgendaToPDF = (items, title = "Agenda General", subTitle = ""
   const safeTitle = title.replace(/[^a-z0-9]/gi, '_');
   doc.save(`${safeTitle}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
 };
+
+/**
+ * Exporta la grilla de conciertos filtrada a PDF.
+ */
+export const exportConciertosToPDF = (
+  rows,
+  title = "Gestión de Conciertos",
+  subTitle = "",
+) => {
+  const hexToRgb = (hex) => {
+    const clean = String(hex || "").trim().replace("#", "");
+    if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
+    return [
+      parseInt(clean.slice(0, 2), 16),
+      parseInt(clean.slice(2, 4), 16),
+      parseInt(clean.slice(4, 6), 16),
+    ];
+  };
+
+  const pastelRgb = (hex, intensity = 0.85) => {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return null;
+    return rgb.map((v) => Math.round(v * (1 - intensity) + 255 * intensity));
+  };
+
+  const doc = new jsPDF("l", "mm", "a4");
+  let cursorY = 15;
+
+  doc.setFontSize(16);
+  doc.setTextColor(40);
+  doc.text(title, 14, cursorY);
+  cursorY += 6;
+
+  if (subTitle) {
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(subTitle, 14, cursorY);
+    cursorY += 5;
+  }
+
+  const dateStr = format(new Date(), "d 'de' MMMM, yyyy", { locale: es });
+  doc.setFontSize(8);
+  doc.setTextColor(140);
+  doc.text(`Generado el ${dateStr}`, 14, cursorY);
+  cursorY += 4;
+
+  autoTable(doc, {
+    startY: cursorY,
+    head: [[
+      "Fecha",
+      "Hora",
+      "Programa",
+      "Ensambles/Familias",
+      "Locación/Localidad",
+      "Estado del Venue",
+      "Repertorio",
+    ]],
+    body: (rows || []).map((row) => [
+      row.fecha || "-",
+      row.hora || "-",
+      row.programa || "-",
+      row.participantes || "-",
+      row.locacionLocalidad || "-",
+      row.estadoVenue || "-",
+      Array.isArray(row.repertorioLines) && row.repertorioLines.length > 0
+        ? row.repertorioLines.map((line) => `• ${line}`).join("\n")
+        : row.repertorio || "-",
+    ]),
+    theme: "grid",
+    styles: {
+      fontSize: 7,
+      cellPadding: 2,
+      valign: "top",
+      overflow: "linebreak",
+      lineColor: [220, 220, 220],
+      lineWidth: 0.1,
+    },
+    headStyles: {
+      fillColor: [30, 41, 59],
+      textColor: 255,
+      fontStyle: "bold",
+      halign: "left",
+    },
+    columnStyles: {
+      0: { cellWidth: 18 },
+      1: { cellWidth: 14 },
+      2: { cellWidth: 36 },
+      3: { cellWidth: 38 },
+      4: { cellWidth: 34 },
+      5: { cellWidth: 28 },
+      6: { cellWidth: "auto" },
+    },
+    didParseCell: (data) => {
+      if (data.section !== "body") return;
+      if (data.column.index !== 5) return;
+      const source = rows?.[data.row.index];
+      const color = pastelRgb(source?.estadoVenueColor);
+      if (!color) return;
+      data.cell.styles.fillColor = color;
+      data.cell.styles.fontStyle = "bold";
+      data.cell.styles.textColor = [15, 23, 42];
+    },
+  });
+
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text(
+      `Página ${i} de ${pageCount}`,
+      doc.internal.pageSize.width - 14,
+      doc.internal.pageSize.height - 8,
+      { align: "right" },
+    );
+  }
+
+  const safeTitle = String(title || "Gestion_Conciertos").replace(
+    /[^a-z0-9]/gi,
+    "_",
+  );
+  doc.save(`${safeTitle}_${format(new Date(), "yyyy-MM-dd")}.pdf`);
+};

@@ -35,4 +35,29 @@ Se asume la existencia de la tabla `venue_status_types` y la columna `id_estado_
 - **Tabla de Resultados:**
   - Columnas: Fecha (y hora), Concierto (descripción), Programa (nombre y nomenclador) y un badge con el color del estado de venue (o "Sin estado" en gris).
 
+### Actualización UX (Menú principal de Gestión)
+- **Objetivo UX:** Evitar que la vista de Venues se monte por defecto al entrar a Gestión para reducir consultas innecesarias y permitir escalar a múltiples informes.
+- **Comportamiento nuevo en `ManagementView`:**
+  - La pantalla inicial ahora es un **menú visual** con tarjetas grandes (estilo panel lateral de viáticos).
+  - Cada tarjeta representa un informe/sección habilitada por `managementSections`.
+  - Los módulos (Venues, Seating, Instrumentación, Convocatorias, Conciertos) se renderizan **bajo demanda** al seleccionar una tarjeta.
+  - Al abrir un informe, se muestra botón **"Menú de informes"** para volver a la portada principal.
+- **Checklist de implementación:**
+  - [x] Definir estado inicial en portada (`home`) en lugar de `venues`.
+  - [x] Incorporar cards visuales para selección de informe.
+  - [x] Mantener navegación rápida entre informes y retorno al menú.
+  - [x] Evitar carga automática del módulo de Venues al ingresar a Gestión.
+
+### Refactor de mantenibilidad (deuda técnica)
+- Se extrajo el bloque visual de tarjetas a un componente reutilizable:
+  - `src/views/Management/ManagementSectionCard.jsx`
+- `ManagementView` ahora delega el render de cada opción al componente anterior, evitando duplicación de JSX y facilitando:
+  - incorporación de nuevas secciones,
+  - ajustes de estilo centralizados,
+  - testeo/iteración aislada del patrón de tarjeta.
+- Checklist:
+  - [x] Extraer tarjeta a componente dedicado.
+  - [x] Integrar componente en el map de secciones habilitadas.
+  - [x] Mantener comportamiento visual y navegación sin cambios funcionales.
+
 

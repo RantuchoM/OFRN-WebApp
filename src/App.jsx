@@ -765,7 +765,18 @@ const ProtectedApp = ({ initialTab }) => {
       case "DATA":
         return <DataView {...commonProps} />;
       case "MANAGEMENT":
-        return <ManagementView {...commonProps} />;
+        return (
+          <ManagementView
+            {...commonProps}
+            managementSections={[
+              "venues",
+              "seating",
+              "instrumentation",
+              "convocatorias",
+              "conciertos",
+            ]}
+          />
+        );
       case "MUSIC_TRANSLATION":
         if (!canAccessMusicTranslation(user?.id)) {
           return (
