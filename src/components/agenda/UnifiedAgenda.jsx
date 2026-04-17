@@ -1576,27 +1576,27 @@ export default function UnifiedAgenda({
                             </label>
                           </div>
                         )}
-                        {isAdmin && (
-                          <div className="p-2 border-t border-slate-100 bg-rose-50/60">
-                            <label className="flex items-center gap-2 cursor-pointer p-2">
-                              <input
-                                type="checkbox"
-                                className="accent-rose-600 w-4 h-4"
-                                checked={hideDeletedEvents}
-                                onChange={(e) =>
-                                  setHideDeletedEvents(e.target.checked)
-                                }
-                              />
-                              <div className="flex flex-col">
-                                <span className="text-xs font-bold text-rose-900">
-                                  Ocultar eliminados
-                                </span>
-                                <span className="text-[10px] text-rose-700">
-                                  Oculta todos los eventos eliminados, incluso
-                                  los recientes.
-                                </span>
-                              </div>
-                            </label>
+                        <div className="p-2 border-t border-slate-100 bg-rose-50/60">
+                          <label className="flex items-center gap-2 cursor-pointer p-2">
+                            <input
+                              type="checkbox"
+                              className="accent-rose-600 w-4 h-4"
+                              checked={hideDeletedEvents}
+                              onChange={(e) =>
+                                setHideDeletedEvents(e.target.checked)
+                              }
+                            />
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-rose-900">
+                                Ocultar eliminados
+                              </span>
+                              <span className="text-[10px] text-rose-700">
+                                Oculta todos los eventos eliminados, incluso
+                                los recientes.
+                              </span>
+                            </div>
+                          </label>
+                          {isAdmin && (
                             <label className="flex items-center gap-2 cursor-pointer p-2">
                               <input
                                 type="checkbox"
@@ -1616,8 +1616,8 @@ export default function UnifiedAgenda({
                                 </span>
                               </div>
                             </label>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
