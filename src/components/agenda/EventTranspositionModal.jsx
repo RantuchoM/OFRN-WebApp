@@ -335,6 +335,61 @@ export default function EventTranspositionModal({
     }
   };
 
+  const selectedImportEvents = useMemo(
+    () => filteredOriginEvents.filter((evt) => selectedEventIds.has(evt.id)),
+    [filteredOriginEvents, selectedEventIds],
+  );
+
+  const importedTypeIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          selectedImportEvents
+            .map((evt) => evt.id_tipo_evento)
+            .filter((id) => id != null),
+        ),
+      ),
+    [selectedImportEvents],
+  );
+
+  const importedTypeIdSet = useMemo(
+    () => new Set(importedTypeIds),
+    [importedTypeIds],
+  );
+
+  const eventsToHardDelete = useMemo(() => {
+    if (!removeSimilarEvents || importedTypeIds.length === 0) return [];
+    return (currentEvents || []).filter(
+      (evt) =>
+        evt &&
+        !evt.isProgramMarker &&
+        evt.id_tipo_evento != null &&
+        importedTypeIdSet.has(evt.id_tipo_evento),
+    );
+  }, [removeSimilarEvents, importedTypeIds.length, importedTypeIdSet, currentEvents]);
+
+  const eventsToHardDeleteByType = useMemo(() => {
+    const map = new Map();
+    eventsToHardDelete.forEach((evt) => {
+      const key = evt.id_tipo_evento ?? "sin-tipo";
+      const existing = map.get(key) || {
+        id: evt.id_tipo_evento,
+        nombre: evt.tipos_evento?.nombre || `Tipo ${evt.id_tipo_evento}`,
+        count: 0,
+      };
+      existing.count += 1;
+      map.set(key, existing);
+    });
+    return Array.from(map.values()).sort((a, b) =>
+      (a.nombre || "").localeCompare(b.nombre || "", "es"),
+    );
+  }, [eventsToHardDelete]);
+
+  const eventsToHardDeleteIdSet = useMemo(
+    () => new Set(eventsToHardDelete.map((evt) => evt.id)),
+    [eventsToHardDelete],
+  );
+
   const mixedTimeline = useMemo(() => {
     const existing = (currentEvents || [])
       .filter((e) => e && e.fecha && !e.isProgramMarker)
@@ -414,61 +469,6 @@ export default function EventTranspositionModal({
     });
     return set;
   }, [currentEvents]);
-
-  const selectedImportEvents = useMemo(
-    () => filteredOriginEvents.filter((evt) => selectedEventIds.has(evt.id)),
-    [filteredOriginEvents, selectedEventIds],
-  );
-
-  const importedTypeIds = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          selectedImportEvents
-            .map((evt) => evt.id_tipo_evento)
-            .filter((id) => id != null),
-        ),
-      ),
-    [selectedImportEvents],
-  );
-
-  const importedTypeIdSet = useMemo(
-    () => new Set(importedTypeIds),
-    [importedTypeIds],
-  );
-
-  const eventsToHardDelete = useMemo(() => {
-    if (!removeSimilarEvents || importedTypeIds.length === 0) return [];
-    return (currentEvents || []).filter(
-      (evt) =>
-        evt &&
-        !evt.isProgramMarker &&
-        evt.id_tipo_evento != null &&
-        importedTypeIdSet.has(evt.id_tipo_evento),
-    );
-  }, [removeSimilarEvents, importedTypeIds.length, importedTypeIdSet, currentEvents]);
-
-  const eventsToHardDeleteByType = useMemo(() => {
-    const map = new Map();
-    eventsToHardDelete.forEach((evt) => {
-      const key = evt.id_tipo_evento ?? "sin-tipo";
-      const existing = map.get(key) || {
-        id: evt.id_tipo_evento,
-        nombre: evt.tipos_evento?.nombre || `Tipo ${evt.id_tipo_evento}`,
-        count: 0,
-      };
-      existing.count += 1;
-      map.set(key, existing);
-    });
-    return Array.from(map.values()).sort((a, b) =>
-      (a.nombre || "").localeCompare(b.nombre || "", "es"),
-    );
-  }, [eventsToHardDelete]);
-
-  const eventsToHardDeleteIdSet = useMemo(
-    () => new Set(eventsToHardDelete.map((evt) => evt.id)),
-    [eventsToHardDelete],
-  );
 
   const countSelected = useMemo(
     () => selectedEventIds.size,
