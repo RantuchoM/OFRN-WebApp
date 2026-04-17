@@ -1,6 +1,39 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { integranteKey } from "../utils/integranteIds";
 
+const normalizeText = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+const inferDefaultTourRole = (member) => {
+  const family = normalizeText(member?.instrumentos?.familia);
+  const instrument = normalizeText(member?.instrumentos?.instrumento);
+  const cargo = normalizeText(member?.cargo);
+  const haystack = `${family} ${instrument} ${cargo}`;
+
+  if (
+    /\b(chofer|conductor)\b/.test(haystack) ||
+    family === "chofer" ||
+    instrument === "chofer"
+  ) {
+    return "chofer";
+  }
+
+  if (
+    family.includes("prod") ||
+    /(produccion|administracion|administrativo|admin|iluminacion|escenario|tecnico|tecnica|sonido|backline|roadie|asistente|asistencia|coordinacion|logistica)/.test(
+      haystack,
+    )
+  ) {
+    return "produccion";
+  }
+
+  return "musico";
+};
+
 /**
  * Obtiene el roster completo de una gira (fuentes + overrides + lógica de negocio).
  * Reutilizable desde el hook useGiraRoster y desde handleDeleteGira (notificación de baja).
@@ -126,7 +159,7 @@ export async function fetchRosterForGira(supabase, gira) {
 
     let keep = false;
     let estadoReal = "confirmado";
-    let rolReal = "musico";
+    let rolReal = inferDefaultTourRole(m);
     let esAdicional = false;
 
     let isBaseValid = false;
@@ -135,8 +168,6 @@ export async function fetchRosterForGira(supabase, gira) {
       const baja = m.fecha_baja ? new Date(m.fecha_baja) : null;
       if ((!alta || alta <= giraFin) && (!baja || baja >= giraInicio)) isBaseValid = true;
     }
-    if (m.instrumentos?.familia?.includes("Prod")) rolReal = "produccion";
-
     // Convocatoria explícita en giras_integrantes debe verse siempre; si no, EXCL_ENSAMBLE
     // ocultaba filas aunque el INSERT ya hubiera creado el vínculo (409 "duplicado").
     if (isManual) {

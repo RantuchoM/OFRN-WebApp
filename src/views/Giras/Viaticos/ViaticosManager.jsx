@@ -1099,6 +1099,12 @@ export default function ViaticosManager({ supabase, giraId }) {
       .filter((r) => selection.has(r.id_integrante))
       .map((row) => {
         const person = row.integrantes || {};
+        const logData =
+          logisticsMap?.[String(row.id_integrante)] ||
+          logisticsMap?.[row.id_integrante] ||
+          {};
+        const patenteOficialFromRow = String(row.patente_oficial || "").trim();
+        const patenteOficialFromLogistics = String(logData?.patente || "").trim();
         const effectiveSubtotal = getAnticipoSubtotalForExport(row, useHistoricalCalc);
         const totalFinalNorm = effectiveSubtotal + sumGastosViaticoRow(row);
         return {
@@ -1108,6 +1114,8 @@ export default function ViaticosManager({ supabase, giraId }) {
           ...row,
           subtotal: effectiveSubtotal,
           totalFinal: totalFinalNorm,
+          // En tabla la patente oficial visible viene de logística; si no hubo edición manual en el detalle, usamos ese valor al exportar.
+          patente_oficial: patenteOficialFromRow || patenteOficialFromLogistics,
           documentacion:
             person.documentacion || row.documentacion,
           docred: person.docred || row.docred,
