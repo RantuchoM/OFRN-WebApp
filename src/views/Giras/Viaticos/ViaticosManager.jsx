@@ -987,6 +987,19 @@ export default function ViaticosManager({ supabase, giraId }) {
         const locId = p._massConfigId;
         const massConfig = destaquesConfigs[locId] || {};
         const rich = { ...p };
+        const patenteOficialFromMass = String(
+          massConfig.patente_oficial || "",
+        ).trim();
+        const patenteOficialFromPerson = String(p.patente_oficial || "").trim();
+        const patenteOficialFromTravel = String(
+          p.travelData?.patente || "",
+        ).trim();
+        const patenteParticularFromMass = String(
+          massConfig.patente_particular || "",
+        ).trim();
+        const patenteParticularFromPerson = String(
+          p.patente_particular || "",
+        ).trim();
 
         rich.gasto_alojamiento = massConfig.gasto_alojamiento || 0;
         rich.gasto_combustible = massConfig.gasto_combustible || 0;
@@ -995,6 +1008,18 @@ export default function ViaticosManager({ supabase, giraId }) {
         rich.gastos_movil_otros = massConfig.gastos_movil_otros || 0;
         rich.gastos_capacit = massConfig.gastos_capacit || 0;
         rich.transporte_otros = massConfig.transporte_otros || "";
+        rich.check_patente_oficial =
+          massConfig.check_patente_oficial ?? p.check_patente_oficial ?? false;
+        rich.patente_oficial =
+          patenteOficialFromMass ||
+          patenteOficialFromPerson ||
+          patenteOficialFromTravel;
+        rich.check_patente_particular =
+          massConfig.check_patente_particular ??
+          p.check_patente_particular ??
+          false;
+        rich.patente_particular =
+          patenteParticularFromMass || patenteParticularFromPerson;
 
         rich.rendicion_gasto_alojamiento =
           massConfig.rendicion_gasto_alojamiento || 0;
