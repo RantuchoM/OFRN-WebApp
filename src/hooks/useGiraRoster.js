@@ -22,9 +22,9 @@ const inferDefaultTourRole = (member) => {
     return "chofer";
   }
 
+  // Producción solo para perfiles explícitos de soporte técnico/producción.
   if (
-    family.includes("prod") ||
-    /(produccion|administracion|administrativo|admin|iluminacion|escenario|tecnico|tecnica|sonido|backline|roadie|asistente|asistencia|coordinacion|logistica)/.test(
+    /\b(produccion|staff|iluminacion|fotografia|fotografo|foto|escenario|tecnico|tecnica|sonido|backline|roadie|asistente|asistencia|coordinacion|logistica|stage|montaje|audiovisual|prensa)\b/.test(
       haystack,
     )
   ) {
