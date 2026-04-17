@@ -30,6 +30,10 @@ Permitir a los editores importar cronogramas completos de giras pasadas hacia la
 - **Columna Izquierda (Filtros y Configuración)**  
   - Selector `SearchableSelect` para elegir la **Gira Origen** (programa de `programas` distinto de la gira destino).
   - Input numérico para `deltaDays` (entero, admite positivos y negativos).
+  - Opción `Eliminar todos los eventos similares` (checkbox, activada por defecto):
+    - Identifica los tipos de los eventos efectivamente seleccionados para importar.
+    - Previsualiza cuántos eventos existentes en la gira destino se eliminarán por tipo.
+    - Si está activa, el flujo aplica reemplazo (elimina primero, luego importa).
   - Filtros por tipo de evento (checklist basada en `tipos_evento` de los eventos origen).
 - **Columna Derecha (Vista previa)**  
   - Contenedor con scroll que reutiliza la estética de `UnifiedAgenda`:
@@ -56,6 +60,7 @@ Permitir a los editores importar cronogramas completos de giras pasadas hacia la
 
 ### Persistencia y Guardado Masivo
 - La trasposición genera **nuevos registros** en la tabla de eventos (agenda) asociados a la gira destino.
+- Cuando la opción de reemplazo está activa, los eventos existentes de tipos equivalentes en destino se eliminan de forma **física** (hard delete), sin usar soft delete.
 - **Reglas de inserción**:
   - Solo se insertan los eventos cuyo checkbox permanezca seleccionado.
   - Cada evento insertado debe tener:

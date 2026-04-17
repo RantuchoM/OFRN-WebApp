@@ -75,6 +75,20 @@ import EventTranspositionModal from "./EventTranspositionModal";
 
 /** tipos_evento.id: Traslado interno — "mi transporte" para todo integrante activo (sin reglas de asignación). */
 const ID_TIPO_TRASLADO_INTERNO = 35;
+const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
+
+function getInitialDeletedFilterState(storageKey, key, defaultValue = false) {
+  try {
+    const saved = localStorage.getItem(storageKey);
+    if (!saved) return defaultValue;
+    const parsed = JSON.parse(saved);
+    return parsed?.[key] ?? defaultValue;
+  } catch (error) {
+    console.error("Error reading deleted filters", error);
+    return defaultValue;
+  }
+}
+
 const TRANSPORT_ICON_MAP = {
   IconBus,
   IconBusGrande,
@@ -226,7 +240,21 @@ export default function UnifiedAgenda({
 
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
-  const [showDeletedEvents, setShowDeletedEvents] = useState(false);
+  const deletedFiltersStorageKey = `${DELETED_FILTERS_STORAGE_KEY_PREFIX}${effectiveUserId}`;
+  const [showDeletedEvents, setShowDeletedEvents] = useState(() =>
+    getInitialDeletedFilterState(
+      deletedFiltersStorageKey,
+      "showDeletedEvents",
+      false,
+    ),
+  );
+  const [hideDeletedEvents, setHideDeletedEvents] = useState(() =>
+    getInitialDeletedFilterState(
+      deletedFiltersStorageKey,
+      "hideDeletedEvents",
+      false,
+    ),
+  );
 
   const {
     selectedCategoryIds,
@@ -333,6 +361,37 @@ export default function UnifiedAgenda({
     if (!isAdmin) return;
     fetchAgenda();
   }, [isAdmin, showDeletedEvents, fetchAgenda]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        deletedFiltersStorageKey,
+        JSON.stringify({
+          showDeletedEvents,
+          hideDeletedEvents,
+        }),
+      );
+    } catch (error) {
+      console.error("Error saving deleted filters", error);
+    }
+  }, [deletedFiltersStorageKey, showDeletedEvents, hideDeletedEvents]);
+
+  useEffect(() => {
+    setShowDeletedEvents(
+      getInitialDeletedFilterState(
+        deletedFiltersStorageKey,
+        "showDeletedEvents",
+        false,
+      ),
+    );
+    setHideDeletedEvents(
+      getInitialDeletedFilterState(
+        deletedFiltersStorageKey,
+        "hideDeletedEvents",
+        false,
+      ),
+    );
+  }, [deletedFiltersStorageKey]);
 
   const mainProgram = useMemo(
     () => items.find((i) => i.programas)?.programas || null,
@@ -576,6 +635,8 @@ export default function UnifiedAgenda({
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      if (hideDeletedEvents && item.is_deleted === true) return false;
+
       if (item.fecha) {
         if (item.fecha < effectiveDateFromForFilter) return false;
         if (filterDateTo && item.fecha > filterDateTo) return false;
@@ -672,6 +733,7 @@ export default function UnifiedAgenda({
     showNonActiveForFilter,
     showOnlyMyTransport,
     showOnlyMyMeals,
+    hideDeletedEvents,
     myTransportLogistics,
     techFilter,
     isManagement,
@@ -1520,6 +1582,25 @@ export default function UnifiedAgenda({
                               <input
                                 type="checkbox"
                                 className="accent-rose-600 w-4 h-4"
+                                checked={hideDeletedEvents}
+                                onChange={(e) =>
+                                  setHideDeletedEvents(e.target.checked)
+                                }
+                              />
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold text-rose-900">
+                                  Ocultar eliminados
+                                </span>
+                                <span className="text-[10px] text-rose-700">
+                                  Oculta todos los eventos eliminados, incluso
+                                  los recientes.
+                                </span>
+                              </div>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer p-2">
+                              <input
+                                type="checkbox"
+                                className="accent-rose-600 w-4 h-4"
                                 checked={showDeletedEvents}
                                 onChange={(e) =>
                                   setShowDeletedEvents(e.target.checked)
@@ -1527,7 +1608,7 @@ export default function UnifiedAgenda({
                               />
                               <div className="flex flex-col">
                                 <span className="text-xs font-bold text-rose-900">
-                                  Ver eventos eliminados
+                                  Mostrar eliminados antiguos
                                 </span>
                                 <span className="text-[10px] text-rose-700">
                                   Incluye eventos eliminados hace más de

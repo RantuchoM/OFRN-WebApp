@@ -61,6 +61,7 @@ export default function EventTranspositionModal({
 
   const [selectedTypeIds, setSelectedTypeIds] = useState([]);
   const [selectedEventIds, setSelectedEventIds] = useState(() => new Set());
+  const [removeSimilarEvents, setRemoveSimilarEvents] = useState(true);
 
   // Cargar programas candidatos (otras giras)
   useEffect(() => {
@@ -140,6 +141,7 @@ export default function EventTranspositionModal({
       setOriginEvents([]);
       setSelectedEventIds(new Set());
       setSelectedTypeIds([]);
+      setRemoveSimilarEvents(true);
       setDeltaDays(0);
       setHasCustomDelta(false);
     }
@@ -340,6 +342,7 @@ export default function EventTranspositionModal({
         kind: "existing",
         id: `existing-${e.id}`,
         baseId: e.id,
+        willBeRemoved: eventsToHardDeleteIdSet.has(e.id),
         date: e.fecha,
         timeStart: e.hora_inicio || "00:00:00",
         timeEnd: e.hora_fin || null,
@@ -393,7 +396,14 @@ export default function EventTranspositionModal({
     });
 
     return all;
-  }, [currentEvents, filteredOriginEvents, selectedEventIds, deltaDays, originProgram]);
+  }, [
+    currentEvents,
+    filteredOriginEvents,
+    selectedEventIds,
+    deltaDays,
+    originProgram,
+    eventsToHardDeleteIdSet,
+  ]);
 
   const existingKeys = useMemo(() => {
     const set = new Set();
@@ -404,6 +414,61 @@ export default function EventTranspositionModal({
     });
     return set;
   }, [currentEvents]);
+
+  const selectedImportEvents = useMemo(
+    () => filteredOriginEvents.filter((evt) => selectedEventIds.has(evt.id)),
+    [filteredOriginEvents, selectedEventIds],
+  );
+
+  const importedTypeIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          selectedImportEvents
+            .map((evt) => evt.id_tipo_evento)
+            .filter((id) => id != null),
+        ),
+      ),
+    [selectedImportEvents],
+  );
+
+  const importedTypeIdSet = useMemo(
+    () => new Set(importedTypeIds),
+    [importedTypeIds],
+  );
+
+  const eventsToHardDelete = useMemo(() => {
+    if (!removeSimilarEvents || importedTypeIds.length === 0) return [];
+    return (currentEvents || []).filter(
+      (evt) =>
+        evt &&
+        !evt.isProgramMarker &&
+        evt.id_tipo_evento != null &&
+        importedTypeIdSet.has(evt.id_tipo_evento),
+    );
+  }, [removeSimilarEvents, importedTypeIds.length, importedTypeIdSet, currentEvents]);
+
+  const eventsToHardDeleteByType = useMemo(() => {
+    const map = new Map();
+    eventsToHardDelete.forEach((evt) => {
+      const key = evt.id_tipo_evento ?? "sin-tipo";
+      const existing = map.get(key) || {
+        id: evt.id_tipo_evento,
+        nombre: evt.tipos_evento?.nombre || `Tipo ${evt.id_tipo_evento}`,
+        count: 0,
+      };
+      existing.count += 1;
+      map.set(key, existing);
+    });
+    return Array.from(map.values()).sort((a, b) =>
+      (a.nombre || "").localeCompare(b.nombre || "", "es"),
+    );
+  }, [eventsToHardDelete]);
+
+  const eventsToHardDeleteIdSet = useMemo(
+    () => new Set(eventsToHardDelete.map((evt) => evt.id)),
+    [eventsToHardDelete],
+  );
 
   const countSelected = useMemo(
     () => selectedEventIds.size,
@@ -446,8 +511,7 @@ export default function EventTranspositionModal({
 
     const destinationId = giraDestino?.id || giraId;
     const payload = [];
-    filteredOriginEvents.forEach((evt) => {
-      if (!selectedEventIds.has(evt.id)) return;
+    selectedImportEvents.forEach((evt) => {
       const newIso = computeNewDateIso(evt);
       if (!newIso) return;
       payload.push({
@@ -472,9 +536,31 @@ export default function EventTranspositionModal({
 
     try {
       setSaving(true);
+      let deletedCount = 0;
+      if (removeSimilarEvents && eventsToHardDelete.length > 0) {
+        const idsToDelete = eventsToHardDelete
+          .map((evt) => evt.id)
+          .filter((id) => id != null);
+        const chunkSize = 250;
+        for (let i = 0; i < idsToDelete.length; i += chunkSize) {
+          const chunk = idsToDelete.slice(i, i + chunkSize);
+          const { error: deleteError } = await supabase
+            .from("eventos")
+            .delete()
+            .in("id", chunk);
+          if (deleteError) throw deleteError;
+          deletedCount += chunk.length;
+        }
+      }
       const { error } = await supabase.from("eventos").insert(payload);
       if (error) throw error;
-      toast.success(`Se importaron ${payload.length} evento(s) correctamente.`);
+      if (deletedCount > 0) {
+        toast.success(
+          `Se eliminaron ${deletedCount} evento(s) existente(s) y se importaron ${payload.length} evento(s).`,
+        );
+      } else {
+        toast.success(`Se importaron ${payload.length} evento(s) correctamente.`);
+      }
       if (onImported) {
         await onImported();
       }
@@ -594,6 +680,57 @@ export default function EventTranspositionModal({
 
             <div className="space-y-2">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                Reemplazo automático
+              </span>
+              <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-indigo-600"
+                  checked={removeSimilarEvents}
+                  onChange={(e) => setRemoveSimilarEvents(e.target.checked)}
+                />
+                <span className="text-[11px] text-slate-700">
+                  <span className="font-semibold">
+                    Eliminar todos los eventos similares
+                  </span>
+                  <span className="block text-slate-500">
+                    Borra definitivamente los eventos actuales de la gira destino
+                    que tengan los mismos tipos que los eventos seleccionados para
+                    importar.
+                  </span>
+                </span>
+              </label>
+              <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                <p className="text-[11px] text-slate-600">
+                  Se eliminarán:{" "}
+                  <span className="font-semibold text-slate-800">
+                    {removeSimilarEvents ? eventsToHardDelete.length : 0}
+                  </span>{" "}
+                  evento(s).
+                </p>
+                {removeSimilarEvents && eventsToHardDeleteByType.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {eventsToHardDeleteByType.map((row) => (
+                      <span
+                        key={`remove-type-${row.id}`}
+                        className="inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700"
+                      >
+                        {row.nombre}: {row.count}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {removeSimilarEvents && eventsToHardDelete.length === 0 && (
+                  <p className="mt-1 text-[10px] text-slate-500 italic">
+                    No hay eventos existentes para eliminar con los tipos
+                    actualmente seleccionados.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
                 Filtros por tipo de evento
               </span>
               {categoriesTree.length === 0 ? (
@@ -703,8 +840,10 @@ export default function EventTranspositionModal({
                 <IconAlertTriangle size={12} className="mt-0.5 text-amber-500" />
                 <span>
                   Solo se importarán los eventos marcados. Los eventos actuales
-                  de la gira destino se muestran a la derecha como referencia y
-                  no se modifican.
+                  de la gira destino se muestran a la derecha como referencia.
+                  {removeSimilarEvents
+                    ? " Los que tengan tipos similares se eliminarán por reemplazo."
+                    : " No se eliminará ningún evento existente."}
                 </span>
               </p>
             </div>
@@ -733,12 +872,6 @@ export default function EventTranspositionModal({
                 ) : (
                   mixedTimeline.map((row) => {
                     const isExisting = row.kind === "existing";
-                    const key =
-                      isExisting && row.date
-                        ? `${row.date}|${row.timeStart || ""}|${
-                            row.locId || ""
-                          }`
-                        : null;
                     const mayOverlap =
                       !isExisting &&
                       row.newDate &&
@@ -753,7 +886,9 @@ export default function EventTranspositionModal({
                         key={row.id}
                         className={`px-3 py-2 text-xs flex items-start gap-3 ${
                           isExisting
-                            ? "bg-slate-50/60 text-slate-500"
+                            ? row.willBeRemoved
+                              ? "bg-rose-50/70 text-slate-500"
+                              : "bg-slate-50/60 text-slate-500"
                             : "bg-white"
                         }`}
                       >
@@ -798,7 +933,12 @@ export default function EventTranspositionModal({
                                 >
                                   {row.label}
                                 </span>
-                                {row.tipo && (
+                                {isExisting && row.willBeRemoved && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-rose-100 text-rose-700">
+                                    Se elimina
+                                  </span>
+                                )}
+                                {row.tipo && !row.willBeRemoved && (
                                   <span
                                     className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
                                     style={{
@@ -830,8 +970,9 @@ export default function EventTranspositionModal({
                               )}
                               {isExisting && (
                                 <p className="mt-0.5 text-[10px] text-slate-500 italic">
-                                  Evento existente en la gira destino (solo
-                                  lectura).
+                                  {row.willBeRemoved
+                                    ? "Evento existente que será eliminado al importar."
+                                    : "Evento existente en la gira destino (solo lectura)."}
                                 </p>
                               )}
                             </div>
@@ -851,8 +992,9 @@ export default function EventTranspositionModal({
           <div className="text-[11px] text-slate-500 flex items-center gap-2">
             <IconAlertTriangle size={14} className="text-amber-500" />
             <span>
-              Los eventos se crearán como nuevas filas en la agenda de la gira
-              destino, sin modificar los existentes.
+              {removeSimilarEvents
+                ? `Se eliminarán definitivamente ${eventsToHardDelete.length} evento(s) existentes con tipos similares y luego se crearán los nuevos.`
+                : "Los eventos se crearán como nuevas filas en la agenda de la gira destino, sin eliminar los existentes."}
             </span>
           </div>
           <div className="flex items-center justify-end gap-2">
