@@ -42,7 +42,7 @@ const GROUP_DEFS = [
   },
   {
     id: "GRP:NO_LOCALES",
-    label: "No Locales",
+    label: "Solo alojados",
     color: "bg-purple-100 text-purple-700",
     filter: (p) => !p.is_local && p.estado_gira === "confirmado",
   },
@@ -74,7 +74,7 @@ const GROUP_DEFS = [
 
 const getGroupLabelShort = (id, catalogs) => {
   if (id === "GRP:TUTTI") return "Tutti";
-  if (id === "GRP:NO_LOCALES") return "No Locales";
+  if (id === "GRP:NO_LOCALES") return "Solo alojados";
   if (id === "GRP:LOCALES") return "Locales";
   if (id === "GRP:PRODUCCION") return "Prod.";
   if (id === "GRP:SOLISTAS") return "Sol.";
@@ -255,7 +255,7 @@ const MultiGroupSelect = ({
 
   const groups = [
     { id: "GRP:TUTTI", label: "Tutti" },
-    { id: "GRP:NO_LOCALES", label: "No Locales" },
+    { id: "GRP:NO_LOCALES", label: "Solo alojados" },
     { id: "GRP:LOCALES", label: "Locales" },
     { id: "GRP:PRODUCCION", label: "Producción" },
     { id: "GRP:SOLISTAS", label: "Solistas" },
