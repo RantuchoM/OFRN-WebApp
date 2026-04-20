@@ -621,3 +621,137 @@ export const exportConciertosToPDF = (
   );
   doc.save(`${safeTitle}_${format(new Date(), "yyyy-MM-dd")}.pdf`);
 };
+
+/**
+ * Exporta reporte de audiencia filtrada con desglose y total.
+ */
+export const exportAudienceReportToPDF = (
+  rows,
+  {
+    title = "Reporte de Audiencia",
+    subTitle = "",
+  } = {},
+) => {
+  const doc = new jsPDF("l", "mm", "a4");
+  let cursorY = 15;
+
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const totalAudiencia = safeRows.reduce(
+    (acc, row) => acc + (Number(row?.audiencia) || 0),
+    0,
+  );
+
+  const byProgramType = safeRows.reduce((acc, row) => {
+    const key = String(row?.tipo_programa || "Sin tipo");
+    acc[key] = (acc[key] || 0) + (Number(row?.audiencia) || 0);
+    return acc;
+  }, {});
+
+  doc.setFontSize(16);
+  doc.setTextColor(40);
+  doc.text(title, 14, cursorY);
+  cursorY += 6;
+
+  if (subTitle) {
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(subTitle, 14, cursorY);
+    cursorY += 5;
+  }
+
+  const dateStr = format(new Date(), "d 'de' MMMM, yyyy", { locale: es });
+  doc.setFontSize(8);
+  doc.setTextColor(140);
+  doc.text(`Generado el ${dateStr}`, 14, cursorY);
+  cursorY += 4;
+
+  doc.setFontSize(10);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Total audiencia filtrada: ${totalAudiencia}`, 14, cursorY);
+  cursorY += 2;
+
+  autoTable(doc, {
+    startY: cursorY + 2,
+    head: [["Fecha", "Hora", "Programa", "Tipo", "Ensambles", "Locación", "Audiencia"]],
+    body: safeRows.map((row) => [
+      row?.fecha || "-",
+      row?.hora || "-",
+      row?.programa || "-",
+      row?.tipo_programa || "-",
+      Array.isArray(row?.ensamblesNombres) && row.ensamblesNombres.length > 0
+        ? row.ensamblesNombres.join(", ")
+        : "-",
+      row?.locacionLocalidad || "-",
+      String(Number(row?.audiencia) || 0),
+    ]),
+    theme: "grid",
+    styles: {
+      fontSize: 7,
+      cellPadding: 2,
+      valign: "top",
+      overflow: "linebreak",
+      lineColor: [220, 220, 220],
+      lineWidth: 0.1,
+    },
+    headStyles: {
+      fillColor: [30, 41, 59],
+      textColor: 255,
+      fontStyle: "bold",
+      halign: "left",
+    },
+    columnStyles: {
+      0: { cellWidth: 20 },
+      1: { cellWidth: 14 },
+      2: { cellWidth: 62 },
+      3: { cellWidth: 28 },
+      4: { cellWidth: 55 },
+      5: { cellWidth: 60 },
+      6: { cellWidth: 20, halign: "right", fontStyle: "bold" },
+    },
+  });
+
+  const firstTableEndY = doc.lastAutoTable?.finalY || cursorY + 8;
+  const blockStartY = firstTableEndY + 6;
+
+  autoTable(doc, {
+    startY: blockStartY,
+    head: [["Desglose por tipo de programa", "Audiencia"]],
+    body: Object.entries(byProgramType)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value]) => [name, String(value)]),
+    theme: "grid",
+    styles: {
+      fontSize: 8,
+      cellPadding: 2,
+      lineColor: [220, 220, 220],
+      lineWidth: 0.1,
+    },
+    headStyles: {
+      fillColor: [71, 85, 105],
+      textColor: 255,
+      fontStyle: "bold",
+    },
+    columnStyles: {
+      0: { cellWidth: 80 },
+      1: { cellWidth: 25, halign: "right", fontStyle: "bold" },
+    },
+    margin: { left: 14 },
+    tableWidth: "wrap",
+  });
+
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text(
+      `Página ${i} de ${pageCount}`,
+      doc.internal.pageSize.width - 14,
+      doc.internal.pageSize.height - 8,
+      { align: "right" },
+    );
+  }
+
+  const safeTitle = String(title || "Reporte_Audiencia").replace(/[^a-z0-9]/gi, "_");
+  doc.save(`${safeTitle}_${format(new Date(), "yyyy-MM-dd")}.pdf`);
+};

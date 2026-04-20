@@ -774,6 +774,7 @@ const ProtectedApp = ({ initialTab }) => {
               "instrumentation",
               "convocatorias",
               "conciertos",
+              "audiencia",
             ]}
           />
         );

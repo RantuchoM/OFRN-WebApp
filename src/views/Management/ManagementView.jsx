@@ -5,6 +5,7 @@ import {
   IconMusicNote,
   IconGrid,
   IconCalendar,
+  IconUsers,
   IconArrowLeft,
 } from "../../components/ui/Icons";
 import { VenuesManager } from "../../components/management/VenuesManager";
@@ -12,6 +13,7 @@ import SeatingReports from "./SeatingReports";
 import InstrumentationAudit from "./InstrumentationAudit";
 import AsistenciaMatrixReport from "../Giras/AsistenciaMatrixReport";
 import ConciertosView from "../Giras/ConciertosView";
+import AudienceView from "./AudienceView";
 import ManagementSectionCard from "./ManagementSectionCard";
 
 const DEFAULT_SECTIONS = [
@@ -20,6 +22,7 @@ const DEFAULT_SECTIONS = [
   "instrumentation",
   "convocatorias",
   "conciertos",
+  "audiencia",
 ];
 
 const HOME_VIEW = "home";
@@ -30,6 +33,7 @@ const SECTION_ORDER = [
   "instrumentation",
   "convocatorias",
   "conciertos",
+  "audiencia",
 ];
 
 const SECTION_CONFIG = {
@@ -93,6 +97,18 @@ const SECTION_CONFIG = {
       "bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white",
     titleClasses: "text-emerald-900 group-hover:text-emerald-700",
   },
+  audiencia: {
+    title: "Audiencia",
+    subtitle: "Carga y reporte de asistentes por concierto",
+    description:
+      "Registra audiencia por concierto y exporta reportes PDF con desglose y total filtrado.",
+    icon: IconUsers,
+    cardClasses:
+      "border-rose-100 hover:border-rose-300 hover:shadow-md focus-visible:ring-rose-300",
+    iconClasses:
+      "bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white",
+    titleClasses: "text-rose-900 group-hover:text-rose-700",
+  },
 };
 
 export default function ManagementView({ supabase, managementSections = DEFAULT_SECTIONS }) {
@@ -111,7 +127,10 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
     }
   }, [activeTab, enabledSections]);
 
-  const isFullscreenSection = activeTab === "convocatorias" || activeTab === "conciertos";
+  const isFullscreenSection =
+    activeTab === "convocatorias" ||
+    activeTab === "conciertos" ||
+    activeTab === "audiencia";
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -207,6 +226,20 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
                   <span>Conciertos</span>
                 </button>
               )}
+              {enabledSections.has("audiencia") && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("audiencia")}
+                  className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-colors ${
+                    activeTab === "audiencia"
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <IconUsers size={14} />
+                  <span>Audiencia</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -270,6 +303,11 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
         {activeTab === "conciertos" && enabledSections.has("conciertos") && (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <ConciertosView supabase={supabase} />
+          </div>
+        )}
+        {activeTab === "audiencia" && enabledSections.has("audiencia") && (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <AudienceView supabase={supabase} />
           </div>
         )}
       </div>

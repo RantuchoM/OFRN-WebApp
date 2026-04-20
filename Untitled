@@ -1,0 +1,8 @@
+# Borrar node_modules de forma forzada en PowerShell
+Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
+
+# Borrar el archivo de bloqueo
+Remove-Item package-lock.json -ErrorAction SilentlyContinue
+
+# Limpiar cache
+npm cache clean --force
