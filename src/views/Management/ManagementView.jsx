@@ -132,117 +132,161 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
     activeTab === "conciertos" ||
     activeTab === "audiencia";
 
+  const headerSubtitle = isHomeView
+    ? "Selecciona el informe que deseas abrir. Las vistas se cargan bajo demanda."
+    : activeConfig?.subtitle;
+
   return (
     <div className="flex flex-col h-full bg-slate-50">
-      <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-slate-800">
-            Módulo de Gestión
-          </h2>
-          <p className="text-xs text-slate-500">
-            {isHomeView
-              ? "Selecciona el informe que deseas abrir. Las vistas se cargan bajo demanda."
-              : activeConfig?.subtitle}
-          </p>
+      <div className="border-b border-slate-200 bg-white px-4 py-2.5 lg:py-3">
+        {/* Móvil: título corto, descripción a ancho completo, sección en desplegable */}
+        <div className="flex flex-col gap-1.5 lg:hidden">
+          {isHomeView ? (
+            <>
+              <h2 className="text-lg font-bold leading-tight text-slate-800">Gestión</h2>
+              <p className="w-full text-xs leading-snug text-slate-500">{headerSubtitle}</p>
+            </>
+          ) : (
+            <>
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="shrink-0 text-lg font-bold leading-tight text-slate-800">
+                  Gestión
+                </h2>
+                <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab(HOME_VIEW)}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-800"
+                    aria-label="Volver al menú de informes"
+                  >
+                    <IconArrowLeft size={14} aria-hidden />
+                    <span className="max-w-[6.5rem] truncate sm:max-w-none">Menú</span>
+                  </button>
+                  <select
+                    id="management-section-mobile"
+                    value={activeTab}
+                    onChange={(e) => setActiveTab(e.target.value)}
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white py-1.5 pl-2 pr-7 text-xs font-bold text-slate-800 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    aria-label="Elegir sección de Gestión"
+                  >
+                    {availableSections.map((key) => (
+                      <option key={key} value={key}>
+                        {SECTION_CONFIG[key].title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="w-full text-xs leading-snug text-slate-500">{headerSubtitle}</p>
+            </>
+          )}
         </div>
-        {!isHomeView && (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveTab(HOME_VIEW)}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:text-slate-800 hover:border-slate-300"
-            >
-              <IconArrowLeft size={14} />
-              <span>Menú de informes</span>
-            </button>
-            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-bold">
-              {enabledSections.has("venues") && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("venues")}
-                  className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-colors ${
-                    activeTab === "venues"
-                      ? "bg-white text-indigo-700 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  <IconSettingsWheel size={14} />
-                  <span>Espacios</span>
-                </button>
-              )}
-              {enabledSections.has("seating") && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("seating")}
-                  className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-colors ${
-                    activeTab === "seating"
-                      ? "bg-white text-indigo-700 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  <IconHistory size={14} />
-                  <span>Informes Seating</span>
-                </button>
-              )}
-              {enabledSections.has("instrumentation") && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("instrumentation")}
-                  className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-colors ${
-                    activeTab === "instrumentation"
-                      ? "bg-white text-indigo-700 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  <IconMusicNote size={14} />
-                  <span>Instrumentación</span>
-                </button>
-              )}
-              {enabledSections.has("convocatorias") && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("convocatorias")}
-                  className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-colors ${
-                    activeTab === "convocatorias"
-                      ? "bg-white text-indigo-700 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  <IconGrid size={14} />
-                  <span>Convocatorias</span>
-                </button>
-              )}
-              {enabledSections.has("conciertos") && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("conciertos")}
-                  className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-colors ${
-                    activeTab === "conciertos"
-                      ? "bg-white text-indigo-700 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  <IconCalendar size={14} />
-                  <span>Conciertos</span>
-                </button>
-              )}
-              {enabledSections.has("audiencia") && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("audiencia")}
-                  className={`px-3 py-1.5 rounded-md flex items-center gap-1 transition-colors ${
-                    activeTab === "audiencia"
-                      ? "bg-white text-indigo-700 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  <IconUsers size={14} />
-                  <span>Audiencia</span>
-                </button>
-              )}
-            </div>
+
+        {/* Escritorio: encabezado original con pestañas */}
+        <div className="hidden items-center justify-between gap-4 lg:flex">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-slate-800">Módulo de Gestión</h2>
+            <p className="text-xs text-slate-500">{headerSubtitle}</p>
           </div>
-        )}
+          {!isHomeView && (
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveTab(HOME_VIEW)}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-800"
+              >
+                <IconArrowLeft size={14} />
+                <span>Menú de informes</span>
+              </button>
+              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-bold">
+                {enabledSections.has("venues") && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("venues")}
+                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
+                      activeTab === "venues"
+                        ? "bg-white text-indigo-700 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <IconSettingsWheel size={14} />
+                    <span>Espacios</span>
+                  </button>
+                )}
+                {enabledSections.has("seating") && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("seating")}
+                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
+                      activeTab === "seating"
+                        ? "bg-white text-indigo-700 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <IconHistory size={14} />
+                    <span>Informes Seating</span>
+                  </button>
+                )}
+                {enabledSections.has("instrumentation") && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("instrumentation")}
+                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
+                      activeTab === "instrumentation"
+                        ? "bg-white text-indigo-700 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <IconMusicNote size={14} />
+                    <span>Instrumentación</span>
+                  </button>
+                )}
+                {enabledSections.has("convocatorias") && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("convocatorias")}
+                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
+                      activeTab === "convocatorias"
+                        ? "bg-white text-indigo-700 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <IconGrid size={14} />
+                    <span>Convocatorias</span>
+                  </button>
+                )}
+                {enabledSections.has("conciertos") && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("conciertos")}
+                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
+                      activeTab === "conciertos"
+                        ? "bg-white text-indigo-700 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <IconCalendar size={14} />
+                    <span>Conciertos</span>
+                  </button>
+                )}
+                {enabledSections.has("audiencia") && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("audiencia")}
+                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
+                      activeTab === "audiencia"
+                        ? "bg-white text-indigo-700 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <IconUsers size={14} />
+                    <span>Audiencia</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div

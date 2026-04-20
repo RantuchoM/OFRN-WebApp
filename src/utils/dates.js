@@ -1,4 +1,4 @@
-import { format, parseISO } from "date-fns";
+import { format, parseISO, subDays } from "date-fns";
 
 /**
  * Primer lunes estrictamente posterior a una fecha (yyyy-MM-dd).
@@ -43,6 +43,33 @@ export function getCurrentTimeLocal() {
  */
 export function getTodayDateStringLocal() {
   return format(getNowLocal(), "yyyy-MM-dd");
+}
+
+/**
+ * Rango “última semana”: 7 días incluyendo hoy (desde hace 6 días hasta hoy), hora local.
+ */
+export function getLastWeekDateRangeLocal() {
+  const today = getTodayDateStringLocal();
+  const from = format(subDays(parseISO(today), 6), "yyyy-MM-dd");
+  return { dateFrom: from, dateTo: today };
+}
+
+/**
+ * Rango “últimas dos semanas”: 14 días incluyendo hoy (desde hace 13 días hasta hoy), hora local.
+ */
+export function getLastTwoWeeksDateRangeLocal() {
+  const today = getTodayDateStringLocal();
+  const from = format(subDays(parseISO(today), 13), "yyyy-MM-dd");
+  return { dateFrom: from, dateTo: today };
+}
+
+/**
+ * Rango de 15 días incluyendo hoy (desde hace 14 días hasta hoy), hora local.
+ */
+export function getLastFifteenDaysDateRangeLocal() {
+  const today = getTodayDateStringLocal();
+  const from = format(subDays(parseISO(today), 14), "yyyy-MM-dd");
+  return { dateFrom: from, dateTo: today };
 }
 
 /**
