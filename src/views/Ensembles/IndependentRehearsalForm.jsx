@@ -18,6 +18,8 @@ import {
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext"; // Importamos el contexto de autenticación
+import { fetchRosterForGira } from "../../hooks/useGiraRoster";
+import { integranteKey } from "../../utils/integranteIds";
 
 export default function IndependentRehearsalForm({
   supabase,
@@ -85,8 +87,6 @@ export default function IndependentRehearsalForm({
   useEffect(() => {
     const loadData = async () => {
       try {
-        const today = new Date().toISOString().split("T")[0];
-
         const [ensamblesData, locData, membersData] = await Promise.all([
           supabase.from("ensambles").select("id, ensamble").order("ensamble"),
 
@@ -101,85 +101,63 @@ export default function IndependentRehearsalForm({
             .order("apellido"),
         ]);
 
-        // ---- PROGRAMAS RELEVANTES SEGÚN ENSAMBLES BASE DE ESTE FORMULARIO ----
+        // ---- PROGRAMAS RELEVANTES SEGÚN PARTICIPACIÓN REAL DE INTEGRANTES ----
         const baseEnsembleIds = myEnsembles.map((e) => e.id);
 
         if (baseEnsembleIds.length > 0) {
-          // 1) Buscar fuentes de giras por ENSAMBLE/FAMILIA relacionadas con estos ensambles
           const { data: rels } = await supabase
             .from("integrantes_ensambles")
             .select("id_integrante, id_ensamble")
             .in("id_ensamble", baseEnsembleIds);
 
           const activeMemberIds = [
-            ...new Set(rels?.map((r) => r.id_integrante) || []),
+            ...new Set(
+              (rels || [])
+                .map((r) => integranteKey(r.id_integrante))
+                .filter(Boolean),
+            ),
           ];
-
-          const myFamilies = new Set();
-          if (activeMemberIds.length > 0) {
-            const { data: memberInfos } = await supabase
-              .from("integrantes")
-              .select("id, instrumentos(familia)")
-              .in("id", activeMemberIds);
-            (memberInfos || []).forEach((m) => {
-              if (m.instrumentos?.familia) {
-                myFamilies.add(m.instrumentos.familia);
-              }
-            });
-          }
-
-          const { data: sources } = await supabase
-            .from("giras_fuentes")
-            .select("id_gira, tipo, valor_id, valor_texto")
-            .in("tipo", ["ENSAMBLE", "FAMILIA"]);
-
-          const candidateProgramIds = new Set();
-
-          sources?.forEach((s) => {
-            if (
-              s.tipo === "ENSAMBLE" &&
-              baseEnsembleIds.includes(parseInt(s.valor_id, 10))
-            ) {
-              candidateProgramIds.add(s.id_gira);
-            }
-            if (s.tipo === "FAMILIA" && myFamilies.has(s.valor_texto)) {
-              candidateProgramIds.add(s.id_gira);
-            }
-          });
-
-          if (activeMemberIds.length > 0) {
-            const { data: memberPrograms } = await supabase
-              .from("giras_integrantes")
-              .select("id_gira")
-              .in("id_integrante", activeMemberIds);
-            memberPrograms?.forEach((mp) =>
-              candidateProgramIds.add(mp.id_gira),
-            );
-          }
-
-          const allIds = Array.from(candidateProgramIds);
-          let progsData = { data: [] };
-          if (allIds.length > 0) {
-            const { data } = await supabase
+          if (activeMemberIds.length === 0) {
+            setProgramasOptions([]);
+          } else {
+            const activeMemberKeys = new Set(activeMemberIds);
+            const { data: allPrograms } = await supabase
               .from("programas")
               .select(
                 "id, nombre_gira, fecha_desde, fecha_hasta, mes_letra, nomenclador",
               )
-              .in("id", allIds)
-              .gte("fecha_hasta", today)
               .order("fecha_desde", { ascending: true });
-            progsData = { data: data || [] };
-          }
 
-          setProgramasOptions(
-            (progsData.data || []).map((p) => ({
-              id: p.id,
-              label: `${p.mes_letra || "?"} | ${p.nomenclador || ""} - ${p.nombre_gira}`,
-              subLabel: p.fecha_desde
-                ? `Inicio: ${format(new Date(p.fecha_desde), "dd/MM/yyyy")}`
-                : "Sin fecha",
-            })),
-          );
+            const inclusionChecks = await Promise.all(
+              (allPrograms || []).map(async (program) => {
+                try {
+                  const { roster } = await fetchRosterForGira(supabase, program);
+                  const hasSharedMember = roster.some((member) =>
+                    activeMemberKeys.has(integranteKey(member.id)),
+                  );
+                  return hasSharedMember ? program : null;
+                } catch (error) {
+                  console.warn(
+                    "[IndependentRehearsalForm] No se pudo evaluar roster del programa",
+                    program?.id,
+                    error,
+                  );
+                  return null;
+                }
+              }),
+            );
+
+            setProgramasOptions(
+              inclusionChecks.filter(Boolean).map((p) => ({
+                id: p.id,
+                label: `${p.mes_letra || "?"} | ${p.nomenclador || ""} - ${p.nombre_gira}`,
+                fecha_desde: p.fecha_desde || null,
+                subLabel: p.fecha_desde
+                  ? `Inicio: ${format(new Date(p.fecha_desde), "dd/MM/yyyy")}`
+                  : "Sin fecha",
+              })),
+            );
+          }
         } else {
           setProgramasOptions([]);
         }

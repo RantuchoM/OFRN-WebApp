@@ -50,9 +50,10 @@ import RichTextEditor from "../../components/ui/RichTextEditor";
 
 import { format, addMonths, getDay, setDay, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { fetchRosterForGira, useGiraRoster } from "../../hooks/useGiraRoster";
 import GiraCard from "../Giras/GiraCard";
 import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
+import { integranteKey } from "../../utils/integranteIds";
 
 // --- UTILIDADES ---
 /** Fecha "hoy" en zona local como YYYY-MM-DD (evita desfase por UTC). */
@@ -190,7 +191,8 @@ const RehearsalCardItem = ({
     loadingRoster = rosterHook.loading;
     if (!loadingRoster) {
       const myInvolvedMembers = rosterHook.roster.filter(
-        (m) => activeMembersSet.has(m.id) && m.estado_gira !== "ausente",
+        (m) =>
+          activeMembersSet.has(integranteKey(m.id)) && m.estado_gira !== "ausente",
       );
       count = myInvolvedMembers.length;
     }
@@ -406,10 +408,10 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
       <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm animate-pulse h-24"></div>
     );
   const myInvolvedMembers = roster.filter(
-    (m) => activeMembersSet.has(m.id) && m.estado_gira !== "ausente",
+    (m) =>
+      activeMembersSet.has(integranteKey(m.id)) && m.estado_gira !== "ausente",
   );
   const count = myInvolvedMembers.length;
-  if (count === 0 && program.tipo !== "Ensamble") return null;
 
   const isFull =
     activeMembersSet.size > 0 && count >= activeMembersSet.size * 0.9;
@@ -2261,7 +2263,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [allEnsembles, setAllEnsembles] = useState([]);
   const [myEnsembles, setMyEnsembles] = useState([]);
   const [rawRelationships, setRawRelationships] = useState([]);
-  const [memberMetadata, setMemberMetadata] = useState({});
   const [adminFilterIds, setAdminFilterIds] = useState([]);
   const [ensembleTooltipMap, setEnsembleTooltipMap] = useState({});
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
@@ -2699,57 +2700,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
             ...new Set(relData?.map((r) => r.id_integrante) || []),
           ];
           if (uniqueMemberIds.length > 0) {
-            const [memberInfos, otherEnsData] = await Promise.all([
-              supabase
-                .from("integrantes")
-                .select("id, instrumentos(familia)")
-                .in("id", uniqueMemberIds),
-              supabase
-                .from("integrantes_ensambles")
-                .select("id_integrante, id_ensamble")
-                .in("id_integrante", uniqueMemberIds),
-            ]);
-            const metaMap = {};
-            uniqueMemberIds.forEach((id) => {
-              const info = memberInfos.data?.find((m) => m.id === id);
-              const otherEns =
-                otherEnsData.data
-                  ?.filter((oe) => oe.id_integrante === id)
-                  .map((oe) => oe.id_ensamble) || [];
-              metaMap[id] = {
-                family: info?.instrumentos?.familia,
-                allEnsembles: otherEns,
-              };
-            });
-            setMemberMetadata(metaMap);
-
-            // --- PROGRAMAS RELEVANTES PARA EDICIÓN MASIVA (POR MÚSICOS) ---
-            const myEnsembleIds = ensemblesToManage.map((e) => e.id);
-            const myFamilies = new Set();
-            (memberInfos.data || []).forEach((m) => {
-              if (m.instrumentos?.familia) {
-                myFamilies.add(m.instrumentos.familia);
-              }
-            });
-
-            const { data: sources } = await supabase
-              .from("giras_fuentes")
-              .select("id_gira, tipo, valor_id, valor_texto")
-              .in("tipo", ["ENSAMBLE", "FAMILIA"]);
-
+            // --- PROGRAMAS RELEVANTES PARA EDICIÓN MASIVA (POR PARTICIPACIÓN REAL DE MÚSICOS) ---
             const candidateGiraIds = new Set();
-
-            sources?.forEach((s) => {
-              if (
-                s.tipo === "ENSAMBLE" &&
-                myEnsembleIds.includes(parseInt(s.valor_id, 10))
-              ) {
-                candidateGiraIds.add(s.id_gira);
-              }
-              if (s.tipo === "FAMILIA" && myFamilies.has(s.valor_texto)) {
-                candidateGiraIds.add(s.id_gira);
-              }
-            });
 
             if (uniqueMemberIds.length > 0) {
               const { data: memberPrograms } = await supabase
@@ -2769,7 +2721,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   "id, nombre_gira, fecha_desde, fecha_hasta, mes_letra, nomenclador, estado",
                 )
                 .in("id", allIds)
-                .gte("fecha_hasta", today)
                 .order("fecha_desde", { ascending: true });
 
               setProgramasOptions(
@@ -2809,7 +2760,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
     const activeEnsembleIds = new Set(activeEnsembles.map((e) => e.id));
     const memberIds = rawRelationships
       .filter((r) => activeEnsembleIds.has(r.id_ensamble))
-      .map((r) => r.id_integrante);
+      .map((r) => integranteKey(r.id_integrante))
+      .filter(Boolean);
     return new Set(memberIds);
   }, [activeEnsembles, rawRelationships]);
 
@@ -2833,35 +2785,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
       const today = toLocalDateString();
 
-      // PROGRAMAS RELEVANTES SEGÚN MÚSICOS ACTIVOS (ensambles + familias + asignaciones directas)
-      const myEnsembleIds = ensembleIds;
-      const myFamilies = new Set();
-
-      activeMemberIdsArray.forEach((mid) => {
-        const meta = memberMetadata[mid];
-        if (meta?.family) {
-          myFamilies.add(meta.family);
-        }
-      });
-
+      // PROGRAMAS RELEVANTES SEGÚN MÚSICOS ACTIVOS (participación real en giras)
       const candidateProgramIds = new Set();
-
-      const { data: sources } = await supabase
-        .from("giras_fuentes")
-        .select("id_gira, tipo, valor_id, valor_texto")
-        .in("tipo", ["ENSAMBLE", "FAMILIA"]);
-
-      sources?.forEach((s) => {
-        if (
-          s.tipo === "ENSAMBLE" &&
-          myEnsembleIds.includes(parseInt(s.valor_id, 10))
-        ) {
-          candidateProgramIds.add(s.id_gira);
-        }
-        if (s.tipo === "FAMILIA" && myFamilies.has(s.valor_texto)) {
-          candidateProgramIds.add(s.id_gira);
-        }
-      });
 
       if (activeMemberIdsArray.length > 0) {
         const { data: memberPrograms } = await supabase
@@ -3021,61 +2946,39 @@ export default function EnsembleCoordinatorView({ supabase }) {
     queryKey: ["programs", activeEnsembles.map((e) => e.id), dateFilter.start],
     enabled: activeTab === "programas" && activeEnsembles.length > 0,
     queryFn: async () => {
-      // Usamos la fecha de inicio del filtro o hoy como fallback
-      const filterDate =
-        dateFilter.start || toLocalDateString();
+      if (activeMemberIdsArray.length === 0) return [];
+      const activeMemberKeys = new Set(
+        activeMemberIdsArray.map((id) => integranteKey(id)).filter(Boolean),
+      );
 
-      const myEnsembleIds = activeEnsembles.map((e) => e.id);
-      const myFamilies = new Set();
-
-      activeMemberIdsArray.forEach((mid) => {
-        const meta = memberMetadata[mid];
-        if (meta?.family) {
-          myFamilies.add(meta.family);
-        }
-      });
-
-      const { data: sources } = await supabase
-        .from("giras_fuentes")
-        .select("id_gira, tipo, valor_id, valor_texto")
-        .in("tipo", ["ENSAMBLE", "FAMILIA"]);
-
-      const candidateGiraIds = new Set();
-
-      sources?.forEach((s) => {
-        if (
-          s.tipo === "ENSAMBLE" &&
-          myEnsembleIds.includes(parseInt(s.valor_id))
-        ) {
-          candidateGiraIds.add(s.id_gira);
-        }
-        if (s.tipo === "FAMILIA" && myFamilies.has(s.valor_texto)) {
-          candidateGiraIds.add(s.id_gira);
-        }
-      });
-
-      if (activeMemberIdsArray.length > 0) {
-        const { data: memberPrograms } = await supabase
-          .from("giras_integrantes")
-          .select("id_gira")
-          .in("id_integrante", activeMemberIdsArray);
-
-        memberPrograms?.forEach((mp) => candidateGiraIds.add(mp.id_gira));
-      }
-
-      const allIds = Array.from(candidateGiraIds);
-      if (allIds.length === 0) return [];
-
-      const { data: candidates } = await supabase
+      const { data: allPrograms } = await supabase
         .from("programas")
         .select(
           "id, nombre_gira, fecha_desde, fecha_hasta, tipo, zona, mes_letra, nomenclador",
         )
-        .in("id", allIds)
-        .gte("fecha_hasta", filterDate)
         .order("fecha_desde", { ascending: true });
+      if (!allPrograms?.length) return [];
 
-      return candidates || [];
+      const inclusionChecks = await Promise.all(
+        allPrograms.map(async (program) => {
+          try {
+            const { roster } = await fetchRosterForGira(supabase, program);
+            const hasSharedMember = roster.some((member) =>
+              activeMemberKeys.has(integranteKey(member.id)),
+            );
+            return hasSharedMember ? program : null;
+          } catch (error) {
+            console.warn(
+              "[EnsembleCoordinator] No se pudo evaluar roster del programa",
+              program?.id,
+              error,
+            );
+            return null;
+          }
+        }),
+      );
+
+      return inclusionChecks.filter(Boolean);
     },
   });
 
