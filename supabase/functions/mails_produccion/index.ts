@@ -476,6 +476,35 @@
           </html>
         `;
       },
+      // 9. Transporte SCRN: aviso genérico operativo (solicitud/cancelación)
+      scrn_transporte_evento: (_nombre: string, _gira: string, d: any) => {
+        const titulo = d?.titulo || "Aviso Transporte SCRN";
+        const lineas = Array.isArray(d?.lineas) ? d.lineas : [];
+        const detalle = lineas
+          .map((x: any) => String(x || "").trim())
+          .filter(Boolean)
+          .map((x: string) => `<li style="margin: 4px 0;">${x}</li>`)
+          .join("");
+        return `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; font-size: 14px; }
+              .box { border-left: 4px solid #334155; background-color: #f8fafc; padding: 14px; border-radius: 6px; margin: 14px 0; }
+            </style>
+          </head>
+          <body>
+            <p>Hola equipo,</p>
+            <div class="box">
+              <h3 style="margin:0 0 8px 0; color:#111;">${titulo}</h3>
+              ${detalle ? `<ul style="margin:0; padding-left: 18px;">${detalle}</ul>` : ""}
+            </div>
+            <p style="font-size: 12px; color: #666;">Notificación automática Transporte SCRN</p>
+          </body>
+          </html>
+        `;
+      },
     };
 
     // --- HANDLER PRINCIPAL ---
@@ -546,6 +575,8 @@
             else if (v === 'AUSENTE') subject = `Ausencia en gira | ${nombreGira}`;
             else if (v === 'GIRA_ELIMINADA') subject = `Gira cancelada | ${nombreGira}`;
             else subject = `Convocatoria OFRN | ${nombreGira}`;
+          } else if (tid === "scrn_transporte_evento") {
+            subject = detalle?.titulo ? `[SCRN] ${detalle.titulo}` : "Aviso Transporte SCRN";
           }
 
           const transporter = nodemailer.createTransport({

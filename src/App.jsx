@@ -30,6 +30,7 @@ import MealsAttendancePersonal from "./views/Giras/MealsAttendancePersonal";
 import PublicLinkHandler from "./views/Public/PublicLinkHandler";
 import ViaticosManual from "./views/Public/ViaticosManual";
 import RendicionesManual from "./views/Public/RendicionesManual";
+import TransporteSCRNPage from "./views/Public/TransporteSCRN/TransporteSCRNPage";
 import DashboardGeneral from "./views/Dashboard/DashboardGeneral";
 import DifusionGeneral from "./views/Difusion/DifusionGeneral";
 import NewsModal from "./components/news/NewsModal";
@@ -1300,6 +1301,7 @@ export default function App() {
               <Route path="/share/:token" element={<PublicLinkHandler />} />
               <Route path="/viaticos-manual" element={<ViaticosManual />} />
               <Route path="/rendiciones-manual" element={<RendicionesManual />} />
+              <Route path="/transporte-scrn" element={<TransporteSCRNPage />} />
               <Route
                 path="/management/*"
                 element={<AppContent initialTab="management" />}

@@ -856,7 +856,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
 
       <div className="flex-1 overflow-hidden flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm relative">
         {isAdding || editingId ? (
-          <div className="absolute inset-0 z-20 bg-white p-4 overflow-y-auto">
+          <div className="absolute inset-0 z-20 w-full bg-white p-2 sm:p-3 overflow-y-auto overflow-x-hidden">
             <WorkForm supabase={supabase} formData={formData} setFormData={setFormData} onSave={handleSave} onCancel={() => { setIsAdding(false); setEditingId(null); setFormData({}); }} isNew={isAdding} catalogoInstrumentos={catalogoInstrumentos} />
           </div>
         ) : (

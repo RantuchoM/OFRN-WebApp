@@ -1151,9 +1151,9 @@ export default function InstrumentationAudit({ supabase }) {
       </div>
 
       {workFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4">
-          <div className="relative w-full max-w-4xl my-8 bg-white rounded-xl shadow-xl border border-slate-200 flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between shrink-0 px-4 py-3 border-b border-slate-200 bg-slate-50 rounded-t-xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-1.5 sm:p-2">
+          <div className="relative my-4 flex w-full max-w-4xl flex-col rounded-xl border border-slate-200 bg-white shadow-xl sm:my-6 max-h-[92vh]">
+            <div className="flex items-center justify-between shrink-0 px-3 py-2.5 border-b border-slate-200 bg-slate-50 rounded-t-xl">
               <h3 className="text-sm font-bold text-slate-700">
                 {workFormInitialData?.id ? "Editar obra" : "Nueva obra"}
               </h3>
@@ -1166,7 +1166,7 @@ export default function InstrumentationAudit({ supabase }) {
                 <IconX size={20} />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 min-h-0">
+            <div className="flex-1 overflow-y-auto p-2 sm:p-3 min-h-0 w-full">
               <WorkForm
                 key={`workform-audit-${workFormInitialData?.id ?? "new"}`}
                 supabase={supabase}

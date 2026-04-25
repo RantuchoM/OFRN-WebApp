@@ -17,20 +17,29 @@ export default function SearchableSelect({
     const [dropdownStyle, setDropdownStyle] = useState({});
     const [isDropUp, setIsDropUp] = useState(false);
 
-    // Filtrado local
+    const normKey = (t) => String(t || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/\p{M}/gu, "");
+
+    // Filtrado local (búsqueda insensible a mayúsculas/acentos)
     const filteredOptions = useMemo(() => {
-        if (!search) return options.slice(0, 100);
-        const s = search.toLowerCase();
-        return options.filter(o => 
-            o.label.toLowerCase().includes(s) || 
-            (o.subLabel && o.subLabel.toLowerCase().includes(s))
-        ).slice(0, 50);
+        if (!search.trim()) return options.slice(0, 300);
+        const s = normKey(search);
+        return options
+            .filter(
+                (o) =>
+                    normKey(o.label).includes(s) ||
+                    (o.subLabel && normKey(o.subLabel).includes(s))
+            )
+            .slice(0, 80);
     }, [options, search]);
 
-    // Calcular etiqueta seleccionada (Single)
+    // Calcular etiqueta seleccionada (Single); trim para alinear con datos viejos con espacios
     const selectedLabel = useMemo(() => {
         if (isMulti) return "";
-        const found = options.find(o => String(o.id) === String(value));
+        const v = value == null ? "" : String(value).trim();
+        const found = options.find((o) => String(o.id).trim() === v);
         return found ? found.label : "";
     }, [options, value, isMulti]);
 
@@ -53,48 +62,46 @@ export default function SearchableSelect({
 
             setIsDropUp(shouldDropUp);
 
+            // position: fixed → coordenadas en px relativas al viewport.
+            // getBoundingClientRect() ya es viewport; NO sumar scrollX/scrollY.
             const base = {
-                left: rect.left + window.scrollX,
+                left: rect.left,
                 minWidth: dropdownMinWidth,
                 width: Math.max(rect.width, dropdownMinWidth),
                 zIndex: 99999,
             };
 
             if (shouldDropUp) {
+                // Borde inferior del listado, 5px arriba del input (rect.top)
                 setDropdownStyle({
                     ...base,
-                    top: 'auto',
-                    // Usamos bottom relativo al viewport para crecer hacia arriba
-                    bottom:
-                        window.innerHeight -
-                        rect.top -
-                        window.scrollY +
-                        5,
+                    top: "auto",
+                    bottom: window.innerHeight - rect.top + 5,
                 });
             } else {
                 setDropdownStyle({
                     ...base,
-                    top: rect.bottom + window.scrollY + 5,
-                    bottom: 'auto',
+                    top: rect.bottom + 5,
+                    bottom: "auto",
                 });
             }
         };
 
         if (isOpen) {
             updatePosition();
-            window.addEventListener('resize', updatePosition);
+            window.addEventListener("resize", updatePosition);
             const handleScroll = (e) => {
                 const target = e.target;
                 const insideTrigger = containerRef.current?.contains(target);
-                const insideDropdown = target?.closest?.('.searchable-portal');
+                const insideDropdown = target?.closest?.(".searchable-portal");
                 if (!insideTrigger && !insideDropdown) {
                     setIsOpen(false);
                 }
             };
-            window.addEventListener('scroll', handleScroll, true);
+            window.addEventListener("scroll", handleScroll, true);
             return () => {
-                window.removeEventListener('resize', updatePosition);
-                window.removeEventListener('scroll', handleScroll, true);
+                window.removeEventListener("resize", updatePosition);
+                window.removeEventListener("scroll", handleScroll, true);
             };
         }
     }, [isOpen, dropdownMinWidth]);
@@ -132,9 +139,18 @@ export default function SearchableSelect({
 
     return (
         <div className={`relative w-full ${className}`} ref={containerRef}>
-            <div 
-                onClick={() => setIsOpen(true)}
-                className={`min-h-[32px] flex items-center px-2 border rounded text-xs cursor-text bg-white ${isOpen ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-300'}`}
+            <div
+                onClick={() => {
+                    setSearch("");
+                    setIsOpen(true);
+                }}
+                className={`${
+                    isMulti
+                        ? "min-h-10 py-1.5 px-2"
+                        : "h-10 box-border px-3"
+                } flex items-center border rounded-lg text-sm cursor-text bg-white ${
+                    isOpen ? "border-indigo-500 ring-1 ring-indigo-500" : "border-slate-300"
+                }`}
             >
                 {isMulti ? (
                     <div className="flex flex-wrap gap-1 py-1">
@@ -163,12 +179,18 @@ export default function SearchableSelect({
                     <div className="p-2 border-b border-slate-100 bg-slate-50">
                         <div className="relative">
                             <IconSearch size={14} className="absolute left-2 top-2 text-slate-400"/>
-                            <input 
-                                type="text" 
-                                className="w-full pl-7 pr-2 py-1.5 text-xs border rounded outline-none focus:border-indigo-500" 
-                                placeholder="Escribí para filtrar..." 
-                                value={search} 
-                                onChange={e => setSearch(e.target.value)} 
+                            <input
+                                type="text"
+                                className="w-full pl-7 pr-2 py-1.5 text-xs border rounded outline-none focus:border-indigo-500"
+                                placeholder="Escribí para filtrar…"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Escape") {
+                                        setIsOpen(false);
+                                        setSearch("");
+                                    }
+                                }}
                                 autoFocus
                             />
                         </div>
@@ -176,7 +198,9 @@ export default function SearchableSelect({
                     <div className="overflow-y-auto max-h-60">
                         {filteredOptions.length > 0 ? (
                             filteredOptions.map(opt => {
-                                const isSelected = isMulti ? (value || []).includes(opt.id) : value === opt.id;
+                                const isSelected = isMulti
+                                    ? (value || []).includes(opt.id)
+                                    : String(value == null ? "" : value).trim() === String(opt.id).trim();
                                 const optionStatusClass = opt.optionClassName || "";
                                 const optionLabelClass = opt.labelClassName || "text-slate-700";
                                 const optionSubLabelClass = opt.subLabelClassName || "text-[10px] text-slate-500";

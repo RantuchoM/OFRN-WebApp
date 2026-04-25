@@ -722,6 +722,27 @@ export const IconRefresh = ({ size = 24, className = "" }) => (
     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
   </svg>
 );
+/** Pendientes: flecha circular + tres puntos */
+export const IconPendingCycle = ({ size = 24, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.9"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M20 7.5A8.5 8.5 0 0 0 5.6 4.9" />
+    <path d="M15.9 4.9h4.2v4.2" />
+    <circle cx="9" cy="13.1" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="13.1" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="13.1" r="1.1" fill="currentColor" stroke="none" />
+    <path d="M4.7 16.7A8.5 8.5 0 0 0 19 19.3" />
+  </svg>
+);
 export const IconBookOpen = ({ size = 24, className = "" }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"

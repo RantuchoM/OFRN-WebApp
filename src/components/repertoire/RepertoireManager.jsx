@@ -3412,7 +3412,7 @@ export default function RepertoireManager({
       {/* MODAL EDITAR (WORKFORM) */}
       {isEditWorkModalOpen && isEditor && (
         <ModalPortal>
-          <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+          <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto overflow-x-hidden rounded-xl bg-white p-2 shadow-2xl animate-in zoom-in-95 sm:p-3">
             <WorkForm
               supabase={supabase}
               formData={workFormData}

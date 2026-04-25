@@ -9,6 +9,7 @@ export default function ManagementSectionCard({
   iconClasses,
   titleClasses,
   onClick,
+  badge = null,
 }) {
   return (
     <button
@@ -20,14 +21,29 @@ export default function ManagementSectionCard({
         <div className={`rounded-lg p-3 transition-colors ${iconClasses}`}>
           <Icon size={24} />
         </div>
-        <div className="space-y-1">
-          <h3 className={`text-xl font-bold transition-colors ${titleClasses}`}>
-            {title}
-          </h3>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-            {subtitle}
-          </p>
-          <p className="text-sm leading-snug text-slate-500">{description}</p>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className={`min-w-0 text-xl font-bold transition-colors ${titleClasses}`}>
+              {title}
+            </h3>
+            {badge != null && (
+              <span
+                className={`shrink-0 min-w-7 rounded-full px-1.5 py-0.5 text-center text-xs font-extrabold ${
+                  Number(badge) > 0
+                    ? "border border-amber-600 bg-amber-500 text-white shadow-sm"
+                    : "border border-slate-300 bg-slate-200 text-slate-600"
+                }`}
+              >
+                {badge}
+              </span>
+            )}
+          </div>
+          {subtitle?.trim() ? (
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{subtitle}</p>
+          ) : null}
+          {description?.trim() ? (
+            <p className="text-sm leading-snug text-slate-500">{description}</p>
+          ) : null}
         </div>
       </div>
     </button>

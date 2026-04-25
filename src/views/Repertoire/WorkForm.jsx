@@ -6,7 +6,6 @@ import {
   IconCheck,
   IconX,
   IconLink,
-  IconDrive,
   IconList,
   IconUser,
   IconInfo,
@@ -21,6 +20,8 @@ import {
   IconUserPlus,
   IconCopy,
   IconAlertCircle,
+  IconEdit,
+  IconFolder,
 } from "../../components/ui/Icons";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import { useAuth } from "../../context/AuthContext";
@@ -35,7 +36,7 @@ import DateInput from "../../components/ui/DateInput";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 
 // --- COMPONENTE EDITOR WYSIWYG ---
-const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
+const WysiwygEditor = ({ value, onChange, placeholder, className = "", fillHeight = false }) => {
   const editorRef = useRef(null);
   const [isFocused, setIsFocused] = useState(false);
 
@@ -77,7 +78,7 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
   };
 
   return (
-    <div className={`border rounded-lg overflow-hidden transition-shadow bg-white flex flex-col relative ${isFocused ? "ring-2 ring-indigo-500 border-indigo-500" : "border-slate-300"} ${className}`}>
+    <div className={`border rounded-lg overflow-hidden transition-shadow bg-white/95 flex flex-col relative ${fillHeight ? "h-full min-h-0" : ""} ${isFocused ? "ring-2 ring-indigo-500 border-indigo-500" : "border-slate-300"} ${className}`}>
       <div className="flex items-center gap-1 bg-slate-50 border-b border-slate-200 p-1.5 select-none shrink-0">
         <button type="button" onMouseDown={(e) => { e.preventDefault(); execCmd("bold"); }} className="p-1.5 hover:bg-slate-200 rounded text-slate-600">
           <IconBold size={14} />
@@ -101,7 +102,9 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "" }) => {
         onPaste={handlePaste}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
-        className="flex-1 p-3 text-sm outline-none overflow-y-auto min-h-[80px] max-h-[300px] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline leading-relaxed"
+        className={`flex-1 p-3 text-sm outline-none overflow-y-auto min-h-[80px] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline leading-relaxed ${
+          fillHeight ? "min-h-0 max-h-none" : "max-h-[min(18rem,50vh)]"
+        }`}
       />
       {!value && !isFocused && (
         <div className="absolute top-[46px] left-3 text-slate-400 text-sm pointer-events-none italic">
@@ -239,6 +242,27 @@ const getYoutubeVideoId = (url) => {
   return m ? m[1] : null;
 };
 
+/** Barra superior del formulario, estilo MusicianForm (condición) */
+const getEstadoHeaderClass = (estado) => {
+  const m = {
+    Solicitud: "bg-amber-600",
+    Pendiente: "bg-slate-600",
+    "Para arreglar": "bg-amber-700",
+    Entregado: "bg-sky-600",
+    Informativo: "bg-blue-600",
+    Oficial: "bg-emerald-600",
+  };
+  return m[estado] || "bg-slate-600";
+};
+
+/** Fondo/borde del bloque formulario según estado (p. ej. Oficial) */
+const getEstadoShellClass = (estado) => {
+  if (estado === "Oficial") {
+    return "bg-emerald-50/90 border-emerald-200/80";
+  }
+  return "bg-white border-slate-200";
+};
+
 // --- COMPONENTE PRINCIPAL ---
 export default function WorkForm({
   supabase,
@@ -287,6 +311,7 @@ export default function WorkForm({
   const [instrumentQuery, setInstrumentQuery] = useState("");
   const [showInstrumentOptions, setShowInstrumentOptions] = useState(false);
   const [showDriveMatcher, setShowDriveMatcher] = useState(false);
+  const [showDriveField, setShowDriveField] = useState(false);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [editingLinksId, setEditingLinksId] = useState(null);
   const instrumentInputRef = useRef(null);
@@ -799,7 +824,7 @@ export default function WorkForm({
         : s === "error"
           ? "bg-red-50 border-red-500"
           : "";
-    return ["input", statusClass, baseClass].filter(Boolean).join(" ");
+    return ["input", "min-h-10", statusClass, baseClass].filter(Boolean).join(" ");
   };
 
   const enviarEncargoArreglo = (
@@ -1310,39 +1335,135 @@ export default function WorkForm({
     i.instrumento.toLowerCase().includes(instrumentQuery.toLowerCase()),
   );
 
+  const copyDriveUrl = useCallback(() => {
+    const u = (formData.link_drive || "").trim();
+    if (!u) {
+      toast.error("No hay enlace de Drive");
+      return;
+    }
+    navigator.clipboard.writeText(u).then(
+      () => toast.success("Enlace de Drive copiado"),
+      () => toast.error("No se pudo copiar"),
+    );
+  }, [formData.link_drive]);
+
+  const openDriveInBrowser = useCallback(() => {
+    const u = (formData.link_drive || "").trim();
+    if (!u) {
+      toast.error("No hay enlace de Drive");
+      return;
+    }
+    const url = /^https?:\/\//i.test(u) ? u : `https://${u.replace(/^\/+/, "")}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, [formData.link_drive]);
+
+  const estadoHeaderClass = getEstadoHeaderClass(formData.estado);
+  const estadoShellClass = getEstadoShellClass(formData.estado);
+  const isOficial = formData.estado === "Oficial";
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-20">
-      {/* HEADER */}
-      <div className="flex justify-between items-center border-b pb-4">
-        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-          <IconMusic className="text-indigo-600" />{" "}
-          {formData.id ? "Editar Obra" : "Nueva Solicitud"}
-        </h2>
-        <div className="flex items-center gap-4">
+    <div
+      className={`w-full max-w-full space-y-0 overflow-hidden rounded-2xl border pb-20 ${estadoShellClass}`}
+    >
+      {/* HEADER: título de página + Estado (como MusicianForm) */}
+      <div
+        className={`px-3 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4 text-white border-b border-white/20 ${estadoHeaderClass}`}
+      >
+        <div className="min-w-0 flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-5">
+          <h2 className="text-base sm:text-lg font-black flex items-center gap-2 tracking-tight">
+            <IconMusic className="shrink-0 opacity-90" size={22} />
+            {formData.id ? "Editar Obra" : "Nueva Solicitud"}
+          </h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-white/80">
+              Estado
+            </span>
+            <select
+              className="bg-white/95 text-slate-900 border border-white/50 rounded-lg px-2.5 py-1.5 text-sm sm:text-base font-bold tracking-tight outline-none focus:ring-2 focus:ring-white/50 min-w-[10rem] max-w-full"
+              value={formData.estado ?? ""}
+              onChange={(e) => updateField("estado", e.target.value)}
+            >
+              <option value="Pendiente">Pendiente</option>
+              <option value="Para arreglar">Para arreglar</option>
+              <option value="Entregado">Entregado (Revisión Archivista)</option>
+              <option value="Oficial">Oficial (Disponible)</option>
+              <option value="Solicitud">Solicitud</option>
+              <option value="Informativo">Informativo</option>
+            </select>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 shrink-0 self-end w-full sm:w-auto">
           {saveStatus === "saving" && (
-            <span className="text-xs text-blue-500 animate-pulse flex items-center gap-1">
-              <IconLoader size={12} className="animate-spin" /> Guardando...
+            <span className="text-xs text-white/90 drop-shadow-sm flex items-center gap-1.5">
+              <IconLoader size={12} className="animate-spin" /> Guardando
             </span>
           )}
           {saveStatus === "saved" && (
-            <span className="text-xs text-emerald-500 flex items-center gap-1">
+            <span className="text-xs text-white drop-shadow-sm flex items-center gap-1.5">
               <IconCheck size={12} /> Guardado
             </span>
           )}
           <button
+            type="button"
             onClick={onCancel}
-            className="text-slate-400 hover:text-slate-600"
+            className="bg-white/90 p-1.5 rounded-full text-slate-600 hover:text-red-500 shadow-sm transition-all"
+            aria-label="Cerrar"
           >
-            <IconX size={24} />
+            <IconX size={20} />
           </button>
         </div>
       </div>
 
-      {/* FORMULARIO */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* SECCIÓN COMPOSITORES Y ARREGLADORES CON BOTÓN DE CREACIÓN RÁPIDA (LÍNEA 1) */}
-        <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-9 gap-4 items-end">
-          <div className="md:col-span-4">
+      {formData.estado === "Para arreglar" && (
+        <div className="px-3 sm:px-4 py-2.5 space-y-2 bg-amber-50/90 border-b border-amber-200/80 text-slate-800">
+          <div>
+            <label className="text-[10px] font-bold uppercase text-amber-700 mb-1 block">
+              Arreglador a notificar (integrante, para envío de mail)
+            </label>
+            <SearchableSelect
+              options={
+                integrantesArregladorOptions.some((o) => Number(o.id) === Number(DEFAULT_ARREGLADOR_INTEGRANTE_ID))
+                  ? integrantesArregladorOptions
+                  : [{ id: DEFAULT_ARREGLADOR_INTEGRANTE_ID, label: `Integrante (ID ${DEFAULT_ARREGLADOR_INTEGRANTE_ID})` }, ...integrantesArregladorOptions]
+              }
+              value={formData.id_integrante_arreglador ?? null}
+              onChange={(id) => updateField("id_integrante_arreglador", id)}
+              placeholder="Seleccionar integrante..."
+              isMulti={false}
+              className="text-sm border-amber-200 bg-white"
+            />
+          </div>
+          <DateInput
+            label="Fecha estimada de entrega"
+            value={formData.fecha_esperada || ""}
+            onChange={(v) => updateField("fecha_esperada", v)}
+            className="border border-amber-200 bg-white text-amber-900 rounded-lg text-xs focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
+      )}
+
+      {formData.estado === "Entregado" && (
+        <div className="px-3 sm:px-4 py-2 flex items-center gap-2 bg-sky-50/95 border-b border-sky-200/80 text-sky-800 text-xs">
+          <IconInfo size={14} className="shrink-0" />
+          Se iniciará la copia automática a la carpeta del Archivo.
+        </div>
+      )}
+
+      {formData.estado === "Solicitud" && (
+        <div className="px-3 sm:px-4 py-2.5 border-b border-amber-200/60 bg-amber-50/50">
+          <DateInput
+            label="F. Esperada (dd/mm/aaaa)"
+            value={formData.fecha_esperada || ""}
+            onChange={(v) => updateField("fecha_esperada", v)}
+            className="border border-amber-200 bg-white text-amber-800 rounded-lg text-xs focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
+      )}
+
+      <div className="space-y-4 p-2 sm:p-3">
+        {/* Compositores / Arregladores (ancho = resto de filas) */}
+        <div className="w-full min-w-0 max-w-full grid grid-cols-1 md:grid-cols-9 gap-3 md:gap-4 items-end">
+          <div className="md:col-span-4 min-w-0">
             <label className="text-[10px] font-bold uppercase text-indigo-600 mb-1 flex items-center gap-1">
               <IconUser size={12} /> Compositores
             </label>
@@ -1358,7 +1479,7 @@ export default function WorkForm({
             />
           </div>
 
-          <div className="md:col-span-4">
+          <div className="md:col-span-4 min-w-0">
             <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-1">
               <IconUser size={12} /> Arregladores
             </label>
@@ -1374,14 +1495,14 @@ export default function WorkForm({
             />
           </div>
 
-          <div className="md:col-span-1">
+          <div className="md:col-span-1 shrink-0">
             <button
               type="button"
               onClick={() => {
                 setQuickCompType("compositor"); // Por defecto vincula a compositor, pero el modal lo crea globalmente
                 setIsQuickCompOpen(true);
               }}
-              className="w-full h-[32px] flex items-center justify-center bg-white text-indigo-600 rounded border border-slate-300 hover:border-indigo-500 hover:bg-indigo-50 transition-all shadow-sm"
+              className="w-full h-10 flex items-center justify-center bg-white/90 text-indigo-600 rounded-lg border border-slate-300 hover:border-indigo-500 hover:bg-indigo-50 transition-all shadow-sm"
               title="Crear nuevo Compositor/Arreglador al vuelo"
             >
               <IconUserPlus size={18} />
@@ -1389,9 +1510,10 @@ export default function WorkForm({
           </div>
         </div>
 
-        {/* LÍNEA 2: TÍTULO + ESTADO */}
-        <div className="md:col-span-3">
-          <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+        {/* 2:1:1 = 50% / 25% / 25% — flex+stretch: las tres columnas comparten el mismo alto útil */}
+        <div className="w-full min-w-0 max-w-full flex min-h-0 flex-col gap-3 lg:min-h-0 lg:flex-row lg:items-stretch lg:gap-3">
+          <div className="min-w-0 flex min-h-0 w-full flex-col lg:w-auto lg:min-w-0 lg:basis-0 lg:flex-[2]">
+            <div className="mb-1 flex shrink-0 items-center justify-between gap-2 flex-wrap">
             <label className="text-[10px] font-bold uppercase text-slate-400">
               Título
             </label>
@@ -1410,16 +1532,19 @@ export default function WorkForm({
               ) : null}
               Buscar sugerencias
             </button>
-          </div>
-          <WysiwygEditor
-            value={formData.titulo ?? ""}
-            onChange={(v) => updateField("titulo", v)}
-            placeholder="Ej: Sinfonía n.5"
-            className="min-h-[58px]"
-          />
+            </div>
+            <div className="min-h-0 flex-1 flex flex-col">
+              <WysiwygEditor
+                value={formData.titulo ?? ""}
+                onChange={(v) => updateField("titulo", v)}
+                placeholder="Ej: Sinfonía n.5"
+                fillHeight
+                className="min-h-0"
+              />
+            </div>
 
           {duplicateWorks.length > 0 && (
-            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 text-xs text-amber-900 p-3 flex gap-3">
+            <div className="mt-2 shrink-0 rounded-lg border border-amber-300 bg-amber-50 text-xs text-amber-900 p-3 flex gap-3">
               <div className="shrink-0 mt-0.5">
                 <IconAlertCircle size={16} className="text-amber-500" />
               </div>
@@ -1475,7 +1600,7 @@ export default function WorkForm({
           )}
 
           {suggestedTitleWithMovements && (
-            <div className="mt-2 p-3 bg-sky-50 border border-sky-200 rounded-lg text-sm">
+            <div className="mt-2 shrink-0 p-3 bg-sky-50 border border-sky-200 rounded-lg text-sm">
               <pre className="whitespace-pre-wrap font-sans text-slate-700 mb-2">
                 {suggestedTitleWithMovements}
               </pre>
@@ -1515,264 +1640,219 @@ export default function WorkForm({
               </div>
             </div>
           )}
-        </div>
-
-        <div>
-          <div className="w-full">
-            <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
-              Estado
-            </label>
-            <select
-              className="w-full border p-2 rounded-lg font-bold text-sm h-[58px] bg-white outline-none focus:ring-2 focus:ring-indigo-500"
-              value={formData.estado ?? ""}
-              onChange={(e) => updateField("estado", e.target.value)}
-            >
-              <option value="Pendiente">Pendiente</option>
-              <option value="Para arreglar">Para arreglar</option>
-              <option value="Entregado">Entregado (Revisión Archivista)</option>
-              <option value="Oficial">Oficial (Disponible)</option>
-              <option value="Solicitud">Solicitud</option>
-              <option value="Informativo">Informativo</option>
-            </select>
           </div>
 
-          {formData.estado === "Para arreglar" && (
-            <div className="w-full space-y-2 animate-in slide-in-from-top-2 fade-in mt-2">
-              <div>
-                <label className="text-[10px] font-bold uppercase text-amber-600 mb-1 block">
-                  Arreglador a notificar (integrante, para envío de mail)
-                </label>
-                <SearchableSelect
-                  options={
-                    integrantesArregladorOptions.some((o) => Number(o.id) === Number(DEFAULT_ARREGLADOR_INTEGRANTE_ID))
-                      ? integrantesArregladorOptions
-                      : [{ id: DEFAULT_ARREGLADOR_INTEGRANTE_ID, label: `Integrante (ID ${DEFAULT_ARREGLADOR_INTEGRANTE_ID})` }, ...integrantesArregladorOptions]
-                  }
-                  value={formData.id_integrante_arreglador ?? null}
-                  onChange={(id) => updateField("id_integrante_arreglador", id)}
-                  placeholder="Seleccionar integrante..."
-                  isMulti={false}
-                  className="text-sm border-amber-200 bg-amber-50/50"
-                />
-              </div>
-              <DateInput
-                label="Fecha estimada de entrega"
-                value={formData.fecha_esperada || ""}
-                onChange={(v) => updateField("fecha_esperada", v)}
-                className="border border-amber-200 bg-amber-50/50 text-amber-800 rounded-lg text-xs focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-          )}
-
-          {formData.estado === "Entregado" && (
-            <div className="w-full animate-in slide-in-from-top-2 fade-in mt-2 p-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-800 text-xs">
-              <IconInfo size={14} className="inline mr-1" />
-              Se iniciará la copia automática a la carpeta del Archivo.
-            </div>
-          )}
-
-          {formData.estado === "Solicitud" && (
-            <div className="w-full animate-in slide-in-from-top-2 fade-in mt-2">
-              <DateInput
-                label="F. Esperada (dd/mm/aaaa)"
-                value={formData.fecha_esperada || ""}
-                onChange={(v) => updateField("fecha_esperada", v)}
-                className="border border-amber-200 bg-amber-50 text-amber-800 rounded-lg text-xs focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 md:col-span-2">
-          <div>
-            <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex items-center gap-1">
-              Duración
-              {loadingYouTube && <IconLoader size={12} className="animate-spin text-indigo-500" />}
-            </label>
-            <input
-              type="text"
-              className={getInputClass("duracion", "text-center")}
-              value={formData.duracion ?? ""}
-              onChange={(e) => updateField("duracion", e.target.value)}
-              placeholder="00:00"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex items-center gap-1">
-              Año
-              {loadingYear && <IconLoader size={12} className="animate-spin text-indigo-500" />}
-            </label>
-            <input
-              type="number"
-              className={getInputClass("anio", "text-center")}
-              value={formData.anio ?? ""}
-              onChange={(e) => updateField("anio", e.target.value)}
-              placeholder=""
-            />
-            {suggestedYear != null && (
-              <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-slate-600">Año Sugerido: {suggestedYear}.</span>
-                <button
-                  type="button"
-                  onClick={applyYearSuggestion}
-                  className="text-xs font-medium text-indigo-600 hover:text-indigo-800 underline"
-                >
-                  Cargar
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="md:col-span-2">
-          <label className="text-[11px] font-bold uppercase text-slate-400 mb-1 block">
-            Instrumentación
-          </label>
-          <input
-            type="text"
-            className={getInputClass("instrumentacion", "text-[13px] font-mono bg-slate-50 w-full")}
-            value={formData.instrumentacion ?? ""}
-            onChange={(e) => updateField("instrumentacion", e.target.value)}
-          />
-        </div>
-
-        <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-          <div>
-            <label className="text-[10px] font-bold uppercase text-indigo-600 mb-1 flex items-center gap-1">
-              <IconDrive size={12} /> Carpeta Drive de Material
-            </label>
-            <div className="flex gap-2">
+          <div className="min-w-0 flex w-full min-h-0 flex-col gap-2 lg:w-auto lg:min-w-0 lg:basis-0 lg:flex-1">
+            <div className="shrink-0">
+              <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex items-center gap-1">
+                Duración
+                {loadingYouTube && <IconLoader size={12} className="animate-spin text-indigo-500" />}
+              </label>
               <input
                 type="text"
-                className={getInputClass("link_drive", "text-xs text-blue-600")}
-                value={formData.link_drive ?? ""}
-                onChange={(e) => updateField("link_drive", e.target.value)}
-                placeholder="URL carpeta..."
+                className={getInputClass("duracion", "text-center w-full min-w-0")}
+                value={formData.duracion ?? ""}
+                onChange={(e) => updateField("duracion", e.target.value)}
+                placeholder="00:00"
               />
-              {formData.id && formData.link_drive && (
+            </div>
+            <div className="shrink-0">
+              <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex items-center gap-1">
+                Año
+                {loadingYear && <IconLoader size={12} className="animate-spin text-indigo-500" />}
+              </label>
+              <input
+                type="number"
+                className={getInputClass("anio", "text-center w-full min-w-0")}
+                value={formData.anio ?? ""}
+                onChange={(e) => updateField("anio", e.target.value)}
+                placeholder=""
+              />
+              {suggestedYear != null && (
+                <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-slate-600">Año sugerido: {suggestedYear}.</span>
+                  <button
+                    type="button"
+                    onClick={applyYearSuggestion}
+                    className="text-xs font-medium text-indigo-600 hover:text-indigo-800 underline"
+                  >
+                    Cargar
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col">
+              <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
+                Instrumentación
+              </label>
+              <textarea
+                className={getInputClass("instrumentacion", "block min-h-[5rem] w-full flex-1 resize-none py-2 text-[11px] font-mono leading-snug bg-white/90")}
+                value={formData.instrumentacion ?? ""}
+                onChange={(e) => updateField("instrumentacion", e.target.value)}
+                placeholder="Orgánico…"
+              />
+            </div>
+          </div>
+
+          <div className="min-w-0 flex w-full min-h-0 flex-col gap-2 lg:w-auto lg:min-w-0 lg:basis-0 lg:flex-1">
+            <div className="min-w-0 shrink-0">
+              <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 block">
+                Palabras Clave / Tags
+              </label>
+              <SearchableSelect
+                options={tagsOptions.map((t) => ({ id: t.id, label: t.tag }))}
+                value={selectedTags}
+                isMulti
+                placeholder="Agregar palabras clave..."
+                onChange={(ids) => {
+                  setSelectedTags(ids);
+                  if (formData.id) updateTagRelations(ids);
+                }}
+              />
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col gap-2">
+              <div className="shrink-0">
+                <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-2">
+                <label className="text-[10px] font-bold uppercase text-red-600 flex items-center gap-1 shrink-0">
+                  <IconYoutube size={12} /> Link Audio / Video
+                  {loadingYouTube && <IconLoader size={12} className="animate-spin text-red-500" />}
+                </label>
                 <button
-                  onClick={() => setShowDriveMatcher(true)}
-                  className="bg-blue-600 text-white px-3 rounded shadow hover:bg-blue-700 transition-colors"
+                  type="button"
+                  onClick={searchYoutubeOnDemand}
+                  disabled={loadingYouTube || !stripHtml(formData.titulo) || !selectedComposers?.length}
+                  className="text-[10px] font-medium text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 self-start sm:self-auto"
                 >
-                  <IconLink size={16} />
+                  <IconYoutube size={10} />
+                  Sugerencias
                 </button>
+                </div>
+                <input
+                  type="text"
+                  className={getInputClass("link_youtube", "text-xs w-full min-w-0 block")}
+                  value={formData.link_youtube ?? ""}
+                  onChange={(e) => updateField("link_youtube", e.target.value)}
+                  onFocus={() => youtubeSuggestions.length > 0 && setShowYoutubePopover(true)}
+                  placeholder="Spotify / Youtube…"
+                />
+              </div>
+              {showYoutubePopover && youtubeSuggestions.length > 0 && !formData.link_youtube?.trim() && (
+                <div className="shrink-0 bg-white/95 border border-slate-200 rounded-lg shadow-lg overflow-hidden max-h-56 flex flex-col">
+                  <div className="p-1.5 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500 shrink-0">
+                    Sugerencias
+                  </div>
+                  <ul className="max-h-40 overflow-y-auto min-h-0 text-left">
+                    {youtubeSuggestions.slice(0, 5).map((item) => (
+                      <li key={item.id}>
+                        <button
+                          type="button"
+                          onClick={() => applyYoutubeSuggestion(item)}
+                          className="w-full text-left px-2 py-1.5 text-xs hover:bg-indigo-50 flex items-center gap-2"
+                        >
+                          {(item.thumbnailUrl ?? item.snippet?.thumbnails?.default?.url) ? (
+                            <img
+                              src={item.thumbnailUrl ?? item.snippet?.thumbnails?.default?.url}
+                              alt=""
+                              className="w-10 h-7 object-cover rounded shrink-0"
+                            />
+                          ) : (
+                            <IconYoutube size={14} className="text-red-500 shrink-0" />
+                          )}
+                          <span className="truncate flex-1 min-w-0" title={item.title ?? item.snippet?.title}>
+                            {item.title ?? item.snippet?.title}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => setShowYoutubePopover(false)}
+                    className="w-full py-1 text-[10px] text-slate-500 hover:bg-slate-100 border-t border-slate-100 shrink-0"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              )}
+              {formData.link_youtube?.trim() && getYoutubeVideoId(formData.link_youtube) && (
+                <div className="relative min-h-[10rem] w-full min-w-0 flex-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                  <iframe
+                    title="Vista previa del video"
+                    src={`https://www.youtube.com/embed/${getYoutubeVideoId(formData.link_youtube)}`}
+                    className="absolute inset-0 h-full w-full"
+                    allowFullScreen
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  />
+                </div>
               )}
             </div>
           </div>
-          <div className="relative">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <label className="text-[10px] font-bold uppercase text-red-600 flex items-center gap-1">
-                <IconYoutube size={12} /> Link Audio / Video
-                {loadingYouTube && <IconLoader size={12} className="animate-spin text-red-500" />}
-              </label>
+        </div>
+
+        {/* 1:2:2 = 20% | 40% | 40% — ancho = fila de arriba */}
+        <div className="w-full min-w-0 max-w-full grid grid-cols-1 gap-3 border-t border-slate-200/80 pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,2fr)] lg:items-stretch lg:gap-3 lg:min-h-0">
+          <div className="min-w-0 flex h-full min-h-0 flex-col gap-2">
+            <div className="text-[10px] font-bold uppercase text-indigo-600 tracking-wide">
+              Drive
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
-                onClick={searchYoutubeOnDemand}
-                disabled={loadingYouTube || !stripHtml(formData.titulo) || !selectedComposers?.length}
-                className="text-[10px] font-medium text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                onClick={copyDriveUrl}
+                className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/80"
               >
-                <IconYoutube size={10} />
-                Sugerencias de YouTube
+                <IconCopy size={14} className="text-indigo-600 shrink-0" />
+                Copiar
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDriveField((v) => !v)}
+                className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/80"
+              >
+                <IconEdit size={14} className="text-indigo-600 shrink-0" />
+                Editar
+              </button>
+              <button
+                type="button"
+                onClick={openDriveInBrowser}
+                className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/80"
+              >
+                <IconFolder size={14} className="text-amber-600 shrink-0" />
+                Abrir
+              </button>
+              <button
+                type="button"
+                disabled={!formData.id || !((formData.link_drive || "").trim())}
+                onClick={() => setShowDriveMatcher(true)}
+                className="flex items-center justify-center gap-0.5 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50/80 disabled:cursor-not-allowed disabled:opacity-40"
+                title="Escanear y emparejar particellas (Drive)"
+              >
+                <IconLink size={16} className="text-blue-600" />
               </button>
             </div>
-            <input
-              type="text"
-              className={getInputClass("link_youtube", "text-xs")}
-              value={formData.link_youtube ?? ""}
-              onChange={(e) => updateField("link_youtube", e.target.value)}
-              onFocus={() => youtubeSuggestions.length > 0 && setShowYoutubePopover(true)}
-              placeholder="Spotify / Youtube..."
-            />
-            {showYoutubePopover && youtubeSuggestions.length > 0 && !formData.link_youtube?.trim() && (
-              <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
-                <div className="p-1.5 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500">
-                  Sugerencias (5)
-                </div>
-                <ul className="max-h-64 overflow-y-auto">
-                  {youtubeSuggestions.slice(0, 5).map((item) => (
-                    <li key={item.id}>
-                      <button
-                        type="button"
-                        onClick={() => applyYoutubeSuggestion(item)}
-                        className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 flex items-center gap-2"
-                      >
-                        {(item.thumbnailUrl ?? item.snippet?.thumbnails?.default?.url) ? (
-                          <img
-                            src={item.thumbnailUrl ?? item.snippet?.thumbnails?.default?.url}
-                            alt=""
-                            className="w-12 h-9 object-cover rounded shrink-0"
-                          />
-                        ) : (
-                          <IconYoutube size={14} className="text-red-500 shrink-0" />
-                        )}
-                        <span className="truncate flex-1" title={item.title ?? item.snippet?.title}>
-                          {item.title ?? item.snippet?.title}
-                        </span>
-                        {(item.durationSeconds ?? item.contentDetails?.duration) != null && (
-                          <span className="text-slate-400 shrink-0">
-                            {formatSecondsToTime(
-                              item.durationSeconds ??
-                                parseDurationToSeconds(item.contentDetails?.duration) ?? 0,
-                            )}
-                          </span>
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  type="button"
-                  onClick={() => setShowYoutubePopover(false)}
-                  className="w-full py-1.5 text-[10px] text-slate-500 hover:bg-slate-100 border-t border-slate-100"
-                >
-                  Cerrar
-                </button>
-              </div>
-            )}
-            {formData.link_youtube?.trim() && getYoutubeVideoId(formData.link_youtube) && (
-              <div className="mt-2 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 aspect-video max-w-md">
-                <iframe
-                  title="Vista previa del video"
-                  src={`https://www.youtube.com/embed/${getYoutubeVideoId(formData.link_youtube)}`}
-                  className="w-full h-full"
-                  allowFullScreen
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                />
-              </div>
+            {showDriveField && (
+              <input
+                type="text"
+                className={getInputClass("link_drive", "text-xs w-full min-w-0 text-blue-700")}
+                value={formData.link_drive ?? ""}
+                onChange={(e) => updateField("link_drive", e.target.value)}
+                placeholder="Pegar URL de la carpeta…"
+                autoFocus
+              />
             )}
           </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 block">
-              Palabras Clave / Tags
-            </label>
-            <SearchableSelect
-              options={tagsOptions.map((t) => ({ id: t.id, label: t.tag }))}
-              value={selectedTags}
-              isMulti
-              placeholder="Agregar palabras clave..."
-              onChange={(ids) => {
-                setSelectedTags(ids);
-                if (formData.id) updateTagRelations(ids);
-              }}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* OBSERVACIONES Y COMENTARIOS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
-            <label className="text-[10px] font-bold uppercase text-slate-500 flex items-center gap-1">
-              <IconFileText size={12} /> Observaciones (Públicas)
-            </label>
-            <div className="flex items-center gap-2">
+          <div className="min-w-0 flex h-full min-h-0 flex-col">
+            <div className="mb-1 flex shrink-0 items-center justify-between gap-2 flex-wrap">
+              <label className="text-[10px] font-bold uppercase text-slate-500 flex items-center gap-1">
+                <IconFileText size={12} /> Observaciones (Públicas)
+              </label>
               {stripHtml(formData.titulo) && selectedComposers?.length > 0 && (() => {
                 const titulo = stripHtml(formData.titulo);
                 const opt = composersOptions.find((c) => c.id === selectedComposers[0]);
                 const compositorLabel = opt?.label ?? "";
                 const query = [compositorLabel.replace(/,/g, " ").trim(), titulo].filter(Boolean).join(" ");
                 if (!query) return null;
-                const imslpSearchUrl = `https://www.google.com/search?q=site:imslp.org+${encodeURIComponent(query).replace(/%20/g, '+')}`;
+                const imslpSearchUrl = `https://www.google.com/search?q=site:imslp.org+${encodeURIComponent(query).replace(/%20/g, "+")}`;
                 return (
                   <a
                     href={imslpSearchUrl}
@@ -1782,47 +1862,52 @@ export default function WorkForm({
                     title="Abrir búsqueda en IMSLP (compositor y obra, no consume tokens)"
                   >
                     <IconLink size={10} />
-                    Abrir en IMSLP
+                    IMSLP
                   </a>
                 );
               })()}
             </div>
+            <div className="min-h-0 flex-1 flex flex-col">
+              <WysiwygEditor
+                value={formData.observaciones ?? ""}
+                onChange={(v) => updateField("observaciones", v)}
+                placeholder="Notas sobre ediciones, versiones, etc…"
+                fillHeight
+                className="min-h-[100px] border-slate-200"
+              />
+            </div>
           </div>
-          <WysiwygEditor
-            value={formData.observaciones ?? ""}
-            onChange={(v) => updateField("observaciones", v)}
-            placeholder="Notas sobre ediciones, versiones, etc..."
-            className="min-h-[100px] border-slate-200"
-          />
-        </div>
-        <div>
-          <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex items-center gap-1">
-            <IconMessageSquare size={12} /> Comentarios (Internos)
-          </label>
-          <textarea
-            className="w-full border border-slate-200 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 min-h-[100px] resize-none bg-slate-50"
-            value={formData.comentarios || ""}
-            onChange={(e) => updateField("comentarios", e.target.value)}
-            placeholder="Notas privadas para la gestión..."
-          />
+          <div className="min-w-0 flex h-full min-h-0 flex-col">
+            <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 flex shrink-0 items-center gap-1">
+              <IconMessageSquare size={12} /> Comentarios (Internos)
+            </label>
+            <textarea
+              className="w-full min-h-[6rem] flex-1 resize-y border border-slate-200 rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white/80"
+              value={formData.comentarios || ""}
+              onChange={(e) => updateField("comentarios", e.target.value)}
+              placeholder="Notas privadas para la gestión…"
+            />
+          </div>
         </div>
       </div>
 
+      <div className="w-full min-w-0 max-w-full px-3 sm:px-4 md:px-5">
       {/* ARCOS: workId desde estado o desde prop inicial (p. ej. al abrir modal desde RepertoireManager) */}
       <BowingSetManager
         mode="edit"
         supabase={supabase}
         workId={formData.id ?? initialData?.id}
       />
+      </div>
 
       {/* PARTICELLAS */}
-      <div className="border-t pt-6">
+      <div className="w-full min-w-0 max-w-full border-t border-slate-200/80 pt-6 px-3 sm:px-4 md:px-5">
         <h3 className="text-sm font-bold uppercase text-slate-500 mb-3">
           Gestión de Particellas
         </h3>
 
         {/* BARRA DE CREACIÓN */}
-        <div className="flex gap-2 items-end bg-slate-50 p-3 rounded-xl mb-4 border border-slate-200 shadow-sm">
+        <div className="flex gap-2 items-end bg-white/60 p-3 rounded-xl mb-4 border border-slate-200/80 shadow-sm">
           <div className="flex-1 relative">
             <label className="text-[10px] font-bold uppercase text-slate-400 mb-1 block">
               Instrumento / Grupo
@@ -1881,7 +1966,7 @@ export default function WorkForm({
         </div>
 
         {/* TABLA DE PARTICELLAS */}
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+        <div className="bg-white/90 rounded-lg border border-slate-200/80 overflow-hidden shadow-sm">
           <div className="grid grid-cols-12 gap-2 bg-slate-50 border-b border-slate-200 px-4 py-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
             <div className="col-span-1 text-center">ID</div>
             <div className="col-span-4">Nombre de Particella</div>
@@ -1992,7 +2077,13 @@ export default function WorkForm({
       </div>
 
       {/* FOOTER ACCIONES */}
-      <div className="flex gap-4 pt-6 border-t bg-white sticky bottom-0 z-10 py-4 shadow-[0_-10px_20px_-15px_rgba(0,0,0,0.1)]">
+      <div
+        className={`sticky bottom-0 z-10 flex gap-3 border-t pt-6 px-2 py-3 backdrop-blur-sm shadow-[0_-10px_20px_-12px_rgba(0,0,0,0.06)] sm:gap-4 sm:px-3 sm:py-4 rounded-b-2xl ${
+          isOficial
+            ? "border-emerald-200/80 bg-emerald-50/95"
+            : "border-slate-200/80 bg-white/90"
+        }`}
+      >
         <button
           onClick={onCancel}
           className="flex-1 py-3 border border-slate-200 rounded-xl text-slate-600 font-bold hover:bg-slate-50 transition-colors"
