@@ -712,5 +712,7 @@ export function useMusicianForm(musician, supabase, onSave) {
     handleGenerateDJ,
     handleFullPack,
     handleCreateInitial,
+    setLocationsOptions,
+    supabase,
   };
 }

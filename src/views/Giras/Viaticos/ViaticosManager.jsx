@@ -30,6 +30,7 @@ import ManualTrigger from "../../../components/manual/ManualTrigger";
 import { useViaticosIndividuales } from "../../../hooks/viaticos/useViaticosIndividuales";
 import { useViaticosMasivos } from "../../../hooks/viaticos/useViaticosMasivos";
 import DateInput from "../../../components/ui/DateInput";
+import MusicianForm from "../../Musicians/MusicianForm";
 import { firstMondayAfter } from "../../../utils/dates";
 import {
   getAnticipoSubtotalForExport,
@@ -218,6 +219,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     routeRules,
     transportes,
     loading: rosterLoading,
+    refresh: refreshLogistics,
   } = useLogistics(supabase, giraObj);
 
   const logisticsMap = useMemo(() => {
@@ -298,7 +300,7 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedToAdd, setSelectedToAdd] = useState(null);
 
-  const [showDatos, setShowDatos] = useState(true);
+  const [showDatos, setShowDatos] = useState(false);
   const [showAnticipo, setShowAnticipo] = useState(true);
   const [showTransport, setShowTransport] = useState(false);
   const [showExpenses, setShowExpenses] = useState(true);
@@ -306,6 +308,7 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [useHistoricalCalc, setUseHistoricalCalc] = useState(false);
   const [showIndividualPanel, setShowIndividualPanel] = useState(true);
   const [showMassivePanel, setShowMassivePanel] = useState(true);
+  const [editingMusician, setEditingMusician] = useState(null);
 
   // ESTADOS DE EXPORTACIÓN
   const [confirmPromise, setConfirmPromise] = useState(null);
@@ -314,6 +317,10 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [exportDetail, setExportDetail] = useState(""); // Segunda línea de detalle
   const [showEmailConfirm, setShowEmailConfirm] = useState(false);
   const [notification, setNotification] = useState(null);
+
+  const refreshViaticosData = async () => {
+    await Promise.all([refreshLogistics(), fetchViaticos()]);
+  };
 
   useEffect(() => {
     if (!notification) return;
@@ -1083,13 +1090,24 @@ export default function ViaticosManager({ supabase, giraId }) {
 
         rich.totalFinal = rich.subtotal + totalGastos;
 
-        rich.ciudad_origen = p.localidades?.localidad || "";
+        const ciudadOrigen =
+          p.ciudad_origen ||
+          p._loc_residencia?.localidad ||
+          p.residencia?.localidad ||
+          "";
+        const asientoHabitual =
+          p.asiento_habitual ||
+          p._loc_viaticos?.localidad ||
+          p.viaticos?.localidad ||
+          ciudadOrigen ||
+          "";
+        rich.ciudad_origen = ciudadOrigen;
         const lugarDestaques =
           config.lugar_comision_destaques_exportacion?.trim() ||
           config.lugar_comision ||
           "Comisión Gira";
         rich.lugar_comision = lugarDestaques;
-        rich.asiento_habitual = p.localidades?.localidad || "";
+        rich.asiento_habitual = asientoHabitual;
 
         if (options?.destaque) {
           return zeroDestaqueMonetaryFields(rich);
@@ -1130,6 +1148,17 @@ export default function ViaticosManager({ supabase, giraId }) {
           {};
         const patenteOficialFromRow = String(row.patente_oficial || "").trim();
         const patenteOficialFromLogistics = String(logData?.patente || "").trim();
+        const ciudadOrigen =
+          row.ciudad_origen ||
+          person?._loc_residencia?.localidad ||
+          person?.residencia?.localidad ||
+          "";
+        const asientoHabitual =
+          row.asiento_habitual ||
+          person?._loc_viaticos?.localidad ||
+          person?.viaticos?.localidad ||
+          ciudadOrigen ||
+          "";
         const effectiveSubtotal = getAnticipoSubtotalForExport(row, useHistoricalCalc);
         const totalFinalNorm = effectiveSubtotal + sumGastosViaticoRow(row);
         return {
@@ -1144,6 +1173,8 @@ export default function ViaticosManager({ supabase, giraId }) {
           documentacion:
             person.documentacion || row.documentacion,
           docred: person.docred || row.docred,
+          ciudad_origen: ciudadOrigen,
+          asiento_habitual: asientoHabitual,
         };
       });
 
@@ -1609,6 +1640,15 @@ export default function ViaticosManager({ supabase, giraId }) {
                 logisticsMap={logisticsMap}
                 useHistoricalCalc={useHistoricalCalc}
                 onUseHistoricalCalcChange={setUseHistoricalCalc}
+                onEditMusician={(integranteId) => {
+                  const musician =
+                    roster.find((m) => String(m.id) === String(integranteId)) ||
+                    viaticosRows.find(
+                      (r) => String(r.id_integrante) === String(integranteId),
+                    )?.integrantes ||
+                    { id: integranteId };
+                  setEditingMusician(musician);
+                }}
               />
 
               {selection.size > 0 && (
@@ -1679,6 +1719,17 @@ export default function ViaticosManager({ supabase, giraId }) {
             <span className="font-medium text-sm">{notification}</span>
           </div>
         </div>
+      )}
+      {editingMusician && (
+        <MusicianForm
+          supabase={supabase}
+          musician={editingMusician}
+          onSave={refreshViaticosData}
+          onCancel={async () => {
+            setEditingMusician(null);
+            await refreshViaticosData();
+          }}
+        />
       )}
     </div>
   );

@@ -5,6 +5,7 @@ import {
   IconCheck,
   IconHistory,
   IconRefresh,
+  IconEdit,
 } from "../../../components/ui/Icons";
 import "./ViaticosSheet.css";
 
@@ -255,6 +256,7 @@ export default function ViaticosTable({
   logisticsMap = {},
   useHistoricalCalc = false,
   onUseHistoricalCalcChange,
+  onEditMusician,
 }) {
   const [showBackup, setShowBackup] = useState(false);
   const [useHistoricalLocal, setUseHistoricalLocal] = useState(useHistoricalCalc);
@@ -498,7 +500,7 @@ export default function ViaticosTable({
 
                 {showDatos && (
                   <>
-                    <th className="px-2 py-3 w-32 sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
+                    <th className="px-2 py-3 w-40 min-w-[120px] sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
                       Cargo
                     </th>
                     <th className="px-2 py-3 w-24 sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
@@ -506,6 +508,15 @@ export default function ViaticosTable({
                     </th>
                     <th className="px-2 py-3 min-w-[120px] sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
                       Motivo
+                    </th>
+                    <th className="px-2 py-3 min-w-[140px] sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
+                      Asiento habitual
+                    </th>
+                    <th className="px-2 py-3 min-w-[140px] sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
+                      Ciudad origen
+                    </th>
+                    <th className="px-1 py-3 w-12 text-center sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
+                      Editar
                     </th>
                   </>
                 )}
@@ -682,16 +693,21 @@ export default function ViaticosTable({
                     {/* DATOS (Usando BlurInput interno simple si fuera necesario, pero aquí el principal es CurrencyInput. Para texto simple mantenemos el input normal con onBlur si lo prefieres, o un TextBlurInput) */}
                     {showDatos && (
                       <>
-                        <td className={cellClass}>
+                        <td className={`${cellClass} min-w-[120px]`}>
+                          {(() => {
+                            const defaultCargo = row.cargo || "Agente Externo";
+                            return (
                           <input
                             type="text"
-                            defaultValue={row.cargo || ""}
+                            defaultValue={defaultCargo}
                             onBlur={(e) => {
-                              if (e.target.value !== (row.cargo || ""))
+                              if (e.target.value !== defaultCargo)
                                 onUpdateRow(row.id, "cargo", e.target.value);
                             }}
                             className={`w-full bg-transparent outline-none text-slate-600 border-b border-transparent focus:border-indigo-500 ${getInputClass(row.id, "cargo")}`}
                           />
+                            );
+                          })()}
                         </td>
                         <td className={cellClass}>
                           <input
@@ -734,6 +750,26 @@ export default function ViaticosTable({
                               />
                             </div>
                           </div>
+                        </td>
+                        <td className={`${cellClass} text-xs text-slate-600`}>
+                          <span className="truncate block" title={row.asiento_habitual || ""}>
+                            {row.asiento_habitual || "-"}
+                          </span>
+                        </td>
+                        <td className={`${cellClass} text-xs text-slate-600`}>
+                          <span className="truncate block" title={row.ciudad_origen || ""}>
+                            {row.ciudad_origen || "-"}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 border-b border-slate-100 text-center">
+                          <button
+                            type="button"
+                            title="Editar datos del músico"
+                            onClick={() => onEditMusician?.(row.id_integrante)}
+                            className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1 text-slate-500 hover:border-indigo-300 hover:text-indigo-700"
+                          >
+                            <IconEdit size={14} />
+                          </button>
                         </td>
                       </>
                     )}

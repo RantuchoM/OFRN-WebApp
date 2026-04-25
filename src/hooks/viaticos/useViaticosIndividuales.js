@@ -159,6 +159,13 @@ export function useViaticosIndividuales(
         const gastos = sumGastosViaticoRow(row);
 
         const totalFinal = round2(anticipoParaTotal + gastos);
+        const locViaticos =
+          persona?._loc_viaticos || persona?.viaticos || null;
+        const locOrigen =
+          persona?._loc_residencia || persona?.residencia || null;
+        const ciudadOrigen = locOrigen?.localidad || "";
+        const asientoHabitual =
+          locViaticos?.localidad || ciudadOrigen || "";
 
         return {
           ...rowWithLogistics,
@@ -169,7 +176,8 @@ export function useViaticosIndividuales(
           firma: persona ? persona.firma : null,
           dni: persona ? persona.dni : null,
           legajo: persona ? persona.legajo : "",
-          ciudad_origen: persona?.localidades?.localidad || "",
+          ciudad_origen: ciudadOrigen,
+          asiento_habitual: asientoHabitual,
           mail: persona?.mail || "",
           link_documentacion: joinedPersona?.documentacion || "",
           link_docred: joinedPersona?.docred || "",

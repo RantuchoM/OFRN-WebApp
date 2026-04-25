@@ -121,7 +121,7 @@ const getSpanishMonthLong = (monthIndex) => {
  * Formato: "Ciudad, dd de mes de YYYY". Si no hay fecha válida, usa la fecha de hoy.
  */
 const buildLugarYFecha = (data, giraData, configData) => {
-  const lugar = data.ciudad_origen || "Viedma";
+  const lugar = data.ciudad_origen || "";
   const rawIso =
     configData?.rendicion_fecha || firstMondayAfter(giraData?.fecha_hasta);
   if (rawIso && typeof rawIso === "string") {
@@ -272,12 +272,12 @@ export const exportViaticosToPDFForm = async (
         f("nombre_y_apellido", nombreCompleto);
         f("cargo", data.cargo);
         f("jornada", data.jornada_laboral);
-        f("ciudad_origen", data.ciudad_origen || "Viedma");
+        f("ciudad_origen", data.ciudad_origen || "");
         f("lugar_comision", configData.lugar_comision);
         f("motivo", data.motivo || configData.motivo);
         f(
           "asiento_habitual",
-          data.asiento_habitual || data.ciudad_origen || "Viedma"
+          data.asiento_habitual || data.ciudad_origen || ""
         );
         f("dia_salida", formatDdMmYyyy(data.fecha_salida));
         f("hora_salida", fmtTime(data.hora_salida));
@@ -398,7 +398,7 @@ export const exportViaticosToPDFForm = async (
         f("nombre_y_apellido", nombreCompleto);
         f("cargo", data.cargo);
         f("jornada", data.jornada_laboral);
-        f("ciudad_origen", data.ciudad_origen || "Viedma");
+        f("ciudad_origen", data.ciudad_origen || "");
         const lugarParaDoc =
           mode === "destaque" && configData.lugar_comision_destaques_exportacion
             ? configData.lugar_comision_destaques_exportacion
@@ -412,7 +412,7 @@ export const exportViaticosToPDFForm = async (
         f("motivo", motivoParaDoc || "");
         f(
           "asiento_habitual",
-          data.asiento_habitual || data.ciudad_origen || "Viedma"
+          data.asiento_habitual || data.ciudad_origen || ""
         );
 
         f("dia_salida", formatDdMmYy(data.fecha_salida));

@@ -8,6 +8,7 @@ import SearchableSelect from "../../components/ui/SearchableSelect";
 import DateInput from "../../components/ui/DateInput";
 import WhatsAppLink from "../../components/ui/WhatsAppLink";
 import EnsembleMultiSelect from "../../components/filters/EnsembleMultiSelect";
+import LocalitySelectWithCreate from "../../components/forms/LocalitySelectWithCreate";
 import { useMusicianFormContext } from "./MusicianFormContext";
 
 const DIET_OPTIONS = [
@@ -35,6 +36,8 @@ export default function MusicianPersonalSection() {
     ensemblesOptions,
     selectedEnsembles,
     handleEnsemblesChange,
+    setLocationsOptions,
+    supabase,
   } = useMusicianFormContext();
 
   return (
@@ -334,18 +337,32 @@ export default function MusicianPersonalSection() {
         </div>
         <div className="relative z-50">
           <label className={labelClass}>Residencia</label>
-          <SearchableSelect
+          <LocalitySelectWithCreate
+            supabase={supabase}
             options={locationsOptions}
             value={formData.id_localidad}
             onChange={(val) => updateField("id_localidad", val)}
+            onCreated={(newLoc) => {
+              setLocationsOptions((prev) => {
+                const next = [...(prev || []), { id: newLoc.id, label: newLoc.localidad, value: newLoc.id }];
+                return next.sort((a, b) => String(a.label || "").localeCompare(String(b.label || ""), "es"));
+              });
+            }}
           />
         </div>
         <div className="relative z-40">
           <label className={labelClass}>Viáticos</label>
-          <SearchableSelect
+          <LocalitySelectWithCreate
+            supabase={supabase}
             options={locationsOptions}
             value={formData.id_loc_viaticos}
             onChange={(val) => updateField("id_loc_viaticos", val)}
+            onCreated={(newLoc) => {
+              setLocationsOptions((prev) => {
+                const next = [...(prev || []), { id: newLoc.id, label: newLoc.localidad, value: newLoc.id }];
+                return next.sort((a, b) => String(a.label || "").localeCompare(String(b.label || ""), "es"));
+              });
+            }}
           />
         </div>
       </div>
