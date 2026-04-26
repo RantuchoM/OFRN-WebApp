@@ -26,6 +26,7 @@ import {
   validarYConsumirQr,
 } from "../../../services/entradaService";
 import { downloadEntradasReservaPdfBlob } from "../../../utils/entradasReservaPdf";
+import { decodeQrFromImageFile } from "../../../utils/qrDecodeFromImage";
 
 const ADMIN_TABS = ["programas", "conciertos", "usuarios"];
 
@@ -52,7 +53,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [cancelingReserva, setCancelingReserva] = useState(false);
   const [conciertosConReservaActiva, setConciertosConReservaActiva] = useState([]);
   const [downloadingPdfReservaId, setDownloadingPdfReservaId] = useState(null);
+  const [decodingQrPhoto, setDecodingQrPhoto] = useState(false);
   const scannerRef = useRef(null);
+  const qrPhotoInputRef = useRef(null);
   const [adminData, setAdminData] = useState({ programas: [], conciertos: [], usuarios: [] });
   const [eventosConcierto, setEventosConcierto] = useState([]);
   const [adminTab, setAdminTab] = useState("programas");
@@ -236,6 +239,29 @@ export default function EntradasMain({ user, profile, onLogout }) {
     await scannerRef.current.clear();
     scannerRef.current = null;
     setScannerRunning(false);
+  };
+
+  const handleNativeQrPhoto = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setDecodingQrPhoto(true);
+    try {
+      const text = await decodeQrFromImageFile(file);
+      if (text?.trim()) {
+        setScannerToken(text.trim());
+        toast.success("Código leído de la foto.");
+      } else {
+        toast.error(
+          "No se detectó un QR en la imagen. Más luz, más cerca, o pegá el token abajo.",
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("No se pudo leer la imagen.");
+    } finally {
+      setDecodingQrPhoto(false);
+    }
   };
 
   const submitPrograma = async (event) => {
@@ -496,13 +522,39 @@ export default function EntradasMain({ user, profile, onLogout }) {
         {section === "recepcion" && canRecepcion && (
           <section className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
             <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Escaneo de QR</h2>
-            <p className="text-xs text-slate-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
-              <strong className="text-amber-900">Android:</strong> si aparece &quot;Este sitio no puede solicitarte permiso&quot;, el sistema bloquea el permiso de cámara mientras haya <strong>burbujas o superposiciones</strong> de otras apps (WhatsApp, Messenger, grabadores, filtros de pantalla, etc.). Cerrá esas funciones o la app flotante y tocá &quot;Iniciar cámara&quot; de nuevo. Si sigue fallando, podés pegar el token abajo.
+            <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 leading-relaxed">
+              <strong className="text-slate-800">Recomendado en celular:</strong> usá{" "}
+              <strong>Foto del QR (cámara del sistema)</strong>, el mismo mecanismo que en{" "}
+              <strong>Mi Perfil</strong> al sacar una foto: abre la app de cámara nativa y no usa el permiso
+              &quot;en vivo&quot; del navegador.
             </p>
-            <div id="entrada-qr-reader" className="w-full max-w-sm mx-auto overflow-hidden rounded-xl border border-slate-200" />
+            <p className="text-xs text-slate-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+              <strong className="text-amber-900">Si usás cámara en vivo:</strong> en Android puede fallar con
+              &quot;Este sitio no puede solicitarte permiso&quot; si hay <strong>burbujas o superposiciones</strong> de
+              otras apps. Cerralas o usá la opción de foto de arriba / token manual abajo.
+            </p>
+            <input
+              ref={qrPhotoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleNativeQrPhoto}
+            />
+            <button
+              type="button"
+              onClick={() => qrPhotoInputRef.current?.click()}
+              disabled={decodingQrPhoto}
+              className="w-full rounded-lg border-2 border-indigo-300 bg-indigo-50 py-3 text-sm font-bold text-indigo-950 disabled:opacity-60"
+            >
+              {decodingQrPhoto ? "Leyendo QR de la foto…" : "Foto del QR (cámara del sistema, como Mi Perfil)"}
+            </button>
+            <p className="text-[11px] text-slate-500 text-center">Se abre la cámara del teléfono; sacá la foto al código y se rellena el token automáticamente si se lee bien.</p>
+            <div id="entrada-qr-reader" className="w-full max-w-sm mx-auto overflow-hidden rounded-xl border border-slate-200 min-h-[120px]" />
+            <p className="text-[11px] text-slate-500 text-center">Vista previa solo para escaneo en vivo (abajo)</p>
             <div className="grid grid-cols-2 gap-2">
-              <button className="rounded-lg border border-slate-300 py-2 text-sm font-semibold" onClick={startScanner} disabled={scannerRunning}>Iniciar cámara</button>
-              <button className="rounded-lg border border-slate-300 py-2 text-sm font-semibold" onClick={stopScanner} disabled={!scannerRunning}>Detener</button>
+              <button type="button" className="rounded-lg border border-slate-300 py-2 text-sm font-semibold" onClick={startScanner} disabled={scannerRunning}>Iniciar cámara (en vivo)</button>
+              <button type="button" className="rounded-lg border border-slate-300 py-2 text-sm font-semibold" onClick={stopScanner} disabled={!scannerRunning}>Detener</button>
             </div>
             <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={scannerModo} onChange={(event) => setScannerModo(event.target.value)}>
               <option value="entrada">Modo QR individual</option>

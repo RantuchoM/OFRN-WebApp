@@ -31,6 +31,7 @@
     "html5-qrcode": "^2.3.8",
     "jspdf": "^3.0.4",
     "jspdf-autotable": "^5.0.7",
+    "jsqr": "^1.4.0",
     "konva": "^10.0.12",
     "lucide-react": "^0.294.0",
     "mammoth": "^1.12.0",
