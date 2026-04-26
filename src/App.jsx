@@ -949,23 +949,25 @@ const ProtectedApp = ({ initialTab }) => {
         </nav>
 
         <div className="p-4 border-t border-slate-100 shrink-0 space-y-1">
-          <Link
-            to="/entradas"
-            onClick={() => setIsMobileMenuOpen(false)}
-            className={`
-              w-full flex items-center px-3 py-2.5 rounded-xl transition-all
-              text-slate-600 hover:bg-indigo-50 hover:text-indigo-700
-              ${!isDesktopExpanded ? "justify-center" : "gap-3"}
-            `}
-            title="Entradas"
-          >
-            <IconTag size={20} className="shrink-0" />
-            <span
-              className={`text-sm font-medium whitespace-nowrap ${isDesktopExpanded ? "block" : "hidden"}`}
+          {isAdmin && (
+            <Link
+              to="/entradas"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className={`
+                w-full flex items-center px-3 py-2.5 rounded-xl transition-all
+                text-slate-600 hover:bg-indigo-50 hover:text-indigo-700
+                ${!isDesktopExpanded ? "justify-center" : "gap-3"}
+              `}
+              title="Entradas"
             >
-              Entradas
-            </span>
-          </Link>
+              <IconTag size={20} className="shrink-0" />
+              <span
+                className={`text-sm font-medium whitespace-nowrap ${isDesktopExpanded ? "block" : "hidden"}`}
+              >
+                Entradas
+              </span>
+            </Link>
+          )}
           <button
             type="button"
             onClick={logout}
