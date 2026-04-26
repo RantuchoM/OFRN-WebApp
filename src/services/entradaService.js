@@ -209,19 +209,21 @@ export async function listarMisReservas() {
   return data || [];
 }
 
-export async function previewEntradaQr(token) {
+export async function previewEntradaQr(token, conciertoId = null) {
   const { data, error } = await supabase.rpc("entrada_preview_qr", {
     p_token: token,
+    p_concierto_id: conciertoId == null || conciertoId === "" ? null : Number(conciertoId),
   });
   if (error) throw error;
   return data;
 }
 
-export async function validarYConsumirQr({ token, modo = "auto", confirmarParcial }) {
+export async function validarYConsumirQr({ token, modo = "auto", confirmarParcial, conciertoId = null }) {
   const { data, error } = await supabase.rpc("entrada_validar_y_consumir_qr", {
     p_token: token,
     p_modo: modo,
     p_confirmar_parcial: Boolean(confirmarParcial),
+    p_concierto_id: conciertoId == null || conciertoId === "" ? null : Number(conciertoId),
   });
   if (error) throw error;
   return data;

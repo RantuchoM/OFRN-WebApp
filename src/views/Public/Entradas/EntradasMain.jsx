@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Html5Qrcode } from "html5-qrcode";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
+import { IconCamera } from "../../../components/ui/Icons";
 import RichTextEditor from "../../../components/ui/RichTextEditor";
 import { supabase } from "../../../services/supabase";
 import {
@@ -64,6 +64,25 @@ function entradasBloqueoIngreso(p) {
   return "";
 }
 
+function recepcionPanelClass(p) {
+  if (!p) return "bg-slate-50 border-slate-200";
+  if (!p.ok) {
+    if (p.reason === "concierto_distinto") return "bg-orange-50/95 border-orange-300";
+    return "bg-rose-50/95 border-rose-200";
+  }
+  if (p.tipo === "entrada") {
+    if (p.reserva_estado && p.reserva_estado !== "activa") return "bg-orange-100/95 border-orange-300";
+    if (p.estado_ingreso === "ingresada") return "bg-orange-100/95 border-orange-300";
+    return "bg-emerald-100/95 border-emerald-300";
+  }
+  if (p.tipo === "reserva") {
+    if (p.reserva_estado === "cancelada" || p.pendientes === 0) return "bg-orange-100/95 border-orange-300";
+    if (p.ingresadas > 0 && p.pendientes > 0) return "bg-sky-100/95 border-sky-400";
+    return "bg-emerald-100/95 border-emerald-300";
+  }
+  return "bg-slate-100 border-slate-200";
+}
+
 export default function EntradasMain({ user, profile, onLogout }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -73,7 +92,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [creatingReserva, setCreatingReserva] = useState(false);
   const [reservaResult, setReservaResult] = useState(null);
   const [misReservas, setMisReservas] = useState([]);
-  const [scannerRunning, setScannerRunning] = useState(false);
+  const [recepcionConciertoId, setRecepcionConciertoId] = useState("");
   const [scannerToken, setScannerToken] = useState("");
   const [pendingWarning, setPendingWarning] = useState(null);
   const [qrPreview, setQrPreview] = useState(null);
@@ -84,9 +103,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [conciertosConReservaActiva, setConciertosConReservaActiva] = useState([]);
   const [downloadingPdfReservaId, setDownloadingPdfReservaId] = useState(null);
   const [decodingQrPhoto, setDecodingQrPhoto] = useState(false);
-  const scannerRef = useRef(null);
   const qrPhotoInputRef = useRef(null);
-  const qrGalleryInputRef = useRef(null);
   const [adminData, setAdminData] = useState({ programas: [], conciertos: [], usuarios: [] });
   const [eventosConcierto, setEventosConcierto] = useState([]);
   const [adminTab, setAdminTab] = useState("programas");
@@ -153,8 +170,36 @@ export default function EntradasMain({ user, profile, onLogout }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, conciertoSlug]);
 
+  const concertosFlat = useMemo(
+    () =>
+      programas.flatMap((programa) =>
+        (programa.entrada_concierto || []).map((concierto) => ({
+          ...concierto,
+          programa,
+        })),
+      ),
+    [programas],
+  );
+
+  const inicioDiaHoy = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const conciertosRecepcion = useMemo(() => {
+    return concertosFlat
+      .filter((c) => c.activo && c.fecha_hora && new Date(c.fecha_hora) >= inicioDiaHoy)
+      .sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
+  }, [concertosFlat, inicioDiaHoy]);
+
   useEffect(() => {
     if (section !== "recepcion" || !canRecepcion) {
+      return;
+    }
+    if (!recepcionConciertoId) {
+      setQrPreview(null);
+      setQrPreviewLoading(false);
       return;
     }
     const t = scannerToken.trim();
@@ -166,7 +211,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     let active = true;
     setQrPreviewLoading(true);
     const timer = setTimeout(() => {
-      previewEntradaQr(t)
+      previewEntradaQr(t, recepcionConciertoId)
         .then((p) => {
           if (active) setQrPreview(p);
         })
@@ -188,18 +233,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       clearTimeout(timer);
       setQrPreviewLoading(false);
     };
-  }, [scannerToken, section, canRecepcion]);
-
-  const concertosFlat = useMemo(
-    () =>
-      programas.flatMap((programa) =>
-        (programa.entrada_concierto || []).map((concierto) => ({
-          ...concierto,
-          programa,
-        })),
-      ),
-    [programas],
-  );
+  }, [scannerToken, section, canRecepcion, recepcionConciertoId]);
 
   const tieneReservaEnConcierto = (conciertoId) =>
     conciertosConReservaActiva.includes(Number(conciertoId));
@@ -261,13 +295,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
   };
 
   const consumeToken = async ({ forceParcial = false } = {}) => {
-    if (!scannerToken.trim()) return;
+    if (!scannerToken.trim() || !recepcionConciertoId) {
+      if (!recepcionConciertoId) toast.error("Elegí un concierto en la lista para registrar ingresos.");
+      return;
+    }
     setIngresando(true);
     try {
       const result = await validarYConsumirQr({
         token: scannerToken,
         modo: "auto",
         confirmarParcial: forceParcial,
+        conciertoId: recepcionConciertoId,
       });
       if (result?.warning || result?.reason === "reserva_uso_parcial") {
         setPendingWarning(result);
@@ -285,51 +323,22 @@ export default function EntradasMain({ user, profile, onLogout }) {
     }
   };
 
-  const startScanner = async () => {
-    if (!canRecepcion || scannerRunning) return;
-    try {
-      const html5QrCode = new Html5Qrcode("entrada-qr-reader");
-      scannerRef.current = html5QrCode;
-      await html5QrCode.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 220, height: 220 } },
-        (decodedText) => {
-          setScannerToken(decodedText);
-        },
-        () => {},
-      );
-      setScannerRunning(true);
-    } catch (err) {
-      console.error(err);
-      toast.error(
-        "No se pudo usar la cámara. En Android, desactivá burbujas/superposiciones de otras apps; cerrá lo que use la cámara; aceptá el permiso. Si ves el aviso del sistema sobre permisos, seguí esa indicación. También podés pegar el token manualmente abajo.",
-        { duration: 14000 },
-      );
-    }
-  };
-
-  const stopScanner = async () => {
-    if (!scannerRef.current) return;
-    await scannerRef.current.stop();
-    await scannerRef.current.clear();
-    scannerRef.current = null;
-    setScannerRunning(false);
-  };
-
   const handleNativeQrPhoto = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    if (!recepcionConciertoId) {
+      toast.error("Elegí primero el concierto de este turno.");
+      return;
+    }
     setDecodingQrPhoto(true);
     try {
       const text = await decodeQrFromImageFile(file);
       if (text?.trim()) {
         setScannerToken(text.trim());
-        toast.success("Código leído de la foto.");
+        toast.success("Código leído de la imagen.");
       } else {
-        toast.error(
-          "No se leyó el QR. Encuadralo grande y nítido, buena luz, sin reflejo; o elegí otra foto desde galería. Si sigue fallando, pegá el token abajo.",
-        );
+        toast.error("No se leyó el QR. Probá otra toma o pegá el token abajo.");
       }
     } catch (err) {
       console.error(err);
@@ -596,18 +605,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
         {section === "recepcion" && canRecepcion && (
           <section className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Escaneo de QR</h2>
-            <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 leading-relaxed">
-              <strong className="text-slate-800">Recomendado en celular:</strong> usá{" "}
-              <strong>Foto del QR (cámara del sistema)</strong>, el mismo mecanismo que en{" "}
-              <strong>Mi Perfil</strong> al sacar una foto: abre la app de cámara nativa y no usa el permiso
-              &quot;en vivo&quot; del navegador.
-            </p>
-            <p className="text-xs text-slate-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
-              <strong className="text-amber-900">Si usás cámara en vivo:</strong> en Android puede fallar con
-              &quot;Este sitio no puede solicitarte permiso&quot; si hay <strong>burbujas o superposiciones</strong> de
-              otras apps. Cerralas o usá la opción de foto de arriba / token manual abajo.
-            </p>
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Recepción</h2>
             <input
               ref={qrPhotoInputRef}
               type="file"
@@ -616,111 +614,100 @@ export default function EntradasMain({ user, profile, onLogout }) {
               className="hidden"
               onChange={handleNativeQrPhoto}
             />
-            <input
-              ref={qrGalleryInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleNativeQrPhoto}
-            />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="flex w-full items-stretch gap-2 min-w-0">
+              <select
+                className="min-w-0 rounded-lg border border-slate-300 px-2 py-2.5 text-sm font-medium text-slate-800 w-[80%] max-w-[80%] shrink-0"
+                value={recepcionConciertoId}
+                onChange={(e) => {
+                  setRecepcionConciertoId(e.target.value);
+                  setScannerToken("");
+                  setQrPreview(null);
+                }}
+              >
+                <option value="">Concierto (desde hoy)…</option>
+                {conciertosRecepcion.map((c) => (
+                  <option key={c.id} value={String(c.id)}>
+                    {formatDate(c.fecha_hora)} — {c.nombre}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
+                title="Escanear QR (cámara)"
                 onClick={() => qrPhotoInputRef.current?.click()}
-                disabled={decodingQrPhoto}
-                className="rounded-lg border-2 border-indigo-300 bg-indigo-50 py-3 text-sm font-bold text-indigo-950 disabled:opacity-60"
+                disabled={decodingQrPhoto || !recepcionConciertoId}
+                className="flex w-[20%] min-w-0 max-w-[20%] shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-slate-50 text-slate-800 hover:bg-slate-100 disabled:opacity-40"
               >
-                {decodingQrPhoto ? "Leyendo…" : "Foto (cámara del sistema)"}
-              </button>
-              <button
-                type="button"
-                onClick={() => qrGalleryInputRef.current?.click()}
-                disabled={decodingQrPhoto}
-                className="rounded-lg border border-slate-300 bg-white py-3 text-sm font-semibold text-slate-800 disabled:opacity-60"
-              >
-                Elegir de galería
+                {decodingQrPhoto ? <span className="text-[10px] font-bold">…</span> : <IconCamera size={26} className="shrink-0" />}
               </button>
             </div>
-            <p className="text-[11px] text-slate-500 text-center">
-              Que el QR ocupe buena parte de la foto, sin cortes ni desenfoque. Si el token es largo, puede ayudar acercar más.
-            </p>
-            <div id="entrada-qr-reader" className="w-full max-w-sm mx-auto overflow-hidden rounded-xl border border-slate-200 min-h-[120px]" />
-            <p className="text-[11px] text-slate-500 text-center">Vista previa solo para escaneo en vivo (abajo)</p>
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" className="rounded-lg border border-slate-300 py-2 text-sm font-semibold" onClick={startScanner} disabled={scannerRunning}>Iniciar cámara (en vivo)</button>
-              <button type="button" className="rounded-lg border border-slate-300 py-2 text-sm font-semibold" onClick={stopScanner} disabled={!scannerRunning}>Detener</button>
-            </div>
-            <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-              Al leer o pegar el token se <strong>analiza solo</strong> (QR de reserva o de entrada). Revisá el cuadro de abajo y, si corresponde, confirmá con &quot;Ingresar a sala&quot;.
-            </p>
             <input
               value={scannerToken}
               onChange={(event) => setScannerToken(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder="Se rellena al leer el QR o pegá el token (ENTR-…)"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
+              placeholder="Pegá el token o leé el QR con el ícono (ENTR-…)"
             />
-            {qrPreviewLoading && (
-              <p className="text-sm text-indigo-600 font-medium">Analizando código…</p>
-            )}
+            {qrPreviewLoading && <p className="text-sm text-indigo-600 font-medium">Analizando código…</p>}
             {qrPreview && !qrPreview.ok && (
-              <p className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{formatEntradasPreviewError(qrPreview)}</p>
+              <div
+                className={`rounded-xl border-2 p-3 text-sm text-slate-800 shadow-sm ${recepcionPanelClass(qrPreview)}`}
+              >
+                <p className="font-medium">{formatEntradasPreviewError(qrPreview)}</p>
+              </div>
             )}
             {qrPreview && qrPreview.ok && qrPreview.tipo === "entrada" && (
-              <div className="rounded-xl border-2 border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 space-y-2 text-sm shadow-sm">
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Vista previa — entrada individual</p>
-                <p className="text-base font-bold text-slate-900">{qrPreview.concierto_nombre || "Concierto"}</p>
-                <p className="text-xs text-slate-600">{formatDate(qrPreview.concierto_fecha_hora)}</p>
-                {qrPreview.lugar_nombre && <p className="text-xs text-slate-500">{qrPreview.lugar_nombre}</p>}
+              <div
+                className={`rounded-xl border-2 p-4 space-y-2 text-sm shadow-sm ${recepcionPanelClass(qrPreview)}`}
+              >
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-600">Entrada individual</p>
                 <p className="text-slate-800">
                   Reserva <span className="font-mono font-semibold">{qrPreview.codigo_reserva || "—"}</span> · Entrada nº {qrPreview.entrada_orden} de {qrPreview.cantidad_en_reserva}
                 </p>
                 <p className="font-medium text-slate-800">
                   {qrPreview.estado_ingreso === "pendiente" ? (
-                    <span className="text-emerald-800">Aún no se registró ingreso con esta entrada.</span>
+                    <span>Sin ingreso registrado aún con esta plaza.</span>
                   ) : (
-                    <span className="text-amber-800">
-                      Ya ingresó: {formatDate(qrPreview.ingresada_at) || "fecha desconocida"}.
-                    </span>
+                    <span>Ingreso: {formatDate(qrPreview.ingresada_at) || "—"}</span>
                   )}
                 </p>
                 {!qrPreview.puede_ingresar && entradasBloqueoIngreso(qrPreview) && (
-                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">{entradasBloqueoIngreso(qrPreview)}</p>
+                  <p className="text-xs text-slate-800 border-t border-slate-300/50 pt-2 mt-1">{entradasBloqueoIngreso(qrPreview)}</p>
                 )}
               </div>
             )}
             {qrPreview && qrPreview.ok && qrPreview.tipo === "reserva" && (
-              <div className="rounded-xl border-2 border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 space-y-3 text-sm shadow-sm">
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Vista previa — QR de reserva (grupo)</p>
-                <p className="text-base font-bold text-slate-900">{qrPreview.concierto_nombre || "Concierto"}</p>
-                <p className="text-xs text-slate-600">{formatDate(qrPreview.concierto_fecha_hora)}</p>
-                {qrPreview.lugar_nombre && <p className="text-xs text-slate-500">{qrPreview.lugar_nombre}</p>}
+              <div
+                className={`rounded-xl border-2 p-4 space-y-2 text-sm shadow-sm ${recepcionPanelClass(qrPreview)}`}
+              >
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-600">Reserva (grupo)</p>
                 <p>
-                  Código <span className="font-mono font-semibold">{qrPreview.codigo_reserva}</span> · {qrPreview.cantidad_solicitada} entrada{Number(qrPreview.cantidad_solicitada) !== 1 ? "s" : ""} en la reserva
+                  Código <span className="font-mono font-semibold">{qrPreview.codigo_reserva}</span> · {qrPreview.cantidad_solicitada} plaza
+                  {Number(qrPreview.cantidad_solicitada) !== 1 ? "s" : ""}
                 </p>
                 <p>
-                  <strong className="text-emerald-800">{qrPreview.pendientes}</strong> por ingresar · <strong className="text-slate-600">{qrPreview.ingresadas}</strong> ya ingresaron
+                  {qrPreview.pendientes} sin ingresar · {qrPreview.ingresadas} ya ingresaron
                 </p>
                 {qrPreview.necesita_confirmar_parcial && (
-                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-                    Parte del grupo ya ingresó. Al confirmar se registrarán en bloque las que aún faltan (te pediremos una confirmación adicional).
+                  <p className="text-xs text-slate-800 border-t border-slate-300/50 pt-2">
+                    Ingreso parcial: al confirmar se completarán las plazas pendientes (se pedirá confirmación).
                   </p>
                 )}
                 {Array.isArray(qrPreview.entradas) && qrPreview.entradas.length > 0 && (
-                  <ul className="text-xs space-y-1.5 border-t border-slate-200 pt-2">
+                  <ul className="text-xs space-y-1.5 border-t border-slate-300/50 pt-2">
                     {qrPreview.entradas.map((row) => (
-                      <li key={row.orden} className="flex flex-wrap gap-2 justify-between text-slate-700">
+                      <li key={row.orden} className="flex flex-wrap gap-2 justify-between text-slate-800">
                         <span>Plaza nº {row.orden}</span>
                         {row.estado_ingreso === "pendiente" ? (
-                          <span className="text-emerald-800 font-medium">Pendiente</span>
+                          <span className="font-medium">Pendiente</span>
                         ) : (
-                          <span className="text-slate-600">Ingresó {row.ingresada_at ? formatDate(row.ingresada_at) : ""}</span>
+                          <span>Ingresó {row.ingresada_at ? formatDate(row.ingresada_at) : ""}</span>
                         )}
                       </li>
                     ))}
                   </ul>
                 )}
                 {!qrPreview.puede_ingresar && entradasBloqueoIngreso(qrPreview) && (
-                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">{entradasBloqueoIngreso(qrPreview)}</p>
+                  <p className="text-xs text-slate-800 border-t border-slate-300/50 pt-2">{entradasBloqueoIngreso(qrPreview)}</p>
                 )}
               </div>
             )}
@@ -729,7 +716,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
               onClick={() => consumeToken()}
               className="w-full rounded-lg bg-emerald-600 text-white py-3 text-sm font-bold disabled:bg-slate-300"
               disabled={
-                !scannerToken.trim()
+                !recepcionConciertoId
+                || !scannerToken.trim()
                 || qrPreviewLoading
                 || !qrPreview
                 || !qrPreview.ok
@@ -739,7 +727,6 @@ export default function EntradasMain({ user, profile, onLogout }) {
             >
               {ingresando ? "Registrando…" : "Ingresar a sala"}
             </button>
-            <p className="text-[11px] text-slate-500 text-center">El registro de ingreso se confirma solo con este botón, cuando el diagnóstico lo permita.</p>
           </section>
         )}
 

@@ -11,6 +11,9 @@ export function formatEntradasPreviewError(preview) {
   if (preview.reason === "token_vacio") {
     return "Cargá un código para ver el detalle.";
   }
+  if (preview.reason === "concierto_distinto") {
+    return "Este QR no corresponde al concierto elegido en la lista. Cambiá el concierto o usá un código de ese evento.";
+  }
   if (preview.reason === "error") {
     return preview.detalle || "Error al consultar el código.";
   }
@@ -39,6 +42,8 @@ export function formatEntradasValidacionError(result) {
       const c = r.codigo_reserva ? ` (${r.codigo_reserva})` : "";
       return `Esa reserva no está activa${c} (p. ej. cancelada o anulada).`;
     }
+    case "concierto_distinto":
+      return "Ese QR es de otro concierto. Elegí el evento correcto en la lista o escaneá un código de este concierto.";
     case "modo_invalido":
       return "Lector en modo no soportado.";
     default:
