@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   Routes,
   Route,
+  Link,
   useSearchParams,
   useLocation,
   useNavigate,
@@ -93,6 +94,7 @@ import {
   IconMoon,
   IconBookOff,
   IconMegaphone,
+  IconTag,
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal";
 import SearchableSelect from "./components/ui/SearchableSelect";
@@ -946,8 +948,26 @@ const ProtectedApp = ({ initialTab }) => {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-slate-100 shrink-0">
+        <div className="p-4 border-t border-slate-100 shrink-0 space-y-1">
+          <Link
+            to="/entradas"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className={`
+              w-full flex items-center px-3 py-2.5 rounded-xl transition-all
+              text-slate-600 hover:bg-indigo-50 hover:text-indigo-700
+              ${!isDesktopExpanded ? "justify-center" : "gap-3"}
+            `}
+            title="Entradas"
+          >
+            <IconTag size={20} className="shrink-0" />
+            <span
+              className={`text-sm font-medium whitespace-nowrap ${isDesktopExpanded ? "block" : "hidden"}`}
+            >
+              Entradas
+            </span>
+          </Link>
           <button
+            type="button"
             onClick={logout}
             className={`w-full flex items-center px-3 py-2.5 rounded-xl text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-colors ${!isDesktopExpanded ? "justify-center" : "gap-3"}`}
           >

@@ -209,17 +209,25 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
   const startScanner = async () => {
     if (!canRecepcion || scannerRunning) return;
-    const html5QrCode = new Html5Qrcode("entrada-qr-reader");
-    scannerRef.current = html5QrCode;
-    await html5QrCode.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 220, height: 220 } },
-      (decodedText) => {
-        setScannerToken(decodedText);
-      },
-      () => {},
-    );
-    setScannerRunning(true);
+    try {
+      const html5QrCode = new Html5Qrcode("entrada-qr-reader");
+      scannerRef.current = html5QrCode;
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 220, height: 220 } },
+        (decodedText) => {
+          setScannerToken(decodedText);
+        },
+        () => {},
+      );
+      setScannerRunning(true);
+    } catch (err) {
+      console.error(err);
+      toast.error(
+        "No se pudo usar la cámara. Cerrá otras apps que la estén usando (WhatsApp, otra pestaña con cámara), aceptá el permiso si el navegador lo pide, y probá abrir OFRN desde el ícono agregado al inicio (app).",
+        { duration: 12000 },
+      );
+    }
   };
 
   const stopScanner = async () => {
