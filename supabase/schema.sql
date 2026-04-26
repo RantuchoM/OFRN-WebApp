@@ -83,6 +83,20 @@ CREATE TABLE public.compositores (
   CONSTRAINT compositores_pkey PRIMARY KEY (id),
   CONSTRAINT compositores_id_pais_fkey FOREIGN KEY (id_pais) REFERENCES public.paises(id)
 );
+CREATE TABLE public.conciertos_difusion_logs (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_evento bigint,
+  estado text NOT NULL DEFAULT 'en_proceso'::text CHECK (estado = ANY (ARRAY['en_proceso'::text, 'listo'::text, 'compartido'::text])),
+  observaciones text,
+  id_editor bigint,
+  created_at timestamp with time zone DEFAULT now(),
+  fecha_snapshot date,
+  hora_snapshot text,
+  locacion_snapshot text,
+  CONSTRAINT conciertos_difusion_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT conciertos_difusion_logs_id_evento_fkey FOREIGN KEY (id_evento) REFERENCES public.eventos(id),
+  CONSTRAINT conciertos_difusion_logs_id_editor_fkey FOREIGN KEY (id_editor) REFERENCES public.integrantes(id)
+);
 CREATE TABLE public.ensambles (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   ensamble text,
@@ -101,6 +115,90 @@ CREATE TABLE public.ensambles_coordinadores (
   CONSTRAINT ensambles_coordinadores_pkey PRIMARY KEY (id),
   CONSTRAINT ensambles_coordinadores_id_ensamble_fkey FOREIGN KEY (id_ensamble) REFERENCES public.ensambles(id),
   CONSTRAINT ensambles_coordinadores_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id)
+);
+CREATE TABLE public.entrada_concierto (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  programa_id bigint NOT NULL,
+  slug_publico text NOT NULL UNIQUE,
+  nombre text NOT NULL,
+  fecha_hora timestamp with time zone NOT NULL,
+  detalle_richtext text NOT NULL DEFAULT ''::text,
+  imagen_drive_url text,
+  capacidad_maxima integer NOT NULL CHECK (capacidad_maxima > 0),
+  reservas_habilitadas boolean NOT NULL DEFAULT true,
+  activo boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT entrada_concierto_pkey PRIMARY KEY (id),
+  CONSTRAINT entrada_concierto_programa_id_fkey FOREIGN KEY (programa_id) REFERENCES public.entrada_programa(id)
+);
+CREATE TABLE public.entrada_ingreso_evento (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  tipo_qr USER-DEFINED NOT NULL,
+  reserva_id bigint,
+  reserva_entrada_id bigint,
+  concierto_id bigint NOT NULL,
+  resultado text NOT NULL,
+  detalle text,
+  scanner_user_id uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT entrada_ingreso_evento_pkey PRIMARY KEY (id),
+  CONSTRAINT entrada_ingreso_evento_reserva_id_fkey FOREIGN KEY (reserva_id) REFERENCES public.entrada_reserva(id),
+  CONSTRAINT entrada_ingreso_evento_reserva_entrada_id_fkey FOREIGN KEY (reserva_entrada_id) REFERENCES public.entrada_reserva_entrada(id),
+  CONSTRAINT entrada_ingreso_evento_concierto_id_fkey FOREIGN KEY (concierto_id) REFERENCES public.entrada_concierto(id),
+  CONSTRAINT entrada_ingreso_evento_scanner_user_id_fkey FOREIGN KEY (scanner_user_id) REFERENCES public.entrada_usuario(id)
+);
+CREATE TABLE public.entrada_programa (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  slug_publico text NOT NULL UNIQUE,
+  nombre text NOT NULL,
+  detalle_richtext text NOT NULL DEFAULT ''::text,
+  activo boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT entrada_programa_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.entrada_reserva (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  concierto_id bigint NOT NULL,
+  usuario_id uuid NOT NULL,
+  cantidad_solicitada integer NOT NULL CHECK (cantidad_solicitada >= 1 AND cantidad_solicitada <= 5),
+  estado USER-DEFINED NOT NULL DEFAULT 'activa'::entrada_reserva_estado,
+  codigo_reserva text NOT NULL UNIQUE,
+  qr_reserva_hash text NOT NULL UNIQUE,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT entrada_reserva_pkey PRIMARY KEY (id),
+  CONSTRAINT entrada_reserva_concierto_id_fkey FOREIGN KEY (concierto_id) REFERENCES public.entrada_concierto(id),
+  CONSTRAINT entrada_reserva_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.entrada_usuario(id)
+);
+CREATE TABLE public.entrada_reserva_entrada (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  reserva_id bigint NOT NULL,
+  concierto_id bigint NOT NULL,
+  orden integer NOT NULL CHECK (orden >= 1 AND orden <= 5),
+  estado_ingreso USER-DEFINED NOT NULL DEFAULT 'pendiente'::entrada_ingreso_estado,
+  ingresada_at timestamp with time zone,
+  ingresada_por uuid,
+  qr_entrada_hash text NOT NULL UNIQUE,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT entrada_reserva_entrada_pkey PRIMARY KEY (id),
+  CONSTRAINT entrada_reserva_entrada_reserva_id_fkey FOREIGN KEY (reserva_id) REFERENCES public.entrada_reserva(id),
+  CONSTRAINT entrada_reserva_entrada_concierto_id_fkey FOREIGN KEY (concierto_id) REFERENCES public.entrada_concierto(id),
+  CONSTRAINT entrada_reserva_entrada_ingresada_por_fkey FOREIGN KEY (ingresada_por) REFERENCES public.entrada_usuario(id)
+);
+CREATE TABLE public.entrada_usuario (
+  id uuid NOT NULL,
+  nombre text NOT NULL,
+  apellido text NOT NULL,
+  email text NOT NULL UNIQUE,
+  rol USER-DEFINED NOT NULL DEFAULT 'personal'::entrada_rol,
+  activo boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT entrada_usuario_pkey PRIMARY KEY (id),
+  CONSTRAINT entrada_usuario_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
 );
 CREATE TABLE public.eventos (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -122,6 +220,7 @@ CREATE TABLE public.eventos (
   updated_at timestamp with time zone DEFAULT now(),
   is_deleted boolean DEFAULT false,
   id_estado_venue integer,
+  audiencia integer CHECK (audiencia IS NULL OR audiencia >= 0),
   CONSTRAINT eventos_pkey PRIMARY KEY (id),
   CONSTRAINT eventos_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
   CONSTRAINT eventos_id_tipo_evento_fkey FOREIGN KEY (id_tipo_evento) REFERENCES public.tipos_evento(id),
@@ -502,6 +601,7 @@ CREATE TABLE public.giras_transportes (
   created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
   capacidad_maxima integer,
   patente text,
+  es_tipo_alternativo boolean DEFAULT false,
   categoria_logistica text DEFAULT 'PASAJEROS'::text,
   CONSTRAINT giras_transportes_pkey PRIMARY KEY (id),
   CONSTRAINT giras_transportes_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
@@ -518,10 +618,10 @@ CREATE TABLE public.giras_viaticos (
   monto_destaque numeric DEFAULT 0,
   total_destaque numeric DEFAULT 0,
   total_percibir numeric DEFAULT 0,
-  anticipo_custom numeric,
   estado text DEFAULT 'borrador'::text,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  anticipo_custom numeric,
   CONSTRAINT giras_viaticos_pkey PRIMARY KEY (id),
   CONSTRAINT giras_viaticos_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),
   CONSTRAINT giras_viaticos_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id)
@@ -950,6 +1050,152 @@ CREATE TABLE public.roles (
   orden smallint,
   CONSTRAINT roles_pkey PRIMARY KEY (id)
 );
+CREATE TABLE public.scrn_notificaciones (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  id_usuario uuid NOT NULL,
+  tipo text NOT NULL CHECK (tipo = ANY (ARRAY['reserva_estado'::text, 'paquete_estado'::text, 'propuesta_viaje_estado'::text])),
+  id_reserva bigint,
+  id_solicitud_paquete bigint,
+  id_solicitud_nuevo_viaje bigint,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  creada_at timestamp with time zone NOT NULL DEFAULT now(),
+  leida_at timestamp with time zone,
+  CONSTRAINT scrn_notificaciones_pkey PRIMARY KEY (id),
+  CONSTRAINT scrn_notificaciones_id_usuario_fkey FOREIGN KEY (id_usuario) REFERENCES public.scrn_perfiles(id),
+  CONSTRAINT scrn_notificaciones_id_reserva_fkey FOREIGN KEY (id_reserva) REFERENCES public.scrn_reservas(id),
+  CONSTRAINT scrn_notificaciones_id_solicitud_paquete_fkey FOREIGN KEY (id_solicitud_paquete) REFERENCES public.scrn_solicitudes_paquete(id),
+  CONSTRAINT scrn_notificaciones_id_solicitud_nuevo_viaje_fkey FOREIGN KEY (id_solicitud_nuevo_viaje) REFERENCES public.scrn_solicitudes_nuevo_viaje(id)
+);
+CREATE TABLE public.scrn_perfiles (
+  id uuid NOT NULL,
+  nombre text NOT NULL,
+  apellido text NOT NULL,
+  dni text UNIQUE,
+  fecha_nacimiento date,
+  cargo text,
+  genero text,
+  es_admin boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT scrn_perfiles_pkey PRIMARY KEY (id),
+  CONSTRAINT scrn_perfiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.scrn_reserva_pasajeros (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_reserva bigint NOT NULL,
+  id_perfil uuid,
+  nombre text,
+  apellido text,
+  email text,
+  notas text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  estado text NOT NULL DEFAULT 'pendiente'::text CHECK (estado = ANY (ARRAY['pendiente'::text, 'aceptada'::text, 'rechazada'::text, 'cancelada'::text])),
+  tramo text CHECK (tramo IS NULL OR (tramo = ANY (ARRAY['ida'::text, 'vuelta'::text, 'ambos'::text]))),
+  localidad_subida text,
+  localidad_bajada text,
+  obs_subida text,
+  obs_bajada text,
+  CONSTRAINT scrn_reserva_pasajeros_pkey PRIMARY KEY (id),
+  CONSTRAINT scrn_reserva_pasajeros_id_reserva_fkey FOREIGN KEY (id_reserva) REFERENCES public.scrn_reservas(id),
+  CONSTRAINT scrn_reserva_pasajeros_id_perfil_fkey FOREIGN KEY (id_perfil) REFERENCES public.scrn_perfiles(id)
+);
+CREATE TABLE public.scrn_reservas (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_viaje bigint,
+  id_usuario uuid,
+  estado text DEFAULT 'pendiente'::text,
+  tramo text NOT NULL,
+  localidad_subida text NOT NULL,
+  obs_subida text,
+  localidad_bajada text NOT NULL,
+  obs_bajada text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT scrn_reservas_pkey PRIMARY KEY (id),
+  CONSTRAINT scrn_reservas_id_viaje_fkey FOREIGN KEY (id_viaje) REFERENCES public.scrn_viajes(id),
+  CONSTRAINT scrn_reservas_id_usuario_fkey FOREIGN KEY (id_usuario) REFERENCES auth.users(id)
+);
+CREATE TABLE public.scrn_solicitudes_nuevo_viaje (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_usuario uuid NOT NULL,
+  id_transporte bigint NOT NULL,
+  motivo text,
+  origen text NOT NULL,
+  destino_final text NOT NULL,
+  fecha_salida timestamp with time zone NOT NULL,
+  fecha_llegada_estimada timestamp with time zone NOT NULL,
+  fecha_retorno timestamp with time zone,
+  observaciones text,
+  tramo text NOT NULL DEFAULT 'ida'::text,
+  localidad_subida text NOT NULL DEFAULT ''::text,
+  obs_subida text,
+  localidad_bajada text NOT NULL DEFAULT ''::text,
+  obs_bajada text,
+  pasajeros_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  estado text NOT NULL DEFAULT 'pendiente'::text CHECK (estado = ANY (ARRAY['pendiente'::text, 'aprobada'::text, 'rechazada'::text])),
+  id_viaje_creado bigint,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT scrn_solicitudes_nuevo_viaje_pkey PRIMARY KEY (id),
+  CONSTRAINT scrn_solicitudes_nuevo_viaje_id_usuario_fkey FOREIGN KEY (id_usuario) REFERENCES public.scrn_perfiles(id),
+  CONSTRAINT scrn_solicitudes_nuevo_viaje_id_transporte_fkey FOREIGN KEY (id_transporte) REFERENCES public.scrn_transportes(id),
+  CONSTRAINT scrn_solicitudes_nuevo_viaje_id_viaje_creado_fkey FOREIGN KEY (id_viaje_creado) REFERENCES public.scrn_viajes(id)
+);
+CREATE TABLE public.scrn_solicitudes_paquete (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_usuario uuid NOT NULL,
+  id_transporte bigint NOT NULL,
+  id_viaje bigint NOT NULL,
+  dimensiones_aprox text NOT NULL,
+  peso_kg numeric NOT NULL CHECK (peso_kg > 0::numeric),
+  descripcion text NOT NULL,
+  estado text NOT NULL DEFAULT 'pendiente'::text CHECK (estado = ANY (ARRAY['pendiente'::text, 'aceptada'::text, 'rechazada'::text, 'cancelada'::text])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT scrn_solicitudes_paquete_pkey PRIMARY KEY (id),
+  CONSTRAINT scrn_solicitudes_paquete_id_usuario_fkey FOREIGN KEY (id_usuario) REFERENCES public.scrn_perfiles(id),
+  CONSTRAINT scrn_solicitudes_paquete_id_transporte_fkey FOREIGN KEY (id_transporte) REFERENCES public.scrn_transportes(id),
+  CONSTRAINT scrn_solicitudes_paquete_id_viaje_fkey FOREIGN KEY (id_viaje) REFERENCES public.scrn_viajes(id)
+);
+CREATE TABLE public.scrn_tipos_transporte (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  nombre text NOT NULL UNIQUE,
+  activo boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  emoji text,
+  CONSTRAINT scrn_tipos_transporte_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.scrn_transportes (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  nombre text NOT NULL,
+  tipo text NOT NULL,
+  patente text NOT NULL UNIQUE,
+  localidad_base text NOT NULL,
+  capacidad_max integer NOT NULL,
+  observaciones_estado text,
+  activo boolean DEFAULT true,
+  observaciones text,
+  color text NOT NULL DEFAULT '#64748b'::text CHECK (color ~* '^#([0-9a-f]{3}|[0-9a-f]{6})$'::text),
+  google_calendar_event_id text,
+  CONSTRAINT scrn_transportes_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.scrn_viajes (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_transporte bigint,
+  origen text NOT NULL,
+  destino_final text NOT NULL,
+  fecha_salida timestamp with time zone NOT NULL,
+  fecha_llegada_estimada timestamp with time zone NOT NULL,
+  fecha_retorno timestamp with time zone,
+  observaciones text,
+  created_at timestamp with time zone DEFAULT now(),
+  motivo text NOT NULL CHECK (length(TRIM(BOTH FROM motivo)) > 0),
+  paquetes_bodega_llena boolean NOT NULL DEFAULT false,
+  id_chofer uuid,
+  plazas_pasajeros integer CHECK (plazas_pasajeros IS NULL OR plazas_pasajeros >= 0),
+  google_calendar_event_id text,
+  CONSTRAINT scrn_viajes_pkey PRIMARY KEY (id),
+  CONSTRAINT scrn_viajes_id_transporte_fkey FOREIGN KEY (id_transporte) REFERENCES public.scrn_transportes(id),
+  CONSTRAINT scrn_viajes_id_chofer_fkey FOREIGN KEY (id_chofer) REFERENCES public.scrn_perfiles(id)
+);
 CREATE TABLE public.seating_asignaciones (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
@@ -981,6 +1227,8 @@ CREATE TABLE public.seating_contenedores_items (
   id_musico bigint NOT NULL,
   orden integer DEFAULT 0,
   created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  atril_num integer,
+  lado integer,
   CONSTRAINT seating_contenedores_items_pkey PRIMARY KEY (id),
   CONSTRAINT seating_contenedores_items_id_contenedor_fkey FOREIGN KEY (id_contenedor) REFERENCES public.seating_contenedores(id),
   CONSTRAINT seating_contenedores_items_id_musico_fkey FOREIGN KEY (id_musico) REFERENCES public.integrantes(id)
@@ -1075,6 +1323,7 @@ CREATE TABLE public.transportes (
   created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
   color text DEFAULT '#6366f1'::text,
   patente text,
+  icon text DEFAULT 'IconBus'::text,
   CONSTRAINT transportes_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.user_ui_settings (

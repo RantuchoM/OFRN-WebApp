@@ -21,3 +21,9 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/create-scrn-perfil/deno.json"
 entrypoint = "./functions/create-scrn-perfil/index.ts"
+
+[functions.entradas-send-reserva-email]
+enabled = true
+verify_jwt = true
+import_map = "./functions/entradas-send-reserva-email/deno.json"
+entrypoint = "./functions/entradas-send-reserva-email/index.ts"
