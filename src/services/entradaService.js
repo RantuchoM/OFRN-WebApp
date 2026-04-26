@@ -209,7 +209,15 @@ export async function listarMisReservas() {
   return data || [];
 }
 
-export async function validarYConsumirQr({ token, modo, confirmarParcial }) {
+export async function previewEntradaQr(token) {
+  const { data, error } = await supabase.rpc("entrada_preview_qr", {
+    p_token: token,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function validarYConsumirQr({ token, modo = "auto", confirmarParcial }) {
   const { data, error } = await supabase.rpc("entrada_validar_y_consumir_qr", {
     p_token: token,
     p_modo: modo,

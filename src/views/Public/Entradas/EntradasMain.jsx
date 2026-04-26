@@ -22,10 +22,16 @@ import {
   listConciertoIdsConReservaActiva,
   listarMisReservas,
   listProgramasConConciertos,
+  previewEntradaQr,
   tokenToQrDataUrl,
   validarYConsumirQr,
 } from "../../../services/entradaService";
 import { downloadEntradasReservaPdfBlob } from "../../../utils/entradasReservaPdf";
+import {
+  formatEntradasPreviewError,
+  formatEntradasValidacionError,
+  formatEntradasValidacionSuccess,
+} from "../../../utils/entradasQrMessages";
 import { decodeQrFromImageFile } from "../../../utils/qrDecodeFromImage";
 
 const ADMIN_TABS = ["programas", "conciertos", "usuarios"];
@@ -33,6 +39,29 @@ const ADMIN_TABS = ["programas", "conciertos", "usuarios"];
 function formatDate(value) {
   if (!value) return "-";
   return new Date(value).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function entradasBloqueoIngreso(p) {
+  if (!p || !p.ok) return "";
+  if (p.puede_ingresar) return "";
+  if (p.tipo === "entrada") {
+    if (p.reserva_estado && p.reserva_estado !== "activa") {
+      return "La reserva asociada no está activa (p. ej. cancelada).";
+    }
+    if (p.estado_ingreso === "ingresada") {
+      return "Esta entrada ya registró ingreso a sala.";
+    }
+    return "No se puede completar el ingreso con este estado.";
+  }
+  if (p.tipo === "reserva") {
+    if (p.reserva_estado && p.reserva_estado !== "activa") {
+      return "La reserva no está activa (p. ej. cancelada).";
+    }
+    if (!p.pendientes) {
+      return "No quedan plazas pendientes: las entradas de este QR ya se registraron.";
+    }
+  }
+  return "";
 }
 
 export default function EntradasMain({ user, profile, onLogout }) {
@@ -46,9 +75,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [misReservas, setMisReservas] = useState([]);
   const [scannerRunning, setScannerRunning] = useState(false);
   const [scannerToken, setScannerToken] = useState("");
-  const [scannerModo, setScannerModo] = useState("entrada");
-  const [confirmParcial, setConfirmParcial] = useState(false);
   const [pendingWarning, setPendingWarning] = useState(null);
+  const [qrPreview, setQrPreview] = useState(null);
+  const [qrPreviewLoading, setQrPreviewLoading] = useState(false);
+  const [ingresando, setIngresando] = useState(false);
   const [cancelReservaTarget, setCancelReservaTarget] = useState(null);
   const [cancelingReserva, setCancelingReserva] = useState(false);
   const [conciertosConReservaActiva, setConciertosConReservaActiva] = useState([]);
@@ -123,6 +153,43 @@ export default function EntradasMain({ user, profile, onLogout }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, conciertoSlug]);
 
+  useEffect(() => {
+    if (section !== "recepcion" || !canRecepcion) {
+      return;
+    }
+    const t = scannerToken.trim();
+    if (t.length < 18) {
+      setQrPreview(null);
+      setQrPreviewLoading(false);
+      return;
+    }
+    let active = true;
+    setQrPreviewLoading(true);
+    const timer = setTimeout(() => {
+      previewEntradaQr(t)
+        .then((p) => {
+          if (active) setQrPreview(p);
+        })
+        .catch((err) => {
+          if (active) {
+            setQrPreview({
+              ok: false,
+              reason: "error",
+              detalle: err?.message || String(err),
+            });
+          }
+        })
+        .finally(() => {
+          if (active) setQrPreviewLoading(false);
+        });
+    }, 400);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      setQrPreviewLoading(false);
+    };
+  }, [scannerToken, section, canRecepcion]);
+
   const concertosFlat = useMemo(
     () =>
       programas.flatMap((programa) =>
@@ -194,21 +261,28 @@ export default function EntradasMain({ user, profile, onLogout }) {
   };
 
   const consumeToken = async ({ forceParcial = false } = {}) => {
-    const result = await validarYConsumirQr({
-      token: scannerToken,
-      modo: scannerModo,
-      confirmarParcial: forceParcial || confirmParcial,
-    });
-    if (result?.warning || result?.reason === "reserva_uso_parcial") {
-      setPendingWarning(result);
-      return;
+    if (!scannerToken.trim()) return;
+    setIngresando(true);
+    try {
+      const result = await validarYConsumirQr({
+        token: scannerToken,
+        modo: "auto",
+        confirmarParcial: forceParcial,
+      });
+      if (result?.warning || result?.reason === "reserva_uso_parcial") {
+        setPendingWarning(result);
+        return;
+      }
+      if (!result?.ok) {
+        toast.error(formatEntradasValidacionError(result));
+        return;
+      }
+      toast.success(formatEntradasValidacionSuccess(result));
+      setScannerToken("");
+      setQrPreview(null);
+    } finally {
+      setIngresando(false);
     }
-    if (!result?.ok) {
-      toast.error(`No válido: ${result?.reason || "error"}`);
-      return;
-    }
-    toast.success("Ingreso registrado correctamente.");
-    setScannerToken("");
   };
 
   const startScanner = async () => {
@@ -576,14 +650,96 @@ export default function EntradasMain({ user, profile, onLogout }) {
               <button type="button" className="rounded-lg border border-slate-300 py-2 text-sm font-semibold" onClick={startScanner} disabled={scannerRunning}>Iniciar cámara (en vivo)</button>
               <button type="button" className="rounded-lg border border-slate-300 py-2 text-sm font-semibold" onClick={stopScanner} disabled={!scannerRunning}>Detener</button>
             </div>
-            <select className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={scannerModo} onChange={(event) => setScannerModo(event.target.value)}>
-              <option value="entrada">Modo QR individual</option>
-              <option value="reserva">Modo QR reserva completa</option>
-            </select>
-            <input value={scannerToken} onChange={(event) => setScannerToken(event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Token escaneado o ingreso manual" />
-            <button onClick={() => consumeToken()} className="w-full rounded-lg bg-emerald-600 text-white py-2 text-sm font-semibold" disabled={!scannerToken.trim()}>
-              Validar y registrar ingreso
+            <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+              Al leer o pegar el token se <strong>analiza solo</strong> (QR de reserva o de entrada). Revisá el cuadro de abajo y, si corresponde, confirmá con &quot;Ingresar a sala&quot;.
+            </p>
+            <input
+              value={scannerToken}
+              onChange={(event) => setScannerToken(event.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              placeholder="Se rellena al leer el QR o pegá el token (ENTR-…)"
+            />
+            {qrPreviewLoading && (
+              <p className="text-sm text-indigo-600 font-medium">Analizando código…</p>
+            )}
+            {qrPreview && !qrPreview.ok && (
+              <p className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{formatEntradasPreviewError(qrPreview)}</p>
+            )}
+            {qrPreview && qrPreview.ok && qrPreview.tipo === "entrada" && (
+              <div className="rounded-xl border-2 border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 space-y-2 text-sm shadow-sm">
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Vista previa — entrada individual</p>
+                <p className="text-base font-bold text-slate-900">{qrPreview.concierto_nombre || "Concierto"}</p>
+                <p className="text-xs text-slate-600">{formatDate(qrPreview.concierto_fecha_hora)}</p>
+                {qrPreview.lugar_nombre && <p className="text-xs text-slate-500">{qrPreview.lugar_nombre}</p>}
+                <p className="text-slate-800">
+                  Reserva <span className="font-mono font-semibold">{qrPreview.codigo_reserva || "—"}</span> · Entrada nº {qrPreview.entrada_orden} de {qrPreview.cantidad_en_reserva}
+                </p>
+                <p className="font-medium text-slate-800">
+                  {qrPreview.estado_ingreso === "pendiente" ? (
+                    <span className="text-emerald-800">Aún no se registró ingreso con esta entrada.</span>
+                  ) : (
+                    <span className="text-amber-800">
+                      Ya ingresó: {formatDate(qrPreview.ingresada_at) || "fecha desconocida"}.
+                    </span>
+                  )}
+                </p>
+                {!qrPreview.puede_ingresar && entradasBloqueoIngreso(qrPreview) && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">{entradasBloqueoIngreso(qrPreview)}</p>
+                )}
+              </div>
+            )}
+            {qrPreview && qrPreview.ok && qrPreview.tipo === "reserva" && (
+              <div className="rounded-xl border-2 border-slate-200 bg-gradient-to-b from-slate-50 to-white p-4 space-y-3 text-sm shadow-sm">
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Vista previa — QR de reserva (grupo)</p>
+                <p className="text-base font-bold text-slate-900">{qrPreview.concierto_nombre || "Concierto"}</p>
+                <p className="text-xs text-slate-600">{formatDate(qrPreview.concierto_fecha_hora)}</p>
+                {qrPreview.lugar_nombre && <p className="text-xs text-slate-500">{qrPreview.lugar_nombre}</p>}
+                <p>
+                  Código <span className="font-mono font-semibold">{qrPreview.codigo_reserva}</span> · {qrPreview.cantidad_solicitada} entrada{Number(qrPreview.cantidad_solicitada) !== 1 ? "s" : ""} en la reserva
+                </p>
+                <p>
+                  <strong className="text-emerald-800">{qrPreview.pendientes}</strong> por ingresar · <strong className="text-slate-600">{qrPreview.ingresadas}</strong> ya ingresaron
+                </p>
+                {qrPreview.necesita_confirmar_parcial && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                    Parte del grupo ya ingresó. Al confirmar se registrarán en bloque las que aún faltan (te pediremos una confirmación adicional).
+                  </p>
+                )}
+                {Array.isArray(qrPreview.entradas) && qrPreview.entradas.length > 0 && (
+                  <ul className="text-xs space-y-1.5 border-t border-slate-200 pt-2">
+                    {qrPreview.entradas.map((row) => (
+                      <li key={row.orden} className="flex flex-wrap gap-2 justify-between text-slate-700">
+                        <span>Plaza nº {row.orden}</span>
+                        {row.estado_ingreso === "pendiente" ? (
+                          <span className="text-emerald-800 font-medium">Pendiente</span>
+                        ) : (
+                          <span className="text-slate-600">Ingresó {row.ingresada_at ? formatDate(row.ingresada_at) : ""}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {!qrPreview.puede_ingresar && entradasBloqueoIngreso(qrPreview) && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">{entradasBloqueoIngreso(qrPreview)}</p>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => consumeToken()}
+              className="w-full rounded-lg bg-emerald-600 text-white py-3 text-sm font-bold disabled:bg-slate-300"
+              disabled={
+                !scannerToken.trim()
+                || qrPreviewLoading
+                || !qrPreview
+                || !qrPreview.ok
+                || !qrPreview.puede_ingresar
+                || ingresando
+              }
+            >
+              {ingresando ? "Registrando…" : "Ingresar a sala"}
             </button>
+            <p className="text-[11px] text-slate-500 text-center">El registro de ingreso se confirma solo con este botón, cuando el diagnóstico lo permita.</p>
           </section>
         )}
 
@@ -663,7 +819,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
         isOpen={Boolean(pendingWarning)}
         onClose={() => setPendingWarning(null)}
         title="La reserva ya tuvo ingresos parciales"
-        message={`Se detectaron ${pendingWarning?.ingresadas || 0} entradas ya usadas. ¿Confirmás consumir las ${pendingWarning?.pendientes || 0} pendientes?`}
+        message={`Reserva ${pendingWarning?.codigo_reserva || "—"}: ya se registraron ${pendingWarning?.ingresadas || 0} entrada(s). ¿Querés completar ahora el ingreso de las ${pendingWarning?.pendientes || 0} que siguen pendientes?`}
         confirmText="Consumir pendientes"
         onConfirm={async () => {
           await consumeToken({ forceParcial: true });
