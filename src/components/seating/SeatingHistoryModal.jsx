@@ -62,9 +62,9 @@ export default function SeatingHistoryModal({ isOpen, onClose, roster, supabase 
         const atril = pos.atril_num ?? null;
         const lado =
           pos.lado === 0
-            ? "Izq"
+            ? "Afuera"
             : pos.lado === 1
-              ? "Der"
+              ? "Adentro"
               : "?";
         const label = atril
           ? `${item.seating_contenedores.nombre} (Atril ${atril} · ${lado})`

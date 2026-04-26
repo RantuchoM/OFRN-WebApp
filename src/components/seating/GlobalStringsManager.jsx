@@ -1180,7 +1180,7 @@ export default function GlobalStringsManager({
                   }}
                 />
                 <span className="font-semibold text-slate-700">
-                  Adelantar atriles (respeta Izq/Der)
+                  Adelantar atriles (respeta Afuera/Adentro)
                 </span>
               </label>
               <label className="flex items-center gap-1 cursor-pointer">
@@ -1215,16 +1215,16 @@ export default function GlobalStringsManager({
                         Después
                       </div>
                       <div className="text-[10px] font-semibold text-slate-400 text-center border border-slate-200 bg-slate-50">
-                        Izquierda
+                        Afuera
                       </div>
                       <div className="text-[10px] font-semibold text-slate-400 text-center border border-slate-200 bg-slate-50">
-                        Derecha
+                        Adentro
                       </div>
                       <div className="text-[10px] font-semibold text-slate-400 text-center border border-slate-200 bg-emerald-50/70">
-                        Izquierda
+                        Afuera
                       </div>
                       <div className="text-[10px] font-semibold text-slate-400 text-center border border-slate-200 bg-emerald-50/70">
-                        Derecha
+                        Adentro
                       </div>
                       {(() => {
                         const beforeStands = {};
@@ -1288,7 +1288,7 @@ export default function GlobalStringsManager({
                           };
                             return (
                             <React.Fragment key={`row-${c.id}-${a}`}>
-                              {/* Antes Izq */}
+                              {/* Antes afuera */}
                               <div className="py-0.5 border border-slate-200 bg-slate-50 text-center">
                                 <span className="truncate block">
                                   {b.left
@@ -1296,7 +1296,7 @@ export default function GlobalStringsManager({
                                     : "Vacío"}
                                 </span>
                               </div>
-                              {/* Antes Der */}
+                              {/* Antes adentro */}
                               <div className="py-0.5 border border-slate-200 bg-slate-50 text-center">
                                 <span className="truncate block">
                                   {b.right
@@ -1304,7 +1304,7 @@ export default function GlobalStringsManager({
                                     : "Vacío"}
                                 </span>
                               </div>
-                              {/* Después Izq */}
+                              {/* Después afuera */}
                               <div
                                 className={`py-0.5 border border-slate-200 bg-emerald-50/70 text-center ${cellClass(
                                   b.left,
@@ -1317,7 +1317,7 @@ export default function GlobalStringsManager({
                                     : "Vacío"}
                                 </span>
                               </div>
-                              {/* Después Der */}
+                              {/* Después adentro */}
                               <div
                                 className={`py-0.5 border border-slate-200 bg-emerald-50/70 text-center ${cellClass(
                                   b.right,
@@ -1498,7 +1498,6 @@ export default function GlobalStringsManager({
                     const row = stands[a] || { left: null, right: null };
                     const { left, right } = row;
                     const renderCell = (item, ladoVal) => {
-                      const ladoLabel = ladoVal === 0 ? "Izq" : "Der";
                       const key = item ? item.id : `empty-${a}-${ladoVal}`;
                       return (
                         <div

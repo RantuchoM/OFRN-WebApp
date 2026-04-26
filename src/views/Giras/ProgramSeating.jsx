@@ -435,8 +435,8 @@ const MobileSeatingTable = ({
                           );
                         };
 
-                        pushRow(left, "Izq");
-                        pushRow(right, "Der");
+                        pushRow(left, "Afuera");
+                        pushRow(right, "Adentro");
 
                         return rows;
                       },
