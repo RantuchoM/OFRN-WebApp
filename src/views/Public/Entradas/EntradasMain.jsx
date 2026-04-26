@@ -224,8 +224,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
     } catch (err) {
       console.error(err);
       toast.error(
-        "No se pudo usar la cámara. Cerrá otras apps que la estén usando (WhatsApp, otra pestaña con cámara), aceptá el permiso si el navegador lo pide, y probá abrir OFRN desde el ícono agregado al inicio (app).",
-        { duration: 12000 },
+        "No se pudo usar la cámara. En Android, desactivá burbujas/superposiciones de otras apps; cerrá lo que use la cámara; aceptá el permiso. Si ves el aviso del sistema sobre permisos, seguí esa indicación. También podés pegar el token manualmente abajo.",
+        { duration: 14000 },
       );
     }
   };
@@ -496,6 +496,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
         {section === "recepcion" && canRecepcion && (
           <section className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
             <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Escaneo de QR</h2>
+            <p className="text-xs text-slate-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+              <strong className="text-amber-900">Android:</strong> si aparece &quot;Este sitio no puede solicitarte permiso&quot;, el sistema bloquea el permiso de cámara mientras haya <strong>burbujas o superposiciones</strong> de otras apps (WhatsApp, Messenger, grabadores, filtros de pantalla, etc.). Cerrá esas funciones o la app flotante y tocá &quot;Iniciar cámara&quot; de nuevo. Si sigue fallando, podés pegar el token abajo.
+            </p>
             <div id="entrada-qr-reader" className="w-full max-w-sm mx-auto overflow-hidden rounded-xl border border-slate-200" />
             <div className="grid grid-cols-2 gap-2">
               <button className="rounded-lg border border-slate-300 py-2 text-sm font-semibold" onClick={startScanner} disabled={scannerRunning}>Iniciar cámara</button>
