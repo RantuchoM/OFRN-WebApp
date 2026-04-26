@@ -56,6 +56,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [decodingQrPhoto, setDecodingQrPhoto] = useState(false);
   const scannerRef = useRef(null);
   const qrPhotoInputRef = useRef(null);
+  const qrGalleryInputRef = useRef(null);
   const [adminData, setAdminData] = useState({ programas: [], conciertos: [], usuarios: [] });
   const [eventosConcierto, setEventosConcierto] = useState([]);
   const [adminTab, setAdminTab] = useState("programas");
@@ -253,7 +254,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
         toast.success("Código leído de la foto.");
       } else {
         toast.error(
-          "No se detectó un QR en la imagen. Más luz, más cerca, o pegá el token abajo.",
+          "No se leyó el QR. Encuadralo grande y nítido, buena luz, sin reflejo; o elegí otra foto desde galería. Si sigue fallando, pegá el token abajo.",
         );
       }
     } catch (err) {
@@ -541,15 +542,34 @@ export default function EntradasMain({ user, profile, onLogout }) {
               className="hidden"
               onChange={handleNativeQrPhoto}
             />
-            <button
-              type="button"
-              onClick={() => qrPhotoInputRef.current?.click()}
-              disabled={decodingQrPhoto}
-              className="w-full rounded-lg border-2 border-indigo-300 bg-indigo-50 py-3 text-sm font-bold text-indigo-950 disabled:opacity-60"
-            >
-              {decodingQrPhoto ? "Leyendo QR de la foto…" : "Foto del QR (cámara del sistema, como Mi Perfil)"}
-            </button>
-            <p className="text-[11px] text-slate-500 text-center">Se abre la cámara del teléfono; sacá la foto al código y se rellena el token automáticamente si se lee bien.</p>
+            <input
+              ref={qrGalleryInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleNativeQrPhoto}
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => qrPhotoInputRef.current?.click()}
+                disabled={decodingQrPhoto}
+                className="rounded-lg border-2 border-indigo-300 bg-indigo-50 py-3 text-sm font-bold text-indigo-950 disabled:opacity-60"
+              >
+                {decodingQrPhoto ? "Leyendo…" : "Foto (cámara del sistema)"}
+              </button>
+              <button
+                type="button"
+                onClick={() => qrGalleryInputRef.current?.click()}
+                disabled={decodingQrPhoto}
+                className="rounded-lg border border-slate-300 bg-white py-3 text-sm font-semibold text-slate-800 disabled:opacity-60"
+              >
+                Elegir de galería
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 text-center">
+              Que el QR ocupe buena parte de la foto, sin cortes ni desenfoque. Si el token es largo, puede ayudar acercar más.
+            </p>
             <div id="entrada-qr-reader" className="w-full max-w-sm mx-auto overflow-hidden rounded-xl border border-slate-200 min-h-[120px]" />
             <p className="text-[11px] text-slate-500 text-center">Vista previa solo para escaneo en vivo (abajo)</p>
             <div className="grid grid-cols-2 gap-2">
