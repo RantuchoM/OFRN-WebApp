@@ -260,6 +260,7 @@ export default function ViaticosTable({
 }) {
   const [showBackup, setShowBackup] = useState(false);
   const [useHistoricalLocal, setUseHistoricalLocal] = useState(useHistoricalCalc);
+  const [expandedMotivoRowId, setExpandedMotivoRowId] = useState(null);
   const isHistorical = onUseHistoricalCalcChange ? useHistoricalCalc : useHistoricalLocal;
 
   const setHistorical = (value) => {
@@ -729,21 +730,25 @@ export default function ViaticosTable({
                         </td>
                         <td className="p-2 border-r border-slate-100">
                           <div className="flex flex-col">
-                            
-                            <div className="relative">
-                              <input
-                                type="text"
+                            <div className="relative min-h-[28px]">
+                              <textarea
                                 // Ahora es simple: si tiene dato (copiado o editado), se ve blanco/azul.
                                 // Si está vacío (porque el usuario lo borró), se ve gris.
-                                className={`text-xs border rounded px-1 py-0.5 w-full focus:border-indigo-400 outline-none transition-colors ${
+                                className={`text-xs border rounded px-1 py-1 w-full outline-none transition-all resize-y ${
+                                  expandedMotivoRowId === row.id
+                                    ? "absolute left-0 top-0 z-30 min-h-[110px] w-[420px] bg-white shadow-xl border-indigo-400"
+                                    : "h-[28px] max-h-[28px] overflow-hidden focus:border-indigo-400"
+                                } ${
                                   row.motivo
                                     ? "bg-white border-indigo-200 text-indigo-700 font-medium"
                                     : "bg-slate-50 border-slate-200 text-slate-500 italic"
-                                }`}
+                                } ${getInputClass(row.id, "motivo")}`}
                                 // El placeholder solo muestra el Global como última referencia si borran todo
                                 placeholder={config?.motivo || "Sin motivo"}
                                 // Leemos directamente del row, porque el dato YA EXISTE ahí
                                 value={row.motivo || ""}
+                                onFocus={() => setExpandedMotivoRowId(row.id)}
+                                onBlur={() => setExpandedMotivoRowId(null)}
                                 onChange={(e) =>
                                   onUpdateRow(row.id, "motivo", e.target.value)
                                 }
