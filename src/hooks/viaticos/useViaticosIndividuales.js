@@ -84,7 +84,7 @@ export function useViaticosIndividuales(
                     *, 
                     integrantes:id_integrante(
                         id, nombre, apellido, mail, dni, firma, id_instr, 
-                        documentacion, docred, 
+                        documentacion, docred, link_declaracion,
                         motivo, cargo, jornada
                     )
                 `,
@@ -181,6 +181,7 @@ export function useViaticosIndividuales(
           mail: persona?.mail || "",
           link_documentacion: joinedPersona?.documentacion || "",
           link_docred: joinedPersona?.docred || "",
+          link_declaracion: joinedPersona?.link_declaracion || "",
 
           noEstaEnRoster: esBajaLogica,
           valorDiarioCalc,

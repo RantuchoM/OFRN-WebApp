@@ -93,6 +93,7 @@ export default function ViaticosBulkEditPanel({
     rendicion: false,
     docComun: false,
     docReducida: false,
+    addDj: false,
     unifyFiles: false,
   });
 
@@ -562,11 +563,33 @@ export default function ViaticosBulkEditPanel({
                       setExportOptions((prev) => ({
                         ...prev,
                         docReducida: e.target.checked,
+                        addDj: e.target.checked ? true : prev.addDj,
                       }))
                     }
                     className="rounded text-green-600"
                   />{" "}
                   Doc. Reducida
+                </label>
+                <label
+                  className={`ml-5 flex items-center gap-2 text-[11px] p-1 rounded cursor-pointer ${
+                    exportOptions.docReducida
+                      ? "text-slate-700 hover:bg-slate-50"
+                      : "text-slate-400 cursor-not-allowed"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={exportOptions.addDj}
+                    disabled={!exportOptions.docReducida}
+                    onChange={(e) =>
+                      setExportOptions((prev) => ({
+                        ...prev,
+                        addDj: e.target.checked,
+                      }))
+                    }
+                    className="rounded text-green-600"
+                  />{" "}
+                  Agregar DJ (antes de Doc. Reducida)
                 </label>
               </div>
 

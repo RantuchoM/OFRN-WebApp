@@ -663,6 +663,12 @@ export default function ViaticosManager({ supabase, giraId }) {
     });
   };
 
+  const getDjUrl = (personData) =>
+    personData?.link_declaracion ||
+    personData?.declaracion_jurada ||
+    personData?.dj ||
+    "";
+
   const appendPersonToDoc = async (
     targetDoc,
     personData,
@@ -733,6 +739,14 @@ export default function ViaticosManager({ supabase, giraId }) {
       if (setDetail) setDetail(`Descargando Documentación (${name})...`);
       const bytes = await fetchPdfFromDrive(personData.documentacion);
       if (bytes) await mergeBytes(bytes, "Documentación");
+    }
+    if (options.docReducida && options.addDj) {
+      const djUrl = getDjUrl(personData);
+      if (djUrl) {
+        if (setDetail) setDetail(`Descargando DJ (${name})...`);
+        const bytes = await fetchPdfFromDrive(djUrl);
+        if (bytes) await mergeBytes(bytes, "DJ");
+      }
     }
     if (options.docReducida && personData.docred) {
       if (setDetail) setDetail(`Descargando Doc. Reducida (${name})...`);
@@ -960,6 +974,17 @@ export default function ViaticosManager({ supabase, giraId }) {
             `${nameSafe} - Documentación`,
           );
         }
+        if (options.docReducida && options.addDj) {
+          const djUrl = getDjUrl(personData);
+          if (djUrl) {
+            setExportDetail("Duplicando DJ en Drive...");
+            await copyDriveFile(
+              djUrl,
+              folderId,
+              `${nameSafe} - DJ`,
+            );
+          }
+        }
         if (options.docReducida && personData.docred) {
           setExportDetail("Duplicando Doc. Reducida en Drive...");
           await copyDriveFile(
@@ -1045,6 +1070,8 @@ export default function ViaticosManager({ supabase, giraId }) {
 
         rich.documentacion = p.documentacion || p.documentacion;
         rich.docred = p.docred || p.docred;
+        rich.link_declaracion =
+          p.link_declaracion || p.declaracion_jurada || p.dj || "";
         const fallbackCargo = isStablePerson(p) ? "Agente administrativo" : "";
         rich.cargo = p.cargo || p.rol || fallbackCargo;
         const motivoDestaques =
@@ -1179,6 +1206,12 @@ export default function ViaticosManager({ supabase, giraId }) {
           documentacion:
             person.documentacion || row.documentacion,
           docred: person.docred || row.docred,
+          link_declaracion:
+            person.link_declaracion ||
+            row.link_declaracion ||
+            row.declaracion_jurada ||
+            row.dj ||
+            "",
           ciudad_origen: ciudadOrigen,
           asiento_habitual: asientoHabitual,
         };

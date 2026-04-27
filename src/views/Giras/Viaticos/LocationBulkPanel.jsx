@@ -21,6 +21,7 @@ export default function LocationBulkPanel({
         destaque: true,
         docComun: false,
         docReducida: false,
+        addDj: false,
     });
 
     useEffect(() => {
@@ -32,7 +33,13 @@ export default function LocationBulkPanel({
     }, [selectionStats]);
 
     const handleToggle = (field) => {
-        setOptions(prev => ({ ...prev, [field]: !prev[field] }));
+        setOptions(prev => {
+            const nextValue = !prev[field];
+            if (field === "docReducida") {
+                return { ...prev, docReducida: nextValue, addDj: nextValue ? true : prev.addDj };
+            }
+            return { ...prev, [field]: nextValue };
+        });
     };
 
     const handleExportClick = () => {
@@ -140,6 +147,16 @@ export default function LocationBulkPanel({
                             <input type="checkbox" checked={options.docReducida} onChange={() => handleToggle('docReducida')} className="w-3 h-3 text-indigo-600 rounded" />
                             <span className="text-xs text-slate-600">Adjuntar Doc. Reducida</span>
                         </label>
+                        <label className={`ml-5 flex items-center gap-2 text-[11px] ${options.docReducida ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                            <input
+                                type="checkbox"
+                                checked={options.addDj}
+                                disabled={!options.docReducida}
+                                onChange={() => handleToggle('addDj')}
+                                className="w-3 h-3 text-indigo-600 rounded"
+                            />
+                            <span className="text-[11px] text-slate-600">Agregar DJ (antes de Doc. Reducida)</span>
+                        </label>
                     </div>
                 </div>
             </div>
@@ -162,7 +179,7 @@ export default function LocationBulkPanel({
                     </button>
                     <button 
                         onClick={handleExportClick} 
-                        disabled={loading || isExporting || countToExport === 0 || (!options.viatico && !options.destaque && !options.rendicion && !options.docComun)}
+                        disabled={loading || isExporting || countToExport === 0 || (!options.viatico && !options.destaque && !options.rendicion && !options.docComun && !options.docReducida)}
                         className="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-lg disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
                     >
                         {isExporting ? 'Exportando...' : `Exportar (${countToExport})`} <IconFileText size={18} />
