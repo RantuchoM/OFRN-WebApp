@@ -7,6 +7,7 @@ import RichTextEditor from "../../../components/ui/RichTextEditor";
 import { supabase } from "../../../services/supabase";
 import {
   adminUpdateUsuarioRol,
+  getAdminConciertoStats,
   adminUpsertConcierto,
   adminUpsertPrograma,
   blobToPdfBase64ForMail,
@@ -39,6 +40,42 @@ const ADMIN_TABS = ["programas", "conciertos", "usuarios"];
 function formatDate(value) {
   if (!value) return "-";
   return new Date(value).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function formatDateLongEs(value) {
+  if (!value) return "-";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  const parts = new Intl.DateTimeFormat("es-AR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).formatToParts(date);
+  const weekday = (parts.find((p) => p.type === "weekday")?.value || "").toLowerCase();
+  const day = parts.find((p) => p.type === "day")?.value || "";
+  const month = parts.find((p) => p.type === "month")?.value || "";
+  const year = parts.find((p) => p.type === "year")?.value || "";
+  return `${weekday}, ${day} de ${month} de ${year}`;
+}
+
+function getProgramaNombre(programa) {
+  if (!programa) return "Programa sin nombre";
+  return (
+    programa.nombre_gira
+    || programa.nomenclador
+    || programa.subtitulo
+    || `Programa ${programa.id || "-"}`
+  );
+}
+
+function buildProgramaLabel(programa) {
+  const nombre = getProgramaNombre(programa);
+  const prefijos = [programa?.nomenclador, programa?.mes_letra]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean);
+  if (!prefijos.length) return nombre;
+  return `${prefijos.join(" · ")} · ${nombre}`;
 }
 
 function entradasBloqueoIngreso(p) {
@@ -90,6 +127,20 @@ function isManualReservaCodeInput(value) {
   return /^ENT-RSV(?:-[A-Z0-9]+)*-\d{10}$/i.test(token);
 }
 
+function normalizeDriveImageUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  const fileIdFromPath = raw.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/i);
+  if (fileIdFromPath?.[1]) {
+    return `https://drive.google.com/thumbnail?id=${fileIdFromPath[1]}&sz=w1600`;
+  }
+  const fileIdFromQuery = raw.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+  if (fileIdFromQuery?.[1] && raw.includes("drive.google.com")) {
+    return `https://drive.google.com/thumbnail?id=${fileIdFromQuery[1]}&sz=w1600`;
+  }
+  return raw;
+}
+
 export default function EntradasMain({ user, profile, onLogout }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -114,9 +165,12 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const qrPhotoInputRef = useRef(null);
   const [adminData, setAdminData] = useState({ programas: [], conciertos: [], usuarios: [] });
   const [eventosConcierto, setEventosConcierto] = useState([]);
+  const [adminConciertoStatsById, setAdminConciertoStatsById] = useState({});
+  const [adminConciertoStatsLoadingById, setAdminConciertoStatsLoadingById] = useState({});
   const [adminTab, setAdminTab] = useState("programas");
   const [programaForm, setProgramaForm] = useState({ nombre: "", detalle_richtext: "", activo: true });
   const [conciertoForm, setConciertoForm] = useState({
+    id: null,
     ofrn_evento_id: "",
     nombre: "",
     detalle_richtext: "",
@@ -155,14 +209,19 @@ export default function EntradasMain({ user, profile, onLogout }) {
         const { data: eventosData, error: eventosError } = await supabase
           .from("eventos")
           .select(
-            "id, id_gira, fecha, hora_inicio, descripcion, tipos_evento(nombre), locaciones(nombre, localidades(localidad)), programas!eventos_id_gira_fkey(id, nomenclador, subtitulo)",
+            "id, id_gira, fecha, hora_inicio, descripcion, tipos_evento(nombre), locaciones(nombre, localidades(localidad)), programas!eventos_id_gira_fkey(id, nombre_gira, nomenclador, mes_letra, subtitulo)",
           )
           .eq("is_deleted", false)
           .is("deleted_at", null)
-          .order("fecha", { ascending: false });
+          .order("fecha", { ascending: true })
+          .order("hora_inicio", { ascending: true });
         if (eventosError) throw eventosError;
+        const inicioHoy = new Date();
+        inicioHoy.setHours(0, 0, 0, 0);
         const onlyConciertos = (eventosData || []).filter((ev) =>
-          String(ev?.tipos_evento?.nombre || "").toLowerCase().includes("concierto"),
+          String(ev?.tipos_evento?.nombre || "").toLowerCase().includes("concierto")
+          && ev?.fecha
+          && new Date(`${ev.fecha}T00:00:00`) >= inicioHoy,
         );
         setEventosConcierto(onlyConciertos);
       }
@@ -388,9 +447,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
   const submitConcierto = async (event) => {
     event.preventDefault();
-    await adminUpsertConcierto(conciertoForm);
-    toast.success("Concierto guardado.");
+    await adminUpsertConcierto({
+      ...conciertoForm,
+      imagen_drive_url: normalizeDriveImageUrl(conciertoForm.imagen_drive_url),
+    });
+    toast.success(conciertoForm.id ? "Concierto actualizado." : "Concierto guardado.");
     setConciertoForm({
+      id: null,
       ofrn_evento_id: "",
       nombre: "",
       detalle_richtext: "",
@@ -400,6 +463,48 @@ export default function EntradasMain({ user, profile, onLogout }) {
       activo: true,
     });
     setAdminData(await listAdminData());
+    setAdminConciertoStatsById({});
+    setAdminConciertoStatsLoadingById({});
+  };
+
+  const cargarStatsConcierto = async (conciertoId) => {
+    const id = Number(conciertoId);
+    if (!id || adminConciertoStatsById[id]) return;
+    setAdminConciertoStatsLoadingById((prev) => ({ ...prev, [id]: true }));
+    try {
+      const stats = await getAdminConciertoStats(id);
+      setAdminConciertoStatsById((prev) => ({ ...prev, [id]: stats }));
+    } catch (err) {
+      toast.error(err?.message || "No se pudieron cargar estadísticas del concierto.");
+    } finally {
+      setAdminConciertoStatsLoadingById((prev) => ({ ...prev, [id]: false }));
+    }
+  };
+
+  const startEditConcierto = (concierto) => {
+    setConciertoForm({
+      id: concierto.id,
+      ofrn_evento_id: concierto.ofrn_evento_id ?? "",
+      nombre: concierto.nombre || "",
+      detalle_richtext: concierto.detalle_richtext || "",
+      imagen_drive_url: concierto.imagen_drive_url || "",
+      capacidad_maxima: Number(concierto.capacidad_maxima || 100),
+      reservas_habilitadas: concierto.reservas_habilitadas ?? true,
+      activo: concierto.activo ?? true,
+    });
+  };
+
+  const resetConciertoForm = () => {
+    setConciertoForm({
+      id: null,
+      ofrn_evento_id: "",
+      nombre: "",
+      detalle_richtext: "",
+      imagen_drive_url: "",
+      capacidad_maxima: 100,
+      reservas_habilitadas: true,
+      activo: true,
+    });
   };
 
   if (loading) {
@@ -477,9 +582,29 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   <p className="text-xs text-slate-500">{formatDate(selectedConcierto.fecha_hora)}</p>
                   {selectedConcierto.lugar_nombre && <p className="text-xs text-slate-500">{selectedConcierto.lugar_nombre}</p>}
                   {selectedConcierto.imagen_drive_url && (
-                    <img src={selectedConcierto.imagen_drive_url} alt={selectedConcierto.nombre} className="w-full h-44 rounded-xl object-cover border border-slate-200" />
+                    <img
+                      src={normalizeDriveImageUrl(selectedConcierto.imagen_drive_url)}
+                      alt={selectedConcierto.nombre}
+                      className="w-full h-44 rounded-xl object-cover border border-slate-200"
+                      onError={(event) => {
+                        const img = event.currentTarget;
+                        const original = String(selectedConcierto.imagen_drive_url || "");
+                        const fallbackMatch =
+                          original.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/i)
+                          || original.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+                        const fallbackId = fallbackMatch?.[1];
+                        if (!fallbackId) return;
+                        const currentSrc = img.getAttribute("src") || "";
+                        if (currentSrc.includes("/thumbnail?")) {
+                          img.src = `https://drive.google.com/uc?export=view&id=${fallbackId}`;
+                        }
+                      }}
+                    />
                   )}
-                  <div className="prose prose-sm prose-slate max-w-none" dangerouslySetInnerHTML={{ __html: selectedConcierto.detalle_richtext || "" }} />
+                  <div
+                    className="entradas-richtext text-sm text-slate-700"
+                    dangerouslySetInnerHTML={{ __html: selectedConcierto.detalle_richtext || "" }}
+                  />
                   <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm">
                     Disponibles: <strong>{computeDisponibles(selectedConcierto)}</strong> / {selectedConcierto.capacidad_maxima}
                   </div>
@@ -794,11 +919,14 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
             {adminTab === "conciertos" && (
               <form className="space-y-3" onSubmit={submitConcierto}>
+                <h3 className="text-xs font-black uppercase tracking-wide text-slate-600">
+                  {conciertoForm.id ? "Editar concierto" : "Nuevo concierto"}
+                </h3>
                 <select value={conciertoForm.ofrn_evento_id} onChange={(event) => setConciertoForm((prev) => ({ ...prev, ofrn_evento_id: Number(event.target.value) }))} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" required>
                   <option value="">Seleccionar evento OFRN (tipo concierto)</option>
                   {eventosConcierto.map((ev) => (
                     <option key={ev.id} value={ev.id}>
-                      {(ev.programas?.nomenclador || `Programa ${ev.id_gira || "-"}`) + " · " + ev.fecha + " " + (ev.hora_inicio || "")}
+                      {`${buildProgramaLabel(ev.programas)} · ${formatDateLongEs(`${ev.fecha}T00:00:00`)}`}
                     </option>
                   ))}
                 </select>
@@ -807,13 +935,87 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 <input value={conciertoForm.imagen_drive_url} onChange={(event) => setConciertoForm((prev) => ({ ...prev, imagen_drive_url: event.target.value }))} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="URL pública de portada (Google Drive)" />
                 <input type="number" min={1} value={conciertoForm.capacidad_maxima} onChange={(event) => setConciertoForm((prev) => ({ ...prev, capacidad_maxima: Number(event.target.value) }))} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Capacidad máxima" required />
                 <RichTextEditor value={conciertoForm.detalle_richtext} onChange={(value) => setConciertoForm((prev) => ({ ...prev, detalle_richtext: value }))} placeholder="Detalle del concierto" />
-                <button type="submit" className="rounded-lg bg-blue-700 text-white px-4 py-2 text-sm font-semibold">Guardar concierto</button>
+                <div className="flex flex-wrap gap-2">
+                  <button type="submit" className="rounded-lg bg-blue-700 text-white px-4 py-2 text-sm font-semibold">
+                    {conciertoForm.id ? "Actualizar concierto" : "Guardar concierto"}
+                  </button>
+                  {conciertoForm.id && (
+                    <button
+                      type="button"
+                      onClick={resetConciertoForm}
+                      className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                    >
+                      Cancelar edición
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-2">
-                  {adminData.conciertos.map((concierto) => (
-                    <div key={concierto.id} className="rounded-lg border border-slate-200 p-2 text-sm">
-                      {concierto.nombre} · {formatDate(concierto.fecha_hora)}{concierto.lugar_nombre ? ` · ${concierto.lugar_nombre}` : ""}
-                    </div>
-                  ))}
+                  {adminData.conciertos.map((concierto) => {
+                    const stats = adminConciertoStatsById[concierto.id];
+                    const loadingStats = Boolean(adminConciertoStatsLoadingById[concierto.id]);
+                    return (
+                      <div key={concierto.id} className="rounded-lg border border-slate-200 p-3 text-sm space-y-2">
+                        <p className="font-semibold text-slate-800">
+                          {concierto.nombre} · {formatDate(concierto.fecha_hora)}
+                          {concierto.lugar_nombre ? ` · ${concierto.lugar_nombre}` : ""}
+                        </p>
+                        {concierto.detalle_richtext && (
+                          <div className="rounded-md border border-slate-200 bg-white px-2.5 py-2">
+                            <p className="mb-1 text-[10px] font-black uppercase tracking-wide text-slate-500">
+                              Vista previa del detalle
+                            </p>
+                            <div
+                              className="entradas-richtext text-xs text-slate-700"
+                              dangerouslySetInnerHTML={{ __html: concierto.detalle_richtext }}
+                            />
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEditConcierto(concierto)}
+                            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700"
+                          >
+                            Editar
+                          </button>
+                          {!stats && (
+                            <button
+                              type="button"
+                              onClick={() => cargarStatsConcierto(concierto.id)}
+                              disabled={loadingStats}
+                              className="rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-xs font-bold text-indigo-700 disabled:opacity-60"
+                            >
+                              {loadingStats ? "Cargando estadísticas..." : "Ver estadísticas"}
+                            </button>
+                          )}
+                        </div>
+                        {stats && (
+                          <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                              <div className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1.5">
+                                <span className="font-bold text-indigo-800">Reservadas:</span>{" "}
+                                <span className="text-indigo-900">{stats.reservadas}</span>
+                              </div>
+                              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5">
+                                <span className="font-bold text-emerald-800">Disponibles:</span>{" "}
+                                <span className="text-emerald-900">{stats.disponibles}</span>
+                              </div>
+                              <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5">
+                                <span className="font-bold text-amber-800">Ingresadas:</span>{" "}
+                                <span className="text-amber-900">{stats.ingresadas}</span>
+                              </div>
+                              <div className="rounded-md border border-slate-300 bg-slate-100 px-2 py-1.5 text-slate-700">
+                                <span className="font-bold">Reservadas no utilizadas:</span> {stats.noUtilizadas}
+                              </div>
+                            </div>
+                            <p className="text-[11px] text-slate-500">
+                              Capacidad máxima: {stats.capacidad}
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </form>
             )}

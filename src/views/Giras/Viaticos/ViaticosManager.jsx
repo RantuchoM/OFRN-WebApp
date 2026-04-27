@@ -63,6 +63,8 @@ const esPerfilMasivo = (persona) => {
   return esEstable && esRolMusicoOSolista;
 };
 
+const isStablePerson = (person) => normalizeStr(person?.condicion) === "estable";
+
 const zeroDestaqueMonetaryFields = (data) => {
   const monetaryKeys = [
     "subtotal",
@@ -1043,12 +1045,16 @@ export default function ViaticosManager({ supabase, giraId }) {
 
         rich.documentacion = p.documentacion || p.documentacion;
         rich.docred = p.docred || p.docred;
-        rich.cargo = p.cargo || p.rol || "";
+        const fallbackCargo = isStablePerson(p) ? "Agente administrativo" : "";
+        rich.cargo = p.cargo || p.rol || fallbackCargo;
         const motivoDestaques =
           config.motivo_destaques_exportacion?.trim() || config.motivo || "";
+        const fallbackJornada = isStablePerson(p) ? "Horas cátedra" : "";
         rich.motivo =
-          p.motivo && p.motivo.trim() !== "" ? p.motivo : motivoDestaques;
-        rich.jornada = p.jornada_laboral || p.jornada || "";
+          p.motivo && p.motivo.trim() !== ""
+            ? p.motivo
+            : motivoDestaques;
+        rich.jornada = p.jornada_laboral || p.jornada || fallbackJornada;
         rich.jornada_laboral = rich.jornada;
 
         let dias = 0;

@@ -12,6 +12,56 @@ body {
   @apply bg-slate-50 text-slate-800 transition-colors duration-300;
 }
 
+/* Render consistente para HTML enriquecido de Entradas */
+.entradas-richtext p { margin: 0.5rem 0; }
+.entradas-richtext p,
+.entradas-richtext li {
+  white-space: pre-wrap;
+  tab-size: 4;
+}
+.entradas-richtext ul,
+.entradas-richtext ol {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+.entradas-richtext ul { list-style: disc; }
+.entradas-richtext ol { list-style: decimal; }
+.entradas-richtext li { margin: 0.25rem 0; }
+.entradas-richtext strong { font-weight: 700; color: rgb(30 41 59); }
+.entradas-richtext em { font-style: italic; }
+.entradas-richtext h1,
+.entradas-richtext h2,
+.entradas-richtext h3,
+.entradas-richtext h4 {
+  margin: 0.75rem 0 0.35rem;
+  font-weight: 700;
+  color: rgb(15 23 42);
+  line-height: 1.25;
+}
+.entradas-richtext h1 { font-size: 1.35rem; }
+.entradas-richtext h2 { font-size: 1.2rem; }
+.entradas-richtext h3 { font-size: 1.05rem; }
+.entradas-richtext h4 { font-size: 1rem; }
+.entradas-richtext a {
+  color: rgb(37 99 235);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.entradas-richtext blockquote {
+  margin: 0.5rem 0;
+  border-left: 3px solid rgb(203 213 225);
+  padding-left: 0.75rem;
+  color: rgb(71 85 105);
+}
+.entradas-richtext .ql-indent-1 { padding-left: 3em; }
+.entradas-richtext .ql-indent-2 { padding-left: 6em; }
+.entradas-richtext .ql-indent-3 { padding-left: 9em; }
+.entradas-richtext .ql-indent-4 { padding-left: 12em; }
+.entradas-richtext .ql-indent-5 { padding-left: 15em; }
+.entradas-richtext .ql-indent-6 { padding-left: 18em; }
+.entradas-richtext .ql-indent-7 { padding-left: 21em; }
+.entradas-richtext .ql-indent-8 { padding-left: 24em; }
+
 /* Línea "ahora" en agenda: titileo lento para indicar que es dinámica */
 @keyframes agenda-now-line-pulse {
   0%, 100% { opacity: 0.75; }

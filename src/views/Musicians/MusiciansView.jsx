@@ -349,6 +349,27 @@ const AVAILABLE_COLUMNS = [
     sortKey: "condicion",
   },
   {
+    key: "cargo",
+    label: "Cargo",
+    width: "140px",
+    type: "text",
+    sortKey: "cargo",
+  },
+  {
+    key: "jornada",
+    label: "Jornada",
+    width: "130px",
+    type: "text",
+    sortKey: "jornada",
+  },
+  {
+    key: "motivo",
+    label: "Motivo",
+    width: "180px",
+    type: "text",
+    sortKey: "motivo",
+  },
+  {
     key: "ensambles",
     label: "Ensambles Asignados",
     width: "200px",
@@ -874,14 +895,51 @@ const MassEditModal = ({
   locationOptions,
   locacionOptions = [],
 }) => {
-  const [selectedField, setSelectedField] = useState(MASS_EDIT_FIELDS[0].key);
-  const [newValue, setNewValue] = useState("");
+  const [fieldsToEdit, setFieldsToEdit] = useState([
+    { id: 1, field: MASS_EDIT_FIELDS[0].key, value: "" },
+  ]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setFieldsToEdit([{ id: 1, field: MASS_EDIT_FIELDS[0].key, value: "" }]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const fieldConfig = MASS_EDIT_FIELDS.find((f) => f.key === selectedField);
+  const usedFields = new Set(fieldsToEdit.map((f) => f.field));
+  const canAddMoreFields = usedFields.size < MASS_EDIT_FIELDS.length;
+  const getFieldConfig = (fieldKey) =>
+    MASS_EDIT_FIELDS.find((f) => f.key === fieldKey);
+
+  const updateFieldRow = (id, patch) => {
+    setFieldsToEdit((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    );
+  };
+
+  const addFieldRow = () => {
+    if (!canAddMoreFields) return;
+    const nextField = MASS_EDIT_FIELDS.find((f) => !usedFields.has(f.key));
+    if (!nextField) return;
+    setFieldsToEdit((prev) => [
+      ...prev,
+      { id: Date.now() + Math.random(), field: nextField.key, value: "" },
+    ]);
+  };
+
+  const removeFieldRow = (id) => {
+    setFieldsToEdit((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((row) => row.id !== id);
+    });
+  };
+
   const handleSave = () => {
-    onSave(selectedField, newValue);
+    const updates = fieldsToEdit.reduce((acc, row) => {
+      acc[row.field] = row.value;
+      return acc;
+    }, {});
+    onSave(updates);
   };
 
   return createPortal(
@@ -895,92 +953,125 @@ const MassEditModal = ({
             Se actualizarán <b>{count}</b> registros.
           </p>
         </div>
-        <div className="p-5 space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-              Campo a editar
-            </label>
-            <select
-              className="w-full border rounded-lg p-2 text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-indigo-200"
-              value={selectedField}
-              onChange={(e) => {
-                setSelectedField(e.target.value);
-                setNewValue("");
-              }}
-            >
-              {MASS_EDIT_FIELDS.map((f) => (
-                <option key={f.key} value={f.key}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-              Nuevo Valor
-            </label>
-            {fieldConfig.type === "select" ? (
-              <select
-                className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-              >
-                <option value="">Seleccionar...</option>
-                {fieldConfig.options.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            ) : fieldConfig.type === "instrument_select" ? (
-              <select
-                className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-              >
-                <option value="">Seleccionar Instrumento...</option>
-                {instrumentOptions.map((i) => (
-                  <option key={i.value} value={i.value}>
-                    {i.label}
-                  </option>
-                ))}
-              </select>
-            ) : fieldConfig.type === "location_select" ? (
-              <select
-                className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-              >
-                <option value="">Seleccionar Localidad...</option>
-                {locationOptions.map((l) => (
-                  <option key={l.value} value={l.value}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
-            ) : fieldConfig.type === "locacion_select" ? (
-              <select
-                className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-              >
-                <option value="">Seleccionar Sede Laboral...</option>
-                {(locacionOptions || []).map((l) => (
-                  <option key={l.id ?? l.value} value={l.id ?? l.value}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type="text"
-                className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-                placeholder={`Ingresar ${fieldConfig.label}...`}
-              />
-            )}
-          </div>
+        <div className="p-5 space-y-4 max-h-[65vh] overflow-y-auto">
+          {fieldsToEdit.map((row) => {
+            const fieldConfig = getFieldConfig(row.field);
+            const selectedByOthers = new Set(
+              fieldsToEdit.filter((f) => f.id !== row.id).map((f) => f.field),
+            );
+
+            return (
+              <div key={row.id} className="rounded-lg border border-slate-200 p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-500 uppercase">
+                    Campo a editar
+                  </label>
+                  {fieldsToEdit.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeFieldRow(row.id)}
+                      className="text-[10px] font-bold uppercase text-red-500 hover:text-red-700"
+                    >
+                      Quitar
+                    </button>
+                  )}
+                </div>
+                <select
+                  className="w-full border rounded-lg p-2 text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-indigo-200"
+                  value={row.field}
+                  onChange={(e) =>
+                    updateFieldRow(row.id, { field: e.target.value, value: "" })
+                  }
+                >
+                  {MASS_EDIT_FIELDS.map((f) => (
+                    <option
+                      key={f.key}
+                      value={f.key}
+                      disabled={selectedByOthers.has(f.key)}
+                    >
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                    Nuevo Valor
+                  </label>
+                  {fieldConfig.type === "select" ? (
+                    <select
+                      className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                      value={row.value}
+                      onChange={(e) => updateFieldRow(row.id, { value: e.target.value })}
+                    >
+                      <option value="">Seleccionar...</option>
+                      {fieldConfig.options.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : fieldConfig.type === "instrument_select" ? (
+                    <select
+                      className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                      value={row.value}
+                      onChange={(e) => updateFieldRow(row.id, { value: e.target.value })}
+                    >
+                      <option value="">Seleccionar Instrumento...</option>
+                      {instrumentOptions.map((i) => (
+                        <option key={i.value} value={i.value}>
+                          {i.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : fieldConfig.type === "location_select" ? (
+                    <select
+                      className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                      value={row.value}
+                      onChange={(e) => updateFieldRow(row.id, { value: e.target.value })}
+                    >
+                      <option value="">Seleccionar Localidad...</option>
+                      {locationOptions.map((l) => (
+                        <option key={l.value} value={l.value}>
+                          {l.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : fieldConfig.type === "locacion_select" ? (
+                    <select
+                      className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                      value={row.value}
+                      onChange={(e) => updateFieldRow(row.id, { value: e.target.value })}
+                    >
+                      <option value="">Seleccionar Sede Laboral...</option>
+                      {(locacionOptions || []).map((l) => (
+                        <option key={l.id ?? l.value} value={l.id ?? l.value}>
+                          {l.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                      value={row.value}
+                      onChange={(e) => updateFieldRow(row.id, { value: e.target.value })}
+                      placeholder={`Ingresar ${fieldConfig.label}...`}
+                    />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={addFieldRow}
+            disabled={!canAddMoreFields}
+            className="w-full rounded-lg border border-dashed border-indigo-300 text-indigo-700 bg-indigo-50/40 py-2 text-xs font-bold hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            + Nuevo campo
+          </button>
         </div>
         <div className="p-4 bg-slate-50 border-t flex justify-end gap-2">
           <button
@@ -1276,22 +1367,40 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     );
   };
 
-  const handleMassUpdate = async (field, value) => {
+  const handleMassUpdate = async (updates) => {
     const toastId = toast.loading("Aplicando cambios masivos...");
     try {
       const ids = Array.from(selectedMusicians);
-      let finalValue = value === "" ? null : value;
-      if (field === "id_localidad" || field === "id_instr" || field === "id_domicilio_laboral")
-        finalValue = value ? parseInt(value) : null;
+      const updatePayload = {};
+      Object.entries(updates || {}).forEach(([field, value]) => {
+        let finalValue = value === "" ? null : value;
+        if (
+          field === "id_localidad" ||
+          field === "id_instr" ||
+          field === "id_domicilio_laboral"
+        ) {
+          finalValue = value ? parseInt(value) : null;
+        }
+        updatePayload[field] = finalValue;
+      });
+
+      if (Object.keys(updatePayload).length === 0) {
+        toast.error("No hay cambios para aplicar", { id: toastId });
+        return;
+      }
+
       const { error } = await supabase
         .from("integrantes")
-        .update({ [field]: finalValue })
+        .update(updatePayload)
         .in("id", ids);
       if (error) throw error;
       
       // Si cambió un campo crítico, regenerar expediente completo para cada músico
       const camposCriticos = ['domicilio', 'id_domicilio_laboral', 'link_cbu_img', 'link_dni_img', 'link_cuil', 'dni', 'cuil'];
-      if (camposCriticos.includes(field)) {
+      const touchedCriticalField = Object.keys(updatePayload).some((key) =>
+        camposCriticos.includes(key),
+      );
+      if (touchedCriticalField) {
         toast.loading(`Regenerando expedientes para ${ids.length} músico(s)...`, { id: toastId });
         // Ejecutar en paralelo pero con límite para no sobrecargar
         const batchSize = 5;
@@ -1307,7 +1416,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         }
       }
       
-      toast.success(`Se actualizaron ${ids.length} registros${camposCriticos.includes(field) ? ' y se regeneraron los expedientes' : ''}`, { id: toastId });
+      toast.success(`Se actualizaron ${ids.length} registros${touchedCriticalField ? ' y se regeneraron los expedientes' : ''}`, { id: toastId });
       fetchData();
       setIsMassEditOpen(false);
       setSelectedMusicians(new Set());

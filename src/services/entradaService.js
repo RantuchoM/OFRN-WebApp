@@ -234,7 +234,9 @@ export async function listAdminData() {
     supabase.from("entrada_programa").select("*").order("id", { ascending: false }),
     supabase
       .from("entrada_concierto")
-      .select("*, programa:entrada_programa(id, nombre), evento:eventos!entrada_concierto_ofrn_evento_id_fkey(id, fecha, hora_inicio, id_locacion, descripcion, locaciones(id, nombre, localidades(localidad)), programas(id, nomenclador, subtitulo))")
+      .select(
+        "*, programa:entrada_programa(id, nombre), evento:eventos!entrada_concierto_ofrn_evento_id_fkey(id, fecha, hora_inicio, id_locacion, descripcion, locaciones(id, nombre, localidades(localidad)), programas(id, nomenclador, subtitulo))",
+      )
       .order("fecha_hora", { ascending: false }),
     supabase.from("entrada_usuario").select("*").order("apellido", { ascending: true }),
   ]);
@@ -246,6 +248,38 @@ export async function listAdminData() {
     conciertos: conciertosRes.data || [],
     usuarios: usuariosRes.data || [],
   };
+}
+
+export async function getAdminConciertoStats(conciertoId) {
+  const conciertoIdNum = Number(conciertoId);
+  if (!Number.isFinite(conciertoIdNum) || conciertoIdNum <= 0) {
+    throw new Error("Concierto inválido.");
+  }
+
+  const [conciertoRes, reservasRes] = await Promise.all([
+    supabase.from("entrada_concierto").select("id, capacidad_maxima").eq("id", conciertoIdNum).maybeSingle(),
+    supabase
+      .from("entrada_reserva")
+      .select("id, estado, cantidad_solicitada, entrada_reserva_entrada(id, estado_ingreso)")
+      .eq("concierto_id", conciertoIdNum),
+  ]);
+
+  if (conciertoRes.error) throw conciertoRes.error;
+  if (reservasRes.error) throw reservasRes.error;
+
+  const reservas = reservasRes.data || [];
+  const reservadas = reservas
+    .filter((r) => r?.estado === "activa")
+    .reduce((acc, r) => acc + Number(r?.cantidad_solicitada || 0), 0);
+  const ingresadas = reservas.reduce((acc, r) => {
+    const entradas = Array.isArray(r?.entrada_reserva_entrada) ? r.entrada_reserva_entrada : [];
+    return acc + entradas.filter((e) => e?.estado_ingreso === "ingresada").length;
+  }, 0);
+  const capacidad = Number(conciertoRes.data?.capacidad_maxima || 0);
+  const disponibles = Math.max(0, capacidad - reservadas);
+  const noUtilizadas = Math.max(0, reservadas - ingresadas);
+
+  return { reservadas, disponibles, ingresadas, noUtilizadas, capacidad };
 }
 
 export async function adminUpsertPrograma(payload) {

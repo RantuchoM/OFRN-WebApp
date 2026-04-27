@@ -73,6 +73,24 @@ const normalizeScope = (value) =>
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
+const isStablePerson = (person) =>
+  String(person?.condicion || "").trim().toLowerCase() === "estable";
+
+const withStableExportFallbacks = (person) => {
+  if (!isStablePerson(person)) return person;
+
+  const cargo = String(person?.cargo || "").trim();
+  const jornadaRaw = person?.jornada_laboral ?? person?.jornada ?? "";
+  const jornada = String(jornadaRaw || "").trim();
+
+  return {
+    ...person,
+    cargo: cargo || "Agente administrativo",
+    jornada_laboral: jornada || "Horas cátedra",
+    jornada: jornada || "Horas cátedra",
+  };
+};
+
 // --- CONFIGURACIÓN DE COLUMNAS ---
 const MASSIVE_COLS = [
     { label: "Movilidad", exp: "gastos_movilidad", ren: "rendicion_transporte_otros" },
@@ -748,12 +766,12 @@ export default function DestaquesLocationPanel({
                               }
                             : {};
 
-                        peopleToExport.push({ 
-                            ...p, 
+                        peopleToExport.push(withStableExportFallbacks({ 
+                            ...p,
                             _massConfigId: groupId,
                             _groupName: group.name,
                             travelData: { ...travelFromHeader, ...(p.travelData || {}) },
-                        });
+                        }));
                     });
                     locationIds.push(groupId);
                 }
