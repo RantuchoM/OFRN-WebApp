@@ -83,6 +83,13 @@ function recepcionPanelClass(p) {
   return "bg-slate-100 border-slate-200";
 }
 
+function isManualReservaCodeInput(value) {
+  const token = String(value || "").trim();
+  if (!token) return false;
+  if (/^\d{10}$/.test(token)) return true;
+  return /^ENT-RSV(?:-[A-Z0-9]+)*-\d{10}$/i.test(token);
+}
+
 export default function EntradasMain({ user, profile, onLogout }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -94,6 +101,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [misReservas, setMisReservas] = useState([]);
   const [recepcionConciertoId, setRecepcionConciertoId] = useState("");
   const [scannerToken, setScannerToken] = useState("");
+  const [manualReservaCode, setManualReservaCode] = useState("");
   const [pendingWarning, setPendingWarning] = useState(null);
   const [qrPreview, setQrPreview] = useState(null);
   const [qrPreviewLoading, setQrPreviewLoading] = useState(false);
@@ -203,7 +211,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
       return;
     }
     const t = scannerToken.trim();
-    if (t.length < 18) {
+    const esCodigoManual = isManualReservaCodeInput(t);
+    if (!esCodigoManual && t.length < 18) {
       setQrPreview(null);
       setQrPreviewLoading(false);
       return;
@@ -317,6 +326,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       }
       toast.success(formatEntradasValidacionSuccess(result));
       setScannerToken("");
+      setManualReservaCode("");
       setQrPreview(null);
     } finally {
       setIngresando(false);
@@ -645,8 +655,39 @@ export default function EntradasMain({ user, profile, onLogout }) {
               value={scannerToken}
               onChange={(event) => setScannerToken(event.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
-              placeholder="Pegá el token o leé el QR con el ícono (ENTR-…)"
+              placeholder="Pegá el token QR completo (ENTR-...) o usá código manual abajo"
             />
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]*"
+                maxLength={10}
+                value={manualReservaCode}
+                onChange={(event) => {
+                  const onlyDigits = event.target.value.replace(/\D/g, "").slice(0, 10);
+                  setManualReservaCode(onlyDigits);
+                  if (onlyDigits.length === 10) {
+                    setScannerToken(onlyDigits);
+                  }
+                }}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm tracking-[0.18em]"
+                placeholder="Código manual (10 dígitos)"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (manualReservaCode.length === 10) {
+                    setScannerToken(manualReservaCode);
+                  }
+                }}
+                disabled={manualReservaCode.length !== 10}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 disabled:opacity-50"
+              >
+                Usar código
+              </button>
+            </div>
             {qrPreviewLoading && <p className="text-sm text-indigo-600 font-medium">Analizando código…</p>}
             {qrPreview && !qrPreview.ok && (
               <div

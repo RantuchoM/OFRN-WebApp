@@ -14,6 +14,9 @@ export function formatEntradasPreviewError(preview) {
   if (preview.reason === "concierto_distinto") {
     return "Este QR no corresponde al concierto elegido en la lista. Cambiá el concierto o usá un código de ese evento.";
   }
+  if (preview.reason === "codigo_ambiguo") {
+    return "Ese código de 10 dígitos coincide con más de una reserva. Elegí el concierto correcto y volvé a intentar.";
+  }
   if (preview.reason === "error") {
     return preview.detalle || "Error al consultar el código.";
   }
@@ -25,7 +28,9 @@ export function formatEntradasValidacionError(result) {
   const r = result;
   switch (r.reason) {
     case "token_no_encontrado":
-      return "No reconocemos este código. Asegurate de leer un QR de entradas OFRN o pegá el texto completo del token.";
+      return "No reconocemos este código. Escaneá un QR OFRN o ingresá los 10 dígitos de una reserva válida.";
+    case "codigo_ambiguo":
+      return "Ese código de 10 dígitos coincide con más de una reserva. Elegí el concierto correcto y probá de nuevo.";
     case "entrada_ya_usada": {
       const when = r.ingresada_at
         ? ` Ese ingreso se registró el ${fmtFechaHora(r.ingresada_at)}.`
