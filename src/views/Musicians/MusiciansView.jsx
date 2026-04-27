@@ -430,6 +430,13 @@ const AVAILABLE_COLUMNS = [
     sortKey: "fecha_nac",
   },
   {
+    key: "fecha_alta",
+    label: "F. Alta",
+    width: "90px",
+    type: "date",
+    sortKey: "fecha_alta",
+  },
+  {
     key: "alimentacion",
     label: "Dieta",
     width: "120px",
