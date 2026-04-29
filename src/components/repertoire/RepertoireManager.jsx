@@ -41,6 +41,7 @@ import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import {
   calculateInstrumentation,
   calculateTotalDuration,
+  calculateNetDuration,
   getInstrumentValue,
   hasStrings,
 } from "../../utils/instrumentation";
@@ -2176,7 +2177,10 @@ export default function RepertoireManager({
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-mono font-bold text-slate-600 bg-white px-1.5 rounded border">
-                  Total: {calculateTotalDuration(rep.repertorio_obras)}
+                  Total: {calculateTotalDuration(rep.repertorio_obras)}{" "}
+                  <span className="text-slate-500 font-normal">
+                    (Neto {calculateNetDuration(rep.repertorio_obras)})
+                  </span>
                 </span>
                 {isEditor && (
                   <>

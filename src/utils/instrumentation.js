@@ -1,4 +1,4 @@
-import { formatSecondsToTime } from "./time";
+import { formatSecondsToHm } from "./time";
 
 /** Indica si el string de instrumentación incluye cuerdas. */
 export const hasStrings = (text) => {
@@ -242,10 +242,20 @@ export const calculateInstrumentation = (parts) => {
 };
 
 export const calculateTotalDuration = (works) => {
-  if (!works) return "00:00";
+  if (!works) return "0h 0m";
   const totalSeconds = works.reduce(
     (acc, item) => acc + (item.obras?.duracion_segundos || 0),
     0,
   );
-  return formatSecondsToTime(totalSeconds);
+  return formatSecondsToHm(totalSeconds);
+};
+
+/** Duración sin obras marcadas como excluidas de la programación (`excluir`). */
+export const calculateNetDuration = (works) => {
+  if (!works) return "0h 0m";
+  const totalSeconds = works.reduce((acc, item) => {
+    if (item.excluir) return acc;
+    return acc + (item.obras?.duracion_segundos || 0);
+  }, 0);
+  return formatSecondsToHm(totalSeconds);
 };

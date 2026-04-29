@@ -15,6 +15,17 @@ export const formatSecondsToTime = (seconds) => {
     return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
+/** Siempre `Xh Ym` (p. ej. `0h 50m`, `1h 14m`). Opcional `Zs` si hay segundos distintos de cero. */
+export const formatSecondsToHm = (seconds) => {
+  if (seconds !== 0 && (!seconds || Number.isNaN(seconds))) return "0h 0m";
+  const total = Math.max(0, Math.floor(Number(seconds)));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (s > 0) return `${h}h ${m}m ${s}s`;
+  return `${h}h ${m}m`;
+};
+
 // Convierte input de usuario (Texto) a Segundos (Int)
 // Soporta: "5" (5 min), "5:30" (5 min 30 seg)
 export const inputToSeconds = (input) => {
