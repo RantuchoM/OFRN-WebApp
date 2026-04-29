@@ -23,12 +23,57 @@ export default function MusicianFileUploader({ label, field, value }) {
     handleClipboardClick,
     loading,
     uploadingField,
+    supabase,
   } = useMusicianFormContext();
 
   const [isDragging, setIsDragging] = useState(false);
   const status = fieldStatuses[field];
   const isPdf = value && value.toLowerCase().includes(".pdf");
   const bucket = field === "firma" ? "firmas" : "musician-docs";
+
+  const openFileInNewTab = async () => {
+    if (!value) return;
+
+    const newTab = window.open("about:blank", "_blank");
+    if (!newTab) return;
+    newTab.opener = null;
+
+    const cleanUrl = String(value).split("#")[0];
+    const publicMarker = "/storage/v1/object/public/";
+    const markerIndex = cleanUrl.indexOf(publicMarker);
+
+    if (markerIndex === -1 || !supabase) {
+      newTab.location.href = value;
+      return;
+    }
+
+    try {
+      const storagePath = decodeURIComponent(
+        cleanUrl.slice(markerIndex + publicMarker.length),
+      );
+      const firstSlash = storagePath.indexOf("/");
+      if (firstSlash === -1) {
+        newTab.location.href = value;
+        return;
+      }
+
+      const urlBucket = storagePath.slice(0, firstSlash);
+      const objectPath = storagePath.slice(firstSlash + 1);
+
+      const { data, error } = await supabase.storage
+        .from(urlBucket)
+        .createSignedUrl(objectPath, 60 * 10);
+
+      if (error || !data?.signedUrl) {
+        newTab.location.href = value;
+        return;
+      }
+
+      newTab.location.href = data.signedUrl;
+    } catch {
+      newTab.location.href = value;
+    }
+  };
 
   const handleDrag = (e) => {
     e.preventDefault();
@@ -87,14 +132,13 @@ export default function MusicianFileUploader({ label, field, value }) {
               >
                 <IconScissor size={20} />
               </button>
-              <a
-                href={value}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                onClick={openFileInNewTab}
                 className="p-3 bg-white rounded-xl text-indigo-600 shadow-xl hover:scale-110"
               >
                 <IconEye size={20} />
-              </a>
+              </button>
               <button
                 type="button"
                 onClick={async () => {

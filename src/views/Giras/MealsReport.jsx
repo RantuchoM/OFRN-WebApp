@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { IconLoader, IconPrinter } from "../../components/ui/Icons";
+import {
+  IconLoader,
+  IconPrinter,
+  IconClipboard,
+  IconCopy,
+  IconX,
+  IconCheck,
+} from "../../components/ui/Icons";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { handlePrintExport } from "../../utils/PrintWrapper";
@@ -20,6 +27,8 @@ export default function MealsReport({
   const reportRef = useRef(null);
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState([]);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [selectedTypes, setSelectedTypes] = useState(
     new Set(["Desayuno", "Almuerzo", "Merienda", "Cena"]),
   );
@@ -176,6 +185,159 @@ export default function MealsReport({
     selectedTypes.has(r.servicio),
   );
 
+  const activeRoster = useMemo(
+    () => (enrichedRoster || []).filter((p) => p.estado_gira === "confirmado"),
+    [enrichedRoster],
+  );
+
+  const nonLocalRoster = useMemo(
+    () => activeRoster.filter((p) => !p.is_local),
+    [activeRoster],
+  );
+
+  const textSummary = useMemo(() => {
+    const formatDayHeader = (isoDate) => {
+      const label = format(parseISO(isoDate), "EEEE dd/MM", { locale: es });
+      return label.charAt(0).toUpperCase() + label.slice(1);
+    };
+
+    const formatDayRange = (isoDate) => format(parseISO(isoDate), "dd/MM");
+
+    const serviceOrder = ["Desayuno", "Almuerzo", "Merienda", "Cena"];
+    const servicePlural = {
+      Desayuno: "desayunos",
+      Almuerzo: "almuerzos",
+      Merienda: "meriendas",
+      Cena: "cenas",
+    };
+
+    const perDate = {};
+    filteredReport.forEach((row) => {
+      if (!perDate[row.fecha]) perDate[row.fecha] = {};
+      if (!perDate[row.fecha][row.servicio]) {
+        perDate[row.fecha][row.servicio] = { Total: 0 };
+      }
+      perDate[row.fecha][row.servicio].Total += row.counts.Total || 0;
+      Object.entries(row.counts).forEach(([diet, value]) => {
+        if (diet === "Total" || !value) return;
+        perDate[row.fecha][row.servicio][diet] =
+          (perDate[row.fecha][row.servicio][diet] || 0) + value;
+      });
+    });
+
+    const orderedDates = Object.keys(perDate).sort((a, b) =>
+      a.localeCompare(b),
+    );
+
+    const mealBlocks = orderedDates
+      .map((dateKey) => {
+        const dateRows = serviceOrder
+          .map((service) => {
+            const counts = perDate[dateKey][service];
+            if (!counts || !counts.Total) return null;
+
+            const diets = Object.entries(counts)
+              .filter(([k, v]) => k !== "Total" && v > 0)
+              .sort(([a], [b]) =>
+                a === "Estándar"
+                  ? -1
+                  : b === "Estándar"
+                    ? 1
+                    : a.localeCompare(b),
+              )
+              .map(([diet, value]) => `${value} ${diet.toLowerCase()}`);
+
+            const details = diets.length > 0 ? ` (${diets.join(", ")})` : "";
+            return `${counts.Total} ${servicePlural[service]}${details}`;
+          })
+          .filter(Boolean);
+
+        if (dateRows.length === 0) return null;
+        return `${formatDayHeader(dateKey)}\n${dateRows.join("\n")}`;
+      })
+      .filter(Boolean);
+
+    const isMinorPerson = (person) => {
+      if (person?.menor === true || person?.menor === 1) return true;
+      if (!person?.fecha_nacimiento) return false;
+      const birth = new Date(person.fecha_nacimiento);
+      if (Number.isNaN(birth.getTime())) return false;
+      const today = new Date();
+      let age = today.getFullYear() - birth.getFullYear();
+      const monthDiff = today.getMonth() - birth.getMonth();
+      if (
+        monthDiff < 0 ||
+        (monthDiff === 0 && today.getDate() < birth.getDate())
+      ) {
+        age -= 1;
+      }
+      return age < 18;
+    };
+
+    const groupedByStay = {};
+    nonLocalRoster.forEach((person) => {
+      const inDate =
+        person?.logistics?.checkin?.date || person?.logistics?.comida_inicio?.date;
+      const outDate =
+        person?.logistics?.checkout?.date || person?.logistics?.comida_fin?.date;
+      if (!inDate || !outDate) return;
+      const key = `${inDate}|${outDate}`;
+      if (!groupedByStay[key]) {
+        groupedByStay[key] = {
+          inDate,
+          outDate,
+          pax: 0,
+          minors: 0,
+          superiorRooms: new Set(),
+        };
+      }
+      groupedByStay[key].pax += 1;
+      if (isMinorPerson(person)) groupedByStay[key].minors += 1;
+
+      const room = person?.habitacion;
+      const roomType = String(room?.tipo || "").toLowerCase();
+      const isSuperiorRoom = roomType === "plus" || roomType === "superior";
+      if (isSuperiorRoom && room?.id) groupedByStay[key].superiorRooms.add(room.id);
+    });
+
+    const stayBlocks = Object.values(groupedByStay)
+      .sort((a, b) => a.inDate.localeCompare(b.inDate))
+      .map((group) => {
+        const extras = [];
+        if (group.minors > 0) {
+          extras.push(`${group.minors} ${group.minors === 1 ? "menor" : "menores"}`);
+        }
+        const roomCount = group.superiorRooms.size;
+        if (roomCount > 0) {
+          extras.push(
+            `${roomCount} ${roomCount === 1 ? "habitación superior" : "habitaciones superiores"}`,
+          );
+        }
+        const extraText = extras.length > 0 ? ` (${extras.join(", ")})` : "";
+        return (
+          `Grupo ingreso ${formatDayRange(group.inDate)} al ${formatDayRange(group.outDate)}\n` +
+          `${group.pax} pasajeros${extraText}`
+        );
+      });
+
+    const blocks = [];
+    blocks.push(`Cantidad de pax: ${nonLocalRoster.length} pax`);
+    if (mealBlocks.length > 0) blocks.push(mealBlocks.join("\n\n"));
+    blocks.push("Fecha de ingreso y egreso.");
+    if (stayBlocks.length > 0) blocks.push(stayBlocks.join("\n\n"));
+    return blocks.join("\n\n");
+  }, [filteredReport, nonLocalRoster]);
+
+  const handleCopySummary = async () => {
+    try {
+      await navigator.clipboard.writeText(textSummary);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (error) {
+      console.error("No se pudo copiar el resumen de comidas:", error);
+    }
+  };
+
   const calculateGroupTotals = (services) => {
     const totals = { Total: 0 };
     allDiets.forEach((d) => (totals[d] = 0));
@@ -242,17 +404,25 @@ export default function MealsReport({
             </label>
           </div>
         </div>
-        <button
-          onClick={() =>
-            handlePrintExport(
-              reportRef,
-              `Reporte Comidas - ${gira.nombre_gira}`,
-            )
-          }
-          className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-700"
-        >
-          <IconPrinter size={18} /> Exportar PDF
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowSummaryModal(true)}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700"
+          >
+            <IconClipboard size={18} /> Texto pedido
+          </button>
+          <button
+            onClick={() =>
+              handlePrintExport(
+                reportRef,
+                `Reporte Comidas - ${gira.nombre_gira}`,
+              )
+            }
+            className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-700"
+          >
+            <IconPrinter size={18} /> Exportar PDF
+          </button>
+        </div>
       </div>
 
       {/* Contenido Reporte */}
@@ -267,10 +437,10 @@ export default function MealsReport({
         <table className="w-full text-left border-collapse text-sm">
           <thead>
             <tr className="border-b-2 border-slate-800">
-              <th className="py-2 px-1 w-0 whitespace-nowrap" title="Fecha">Fcha</th>
+              <th className="py-2 px-1 w-0 whitespace-nowrap" title="Fecha">Fecha</th>
               <th className="py-2 px-1 w-0 whitespace-nowrap" title="Hora">Hora</th>
               <th className="py-2 px-1 w-0 whitespace-nowrap" title="Servicio">Serv</th>
-              <th className="py-2 px-2 min-w-0">Lugr</th>
+              <th className="py-2 px-2 min-w-0">Lugar</th>
               <th className="py-2 px-1 w-0 text-right bg-slate-100 whitespace-nowrap" title="Total">Tota</th>
               {allDiets.map((d) => (
                 <th
@@ -354,6 +524,55 @@ export default function MealsReport({
           </tfoot>
         </table>
       </div>
+
+      {showSummaryModal && (
+        <div
+          className="fixed inset-0 z-[90] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 print:hidden"
+          onClick={() => setShowSummaryModal(false)}
+        >
+          <div
+            className="w-full max-w-3xl bg-white rounded-xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800">
+                Texto para enviar a alimentación
+              </h3>
+              <button
+                onClick={() => setShowSummaryModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-700"
+                title="Cerrar"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            <div className="p-4 overflow-auto">
+              <textarea
+                readOnly
+                value={textSummary}
+                className="w-full min-h-[360px] border border-slate-300 rounded-lg p-3 text-sm font-mono text-slate-700 resize-y bg-slate-50"
+              />
+            </div>
+            <div className="px-4 py-3 border-t border-slate-200 flex justify-end gap-2">
+              <button
+                onClick={() => setShowSummaryModal(false)}
+                className="px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-800"
+              >
+                Cerrar
+              </button>
+              <button
+                onClick={handleCopySummary}
+                className={`px-3 py-1.5 rounded text-xs font-bold text-white flex items-center gap-1 ${
+                  copied ? "bg-emerald-600" : "bg-indigo-600 hover:bg-indigo-700"
+                }`}
+              >
+                {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
+                {copied ? "Copiado" : "Copiar texto"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -328,6 +328,9 @@ export function useMusicianForm(musician, supabase, onSave) {
       const bucket = field === "firma" ? "firmas" : "musician-docs";
       try {
         if (oldUrl) await deleteOldFile(oldUrl, bucket);
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         let fileToUpload = file;
         if (
           file.type.startsWith("image/") &&
@@ -336,15 +339,23 @@ export function useMusicianForm(musician, supabase, onSave) {
         ) {
           fileToUpload = await compressImage(file);
         }
-        const fileExt = file.type === "image/png" ? "png" : "jpg";
+        const finalMimeType = fileToUpload.type || file.type || "";
+        const fileExt = finalMimeType === "image/png" ? "png" : "jpg";
         const cleanSurname = sanitizeFilename(
           getValues("apellido") || "musician",
         );
         const fileName = `${cleanSurname}_${field}_${Date.now()}.${fileExt}`;
-        const filePath = field === "firma" ? fileName : `docs/${fileName}`;
+        const userPrefix = user?.id ? `${user.id}/` : "";
+        const filePath =
+          field === "firma"
+            ? `${userPrefix}${fileName}`
+            : `${userPrefix}docs/${fileName}`;
         const { error: uploadError } = await supabase.storage
           .from(bucket)
-          .upload(filePath, fileToUpload);
+          .upload(filePath, fileToUpload, {
+            contentType: finalMimeType || undefined,
+            upsert: false,
+          });
         if (uploadError) throw uploadError;
         const {
           data: { publicUrl },

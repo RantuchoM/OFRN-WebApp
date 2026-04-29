@@ -1,8 +1,12 @@
 import React, { useMemo, useState } from "react";
-import { supabase } from "../../../services/supabase";
-import { ensureEntradaProfile } from "../../../services/entradaService";
+import {
+  ensureEntradaProfile,
+  requestEntradasEmailCode,
+  verifyEntradasEmailCode,
+} from "../../../services/entradaService";
 
 const initialProfile = { nombre: "", apellido: "" };
+const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
 export default function LoginEntradas({ user, profile, onProfileSaved, bootError = "" }) {
   const [email, setEmail] = useState("");
@@ -14,26 +18,38 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [nextOtpAllowedAt, setNextOtpAllowedAt] = useState(0);
 
   const needsProfile = useMemo(() => Boolean(user) && !profile, [user, profile]);
 
   const sendOtp = async (event) => {
     event.preventDefault();
+    const now = Date.now();
+    const secondsRemaining = Math.ceil((nextOtpAllowedAt - now) / 1000);
+    if (secondsRemaining > 0) {
+      setError(`Esperá ${secondsRemaining}s antes de pedir otro código.`);
+      return;
+    }
     setError("");
     setMessage("");
     setSending(true);
     const normalizedEmail = email.trim().toLowerCase();
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: normalizedEmail,
-      options: { shouldCreateUser: true },
-    });
-    setSending(false);
-    if (otpError) {
-      setError(otpError.message);
+    try {
+      await requestEntradasEmailCode(normalizedEmail, "entradas");
+    } catch (otpError) {
+      const message = String(otpError?.message || "");
+      if (/límite|limit|429/i.test(message)) {
+        setError("Se alcanzó el límite de envíos. Esperá 60s e intentá nuevamente.");
+      } else {
+        setError(message || "No se pudo enviar el código.");
+      }
       return;
+    } finally {
+      setSending(false);
     }
     setOtpSent(true);
     setEmail(normalizedEmail);
+    setNextOtpAllowedAt(Date.now() + OTP_RESEND_COOLDOWN_SECONDS * 1000);
     setMessage("Te enviamos un código de acceso por email.");
   };
 
@@ -42,15 +58,16 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
     setError("");
     setMessage("");
     setVerifying(true);
-    const { error: verifyError } = await supabase.auth.verifyOtp({
-      email: email.trim().toLowerCase(),
-      token: otpCode.trim(),
-      type: "email",
-    });
-    setVerifying(false);
-    if (verifyError) {
-      setError(verifyError.message);
+    try {
+      await verifyEntradasEmailCode({
+        email: email.trim().toLowerCase(),
+        code: otpCode.trim(),
+      });
+    } catch (verifyError) {
+      setError(verifyError?.message || "No se pudo validar el código.");
       return;
+    } finally {
+      setVerifying(false);
     }
     setMessage("Código validado correctamente.");
   };
@@ -96,10 +113,14 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
               />
               <button
                 type="submit"
-                disabled={sending || !email.trim()}
+                disabled={sending || !email.trim() || Date.now() < nextOtpAllowedAt}
                 className="w-full rounded-lg bg-blue-700 text-white text-sm font-semibold py-2 disabled:bg-slate-300"
               >
-                {sending ? "Enviando..." : "Enviar código"}
+                {sending
+                  ? "Enviando..."
+                  : Date.now() < nextOtpAllowedAt
+                  ? "Esperá para reenviar"
+                  : "Enviar código"}
               </button>
             </form>
 
@@ -125,7 +146,7 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
                   type="submit"
                   disabled={
                     verifying ||
-                    otpCode.trim().length < 6 ||
+                    otpCode.trim().length < 8 ||
                     otpCode.trim().length > 8
                   }
                   className="w-full rounded-lg bg-slate-800 text-white text-sm font-semibold py-2 disabled:bg-slate-300"
@@ -133,7 +154,7 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
                   {verifying ? "Validando..." : "Validar"}
                 </button>
                 <p className="text-[11px] text-slate-500">
-                  Si el mail trae 8 dígitos, ingresalos completos; si trae 6, alcanza con 6.
+                  Ingresá los 8 dígitos exactamente como llegaron por email.
                 </p>
               </form>
             )}

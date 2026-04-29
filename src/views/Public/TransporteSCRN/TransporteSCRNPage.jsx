@@ -38,7 +38,9 @@ export default function TransporteSCRNPage() {
 
   useEffect(() => {
     let isMounted = true;
+    let didTimeout = false;
     const watchdog = window.setTimeout(() => {
+      didTimeout = true;
       if (isMounted) {
         setLoading(false);
         setBootError(
@@ -69,6 +71,9 @@ export default function TransporteSCRNPage() {
           "No se pudo inicializar la sesion. Verifica la URL/SB_KEY y tu conexion.",
         );
       } finally {
+        if (!didTimeout) {
+          window.clearTimeout(watchdog);
+        }
         if (isMounted) setLoading(false);
       }
     };

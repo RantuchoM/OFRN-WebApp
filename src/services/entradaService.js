@@ -31,6 +31,42 @@ export async function ensureEntradaProfile({ nombre, apellido }) {
   return data;
 }
 
+export async function requestEntradasEmailCode(email, app = "entradas") {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
+    body: {
+      action: "request_code",
+      email: normalizedEmail,
+      app,
+    },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function verifyEntradasEmailCode({ email, code }) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const normalizedCode = String(code || "").trim();
+  const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
+    body: {
+      action: "verify_code",
+      email: normalizedEmail,
+      code: normalizedCode,
+    },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  if (!data?.email || !data?.password) {
+    throw new Error("No se pudo completar la validación del código.");
+  }
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: data.email,
+    password: data.password,
+  });
+  if (signInError) throw signInError;
+}
+
 export async function listProgramasConConciertos() {
   const { data, error } = await supabase
     .from("entrada_programa")

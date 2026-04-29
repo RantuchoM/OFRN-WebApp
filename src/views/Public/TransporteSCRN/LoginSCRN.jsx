@@ -1,5 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { supabase } from "../../../services/supabase";
+import {
+  requestEntradasEmailCode,
+  verifyEntradasEmailCode,
+} from "../../../services/entradaService";
 
 const initialProfileForm = {
   nombre: "",
@@ -9,6 +13,7 @@ const initialProfileForm = {
   cargo: "",
   genero: "-",
 };
+const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
 export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "" }) {
   const [email, setEmail] = useState("");
@@ -20,7 +25,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
   const [message, setMessage] = useState("");
   const [formData, setFormData] = useState(initialProfileForm);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [sendingMagicLink, setSendingMagicLink] = useState(false);
+  const [nextOtpAllowedAt, setNextOtpAllowedAt] = useState(0);
 
   /** Solo falta completar la fila en scrn_perfiles: sesión OTP ya creada pero sin perfil en base. */
   const faltaCrearPerfilEnBase = useMemo(
@@ -41,28 +46,35 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
 
   const handleSendOtp = async (event) => {
     event.preventDefault();
+    const now = Date.now();
+    const secondsRemaining = Math.ceil((nextOtpAllowedAt - now) / 1000);
+    if (secondsRemaining > 0) {
+      setError(`Esperá ${secondsRemaining}s antes de pedir otro código.`);
+      return;
+    }
     setError("");
     setMessage("");
     setSendingOtp(true);
 
     const normalizedEmail = email.trim().toLowerCase();
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: normalizedEmail,
-      options: {
-        shouldCreateUser: true,
-      },
-    });
-
-    setSendingOtp(false);
-
-    if (otpError) {
-      setError(otpError.message);
+    try {
+      await requestEntradasEmailCode(normalizedEmail, "scrn");
+    } catch (otpError) {
+      const message = String(otpError?.message || "");
+      if (/límite|limit|429/i.test(message)) {
+        setError("Se alcanzó el límite de envíos. Esperá 60s e intentá nuevamente.");
+      } else {
+        setError(message || "No se pudo enviar el código.");
+      }
       return;
+    } finally {
+      setSendingOtp(false);
     }
 
     setEmail(normalizedEmail);
     setOtpSent(true);
-    setMessage("Te enviamos un código de 6 dígitos por email.");
+    setNextOtpAllowedAt(Date.now() + OTP_RESEND_COOLDOWN_SECONDS * 1000);
+    setMessage("Te enviamos un código de 8 dígitos por email.");
   };
 
   const handleVerifyOtp = async (event) => {
@@ -71,44 +83,19 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
     setMessage("");
     setVerifyingOtp(true);
 
-    const { error: verifyError } = await supabase.auth.verifyOtp({
-      email: email.trim().toLowerCase(),
-      token: otpCode.trim(),
-      type: "email",
-    });
-
-    setVerifyingOtp(false);
-
-    if (verifyError) {
-      setError(verifyError.message);
+    try {
+      await verifyEntradasEmailCode({
+        email: email.trim().toLowerCase(),
+        code: otpCode.trim(),
+      });
+    } catch (verifyError) {
+      setError(verifyError?.message || "No se pudo validar el código.");
       return;
+    } finally {
+      setVerifyingOtp(false);
     }
 
     setMessage("Acceso validado correctamente.");
-  };
-
-  const handleSendMagicLink = async () => {
-    setError("");
-    setMessage("");
-    setSendingMagicLink(true);
-
-    const normalizedEmail = email.trim().toLowerCase();
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: normalizedEmail,
-      options: {
-        shouldCreateUser: true,
-        emailRedirectTo: `${window.location.origin}/transporte-scrn`,
-      },
-    });
-
-    setSendingMagicLink(false);
-
-    if (otpError) {
-      setError(otpError.message);
-      return;
-    }
-
-    setMessage("Magic link enviado. Abrilo desde el correo para ingresar.");
   };
 
   const handleProfileInput = (field) => (event) => {
@@ -162,7 +149,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
             Transporte SCRN
           </h1>
           <p className="text-sm text-slate-500">
-            Acceso por código OTP enviado a tu correo.
+            Acceso por código de 8 dígitos enviado a tu correo.
           </p>
         </div>
 
@@ -183,25 +170,21 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
               />
               <button
                 type="submit"
-                disabled={sendingOtp || !email.trim()}
+                disabled={sendingOtp || !email.trim() || Date.now() < nextOtpAllowedAt}
                 className="w-full rounded-lg bg-blue-700 hover:bg-blue-800 disabled:bg-slate-300 text-white text-sm font-semibold py-2 transition-colors"
               >
-                {sendingOtp ? "Enviando..." : "Enviar código"}
-              </button>
-              <button
-                type="button"
-                onClick={handleSendMagicLink}
-                disabled={sendingMagicLink || !email.trim()}
-                className="w-full rounded-lg border border-slate-300 hover:bg-slate-50 disabled:bg-slate-100 text-slate-700 text-sm font-semibold py-2 transition-colors"
-              >
-                {sendingMagicLink ? "Enviando..." : "Enviar magic link (opcional)"}
+                {sendingOtp
+                  ? "Enviando..."
+                  : Date.now() < nextOtpAllowedAt
+                  ? "Esperá para reenviar"
+                  : "Enviar código"}
               </button>
             </form>
 
             {otpSent && (
               <form className="space-y-3" onSubmit={handleVerifyOtp}>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Código OTP (6 a 8 dígitos)
+                  Código OTP (8 dígitos)
                 </label>
                 <input
                   type="text"
@@ -218,7 +201,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
                   type="submit"
                   disabled={
                     verifyingOtp ||
-                    otpCode.trim().length < 6 ||
+                    otpCode.trim().length < 8 ||
                     otpCode.trim().length > 8
                   }
                   className="w-full rounded-lg bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white text-sm font-semibold py-2 transition-colors"
@@ -226,8 +209,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
                   {verifyingOtp ? "Validando..." : "Verificar código"}
                 </button>
                 <p className="text-[11px] text-slate-500">
-                  Si en tu correo aparece un link en lugar del codigo, podes usar
-                  "Enviar magic link" para entrar con un click.
+                  Ingresá los 8 dígitos exactamente como llegaron por email.
                 </p>
               </form>
             )}
