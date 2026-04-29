@@ -525,8 +525,8 @@ const RoomForm = ({ onSubmit, onClose, initialData }) => {
             onChange={(e) => setTipo(e.target.value)}
             className="w-full border p-1.5 rounded text-sm outline-none"
           >
-            <option value="Común">Estándar</option>
-            <option value="Plus">Plus / Suite</option>
+            <option value="Común">Básico</option>
+            <option value="Plus">Superior / Suite</option>
           </select>
         </div>
         <label className="flex items-center gap-2 text-xs cursor-pointer hover:bg-slate-50 p-1 rounded">
@@ -917,7 +917,7 @@ const RoomCard = ({
                 )
               }
             >
-              <span className="uppercase">Plus</span>
+              <span className="uppercase">Sup</span>
               <span
                 className={`w-8 h-4 rounded-full relative transition-colors ${
                   room.tipo === "Plus" ? "bg-amber-400" : "bg-slate-300"

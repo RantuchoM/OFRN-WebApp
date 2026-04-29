@@ -233,8 +233,8 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
                 isPlus,
                 isMatri,
                 hasCuna,
-                typeMain: `${capacityType} ${isPlus ? "Plus" : "estándar"}`,
-                typeMainCapital: `${capacityType} ${isPlus ? "Plus" : "Estándar"}`,
+                typeMain: `${capacityType} ${isPlus ? "superior" : "básico"}`,
+                typeMainCapital: `${capacityType} ${isPlus ? "Superior" : "Básico"}`,
                 typeExtras: [
                   isMatri && "Matrimonial",
                   hasCuna && "Cuna",
@@ -292,7 +292,7 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
               const capPlural = capLower.endsWith("e")
                 ? capLower + "s"
                 : capLower + "es";
-              let baseDesc = `${capPlural} ${r.isPlus ? "plus" : "estándar"}`;
+              let baseDesc = `${capPlural} ${r.isPlus ? "superior" : "básico"}`;
               if (r.isMatri) baseDesc += " matrimonial";
               if (r.hasCuna) baseDesc += " c/cuna";
               if (!dateGroups[dateKey][baseDesc])
@@ -326,8 +326,8 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
                       <tr>
                         <th style={{ textAlign: "left" }}>Tipo</th>
                         <th>Total</th>
-                        <th>Estándar</th>
-                        <th>Plus</th>
+                        <th>Básico</th>
+                        <th>Superior</th>
                         <th>Matrimonial</th>
                         <th>Con Cuna</th>
                       </tr>

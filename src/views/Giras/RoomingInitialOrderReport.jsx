@@ -157,7 +157,7 @@ const InitialOrderReportModal = ({
             const cfg = Array.isArray(r.asignaciones_config)
                 ? r.asignaciones_config
                 : [];
-            // Consideramos "Plus" solo si ocupa cama en una habitación Plus
+            // Consideramos "Superior" solo si ocupa cama en una habitación marcada como superior
             return cfg.some(
                 (c) => c && c.id === personId && c.ocupa_cama !== false,
             );
@@ -297,11 +297,11 @@ const InitialOrderReportModal = ({
                             <div className="text-2xl font-bold text-slate-800 summary-value">{totalPax}</div>
                         </div>
                         <div className="pl-6 border-l border-slate-200 summary-item summary-divider">
-                            <div className="text-xs text-slate-500 uppercase font-bold text-slate-600 summary-label">Total Noches Std</div>
+                            <div className="text-xs text-slate-500 uppercase font-bold text-slate-600 summary-label">Total Noches Bás</div>
                             <div className="text-2xl font-bold text-slate-600 summary-value text-slate">{grandTotalStdNights}</div>
                         </div>
                         <div className="summary-item">
-                            <div className="text-xs text-slate-500 uppercase font-bold text-amber-700 summary-label">Total Noches Plus</div>
+                            <div className="text-xs text-slate-500 uppercase font-bold text-amber-700 summary-label">Total Noches Sup</div>
                             <div className="text-2xl font-bold text-amber-600 summary-value text-amber">{grandTotalPlusNights}</div>
                         </div>
                         <div className="pl-6 border-l border-slate-200 summary-item summary-divider">
@@ -325,10 +325,10 @@ const InitialOrderReportModal = ({
                                 <th>Fecha In / Out</th>
                                 <th style={{width: '60px'}}>Noches</th>
                                 <th style={{width: '60px'}}>Total Pax</th>
-                                <th className="bg-std text-std" style={{width: '60px'}}>Pax Std</th>
-                                <th className="bg-std text-std" style={{width: '80px'}}>Camas Std</th>
-                                <th className="bg-plus text-plus" style={{width: '60px'}}>Pax Plus</th>
-                                <th className="bg-plus text-plus" style={{width: '80px'}}>Camas Plus</th>
+                                <th className="bg-std text-std" style={{width: '60px'}}>Pax Bás</th>
+                                <th className="bg-std text-std" style={{width: '80px'}}>Camas Bás</th>
+                                <th className="bg-plus text-plus" style={{width: '60px'}}>Pax Sup</th>
+                                <th className="bg-plus text-plus" style={{width: '80px'}}>Camas Sup</th>
                                 <th style={{width: '100px'}}>Total Camas</th>
                                 <th style={{width: '110px'}}>Habs Sugeridas</th>
                             </tr>
