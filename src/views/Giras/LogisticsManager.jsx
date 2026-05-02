@@ -205,6 +205,75 @@ const getProviderColorClass = (p) => {
   return "bg-white text-slate-600 border-slate-200";
 };
 
+const cleanEventLabel = (text) => {
+  const raw = String(text || "");
+  let normalized = raw;
+  if (typeof document !== "undefined") {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = raw;
+    normalized = tmp.textContent || tmp.innerText || "";
+  } else {
+    normalized = raw.replace(/<[^>]*>/g, " ");
+  }
+  return normalized
+    .replace(/\s+/g, " ")
+    .replace(/\s*-\s*/g, " - ")
+    .trim();
+};
+
+const getEventTypeTheme = (idTipoEvento) => {
+  const id = Number(idTipoEvento);
+  if ([22, 23].includes(id)) {
+    return {
+      chip: "bg-orange-100 text-orange-800 border-orange-200",
+      row: "hover:bg-orange-50/70",
+      date: "text-orange-800",
+      icon: "text-orange-300",
+    };
+  }
+  if (id === 8) {
+    return {
+      chip: "bg-amber-50 text-amber-700 border-amber-200",
+      row: "hover:bg-amber-50/70",
+      date: "text-amber-700",
+      icon: "text-amber-300",
+    };
+  }
+  if (id === 10) {
+    return {
+      chip: "bg-indigo-50 text-indigo-700 border-indigo-200",
+      row: "hover:bg-indigo-50/70",
+      date: "text-indigo-700",
+      icon: "text-indigo-300",
+    };
+  }
+  if ([7, 9].includes(id)) {
+    return {
+      chip: "bg-slate-100 text-slate-600 border-slate-200",
+      row: "hover:bg-slate-50",
+      date: "text-slate-700",
+      icon: "text-slate-300",
+    };
+  }
+  return {
+    chip: "bg-indigo-100 text-indigo-800 border-indigo-200",
+    row: "hover:bg-indigo-50/70",
+    date: "text-indigo-800",
+    icon: "text-slate-300",
+  };
+};
+
+const getEventTypeLabel = (idTipoEvento) => {
+  const id = Number(idTipoEvento);
+  if (id === 22) return "Check-In";
+  if (id === 23) return "Check-Out";
+  if (id === 7) return "Desayuno";
+  if (id === 8) return "Almuerzo";
+  if (id === 9) return "Merienda";
+  if (id === 10) return "Cena";
+  return "Evento";
+};
+
 // --- SUB-COMPONENTES ---
 const getBadgeColorClass = (src) => {
   switch (src) {
@@ -489,27 +558,41 @@ const EventCellEditor = ({
                       tipoEventoIds.includes(Number(e.id_tipo_evento)),
                     )
                     .sort((a, b) => a.fecha.localeCompare(b.fecha))
-                    .map((ev) => (
-                      <div
-                        key={ev.id}
-                        onClick={() => handleLink(ev.id)}
-                        className="p-3 hover:bg-indigo-50 cursor-pointer flex justify-between items-center transition-colors"
-                      >
-                        <div className="min-w-0 flex-1 pr-2">
-                          <div className="text-xs font-bold text-slate-800 truncate">
-                            {ev.descripcion}
+                    .map((ev) => {
+                      const theme = getEventTypeTheme(ev.id_tipo_evento);
+                      const eventTypeLabel = getEventTypeLabel(ev.id_tipo_evento);
+                      const cleanDescription = cleanEventLabel(ev.descripcion);
+                      return (
+                        <div
+                          key={ev.id}
+                          onClick={() => handleLink(ev.id)}
+                          className={`p-3 cursor-pointer flex justify-between items-center transition-colors ${theme.row}`}
+                        >
+                          <div className="min-w-0 flex-1 pr-2">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span
+                                className={`inline-flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-semibold uppercase tracking-wide ${theme.chip}`}
+                              >
+                                {eventTypeLabel}
+                              </span>
+                            </div>
+                            <div className="text-[13px] font-medium text-slate-800 break-words leading-snug">
+                              {cleanDescription || "Sin descripción"}
+                            </div>
+                            <div
+                              className={`text-[12px] font-medium mt-1 ${theme.date}`}
+                            >
+                              {formatDateBrief(ev.fecha)} •{" "}
+                              {ev.hora_inicio?.slice(0, 5)} hs
+                            </div>
                           </div>
-                          <div className="text-[10px] text-slate-500">
-                            {formatDateBrief(ev.fecha)} •{" "}
-                            {ev.hora_inicio?.slice(0, 5)} hs
-                          </div>
+                          <IconLink
+                            size={14}
+                            className={`${theme.icon} shrink-0`}
+                          />
                         </div>
-                        <IconLink
-                          size={14}
-                          className="text-slate-300 shrink-0"
-                        />
-                      </div>
-                    ))}
+                      );
+                    })}
                 </div>
                 <button
                   onClick={() => {

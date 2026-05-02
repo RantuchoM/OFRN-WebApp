@@ -1082,6 +1082,7 @@ export default function RepertoireManager({
     rep,
     idx,
     rowClassName,
+    rowTitle,
     isEditor,
     isCompact,
     moveWork,
@@ -1109,6 +1110,7 @@ export default function RepertoireManager({
       <tr
         ref={setNodeRef}
         style={style}
+        title={rowTitle}
         className={`${rowClassName} ${isOver ? "ring-2 ring-inset ring-indigo-400 bg-indigo-50/80" : ""}`}
       >
         <td className="p-1 text-center w-8 align-middle">
@@ -2225,7 +2227,12 @@ export default function RepertoireManager({
                 return (
                   <div
                     key={item.id}
-                    className={`rounded-lg border shadow-sm p-2 relative overflow-hidden ${cardBorderClass}`}
+                    className={`rounded-lg border shadow-sm p-2 relative overflow-hidden ${cardBorderClass} ${
+                      item.excluir
+                        ? "opacity-[0.8] saturate-[0.68] grayscale-[0.18] ring-1 ring-inset ring-slate-400/60 bg-slate-100/50"
+                        : ""
+                    }`}
+                    title={item.excluir ? "Excluida de la programación" : undefined}
                   >
                     {/* Barra lateral de estado */}
                     <div
@@ -2593,7 +2600,12 @@ export default function RepertoireManager({
                           : item.obras.estado !== "Oficial"
                             ? "bg-amber-50 hover:bg-amber-100"
                             : "bg-emerald-50 hover:bg-emerald-100 border-l-2 border-emerald-400"
+                      }${
+                        item.excluir
+                          ? " opacity-[0.8] saturate-[0.68] grayscale-[0.18] ring-1 ring-inset ring-slate-400/60 [&_td]:bg-slate-100/45 [&_td]:text-slate-500"
+                          : ""
                       }`}
+                      rowTitle={item.excluir ? "Excluida de la programación" : undefined}
                       isEditor={isEditor}
                       isCompact={isCompact}
                       moveWork={moveWork}
