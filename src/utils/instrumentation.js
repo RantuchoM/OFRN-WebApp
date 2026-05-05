@@ -6,6 +6,12 @@ export const hasStrings = (text) => {
   return /str|cuerd|viol|vln|vla|vlc|cb|arco|contrab/i.test(text);
 };
 
+/** Solo `musico` y `mus_prod` cuentan en chips convocados vs requerido (ej. productor puro no suma por instrumento). */
+export function countsTowardInstrumentationConvoked(rolGira) {
+  const r = String(rolGira || "musico").toLowerCase().trim();
+  return r === "musico" || r === "mus_prod";
+}
+
 /** Obtiene el valor numérico de un instrumento desde el string de instrumentación (para filtros analíticos). */
 export const getInstrumentValue = (workString, instrumentKey) => {
   if (!workString) return 0;

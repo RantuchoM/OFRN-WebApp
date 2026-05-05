@@ -254,8 +254,8 @@ export default function EnsemblesView({ supabase }) {
     const firstNonMemberIndex = filteredMusicians.findIndex(m => !memberIds.has(m.id));
 
     return (
-        <div className="flex h-full gap-4 lg:gap-5 flex-col lg:flex-row">
-            <div className="lg:hidden bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+        <div className="flex h-full gap-4 lg:gap-5 flex-col lg:flex-row min-w-0 w-full">
+            <div className="lg:hidden w-full min-w-0 max-w-none bg-white border border-slate-200 rounded-xl p-3 sm:p-3 shadow-sm">
                 <div className="flex items-center justify-between gap-2 mb-2">
                     <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2">
                         <IconLayers className="text-indigo-600" size={16} />
@@ -270,7 +270,7 @@ export default function EnsemblesView({ supabase }) {
                         const ens = ensembles.find((item) => String(item.id) === String(selectedId)) || null;
                         setSelectedEnsemble(ens);
                     }}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white text-slate-700"
+                    className="w-full min-w-0 max-w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white text-slate-700 whitespace-normal"
                 >
                     <option value="">Seleccionar ensamble...</option>
                     {ensembles.map((ens) => (
@@ -281,7 +281,7 @@ export default function EnsemblesView({ supabase }) {
                 </select>
             </div>
 
-            <div className="hidden lg:flex w-[30%] min-w-[230px] max-w-[360px] flex-col gap-3 border-r border-slate-200 pr-4 lg:pr-5 overflow-y-auto">
+            <div className="hidden lg:flex lg:w-[38%] lg:min-w-[280px] lg:max-w-[480px] xl:max-w-[520px] flex-shrink-0 flex-col gap-3 border-r border-slate-200 pr-4 lg:pr-5 overflow-y-auto min-w-0">
                 <div className="flex items-center justify-between mb-2">
                     <h2 className="text-base lg:text-lg font-bold text-slate-700 flex items-center gap-2"><IconLayers className="text-indigo-600"/> Ensambles</h2>
                     <button onClick={createEnsemble} className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700 flex items-center gap-1 shadow-sm"><IconPlus size={14}/> Nuevo</button>
@@ -289,11 +289,11 @@ export default function EnsemblesView({ supabase }) {
                 <div className="space-y-2">
                     {ensembles.map(ens => (
                         <div key={ens.id} className="group relative">
-                            <button onClick={() => setSelectedEnsemble(ens)} className={`w-full text-left p-3 lg:p-3.5 rounded-xl border transition-all pr-10 ${selectedEnsemble?.id === ens.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-200' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:bg-slate-50'}`}>
-                                <div className="font-bold text-base lg:text-lg truncate flex items-baseline gap-1.5">
-                                    <span className="truncate">{ens.ensamble}</span>
+                            <button onClick={() => setSelectedEnsemble(ens)} className={`w-full min-w-0 text-left p-3 lg:p-3.5 rounded-xl border transition-all pr-10 ${selectedEnsemble?.id === ens.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-200' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:bg-slate-50'}`}>
+                                <div className="flex flex-col gap-1 items-stretch min-w-0">
+                                    <span className={`font-bold text-base lg:text-lg break-words hyphens-auto leading-snug ${selectedEnsemble?.id === ens.id ? 'text-white' : 'text-slate-800'}`}>{ens.ensamble}</span>
                                     {ens.instrumentationLabel && (
-                                        <span className={`text-[10px] lg:text-[11px] font-mono font-medium shrink-0 ${selectedEnsemble?.id === ens.id ? 'text-white/95' : 'text-slate-500'}`}>
+                                        <span className={`text-[10px] lg:text-[11px] font-mono font-medium break-all leading-tight ${selectedEnsemble?.id === ens.id ? 'text-white/95' : 'text-slate-500'}`}>
                                             ({ens.instrumentationLabel})
                                         </span>
                                     )}

@@ -14,7 +14,10 @@ import {
   IconCheckCircle,
   IconInfo,
 } from "../../components/ui/Icons";
-import { getInstrumentValue } from "../../utils/instrumentation";
+import {
+  getInstrumentValue,
+  countsTowardInstrumentationConvoked,
+} from "../../utils/instrumentation";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import { getProgramStyle } from "../../utils/giraUtils";
 import DateInput from "../../components/ui/DateInput";
@@ -189,8 +192,7 @@ function computeConvokedForProgram(roster = []) {
 
   roster.forEach((m) => {
     if (m.estado_gira === "ausente") return;
-    const role = m.rol_gira || "musico";
-    if (["staff", "produccion", "chofer"].includes(role)) return;
+    if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
 
     const isVacancy = !!m.es_simulacion;
     const idInstr = String(m.id_instr || "");
@@ -287,9 +289,8 @@ function getConvokedNamesByColumn(roster = []) {
   const confirmed = (roster || []).filter(
     (m) => String(m.estado_gira || "").toLowerCase() === "confirmado",
   );
-  const skipRoles = ["staff", "produccion", "chofer"];
   confirmed.forEach((m) => {
-    if (skipRoles.includes((m.rol_gira || "").toLowerCase())) return;
+    if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
     const name = `${m.apellido || ""}, ${m.nombre || ""}`.trim();
     if (!name) return;
     const idInstr = String(m.id_instr || "");
@@ -379,9 +380,8 @@ function getConvokedMusiciansByColumn(roster = []) {
       String(m.estado_gira || "").toLowerCase() === "confirmado" &&
       !m.es_simulacion,
   );
-  const skipRoles = ["staff", "produccion", "chofer"];
   confirmed.forEach((m) => {
-    if (skipRoles.includes((m.rol_gira || "").toLowerCase())) return;
+    if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
     const idInstr = String(m.id_instr || "");
     const instrumentName = (m.instrumentos?.instrumento || "").toLowerCase();
 

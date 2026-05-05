@@ -57,9 +57,11 @@ export async function fetchRosterForGira(supabase, gira) {
     if (f.tipo === "EXCL_ENSAMBLE") exclEnsembles.add(f.valor_id);
   });
 
+  // Usar "*" para no pedir columnas que quizá aún no existan en BD (motivo_estado, …).
+  // Si se listan explícitamente y la migración no corre, PostgREST falla y el roster queda vacío.
   const { data: overrides, error: errOverrides } = await supabase
     .from("giras_integrantes")
-    .select("id_integrante, estado, rol")
+    .select("*")
     .eq("id_gira", gira.id);
   if (errOverrides) throw errOverrides;
 
@@ -67,7 +69,12 @@ export async function fetchRosterForGira(supabase, gira) {
   overrides?.forEach((o) => {
     const kid = integranteKey(o.id_integrante);
     if (!kid) return;
-    overrideMap[kid] = { estado: o.estado, rol: o.rol };
+    overrideMap[kid] = {
+      estado: o.estado,
+      rol: o.rol,
+      motivo_estado: o.motivo_estado ?? null,
+      motivo_estado_actualizado_at: o.motivo_estado_actualizado_at ?? null,
+    };
   });
 
   const [membersEns, membersFam, membersExcl] = await Promise.all([
@@ -187,12 +194,24 @@ export async function fetchRosterForGira(supabase, gira) {
     if (keep) {
       const locationId = localidadEfectiva?.id;
       const isLocal = locationId ? tourLocSet.has(locationId) : false;
+      const enGirasIntegrantes = manualIds.has(id);
       finalRoster.push({
         ...processedMember,
         estado_gira: estadoReal,
         rol_gira: rolReal,
         es_adicional: esAdicional,
         is_local: isLocal,
+        en_giras_integrantes: enGirasIntegrantes,
+        ...(enGirasIntegrantes && manualData
+          ? {
+              motivo_estado: manualData.motivo_estado ?? null,
+              motivo_estado_actualizado_at:
+                manualData.motivo_estado_actualizado_at ?? null,
+            }
+          : {
+              motivo_estado: null,
+              motivo_estado_actualizado_at: null,
+            }),
       });
     }
   });

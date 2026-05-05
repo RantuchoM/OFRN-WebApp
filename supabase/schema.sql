@@ -423,6 +423,8 @@ CREATE TABLE public.giras_integrantes (
   id_gira bigint,
   id_integrante bigint,
   estado text DEFAULT 'confirmado'::text,
+  motivo_estado text,
+  motivo_estado_actualizado_at timestamp with time zone,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   rol text DEFAULT 'musico'::text,
   token_publico uuid DEFAULT gen_random_uuid() UNIQUE,

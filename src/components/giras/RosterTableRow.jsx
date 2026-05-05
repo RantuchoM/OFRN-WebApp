@@ -35,7 +35,34 @@ export default function RosterTableRow({
   onCancelBaja,
   pendingBajaForRow,
   onCopyLink,
+  onOpenMotivoModal,
 }) {
+  const showMotivoStick =
+    Boolean(m.en_giras_integrantes) &&
+    !pendingBajaForRow &&
+    (isEditor || !!(m.motivo_estado && String(m.motivo_estado).trim()));
+
+  const motivoStick = showMotivoStick ? (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onOpenMotivoModal?.(m);
+      }}
+      className={`absolute -bottom-1 -right-1 z-[5] w-3 h-3 md:w-3.5 md:h-3.5 rounded-[2px] shadow-md border rotate-[-8deg] hover:rotate-0 transition-transform pointer-events-auto ${
+        m.motivo_estado?.trim()
+          ? "bg-amber-300 border-amber-500/90 hover:bg-amber-200"
+          : "bg-amber-50 border border-dashed border-amber-400/80 hover:bg-amber-100"
+      }`}
+      title={
+        m.motivo_estado?.trim()
+          ? `Motivo: ${m.motivo_estado}`
+          : "Motivo en roster (alta / ausencia)"
+      }
+      aria-label="Ver o editar motivo en roster"
+    />
+  ) : null;
   return (
     <tr
       id={`row-integrante-${m.id}`}
@@ -249,15 +276,18 @@ export default function RosterTableRow({
               </div>
             </div>
           ) : m.estado_gira === "ausente" ? (
-            <button
-              type="button"
-              onClick={() => isEditor && onToggleStatus(m)}
-              disabled={!isEditor}
-              className="w-6 h-6 md:w-7 md:h-7 rounded flex items-center justify-center text-[9px] md:text-[10px] font-bold bg-white text-red-600 border border-red-200 hover:bg-red-50 shadow-sm mx-auto transition-all"
-              title="Marcar presente"
-            >
-              A
-            </button>
+            <div className="relative inline-flex items-center justify-center mx-auto">
+              <button
+                type="button"
+                onClick={() => isEditor && onToggleStatus(m)}
+                disabled={!isEditor}
+                className="w-6 h-6 md:w-7 md:h-7 rounded flex items-center justify-center text-[9px] md:text-[10px] font-bold bg-white text-red-600 border border-red-200 hover:bg-red-50 shadow-sm transition-all"
+                title="Marcar presente"
+              >
+                A
+              </button>
+              {motivoStick}
+            </div>
           ) : (
             <div className="relative w-6 h-6 md:w-8 md:h-8 mx-auto">
               <div
@@ -270,7 +300,7 @@ export default function RosterTableRow({
                 <button
                   type="button"
                   onClick={() => onRequestBaja(m, m.es_adicional ? "desconvocar" : "ausente")}
-                  className="absolute -top-0.5 -right-0.5 w-3 h-3 md:w-4 md:h-4 rounded-full bg-white border border-slate-300 shadow flex items-center justify-center text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                  className="absolute -top-0.5 -right-0.5 w-3 h-3 md:w-4 md:h-4 rounded-full bg-white border border-slate-300 shadow flex items-center justify-center text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors z-[6]"
                   title={m.es_adicional ? "Desconvocar" : "Marcar ausente"}
                 >
                   {m.es_adicional ? (
@@ -280,6 +310,7 @@ export default function RosterTableRow({
                   )}
                 </button>
               )}
+              {motivoStick}
             </div>
           )}
         </div>

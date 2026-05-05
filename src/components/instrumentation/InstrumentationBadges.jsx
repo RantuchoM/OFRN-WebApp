@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { IconUsers, IconCheckCircle, IconInfo } from "../ui/Icons";
-import { getInstrumentValue } from "../../utils/instrumentation";
+import {
+  getInstrumentValue,
+  countsTowardInstrumentationConvoked,
+} from "../../utils/instrumentation";
 import InstrumentationSummaryModal from "../seating/InstrumentationSummaryModal";
 
 function createEmptyInstrumentationMap() {
@@ -102,6 +105,7 @@ function computeConvoked(roster) {
 
   roster.forEach((m) => {
     if (m.estado_gira === "ausente") return;
+    if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
 
     const idInstr = String(m.id_instr || "");
     const name = (m.instrumentos?.instrumento || "").toLowerCase();

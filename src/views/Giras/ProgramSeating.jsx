@@ -26,7 +26,11 @@ import {
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
-import { getInstrumentValue, calculateInstrumentation } from "../../utils/instrumentation";
+import {
+  getInstrumentValue,
+  calculateInstrumentation,
+  countsTowardInstrumentationConvoked,
+} from "../../utils/instrumentation";
 import {
   ParticellaSelect,
   CreateParticellaModal,
@@ -976,6 +980,7 @@ export default function ProgramSeating({
 
     filteredRoster.forEach((m) => {
       if (m.estado_gira === "ausente") return;
+      if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
 
       const idInstr = String(m.id_instr || "");
       const name = (m.instrumentos?.instrumento || "").toLowerCase();

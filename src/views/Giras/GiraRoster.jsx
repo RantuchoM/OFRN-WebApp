@@ -31,6 +31,7 @@ import {
   SwapVacancyModal,
 } from "../../components/giras/VacancyTools";
 import RosterTableRow from "../../components/giras/RosterTableRow";
+import RosterMotivoModal from "../../components/giras/RosterMotivoModal";
 import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 import { toast } from "sonner";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
@@ -194,6 +195,8 @@ export default function GiraRoster({
   const [showInstrumentationModal, setShowInstrumentationModal] =
     useState(false);
   const [instrumentationWorks, setInstrumentationWorks] = useState([]);
+
+  const [motivoModalMusician, setMotivoModalMusician] = useState(null);
 
   const [showOrderMenu, setShowOrderMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -1128,6 +1131,28 @@ export default function GiraRoster({
     bajaTimerRef.current = null;
     setPendingBaja(null);
     setBajaCountdownSeconds(0);
+    await refreshRoster();
+  };
+
+  const saveMotivoFromModal = async (texto) => {
+    if (!motivoModalMusician?.id || !gira?.id) return;
+    const trimmed = String(texto ?? "").trim();
+    const payload = trimmed
+      ? {
+          motivo_estado: trimmed,
+          motivo_estado_actualizado_at: new Date().toISOString(),
+        }
+      : { motivo_estado: null, motivo_estado_actualizado_at: null };
+    const { error } = await supabase
+      .from("giras_integrantes")
+      .update(payload)
+      .eq("id_gira", gira.id)
+      .eq("id_integrante", motivoModalMusician.id);
+    if (error) {
+      toast.error("No se pudo guardar el motivo: " + error.message);
+      throw error;
+    }
+    toast.success("Motivo guardado");
     await refreshRoster();
   };
 
@@ -2434,6 +2459,9 @@ export default function GiraRoster({
                         : null
                     }
                     onCopyLink={copyGuestLink}
+                    onOpenMotivoModal={(musician) =>
+                      setMotivoModalMusician(musician)
+                    }
                   />
                 );
               })}
@@ -2456,6 +2484,13 @@ export default function GiraRoster({
       </div>
 
       {/* --- MODALES --- */}
+      <RosterMotivoModal
+        musician={motivoModalMusician}
+        isEditor={isEditor}
+        onClose={() => setMotivoModalMusician(null)}
+        onSave={saveMotivoFromModal}
+      />
+
       {/* --- MODAL CREACIÓN (DETALLADO) --- */}
       {isCreatingDetailed &&
         createPortal(

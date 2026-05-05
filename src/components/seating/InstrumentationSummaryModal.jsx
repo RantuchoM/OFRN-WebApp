@@ -1,7 +1,10 @@
 import React, { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { IconX } from "../ui/Icons";
-import { getInstrumentValue } from "../../utils/instrumentation";
+import {
+  getInstrumentValue,
+  countsTowardInstrumentationConvoked,
+} from "../../utils/instrumentation";
 
 const INSTRUMENT_COLUMNS = [
   { id: "Fl", label: "Fl", key: "fl" },
@@ -130,10 +133,9 @@ export default function InstrumentationSummaryModal({
     const confirmed = (roster || []).filter(
       (m) => String(m.estado_gira || "").toLowerCase() === "confirmado",
     );
-    const skipRoles = ["staff", "produccion", "producción", "chofer"];
 
     confirmed.forEach((m) => {
-      if (skipRoles.includes(String(m.rol_gira || "").toLowerCase())) return;
+      if (!countsTowardInstrumentationConvoked(m.rol_gira)) return;
       const name = `${m.apellido || ""}, ${m.nombre || ""}`.trim();
       if (!name) return;
 
