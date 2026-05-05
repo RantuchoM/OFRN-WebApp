@@ -7,11 +7,14 @@ if (typeof window !== "undefined") {
 
 /**
  * Convierte la primera página de un PDF a data URL JPEG.
- * @param {string} pdfUrl - URL del PDF
+ * @param {string} pdfUrl - URL del PDF (si no se pasa getArrayBuffer)
+ * @param {{ getArrayBuffer?: () => Promise<ArrayBuffer> }} [options] - lectura autenticada (p. ej. storage.download) evita CORS en buckets privados
  * @returns {Promise<string>} - data URL de la imagen
  */
-export async function convertPdfToImage(pdfUrl) {
-  const loadingTask = pdfjsLib.getDocument(pdfUrl);
+export async function convertPdfToImage(pdfUrl, options = {}) {
+  const loadingTask = options.getArrayBuffer
+    ? pdfjsLib.getDocument({ data: await options.getArrayBuffer() })
+    : pdfjsLib.getDocument(pdfUrl);
   const pdf = await loadingTask.promise;
   const page = await pdf.getPage(1);
   const viewport = page.getViewport({ scale: 2.0 });

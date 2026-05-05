@@ -15,6 +15,8 @@ import {
   IconMail,
   IconInfo,
   IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
   IconUsers,
   IconUser,
   IconMapPin,
@@ -1105,7 +1107,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [resultados, setResultados] = useState([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
   const [searchText, setSearchText] = useState("");
   const [selectedInstruments, setSelectedInstruments] = useState(new Set());
@@ -1144,14 +1146,6 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const [selectedMusicians, setSelectedMusicians] = useState(new Set());
   const [isMassEditOpen, setIsMassEditOpen] = useState(false);
   const [columnFilters, setColumnFilters] = useState({});
-  const [debouncedNameTerm, setDebouncedNameTerm] = useState("");
-  const debounceRef = React.useRef(null);
-
-  const rawNameTerm = (
-    searchText ||
-    (columnFilters && columnFilters.apellido_nombre) ||
-    ""
-  ).trim();
 
   useEffect(() => {
     const allIds = new Set(catalogoInstrumentos.map((i) => i.id));
@@ -1160,21 +1154,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     fetchLocations();
   }, [catalogoInstrumentos]);
 
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setDebouncedNameTerm(rawNameTerm);
-    }, 1500);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [rawNameTerm]);
-
-  // Reset a página 1 cuando cambian los filtros (o el orden) para que la paginación sea coherente
+  // Igual que RepertoireView: los filtros de texto son locales (instantáneos); solo refetch cuando cambian filtros “estructurales” en servidor.
   useEffect(() => {
     setCurrentPage(1);
   }, [
-    debouncedNameTerm,
+    searchText,
     conditionFilters,
     selectedInstruments,
     selectedEnsembles,
@@ -1183,29 +1167,24 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     sortConfig.key,
     sortConfig.direction,
     columnFilters,
+    pageSize,
   ]);
 
   useEffect(() => {
     fetchData();
   }, [
-    currentPage,
-    debouncedNameTerm,
     conditionFilters,
     selectedInstruments,
     missingFieldsFilters,
     onlyVigente,
-    sortConfig.key,
-    sortConfig.direction,
     selectedEnsembles,
   ]);
 
   const fetchData = () =>
     fetchEnsemblesAndData(
-      currentPage,
       selectedInstruments,
       conditionFilters,
       missingFieldsFilters,
-      debouncedNameTerm,
       selectedEnsembles,
     );
 
@@ -1233,12 +1212,10 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   };
 
   const fetchEnsemblesAndData = async (
-    page,
     instruments,
     conditions,
     missingFields,
-    nameTerm,
-    selectedEnsembles,
+    selectedEnsemblesArg,
   ) => {
     setLoading(true);
     try {
@@ -1249,80 +1226,73 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           .order("ensamble");
         if (ens) setEnsemblesList(ens);
       }
-      
-      // Si hay filtro de ensambles, obtener primero los IDs de integrantes que tienen esos ensambles
+
       let musicianIdsWithEnsembles = null;
-      if (selectedEnsembles && selectedEnsembles.size > 0) {
+      if (selectedEnsemblesArg && selectedEnsemblesArg.size > 0) {
         const { data: integrantesEnsambles } = await supabase
           .from("integrantes_ensambles")
           .select("id_integrante")
-          .in("id_ensamble", Array.from(selectedEnsembles));
+          .in("id_ensamble", Array.from(selectedEnsemblesArg));
         if (integrantesEnsambles) {
           musicianIdsWithEnsembles = new Set(
-            integrantesEnsambles.map((ie) => ie.id_integrante)
+            integrantesEnsambles.map((ie) => ie.id_integrante),
           );
         }
       }
-      
-      const from = (page - 1) * 100;
-      const to = from + 99;
-      let query = supabase
-        .from("integrantes")
-        .select(
+
+      const CHUNK = 1000;
+      let offset = 0;
+      const musiciansAccum = [];
+
+      for (;;) {
+        let query = supabase.from("integrantes").select(
           `*, instrumentos(instrumento), residencia:localidades!id_localidad(localidad), viaticos:localidades!id_loc_viaticos(localidad), integrantes_ensambles(ensambles(id, ensamble))`,
-          { count: "exact" },
         );
-      
-      // Aplicar filtro de ensambles ANTES de otros filtros
-      if (musicianIdsWithEnsembles && musicianIdsWithEnsembles.size > 0) {
-        query = query.in("id", Array.from(musicianIdsWithEnsembles));
-      } else if (selectedEnsembles && selectedEnsembles.size > 0) {
-        // Si no hay resultados, establecer un filtro imposible para que no devuelva nada
-        query = query.eq("id", -1);
+
+        if (musicianIdsWithEnsembles && musicianIdsWithEnsembles.size > 0) {
+          query = query.in("id", Array.from(musicianIdsWithEnsembles));
+        } else if (selectedEnsemblesArg && selectedEnsemblesArg.size > 0) {
+          query = query.eq("id", -1);
+        }
+
+        const realIds = Array.from(instruments).filter((id) => id !== "null");
+        if (realIds.length > 0 || instruments.has("null")) {
+          const orParts = [];
+          if (realIds.length > 0)
+            orParts.push(`id_instr.in.(${realIds.join(",")})`);
+          if (instruments.has("null")) orParts.push(`id_instr.is.null`);
+          query = query.or(orParts.join(","));
+        }
+        if (conditions.size > 0)
+          query = query.in("condicion", Array.from(conditions));
+        if (missingFields.size > 0) {
+          const missingOrParts = [];
+          missingFields.forEach((field) => {
+            missingOrParts.push(`${field}.is.null`);
+            missingOrParts.push(`${field}.eq.""`);
+          });
+          query = query.or(missingOrParts.join(","));
+        }
+        if (onlyVigente) {
+          const hoy = new Date().toISOString().split("T")[0];
+          query = query.or(`fecha_alta.lte.${hoy},fecha_alta.is.null`);
+          query = query.or(`fecha_baja.gte.${hoy},fecha_baja.is.null`);
+        }
+
+        query = query
+          .order("apellido", { ascending: true })
+          .order("nombre", { ascending: true })
+          .range(offset, offset + CHUNK - 1);
+
+        const { data: chunk, error } = await query;
+        if (error) throw error;
+        if (!chunk?.length) break;
+        musiciansAccum.push(...chunk);
+        if (chunk.length < CHUNK) break;
+        offset += CHUNK;
       }
-      
-      if (nameTerm)
-        query = query.or(
-          `nombre.ilike.%${nameTerm}%,apellido.ilike.%${nameTerm}%`,
-        );
-      const realIds = Array.from(instruments).filter((id) => id !== "null");
-      if (realIds.length > 0 || instruments.has("null")) {
-        let orParts = [];
-        if (realIds.length > 0)
-          orParts.push(`id_instr.in.(${realIds.join(",")})`);
-        if (instruments.has("null")) orParts.push(`id_instr.is.null`);
-        query = query.or(orParts.join(","));
-      }
-      if (conditions.size > 0)
-        query = query.in("condicion", Array.from(conditions));
-      if (missingFields.size > 0) {
-        const missingOrParts = [];
-        missingFields.forEach((field) => {
-          missingOrParts.push(`${field}.is.null`);
-          missingOrParts.push(`${field}.eq.""`);
-        });
-        query = query.or(missingOrParts.join(","));
-      }
-      if (onlyVigente) {
-        const hoy = new Date().toISOString().split("T")[0];
-        query = query.or(`fecha_alta.lte.${hoy},fecha_alta.is.null`);
-        query = query.or(`fecha_baja.gte.${hoy},fecha_baja.is.null`);
-      }
-      const orderKey =
-        sortConfig.key === "apellido_nombre" || sortConfig.key === "apellido"
-          ? "apellido"
-          : sortConfig.key;
-      const isNestedOrder = orderKey.includes(".");
-      const serverOrderKey = isNestedOrder ? "apellido" : orderKey;
-      const ascending = sortConfig.direction === "asc";
-      query = query.order(serverOrderKey, { ascending });
-      if (serverOrderKey === "apellido")
-        query = query.order("nombre", { ascending });
-      query = query.range(from, to);
-      const { data: musicians, error, count } = await query;
-      if (error) throw error;
-      setTotalCount(count ?? 0);
-      const formatted = (musicians || []).map((m) => ({
+
+      const formatted = musiciansAccum.map((m) => ({
         ...m,
         integrantes_ensambles:
           m.integrantes_ensambles?.map((ie) => ie.ensambles).filter(Boolean) ||
@@ -1455,8 +1425,15 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
   const processedResultados = useMemo(() => {
     let filtered = [...resultados];
-    // El filtro de ensambles ya se aplica en la consulta SQL, no es necesario aquí
-    // pero lo mantenemos por si acaso hay algún caso edge
+
+    const globalQ = searchText.trim().toLowerCase();
+    if (globalQ) {
+      filtered = filtered.filter((item) => {
+        const full = `${item.apellido || ""} ${item.nombre || ""}`.toLowerCase();
+        return full.includes(globalQ);
+      });
+    }
+
     Object.keys(columnFilters).forEach((key) => {
       const term = columnFilters[key].toLowerCase().trim();
       if (term) {
@@ -1495,13 +1472,25 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
       if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
       return 0;
     });
-  }, [
-    resultados,
-    sortConfig,
-    selectedEnsembles,
-    visibleColumns,
-    columnFilters,
-  ]);
+  }, [resultados, sortConfig, columnFilters, searchText]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(processedResultados.length / pageSize) || 1,
+  );
+
+  const paginatedMusicians = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return processedResultados.slice(start, start + pageSize);
+  }, [processedResultados, currentPage, pageSize]);
+
+  useEffect(() => {
+    const tp = Math.max(
+      1,
+      Math.ceil(processedResultados.length / pageSize) || 1,
+    );
+    setCurrentPage((p) => Math.min(Math.max(1, p), tp));
+  }, [processedResultados.length, pageSize]);
 
   const exportColumnsMusicians = useMemo(
     () => [
@@ -1570,9 +1559,13 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     setSelectedMusicians(newSet);
   };
   const toggleAllSelection = () => {
-    if (selectedMusicians.size === processedResultados.length)
-      setSelectedMusicians(new Set());
-    else setSelectedMusicians(new Set(processedResultados.map((m) => m.id)));
+    const pageIds = paginatedMusicians.map((m) => m.id);
+    if (pageIds.length === 0) return;
+    const allPageSelected = pageIds.every((id) => selectedMusicians.has(id));
+    const next = new Set(selectedMusicians);
+    if (allPageSelected) pageIds.forEach((id) => next.delete(id));
+    else pageIds.forEach((id) => next.add(id));
+    setSelectedMusicians(next);
   };
 
   const copySelectedMails = () => {
@@ -1831,7 +1824,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         {/* --- VISTA MÓVIL --- */}
         <div className="md:hidden flex-1 overflow-y-auto p-2 bg-slate-50">
           <div className="flex flex-col gap-2">
-            {processedResultados.map((item) => (
+            {paginatedMusicians.map((item) => (
               <MusicianCard
                 key={item.id}
                 item={item}
@@ -1841,7 +1834,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                 highlightText={searchText}
               />
             ))}
-            {processedResultados.length === 0 && !loading && (
+            {paginatedMusicians.length === 0 && !loading && (
               <div className="text-center py-10 text-slate-400 text-sm">
                 No se encontraron músicos.
               </div>
@@ -1859,15 +1852,19 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                     type="checkbox"
                     className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     checked={
-                      selectedMusicians.size > 0 &&
-                      selectedMusicians.size === processedResultados.length
+                      paginatedMusicians.length > 0 &&
+                      paginatedMusicians.every((m) =>
+                        selectedMusicians.has(m.id),
+                      )
                     }
                     ref={(input) => {
-                      if (input) {
+                      if (input && paginatedMusicians.length > 0) {
+                        const onPage = paginatedMusicians.filter((m) =>
+                          selectedMusicians.has(m.id),
+                        ).length;
                         input.indeterminate =
-                          selectedMusicians.size > 0 &&
-                          selectedMusicians.size < processedResultados.length;
-                      }
+                          onPage > 0 && onPage < paginatedMusicians.length;
+                      } else if (input) input.indeterminate = false;
                     }}
                     onChange={toggleAllSelection}
                   />
@@ -1967,10 +1964,11 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                 )}
                 <th className="p-1 sticky right-0 bg-white z-40 text-center border-l">
                   {(Object.values(columnFilters).some((v) => v) ||
-                    searchText) && (
+                    searchText.trim()) && (
                     <button
                       onClick={() => {
                         setColumnFilters({});
+                        setSearchText("");
                       }}
                       className="text-[8px] bg-red-50 text-red-500 px-2 py-1 rounded-md hover:bg-red-100 font-black uppercase"
                     >
@@ -1981,9 +1979,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
-              {processedResultados.map((item, idx) => {
+              {paginatedMusicians.map((item, idx) => {
                 const conditionClass = getConditionStyles(item.condicion);
-                const rowNumber = (currentPage - 1) * 100 + idx + 1;
+                const rowNumber = (currentPage - 1) * pageSize + idx + 1;
                 return (
                   <tr key={item.id} className={`${conditionClass} group`}>
                     <td
@@ -2098,41 +2096,52 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
           </table>
         </div>
 
-        {/* Paginación de servidor (100 por página) */}
-        <div className="shrink-0 border-t border-slate-200 bg-slate-50/80 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-slate-600 font-medium">
-            Total: <span className="font-bold text-slate-800">{totalCount}</span> músicos
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-600 font-medium">
-              Página{" "}
-              <span className="font-bold text-slate-800">{currentPage}</span> de{" "}
-              <span className="font-bold text-slate-800">
-                {Math.max(1, Math.ceil(totalCount / 100))}
+        {/* Paginación local (mismo patrón que RepertoireView) */}
+        <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-6 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase text-slate-400">
+                Ver:
               </span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage <= 1 || loading}
-              className="px-3 py-1.5 text-xs font-bold rounded bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Anterior
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setCurrentPage((p) =>
-                  Math.min(Math.ceil(totalCount / 100) || 1, p + 1),
-                )
-              }
-              disabled={
-                currentPage >= Math.ceil(totalCount / 100) || loading || totalCount === 0
-              }
-              className="px-3 py-1.5 text-xs font-bold rounded bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Siguiente
-            </button>
+              <select
+                className="text-xs border rounded p-1 bg-white outline-none focus:ring-1 focus:ring-indigo-500"
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+              >
+                {[25, 50, 100, 200].map((v) => (
+                  <option key={v} value={v}>
+                    {v} músicos
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2 border-l border-slate-300 pl-4">
+              <button
+                type="button"
+                disabled={currentPage === 1 || loading}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="p-1 rounded border bg-white disabled:opacity-30 hover:bg-indigo-50 text-indigo-600 transition-colors"
+              >
+                <IconChevronLeft size={14} />
+              </button>
+              <div className="text-xs font-medium text-slate-600">
+                Pág.{" "}
+                <span className="font-bold text-indigo-600">{currentPage}</span>{" "}
+                / {totalPages}
+              </div>
+              <button
+                type="button"
+                disabled={currentPage >= totalPages || loading}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                className="p-1 rounded border bg-white disabled:opacity-30 hover:bg-indigo-50 text-indigo-600 transition-colors"
+              >
+                <IconChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+          <div className="text-[10px] font-medium text-slate-400 uppercase">
+            Mostrando {paginatedMusicians.length} de{" "}
+            {processedResultados.length} músicos
           </div>
         </div>
       </div>

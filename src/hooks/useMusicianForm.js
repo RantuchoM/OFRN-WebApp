@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { musicianSchema } from "../schemas/musicianSchema";
 import { sanitizeFilename } from "../utils/sanitize";
+import { parseSupabasePublicStorageUrl } from "../utils/supabaseStorage";
 import {
   convertPdfToImage,
   getCroppedImg,
@@ -225,8 +226,11 @@ export function useMusicianForm(musician, supabase, onSave) {
 
   const extractPathFromUrl = (url) => {
     if (!url) return null;
-    if (url.includes("firmas/")) return url.split("firmas/")[1];
-    if (url.includes("musician-docs/")) return url.split("musician-docs/")[1];
+    const parsed = parseSupabasePublicStorageUrl(url);
+    if (parsed?.path) return parsed.path.split("?")[0];
+    if (url.includes("firmas/")) return url.split("firmas/")[1]?.split("?")[0];
+    if (url.includes("musician-docs/"))
+      return url.split("musician-docs/")[1]?.split("?")[0];
     return null;
   };
 
@@ -340,7 +344,19 @@ export function useMusicianForm(musician, supabase, onSave) {
           fileToUpload = await compressImage(file);
         }
         const finalMimeType = fileToUpload.type || file.type || "";
-        const fileExt = finalMimeType === "image/png" ? "png" : "jpg";
+        const pickExt = () => {
+          if (finalMimeType === "application/pdf") return "pdf";
+          if (finalMimeType === "image/png") return "png";
+          if (
+            finalMimeType === "image/jpeg" ||
+            finalMimeType === "image/jpg"
+          )
+            return "jpg";
+          const m = /\.([a-zA-Z0-9]{1,10})$/.exec(file.name || "");
+          if (m) return m[1].toLowerCase();
+          return "jpg";
+        };
+        const fileExt = pickExt();
         const cleanSurname = sanitizeFilename(
           getValues("apellido") || "musician",
         );
@@ -353,7 +369,13 @@ export function useMusicianForm(musician, supabase, onSave) {
         const { error: uploadError } = await supabase.storage
           .from(bucket)
           .upload(filePath, fileToUpload, {
-            contentType: finalMimeType || undefined,
+            contentType:
+              finalMimeType ||
+              (fileExt === "pdf"
+                ? "application/pdf"
+                : fileExt === "png"
+                  ? "image/png"
+                  : "image/jpeg"),
             upsert: false,
           });
         if (uploadError) throw uploadError;
@@ -411,18 +433,35 @@ export function useMusicianForm(musician, supabase, onSave) {
       setLoading(true);
       try {
         let imageUrl = url;
-        const isPdf = url.toLowerCase().includes(".pdf");
+        const cleanUrl = String(url).split("#")[0];
+        const isPdf = /\.pdf(\?|$)/i.test(cleanUrl);
         const isPng =
           url.toLowerCase().includes(".png") || field === "firma";
-        if (isPdf) imageUrl = await convertPdfToImage(url);
+        if (isPdf) {
+          const parsed = parseSupabasePublicStorageUrl(url);
+          if (parsed && supabase) {
+            imageUrl = await convertPdfToImage(url, {
+              getArrayBuffer: async () => {
+                const { data, error } = await supabase.storage
+                  .from(parsed.bucket)
+                  .download(parsed.path.split("?")[0]);
+                if (error) throw error;
+                return data.arrayBuffer();
+              },
+            });
+          } else {
+            imageUrl = await convertPdfToImage(url);
+          }
+        }
         setCropModal({ isOpen: true, field, image: imageUrl, isPng });
       } catch (e) {
+        console.error("[MusicianForm] crop load:", e);
         toast.error("Error al cargar imagen");
       } finally {
         setLoading(false);
       }
     },
-    [],
+    [supabase],
   );
 
   const handleConfirmCrop = useCallback(

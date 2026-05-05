@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   IconScissor,
   IconTrash,
@@ -8,6 +8,7 @@ import {
   IconEye,
 } from "../../components/ui/Icons";
 import { useMusicianFormContext } from "./MusicianFormContext";
+import { parseSupabasePublicStorageUrl } from "../../utils/supabaseStorage";
 
 /**
  * Uploader con drag & drop para documentos del músico (DNI, CUIL, CBU, firma, etc.).
@@ -27,9 +28,35 @@ export default function MusicianFileUploader({ label, field, value }) {
   } = useMusicianFormContext();
 
   const [isDragging, setIsDragging] = useState(false);
+  const [previewSrc, setPreviewSrc] = useState(null);
   const status = fieldStatuses[field];
-  const isPdf = value && value.toLowerCase().includes(".pdf");
+  const cleanValue = value ? String(value).split("#")[0] : "";
+  const isPdf = value && /\.pdf(\?|$)/i.test(cleanValue);
   const bucket = field === "firma" ? "firmas" : "musician-docs";
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!value) {
+      setPreviewSrc(null);
+      return;
+    }
+    setPreviewSrc(value);
+    if (!supabase) return;
+    const parsed = parseSupabasePublicStorageUrl(value);
+    if (!parsed) return;
+    const pathOnly = parsed.path.split("?")[0];
+    (async () => {
+      const { data, error } = await supabase.storage
+        .from(parsed.bucket)
+        .createSignedUrl(pathOnly, 60 * 60);
+      if (!cancelled && data?.signedUrl && !error) setPreviewSrc(data.signedUrl);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [value, supabase]);
+
+  const displaySrc = previewSrc || value;
 
   const openFileInNewTab = async () => {
     if (!value) return;
@@ -39,30 +66,17 @@ export default function MusicianFileUploader({ label, field, value }) {
     newTab.opener = null;
 
     const cleanUrl = String(value).split("#")[0];
-    const publicMarker = "/storage/v1/object/public/";
-    const markerIndex = cleanUrl.indexOf(publicMarker);
+    const parsed = parseSupabasePublicStorageUrl(cleanUrl);
 
-    if (markerIndex === -1 || !supabase) {
+    if (!parsed || !supabase) {
       newTab.location.href = value;
       return;
     }
 
     try {
-      const storagePath = decodeURIComponent(
-        cleanUrl.slice(markerIndex + publicMarker.length),
-      );
-      const firstSlash = storagePath.indexOf("/");
-      if (firstSlash === -1) {
-        newTab.location.href = value;
-        return;
-      }
-
-      const urlBucket = storagePath.slice(0, firstSlash);
-      const objectPath = storagePath.slice(firstSlash + 1);
-
       const { data, error } = await supabase.storage
-        .from(urlBucket)
-        .createSignedUrl(objectPath, 60 * 10);
+        .from(parsed.bucket)
+        .createSignedUrl(parsed.path.split("?")[0], 60 * 10);
 
       if (error || !data?.signedUrl) {
         newTab.location.href = value;
@@ -106,19 +120,24 @@ export default function MusicianFileUploader({ label, field, value }) {
         {value ? (
           <>
             {isPdf ? (
-              <div className="w-full h-full bg-slate-100 overflow-hidden relative">
-                <iframe
-                  src={`${value}#toolbar=0&navpanes=0&scrollbar=0`}
-                  className="w-full h-full pointer-events-none"
-                  frameBorder="0"
-                />
+              <div className="w-full h-full bg-slate-100 overflow-hidden relative min-h-[120px]">
+                <object
+                  data={`${displaySrc}#toolbar=0&navpanes=0`}
+                  type="application/pdf"
+                  className="w-full h-full pointer-events-none absolute inset-0"
+                  aria-label={label}
+                >
+                  <div className="flex items-center justify-center h-full text-[10px] text-slate-500 p-2 text-center">
+                    Vista PDF limitada en este navegador. Usa el botón ver para abrir el archivo.
+                  </div>
+                </object>
                 <div className="absolute top-2 left-2 bg-emerald-500 text-white text-[8px] px-1.5 py-0.5 rounded font-bold shadow-sm z-10">
                   PDF
                 </div>
               </div>
             ) : (
               <img
-                src={value}
+                src={displaySrc || value}
                 className="w-full h-full object-contain p-2"
                 alt={label}
               />

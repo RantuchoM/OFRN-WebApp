@@ -50,14 +50,35 @@ import CommentsManager from "../comments/CommentsManager";
 import CommentButton from "../comments/CommentButton";
 import { useAuth } from "../../context/AuthContext";
 import WorkForm from "../../views/Repertoire/WorkForm";
-const ModalPortal = ({ children }) => {
+const ModalPortal = ({ children, onClose = null, closeOnBackdrop = false }) => {
+  useEffect(() => {
+    if (!onClose) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+      onMouseDown={(event) => {
+        if (closeOnBackdrop && event.target === event.currentTarget) onClose?.();
+      }}
+    >
       {children}
     </div>,
     document.body,
   );
 };
+
+const normalizeSearchText = (value) =>
+  String(value || "")
+    .replace(/<[^>]*>?/gm, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 
 // --- RENDERER DE TEXTO RICO ---
 const RichTextPreview = ({ content, className = "" }) => {
@@ -325,6 +346,11 @@ export default function RepertoireManager({
     titulo: "",
     arreglador: "",
   });
+  const [debouncedFilters, setDebouncedFilters] = useState({
+    compositor: "",
+    titulo: "",
+    arreglador: "",
+  });
   const [selectedInstruments, setSelectedInstruments] = useState([]);
   const [limitToSelected, setLimitToSelected] = useState(false);
   const [workFormData, setWorkFormData] = useState({});
@@ -381,6 +407,13 @@ export default function RepertoireManager({
       if (instrumentList.length === 0) fetchInstruments();
     }
   }, [isAddModalOpen, isEditWorkModalOpen]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedFilters(filters);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [filters]);
 
   const fetchMusicians = async () => {
     const { data } = await supabase
@@ -590,6 +623,9 @@ export default function RepertoireManager({
           ...w,
           compositor_full: getComposers(w),
           arreglador_full: getArranger(w),
+          titulo_plain: normalizeSearchText(w.titulo),
+          compositor_plain: normalizeSearchText(getComposers(w)),
+          arreglador_plain: normalizeSearchText(getArranger(w)),
         })),
       );
     setLoadingLibrary(false);
@@ -996,10 +1032,14 @@ export default function RepertoireManager({
       </a>
     );
   };
-  const filteredLibrary = worksLibrary.filter((w) => {
-    if (filters.titulo && !w.titulo?.toLowerCase().includes(filters.titulo.toLowerCase())) return false;
-    if (filters.compositor && !w.compositor_full?.toLowerCase().includes(filters.compositor.toLowerCase())) return false;
-    if (filters.arreglador && !w.arreglador_full?.toLowerCase().includes(filters.arreglador.toLowerCase())) return false;
+  const filteredLibrary = useMemo(() => worksLibrary.filter((w) => {
+    const tituloFilter = normalizeSearchText(debouncedFilters.titulo);
+    const compositorFilter = normalizeSearchText(debouncedFilters.compositor);
+    const arregladorFilter = normalizeSearchText(debouncedFilters.arreglador);
+
+    if (tituloFilter && !String(w.titulo_plain || normalizeSearchText(w.titulo)).includes(tituloFilter)) return false;
+    if (compositorFilter && !String(w.compositor_plain || normalizeSearchText(w.compositor_full)).includes(compositorFilter)) return false;
+    if (arregladorFilter && !String(w.arreglador_plain || normalizeSearchText(w.arreglador_full)).includes(arregladorFilter)) return false;
 
     const instr = w.instrumentacion || calculateInstrumentation(w.obras_particellas) || "";
     const hasStr = hasStrings(instr);
@@ -1031,7 +1071,13 @@ export default function RepertoireManager({
       }
     }
     return true;
-  });
+  }), [
+    worksLibrary,
+    debouncedFilters,
+    addModalInstrFilters,
+    addModalStringsFilter,
+    addModalStrictMode,
+  ]);
   // --- MANEJADOR CAMBIO DE ARCO (BD + DRIVE VIA PADRE) ---
   const handleArcoSelectionChange = async (item, newArcoId) => {
     // 1. Actualización optimista en BD (Repertorio)
@@ -1153,8 +1199,10 @@ export default function RepertoireManager({
   };
 
   const QuickWorkRow = ({ rep }) => {
+    const MIN_SEARCH_LEN = 2;
     const [composerInput, setComposerInput] = useState("");
     const [composerOptions, setComposerOptions] = useState([]);
+    const [activeComposerIndex, setActiveComposerIndex] = useState(-1);
     const [selectedComposer, setSelectedComposer] = useState(null);
     const [showComposerDropdown, setShowComposerDropdown] = useState(false);
     const [searchingComposer, setSearchingComposer] = useState(false);
@@ -1164,6 +1212,7 @@ export default function RepertoireManager({
     const [saving, setSaving] = useState(false);
     const [isNewWorkForComposer, setIsNewWorkForComposer] = useState(false);
     const [workOptions, setWorkOptions] = useState([]);
+    const [activeWorkIndex, setActiveWorkIndex] = useState(-1);
     const [showWorkDropdown, setShowWorkDropdown] = useState(false);
     const [searchingWork, setSearchingWork] = useState(false);
     const [selectedWork, setSelectedWork] = useState(null);
@@ -1173,11 +1222,38 @@ export default function RepertoireManager({
     const [workDropdownPos, setWorkDropdownPos] = useState(null);
     const [arrangerInput, setArrangerInput] = useState("");
     const [arrangerOptions, setArrangerOptions] = useState([]);
+    const [activeArrangerIndex, setActiveArrangerIndex] = useState(-1);
     const [selectedArranger, setSelectedArranger] = useState(null);
     const [showArrangerDropdown, setShowArrangerDropdown] = useState(false);
     const [searchingArranger, setSearchingArranger] = useState(false);
     const arrangerInputRef = useRef(null);
     const [arrangerDropdownPos, setArrangerDropdownPos] = useState(null);
+    const getDropdownPosition = (inputRef, minWidth = 260) => {
+      if (!inputRef?.current) return null;
+      const rect = inputRef.current.getBoundingClientRect();
+      const margin = 8;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const width = Math.min(
+        Math.max(rect.width, minWidth),
+        Math.max(180, viewportWidth - margin * 2),
+      );
+      const spaceBelow = viewportHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const dropdownHeight = 280;
+      const placeAbove = spaceBelow < 180 && spaceAbove > spaceBelow;
+      const top = placeAbove
+        ? Math.max(margin, rect.top - Math.min(dropdownHeight, spaceAbove - margin) - 4)
+        : Math.min(viewportHeight - margin, rect.bottom + 4);
+      const maxHeight = Math.max(
+        140,
+        placeAbove ? spaceAbove - margin - 8 : spaceBelow - margin - 8,
+      );
+      let left = rect.left;
+      if (left + width > viewportWidth - margin) left = viewportWidth - margin - width;
+      if (left < margin) left = margin;
+      return { top, left, width, maxHeight };
+    };
 
     const debouncedSearchComposer = useDebouncedCallback(
       async (query) => {
@@ -1315,42 +1391,48 @@ export default function RepertoireManager({
     );
 
     useEffect(() => {
-      if (showComposerDropdown && composerInputRef.current) {
-        const rect = composerInputRef.current.getBoundingClientRect();
-        setComposerDropdownPos({
-          top: rect.bottom + window.scrollY + 4,
-          left: rect.left + window.scrollX,
-          width: Math.max(rect.width, 260),
-        });
-      } else {
+      if (!showComposerDropdown) {
         setComposerDropdownPos(null);
+        return undefined;
       }
+      const updatePosition = () => setComposerDropdownPos(getDropdownPosition(composerInputRef, 260));
+      updatePosition();
+      window.addEventListener("resize", updatePosition);
+      window.addEventListener("scroll", updatePosition, true);
+      return () => {
+        window.removeEventListener("resize", updatePosition);
+        window.removeEventListener("scroll", updatePosition, true);
+      };
     }, [showComposerDropdown]);
 
     useEffect(() => {
-      if (showWorkDropdown && workInputRef.current) {
-        const rect = workInputRef.current.getBoundingClientRect();
-        setWorkDropdownPos({
-          top: rect.bottom + window.scrollY + 4,
-          left: rect.left + window.scrollX,
-          width: Math.max(rect.width, 320),
-        });
-      } else {
+      if (!showWorkDropdown) {
         setWorkDropdownPos(null);
+        return undefined;
       }
+      const updatePosition = () => setWorkDropdownPos(getDropdownPosition(workInputRef, 320));
+      updatePosition();
+      window.addEventListener("resize", updatePosition);
+      window.addEventListener("scroll", updatePosition, true);
+      return () => {
+        window.removeEventListener("resize", updatePosition);
+        window.removeEventListener("scroll", updatePosition, true);
+      };
     }, [showWorkDropdown]);
 
     useEffect(() => {
-      if (showArrangerDropdown && arrangerInputRef.current) {
-        const rect = arrangerInputRef.current.getBoundingClientRect();
-        setArrangerDropdownPos({
-          top: rect.bottom + window.scrollY + 4,
-          left: rect.left + window.scrollX,
-          width: Math.max(rect.width, 260),
-        });
-      } else {
+      if (!showArrangerDropdown) {
         setArrangerDropdownPos(null);
+        return undefined;
       }
+      const updatePosition = () => setArrangerDropdownPos(getDropdownPosition(arrangerInputRef, 260));
+      updatePosition();
+      window.addEventListener("resize", updatePosition);
+      window.addEventListener("scroll", updatePosition, true);
+      return () => {
+        window.removeEventListener("resize", updatePosition);
+        window.removeEventListener("scroll", updatePosition, true);
+      };
     }, [showArrangerDropdown]);
 
     const handleComposerChange = (e) => {
@@ -1362,7 +1444,7 @@ export default function RepertoireManager({
       setWorkOptions([]);
       setShowWorkDropdown(false);
       setIsNewWorkForComposer(false);
-      if (val.trim().length >= 2) {
+      if (val.trim().length >= MIN_SEARCH_LEN) {
         setSearchingComposer(true);
         debouncedSearchComposer(val);
       } else {
@@ -1375,6 +1457,7 @@ export default function RepertoireManager({
       setSelectedComposer(comp);
       setComposerInput(`${comp.apellido}, ${comp.nombre}`);
       setShowComposerDropdown(false);
+      setActiveComposerIndex(-1);
       setSelectedWork(null);
       setWorkOptions([]);
       setShowWorkDropdown(false);
@@ -1439,7 +1522,7 @@ export default function RepertoireManager({
       const val = e.target.value;
       setArrangerInput(val);
       setSelectedArranger(null);
-      if (val.trim().length >= 2) {
+      if (val.trim().length >= MIN_SEARCH_LEN) {
         setSearchingArranger(true);
         debouncedSearchArranger(val);
       } else {
@@ -1452,7 +1535,32 @@ export default function RepertoireManager({
       setSelectedArranger(comp);
       setArrangerInput(`${comp.apellido}, ${comp.nombre}`);
       setShowArrangerDropdown(false);
+      setActiveArrangerIndex(-1);
     };
+
+    useEffect(() => {
+      if (!showComposerDropdown || composerOptions.length === 0) {
+        setActiveComposerIndex(-1);
+        return;
+      }
+      setActiveComposerIndex(0);
+    }, [showComposerDropdown, composerOptions]);
+
+    useEffect(() => {
+      if (!showWorkDropdown || workOptions.length === 0) {
+        setActiveWorkIndex(-1);
+        return;
+      }
+      setActiveWorkIndex(0);
+    }, [showWorkDropdown, workOptions]);
+
+    useEffect(() => {
+      if (!showArrangerDropdown || arrangerOptions.length === 0) {
+        setActiveArrangerIndex(-1);
+        return;
+      }
+      setActiveArrangerIndex(0);
+    }, [showArrangerDropdown, arrangerOptions]);
 
     const handleInsertExistingWork = async (work) => {
       if (!isEditor || saving) return;
@@ -1658,8 +1766,90 @@ export default function RepertoireManager({
     };
 
     const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        if (showComposerDropdown || showWorkDropdown || showArrangerDropdown) {
+          e.preventDefault();
+          setShowComposerDropdown(false);
+          setShowWorkDropdown(false);
+          setShowArrangerDropdown(false);
+        }
+        return;
+      }
+
+      if (showComposerDropdown && composerOptions.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setActiveComposerIndex((prev) => (prev + 1) % composerOptions.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setActiveComposerIndex((prev) =>
+            prev <= 0 ? composerOptions.length - 1 : prev - 1,
+          );
+          return;
+        }
+      }
+      if (showWorkDropdown && workOptions.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setActiveWorkIndex((prev) => (prev + 1) % workOptions.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setActiveWorkIndex((prev) =>
+            prev <= 0 ? workOptions.length - 1 : prev - 1,
+          );
+          return;
+        }
+      }
+      if (showArrangerDropdown && arrangerOptions.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setActiveArrangerIndex((prev) => (prev + 1) % arrangerOptions.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setActiveArrangerIndex((prev) =>
+            prev <= 0 ? arrangerOptions.length - 1 : prev - 1,
+          );
+          return;
+        }
+      }
+
       if (e.key === "Enter") {
         e.preventDefault();
+        if (showComposerDropdown) {
+          if (composerOptions.length > 0) {
+            const target = composerOptions[Math.max(0, activeComposerIndex)];
+            if (target) handleComposerSelect(target);
+            return;
+          }
+          if (composerInput.trim().length >= MIN_SEARCH_LEN) {
+            handleQuickCreateComposerFromInput();
+            return;
+          }
+        }
+        if (showWorkDropdown && workOptions.length > 0) {
+          const target = workOptions[Math.max(0, activeWorkIndex)];
+          if (target) {
+            const cleanTitle = (target.titulo || "").replace(/<[^>]*>?/gm, "") || "";
+            setSelectedWork(target);
+            setTitulo(cleanTitle);
+            setShowWorkDropdown(false);
+            setIsNewWorkForComposer(false);
+            return;
+          }
+        }
+        if (showArrangerDropdown && arrangerOptions.length > 0) {
+          const target = arrangerOptions[Math.max(0, activeArrangerIndex)];
+          if (target) {
+            handleArrangerSelect(target);
+            return;
+          }
+        }
         handleSubmit();
       }
     };
@@ -1694,17 +1884,19 @@ export default function RepertoireManager({
               (composerOptions.length > 0 || composerInput.trim().length >= 2) &&
               createPortal(
                 <div
-                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg max-h-52 overflow-y-auto text-xs min-w-[260px]"
+                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs min-w-[220px]"
                   style={{
                     top: composerDropdownPos.top,
                     left: composerDropdownPos.left,
                     width: composerDropdownPos.width,
+                    maxHeight: composerDropdownPos.maxHeight,
                   }}
                 >
-                  {composerOptions.map((c) => (
+                  {composerOptions.map((c, index) => (
                     <div
                       key={c.id}
-                      className="px-2 py-1 hover:bg-fixed-indigo-50 cursor-pointer flex justify-between items-center"
+                      className={`px-2 py-1 cursor-pointer flex justify-between items-center ${index === activeComposerIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
+                      onMouseEnter={() => setActiveComposerIndex(index)}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         handleComposerSelect(c);
@@ -1741,7 +1933,7 @@ export default function RepertoireManager({
                 const val = e.target.value;
                 setTitulo(val);
                 setSelectedWork(null);
-                if (selectedComposer && val.trim().length >= 2) {
+                if (selectedComposer && val.trim().length >= MIN_SEARCH_LEN) {
                   setSearchingWork(true);
                   debouncedSearchWorks(selectedComposer.id, val);
                 } else {
@@ -1761,7 +1953,7 @@ export default function RepertoireManager({
               ref={workInputRef}
               className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
             />
-            {selectedComposer && titulo.trim().length >= 3 && isNewWorkForComposer && (
+            {selectedComposer && titulo.trim().length >= MIN_SEARCH_LEN && isNewWorkForComposer && (
               <span className="inline-flex items-center gap-1 text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 w-fit">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 Nueva obra para este compositor
@@ -1770,14 +1962,15 @@ export default function RepertoireManager({
             {showWorkDropdown &&
               selectedComposer &&
               workDropdownPos &&
-              (workOptions.length > 0 || titulo.trim().length >= 2) &&
+              (workOptions.length > 0 || titulo.trim().length >= MIN_SEARCH_LEN) &&
               createPortal(
                 <div
-                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg max-h-60 overflow-y-auto text-xs"
+                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs"
                   style={{
                     top: workDropdownPos.top,
                     left: workDropdownPos.left,
                     width: workDropdownPos.width,
+                    maxHeight: workDropdownPos.maxHeight,
                   }}
                 >
                   <div className="px-2 py-1 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500 flex items-center justify-between">
@@ -1786,12 +1979,13 @@ export default function RepertoireManager({
                       <IconLoader size={10} className="animate-spin text-slate-400" />
                     )}
                   </div>
-                  {workOptions.map((w) => {
+                  {workOptions.map((w, index) => {
                     const cleanTitle = (w.titulo || "").replace(/<[^>]*>?/gm, "") || "";
                     return (
                       <div
                         key={w.id}
-                        className="w-full px-2 py-1.5 hover:bg-fixed-indigo-50 flex items-center gap-2"
+                        className={`w-full px-2 py-1.5 flex items-center gap-2 ${index === activeWorkIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
+                        onMouseEnter={() => setActiveWorkIndex(index)}
                       >
                         <div className="flex items-center gap-1 shrink-0">
                           <button
@@ -1848,7 +2042,7 @@ export default function RepertoireManager({
                       </div>
                     );
                   })}
-                  {workOptions.length === 0 && titulo.trim().length >= 2 && (
+                  {workOptions.length === 0 && titulo.trim().length >= MIN_SEARCH_LEN && (
                     <div className="px-2 py-1 text-[10px] text-slate-400 border-t border-slate-100">
                       Sin coincidencias en el archivo para este compositor.
                     </div>
@@ -1902,17 +2096,19 @@ export default function RepertoireManager({
               (arrangerOptions.length > 0 || arrangerInput.trim().length >= 2) &&
               createPortal(
                 <div
-                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg max-h-52 overflow-y-auto text-xs min-w-[260px]"
+                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs min-w-[220px]"
                   style={{
                     top: arrangerDropdownPos.top,
                     left: arrangerDropdownPos.left,
                     width: arrangerDropdownPos.width,
+                    maxHeight: arrangerDropdownPos.maxHeight,
                   }}
                 >
-                  {arrangerOptions.map((c) => (
+                  {arrangerOptions.map((c, index) => (
                     <div
                       key={c.id}
-                      className="px-2 py-1 hover:bg-fixed-indigo-50 cursor-pointer flex justify-between items-center"
+                      className={`px-2 py-1 cursor-pointer flex justify-between items-center ${index === activeArrangerIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
+                      onMouseEnter={() => setActiveArrangerIndex(index)}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         handleArrangerSelect(c);
@@ -3089,8 +3285,8 @@ export default function RepertoireManager({
 
       {/* MODAL BUSCAR */}
       {isAddModalOpen && isEditor && (
-        <ModalPortal>
-          <div className="bg-white w-full max-w-5xl h-[80vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
+        <ModalPortal onClose={() => setIsAddModalOpen(false)}>
+          <div className="bg-white w-full max-w-5xl h-[85vh] md:h-[80vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
             <div className="p-3 border-b flex justify-between items-center bg-slate-50">
               <h3 className="font-bold text-slate-700 flex gap-2">
                 <IconSearch size={18} /> Buscar Obra
@@ -3102,8 +3298,8 @@ export default function RepertoireManager({
                 <IconX size={20} />
               </button>
             </div>
-            <div className="p-2 border-b grid grid-cols-1 md:grid-cols-5 gap-4 bg-white items-end">
-              <div className="space-y-2">
+            <div className="p-2 border-b grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,9rem)_minmax(0,1fr)_minmax(14rem,2.75fr)_auto] gap-4 bg-white items-end">
+              <div className="space-y-2 min-w-0">
                 <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Compositor</div>
                 <input
                   type="text"
@@ -3116,7 +3312,7 @@ export default function RepertoireManager({
                   }
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 min-w-0">
                 <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Arreglador</div>
                 <input
                   type="text"
@@ -3128,7 +3324,7 @@ export default function RepertoireManager({
                   }
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 min-w-0">
                 <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Obra</div>
                 <input
                   type="text"
@@ -3140,15 +3336,15 @@ export default function RepertoireManager({
                   }
                 />
               </div>
-              <div className="space-y-2 relative">
+              <div className="space-y-2 relative min-w-0 md:min-w-[14rem]">
                 <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Orgánico</div>
                 <button
                   ref={addModalInstrFilterAnchorRef}
                   type="button"
                   onClick={() => setShowAddModalInstrFilter(!showAddModalInstrFilter)}
-                  className={`w-full text-xs p-1.5 border rounded flex items-center justify-between ${addModalInstrFilters.length > 0 || addModalStringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}
+                  className={`w-full text-xs p-1.5 border rounded flex items-center justify-between gap-2 min-h-[2rem] ${addModalInstrFilters.length > 0 || addModalStringsFilter !== "all" ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold" : "bg-white border-slate-300 text-slate-500"}`}
                 >
-                  <span>
+                  <span className="truncate text-left">
                     {addModalInstrFilters.length > 0 ? `${addModalInstrFilters.length} reglas` : addModalStringsFilter !== "all" ? (addModalStringsFilter === "with" ? "Con Cuerdas" : "Sin Cuerdas") : "Filtrar"}
                   </span>
                   <IconFilter size={10} />
@@ -3187,69 +3383,130 @@ export default function RepertoireManager({
                 <div className="p-8 text-center text-fixed-indigo-600">
                   <IconLoader className="animate-spin inline" />
                 </div>
+              ) : filteredLibrary.length === 0 ? (
+                <div className="p-8 text-center">
+                  <div className="text-sm font-semibold text-slate-600">
+                    Sin coincidencias con los filtros actuales.
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Probá limpiar filtros o crear una nueva solicitud.
+                  </div>
+                </div>
               ) : (
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-500 uppercase sticky top-0 font-bold shadow-sm">
-                    <tr>
-                      <th className="p-2 w-1/4">Compositor</th>
-                      <th className="p-2 w-1/4">Arreglador</th>
-                      <th className="p-2 w-1/3">Obra</th>
-                      <th className="p-2 text-center w-16">Duración</th>
-                      <th className="p-2 text-center w-24">Instr.</th>
-                      <th className="p-2 text-center w-12">Año</th>
-                      <th className="p-2 text-center w-10">Drive</th>
-                      <th className="p-2 text-right w-20"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
+                <>
+                  <div className="md:hidden p-2 space-y-2">
                     {filteredLibrary.map((w) => (
-                      <tr key={w.id} className="hover:bg-fixed-indigo-50 group">
-                        <td className="p-2 text-slate-600 font-medium truncate">
+                      <div key={w.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                        <div className="text-[11px] font-semibold text-slate-600 truncate">
                           {w.compositor_full}
-                        </td>
-                        <td className="p-2 text-slate-500 truncate">
-                          {w.arreglador_full !== "-" ? w.arreglador_full : ""}
-                        </td>
-                        <td className="p-2 text-slate-800 font-bold truncate">
+                        </div>
+                        {w.arreglador_full !== "-" && (
+                          <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                            Arr.: {w.arreglador_full}
+                          </div>
+                        )}
+                        <div className="text-xs text-slate-800 font-bold mt-1 line-clamp-2">
                           <RichTextPreview content={w.titulo} />
-                        </td>
-                        <td className="p-2 text-center font-mono text-[10px] text-slate-400">
-                          {formatSecondsToTime(w.duracion_segundos)}
-                        </td>
-                        <td className="p-2 text-center font-mono text-[10px] text-slate-500 bg-slate-50/50 rounded">
-                          {w.instrumentacion ||
-                            calculateInstrumentation(w.obras_particellas) ||
-                            "-"}
-                        </td>
-                        <td className="p-2 text-center text-slate-500">
-                          {w.anio_composicion || "-"}
-                        </td>
-                        <td className="p-2 text-center">
-                          {w.link_drive ? (
-                            <a
-                              href={w.link_drive}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-blue-600 hover:text-blue-800 inline-block p-1 bg-blue-50 rounded-full"
-                            >
-                              <IconDrive size={14} />
-                            </a>
-                          ) : (
-                            <span className="text-slate-200">-</span>
-                          )}
-                        </td>
-                        <td className="p-2 text-right">
-                          <button
-                            onClick={() => addWorkToBlock(w.id)}
-                            className="bg-white border border-fixed-indigo-200 text-fixed-indigo-600 px-2 py-0.5 rounded font-bold hover:bg-fixed-indigo-600 hover:text-white shadow-sm transition-colors text-[10px]"
-                          >
-                            Seleccionar
-                          </button>
-                        </td>
-                      </tr>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-slate-500">
+                          <span>Dur.: {formatSecondsToTime(w.duracion_segundos)}</span>
+                          <span className="truncate">Instr.: {w.instrumentacion || calculateInstrumentation(w.obras_particellas) || "-"}</span>
+                          <span>Año: {w.anio_composicion || "-"}</span>
+                          <span>
+                            Drive:{" "}
+                            {w.link_drive ? (
+                              <a href={w.link_drive} target="_blank" rel="noreferrer" className="text-blue-600 underline">Abrir</a>
+                            ) : (
+                              "-"
+                            )}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => addWorkToBlock(w.id)}
+                          className="mt-3 w-full min-h-11 bg-fixed-indigo-600 text-white rounded font-bold text-xs hover:bg-fixed-indigo-700"
+                        >
+                          Seleccionar
+                        </button>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
+                  </div>
+                  <table className="hidden md:table w-full table-fixed text-left text-xs">
+                    <colgroup>
+                      <col style={{ width: "18%" }} />
+                      <col style={{ width: "9%" }} />
+                      <col style={{ width: "26%" }} />
+                      <col style={{ width: "4.25rem" }} />
+                      <col style={{ width: "22%" }} />
+                      <col style={{ width: "3rem" }} />
+                      <col style={{ width: "2.75rem" }} />
+                      <col style={{ width: "5.5rem" }} />
+                    </colgroup>
+                    <thead className="bg-slate-50 text-slate-500 uppercase sticky top-0 font-bold shadow-sm">
+                      <tr>
+                        <th className="p-2">Compositor</th>
+                        <th className="p-2">Arreglador</th>
+                        <th className="p-2">Obra</th>
+                        <th className="p-2 text-center">Duración</th>
+                        <th className="p-2 text-center">Instr.</th>
+                        <th className="p-2 text-center">Año</th>
+                        <th className="p-2 text-center">Drive</th>
+                        <th className="p-2 text-right"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {filteredLibrary.map((w) => (
+                        <tr key={w.id} className="hover:bg-fixed-indigo-50 group">
+                          <td className="p-2 text-slate-600 font-medium truncate">
+                            {w.compositor_full}
+                          </td>
+                          <td className="p-2 text-slate-500 truncate max-w-0">
+                            {w.arreglador_full !== "-" ? w.arreglador_full : ""}
+                          </td>
+                          <td className="p-2 text-slate-800 font-bold truncate">
+                            <RichTextPreview content={w.titulo} />
+                          </td>
+                          <td className="p-2 text-center font-mono text-[10px] text-slate-400 whitespace-nowrap">
+                            {formatSecondsToTime(w.duracion_segundos)}
+                          </td>
+                          <td className="p-2 text-center font-mono text-[10px] text-slate-500 bg-slate-50/50 rounded align-middle">
+                            <div className="line-clamp-3 break-all whitespace-normal" title={w.instrumentacion ||
+                              calculateInstrumentation(w.obras_particellas) ||
+                              "-"}>
+                              {w.instrumentacion ||
+                                calculateInstrumentation(w.obras_particellas) ||
+                                "-"}
+                            </div>
+                          </td>
+                          <td className="p-2 text-center text-slate-500">
+                            {w.anio_composicion || "-"}
+                          </td>
+                          <td className="p-2 text-center">
+                            {w.link_drive ? (
+                              <a
+                                href={w.link_drive}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-600 hover:text-blue-800 inline-block p-1 bg-blue-50 rounded-full"
+                              >
+                                <IconDrive size={14} />
+                              </a>
+                            ) : (
+                              <span className="text-slate-200">-</span>
+                            )}
+                          </td>
+                          <td className="p-2 text-right">
+                            <button
+                              onClick={() => addWorkToBlock(w.id)}
+                              className="bg-white border border-fixed-indigo-200 text-fixed-indigo-600 px-2 py-1 rounded font-bold hover:bg-fixed-indigo-600 hover:text-white shadow-sm transition-colors text-[10px] min-h-9"
+                            >
+                              Seleccionar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
               )}
             </div>
           </div>
@@ -3257,7 +3514,7 @@ export default function RepertoireManager({
       )}
 
       {quickEntryFollowup && (
-        <ModalPortal>
+        <ModalPortal onClose={() => setQuickEntryFollowup(null)}>
           <div className="bg-white w-full max-w-md rounded-xl shadow-2xl p-5 overflow-hidden animate-in zoom-in-95">
             <h3 className="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
               <IconLink size={16} className="text-fixed-indigo-600" />
@@ -3427,7 +3684,7 @@ export default function RepertoireManager({
 
       {/* MODAL EDITAR (WORKFORM) */}
       {isEditWorkModalOpen && isEditor && (
-        <ModalPortal>
+        <ModalPortal onClose={() => setIsEditWorkModalOpen(false)}>
           <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto overflow-x-hidden rounded-xl bg-white p-2 shadow-2xl animate-in zoom-in-95 sm:p-3">
             <WorkForm
               supabase={supabase}

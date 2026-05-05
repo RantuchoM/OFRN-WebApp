@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import {
   IconLoader,
   IconAlertTriangle,
   IconChevronDown,
   IconUsers,
+  IconUserPlus,
   IconPencil,
   IconFolder,
   IconX,
@@ -16,6 +19,7 @@ import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import { getProgramStyle } from "../../utils/giraUtils";
 import DateInput from "../../components/ui/DateInput";
 import WorkForm from "../Repertoire/WorkForm";
+import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
 
 const INSTRUMENT_COLUMNS = [
   { id: "Fl", label: "Fl" },
@@ -32,6 +36,32 @@ const INSTRUMENT_COLUMNS = [
   { id: "Pno", label: "Pno" },
 ];
 
+/** Mismo orden y cantidad de columnas en cada tarjeta (sin Tim) para alinear verticalmente al escanear. */
+const AUDIT_GRID_COLUMNS = INSTRUMENT_COLUMNS.filter((c) => c.id !== "Tim");
+
+/** Ancho fijo de la columna de etiquetas del resumen (Conv / Req Max / …). */
+const AUDIT_SUMMARY_ROW_LABEL_TH =
+  "w-[4.75rem] min-w-[4.75rem] max-w-[4.75rem] px-1.5 py-1 box-border text-left font-semibold align-middle";
+/** Celdas de instrumento: ancho uniforme en toda la vista. */
+const AUDIT_SUMMARY_INST_TH_TD =
+  "w-9 min-w-[2.25rem] max-w-[2.25rem] px-0.5 py-1 box-border text-center align-middle";
+
+const AUDIT_CARD_LEFT_META_CLASS =
+  "flex flex-col items-start gap-0.5 w-56 flex-none shrink-0 min-w-0";
+const AUDIT_CARD_ACTIONS_CLASS =
+  "flex flex-col items-end gap-1.5 shrink-0 w-[7.5rem] flex-none min-w-[7.5rem]";
+
+const AUDIT_WORKS_OBRA_COL = "w-64 min-w-[16rem] max-w-[16rem]";
+const AUDIT_WORKS_INST_TH_TD =
+  "w-9 min-w-[2.25rem] max-w-[2.25rem] px-0.5 py-1.5 box-border text-center align-middle";
+
+const AUDIT_SUMMARY_LABEL_PX = 76;
+const AUDIT_SUMMARY_INST_PX = 36;
+const AUDIT_SUMMARY_TABLE_MIN_PX =
+  AUDIT_SUMMARY_LABEL_PX + AUDIT_GRID_COLUMNS.length * AUDIT_SUMMARY_INST_PX;
+
+const AUDIT_WORKS_TABLE_MIN_PX = 256 + AUDIT_GRID_COLUMNS.length * 36;
+
 function createEmptyInstrumentationMap() {
   return {
     Fl: 0,
@@ -47,6 +77,43 @@ function createEmptyInstrumentationMap() {
     Har: 0,
     Pno: 0,
   };
+}
+
+/** Chips de giras_fuentes (mismo estilo que el header de GiraRoster), solo lectura. */
+function ConvocacionFuentesResumen({ sources, ensambleLabels }) {
+  const rows = (sources || []).filter((s) => {
+    if (s.tipo === "ENSAMBLE" || s.tipo === "EXCL_ENSAMBLE")
+      return s.valor_id != null;
+    if (s.tipo === "FAMILIA") return !!s.valor_texto;
+    return false;
+  });
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-1.5 w-full min-w-0 max-w-full flex flex-wrap content-start gap-1.5 border-t border-black/10 pt-1.5">
+      {rows.map((s, idx) => {
+        const label =
+          s.tipo === "ENSAMBLE" || s.tipo === "EXCL_ENSAMBLE"
+            ? ensambleLabels?.[s.valor_id] || `Ensamble ${s.valor_id}`
+            : s.valor_texto;
+        const key =
+          s.id != null
+            ? String(s.id)
+            : `${s.tipo}-${s.valor_id ?? ""}-${s.valor_texto ?? ""}-${idx}`;
+        return (
+          <span
+            key={key}
+            className={`inline-flex max-w-full min-w-0 items-center px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide break-words [overflow-wrap:anywhere] leading-snug ${
+              s.tipo === "EXCL_ENSAMBLE"
+                ? "bg-red-50 text-red-700"
+                : "bg-fixed-indigo-50 text-fixed-indigo-700"
+            }`}
+          >
+            {label}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 function computeRequiredForProgram(blocks = []) {
@@ -296,6 +363,180 @@ function getConvokedNamesByColumn(roster = []) {
   return out;
 }
 
+/** Músicos confirmados (no simulación) por columna de resumen; misma clasificación que nombres/tooltip. */
+function getConvokedMusiciansByColumn(roster = []) {
+  const out = createEmptyInstrumentationMap();
+  Object.keys(out).forEach((k) => {
+    out[k] = [];
+  });
+  const pushUnique = (key, m) => {
+    const arr = out[key];
+    if (!arr.some((x) => x.id === m.id)) arr.push(m);
+  };
+
+  const confirmed = (roster || []).filter(
+    (m) =>
+      String(m.estado_gira || "").toLowerCase() === "confirmado" &&
+      !m.es_simulacion,
+  );
+  const skipRoles = ["staff", "produccion", "chofer"];
+  confirmed.forEach((m) => {
+    if (skipRoles.includes((m.rol_gira || "").toLowerCase())) return;
+    const idInstr = String(m.id_instr || "");
+    const instrumentName = (m.instrumentos?.instrumento || "").toLowerCase();
+
+    if (["01", "02", "03", "04"].includes(idInstr)) return;
+    if (instrumentName.includes("flaut") || instrumentName.includes("picc")) {
+      pushUnique("Fl", m);
+      return;
+    }
+    if (instrumentName.includes("oboe") || instrumentName.includes("corno ing")) {
+      pushUnique("Ob", m);
+      return;
+    }
+    if (
+      instrumentName.includes("clarin") ||
+      instrumentName.includes("requinto") ||
+      instrumentName.includes("basset")
+    ) {
+      pushUnique("Cl", m);
+      return;
+    }
+    if (instrumentName.includes("fagot") || instrumentName.includes("contraf")) {
+      pushUnique("Fg", m);
+      return;
+    }
+    if (instrumentName.includes("corno") || instrumentName.includes("trompa")) {
+      pushUnique("Cr", m);
+      return;
+    }
+    if (instrumentName.includes("trompet") || instrumentName.includes("fliscorno")) {
+      pushUnique("Tp", m);
+      return;
+    }
+    if (instrumentName.includes("trombon") || instrumentName.includes("trombón")) {
+      pushUnique("Tb", m);
+      return;
+    }
+    if (instrumentName.includes("tuba") || instrumentName.includes("bombard")) {
+      pushUnique("Tba", m);
+      return;
+    }
+    if (instrumentName.includes("timbal")) {
+      pushUnique("Tim", m);
+      return;
+    }
+    if (
+      instrumentName.includes("perc") ||
+      instrumentName.includes("bombo") ||
+      instrumentName.includes("platillo") ||
+      instrumentName.includes("caja")
+    ) {
+      pushUnique("Perc", m);
+      return;
+    }
+    if (instrumentName.includes("arpa")) {
+      pushUnique("Har", m);
+      return;
+    }
+    if (
+      instrumentName.includes("piano") ||
+      instrumentName.includes("teclado") ||
+      instrumentName.includes("celesta") ||
+      instrumentName.includes("órgano") ||
+      instrumentName.includes("organo")
+    ) {
+      pushUnique("Pno", m);
+    }
+  });
+  return out;
+}
+
+function getMusiciansForExcessColumn(roster, colId) {
+  const byCol = getConvokedMusiciansByColumn(roster);
+  if (colId === "Perc") {
+    const seen = new Set();
+    const merged = [];
+    for (const m of [...(byCol.Tim || []), ...(byCol.Perc || [])]) {
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      merged.push(m);
+    }
+    return merged;
+  }
+  return byCol[colId] || [];
+}
+
+function pickInstrumentIdForColumn(colId, instruments = []) {
+  const rows = (instruments || []).map((i) => ({
+    id: i.id,
+    s: (i.instrumento || "").toLowerCase(),
+  }));
+  const first = (pred) => rows.find((r) => pred(r.s))?.id ?? null;
+
+  switch (colId) {
+    case "Fl":
+      return first((s) => s.includes("flaut") || s.includes("picc"));
+    case "Ob":
+      return first((s) => s.includes("oboe") || s.includes("corno ing"));
+    case "Cl":
+      return first(
+        (s) =>
+          s.includes("clarin") || s.includes("requinto") || s.includes("basset"),
+      );
+    case "Fg":
+      return first((s) => s.includes("fagot") || s.includes("contraf"));
+    case "Cr":
+      return first((s) => s.includes("corno") || s.includes("trompa"));
+    case "Tp":
+      return first((s) => s.includes("trompet") || s.includes("fliscorno"));
+    case "Tb":
+      return first((s) => s.includes("trombon") || s.includes("trombón"));
+    case "Tba":
+      return first((s) => s.includes("tuba") || s.includes("bombard"));
+    case "Tim":
+      return first((s) => s.includes("timbal"));
+    case "Perc":
+      return (
+        first((s) => s.includes("perc") && !s.includes("timbal")) ||
+        first((s) => s.includes("bombo")) ||
+        first((s) => s.includes("platillo")) ||
+        first((s) => s.includes("caja"))
+      );
+    case "Har":
+      return first((s) => s.includes("arpa"));
+    case "Pno":
+      return first(
+        (s) =>
+          s.includes("piano") ||
+          s.includes("teclado") ||
+          s.includes("celesta") ||
+          s.includes("órgano") ||
+          s.includes("organo"),
+      );
+    default:
+      return null;
+  }
+}
+
+function computeInstrumentationDeficits(required, convokedAll) {
+  const requiredPercTotal = (required.Tim || 0) + (required.Perc || 0);
+  const convokedPercTotal = (convokedAll.Tim || 0) + (convokedAll.Perc || 0);
+  const deficits = {};
+  for (const col of INSTRUMENT_COLUMNS) {
+    if (col.id === "Tim") continue;
+    if (col.id === "Perc") {
+      deficits.Perc = Math.max(0, requiredPercTotal - convokedPercTotal);
+    } else {
+      deficits[col.id] = Math.max(
+        0,
+        (required[col.id] || 0) - (convokedAll[col.id] || 0),
+      );
+    }
+  }
+  return deficits;
+}
+
 function normalizeForCompare(_key, value) {
   return value || 0;
 }
@@ -455,16 +696,21 @@ function ProgramWorksTable({
   return (
     <div className="px-4 pb-4 pt-1 border-t border-slate-100">
       <div className="border border-slate-200 rounded-lg overflow-x-auto bg-white">
-        <table className="w-full text-xs min-w-[900px]">
+        <table
+          className="w-full table-fixed border-collapse text-xs"
+          style={{ minWidth: AUDIT_WORKS_TABLE_MIN_PX }}
+        >
           <thead>
             <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
-              <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-[10px] font-bold text-left uppercase tracking-wide border-r border-slate-200 w-64">
+              <th
+                className={`sticky left-0 z-10 bg-slate-50 px-3 py-2 text-[10px] font-bold text-left uppercase tracking-wide border-r border-slate-200 box-border ${AUDIT_WORKS_OBRA_COL}`}
+              >
                 Obra
               </th>
               {visibleColumns.map((col) => (
                 <th
                   key={col.id}
-                  className="px-2 py-1.5 text-center border-r border-slate-200 text-[10px] font-bold uppercase tracking-wide"
+                  className={`${AUDIT_WORKS_INST_TH_TD} border-r border-slate-200 text-[10px] font-bold uppercase tracking-wide text-slate-600`}
                 >
                   {col.label}
                 </th>
@@ -475,7 +721,7 @@ function ProgramWorksTable({
             {works.map((w) => (
               <tr key={w.id} className="hover:bg-slate-50/60">
                 <td
-                  className={`sticky left-0 z-10 px-3 py-1.5 text-[11px] text-slate-800 border-r border-slate-200 max-w-[260px] ${getWorkEstadoCellClasses(w.estado)}`}
+                  className={`sticky left-0 z-10 px-3 py-1.5 text-[11px] text-slate-800 border-r border-slate-200 box-border ${AUDIT_WORKS_OBRA_COL} ${getWorkEstadoCellClasses(w.estado)}`}
                 >
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
@@ -546,7 +792,7 @@ function ProgramWorksTable({
                   return (
                     <td
                       key={col.id}
-                      className="px-2 py-1.5 text-center border-r border-slate-200"
+                      className={`${AUDIT_WORKS_INST_TH_TD} border-r border-slate-200`}
                     >
                       <span
                         className={`font-mono text-xs font-extrabold ${
@@ -573,6 +819,7 @@ export default function InstrumentationAudit({ supabase }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [programs, setPrograms] = useState([]);
+  const [instrumentsCatalog, setInstrumentsCatalog] = useState([]);
   const [selectedType, setSelectedType] = useState("Sinfónico");
   const [expandedIds, setExpandedIds] = useState(() => new Set());
   const [dateFrom, setDateFrom] = useState(
@@ -581,6 +828,10 @@ export default function InstrumentationAudit({ supabase }) {
   const [dateTo, setDateTo] = useState("");
   const [workFormOpen, setWorkFormOpen] = useState(false);
   const [workFormInitialData, setWorkFormInitialData] = useState({});
+  const [pendingNotifications, setPendingNotifications] = useState([]);
+  const [generatingVacForId, setGeneratingVacForId] = useState(null);
+  const [excessModal, setExcessModal] = useState(null);
+  const notificationQueueRef = useRef(null);
 
   const navigateToRoster = (giraId) => {
     const next = new URLSearchParams(searchParams);
@@ -632,13 +883,36 @@ export default function InstrumentationAudit({ supabase }) {
   );
 
   useEffect(() => {
-    const fetchData = async () => {
+    if (pendingNotifications.length === 0) return;
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [pendingNotifications.length]);
+
+  useEffect(() => {
+    if (!excessModal) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setExcessModal(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [excessModal]);
+
+  const fetchProgramsData = useCallback(async () => {
       setLoading(true);
       try {
+        const { data: instRows } = await supabase
+          .from("instrumentos")
+          .select("id, instrumento")
+          .order("instrumento");
+        setInstrumentsCatalog(instRows || []);
+
         const { data: programRows, error: progError } = await supabase
           .from("programas")
           .select(
-            "id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta, tipo, zona, organico_revisado, organico_comentario",
+            "id, nombre_gira, nomenclador, mes_letra, fecha_desde, fecha_hasta, tipo, zona, organico_revisado, organico_comentario, notificaciones_habilitadas, notificacion_inicial_enviada",
           )
           .order("fecha_desde", { ascending: true });
         if (progError) throw progError;
@@ -673,25 +947,59 @@ export default function InstrumentationAudit({ supabase }) {
         }
 
         const rosterByProgram = {};
+        const sourcesByProgram = {};
         if (basePrograms.length > 0) {
           const results = await Promise.all(
             basePrograms.map(async (prog) => {
               try {
-                const { roster } = await fetchRosterForGira(supabase, prog);
-                return { id: prog.id, roster: roster || [] };
+                const { roster, sources } = await fetchRosterForGira(
+                  supabase,
+                  prog,
+                );
+                return {
+                  id: prog.id,
+                  roster: roster || [],
+                  sources: sources || [],
+                };
               } catch (e) {
                 console.error(
                   "Error cargando roster para programa en auditoría:",
                   prog.id,
                   e,
                 );
-                return { id: prog.id, roster: [] };
+                return { id: prog.id, roster: [], sources: [] };
               }
             }),
           );
-          results.forEach(({ id, roster }) => {
+          results.forEach(({ id, roster, sources }) => {
             rosterByProgram[id] = roster;
+            sourcesByProgram[id] = sources || [];
           });
+        }
+
+        const allEnsIds = new Set();
+        Object.values(sourcesByProgram).forEach((srcs) => {
+          (srcs || []).forEach((s) => {
+            if (
+              (s.tipo === "ENSAMBLE" || s.tipo === "EXCL_ENSAMBLE") &&
+              s.valor_id != null
+            ) {
+              allEnsIds.add(s.valor_id);
+            }
+          });
+        });
+
+        let ensambleLabelById = {};
+        if (allEnsIds.size > 0) {
+          const { data: ensRows, error: ensErr } = await supabase
+            .from("ensambles")
+            .select("id, ensamble")
+            .in("id", [...allEnsIds]);
+          if (!ensErr && ensRows) {
+            ensambleLabelById = Object.fromEntries(
+              ensRows.map((e) => [e.id, e.ensamble || `Ensamble ${e.id}`]),
+            );
+          }
         }
 
         const enriched = basePrograms.map((p) => {
@@ -706,6 +1014,8 @@ export default function InstrumentationAudit({ supabase }) {
             ...p,
             _blocks: blocks,
             _roster: rosterByProgram[p.id] || [],
+            _convocacionSources: sourcesByProgram[p.id] || [],
+            _ensambleLabels: ensambleLabelById,
             instrumentationRequired: required,
             instrumentationConvoked: all,
             instrumentationVacants: vacants,
@@ -722,10 +1032,186 @@ export default function InstrumentationAudit({ supabase }) {
       } finally {
         setLoading(false);
       }
-    };
-
-    fetchData();
   }, [supabase]);
+
+  useEffect(() => {
+    fetchProgramsData();
+  }, [fetchProgramsData]);
+
+  const notifGiraContext = useCallback((program) => {
+    const origin =
+      typeof window !== "undefined" ? window.location.origin : "";
+    const path = typeof window !== "undefined" ? window.location.pathname : "";
+    return {
+      giraContext: {
+        nombre_gira: program.nombre_gira || "",
+        nomenclador: program.nomenclador || program.nombre_gira || "",
+        fecha_desde: program.fecha_desde || "",
+        fecha_hasta: program.fecha_hasta || "",
+        zona: program.zona || "",
+      },
+      linkRepertorio: `${origin}${path}?tab=giras&view=REPERTOIRE&giraId=${program.id}`,
+    };
+  }, []);
+
+  const handleMarkAusenteFromAudit = useCallback(
+    async (program, musician) => {
+      const giraId = program.id;
+      const notifOk =
+        program.notificacion_inicial_enviada === true &&
+        program.notificaciones_habilitadas !== false &&
+        musician.mail;
+
+      const { error } = await supabase.from("giras_integrantes").upsert(
+        {
+          id_gira: giraId,
+          id_integrante: musician.id,
+          estado: "ausente",
+          rol: musician.rol_gira || "musico",
+        },
+        { onConflict: "id_gira, id_integrante" },
+      );
+      if (error) {
+        toast.error("No se pudo marcar ausente: " + error.message);
+        return;
+      }
+
+      if (notifOk) {
+        const nombreCompleto =
+          musician.nombre_completo ||
+          `${musician.apellido || ""}, ${musician.nombre || ""}`.trim();
+        const ctx = notifGiraContext(program);
+        setPendingNotifications((prev) => [
+          ...prev,
+          {
+            id: `audit-ausente-${musician.id}-${Date.now()}`,
+            variant: "AUSENTE",
+            emails: [musician.mail],
+            nombres: [nombreCompleto],
+            reason: "Se te marcó como ausente",
+            ...ctx,
+          },
+        ]);
+      }
+
+      toast.success(
+        notifOk
+          ? "Ausente guardado. La notificación quedó en cola."
+          : "Marcado como ausente.",
+      );
+      setExcessModal(null);
+      await fetchProgramsData();
+    },
+    [supabase, fetchProgramsData, notifGiraContext],
+  );
+
+  const handleGenerateAutoVacancies = useCallback(
+    async (program) => {
+      const required =
+        program.instrumentationRequired || createEmptyInstrumentationMap();
+      const convokedAll =
+        program.instrumentationConvoked || createEmptyInstrumentationMap();
+      const deficits = computeInstrumentationDeficits(required, convokedAll);
+      const totalDeficit = Object.values(deficits).reduce((a, b) => a + b, 0);
+      if (totalDeficit <= 0) {
+        toast.info("No hay faltantes respecto al requerido máximo.");
+        return;
+      }
+
+      const { data: locRow, error: locErr } = await supabase
+        .from("giras_localidades")
+        .select("id_localidad")
+        .eq("id_gira", program.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (locErr || !locRow?.id_localidad) {
+        toast.error(
+          "La gira no tiene localidades asignadas. Agregá al menos una en la ficha del programa antes de crear vacantes.",
+        );
+        return;
+      }
+
+      const nomenclador =
+        program.nomenclador ||
+        (program.nombre_gira || "").slice(0, 12) ||
+        String(program.id);
+      const etiquetaGira = nomenclador ? `(${nomenclador})` : "";
+
+      setGeneratingVacForId(program.id);
+      let created = 0;
+      try {
+        for (const col of INSTRUMENT_COLUMNS) {
+          if (col.id === "Tim") continue;
+          const n = deficits[col.id] || 0;
+          if (n <= 0) continue;
+
+          const idInstr = pickInstrumentIdForColumn(
+            col.id,
+            instrumentsCatalog,
+          );
+
+          for (let i = 0; i < n; i++) {
+            const uniqueToken = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const rol = `${col.label} vacante${n > 1 ? ` ${i + 1}` : ""}`;
+            const apellidoCompuesto = `${rol} ${etiquetaGira}`.trim();
+
+            const { data: newVacancy, error: userError } = await supabase
+              .from("integrantes")
+              .insert([
+                {
+                  nombre: "Vacante",
+                  apellido: apellidoCompuesto,
+                  es_simulacion: true,
+                  genero: "F",
+                  id_localidad: locRow.id_localidad,
+                  id_instr: idInstr || null,
+                  dni: `SIM-${uniqueToken}`,
+                  mail: `vacante-${uniqueToken}@placeholder.system`,
+                  condicion: "Refuerzo",
+                },
+              ])
+              .select("id")
+              .single();
+
+            if (userError) throw userError;
+
+            const { error: linkError } = await supabase
+              .from("giras_integrantes")
+              .insert([
+                {
+                  id_gira: program.id,
+                  id_integrante: newVacancy.id,
+                  rol: "musico",
+                  estado: "confirmado",
+                },
+              ]);
+
+            if (linkError) throw linkError;
+            created += 1;
+          }
+        }
+
+        toast.success(
+          created === 1
+            ? "Se creó 1 vacante automática."
+            : `Se crearon ${created} vacantes automáticas.`,
+        );
+        await fetchProgramsData();
+      } catch (e) {
+        console.error(e);
+        toast.error(
+          created > 0
+            ? `Se crearon ${created} vacantes y falló el resto: ${e.message}`
+            : "Error al generar vacantes: " + (e.message || String(e)),
+        );
+        if (created > 0) await fetchProgramsData();
+      } finally {
+        setGeneratingVacForId(null);
+      }
+    },
+    [supabase, instrumentsCatalog, fetchProgramsData],
+  );
 
   const programTypeOptions = useMemo(() => {
     const tipos = new Set();
@@ -857,18 +1343,12 @@ export default function InstrumentationAudit({ supabase }) {
           const convokedPercTotal =
             (convokedAll.Tim || 0) + (convokedAll.Perc || 0);
 
-          const visibleColumns = INSTRUMENT_COLUMNS.filter((col) => {
-            if (col.id === "Tim") return false;
-            if (col.id === "Har" || col.id === "Pno") {
-              const reqVal = required[col.id] || 0;
-              const convVal = convokedAll[col.id] || 0;
-              const vacVal = vacants[col.id] || 0;
-              return reqVal > 0 || convVal > 0 || vacVal > 0;
-            }
-            return true;
-          });
-
           const convokedNamesByColumn = getConvokedNamesByColumn(p._roster || []);
+          const deficits = computeInstrumentationDeficits(required, convokedAll);
+          const autoVacanciesTotal = Object.values(deficits).reduce(
+            (a, b) => a + b,
+            0,
+          );
           const programStyle = getProgramStyle(p.tipo);
           const cardClasses = programStyle?.color
             ? programStyle.color
@@ -884,35 +1364,44 @@ export default function InstrumentationAudit({ supabase }) {
                 onClick={() => toggleExpanded(p.id)}
                 className="w-full flex items-stretch gap-3 px-4 py-3 hover:opacity-95 transition-opacity text-left"
               >
-                <div className="flex flex-col items-start gap-0.5 min-w-[220px] max-w-xs">
-                  <span className="text-xs font-bold truncate">
+                <div className={AUDIT_CARD_LEFT_META_CLASS}>
+                  <span className="text-xs font-bold truncate max-w-full">
                     {p.mes_letra
                       ? `${p.mes_letra} | ${p.nomenclador || ""}. ${
                           p.nombre_gira || ""
                         }`
                       : `${p.nomenclador || ""}. ${p.nombre_gira || ""}`}
                   </span>
-                  <span className="text-[11px] opacity-80">
+                  <span className="text-[11px] opacity-80 max-w-full break-words">
                     {fechaDesde || "s/d"}{" "}
                     {fechaHasta && fechaHasta !== fechaDesde
                       ? `→ ${fechaHasta}`
                       : ""}
                     {p.zona ? ` · ${p.zona}` : ""}
                   </span>
+                  <ConvocacionFuentesResumen
+                    sources={p._convocacionSources}
+                    ensambleLabels={p._ensambleLabels}
+                  />
                 </div>
 
                 <div className="flex-1 flex items-stretch gap-3 min-w-0">
-                  <div className="w-full border border-slate-200 rounded-lg overflow-x-auto bg-slate-50/60">
-                    <table className="w-full text-[10px] min-w-[560px]">
+                  <div className="min-w-0 flex-1 border border-slate-200 rounded-lg overflow-x-auto bg-slate-50/60">
+                    <table
+                      className="w-full table-fixed border-collapse text-[10px]"
+                      style={{ minWidth: AUDIT_SUMMARY_TABLE_MIN_PX }}
+                    >
                       <thead>
                         <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
-                          <th className="px-2 py-1 text-left font-semibold">
+                          <th
+                            className={`${AUDIT_SUMMARY_ROW_LABEL_TH} text-slate-600 font-semibold`}
+                          >
                             Resumen
                           </th>
-                          {visibleColumns.map((col) => (
+                          {AUDIT_GRID_COLUMNS.map((col) => (
                             <th
                               key={col.id}
-                              className="px-1.5 py-1 text-center font-semibold"
+                              className={`${AUDIT_SUMMARY_INST_TH_TD} font-semibold text-slate-600`}
                             >
                               {col.label}
                             </th>
@@ -921,10 +1410,10 @@ export default function InstrumentationAudit({ supabase }) {
                       </thead>
                       <tbody>
                         <tr className="bg-slate-50">
-                          <td className="px-2 py-1 font-semibold text-slate-700">
+                          <td className={AUDIT_SUMMARY_ROW_LABEL_TH}>
                             Conv
                           </td>
-                          {visibleColumns.map((col) => {
+                          {AUDIT_GRID_COLUMNS.map((col) => {
                             const convVal =
                               col.id === "Perc"
                                 ? convokedPercTotal
@@ -953,20 +1442,34 @@ export default function InstrumentationAudit({ supabase }) {
                               <td
                                 key={col.id}
                                 title={tooltipText ?? undefined}
-                                className={`px-1.5 py-1 text-center font-mono cursor-default ${
-                                  highlight ? mismatchStyle : "text-slate-800"
-                                }`}
+                                className={`${AUDIT_SUMMARY_INST_TH_TD} font-mono`}
                               >
-                                {convVal}
+                                {highlight ? (
+                                  <button
+                                    type="button"
+                                    className={`min-w-[1.5rem] px-1 py-0.5 font-mono ${mismatchStyle} hover:brightness-95 cursor-pointer`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setExcessModal({ program: p, colId: col.id });
+                                    }}
+                                    title="Ver músicos y marcar ausente"
+                                  >
+                                    {convVal}
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-800 cursor-default">
+                                    {convVal}
+                                  </span>
+                                )}
                               </td>
                             );
                           })}
                         </tr>
                         <tr className="bg-white">
-                          <td className="px-2 py-1 font-semibold text-slate-700">
+                          <td className={AUDIT_SUMMARY_ROW_LABEL_TH}>
                             Req Max
                           </td>
-                          {visibleColumns.map((col) => {
+                          {AUDIT_GRID_COLUMNS.map((col) => {
                             const convVal =
                               col.id === "Perc"
                                 ? convokedPercTotal
@@ -983,7 +1486,7 @@ export default function InstrumentationAudit({ supabase }) {
                             return (
                               <td
                                 key={col.id}
-                                className={`px-1.5 py-1 text-center font-mono ${
+                                className={`${AUDIT_SUMMARY_INST_TH_TD} font-mono ${
                                   highlight ? reqMismatchStyle : "text-slate-800"
                                 }`}
                               >
@@ -993,10 +1496,10 @@ export default function InstrumentationAudit({ supabase }) {
                           })}
                         </tr>
                         <tr className="bg-slate-50">
-                          <td className="px-2 py-1 font-semibold text-slate-700">
+                          <td className={AUDIT_SUMMARY_ROW_LABEL_TH}>
                             Sug.
                           </td>
-                          {visibleColumns.map((col) => {
+                          {AUDIT_GRID_COLUMNS.map((col) => {
                             let delta;
                             if (col.id === "Perc") {
                               delta = requiredPercTotal - convokedPercTotal;
@@ -1015,7 +1518,7 @@ export default function InstrumentationAudit({ supabase }) {
                             return (
                               <td
                                 key={col.id}
-                                className="px-1.5 py-1 text-center font-mono"
+                                className={`${AUDIT_SUMMARY_INST_TH_TD} font-mono`}
                               >
                                 <span
                                   className={
@@ -1031,10 +1534,10 @@ export default function InstrumentationAudit({ supabase }) {
                           })}
                         </tr>
                         <tr className="bg-white">
-                          <td className="px-2 py-1 font-semibold text-slate-700">
+                          <td className={AUDIT_SUMMARY_ROW_LABEL_TH}>
                             Vacantes
                           </td>
-                          {visibleColumns.map((col) => {
+                          {AUDIT_GRID_COLUMNS.map((col) => {
                             const v =
                               col.id === "Perc"
                                 ? (vacants.Tim || 0) + (vacants.Perc || 0)
@@ -1042,7 +1545,7 @@ export default function InstrumentationAudit({ supabase }) {
                             return (
                               <td
                                 key={col.id}
-                                className={`px-1.5 py-1 text-center font-mono ${
+                                className={`${AUDIT_SUMMARY_INST_TH_TD} font-mono ${
                                   v > 0
                                     ? "bg-amber-200 text-black font-semibold rounded"
                                     : "text-slate-300"
@@ -1056,24 +1559,50 @@ export default function InstrumentationAudit({ supabase }) {
                       </tbody>
                     </table>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className={AUDIT_CARD_ACTIONS_CLASS}>
                     <button
                       type="button"
+                      disabled={
+                        autoVacanciesTotal <= 0 || generatingVacForId === p.id
+                      }
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigateToRoster(p.id);
+                        handleGenerateAutoVacancies(p);
                       }}
-                      className="p-2 rounded-lg border border-current opacity-70 hover:opacity-100 transition-opacity"
-                      title="Ir a Nómina / Staff"
+                      className="text-[9px] font-bold uppercase px-2 py-1 rounded-md border border-current opacity-85 hover:opacity-100 disabled:opacity-35 disabled:cursor-not-allowed leading-tight text-center max-w-[8.5rem] flex items-center justify-center gap-1"
+                      title="Crea vacantes (integrantes simulación) según faltantes vs. requerido máximo. Requiere al menos una localidad en la gira."
                     >
-                      <IconUsers size={16} />
+                      {generatingVacForId === p.id ? (
+                        <>
+                          <IconLoader size={12} className="animate-spin shrink-0" />
+                          Generando…
+                        </>
+                      ) : (
+                        <>
+                          <IconUserPlus size={12} className="shrink-0" />
+                          Vacantes auto
+                        </>
+                      )}
                     </button>
-                    <IconChevronDown
-                      size={16}
-                      className={`opacity-70 transition-transform ${
-                        isOpen ? "rotate-180" : ""
-                      }`}
-                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigateToRoster(p.id);
+                        }}
+                        className="p-2 rounded-lg border border-current opacity-70 hover:opacity-100 transition-opacity"
+                        title="Ir a Nómina / Staff"
+                      >
+                        <IconUsers size={16} />
+                      </button>
+                      <IconChevronDown
+                        size={16}
+                        className={`opacity-70 transition-transform ${
+                          isOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </div>
                   </div>
                 </div>
               </button>
@@ -1136,7 +1665,7 @@ export default function InstrumentationAudit({ supabase }) {
                   </div>
                   <ProgramWorksTable
                     program={p}
-                    visibleColumns={visibleColumns}
+                    visibleColumns={AUDIT_GRID_COLUMNS}
                     convokedAll={convokedAll}
                     requiredPercTotal={requiredPercTotal}
                     convokedPercTotal={convokedPercTotal}
@@ -1186,6 +1715,108 @@ export default function InstrumentationAudit({ supabase }) {
             </div>
           </div>
         </div>
+      )}
+
+      {excessModal &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4"
+            onClick={() => setExcessModal(null)}
+            role="presentation"
+          >
+            <div
+              className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-sm p-4"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="audit-excess-title"
+            >
+              <div className="flex justify-between items-start gap-2 mb-2">
+                <h4
+                  id="audit-excess-title"
+                  className="text-sm font-bold text-slate-800"
+                >
+                  Convocados:{" "}
+                  {INSTRUMENT_COLUMNS.find((c) => c.id === excessModal.colId)
+                    ?.label || excessModal.colId}
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setExcessModal(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+                  aria-label="Cerrar"
+                >
+                  <IconX size={18} />
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500 mb-3">
+                Podés marcar como ausente; si la convocatoria inicial ya se
+                envió y las notificaciones están activas, se encola el mismo
+                aviso que en Nómina.
+              </p>
+              {(() => {
+                const mus = getMusiciansForExcessColumn(
+                  excessModal.program._roster || [],
+                  excessModal.colId,
+                );
+                if (mus.length === 0) {
+                  return (
+                    <p className="text-xs text-slate-600">
+                      No hay músicos confirmados en esta columna (el exceso
+                      puede deberse a vacantes simuladas u otra clasificación).
+                    </p>
+                  );
+                }
+                return (
+                  <ul className="space-y-2 max-h-64 overflow-y-auto">
+                    {mus.map((m) => (
+                      <li
+                        key={m.id}
+                        className="flex items-center justify-between gap-2 text-xs border border-slate-100 rounded-lg px-2 py-1.5"
+                      >
+                        <span className="truncate min-w-0">
+                          {m.nombre_completo ||
+                            `${m.apellido || ""}, ${m.nombre || ""}`.trim()}
+                        </span>
+                        <button
+                          type="button"
+                          className="shrink-0 text-[10px] font-bold uppercase text-red-700 border border-red-200 rounded px-2 py-0.5 hover:bg-red-50"
+                          onClick={() =>
+                            handleMarkAusenteFromAudit(excessModal.program, m)
+                          }
+                        >
+                          Ausente
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                );
+              })()}
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {pendingNotifications.length > 0 && (
+        <NotificationQueuePanel
+          ref={notificationQueueRef}
+          pendingTasks={pendingNotifications}
+          onFlush={() => setPendingNotifications([])}
+          onCancelAll={() => setPendingNotifications([])}
+          onRemoveTask={(id) =>
+            setPendingNotifications((prev) => prev.filter((t) => t.id !== id))
+          }
+          supabase={supabase}
+          gira={{
+            nombre_gira: "",
+            nomenclador: "",
+            fecha_desde: "",
+            fecha_hasta: "",
+            zona: "",
+          }}
+          linkRepertorio=""
+        />
       )}
     </div>
   );

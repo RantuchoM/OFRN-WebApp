@@ -31,7 +31,13 @@ const condicionColors = {
   Becario: "bg-blue-600 text-white",
 };
 
-export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
+export default function MusicianForm({
+  supabase,
+  musician,
+  onSave,
+  onCancel,
+  beforeHeader = null,
+}) {
   const ctx = useMusicianForm(musician, supabase, onSave);
   const {
     formData,
@@ -64,6 +70,7 @@ export default function MusicianForm({ supabase, musician, onSave, onCancel }) {
     <MusicianFormContext.Provider value={{ ...ctx, onCancel }}>
     <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[60] p-4 backdrop-blur-md">
       <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-6xl max-h-[95vh] flex flex-col animate-in zoom-in-95 duration-300 overflow-hidden border border-white/20">
+        {beforeHeader}
         {/* Header */}
         <div className={`px-4 py-4 border-b ${condicionClass}`}>
           <div className="max-w-4xl mx-auto flex justify-between items-center gap-4">

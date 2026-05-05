@@ -43,6 +43,13 @@ const NotificationQueuePanel = forwardRef(function NotificationQueuePanel(
     const zona = gira?.zona || "";
 
     for (const task of tasksToSend) {
+      const g = task.giraContext || {};
+      const taskNombreGira = g.nombre_gira ?? nombreGira;
+      const taskNomenclador = g.nomenclador ?? nomenclador ?? taskNombreGira;
+      const taskFechaDesde = g.fecha_desde ?? fechaDesde;
+      const taskFechaHasta = g.fecha_hasta ?? fechaHasta;
+      const taskZona = g.zona ?? zona;
+      const taskLink = task.linkRepertorio ?? linkRepertorio;
       try {
         await supabase.functions.invoke("mails_produccion", {
           body: {
@@ -51,14 +58,14 @@ const NotificationQueuePanel = forwardRef(function NotificationQueuePanel(
             bcc: task.emails?.length ? task.emails : undefined,
             email: task.emails?.length === 1 ? task.emails[0] : undefined,
             nombre: task.nombres?.[0] || "Participante",
-            gira: nombreGira,
+            gira: taskNombreGira,
             detalle: {
               variant: task.variant,
-              link_repertorio: linkRepertorio,
-              nomenclador,
-              fecha_desde: fechaDesde,
-              fecha_hasta: fechaHasta,
-              zona,
+              link_repertorio: taskLink,
+              nomenclador: taskNomenclador,
+              fecha_desde: taskFechaDesde,
+              fecha_hasta: taskFechaHasta,
+              zona: taskZona,
               reason: task.reason ?? undefined,
             },
           },

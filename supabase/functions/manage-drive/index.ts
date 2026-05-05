@@ -38,11 +38,45 @@ const sanitizePath = (str: string) => {
     .toLowerCase();
 };
 
-// Extrae el path relativo para borrar archivos del Bucket
+// Extrae el path relativo para borrar archivos del Bucket (evita falsos positivos con split por nombre de bucket)
 const extractStoragePath = (url: string, bucket: string) => {
-  if (!url || !url.includes(bucket)) return null;
-  const parts = url.split(`${bucket}/`);
-  return parts.length > 1 ? parts[1] : null;
+  if (!url || typeof url !== "string") return null;
+  const markers = [
+    `/storage/v1/object/public/${bucket}/`,
+    `/storage/v1/object/sign/${bucket}/`,
+    `/storage/v1/object/authenticated/${bucket}/`,
+  ];
+  for (const m of markers) {
+    const i = url.indexOf(m);
+    if (i === -1) continue;
+    let path = url.slice(i + m.length);
+    path = path.split("?")[0].split("#")[0];
+    try {
+      return decodeURIComponent(path);
+    } catch {
+      return path;
+    }
+  }
+  const needle = `${bucket}/`;
+  const idx = url.indexOf(needle);
+  if (idx === -1) return null;
+  let path = url.slice(idx + needle.length);
+  path = path.split("?")[0].split("#")[0];
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+};
+
+/** Supabase JS no lanza en upload fallido: hay que leer `error` o la BD guarda URLs rotas (404). */
+const throwIfStorageUploadError = (
+  result: { error?: { message?: string } | null },
+  label: string,
+) => {
+  if (result?.error?.message) {
+    throw new Error(`${label}: ${result.error.message}`);
+  }
 };
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
@@ -937,7 +971,10 @@ serve(async (req) => {
       const cleanSurname = sanitizePath(m.apellido);
       const djPath = `docs/dj_${cleanSurname}_${Date.now()}.pdf`;
 
-      await supabase.storage.from("musician-docs").upload(djPath, djBytes, { contentType: 'application/pdf', upsert: true });
+      throwIfStorageUploadError(
+        await supabase.storage.from("musician-docs").upload(djPath, djBytes, { contentType: 'application/pdf', upsert: true }),
+        `upload DJ (${djPath})`,
+      );
       const { data: { publicUrl: djUrl } } = supabase.storage.from("musician-docs").getPublicUrl(djPath);
 
       const packSources = [m.link_dni_img, m.link_cuil, m.link_cbu_img, djUrl].filter(u => !!u);
@@ -949,10 +986,12 @@ serve(async (req) => {
       const fullPath = `docs/full_${cleanSurname}_${Date.now()}.pdf`;
       const mosPath = `docs/mos_${cleanSurname}_${Date.now()}.pdf`;
 
-      await Promise.all([
+      const [upFull, upMos] = await Promise.all([
         supabase.storage.from("musician-docs").upload(fullPath, fullBytes, { contentType: 'application/pdf', upsert: true }),
         supabase.storage.from("musician-docs").upload(mosPath, mosaicBytes, { contentType: 'application/pdf', upsert: true })
       ]);
+      throwIfStorageUploadError(upFull, `upload expediente full (${fullPath})`);
+      throwIfStorageUploadError(upMos, `upload expediente mosaic (${mosPath})`);
 
       const { data: { publicUrl: fullUrl } } = supabase.storage.from("musician-docs").getPublicUrl(fullPath);
       const { data: { publicUrl: mosUrl } } = supabase.storage.from("musician-docs").getPublicUrl(mosPath);
@@ -1150,7 +1189,10 @@ serve(async (req) => {
       ]);
       const djBytes = await generateDJInternal(m, pdfRes, firmaRes);
       const djFileName = `docs/dj_${sanitizePath(m.apellido)}_${Date.now()}.pdf`;
-      await supabase.storage.from("musician-docs").upload(djFileName, djBytes, { contentType: 'application/pdf', upsert: true });
+      throwIfStorageUploadError(
+        await supabase.storage.from("musician-docs").upload(djFileName, djBytes, { contentType: 'application/pdf', upsert: true }),
+        `upload DJ (${djFileName})`,
+      );
       const { data: { publicUrl } } = supabase.storage.from("musician-docs").getPublicUrl(djFileName);
       await supabase.from("integrantes").update({ link_declaracion: publicUrl }).eq("id", m.id);
       return new Response(JSON.stringify({ success: true, url: publicUrl }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -1160,7 +1202,10 @@ serve(async (req) => {
     if (action === "assemble_docs_bucket") {
       const pdfBytes = await assemblePDFInternal(sources, layout);
       const finalPath = `results/${sanitizePath(fileName)}_${Date.now()}.pdf`;
-      await supabase.storage.from("musician-docs").upload(finalPath, pdfBytes, { contentType: 'application/pdf', upsert: true });
+      throwIfStorageUploadError(
+        await supabase.storage.from("musician-docs").upload(finalPath, pdfBytes, { contentType: 'application/pdf', upsert: true }),
+        `upload assemble_docs (${finalPath})`,
+      );
       const { data: { publicUrl } } = supabase.storage.from("musician-docs").getPublicUrl(finalPath);
       return new Response(JSON.stringify({ success: true, url: publicUrl }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -1186,7 +1231,10 @@ serve(async (req) => {
               if (bytes) {
                 const cleanName = sanitizePath(meta.data.name || "archivo");
                 const filePath = `docs/${m.id}_${field}_${cleanName}`;
-                await supabase.storage.from("musician-docs").upload(filePath, bytes, { contentType: meta.data.mimeType, upsert: true });
+                throwIfStorageUploadError(
+                  await supabase.storage.from("musician-docs").upload(filePath, bytes, { contentType: meta.data.mimeType, upsert: true }),
+                  `migración Drive→bucket (${filePath})`,
+                );
                 const { data: { publicUrl } } = supabase.storage.from("musician-docs").getPublicUrl(filePath);
                 await supabase.from("integrantes").update({ [field]: publicUrl }).eq("id", m.id);
                 procesados++;

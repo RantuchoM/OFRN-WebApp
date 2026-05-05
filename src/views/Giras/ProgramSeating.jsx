@@ -639,8 +639,6 @@ export default function ProgramSeating({
   const [filteredRoster, setFilteredRoster] = useState([]);
   const [particellas, setParticellas] = useState([]);
   const [assignments, setAssignments] = useState({});
-   // Sugerencias inteligentes por músico: { [id_musico]: { [id_obra]: id_particella } }
-  const [suggestions, setSuggestions] = useState({});
   const [containers, setContainers] = useState([]);
   const [showConfig, setShowConfig] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -835,6 +833,63 @@ export default function ProgramSeating({
     return map;
   }, [obras, particellas]);
 
+  /** Sugerencias bombilla (IconBulb) por músico: derivadas siempre de assignations + obras. Para cada celda vacía se usa la etiqueta de parte de la obra más cercana en el programa donde ese músico ya tiene asignación (primero columnas anteriores, luego posteriores). Así una obra nueva muestra sugerencia sin tener que re-asignar en la sesión. */
+  const derivedMusicianSuggestions = useMemo(() => {
+    const result = {};
+
+    otherMusicians.forEach((m) => {
+      const forMusician = {};
+      const musicianId = m.id;
+
+      obras.forEach((targetObra, tIdx) => {
+        const targetObraId = targetObra.obra_id;
+        const targetKey = `M-${musicianId}-${targetObraId}`;
+        if (assignments[targetKey]) return;
+
+        const available = availablePartsByWork[targetObraId] || [];
+        if (!available.length) return;
+
+        const hasUnassigned = available.some((p) => !particellaCounts[p.id]);
+        if (!hasUnassigned) return;
+
+        const beforeReversed = obras.slice(0, tIdx).reverse();
+        const after = obras.slice(tIdx + 1);
+        const candidateObras = [...beforeReversed, ...after];
+
+        for (const cand of candidateObras) {
+          const candKey = `M-${musicianId}-${cand.obra_id}`;
+          const partId = assignments[candKey];
+          if (!partId) continue;
+          const part = particellas.find((p) => String(p.id) === String(partId));
+          if (!part) continue;
+          const targetLabel = normalizePartLabel(getPartLabelFromPart(part));
+          if (!targetLabel) continue;
+          const match = available.find((p) => {
+            const label = normalizePartLabel(getPartLabelFromPart(p));
+            return label === targetLabel;
+          });
+          if (match) {
+            forMusician[targetObraId] = match.id;
+            break;
+          }
+        }
+      });
+
+      if (Object.keys(forMusician).length > 0) {
+        result[musicianId] = forMusician;
+      }
+    });
+
+    return result;
+  }, [
+    otherMusicians,
+    obras,
+    assignments,
+    particellas,
+    availablePartsByWork,
+    particellaCounts,
+  ]);
+
   const obrasWithInstrumentation = useMemo(() => {
     if (!obras || obras.length === 0) return [];
     return obras.map((obra) => {
@@ -880,55 +935,6 @@ export default function ProgramSeating({
 
     return acc;
   }, [obrasWithInstrumentation]);
-
-  // Calcula sugerencias para un músico concreto a partir de una asignación reciente
-  const updateSuggestionsAfterAssign = useCallback(
-    (musicianId, originObraId, partId) => {
-      const part = particellas.find(
-        (p) => String(p.id) === String(partId),
-      );
-      if (!part) return;
-      const targetLabel = normalizePartLabel(getPartLabelFromPart(part));
-      if (!targetLabel) return;
-
-      setSuggestions((prev) => {
-        const nextForMusician = {};
-
-        obras.forEach((obra) => {
-          const obraId = obra.obra_id;
-          if (obraId === originObraId) return;
-
-          const key = `M-${musicianId}-${obraId}`;
-          if (assignments[key]) return;
-
-          const available = availablePartsByWork[obraId] || [];
-          if (!available.length) return;
-
-          // Si la obra ya tiene todas sus particellas usadas al menos una vez, no sugerimos más
-          const hasUnassigned = available.some((p) => !particellaCounts[p.id]);
-          if (!hasUnassigned) return;
-
-          const match = available.find((p) => {
-            const label = normalizePartLabel(getPartLabelFromPart(p));
-            return label === targetLabel;
-          });
-
-          if (match) {
-            nextForMusician[obraId] = match.id;
-          }
-        });
-
-        if (Object.keys(nextForMusician).length === 0) {
-          const copy = { ...prev };
-          delete copy[musicianId];
-          return copy;
-        }
-
-        return { ...prev, [musicianId]: nextForMusician };
-      });
-    },
-    [obras, availablePartsByWork, particellas, assignments, particellaCounts],
-  );
 
   // Sugerencia basada en nombre de contenedor (cuerdas)
   const getContainerSuggestedPart = useCallback(
@@ -1559,19 +1565,6 @@ export default function ProgramSeating({
       else copy[key] = particellaId;
       return copy;
     });
-
-    // Reset o recalcular sugerencias según el caso
-    if (targetType === "M") {
-      if (particellaId) {
-        updateSuggestionsAfterAssign(targetId, obraId, particellaId);
-      } else {
-        setSuggestions((prev) => {
-          const copy = { ...prev };
-          delete copy[targetId];
-          return copy;
-        });
-      }
-    }
 
     // DB Sync
     if (targetType === "C") {
@@ -2211,7 +2204,8 @@ export default function ProgramSeating({
                   {otherMusicians.map((m) => {
                     const isMe = String(m.id) === String(user.id);
                     const hasNoParts = musiciansWithoutParts.has(String(m.id));
-                    const musicianSuggestions = suggestions[m.id] || {};
+                    const musicianSuggestions =
+                      derivedMusicianSuggestions[m.id] || {};
                     const hasSuggestions =
                       Object.keys(musicianSuggestions).length > 0;
                     return (
@@ -2267,11 +2261,6 @@ export default function ProgramSeating({
                                         partId,
                                       );
                                     }
-                                    setSuggestions((prev) => {
-                                      const copy = { ...prev };
-                                      delete copy[m.id];
-                                      return copy;
-                                    });
                                   }}
                                   className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[9px] font-semibold border border-amber-200 hover:bg-amber-100 self-start"
                                 >
@@ -2350,21 +2339,6 @@ export default function ProgramSeating({
                                           obra.obra_id,
                                           suggestedPart.id,
                                         );
-                                        setSuggestions((prev) => {
-                                          const prevFor =
-                                            prev[m.id] || {};
-                                          const {
-                                            [obra.obra_id]: _,
-                                            ...restFor
-                                          } = prevFor;
-                                          const copy = { ...prev };
-                                          if (Object.keys(restFor).length) {
-                                            copy[m.id] = restFor;
-                                          } else {
-                                            delete copy[m.id];
-                                          }
-                                          return copy;
-                                        });
                                       }}
                                       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-medium border border-amber-200 max-w-[90px] mx-auto hover:bg-amber-200 transition-colors"
                                     >

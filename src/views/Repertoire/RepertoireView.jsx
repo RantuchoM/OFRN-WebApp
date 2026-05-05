@@ -133,6 +133,27 @@ const hasStrings = (text) => {
   return /str|cuerd|viol|vln|vla|vlc|cb|arco|contrab/i.test(text);
 };
 
+/** Fondo de fila muy tenue alineado con el color del chip de estado */
+const getEstadoRowBgClass = (estado) => {
+  const e = estado || "Oficial";
+  switch (e) {
+    case "Informativo":
+      return "bg-blue-50/40 hover:bg-blue-50/65";
+    case "Solicitud":
+      return "bg-amber-50/40 hover:bg-amber-50/65";
+    case "Para arreglar":
+      return "bg-orange-50/35 hover:bg-orange-50/55";
+    case "Entregado":
+      return "bg-sky-50/45 hover:bg-sky-50/75 border-l-[3px] border-sky-300/60";
+    case "Oficial":
+      return "bg-emerald-50/35 hover:bg-emerald-50/55";
+    case "Pendiente":
+      return "bg-slate-50/45 hover:bg-slate-100/70";
+    default:
+      return "bg-slate-50/35 hover:bg-slate-50/55";
+  }
+};
+
 // --- 2. MODALES ---
 
 const HistoryModal = ({ work, onClose, supabase }) => {
@@ -956,7 +977,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                   ) : paginatedWorks.map((work) => (
                     <div
                       key={work.id}
-                      className={`grid gap-4 px-4 py-3 items-center transition-colors group text-sm ${work.estado === "Entregado" ? "bg-sky-50/80 hover:bg-sky-100/80 border-l-4 border-sky-400" : "hover:bg-slate-50"}`}
+                      className={`grid gap-4 px-4 py-3 items-center transition-colors group text-sm border-l-[3px] border-transparent ${getEstadoRowBgClass(work.estado)}`}
                       style={{ gridTemplateColumns: getGridTemplate() }}
                       title={work.estado === "Entregado" ? "Pendiente de validación por Archivista" : undefined}
                     >

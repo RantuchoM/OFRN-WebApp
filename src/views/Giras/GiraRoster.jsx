@@ -166,6 +166,19 @@ export default function GiraRoster({
 
   // Selección Múltiple (Filas)
   const [selectedIds, setSelectedIds] = useState(new Set());
+  /** Índice en `localRoster` del último clic sin Shift (ancla para Shift+clic). */
+  const selectionAnchorIndexRef = useRef(null);
+
+  useEffect(() => {
+    selectionAnchorIndexRef.current = null;
+  }, [gira?.id]);
+
+  useEffect(() => {
+    setIndividualAddRoleId(DEFAULT_ROL_ID);
+    setDetailedCreateRoleId(DEFAULT_ROL_ID);
+    setPendingIndividualAdd(null);
+    setPendingDetailedLink(null);
+  }, [gira?.id]);
 
   const [visibleColumns, setVisibleColumns] = useState({
     telefono: true,
@@ -192,6 +205,18 @@ export default function GiraRoster({
   // States Modales
   const [isCreatingDetailed, setIsCreatingDetailed] = useState(false);
   const [tempName, setTempName] = useState({ nombre: "", apellido: "" });
+  /** Rol revisado en el paso posterior a elegir persona (listado / invitado rápido). */
+  const [individualAddRoleId, setIndividualAddRoleId] = useState(
+    DEFAULT_ROL_ID,
+  );
+  /** Pendiente de confirmar alta individual (persona ya elegida, sin insert en gira aún). */
+  const [pendingIndividualAdd, setPendingIndividualAdd] = useState(null);
+  /** Ficha nueva creada: falta elegir rol y vincular a esta gira. */
+  const [pendingDetailedLink, setPendingDetailedLink] = useState(null);
+  /** Rol para el paso de vincular tras ficha completa. */
+  const [detailedCreateRoleId, setDetailedCreateRoleId] = useState(
+    DEFAULT_ROL_ID,
+  );
   const [isVacancyModalOpen, setIsVacancyModalOpen] = useState(false);
   const [swapTarget, setSwapTarget] = useState(null);
   const [editingMusician, setEditingMusician] = useState(null);
@@ -575,18 +600,44 @@ export default function GiraRoster({
       nombre: parts[0] || "",
       apellido: parts.slice(1).join(" ") || "",
     });
+    setPendingIndividualAdd(null);
+    setPendingDetailedLink(null);
+    setDetailedCreateRoleId(DEFAULT_ROL_ID);
     setIsCreatingDetailed(true);
   };
 
-  // --- SELECCIÓN MÚLTIPLE (EXCLUYENDO AUSENTES) ---
-  const toggleSelection = (id) => {
+  // --- SELECCIÓN MÚLTIPLE (EXCLUYENDO AUSENTES EN RANGO; MISMO CRITERIO QUE SELECT ALL) ---
+  const handleRowCheckboxClick = (id, index, shiftKey) => {
+    if (
+      shiftKey &&
+      selectionAnchorIndexRef.current !== null &&
+      selectionAnchorIndexRef.current !== undefined
+    ) {
+      const anchor = selectionAnchorIndexRef.current;
+      const lo = Math.min(anchor, index);
+      const hi = Math.max(anchor, index);
+      const idsInRange = [];
+      for (let i = lo; i <= hi; i++) {
+        const row = localRoster[i];
+        if (row?.estado_gira !== "ausente") idsInRange.push(row.id);
+      }
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        idsInRange.forEach((rid) => next.add(rid));
+        return next;
+      });
+      return;
+    }
+
     const newSet = new Set(selectedIds);
     if (newSet.has(id)) newSet.delete(id);
     else newSet.add(id);
     setSelectedIds(newSet);
+    selectionAnchorIndexRef.current = index;
   };
 
   const toggleAll = () => {
+    selectionAnchorIndexRef.current = null;
     if (selectedIds.size > 0) {
       setSelectedIds(new Set()); // Deseleccionar todo
     } else {
@@ -639,22 +690,32 @@ export default function GiraRoster({
     }
   };
   const handleDetailedSave = async (newMusician) => {
-    // newMusician trae los datos reales insertados en la tabla integrantes
+    if (!newMusician?.id) return;
+    setIsCreatingDetailed(false);
+    setPendingDetailedLink(newMusician);
+    setDetailedCreateRoleId(DEFAULT_ROL_ID);
+    toast.success(
+      "Ficha creada. Elegí el rol abajo y confirmá para sumarlo a esta gira.",
+    );
+  };
+
+  const confirmPendingDetailedLink = async () => {
+    const newMusician = pendingDetailedLink;
     if (!newMusician?.id) return;
 
     try {
-      // Vinculamos el nuevo integrante a la gira actual
       const idLink = integranteIdForDb(newMusician.id);
       if (idLink == null) {
         toast.error("ID de integrante inválido al vincular a la gira.");
         return;
       }
 
+      const rolAlta = detailedCreateRoleId || DEFAULT_ROL_ID;
       const { error } = await supabase.from("giras_integrantes").insert([
         {
           id_gira: gira.id,
           id_integrante: idLink,
-          rol: "musico", // Rol por defecto
+          rol: rolAlta,
           estado: "confirmado",
         },
       ]);
@@ -662,7 +723,7 @@ export default function GiraRoster({
       if (error) {
         if (isUniqueViolation(error)) {
           toast.info("Este integrante ya estaba vinculado a la gira.");
-          setIsCreatingDetailed(false);
+          setPendingDetailedLink(null);
           setSearchTerm("");
           await refreshRoster();
           return;
@@ -676,36 +737,43 @@ export default function GiraRoster({
         throw error;
       }
 
-    // Encolar notificación ALTA también para altas individuales detalladas
-    if (
-      localNotificacionInicialEnviada &&
-      notificacionesHabilitadas &&
-      newMusician.mail
-    ) {
-      const nombreCompleto =
-        newMusician.nombre_completo ||
-        `${newMusician.apellido || ""}, ${newMusician.nombre || ""}`.trim();
-      setPendingNotifications((prev) => [
-        ...prev,
-        {
-          id: `alta-detallada-${newMusician.id}-${Date.now()}`,
-          variant: "ALTA",
-          emails: [newMusician.mail],
-          nombres: [nombreCompleto],
-          reason: "Se te convoca individualmente",
-        },
-      ]);
-    }
+      if (
+        localNotificacionInicialEnviada &&
+        notificacionesHabilitadas &&
+        newMusician.mail
+      ) {
+        const nombreCompleto =
+          newMusician.nombre_completo ||
+          `${newMusician.apellido || ""}, ${newMusician.nombre || ""}`.trim();
+        setPendingNotifications((prev) => [
+          ...prev,
+          {
+            id: `alta-detallada-${newMusician.id}-${Date.now()}`,
+            variant: "ALTA",
+            emails: [newMusician.mail],
+            nombres: [nombreCompleto],
+            reason: "Se te convoca individualmente",
+          },
+        ]);
+      }
 
-      // Cerramos el modal de creación y refrescamos la lista
-      setIsCreatingDetailed(false);
+      setPendingDetailedLink(null);
+      setDetailedCreateRoleId(DEFAULT_ROL_ID);
       setSearchTerm("");
-      await refreshRoster(); // Refresco crítico
-      toast.success("Músico creado y añadido a la gira.");
+      await refreshRoster();
+      toast.success("Músico vinculado a la gira.");
     } catch (error) {
       console.error(error);
       toast.error("Error al vincular: " + error.message);
     }
+  };
+
+  const cancelPendingDetailedLink = () => {
+    setPendingDetailedLink(null);
+    setDetailedCreateRoleId(DEFAULT_ROL_ID);
+    toast.info(
+      "El integrante quedó en el padrón. Podés sumarlo a la gira desde Individual cuando quieras.",
+    );
   };
   // Actualizar roster tras editar
   const handleEditSave = async () => {
@@ -716,6 +784,9 @@ export default function GiraRoster({
   const handleCloseModal = (dataFinalDelFormulario) => {
     // 1. Cerramos el modal visualmente
     setEditingMusician(null);
+    setIsCreatingDetailed(false);
+    setDetailedCreateRoleId(DEFAULT_ROL_ID);
+    setPendingIndividualAdd(null);
 
     // 2. Si el formulario nos devolvió datos (porque se cerró con la X o botón Cerrar modificado)
     // actualizamos la tabla localmente sin recargar la BD.
@@ -903,17 +974,24 @@ export default function GiraRoster({
     refreshRoster();
   };
 
-  const addManualMusician = async (musicianId, musicianData, sendNotification = true) => {
+  /** @returns {Promise<boolean>} true si quedó vinculado o ya estaba en la gira (caso duplicado informado). */
+  const addManualMusician = async (
+    musicianId,
+    musicianData,
+    sendNotification = true,
+    rol = DEFAULT_ROL_ID,
+  ) => {
     const idLink = integranteIdForDb(musicianId);
     if (idLink == null) {
       toast.error("ID de integrante inválido.");
-      return;
+      return false;
     }
+    const rolEfectivo = rol || DEFAULT_ROL_ID;
     const { error } = await supabase.from("giras_integrantes").insert({
       id_gira: gira.id,
       id_integrante: idLink,
       estado: "confirmado",
-      rol: "musico",
+      rol: rolEfectivo,
     });
     if (error) {
       if (isUniqueViolation(error)) {
@@ -922,16 +1000,16 @@ export default function GiraRoster({
         setSearchResults([]);
         await refreshRoster();
         scrollToIntegranteInTable(idLink);
-        return;
+        return true;
       }
       if (isForeignKeyViolation(error)) {
         toast.error(
           "No se pudo agregar: el integrante no existe en la base o el ID llegó mal. Si lo creaste recién, recargá e intentá otra vez.",
         );
-        return;
+        return false;
       }
       toast.error("No se pudo agregar a la gira: " + error.message);
-      return;
+      return false;
     }
     if (
       sendNotification &&
@@ -956,6 +1034,7 @@ export default function GiraRoster({
     setSearchTerm("");
     setSearchResults([]);
     refreshRoster();
+    return true;
   };
 
   const removeMemberManual = async (id) => {
@@ -1366,7 +1445,10 @@ export default function GiraRoster({
   const currentSortLabel = sortLabelMap[sortBy] || "Rol";
 
   const handleSelectIndividual = async (payload) => {
-    if (!payload) return;
+    if (!payload) {
+      setPendingIndividualAdd(null);
+      return;
+    }
     const idInt =
       typeof payload === "object" && payload.id ? payload.id : payload;
     if (idInt == null || idInt === "") return;
@@ -1379,6 +1461,7 @@ export default function GiraRoster({
       return;
     }
     if (already) {
+      setPendingIndividualAdd(null);
       scrollToIntegranteInTable(idForQuery);
       return;
     }
@@ -1431,8 +1514,30 @@ export default function GiraRoster({
       };
     }
 
-    // Alta directa usando los datos completos del integrante
-    await addManualMusician(idForQuery, musicianData);
+    const label =
+      musicianData.nombre_completo ||
+      `${musicianData.apellido || ""}, ${musicianData.nombre || ""}`.trim();
+    setIndividualAddRoleId(DEFAULT_ROL_ID);
+    setPendingIndividualAdd({ idForQuery, musicianData, label });
+  };
+
+  const confirmPendingIndividualAdd = async () => {
+    if (!pendingIndividualAdd?.idForQuery) return;
+    const ok = await addManualMusician(
+      pendingIndividualAdd.idForQuery,
+      pendingIndividualAdd.musicianData,
+      true,
+      individualAddRoleId,
+    );
+    if (ok) {
+      setPendingIndividualAdd(null);
+      setIndividualAddRoleId(DEFAULT_ROL_ID);
+    }
+  };
+
+  const cancelPendingIndividualAdd = () => {
+    setPendingIndividualAdd(null);
+    setIndividualAddRoleId(DEFAULT_ROL_ID);
   };
 
   // --- OBTENER ESTILOS DE FILA (MODIFICADO PARA DB ROLES) ---
@@ -1660,6 +1765,57 @@ export default function GiraRoster({
       </div>
 
       {/* BANNER NOTIFICACIÓN INICIAL */}
+      {pendingDetailedLink && (
+        <div className="mx-4 mt-3 p-3 bg-fixed-indigo-50 border border-fixed-indigo-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
+            <p className="text-sm text-slate-800">
+              <span className="font-bold">Listo para convocar:</span>{" "}
+              <span className="font-semibold text-fixed-indigo-900">
+                {pendingDetailedLink.nombre_completo ||
+                  `${pendingDetailedLink.apellido || ""}, ${pendingDetailedLink.nombre || ""}`.trim()}
+              </span>
+            </p>
+            <label
+              htmlFor="gira-roster-pending-detailed-rol"
+              className="text-[10px] font-bold uppercase text-slate-500 shrink-0"
+            >
+              Rol
+            </label>
+            <select
+              id="gira-roster-pending-detailed-rol"
+              value={detailedCreateRoleId}
+              onChange={(e) => setDetailedCreateRoleId(e.target.value)}
+              className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white text-slate-800 font-semibold focus:ring-2 focus:ring-fixed-indigo-500 outline-none shrink-0"
+            >
+              {(rolesList.length > 0
+                ? rolesList
+                : [{ id: DEFAULT_ROL_ID }]
+              ).map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.id}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={cancelPendingDetailedLink}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-100"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={confirmPendingDetailedLink}
+              className="px-3 py-1.5 text-xs font-bold text-white bg-fixed-indigo-600 rounded-lg hover:bg-fixed-indigo-700"
+            >
+              Vincular a la gira
+            </button>
+          </div>
+        </div>
+      )}
+
       {!localNotificacionInicialEnviada && (
         <div className="mx-4 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-amber-800 font-medium flex-1 min-w-0">
@@ -2109,14 +2265,74 @@ export default function GiraRoster({
             </div>
           )}
           {addMode === "individual" && (
-            <div className="w-72 animate-in slide-in-from-left-2">
-              <PersonSelectWithCreate
-                supabase={supabase}
-                value={null}
-                onChange={handleSelectIndividual}
-                isMulti={false}
-                placeholder="Buscar o crear invitado rápido..."
-              />
+            <div className="flex flex-col gap-2 animate-in slide-in-from-left-2">
+              <div className="w-72 min-w-[12rem] max-w-full">
+                <PersonSelectWithCreate
+                  supabase={supabase}
+                  value={null}
+                  onChange={handleSelectIndividual}
+                  isMulti={false}
+                  placeholder="Buscar o crear invitado rápido..."
+                />
+              </div>
+              {pendingIndividualAdd && (
+                <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-2 p-2.5 rounded-lg border border-fixed-indigo-200 bg-fixed-indigo-50/60 max-w-xl">
+                  <p className="text-xs text-slate-800 sm:flex-1 min-w-0">
+                    <span className="font-bold text-slate-600">Convocar:</span>{" "}
+                    <span className="font-semibold text-fixed-indigo-900">
+                      {pendingIndividualAdd.label}
+                    </span>
+                  </p>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="w-40 sm:w-44">
+                      <label
+                        htmlFor="gira-roster-individual-rol"
+                        className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-0.5"
+                      >
+                        Rol en la gira
+                      </label>
+                      <select
+                        id="gira-roster-individual-rol"
+                        value={individualAddRoleId}
+                        onChange={(e) =>
+                          setIndividualAddRoleId(e.target.value)
+                        }
+                        className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white text-slate-800 font-semibold focus:ring-2 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 outline-none"
+                      >
+                        {(rolesList.length > 0
+                          ? rolesList
+                          : [{ id: DEFAULT_ROL_ID }]
+                        ).map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.id}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={confirmPendingIndividualAdd}
+                      className="px-3 py-1.5 text-xs font-bold text-white bg-fixed-indigo-600 rounded-lg hover:bg-fixed-indigo-700"
+                    >
+                      Agregar a la gira
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelPendingIndividualAdd}
+                      className="px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-100"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={handleOpenDetailedCreate}
+                className="self-start text-[11px] font-semibold text-fixed-indigo-600 hover:text-fixed-indigo-800 hover:underline"
+              >
+                Nueva ficha completa…
+              </button>
             </div>
           )}
         </div>
@@ -2204,7 +2420,7 @@ export default function GiraRoster({
                     isEditor={isEditor}
                     rolesList={rolesList}
                     defaultRolId={DEFAULT_ROL_ID}
-                    onToggleSelection={toggleSelection}
+                    onToggleSelection={handleRowCheckboxClick}
                     onChangeRole={changeRole}
                     onEdit={setEditingMusician}
                     onSwap={setSwapTarget}
@@ -2256,8 +2472,8 @@ export default function GiraRoster({
                   apellido: tempName.apellido,
                   condicion: "Invitado",
                 }}
-                onSave={handleDetailedSave} // Al guardar/crear, vinculamos a la gira
-                onCancel={handleCloseModal} // Al cancelar, cerramos
+                onSave={handleDetailedSave}
+                onCancel={handleCloseModal}
               />
             </div>
           </div>,
