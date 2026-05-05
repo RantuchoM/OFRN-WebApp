@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   IconCheck,
   IconX,
@@ -8,9 +8,11 @@ import {
   IconPlus,
   IconRefresh,
   IconChevronDown,
-  IconUser
+  IconUser,
 } from "../../components/ui/Icons";
 import { getProgramStyle } from "../../utils/giraUtils";
+import NotificationQueuePanel from "../../components/giras/NotificationQueuePanel";
+import { toast } from "sonner";
 
 // --- HELPERS ---
 const getMonthName = (dateString) => {
@@ -104,21 +106,81 @@ export default function MusicianTourManager({ supabase, musician }) {
   const [overrides, setOverrides] = useState({});
   const [sourcesMap, setSourcesMap] = useState({});
   const [dbMusicianData, setDbMusicianData] = useState(null);
-  const [rolesList, setRolesList] = useState([]); 
-  const [ensembleMap, setEnsembleMap] = useState({}); 
-  const [processingId, setProcessingId] = useState(null); 
-  const [updatingRole, setUpdatingRole] = useState(null); 
+  const [rolesList, setRolesList] = useState([]);
+  const [ensembleMap, setEnsembleMap] = useState({});
+  const [processingId, setProcessingId] = useState(null);
+  const [updatingRole, setUpdatingRole] = useState(null);
+  const [pendingNotifications, setPendingNotifications] = useState([]);
 
   // Filtros
   const [selectedTypes, setSelectedTypes] = useState(new Set(["TODOS"]));
   const [selectedStatuses, setSelectedStatuses] = useState(new Set(["TODOS"]));
   const [dateRange, setDateRange] = useState("FUTURE");
+  /** Solo giras en las que el músico está convocado (presente), no ausente ni fuera de roster. */
+  const [soloActivas, setSoloActivas] = useState(false);
 
   useEffect(() => {
     if (musician?.id) {
         fetchData();
     }
   }, [musician?.id, dateRange]);
+
+  useEffect(() => {
+    if (pendingNotifications.length === 0) return;
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [pendingNotifications.length]);
+
+  const notifGiraContext = useCallback((program) => {
+    const origin =
+      typeof window !== "undefined" ? window.location.origin : "";
+    const path = typeof window !== "undefined" ? window.location.pathname : "";
+    return {
+      giraContext: {
+        nombre_gira: program.nombre_gira || "",
+        nomenclador: program.nomenclador || program.nombre_gira || "",
+        fecha_desde: program.fecha_desde || "",
+        fecha_hasta: program.fecha_hasta || "",
+        zona: program.zona || "",
+      },
+      linkRepertorio: `${origin}${path}?tab=giras&view=REPERTOIRE&giraId=${program.id}`,
+    };
+  }, []);
+
+  const shouldQueueConvocatoriaMail = useCallback(
+    (program) =>
+      program?.notificacion_inicial_enviada === true &&
+      program?.notificaciones_habilitadas !== false &&
+      Boolean(musician?.mail?.trim()),
+    [musician?.mail],
+  );
+
+  const enqueueConvocatoriaNotification = useCallback(
+    (program, variant, reason) => {
+      if (!shouldQueueConvocatoriaMail(program)) return false;
+      const nombreCompleto =
+        `${musician.apellido || ""}, ${musician.nombre || ""}`.trim() ||
+        musician.nombre_completo ||
+        "Participante";
+      const ctx = notifGiraContext(program);
+      setPendingNotifications((prev) => [
+        ...prev,
+        {
+          id: `musician-tour-${program.id}-${variant}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          variant,
+          emails: [musician.mail.trim()],
+          nombres: [nombreCompleto],
+          reason,
+          ...ctx,
+        },
+      ]);
+      return true;
+    },
+    [musician, notifGiraContext, shouldQueueConvocatoriaMail],
+  );
 
   const fetchData = async () => {
     setLoading(true);
@@ -153,7 +215,9 @@ export default function MusicianTourManager({ supabase, musician }) {
       // 3. Giras
       let query = supabase
         .from("programas")
-        .select("id, nombre_gira, fecha_desde, fecha_hasta, tipo, estado, mes_letra, zona, nomenclador")
+        .select(
+          "id, nombre_gira, fecha_desde, fecha_hasta, tipo, estado, mes_letra, zona, nomenclador, notificaciones_habilitadas, notificacion_inicial_enviada",
+        )
         .order("fecha_desde", { ascending: true }); 
 
       if (dateRange === "FUTURE") {
@@ -288,44 +352,101 @@ export default function MusicianTourManager({ supabase, musician }) {
   }, [giras, overrides, sourcesMap, dbMusicianData]);
 
   const filteredList = useMemo(() => {
-    return processedGiras.filter(g => {
-        if (!selectedTypes.has("TODOS") && !selectedTypes.has(g.tipo)) return false;
-        if (!selectedStatuses.has("TODOS") && !selectedStatuses.has(g.computedStatus)) return false;
-        return true;
+    return processedGiras.filter((g) => {
+      if (soloActivas && g.computedStatus !== "CONVOCADO") return false;
+      if (!selectedTypes.has("TODOS") && !selectedTypes.has(g.tipo))
+        return false;
+      if (
+        !selectedStatuses.has("TODOS") &&
+        !selectedStatuses.has(g.computedStatus)
+      )
+        return false;
+      return true;
     });
-  }, [processedGiras, selectedTypes, selectedStatuses]);
+  }, [processedGiras, selectedTypes, selectedStatuses, soloActivas]);
 
   // --- ACTIONS ---
-  const handleAction = async (giraId, action) => {
+  const handleAction = async (giraRow, action) => {
     if (!musician.id) return;
+    const giraId = giraRow.id;
+    const prevSituation = giraRow.situation;
+    let queuedMail = false;
     setProcessingId(giraId);
-    
-    // Recuperamos el ID existente para asegurar UPDATE
+
     const currentOverride = overrides[giraId];
     const existingId = currentOverride?.id;
 
     try {
       if (action === "DELETE") {
-        await supabase.from("giras_integrantes").delete().eq("id_gira", giraId).eq("id_integrante", musician.id);
-        const newOverrides = { ...overrides }; delete newOverrides[giraId]; setOverrides(newOverrides);
+        await supabase
+          .from("giras_integrantes")
+          .delete()
+          .eq("id_gira", giraId)
+          .eq("id_integrante", musician.id);
+        const newOverrides = { ...overrides };
+        delete newOverrides[giraId];
+        setOverrides(newOverrides);
+
+        if (prevSituation === "ADDITIONAL") {
+          queuedMail =
+            enqueueConvocatoriaNotification(
+              giraRow,
+              "BAJA",
+              "Baja de la gira",
+            ) || false;
+        } else if (prevSituation === "BASE_ABSENT") {
+          queuedMail =
+            enqueueConvocatoriaNotification(giraRow, "ALTA", undefined) ||
+            false;
+        }
       } else {
         const targetStatus = action === "SET_PRESENT" ? "confirmado" : "ausente";
         const currentRol = currentOverride?.rol || "musico";
-        
-        const payload = { 
-            ...(existingId ? { id: existingId } : {}), 
-            id_gira: giraId, 
-            id_integrante: musician.id, 
-            estado: targetStatus, 
-            rol: currentRol 
+
+        const payload = {
+          ...(existingId ? { id: existingId } : {}),
+          id_gira: giraId,
+          id_integrante: musician.id,
+          estado: targetStatus,
+          rol: currentRol,
         };
-        
-        const { data: savedData, error } = await supabase.from("giras_integrantes").upsert(payload).select().single();
+
+        const { data: savedData, error } = await supabase
+          .from("giras_integrantes")
+          .upsert(payload)
+          .select()
+          .single();
         if (error) throw error;
 
-        setOverrides(prev => ({ ...prev, [giraId]: savedData }));
+        setOverrides((prev) => ({ ...prev, [giraId]: savedData }));
+
+        if (action === "SET_ABSENT") {
+          queuedMail =
+            enqueueConvocatoriaNotification(
+              giraRow,
+              "AUSENTE",
+              "Se te marcó como ausente",
+            ) || false;
+        } else if (action === "SET_PRESENT") {
+          queuedMail =
+            enqueueConvocatoriaNotification(
+              giraRow,
+              "ALTA",
+              "Se te convoca individualmente",
+            ) || false;
+        }
       }
-    } catch (err) { alert("Error: " + err.message); } finally { setProcessingId(null); }
+
+      toast.success(
+        queuedMail
+          ? "Cambio guardado. La notificación quedó en cola."
+          : "Cambio guardado.",
+      );
+    } catch (err) {
+      toast.error("Error: " + err.message);
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   const handleRoleChange = async (giraId, newRole) => {
@@ -348,7 +469,11 @@ export default function MusicianTourManager({ supabase, musician }) {
         if(error) throw error;
 
         setOverrides(prev => ({ ...prev, [giraId]: savedData }));
-    } catch (err) { alert("Error actualizando rol"); } finally { setUpdatingRole(null); }
+    } catch (err) {
+      toast.error("Error actualizando rol");
+    } finally {
+      setUpdatingRole(null);
+    }
   };
 
   if (loading && giras.length === 0) return <div className="p-10 flex justify-center text-slate-400"><IconLoader className="animate-spin" /></div>;
@@ -367,8 +492,21 @@ export default function MusicianTourManager({ supabase, musician }) {
         <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 shrink-0">
             <MultiFilterDropdown label="Tipo Programa" options={typeOptions} selected={selectedTypes} onChange={setSelectedTypes} />
             <MultiFilterDropdown label="Estado" options={statusOptions} selected={selectedStatuses} onChange={setSelectedStatuses} />
+            <button
+              type="button"
+              onClick={() => setSoloActivas((v) => !v)}
+              className={`text-[10px] font-bold px-3 py-2 rounded-lg border uppercase tracking-wider transition-colors ${
+                soloActivas
+                  ? "bg-emerald-600 text-white border-emerald-700 shadow-sm"
+                  : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Mostrar solo giras en las que está convocado (presente)"
+            >
+              Solo activas
+            </button>
             <div className="ml-auto flex items-center gap-2">
                  <button 
+                    type="button"
                     onClick={() => setDateRange(prev => prev === "FUTURE" ? "ALL" : "FUTURE")}
                     className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-3 py-2 rounded-lg hover:bg-indigo-100 transition-colors uppercase tracking-wider"
                  >
@@ -518,12 +656,12 @@ export default function MusicianTourManager({ supabase, musician }) {
                                                 
                                                 {/* Decisión: Si es BASE_FORCED, mostramos Restaurar (Borrar) para volver a base pura */}
                                                 {gira.situation === "BASE_FORCED" && (
-                                                    <button onClick={() => handleAction(gira.id, "DELETE")} disabled={isProcessing} className={`${btnOutlineClass} text-slate-400 border-slate-200 hover:bg-slate-100 hover:text-slate-600 bg-white`} title="Restaurar rol original">
+                                                    <button type="button" onClick={() => handleAction(gira, "DELETE")} disabled={isProcessing} className={`${btnOutlineClass} text-slate-400 border-slate-200 hover:bg-slate-100 hover:text-slate-600 bg-white`} title="Restaurar rol original">
                                                         {isProcessing ? <IconLoader className="animate-spin" size={14}/> : <IconRefresh size={14}/>}
                                                     </button>
                                                 )}
 
-                                                <button onClick={() => handleAction(gira.id, "SET_ABSENT")} disabled={isProcessing} className={`${btnOutlineClass} text-red-600 border-red-200 hover:bg-red-50 bg-white`} title="Marcar Ausente">
+                                                <button type="button" onClick={() => handleAction(gira, "SET_ABSENT")} disabled={isProcessing} className={`${btnOutlineClass} text-red-600 border-red-200 hover:bg-red-50 bg-white`} title="Marcar Ausente">
                                                     {isProcessing ? <IconLoader className="animate-spin" size={14}/> : <IconX size={14}/>} 
                                                     <span className="hidden sm:inline">Marcar Ausente</span>
                                                 </button>
@@ -531,21 +669,21 @@ export default function MusicianTourManager({ supabase, musician }) {
                                         )}
 
                                         {gira.situation === "ADDITIONAL" && (
-                                            <button onClick={() => handleAction(gira.id, "DELETE")} disabled={isProcessing} className={`${btnOutlineClass} text-slate-500 border-slate-300 hover:bg-slate-100 hover:text-red-600 bg-white`} title="Eliminar adicional">
+                                            <button type="button" onClick={() => handleAction(gira, "DELETE")} disabled={isProcessing} className={`${btnOutlineClass} text-slate-500 border-slate-300 hover:bg-slate-100 hover:text-red-600 bg-white`} title="Eliminar adicional">
                                                 {isProcessing ? <IconLoader className="animate-spin" size={14}/> : <IconTrash size={14}/>}
                                                 <span className="hidden sm:inline">Borrar</span>
                                             </button>
                                         )}
 
                                         {gira.situation === "BASE_ABSENT" && (
-                                            <button onClick={() => handleAction(gira.id, "DELETE")} disabled={isProcessing} className={`${btnOutlineClass} text-emerald-600 border-emerald-200 hover:bg-emerald-50 bg-white`} title="Quitar Ausente">
+                                            <button type="button" onClick={() => handleAction(gira, "DELETE")} disabled={isProcessing} className={`${btnOutlineClass} text-emerald-600 border-emerald-200 hover:bg-emerald-50 bg-white`} title="Quitar Ausente">
                                                 {isProcessing ? <IconLoader className="animate-spin" size={14}/> : <IconRefresh size={14}/>}
                                                 <span className="hidden sm:inline">Restaurar</span>
                                             </button>
                                         )}
 
                                         {gira.situation === "NONE" && (
-                                            <button onClick={() => handleAction(gira.id, "SET_PRESENT")} disabled={isProcessing} className={`${btnSolidClass} bg-indigo-600 text-white hover:bg-indigo-700`}>
+                                            <button type="button" onClick={() => handleAction(gira, "SET_PRESENT")} disabled={isProcessing} className={`${btnSolidClass} bg-indigo-600 text-white hover:bg-indigo-700`}>
                                                 {isProcessing ? <IconLoader className="animate-spin" size={14}/> : <IconPlus size={14}/>} 
                                                 <span className="hidden sm:inline">Sumar Adicional</span>
                                             </button>
@@ -558,6 +696,26 @@ export default function MusicianTourManager({ supabase, musician }) {
                 })}
             </div>
         </div>
+
+      {pendingNotifications.length > 0 && (
+        <NotificationQueuePanel
+          pendingTasks={pendingNotifications}
+          onFlush={() => setPendingNotifications([])}
+          onCancelAll={() => setPendingNotifications([])}
+          onRemoveTask={(id) =>
+            setPendingNotifications((prev) => prev.filter((t) => t.id !== id))
+          }
+          supabase={supabase}
+          gira={{
+            nombre_gira: "",
+            nomenclador: "",
+            fecha_desde: "",
+            fecha_hasta: "",
+            zona: "",
+          }}
+          linkRepertorio=""
+        />
+      )}
     </div>
   );
 }

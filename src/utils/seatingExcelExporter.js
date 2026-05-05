@@ -1,23 +1,16 @@
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 import { sortSeatingItems } from "../services/giraService";
-
-const EXCLUDED_ROLES = [
-  "staff",
-  "produccion",
-  "producción",
-  "chofer",
-  "archivo",
-  "utilero",
-  "asistente",
-  "iluminador",
-  "iluminacion",
-  "sonido",
-  "acompañante",
-];
+import { integranteKey } from "./integranteIds";
+import {
+  confirmedSeatingRosterKeySet,
+  isConfirmedConvocadoForSeatingReports,
+  isMusicianOnConfirmedSeatingRoster,
+} from "./seatingRosterGate";
+import { seatingStringsGridEvenRowCount } from "./seatingPdfStringsTableHooks";
 
 const isStringInstrument = (id) =>
-  ["01", "02", "03", "04"].includes(String(id).padStart(2, "0"));
+  ["01", "02", "03", "04"].includes(String(id ?? "").trim());
 
 const cleanHTML = (str) =>
   typeof str === "string" ? str.replace(/<[^>]*>?/gm, "") : "";
@@ -114,10 +107,23 @@ export const exportSeatingToExcel = async (
     sheet.mergeCells(section1TitleRow.number, 1, section1TitleRow.number, 6);
 
     const validContainers = containers || [];
-    const maxRows =
+    const rosterKeys = confirmedSeatingRosterKeySet(roster);
+
+    const itemsConfirmedOnly = (items = []) =>
+      (items || []).filter((item) =>
+        isMusicianOnConfirmedSeatingRoster(rosterKeys, item.id_musico),
+      );
+
+    const rawMaxRows =
       validContainers.length > 0
-        ? Math.max(...validContainers.map((c) => c.items?.length || 0), 0)
+        ? Math.max(
+            ...validContainers.map(
+              (c) => itemsConfirmedOnly(c.items).length || 0,
+            ),
+            0,
+          )
         : 0;
+    const maxRows = seatingStringsGridEvenRowCount(rawMaxRows);
 
     if (validContainers.length > 0 && maxRows > 0) {
       const headerValues = validContainers.map((c) => c.nombre?.toUpperCase() || "");
@@ -145,9 +151,12 @@ export const exportSeatingToExcel = async (
         };
       });
 
+      const thinEdge = { style: "thin", color: { argb: "FFE5E7EB" } };
+      const thickStandSep = { style: "medium", color: { argb: "FF475569" } };
+
       for (let i = 0; i < maxRows; i++) {
         const rowValues = validContainers.map((c) => {
-          const sorted = sortSeatingItems(c.items || []);
+          const sorted = sortSeatingItems(itemsConfirmedOnly(c.items));
           const item = sorted[i];
           if (!item?.integrantes) return "";
           return `${item.integrantes.apellido}, ${item.integrantes.nombre || ""}.`;
@@ -156,6 +165,7 @@ export const exportSeatingToExcel = async (
         const isEven = i % 2 === 0;
         row.font = { size: 10, name: "Calibri" };
         row.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+        const sepAfterStandPair = i % 2 === 1;
         row.eachCell((cell) => {
           cell.fill = {
             type: "pattern",
@@ -163,10 +173,10 @@ export const exportSeatingToExcel = async (
             fgColor: { argb: isEven ? "FFF9FAFB" : "FFE5E7EB" },
           };
           cell.border = {
-            top: { style: "thin", color: { argb: "FFE5E7EB" } },
-            left: { style: "thin", color: { argb: "FFE5E7EB" } },
-            bottom: { style: "thin", color: { argb: "FFE5E7EB" } },
-            right: { style: "thin", color: { argb: "FFE5E7EB" } },
+            top: thinEdge,
+            left: thinEdge,
+            right: thinEdge,
+            bottom: sepAfterStandPair ? thickStandSep : thinEdge,
           };
         });
       }
@@ -219,21 +229,17 @@ export const exportSeatingToExcel = async (
       // IDs de músicos ya presentes en cuerdas
       const stringMusicianIds = new Set(
         (containers || [])
-          .flatMap((c) => c.items || [])
-          .map((i) => String(i.id_musico || i.id_integrante)),
+          .flatMap((c) => itemsConfirmedOnly(c.items || []))
+          .map((i) => integranteKey(i.id_musico ?? i.id_integrante)),
       );
 
       const otherMusicians = roster
         .filter((m) => {
-          const role = (m.rol_gira || m.rol || "musico").toLowerCase().trim();
-          const instrId = String(m.id_instr || "9999").padStart(2, "0");
-          const mId = String(m.id_integrante || m.id);
-
-          if (m.estado_gira === "ausente" || m.estado_gira === "baja") return false;
-          if (EXCLUDED_ROLES.includes(role)) return false;
+          if (!isConfirmedConvocadoForSeatingReports(m)) return false;
+          const instrId = String(m.id_instr ?? "").trim();
+          const mId = integranteKey(m.id);
           if (stringMusicianIds.has(mId)) return false;
           if (isStringInstrument(instrId)) return false;
-
           return true;
         })
         .sort((a, b) => {

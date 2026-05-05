@@ -1,15 +1,20 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { sortSeatingItems } from "../services/giraService";
+import { integranteKey } from "./integranteIds";
+import {
+  confirmedSeatingRosterKeySet,
+  isConfirmedConvocadoForSeatingReports,
+  isMusicianOnConfirmedSeatingRoster,
+} from "./seatingRosterGate";
+import {
+  didParseCellSeatingStringsStandPairs,
+  seatingStringsGridEvenRowCount,
+} from "./seatingPdfStringsTableHooks";
 
-// --- CONSTANTES ---
-const EXCLUDED_ROLES = [
-  "staff", "produccion", "producción", "chofer", "archivo", 
-  "utilero", "asistente", "iluminador", "sonido", "acompañante"
-];
-
-// Identifica si un instrumento es cuerda (01=Vln1, 02=Vln2, 03=Vla, 04=Vlc)
-const isString = (id) => ["01", "02", "03", "04"].includes(String(id).padStart(2, '0'));
+// Identifica si un instrumento es cuerda (códigos tal cual en BD; sin forzar "1"→"01")
+const isStringInstrument = (id) =>
+  ["01", "02", "03", "04"].includes(String(id ?? "").trim());
 
 const cleanHTML = (str) => typeof str === "string" ? str.replace(/<[^>]*>?/gm, "") : "";
 const truncate = (str, n) => str && str.length > n ? str.substr(0, n - 1) + "..." : str;
@@ -75,9 +80,20 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
     doc.line(14, 18, 196, 18);
 
     // 3. TABLA 1: DISPOSICIÓN (Cuerdas)
-    // Filtramos items válidos para esta gira
-    const validItems = items.filter(i => conts.some(c => c.id === i.id_contenedor));
-    const maxRows = Math.max(...conts.map(c => validItems.filter(i => i.id_contenedor === c.id).length || 0), 0);
+    // Solo filas cuyo músico está convocado y confirmado en esta gira (misma regla que GiraRoster / ProgramSeating)
+    const rosterKeys = confirmedSeatingRosterKeySet(roster);
+    const validItems = items.filter(
+      (i) =>
+        conts.some((c) => c.id === i.id_contenedor) &&
+        isMusicianOnConfirmedSeatingRoster(rosterKeys, i.id_musico),
+    );
+    const rawMaxRows = Math.max(
+      ...conts.map(
+        (c) => validItems.filter((i) => i.id_contenedor === c.id).length || 0,
+      ),
+      0,
+    );
+    const maxRows = seatingStringsGridEvenRowCount(rawMaxRows);
     
     const containerHeaders = conts.map((c) => c.nombre.toUpperCase());
     const containerBody = [];
@@ -103,6 +119,7 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
       styles: { fontSize: 6.5, cellPadding: 0.6, halign: "center" },
       headStyles: { fillColor: [63, 81, 181], textColor: 255 },
       margin: { left: 14, right: 14 },
+      didParseCell: didParseCellSeatingStringsStandPairs,
     });
 
     // 4. TABLA 2: ASIGNACIÓN DE PARTICELLAS (Vientos y Otros)
@@ -119,33 +136,17 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
       }))
     ).filter(Boolean);
 
-    // IDs de músicos que YA están en la tabla de cuerdas (para no repetirlos)
-    // Importante: normalizar a String para comparación segura
-    const stringMusicianIds = new Set(validItems.map(i => String(i.id_musico || i.id_integrante)));
+    const stringMusicianIds = new Set(
+      validItems.map((i) => integranteKey(i.id_musico ?? i.id_integrante)),
+    );
 
     const otherMusicians = roster
       .filter((m) => {
-        // Normalización
-        const role = (m.rol_gira || m.rol || "musico").toLowerCase().trim();
-        const instrId = String(m.id_instr || "9999").padStart(2, '0');
-        const mId = String(m.id_integrante || m.id);
-
-        // A. Estado activo
-        if (m.estado_gira === "ausente" || m.estado_gira === "baja") return false;
-        
-        // B. Roles Excluidos (Acompañante, Staff, etc.)
-        if (EXCLUDED_ROLES.includes(role)) return false;
-        
-        // C. Filtro Instrumento: Si es Cuerda (01-04), lo excluimos PERO...
-        // D. ...la validación final es si YA está en la tabla de arriba (Seating).
-        // Esto cubre casos donde un "Violinista" toque percusión o viceversa.
+        if (!isConfirmedConvocadoForSeatingReports(m)) return false;
+        const instrId = String(m.id_instr ?? "").trim();
+        const mId = integranteKey(m.id);
         if (stringMusicianIds.has(mId)) return false;
-
-        // Doble chequeo: Si por alguna razón no estaba en el seating pero es cuerda (01-04), 
-        // generalmente NO debería estar en la tabla de vientos, salvo que sea un extra sin atril asignado.
-        // Si quieres ser estricto con la vista técnica:
-        if (isString(instrId)) return false; 
-
+        if (isStringInstrument(instrId)) return false;
         return true;
       })
       .sort((a, b) => {
@@ -164,9 +165,13 @@ export const generateSeatingPdf = async (supabase, gira, localRepertorio, roster
       const row = [`${m.apellido}, ${m.nombre}`];
       obrasList.forEach((o) => {
         // Buscar asignación
-        const assign = assigns.find(a => 
-          String(a.id_obra) === String(o.obra_id) && 
-          a.id_musicos_asignados?.some(id => String(id) === String(m.id_integrante || m.id))
+        const mid = integranteKey(m.id_integrante ?? m.id);
+        const assign = assigns.find(
+          (a) =>
+            String(a.id_obra) === String(o.obra_id) &&
+            a.id_musicos_asignados?.some(
+              (id) => integranteKey(id) === mid,
+            ),
         );
         
         const pName = allParts.find(p => String(p.id) === String(assign?.id_particella))?.nombre_archivo;

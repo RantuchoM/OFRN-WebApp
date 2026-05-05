@@ -40,6 +40,15 @@ import {
   seatingItemMatrixPosition,
   sortSeatingItems,
 } from "../../services/giraService";
+import {
+  confirmedSeatingRosterKeySet,
+  isConfirmedConvocadoForSeatingReports,
+  isMusicianOnConfirmedSeatingRoster,
+} from "../../utils/seatingRosterGate";
+import {
+  didParseCellSeatingStringsStandPairs,
+  seatingStringsGridEvenRowCount,
+} from "../../utils/seatingPdfStringsTableHooks";
 import { createPortal } from "react-dom";
 
 // Librerías para reporte PDF
@@ -120,20 +129,6 @@ function ObraUnassignedTooltip({ parts }) {
     </>
   );
 }
-
-const EXCLUDED_ROLES = [
-  "staff",
-  "produccion",
-  "producción",
-  "chofer",
-  "archivo",
-  "utilero",
-  "asistente",
-  "iluminador",
-  "iluminacion",
-  "sonido",
-  "acompañante",
-];
 
 // Construye una matriz de atriles a partir de la lista plana de items
 // Cada entrada contiene hasta dos músicos: left (lado 0) y right (lado 1)
@@ -1308,12 +1303,8 @@ export default function ProgramSeating({
         .select("id, instrumento")
         .order("instrumento");
       setInstrumentList(instruments || []);
-      // Solo músicos confirmados del roster de la gira (exclusiones de ensamble ya aplicadas en useGiraRoster)
-      const musicians = rawRoster.filter(
-        (m) =>
-          m.estado_gira === "confirmado" &&
-          !EXCLUDED_ROLES.includes((m.rol_gira || "musico").toLowerCase()),
-      );
+      // Misma regla que informes PDF/Excel y GiraRoster (confirmado + roles de línea)
+      const musicians = rawRoster.filter(isConfirmedConvocadoForSeatingReports);
       musicians.sort((a, b) => {
         const instrIdA = a.id_instr || "9999";
         const instrIdB = b.id_instr || "9999";
@@ -1363,20 +1354,14 @@ export default function ProgramSeating({
         .order("lado", { ascending: true, nullsFirst: true })
         .order("id", { ascending: true });
 
-      // IDs de integrantes confirmados en esta gira (roster ya filtrado por exclusiones de ensamble)
-      const confirmedRosterIds = new Set(
-        rawRoster
-          .filter((m) => m.estado_gira === "confirmado")
-          .map((m) => Number(m.id)),
-      );
+      const rosterKeys = confirmedSeatingRosterKeySet(rawRoster);
 
       setContainers(
         conts.map((c) => {
           const containerItems =
             items?.filter((i) => Number(i.id_contenedor) === Number(c.id)) || [];
-          // Solo ítems cuyo músico está en el roster confirmado de la gira (no ausentes ni excluidos)
           const presentItems = containerItems.filter((item) =>
-            confirmedRosterIds.has(Number(item.id_musico)),
+            isMusicianOnConfirmedSeatingRoster(rosterKeys, item.id_musico),
           );
 
           return {
@@ -1410,10 +1395,11 @@ export default function ProgramSeating({
       doc.text(`Generado: ${new Date().toLocaleDateString()}`, 14, 16);
       doc.line(14, 18, 196, 18);
 
-      const maxMembers = Math.max(
+      const rawMaxMembers = Math.max(
         ...containers.map((c) => c.items?.length || 0),
         0,
       );
+      const maxMembers = seatingStringsGridEvenRowCount(rawMaxMembers);
       const containerHeaders = containers.map((c) => c.nombre.toUpperCase());
       const containerBody = [];
       for (let i = 0; i < maxMembers; i++) {
@@ -1435,6 +1421,7 @@ export default function ProgramSeating({
         styles: { fontSize: 6.5, cellPadding: 0.6, halign: "center" },
         headStyles: { fillColor: [63, 81, 181], textColor: 255, fontSize: 7 },
         margin: { left: 14, right: 14 },
+        didParseCell: didParseCellSeatingStringsStandPairs,
       });
 
       const finalY = doc.lastAutoTable.finalY;

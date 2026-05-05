@@ -1,12 +1,15 @@
 import React from 'react';
 import { IconX, IconCheckCircle } from './Icons';
 
-export default function MultiSelect({ 
-  options = [], 
-  selectedIds = [], 
-  onChange, 
-  label, 
-  placeholder = "Seleccionar..." 
+export default function MultiSelect({
+  options = [],
+  selectedIds = [],
+  onChange,
+  label,
+  placeholder = "Seleccionar...",
+  /** Controles por opción (ej. enlaces); debe usar stopPropagation en clicks si no debe togglear la selección). */
+  optionTrailingActions,
+  showChips = true,
 }) {
   
   const handleToggle = (id) => {
@@ -32,15 +35,28 @@ export default function MultiSelect({
                   key={opt.id} 
                   onClick={() => handleToggle(opt.id)}
                   title={opt?.tooltip || opt?.title || undefined}
-                  className={`flex items-center justify-between p-1.5 rounded cursor-pointer text-xs transition-colors ${isSelected ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-50'}`}
+                  className={`flex items-center justify-between gap-2 p-1.5 rounded cursor-pointer text-xs transition-colors ${isSelected ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-50'}`}
                 >
-                  <div className="flex flex-col">
+                  <div className="flex flex-col min-w-0 flex-1">
                     <span className={`font-medium ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
                       {opt.label}
                     </span>
                     {opt.subLabel && <span className="text-[9px] text-slate-400">{opt.subLabel}</span>}
                   </div>
-                  {isSelected && <IconCheckCircle size={14} className="text-indigo-600" />}
+                  {opt.suffix != null && opt.suffix !== "" && (
+                    <span className="shrink-0 font-mono text-[10px] text-slate-600 tabular-nums">
+                      {opt.suffix}
+                    </span>
+                  )}
+                  {typeof optionTrailingActions === "function" && (
+                    <div
+                      className="flex items-center gap-0.5 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {optionTrailingActions(opt)}
+                    </div>
+                  )}
+                  {isSelected && <IconCheckCircle size={14} className="text-indigo-600 shrink-0" />}
                 </div>
               );
             })}
@@ -48,28 +64,34 @@ export default function MultiSelect({
         )}
       </div>
       
-      {/* Chips de selección */}
-      <div className="flex flex-wrap gap-1 mt-1 min-h-[24px]">
-        {options
-          .filter((o) => selectedIds.includes(o.id))
-          .map((o) => (
-            <span
-              key={o.id}
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold border border-indigo-200 animate-in fade-in zoom-in duration-200 ${
-                o.badgeClass || ""
-              }`}
-              title={o?.tooltip || o?.title || undefined}
-            >
-              {o.label}
-              <button
-                onClick={() => handleToggle(o.id)}
-                className="hover:text-indigo-900 rounded-full p-0.5"
+      {showChips && (
+        <div className="flex flex-wrap gap-1 mt-1 min-h-[24px]">
+          {options
+            .filter((o) => selectedIds.includes(o.id))
+            .map((o) => (
+              <span
+                key={o.id}
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold border border-indigo-200 animate-in fade-in zoom-in duration-200 ${
+                  o.badgeClass || ""
+                }`}
+                title={o?.tooltip || o?.title || undefined}
               >
-                <IconX size={10} />
-              </button>
-            </span>
-          ))}
-      </div>
+                <span className="truncate max-w-[220px]">{o.label}</span>
+                {o.suffix != null && o.suffix !== "" && (
+                  <span className="font-mono text-[9px] text-indigo-900/80 tabular-nums shrink-0">
+                    {o.suffix}
+                  </span>
+                )}
+                <button
+                  onClick={() => handleToggle(o.id)}
+                  className="hover:text-indigo-900 rounded-full p-0.5"
+                >
+                  <IconX size={10} />
+                </button>
+              </span>
+            ))}
+        </div>
+      )}
     </div>
   );
 }

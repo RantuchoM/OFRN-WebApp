@@ -5,6 +5,9 @@ import {
   IconAlertTriangle,
   IconLoader,
   IconLayers,
+  IconUsers,
+  IconEye,
+  IconLink,
 } from "../../components/ui/Icons";
 import MultiSelect from "../../components/ui/MultiSelect";
 import { useAuth } from "../../context/AuthContext";
@@ -13,6 +16,19 @@ import { getProgramTypeColor } from "../../utils/giraUtils";
 import { generateSeatingPdf } from "../../utils/seatingPdfExporter";
 import { exportSeatingToExcel } from "../../utils/seatingExcelExporter";
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
+import {
+  fetchMusicianSeatingContainerLabels,
+  formatStringsCompositionLabel,
+} from "../../utils/seatingStringsComposition";
+import {
+  confirmedSeatingRosterKeySet,
+  isConfirmedConvocadoForSeatingReports,
+  isMusicianOnConfirmedSeatingRoster,
+} from "../../utils/seatingRosterGate";
+import {
+  didParseCellSeatingStringsStandPairs,
+  seatingStringsGridEvenRowCount,
+} from "../../utils/seatingPdfStringsTableHooks";
 import { sortSeatingItems } from "../../services/giraService";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -23,12 +39,22 @@ const AnnualRotationModal = React.lazy(
   () => import("../../components/seating/AnnualRotationModal"),
 );
 
+function programSeatingUrl(programId) {
+  if (typeof window === "undefined") return "#";
+  const { origin, pathname } = window.location;
+  return `${origin}${pathname}?tab=giras&view=REPERTOIRE&giraId=${programId}&subTab=seating`;
+}
+
 export default function SeatingReports({ supabase }) {
   const { isEditor, isAdmin } = useAuth();
   const canManage = isEditor || isAdmin;
 
   const [programs, setPrograms] = useState([]);
   const [loadingPrograms, setLoadingPrograms] = useState(false);
+  /** Map program id → "Str: (…).…" (convocados sin ausentes; ver seatingStringsComposition). */
+  const [stringsLabelByProgramId, setStringsLabelByProgramId] = useState({});
+  const [loadingStringsComposition, setLoadingStringsComposition] =
+    useState(false);
   const [selectedProgramIds, setSelectedProgramIds] = useState([]);
 
   const [exportingPdfs, setExportingPdfs] = useState(false);
@@ -72,6 +98,7 @@ export default function SeatingReports({ supabase }) {
 
         if (programIds.size === 0) {
           setPrograms([]);
+          setStringsLabelByProgramId({});
           return;
         }
 
@@ -83,7 +110,35 @@ export default function SeatingReports({ supabase }) {
           .in("id", Array.from(programIds))
           .order("fecha_desde", { ascending: true });
         if (error) throw error;
-        setPrograms(data || []);
+        const rows = data || [];
+        setPrograms(rows);
+
+        setLoadingStringsComposition(true);
+        setStringsLabelByProgramId({});
+        try {
+          const entries = await Promise.all(
+            rows.map(async (p) => {
+              try {
+                const [rosterPack, containerLabels] = await Promise.all([
+                  fetchRosterForGira(supabase, p),
+                  fetchMusicianSeatingContainerLabels(supabase, p.id),
+                ]);
+                return [
+                  p.id,
+                  formatStringsCompositionLabel(
+                    rosterPack.roster,
+                    containerLabels,
+                  ),
+                ];
+              } catch {
+                return [p.id, "Str: —"];
+              }
+            }),
+          );
+          setStringsLabelByProgramId(Object.fromEntries(entries));
+        } finally {
+          setLoadingStringsComposition(false);
+        }
       } catch (err) {
         console.error("Error cargando programas para SeatingReports:", err);
         alert(
@@ -104,14 +159,20 @@ export default function SeatingReports({ supabase }) {
         }`.trim();
         const subLabel = p.tipo || "";
         const badgeClass = getProgramTypeColor(p.tipo);
+        const suffix = loadingStringsComposition
+          ? "Str: …"
+          : stringsLabelByProgramId[p.id] || "Str: —";
         return {
           id: p.id,
           label,
           subLabel,
           badgeClass,
+          suffix,
+          tooltip:
+            `${label}\n${suffix}\n(01 Violín · 02 Viola · 03 Cello · 04 Cb; paréntesis = mismo instrumento en distintos contenedores de seating, orden alfabético por nombre de contenedor; sin ausentes)`.trim(),
         };
       }),
-    [programs],
+    [programs, stringsLabelByProgramId, loadingStringsComposition],
   );
 
   const selectedPrograms = useMemo(
@@ -121,6 +182,17 @@ export default function SeatingReports({ supabase }) {
       ),
     [programs, selectedProgramIds],
   );
+
+  /** Gira cuya vista prevía de cuerdas está abierta (IconEye); independiente de la selección para exportar. */
+  const [previewProgramId, setPreviewProgramId] = useState(null);
+  const previewProgram = useMemo(() => {
+    if (previewProgramId == null) return null;
+    return programs.find((p) => p.id === previewProgramId) ?? null;
+  }, [programs, previewProgramId]);
+
+  const [previewStringsLoading, setPreviewStringsLoading] = useState(false);
+  const [previewStringsError, setPreviewStringsError] = useState(null);
+  const [previewStringsContainers, setPreviewStringsContainers] = useState(null);
 
   const ensureGlobalRoster = async () => {
     if (historyRoster.length > 0) return;
@@ -185,11 +257,7 @@ export default function SeatingReports({ supabase }) {
         .order("id", { ascending: true });
       if (itemsError) throw itemsError;
 
-      const confirmedRosterIds = new Set(
-        (roster || [])
-          .filter((m) => m.estado_gira === "confirmado")
-          .map((m) => Number(m.id)),
-      );
+      const rosterKeys = confirmedSeatingRosterKeySet(roster);
 
       containers = conts.map((c) => {
         const containerItems =
@@ -197,7 +265,7 @@ export default function SeatingReports({ supabase }) {
             (i) => Number(i.id_contenedor) === Number(c.id),
           ) || [];
         const presentItems = containerItems.filter((item) =>
-          confirmedRosterIds.has(Number(item.id_musico)),
+          isMusicianOnConfirmedSeatingRoster(rosterKeys, item.id_musico),
         );
         return {
           ...c,
@@ -249,6 +317,64 @@ export default function SeatingReports({ supabase }) {
 
     return { assignments, containers, particellas };
   };
+
+  useEffect(() => {
+    if (!previewProgram?.id || !supabase) {
+      setPreviewStringsContainers(null);
+      setPreviewStringsError(null);
+      setPreviewStringsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setPreviewStringsLoading(true);
+      setPreviewStringsError(null);
+      try {
+        const { roster } = await fetchRosterForGira(supabase, previewProgram);
+        const localRepertorio = await fetchLocalRepertorio(previewProgram.id);
+        const { containers } = await buildSeatingStateForProgram(
+          previewProgram,
+          roster,
+          localRepertorio,
+        );
+        if (!cancelled) setPreviewStringsContainers(containers || []);
+      } catch (err) {
+        console.error("SeatingReports vista previa cuerdas:", err);
+        if (!cancelled) {
+          setPreviewStringsError(
+            err?.message || "No se pudo cargar la vista previa.",
+          );
+          setPreviewStringsContainers(null);
+        }
+      } finally {
+        if (!cancelled) setPreviewStringsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps deliberadas: solo gira en vista previa y supabase
+  }, [previewProgram?.id, supabase]);
+
+  useEffect(() => {
+    if (
+      previewProgramId != null &&
+      programs.length > 0 &&
+      !programs.some((p) => p.id === previewProgramId)
+    ) {
+      setPreviewProgramId(null);
+    }
+  }, [programs, previewProgramId]);
+
+  const previewStringsRowCount = useMemo(() => {
+    const list = previewStringsContainers || [];
+    if (list.length === 0) return 0;
+    const raw = Math.max(
+      ...list.map((c) => c.items?.length || 0),
+      0,
+    );
+    return seatingStringsGridEvenRowCount(raw);
+  }, [previewStringsContainers]);
 
   const handleExportPdfs = async () => {
     if (selectedPrograms.length === 0) {
@@ -320,7 +446,7 @@ export default function SeatingReports({ supabase }) {
         const validItems = containers.flatMap((c) =>
           (c.items || []).map((i) => ({ ...i, id_contenedor: c.id })),
         );
-        const maxRows =
+        const rawMaxRows =
           containers.length > 0
             ? Math.max(
                 ...containers.map(
@@ -332,6 +458,7 @@ export default function SeatingReports({ supabase }) {
                 0,
               )
             : 0;
+        const maxRows = seatingStringsGridEvenRowCount(rawMaxRows);
 
         const containerHeaders = containers.map((c) =>
           String(c.nombre || "").toUpperCase(),
@@ -360,6 +487,7 @@ export default function SeatingReports({ supabase }) {
           styles: { fontSize: 6.5, cellPadding: 0.6, halign: "center" },
           headStyles: { fillColor: [63, 81, 181], textColor: 255 },
           margin: { left: 14, right: 14 },
+          didParseCell: didParseCellSeatingStringsStandPairs,
         });
 
         // Tabla 2: Vientos y otros
@@ -382,7 +510,13 @@ export default function SeatingReports({ supabase }) {
           .filter(Boolean);
 
         const otherMusicians = (roster || [])
-          .filter((m) => !["01", "02", "03", "04"].includes(m.id_instr))
+          .filter(
+            (m) =>
+              isConfirmedConvocadoForSeatingReports(m) &&
+              !["01", "02", "03", "04"].includes(
+                String(m.id_instr ?? "").trim(),
+              ),
+          )
           .sort((a, b) => {
             const instrA = a.id_instr || "9999";
             const instrB = b.id_instr || "9999";
@@ -495,14 +629,15 @@ export default function SeatingReports({ supabase }) {
 
         sheet.addRow([]);
 
-        // Disposición de cuerdas
-        const maxRows =
+        // Disposición de cuerdas (filas siempre en número par)
+        const rawMaxRows =
           containers.length > 0
             ? Math.max(
                 ...containers.map((c) => (c.items || []).length || 0),
                 0,
               )
             : 0;
+        const maxRows = seatingStringsGridEvenRowCount(rawMaxRows);
 
         if (containers.length > 0 && maxRows > 0) {
           const headerValues = containers.map((c) =>
@@ -521,15 +656,40 @@ export default function SeatingReports({ supabase }) {
             fgColor: { argb: "FF1F2937" },
           };
 
+          const thinBorder = {
+            style: "thin",
+            color: { argb: "FFE5E7EB" },
+          };
+          const thickStandBottom = {
+            style: "medium",
+            color: { argb: "FF475569" },
+          };
+
           for (let i = 0; i < maxRows; i++) {
             const rowValues = containers.map((c) => {
-              const item = (c.items || [])[i];
+              const sorted = sortSeatingItems(c.items || []);
+              const item = sorted[i];
               if (!item?.integrantes) return "";
               return `${item.integrantes.apellido || ""}, ${
                 item.integrantes.nombre || ""
               }.`;
             });
-            sheet.addRow(rowValues);
+            const dataRow = sheet.addRow(rowValues);
+            dataRow.font = { size: 10, name: "Calibri" };
+            dataRow.alignment = {
+              horizontal: "center",
+              vertical: "middle",
+              wrapText: true,
+            };
+            const sepAfterStandPair = i % 2 === 1;
+            dataRow.eachCell((cell) => {
+              cell.border = {
+                top: thinBorder,
+                left: thinBorder,
+                right: thinBorder,
+                bottom: sepAfterStandPair ? thickStandBottom : thinBorder,
+              };
+            });
           }
         }
 
@@ -548,7 +708,11 @@ export default function SeatingReports({ supabase }) {
         if (obrasList.length > 0) {
           const otherMusicians = (roster || [])
             .filter(
-              (m) => !["01", "02", "03", "04"].includes(m.id_instr),
+              (m) =>
+                isConfirmedConvocadoForSeatingReports(m) &&
+                !["01", "02", "03", "04"].includes(
+                  String(m.id_instr ?? "").trim(),
+                ),
             )
             .sort((a, b) => {
               const instrA = a.id_instr || "9999";
@@ -671,8 +835,49 @@ export default function SeatingReports({ supabase }) {
             options={programOptions}
             selectedIds={selectedProgramIds}
             onChange={setSelectedProgramIds}
+            showChips={false}
+            optionTrailingActions={(opt) => (
+              <>
+                <button
+                  type="button"
+                  title={
+                    previewProgramId === opt.id
+                      ? "Cerrar vista previa"
+                      : "Vista previa de cuerdas"
+                  }
+                  aria-label={
+                    previewProgramId === opt.id
+                      ? "Cerrar vista previa"
+                      : "Vista previa de cuerdas"
+                  }
+                  aria-pressed={previewProgramId === opt.id}
+                  onClick={() =>
+                    setPreviewProgramId((prev) =>
+                      prev === opt.id ? null : opt.id,
+                    )
+                  }
+                  className={`p-1 rounded-md transition-colors inline-flex ${
+                    previewProgramId === opt.id
+                      ? "bg-indigo-100 text-indigo-700"
+                      : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  }`}
+                >
+                  <IconEye size={14} />
+                </button>
+                <a
+                  href={programSeatingUrl(opt.id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Abrir Seating en nueva pestaña"
+                  aria-label="Abrir Seating en nueva pestaña"
+                  className="p-1 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors inline-flex"
+                >
+                  <IconLink size={14} />
+                </a>
+              </>
+            )}
           />
-          <div className="flex flex-col gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3">
+          <div className="flex flex-col gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3 min-h-[164px]">
             <div className="flex items-start gap-2">
               <IconAlertTriangle
                 size={14}
@@ -683,11 +888,36 @@ export default function SeatingReports({ supabase }) {
                 Seating guardado (<code>seating_contenedores</code>).
               </p>
             </div>
-            <p>
-              Los colores de las etiquetas reflejan el tipo de programa
-              (Sinfónico, Cámara, Ensamble, etc.) según{" "}
-              <code>giraUtils.getProgramTypeColor</code>.
-            </p>
+            {selectedPrograms.length === 0 ? (
+              <p>
+                Los colores de las etiquetas reflejan el tipo de programa
+                (Sinfónico, Cámara, Ensamble, etc.) según{" "}
+                <code>giraUtils.getProgramTypeColor</code>.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {selectedPrograms.map((program) => {
+                  const option = programOptions.find((opt) => opt.id === program.id);
+                  const label = option?.label || `${program.mes_letra || ""} | ${program.nomenclador || ""}. ${program.nombre_gira || ""}`.trim();
+                  const suffix =
+                    option?.suffix || stringsLabelByProgramId[program.id] || "Str: —";
+                  return (
+                    <span
+                      key={program.id}
+                      title={option?.tooltip}
+                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold border border-indigo-200 ${
+                        getProgramTypeColor(program.tipo) || ""
+                      }`}
+                    >
+                      <span className="truncate max-w-[200px]">{label}</span>
+                      <span className="font-mono text-[9px] text-indigo-900/80 tabular-nums shrink-0">
+                        {suffix}
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -772,6 +1002,133 @@ export default function SeatingReports({ supabase }) {
             </span>
           )}
         </div>
+
+        {previewProgram && (
+          <div className="border-t border-slate-200 pt-4 mt-4 space-y-3">
+            <div className="flex items-start gap-2">
+              <IconUsers
+                size={16}
+                className="text-indigo-600 shrink-0 mt-0.5"
+              />
+              <div className="min-w-0 flex-1">
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                  Vista previa · cuerdas
+                </h4>
+                <p className="text-[11px] text-slate-600 truncate">
+                  {previewProgram.mes_letra || ""} |{" "}
+                  {previewProgram.nomenclador || ""}.{" "}
+                  {previewProgram.nombre_gira || ""}
+                </p>
+                {stringsLabelByProgramId[previewProgram.id] &&
+                  !loadingStringsComposition && (
+                    <p className="text-[10px] font-mono text-slate-500 mt-1 tabular-nums">
+                      {stringsLabelByProgramId[previewProgram.id]}
+                    </p>
+                  )}
+              </div>
+              <a
+                href={programSeatingUrl(previewProgram.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Abrir Seating en nueva pestaña"
+                className="shrink-0 p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-indigo-700 transition-colors inline-flex"
+              >
+                <IconLink size={16} />
+              </a>
+            </div>
+
+            {previewStringsLoading && (
+              <div className="flex items-center gap-2 text-xs text-slate-500 py-6 justify-center">
+                <IconLoader className="animate-spin" size={18} />
+                Cargando disposición…
+              </div>
+            )}
+
+            {previewStringsError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                {previewStringsError}
+              </p>
+            )}
+
+            {!previewStringsLoading &&
+              !previewStringsError &&
+              previewStringsContainers &&
+              previewStringsContainers.length > 0 &&
+              previewStringsRowCount > 0 && (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
+                  <table className="w-full text-[11px] border-collapse min-w-[280px]">
+                    <thead>
+                      <tr className="bg-indigo-900 text-white">
+                        {previewStringsContainers.map((c) => (
+                          <th
+                            key={c.id}
+                            className="px-2 py-2 font-bold text-center border border-indigo-800/80 align-bottom"
+                          >
+                            <span className="leading-tight block">
+                              {(c.nombre || "Grupo").toUpperCase()}
+                            </span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from({ length: previewStringsRowCount }, (_, rowIdx) => (
+                        <tr
+                          key={rowIdx}
+                          className={
+                            rowIdx % 2 === 1
+                              ? "border-b-[3px] border-slate-500"
+                              : "border-b border-slate-200"
+                          }
+                        >
+                          {previewStringsContainers.map((c) => {
+                            const sorted = sortSeatingItems(c.items || []);
+                            const item = sorted[rowIdx];
+                            const integ = item?.integrantes;
+                            const cell =
+                              integ &&
+                              `${integ.apellido || ""}, ${integ.nombre || ""}`.trim();
+                            return (
+                              <td
+                                key={`${c.id}-${rowIdx}`}
+                                className={`px-2 py-2 text-center align-middle border-x border-slate-200 ${
+                                  rowIdx % 2 === 0
+                                    ? "bg-slate-50"
+                                    : "bg-white"
+                                } ${!cell ? "text-slate-300" : "text-slate-800 font-medium"}`}
+                              >
+                                {cell || "—"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+            {!previewStringsLoading &&
+              !previewStringsError &&
+              previewStringsContainers &&
+              previewStringsContainers.length === 0 && (
+                <p className="text-xs text-slate-400 italic py-2">
+                  Esta gira no tiene contenedores de seating guardados.
+                </p>
+              )}
+
+            {!previewStringsLoading &&
+              !previewStringsError &&
+              previewStringsContainers &&
+              previewStringsContainers.length > 0 &&
+              previewStringsRowCount === 0 && (
+                <p className="text-xs text-slate-400 italic py-2">
+                  Hay grupos guardados, pero ningún músico convocado aparece en
+                  ellos con el roster actual (revisá ausencias o la convocatoria).
+                </p>
+              )}
+          </div>
+        )}
       </div>
 
       {historyOpen && (
