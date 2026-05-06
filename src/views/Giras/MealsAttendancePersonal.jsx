@@ -19,7 +19,7 @@ import {
 import { es } from "date-fns/locale";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import ManualTrigger from "../../components/manual/ManualTrigger";
-import { isUserConvoked } from "../../utils/giraUtils";
+import { isUserConvoked, normalize } from "../../utils/giraUtils";
 
 export default function MealsAttendancePersonal({ supabase, gira, userId }) {
   // 1. Obtener la verdad única del Roster
@@ -59,6 +59,18 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
       }
 
       setUserData(myUser);
+
+      const estadoTour = normalize(myUser.estado_gira || myUser.estado || "");
+      if (
+        estadoTour === "ausente" ||
+        estadoTour === "baja" ||
+        estadoTour === "no_convocado"
+      ) {
+        setAnswers({});
+        setMyEvents([]);
+        setLoading(false);
+        return;
+      }
 
       const [{ data: exclRows }, { data: events, error: eventError }] =
         await Promise.all([

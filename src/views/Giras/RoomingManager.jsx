@@ -2008,30 +2008,57 @@ export default function RoomingManager({
       setLogisticsMap(logMap);
 
       // 4. Mapear ocupantes a habitaciones usando asignaciones_config
+      const roomsToSyncAssignment = [];
+
       const roomsWithDetails = roomsData.map((room) => {
         const asignacionesRaw = Array.isArray(room.asignaciones_config)
           ? room.asignaciones_config
           : [];
         const configById = new Map();
         asignacionesRaw.forEach((cfg) => {
-          if (cfg && typeof cfg.id === "number") {
-            configById.set(cfg.id, cfg.ocupa_cama !== false);
+          if (cfg && cfg.id != null && cfg.id !== "") {
+            configById.set(Number(cfg.id), cfg.ocupa_cama !== false);
           }
         });
 
-        const occupants = (room.id_integrantes_asignados || [])
+        const rawIds = Array.isArray(room.id_integrantes_asignados)
+          ? room.id_integrantes_asignados
+          : [];
+
+        const occupants = rawIds
           .map((id) => allMusiciansMap.get(id))
           .filter((p) => p && p.estado_gira === "confirmado")
           .map((p) => ({
             ...p,
-            ocupa_cama: configById.has(p.id)
-              ? configById.get(p.id)
+            ocupa_cama: configById.has(Number(p.id))
+              ? configById.get(Number(p.id))
               : true,
           }));
 
+        const desiredIds = occupants.map((o) => o.id);
+        const newAsignacionesConfig = occupants.map((m) => ({
+          id: m.id,
+          ocupa_cama: m.ocupa_cama !== false,
+        }));
+
+        const staleVsDb =
+          desiredIds.length !== rawIds.length ||
+          desiredIds.some(
+            (id, i) => Number(id) !== Number(rawIds[i]),
+          );
+
+        if (staleVsDb) {
+          roomsToSyncAssignment.push({
+            id: room.id,
+            id_integrantes_asignados: desiredIds,
+            asignaciones_config: newAsignacionesConfig,
+          });
+        }
+
         const roomWithMeta = {
           ...room,
-          asignaciones_config: asignacionesRaw,
+          id_integrantes_asignados: desiredIds,
+          asignaciones_config: newAsignacionesConfig,
           occupants,
         };
 
@@ -2040,6 +2067,25 @@ export default function RoomingManager({
           roomGender: calculateRoomGender(occupants),
         };
       });
+
+      if (roomsToSyncAssignment.length > 0) {
+        for (const patch of roomsToSyncAssignment) {
+          const { error: syncErr } = await supabase
+            .from("hospedaje_habitaciones")
+            .update({
+              id_integrantes_asignados: patch.id_integrantes_asignados,
+              asignaciones_config: patch.asignaciones_config,
+            })
+            .eq("id", patch.id);
+          if (syncErr)
+            console.warn(
+              "[Rooming] Sincronizar ocupantes habitación",
+              patch.id,
+              syncErr.message,
+            );
+        }
+        if (onDataChange) onDataChange();
+      }
 
       // 5. Determinar quiénes faltan asignar (basado en ocupantes efectivos)
       const assignedIds = new Set();
@@ -2088,7 +2134,15 @@ export default function RoomingManager({
     if (!error) {
       setRooms((prev) =>
         prev.map((r) =>
-          r.id === roomId ? { ...r, asignaciones_config: asignacionesConfig } : r,
+          r.id === roomId
+            ? {
+                ...r,
+                occupants,
+                id_integrantes_asignados: ids,
+                asignaciones_config: asignacionesConfig,
+                roomGender: calculateRoomGender(occupants),
+              }
+            : r,
         ),
       );
       if (onDataChange) onDataChange();
@@ -2980,6 +3034,13 @@ export default function RoomingManager({
             )}
             {bookings.map((bk) => {
               const hotelRooms = rooms.filter((r) => r.id_hospedaje === bk.id);
+              const occupiedHotelRooms = hotelRooms.filter(
+                (r) => getRoomBedCount(r) > 0,
+              );
+              const paxCamas = hotelRooms.reduce(
+                (acc, r) => acc + getRoomBedCount(r),
+                0,
+              );
               const roomsF = hotelRooms.filter((r) => r.roomGender === "F");
               const roomsM = hotelRooms.filter((r) => r.roomGender === "M");
               const roomsMix = hotelRooms.filter(
@@ -2999,11 +3060,17 @@ export default function RoomingManager({
                     </h3>
                     <div className="flex items-center gap-2">
                       <div className="text-xs text-slate-500 font-mono mr-2">
-                        Habitaciones: {hotelRooms.length} | Pax:{" "}
-                        {hotelRooms.reduce(
-                          (acc, r) => acc + r.occupants.length,
-                          0,
-                        )}
+                        Habitaciones: {occupiedHotelRooms.length}
+                        {hotelRooms.length > occupiedHotelRooms.length && (
+                          <span
+                            className="text-slate-400"
+                            title="Habitaciones físicas incl. vacías"
+                          >
+                            {" "}
+                            ({hotelRooms.length} total)
+                          </span>
+                        )}{" "}
+                        | Pax (camas): {paxCamas}
                       </div>
                       <button
                         onClick={() => setHotelToMerge(bk)}

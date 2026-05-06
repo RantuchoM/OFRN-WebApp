@@ -14,6 +14,10 @@ const EVENT_SELECT = `
     eventos_ensambles ( ensambles ( id, ensamble ) )
   `;
 
+function normalizeEstadoGira(str) {
+  return (str || "").toLowerCase().trim();
+}
+
 function saveToCache(key, data) {
   try {
     localStorage.setItem(key, JSON.stringify(data));
@@ -495,7 +499,15 @@ export function useAgendaData({
               (i) => i.id_integrante === effectiveUserId,
             );
             const myTourRole = myTourRecord?.rol || "musico";
-            evt.is_convoked = checkIsConvoked(evt.convocados, myTourRole);
+            const estadoTour = normalizeEstadoGira(myTourRecord?.estado);
+            const noParticipaEnGira = [
+              "baja",
+              "no_convocado",
+              "ausente",
+            ].includes(estadoTour);
+            evt.is_convoked = noParticipaEnGira
+              ? false
+              : checkIsConvoked(evt.convocados, myTourRole);
           });
         }
 
@@ -593,10 +605,16 @@ export function useAgendaData({
         const myTourRecord = evt.programas?.giras_integrantes?.find(
           (i) => i.id_integrante === effectiveUserId,
         );
-        evt.is_convoked = checkIsConvoked(
-          evt.convocados,
-          myTourRecord?.rol || "musico",
-        );
+        const myTourRole = myTourRecord?.rol || "musico";
+        const estadoTour = normalizeEstadoGira(myTourRecord?.estado);
+        const noParticipaEnGira = [
+          "baja",
+          "no_convocado",
+          "ausente",
+        ].includes(estadoTour);
+        evt.is_convoked = noParticipaEnGira
+          ? false
+          : checkIsConvoked(evt.convocados, myTourRole);
 
         setItems((prev) => {
           const without = prev.filter((item) => item.id !== id);

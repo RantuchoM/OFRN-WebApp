@@ -48,12 +48,13 @@ export const computeRoomingRaw = (data) => {
   const excludedNoAlojado = new Set(
     (hospedajeExcluidosIds || []).map((id) => Number(id)),
   );
+  // Misma nómina efectiva que RoomingManager: solo confirmados (ausentes/bajas/pendientes no piden cama aquí).
   const paxQueRequierenHotel = roster.filter((p) => {
     const estado = normalize(p.estado_gira || p.estado);
-    const esActivo = estado !== "ausente" && estado !== "baja";
+    if (estado !== "confirmado") return false;
     const esLocal = p.is_local === true;
     if (excludedNoAlojado.has(Number(p.id))) return false;
-    return esActivo && !esLocal;
+    return !esLocal;
   });
   const totalNecesitanHotel = paxQueRequierenHotel.length;
   if (totalNecesitanHotel === 0) {

@@ -2,8 +2,9 @@ import React, { useMemo } from 'react';
 
 export default function FoodMatrix({ roster }) {
   const { matrix, columns } = useMemo(() => {
-    // 1. Filtrar ausentes para que solo cuenten los incluidos actualmente
-    const activeRoster = (roster || []).filter(p => p.estado_gira !== 'ausente');
+    const activeRoster = (roster || []).filter(
+      (p) => p.estado_gira !== 'ausente' && p.estado_gira !== 'baja',
+    );
 
     // 2. Detectar todos los tipos de alimentación únicos en el personal activo
     const dietTypes = [...new Set(activeRoster.map(p => (p.alimentacion || 'Estándar').trim()))];

@@ -1,6 +1,7 @@
 import React, { useRef } from "react";
 import { IconFileText, IconPrinter, IconX } from "../../components/ui/Icons";
 import { differenceInCalendarDays } from "date-fns";
+import { normalize } from "../../utils/giraUtils";
 
 // Helper compatible con objetos de evento y strings simples
 const getLogisticsDates = (log) => {
@@ -167,6 +168,9 @@ const InitialOrderReportModal = ({
     const dateGroups = {};
 
     roster.forEach((person) => {
+        const est = normalize(person.estado_gira || person.estado);
+        if (est === "ausente" || est === "baja") return;
+
         const log = logisticsMap[person.id];
         if (!log) return;
 
