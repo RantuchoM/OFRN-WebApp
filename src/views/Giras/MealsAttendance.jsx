@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   IconLoader,
   IconSearch,
@@ -16,6 +16,7 @@ import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import { format, parseISO, isAfter, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
+import { isUserConvoked } from "../../utils/giraUtils";
 
 // Condiciones estándar (estas pueden seguir fijas si no tienes tabla de condiciones)
 const CONDICIONES_OPTIONS = [
@@ -26,58 +27,11 @@ const CONDICIONES_OPTIONS = [
   { value: "becario", label: "Becario" },
 ];
 
-// --- HELPER: ELIGIBILIDAD ---
-const checkEligibility = (evt, person) => {
-  if (!evt || !person) return false;
-
-  // 1. Convocatoria Técnica (Tags)
-  const convocadosList = evt.convocados || [];
-  const isTechnicallyConvoked = convocadosList.some((tag) => {
-    if (tag === "GRP:TUTTI") return true;
-    if (tag === "GRP:LOCALES") return person.is_local;
-    if (tag === "GRP:NO_LOCALES") return !person.is_local;
-    if (tag === "GRP:PRODUCCION") {
-      // Lista de roles que "comen" con el grupo de Producción
-      const rolesProduccion = [
-        "produccion",
-        "chofer",
-        "acompañante",
-        "staff",
-        "mus_prod",
-        "técnico",
-        "iluminacion",
-      ];
-
-      // Verificamos si el rol de la persona está en esa lista
-      return rolesProduccion.includes(person.rol_gira);
-    }
-    if (tag === "GRP:SOLISTAS") return person.rol_gira === "solista";
-    if (tag === "GRP:DIRECTORES") return person.rol_gira === "director";
-    if (tag.startsWith("LOC:"))
-      return String(person.id_localidad) === String(tag.split(":")[1]);
-    if (tag.startsWith("FAM:"))
-      return person.instrumentos?.familia === tag.split(":")[1];
-    return false;
-  });
-
-  if (!isTechnicallyConvoked) return false;
-
-  // 2. Cobertura Logística (Fechas)
-  const eventDate = evt.fecha;
-  const coverageFrom = person.logistics?.comida_inicio?.date;
-  const coverageTo = person.logistics?.comida_fin?.date;
-
-  if (coverageFrom && eventDate < coverageFrom) return false;
-  if (coverageTo && eventDate > coverageTo) return false;
-  if (!person.is_local && !coverageFrom && !coverageTo) return false;
-
-  return true;
-};
-
 export default function MealsAttendance({
   supabase,
   gira,
   roster: enrichedRoster,
+  hospedajeExcluidosIds = [],
 }) {
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState([]);
@@ -101,6 +55,25 @@ export default function MealsAttendance({
   const [selectedRoles, setSelectedRoles] = useState([]);
   const [selectedConditions, setSelectedConditions] = useState([]);
   const [sendingMails, setSendingMails] = useState(false);
+
+  const checkEligibility = useCallback(
+    (evt, person) => {
+      if (!evt || !person) return false;
+      const convocadosList = evt.convocados || [];
+      if (
+        !isUserConvoked(convocadosList, person, { hospedajeExcluidosIds })
+      )
+        return false;
+      const eventDate = evt.fecha;
+      const coverageFrom = person.logistics?.comida_inicio?.date;
+      const coverageTo = person.logistics?.comida_fin?.date;
+      if (coverageFrom && eventDate < coverageFrom) return false;
+      if (coverageTo && eventDate > coverageTo) return false;
+      if (!person.is_local && !coverageFrom && !coverageTo) return false;
+      return true;
+    },
+    [hospedajeExcluidosIds],
+  );
 
   useEffect(() => {
     if (gira?.id) {
@@ -274,6 +247,7 @@ export default function MealsAttendance({
     attendanceMap,
     selectedRoles,
     selectedConditions,
+    checkEligibility,
   ]);
 
   const eventsByDate = useMemo(() => {

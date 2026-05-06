@@ -18,6 +18,7 @@ import {
 } from "../../components/ui/Icons";
 import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
+import { isUserConvoked } from "../../utils/giraUtils";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner"; 
@@ -91,13 +92,13 @@ const getGroupLabelShort = (id, catalogs) => {
 };
 
 // --- COMPONENTE: INSPECTOR DE GRUPOS SUPERIOR ---
-const GroupInspectorHeader = ({ roster, catalogs }) => {
+const GroupInspectorHeader = ({ roster, catalogs, groupDefs }) => {
   const [selectedGroup, setSelectedGroup] = useState(null);
 
   return (
     <div className="flex items-center gap-2 ml-4 border-l border-slate-200 pl-4 relative">
       <style>{`.tooltip-bridge::after { content: ""; position: absolute; top: 100%; left: 0; width: 100%; height: 15px; background: transparent; }`}</style>
-      {GROUP_DEFS.map((g) => {
+      {groupDefs.map((g) => {
         const count = roster.filter(g.filter).length;
         return (
           <div
@@ -405,7 +406,12 @@ const BulkEditPanel = ({ selectedCount, onApply, onCancel, catalogs }) => {
   );
 };
 
-export default function MealsManager({ supabase, gira, roster }) {
+export default function MealsManager({
+  supabase,
+  gira,
+  roster,
+  hospedajeExcluidosIds = [],
+}) {
   const [loading, setLoading] = useState(false);
   const [grid, setGrid] = useState([]);
   const [catalogs, setCatalogs] = useState({
@@ -422,6 +428,23 @@ export default function MealsManager({ supabase, gira, roster }) {
     new Set(DEFAULT_SERVICE_FILTER),
   );
   const debounceRef = useRef({});
+
+  const groupDefsEffective = useMemo(() => {
+    const excluded = new Set(
+      (hospedajeExcluidosIds || []).map((id) => Number(id)),
+    );
+    return GROUP_DEFS.map((g) =>
+      g.id === "GRP:NO_LOCALES"
+        ? {
+            ...g,
+            filter: (p) =>
+              !p.is_local &&
+              p.estado_gira === "confirmado" &&
+              !excluded.has(Number(p.id)),
+          }
+        : g,
+    );
+  }, [hospedajeExcluidosIds]);
 
   useEffect(() => {
     if (gira?.id) fetchAllData();
@@ -557,31 +580,10 @@ export default function MealsManager({ supabase, gira, roster }) {
     if (!row.convocados || row.convocados.length === 0) return [];
     return roster.filter((p) => {
       if (p.estado_gira !== "confirmado") return false;
-      const isTechnicallyConvoked = row.convocados.some((tag) => {
-        if (tag === "GRP:TUTTI") return true;
-        if (tag === "GRP:LOCALES") return p.is_local;
-        if (tag === "GRP:NO_LOCALES") return !p.is_local;
-        if (tag === "GRP:PRODUCCION") {
-          const rolesProduccion = [
-            "produccion",
-            "chofer",
-            "acompañante",
-            "staff",
-            "mus_prod",
-            "técnico",
-            "iluminacion",
-          ];
-          return rolesProduccion.includes(p.rol_gira);
-        }
-        if (tag === "GRP:SOLISTAS") return p.rol_gira === "solista";
-        if (tag === "GRP:DIRECTORES") return p.rol_gira === "director";
-        if (tag.startsWith("LOC:"))
-          return String(p.id_localidad) === String(tag.split(":")[1]);
-        if (tag.startsWith("FAM:"))
-          return p.instrumentos?.familia === tag.split(":")[1];
+      if (
+        !isUserConvoked(row.convocados, p, { hospedajeExcluidosIds })
+      )
         return false;
-      });
-      if (!isTechnicallyConvoked) return false;
       const cFrom = p.logistics?.comida_inicio?.date;
       const cTo = p.logistics?.comida_fin?.date;
       if (cFrom && row.fecha < cFrom) return false;
@@ -800,7 +802,11 @@ export default function MealsManager({ supabase, gira, roster }) {
             <h2 className="text-lg font-bold text-slate-800 whitespace-nowrap">Comidas</h2>
           </div>
           <div className="hidden md:block">
-            <GroupInspectorHeader roster={roster} catalogs={catalogs} />
+            <GroupInspectorHeader
+              roster={roster}
+              catalogs={catalogs}
+              groupDefs={groupDefsEffective}
+            />
           </div>
         </div>
         <div className="hidden md:flex items-center gap-4">
@@ -862,7 +868,7 @@ export default function MealsManager({ supabase, gira, roster }) {
 
           {mobileGroupsOpen && (
             <div className="absolute right-0 top-[calc(100%+6px)] z-40 bg-white border border-slate-200 rounded-lg shadow-xl p-2 w-44 space-y-1">
-              {GROUP_DEFS.map((g) => (
+              {groupDefsEffective.map((g) => (
                 <div key={`mg-${g.id}`} className="flex items-center justify-between text-[10px]">
                   <span className="text-slate-600">{g.label}</span>
                   <span className={`px-1.5 py-0.5 rounded font-bold ${g.color}`}>

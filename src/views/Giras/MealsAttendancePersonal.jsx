@@ -19,43 +19,7 @@ import {
 import { es } from "date-fns/locale";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import ManualTrigger from "../../components/manual/ManualTrigger";
-
-// Helper Convocatoria
-const isUserConvoked = (convocadosList, userAttributes) => {
-  if (!convocadosList || convocadosList.length === 0) return false;
-  return convocadosList.some((tag) => {
-    if (tag === "GRP:TUTTI") return true;
-    if (tag === "GRP:LOCALES") return userAttributes.is_local;
-    if (tag === "GRP:NO_LOCALES") return !userAttributes.is_local;
-    if (tag === "GRP:PRODUCCION") {
-      // Lista de roles que "comen" con el grupo de Producción
-      const rolesProduccion = [
-        "produccion",
-        "chofer",
-        "acompañante",
-        "staff",
-        "mus_prod",
-        "técnico",
-        "iluminacion",
-      ];
-
-      // Verificamos si el rol de la persona está en esa lista
-      return rolesProduccion.includes(userAttributes.rol_gira);
-    }
-    if (tag === "GRP:SOLISTAS") return userAttributes.rol_gira === "solista";
-    if (tag === "GRP:DIRECTORES") return userAttributes.rol_gira === "director";
-
-    if (tag.startsWith("LOC:")) {
-      const locId = parseInt(tag.split(":")[1], 10);
-      return userAttributes.id_localidad === locId;
-    }
-    if (tag.startsWith("FAM:")) {
-      const familia = tag.split(":")[1];
-      return userAttributes.instrumentos?.familia === familia;
-    }
-    return false;
-  });
-};
+import { isUserConvoked } from "../../utils/giraUtils";
 
 export default function MealsAttendancePersonal({ supabase, gira, userId }) {
   // 1. Obtener la verdad única del Roster
@@ -96,19 +60,29 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
 
       setUserData(myUser);
 
-      // 3. Traer Eventos (Solo fetching de eventos)
-      const { data: events, error: eventError } = await supabase
-        .from("eventos")
-        .select(
-          "*, locaciones(nombre,localidades(localidad)), tipos_evento(nombre)",
-        )
-        .eq("id_gira", gira.id)
-        .eq("is_deleted", false)
-        .in("id_tipo_evento", [7, 8, 9, 10]) // Desayuno, Almuerzo, Merienda, Cena
-        .order("fecha", { ascending: true })
-        .order("hora_inicio", { ascending: true });
+      const [{ data: exclRows }, { data: events, error: eventError }] =
+        await Promise.all([
+          supabase
+            .from("giras_hospedajes_excluidos")
+            .select("id_integrante")
+            .eq("id_programa", gira.id),
+          supabase
+            .from("eventos")
+            .select(
+              "*, locaciones(nombre,localidades(localidad)), tipos_evento(nombre)",
+            )
+            .eq("id_gira", gira.id)
+            .eq("is_deleted", false)
+            .in("id_tipo_evento", [7, 8, 9, 10])
+            .order("fecha", { ascending: true })
+            .order("hora_inicio", { ascending: true }),
+        ]);
 
       if (eventError) throw eventError;
+
+      const hospedajeExcluidosIds = (exclRows || []).map(
+        (r) => r.id_integrante,
+      );
 
       // 4. Traer mis respuestas
       const { data: myAnswers, error: ansError } = await supabase
@@ -124,7 +98,7 @@ export default function MealsAttendancePersonal({ supabase, gira, userId }) {
 
       // 5. Filtrar convocatoria usando el helper y los datos del hook
       const relevantEvents = (events || []).filter((evt) =>
-        isUserConvoked(evt.convocados, myUser),
+        isUserConvoked(evt.convocados, myUser, { hospedajeExcluidosIds }),
       );
       setMyEvents(relevantEvents);
     } catch (error) {

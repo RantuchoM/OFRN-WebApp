@@ -155,6 +155,12 @@ async function syncOneViaje(
     .filter((x: string, i: number, arr: string[]) => arr.indexOf(x) === i)
     .sort((a: string, b: string) => a.localeCompare(b, "es-AR"));
 
+  const { data: controlRow } = await admin
+    .from("scrn_viajes_controles")
+    .select("id, limpieza_turno_at, limpieza_estado, limpieza_notas, limpieza_google_calendar_event_id")
+    .eq("id_viaje", viaje.id)
+    .maybeSingle();
+
   const ocupadas = pasajeros.length;
   const plazas = cupo(viaje, transporte);
   const libres = Math.max(plazas - ocupadas, 0);
@@ -169,6 +175,7 @@ async function syncOneViaje(
     `Ciudad de origen: ${viaje.origen || "-"}: ${fmtAr(viaje.fecha_salida)}`,
     `Ciudad de destino: ${viaje.destino_final || "-"}: ${fmtAr(viaje.fecha_retorno || viaje.fecha_llegada_estimada)}`,
     `Observaciones: ${(viaje.observaciones || "").trim() || (transporte?.observaciones_estado || "").trim() || "-"}`,
+    `Limpieza: ${controlRow?.limpieza_turno_at ? fmtAr(controlRow.limpieza_turno_at) : "Sin turno asignado"}`,
     `Solicitar plaza: ${link}`,
     "-----------",
     "Pasajeros:",
@@ -204,7 +211,93 @@ async function syncOneViaje(
     .update({ google_calendar_event_id: googleId })
     .eq("id", viaje.id);
   if (upErr) throw new Error(`scrn_viajes: ${upErr.message}`);
-  return { ok: true, action, viaje_id: viaje.id, google_calendar_event_id: googleId };
+
+  const nowIso = new Date().toISOString();
+  let limpiezaAction = "none";
+  let limpiezaEventId: string | null = controlRow?.limpieza_google_calendar_event_id || null;
+  if (controlRow?.id) {
+    const cleanupStart = controlRow.limpieza_turno_at
+      ? new Date(controlRow.limpieza_turno_at).toISOString()
+      : null;
+    const cleanupEnd = cleanupStart
+      ? new Date(new Date(cleanupStart).getTime() + 60 * 60 * 1000).toISOString()
+      : null;
+    const cleanupSummary = `Limpieza post-viaje · ${(transporte?.nombre || "Vehículo").trim()}`;
+    const cleanupDescription = [
+      `Viaje #${viaje.id}`,
+      `Motivo: ${(viaje.motivo || "").trim() || "-"}`,
+      `Origen: ${viaje.origen || "-"}`,
+      `Destino: ${viaje.destino_final || "-"}`,
+      `Estado limpieza: ${controlRow?.limpieza_estado || "pendiente"}`,
+      `Notas: ${(controlRow?.limpieza_notas || "").trim() || "-"}`,
+    ].join("\n");
+
+    if (!cleanupStart) {
+      if (limpiezaEventId) {
+        try {
+          await calendar.events.delete({ calendarId, eventId: limpiezaEventId });
+        } catch (e: any) {
+          if (e?.code !== 404) throw e;
+        }
+      }
+      const { error: cleanNullErr } = await admin
+        .from("scrn_viajes_controles")
+        .update({
+          limpieza_google_calendar_event_id: null,
+          limpieza_google_calendar_synced_at: nowIso,
+        })
+        .eq("id", controlRow.id);
+      if (cleanNullErr) throw new Error(`scrn_viajes_controles: ${cleanNullErr.message}`);
+      limpiezaAction = limpiezaEventId ? "cleared" : "none";
+      limpiezaEventId = null;
+    } else {
+      const requestBody = {
+        summary: cleanupSummary.slice(0, 1000),
+        description: cleanupDescription.slice(0, 8000),
+        start: { dateTime: cleanupStart, timeZone: "America/Argentina/Buenos_Aires" },
+        end: { dateTime: cleanupEnd, timeZone: "America/Argentina/Buenos_Aires" },
+      };
+
+      if (limpiezaEventId) {
+        try {
+          const upd = await calendar.events.update({
+            calendarId,
+            eventId: limpiezaEventId,
+            requestBody,
+          });
+          limpiezaEventId = upd.data.id || limpiezaEventId;
+          limpiezaAction = "updated";
+        } catch (e: any) {
+          if (e?.code !== 404) throw e;
+          const ins = await calendar.events.insert({ calendarId, requestBody });
+          limpiezaEventId = ins.data.id || null;
+          limpiezaAction = "recreated";
+        }
+      } else {
+        const ins = await calendar.events.insert({ calendarId, requestBody });
+        limpiezaEventId = ins.data.id || null;
+        limpiezaAction = "created";
+      }
+
+      const { error: cleanUpErr } = await admin
+        .from("scrn_viajes_controles")
+        .update({
+          limpieza_google_calendar_event_id: limpiezaEventId,
+          limpieza_google_calendar_synced_at: nowIso,
+        })
+        .eq("id", controlRow.id);
+      if (cleanUpErr) throw new Error(`scrn_viajes_controles: ${cleanUpErr.message}`);
+    }
+  }
+
+  return {
+    ok: true,
+    action,
+    viaje_id: viaje.id,
+    google_calendar_event_id: googleId,
+    limpieza_action: limpiezaAction,
+    limpieza_google_calendar_event_id: limpiezaEventId,
+  };
 }
 
 serve(async (req) => {

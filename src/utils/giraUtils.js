@@ -36,15 +36,26 @@ export const DEFAULT_CARGO = "Músico";
  * Determines if a member is convoked to an event based on tags.
  * @param {Array<string>} convocadosList - Array of event tags (e.g., ["GRP:TUTTI", "LOC:1"])
  * @param {Object} person - Member object processed by useGiraRoster (must have is_local, rol_gira)
+ * @param {{ hospedajeExcluidosIds?: Array<number|string> }} [opts] - Si viene `hospedajeExcluidosIds`, "GRP:NO_LOCALES" (Solo alojados en comidas) excluye quienes están en Hotelería como "No alojados".
  */
-export const isUserConvoked = (convocadosList, person) => {
+export const isUserConvoked = (convocadosList, person, opts = {}) => {
   if (!convocadosList || convocadosList.length === 0) return false;
+
+  const hospedajeExcluidosIds = opts.hospedajeExcluidosIds;
+  const excluidosHotel =
+    hospedajeExcluidosIds != null && hospedajeExcluidosIds.length > 0
+      ? new Set(hospedajeExcluidosIds.map((id) => Number(id)))
+      : null;
 
   return convocadosList.some((tag) => {
     if (tag === ROSTER_CATEGORIES.TUTTI) return true;
 
     if (tag === ROSTER_CATEGORIES.LOCALES) return person.is_local;
-    if (tag === ROSTER_CATEGORIES.NO_LOCALES) return !person.is_local;
+    if (tag === ROSTER_CATEGORIES.NO_LOCALES) {
+      if (person.is_local) return false;
+      if (excluidosHotel?.has(Number(person.id))) return false;
+      return true;
+    }
 
     if (tag === ROSTER_CATEGORIES.PRODUCCION)
       return ROLES_PRODUCCION.includes(person.rol_gira);

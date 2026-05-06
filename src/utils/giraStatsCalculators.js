@@ -151,7 +151,7 @@ export const computeViaticosRaw = (data) => {
 
 // 5. COMIDAS (CORREGIDO PARA eventos_asistencia)
 export const computeMealsRaw = (data) => {
-  const { roster } = data;
+  const { roster, hospedajeExcluidosIds } = data;
   if (!roster || !Array.isArray(roster)) return null;
 
   const meta = roster.mealsMeta;
@@ -187,7 +187,9 @@ export const computeMealsRaw = (data) => {
   let totalEligiblePax = 0;
 
   activePax.forEach(person => {
-      const myRequiredEvents = events.filter(evt => isUserConvoked(evt.convocados, person));
+      const myRequiredEvents = events.filter((evt) =>
+        isUserConvoked(evt.convocados, person, { hospedajeExcluidosIds }),
+      );
       const totalRequired = myRequiredEvents.length;
 
       if (totalRequired === 0) return;

@@ -23,6 +23,8 @@ import AlertModal from "../../../components/ui/AlertModal";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
 import ReservaPasajerosEditor from "./ReservaPasajerosEditor";
 import ViajeReservasOperativoPanel from "./ViajeReservasOperativoPanel";
+import ViajeControlVehiculoModal from "./ViajeControlVehiculoModal";
+import TransportRegularControlsModal from "./TransportRegularControlsModal";
 import { paxNombreCompleto } from "./scrnReservaPaxUtils";
 import {
   initialViajeForm,
@@ -237,6 +239,10 @@ export default function AdminSCRNPanel({
   const [verHistorialRecorridos, setVerHistorialRecorridos] = useState(false);
   const [syncingTransportId, setSyncingTransportId] = useState(null);
   const [syncStatusByTransport, setSyncStatusByTransport] = useState({});
+  const [viajeControlesMap, setViajeControlesMap] = useState({});
+  const [controlModalViaje, setControlModalViaje] = useState(null);
+  const [transportControlModal, setTransportControlModal] = useState(null);
+  const [transportAlertasMap, setTransportAlertasMap] = useState({});
   const [dgFilters, setDgFilters] = useState({
     localidades: { id: "", localidad: "" },
     tipos: { nombre: "", emoji: "" },
@@ -321,6 +327,14 @@ export default function AdminSCRNPanel({
       }),
     [viajesFiltradosAdmin, transportMap],
   );
+  const viajesSinLimpieza = useMemo(
+    () =>
+      (viajesFiltradosAdmin || []).filter((v) => {
+        const c = viajeControlesMap[v.id];
+        return !c?.limpieza_turno_at;
+      }),
+    [viajesFiltradosAdmin, viajeControlesMap],
+  );
   const plazasOcupadasPorViaje = useMemo(() => {
     const acc = {};
     const activas = [...(pendingReservas || []), ...(acceptedReservas || [])];
@@ -371,6 +385,52 @@ export default function AdminSCRNPanel({
       mapped[item.id] = viajeDraftFromItem(item);
     });
     setViajeEdits(mapped);
+  }, [viajes]);
+
+  useEffect(() => {
+    const loadAlertas = async () => {
+      const [f, k] = await Promise.all([
+        supabase.from("scrn_v_alertas_controles_fecha").select("id_transporte,en_alerta,vencido"),
+        supabase.from("scrn_v_alertas_controles_km").select("id_transporte,en_alerta,vencido"),
+      ]);
+      if (f.error || k.error) return;
+      const next = {};
+      const up = (row) => {
+        const id = Number(row.id_transporte);
+        if (!Number.isFinite(id)) return;
+        if (!next[id]) next[id] = { alertas: 0, vencidos: 0 };
+        if (row.en_alerta) next[id].alertas += 1;
+        if (row.vencido) next[id].vencidos += 1;
+      };
+      (f.data || []).forEach(up);
+      (k.data || []).forEach(up);
+      setTransportAlertasMap(next);
+    };
+    void loadAlertas();
+  }, [transportes, viajes]);
+
+  useEffect(() => {
+    const loadViajeControles = async () => {
+      const ids = (viajes || []).map((v) => v.id).filter(Boolean);
+      if (!ids.length) {
+        setViajeControlesMap({});
+        return;
+      }
+      const { data, error } = await supabase
+        .from("scrn_viajes_controles")
+        .select("*")
+        .in("id_viaje", ids);
+      if (error) {
+        console.error("Error cargando controles por viaje:", error);
+        return;
+      }
+      const next = {};
+      (data || []).forEach((row) => {
+        next[row.id_viaje] = row;
+      });
+      setViajeControlesMap(next);
+    };
+    void loadViajeControles();
   }, [viajes]);
 
   const loadSolicitudesReservas = useCallback(async () => {
@@ -1487,6 +1547,9 @@ export default function AdminSCRNPanel({
               Google Calendar:{" "}
               <span className="font-semibold">{viajesSinEventoGC.length}</span> recorrido(s) sin evento vinculado.
             </div>
+            <div className="text-[11px] text-amber-800 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              Limpieza: <span className="font-semibold">{viajesSinLimpieza.length}</span> recorrido(s) sin turno asignado.
+            </div>
             {viajesFiltradosAdmin.length === 0 && (
               <div className="text-sm text-slate-500">No hay recorridos cargados.</div>
             )}
@@ -1505,6 +1568,9 @@ export default function AdminSCRNPanel({
                   const hasGoogleEvent = Boolean(
                     String(item?.google_calendar_event_id || "").trim(),
                   );
+                  const controlRow = viajeControlesMap[item.id] || null;
+                  const hasLimpieza = Boolean(controlRow?.limpieza_turno_at);
+                  const hasPrevControl = Boolean(controlRow?.control_previo_completo);
                   return (
                     <article
                       key={item.id}
@@ -1593,6 +1659,32 @@ export default function AdminSCRNPanel({
                                       </span>
                                     ) : null}
                                   </span>
+                                  <span className="text-slate-300" aria-hidden>
+                                    ·
+                                  </span>
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                                      hasLimpieza
+                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                        : "border-amber-200 bg-amber-50 text-amber-700"
+                                    }`}
+                                  >
+                                    {hasLimpieza ? "Limpieza OK" : "Falta limpieza"}
+                                  </span>
+                                  {transportAlertasMap[item.id_transporte]?.alertas ? (
+                                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 text-amber-700 px-2 py-0.5 text-[10px] font-bold">
+                                      {transportAlertasMap[item.id_transporte].alertas} control(es) por vencer
+                                    </span>
+                                  ) : null}
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                                      hasPrevControl
+                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                        : "border-rose-200 bg-rose-50 text-rose-700"
+                                    }`}
+                                  >
+                                    {hasPrevControl ? "Control previo OK" : "Control previo pendiente"}
+                                  </span>
                                   {item.paquetes_bodega_llena ? (
                                     <>
                                       <span className="text-slate-300" aria-hidden>
@@ -1639,6 +1731,18 @@ export default function AdminSCRNPanel({
                                   {isOperativo
                                     ? "Cerrar reservas y paradas"
                                     : "Reservas y paradas"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setControlModalViaje({
+                                      viaje: item,
+                                      transporte: transporteRow,
+                                    })
+                                  }
+                                  className="w-full sm:flex-1 lg:flex-none rounded-xl border border-cyan-300 bg-cyan-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-cyan-900 hover:bg-cyan-100"
+                                >
+                                  Control y limpieza
                                 </button>
                                 <button
                                   type="button"
@@ -2050,6 +2154,15 @@ export default function AdminSCRNPanel({
                                     {!isEditing ? (
                                       <button
                                         type="button"
+                                        onClick={() => setTransportControlModal(item)}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-cyan-300 bg-cyan-50 text-cyan-900 text-xs font-bold uppercase"
+                                      >
+                                        Controles
+                                      </button>
+                                    ) : null}
+                                    {!isEditing ? (
+                                      <button
+                                        type="button"
                                         onClick={() => setEditingTransportId(item.id)}
                                         className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-xs font-bold uppercase"
                                       >
@@ -2100,6 +2213,27 @@ export default function AdminSCRNPanel({
                                       }
                                       className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm min-h-20 bg-white"
                                     />
+                                    <div className="mt-2 flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => setTransportControlModal(item)}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-cyan-300 bg-cyan-50 text-cyan-900 text-xs font-bold uppercase"
+                                      >
+                                        Controles fecha/km
+                                      </button>
+                                      {transportAlertasMap[item.id]?.alertas ? (
+                                        <span className="text-[11px] text-amber-700">
+                                          {transportAlertasMap[item.id].alertas} alerta(s)
+                                          {transportAlertasMap[item.id]?.vencidos
+                                            ? ` · ${transportAlertasMap[item.id].vencidos} vencido(s)`
+                                            : ""}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[11px] text-emerald-700">
+                                          Sin alertas activas
+                                        </span>
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
                               )}
@@ -3511,6 +3645,25 @@ export default function AdminSCRNPanel({
       buttonText="Entendido"
       panelClassName="max-w-lg"
     />
+    {controlModalViaje?.viaje && controlModalViaje?.transporte ? (
+      <ViajeControlVehiculoModal
+        supabase={supabase}
+        viaje={controlModalViaje.viaje}
+        transporte={controlModalViaje.transporte}
+        onClose={() => setControlModalViaje(null)}
+        onSaved={() => {
+          onDataChanged?.();
+          void runSyncCalendarByViaje(controlModalViaje.viaje.id);
+        }}
+      />
+    ) : null}
+    {transportControlModal ? (
+      <TransportRegularControlsModal
+        supabase={supabase}
+        transporte={transportControlModal}
+        onClose={() => setTransportControlModal(null)}
+      />
+    ) : null}
     </>
   );
 }

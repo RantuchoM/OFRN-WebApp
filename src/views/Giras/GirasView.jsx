@@ -1414,6 +1414,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
             initialTab={currentTab}
             onBack={() => updateView("LIST")}
             onDataChange={handleChildDataChange}
+            hospedajeExcluidosIds={hospedajeExcluidosIds}
           />
         )}
         {mode === "MEALS_PERSONAL" && selectedGira && (

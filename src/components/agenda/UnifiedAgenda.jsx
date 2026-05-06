@@ -287,6 +287,34 @@ export default function UnifiedAgenda({
   });
 
   const [userProfile, setUserProfile] = useState(null);
+  const [hospedajeExcluidosIds, setHospedajeExcluidosIds] = useState([]);
+  const hospedajeExcluidosSet = useMemo(
+    () => new Set((hospedajeExcluidosIds || []).map((id) => Number(id))),
+    [hospedajeExcluidosIds],
+  );
+
+  useEffect(() => {
+    if (!supabase || !giraId) {
+      setHospedajeExcluidosIds([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("giras_hospedajes_excluidos")
+        .select("id_integrante")
+        .eq("id_programa", giraId);
+      if (cancelled) return;
+      if (error) {
+        setHospedajeExcluidosIds([]);
+        return;
+      }
+      setHospedajeExcluidosIds((data || []).map((r) => r.id_integrante));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, giraId]);
 
   const checkIsConvoked = useCallback(
     (convocadosList, tourRole) => {
@@ -295,7 +323,12 @@ export default function UnifiedAgenda({
       return convocadosList.some((tag) => {
         if (tag === "GRP:TUTTI") return true;
         if (tag === "GRP:LOCALES") return userProfile.is_local;
-        if (tag === "GRP:NO_LOCALES") return !userProfile.is_local;
+        if (tag === "GRP:NO_LOCALES") {
+          if (userProfile.is_local) return false;
+          if (hospedajeExcluidosSet.has(Number(effectiveUserId)))
+            return false;
+          return true;
+        }
         if (tag === "GRP:PRODUCCION") {
           // Mantenemos aquí una lista acotada por compatibilidad con vistas antiguas
           const rolesProduccion = [
@@ -318,7 +351,7 @@ export default function UnifiedAgenda({
         return false;
       });
     },
-    [userProfile],
+    [userProfile, hospedajeExcluidosSet, effectiveUserId],
   );
 
   const {

@@ -382,6 +382,7 @@
       // 7. Convocatoria de gira (inicial o individual: Alta, Baja, Ausente, GIRA_ELIMINADA)
       convocatoria_gira: (nombre: string, gira: string, d: any) => {
         const variant = (d?.variant || "INITIAL_BROADCAST").toUpperCase();
+        const saludo = String(nombre || "").trim() ? `Hola ${String(nombre || "").trim()},` : "Hola,";
         const linkRepertorio = d?.link_repertorio || "";
         const nomenclador = d?.nomenclador || gira;
         const reason = d?.reason || "";
@@ -409,7 +410,7 @@
         if (variant === "INITIAL_BROADCAST") {
           titulo = "Convocatoria a gira";
           parrafo = `
-            <p>Hola ${nombre},</p>
+            <p>${saludo}</p>
             <p>Te convocamos a la gira <strong>${gira}</strong> (${nomenclador}).</p>
             ${fechasZonaBlock}
             <p>Podés consultar el repertorio y material en el siguiente enlace:</p>
@@ -419,7 +420,7 @@
         } else if (variant === "ALTA") {
           titulo = "Alta en gira";
           parrafo = `
-            <p>Hola ${nombre},</p>
+            <p>${saludo}</p>
             <p>Fuiste dado/a de <strong>alta</strong> en la gira <strong>${gira}</strong> (${nomenclador}).</p>
             ${reasonBlock}
             ${fechasZonaBlock}
@@ -429,7 +430,7 @@
         } else if (variant === "BAJA") {
           titulo = "Baja de gira";
           parrafo = `
-            <p>Hola ${nombre},</p>
+            <p>${saludo}</p>
             <p>Se registró tu <strong>baja</strong> de la gira <strong>${gira}</strong> (${nomenclador}).</p>
             ${reasonBlock}
             ${fechasZonaBlock}
@@ -438,7 +439,7 @@
         } else if (variant === "AUSENTE") {
           titulo = "Ausencia en gira";
           parrafo = `
-            <p>Hola ${nombre},</p>
+            <p>${saludo}</p>
             <p>Se registró tu situación de <strong>ausente</strong> en la gira <strong>${gira}</strong> (${nomenclador}).</p>
             ${reasonBlock}
             ${fechasZonaBlock}
@@ -448,13 +449,13 @@
           titulo = "Gira cancelada";
           const nombreGiraUnico = gira || nomenclador || "esta gira";
           parrafo = `
-            <p>Hola ${nombre},</p>
+            <p>${saludo}</p>
             <p>Te informamos que la gira <strong>${nombreGiraUnico}</strong> ha sido <strong>cancelada definitivamente</strong> y eliminada del cronograma.</p>
             ${fechasZonaBlock}
             <p>Si tenés consultas, contactá a la administración.</p>
           `;
         } else {
-          parrafo = `<p>Hola ${nombre},</p><p>Actualización sobre la gira <strong>${gira}</strong> (${nomenclador}).</p>${reasonBlock}${fechasZonaBlock}`;
+          parrafo = `<p>${saludo}</p><p>Actualización sobre la gira <strong>${gira}</strong> (${nomenclador}).</p>${reasonBlock}${fechasZonaBlock}`;
         }
 
         return `
@@ -547,7 +548,9 @@
           const det = detalle || {};
           const nombreParaTemplate =
             tid === "convocatoria_gira"
-              ? nombreSaludoConvocatoria(nombre || "", det)
+              ? ((Array.isArray(bcc) && bcc.length > 1)
+                  ? ""
+                  : nombreSaludoConvocatoria(nombre || "", det))
               : nombre || "";
           const htmlContent = generateHTML(nombreParaTemplate, nombreGira, det);
 

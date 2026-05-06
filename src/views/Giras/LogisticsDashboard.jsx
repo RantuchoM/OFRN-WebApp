@@ -30,6 +30,7 @@ export default function LogisticsDashboard({
   gira,
   onBack,
   onDataChange,
+  hospedajeExcluidosIds = [],
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isMealsMenuOpen, setIsMealsMenuOpen] = useState(false);
@@ -298,6 +299,7 @@ export default function LogisticsDashboard({
               gira={gira}
               roster={summary}
               onDataChange={onDataChange}
+              hospedajeExcluidosIds={hospedajeExcluidosIds}
             />
           )}
           {activeTab === "attendance" && (
@@ -306,6 +308,7 @@ export default function LogisticsDashboard({
               gira={gira}
               roster={summary}
               onDataChange={onDataChange}
+              hospedajeExcluidosIds={hospedajeExcluidosIds}
             />
           )}
           {activeTab === "report" && (
@@ -314,6 +317,7 @@ export default function LogisticsDashboard({
               gira={gira}
               roster={summary}
               onDataChange={onDataChange}
+              hospedajeExcluidosIds={hospedajeExcluidosIds}
             />
           )}
 

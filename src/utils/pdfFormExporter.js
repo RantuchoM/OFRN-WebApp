@@ -516,6 +516,108 @@ chk("check_temporada", configData.factor_temporada > 0);
   return pdfBytes;
 };
 
+export const exportControlVehiculoToPDF = async ({
+  viaje,
+  transporte,
+  controlRow,
+  stage = "previo",
+}) => {
+  const templateBuffer = await fetchFileBuffer("/plantillas/plantilla_control_vehiculo.pdf");
+  if (!templateBuffer) throw new Error("Plantilla control de vehículo no encontrada");
+  const pdfDoc = await PDFDocument.load(templateBuffer, PDF_LOAD_TEMPLATE_OPTIONS);
+  const form = pdfDoc.getForm();
+  const payload = controlRow?.acroform_payload || {};
+  const general = payload.general || {};
+  const block = stage === "posterior" ? payload.posterior || {} : payload.previo || {};
+  const meta = block.meta || {};
+  const items = block.items || {};
+
+  const setText = (name, value) => {
+    try {
+      form.getTextField(name).setText(String(value || ""));
+    } catch (e) {}
+  };
+  const setMark = (name, checked) => {
+    try {
+      form.getCheckBox(name)[checked ? "check" : "uncheck"]();
+      return;
+    } catch (e) {}
+    try {
+      form.getTextField(name).setText(checked ? "X" : "");
+    } catch (e) {}
+  };
+  const matchMark = (fieldBase, stateValue) => {
+    const norm = String(stateValue || "").toLowerCase();
+    setMark(`${fieldBase}_bien`, norm === "bien");
+    setMark(`${fieldBase}_regular`, norm === "regular");
+    setMark(`${fieldBase}_mal`, norm === "mal");
+  };
+
+  setText("vehiculo_nombre", general.vehiculo || transporte?.nombre || "");
+  setText("vehiculo_patente", general.patente || transporte?.patente || "");
+  setText("chofer_nombre", general.chofer || "");
+  setText(
+    "fecha_control",
+    stage === "posterior"
+      ? meta.fecha_entrega || general.fecha_control || ""
+      : meta.fecha_retiro || general.fecha_control || ""
+  );
+  setText("hora_retiro", meta.hora_retiro || general.hora_retiro || "");
+  setText("hora_entrega", meta.hora_entrega || general.hora_entrega || "");
+  setText(
+    "km_retiro",
+    meta.km_retiro || general.km_retiro || controlRow?.km_retiro || ""
+  );
+  setText(
+    "km_entrega",
+    meta.km_entrega || general.km_entrega || controlRow?.km_entrega || ""
+  );
+
+  const prefix = stage === "posterior" ? "ent" : "ret";
+  const fieldMap = {
+    aceite: "aceite",
+    agua_refrigerante: "agua",
+    combustible: "combustible",
+    luces_delanteras: "luces_delanteras",
+    luces_traseras: "luces_traseras",
+    luces_giro: "luces_giro",
+    parabrisas: "parabrisas",
+    espejos: "espejos",
+    limpiaparabrisas: "limpiaparabrisas",
+    cubiertas: "cubiertas",
+    rueda_auxilio: "rueda_auxilio",
+    gato_llave: "gato_llave",
+    documentacion: "documentacion",
+    interior: "interior",
+  };
+  Object.keys(fieldMap).forEach((k) => {
+    const f = `${prefix}_${fieldMap[k]}`;
+    matchMark(f, items?.[k]?.estado);
+    setText(`${f}_obs`, items?.[k]?.obs || "");
+  });
+
+  if (stage === "previo") {
+    setText("ret_observaciones_generales", block.observaciones_generales || "");
+    setText("ret_firma_chofer", block.firma_chofer || "");
+  } else {
+    setText("ent_novedades_incidentes", block.novedades_incidentes || "");
+    setText("ent_firma_chofer", block.firma_chofer || "");
+    setText("ent_firma_responsable", block.firma_responsable || "");
+  }
+
+  setNeedAppearances(pdfDoc, true);
+  try {
+    form.updateFieldAppearances();
+  } catch (e) {}
+  const bytes = await pdfDoc.save(PDF_SAVE_OPTIONS);
+  const tipo = stage === "posterior" ? "posterior" : "previo";
+  const patente = (transporte?.patente || "vehiculo").replace(/[^a-zA-Z0-9_-]/g, "");
+  saveAs(
+    new Blob([bytes], { type: "application/pdf" }),
+    `control_${tipo}_${patente}_viaje_${viaje?.id || "s_id"}.pdf`
+  );
+};
+
 // --- HELPER ROBUSTO PARA FIRMA ---
 async function insertImageSignature(pdfDoc, form, fieldName, firmaUrl) {
   if (!firmaUrl || firmaUrl === "NULL") return;

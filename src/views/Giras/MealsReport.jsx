@@ -10,6 +10,7 @@ import {
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { handlePrintExport } from "../../utils/PrintWrapper";
+import { isUserConvoked } from "../../utils/giraUtils";
 
 const SERVICE_IDS = {
   7: "Desayuno",
@@ -23,6 +24,7 @@ export default function MealsReport({
   supabase,
   gira,
   roster: enrichedRoster,
+  hospedajeExcluidosIds = [],
 }) {
   const reportRef = useRef(null);
   const [loading, setLoading] = useState(false);
@@ -38,7 +40,7 @@ export default function MealsReport({
     if (gira?.id && enrichedRoster?.length > 0) {
       fetchReportData();
     }
-  }, [gira?.id, enrichedRoster, includePending]);
+  }, [gira?.id, enrichedRoster, includePending, hospedajeExcluidosIds]);
 
   const fetchReportData = async () => {
     setLoading(true);
@@ -82,37 +84,8 @@ export default function MealsReport({
         attendanceMap[`${a.id_evento}-${a.id_integrante}`] = a.estado;
       });
 
-      // Helper para convocatoria técnica
-      const isConvoked = (convocadosList, person) => {
-        if (!convocadosList || convocadosList.length === 0) return false;
-        return convocadosList.some((tag) => {
-          if (tag === "GRP:TUTTI") return true;
-          if (tag === "GRP:LOCALES") return person.is_local;
-          if (tag === "GRP:NO_LOCALES") return !person.is_local;
-          if (tag === "GRP:PRODUCCION") {
-            // Lista de roles que "comen" con el grupo de Producción
-            const rolesProduccion = [
-              "produccion",
-              "chofer",
-              "acompañante",
-              "staff",
-              "mus_prod",
-              "técnico",
-              "iluminacion",
-            ];
-
-            // Verificamos si el rol de la persona está en esa lista
-            return rolesProduccion.includes(person.rol_gira);
-          }
-          if (tag === "GRP:SOLISTAS") return person.rol_gira === "solista";
-          if (tag === "GRP:DIRECTORES") return person.rol_gira === "director";
-          if (tag.startsWith("LOC:"))
-            return person.id_localidad === String(tag.split(":")[1]);
-          if (tag.startsWith("FAM:"))
-            return person.instrumentos?.familia === tag.split(":")[1];
-          return false;
-        });
-      };
+      const isConvoked = (convocadosList, person) =>
+        isUserConvoked(convocadosList, person, { hospedajeExcluidosIds });
 
       // 4. PROCESAMIENTO CRITICAL: Cruzar Fecha de Evento vs Cobertura Logística
       const processed = events.map((evt) => {
