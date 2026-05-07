@@ -144,8 +144,21 @@ const getSuggestedParts = (driveFiles, catalogoInstrumentos) => {
       continue;
     }
 
-    const normPrefix = normalizeInstrumentString(prefix);
+    let normPrefix = normalizeInstrumentString(prefix);
     if (!normPrefix) continue;
+
+    // Sinónimos frecuentes en nombres de archivo (p. ej. Piccolo → familia flauta; Glock bajo Perc).
+    const rawL = lowerPrefix;
+    if (
+      /picc|piccolo|^fp\b|^fi\b/.test(rawL) ||
+      /\bfl\s+picc/i.test(rawL) ||
+      normPrefix.includes("piccolo")
+    ) {
+      normPrefix = "flauta";
+    }
+    let forcePercussion =
+      /glock|metal(o)?fon|metalof|celesta|xilo/i.test(rawL) ||
+      (/perc/i.test(rawL) && /glock|metal|celesta/i.test(rawL));
 
     let best = null;
     for (const instr of normalizedCatalog) {
@@ -182,6 +195,22 @@ const getSuggestedParts = (driveFiles, catalogoInstrumentos) => {
       }
     }
 
+    if (forcePercussion) {
+      const percCand =
+        normalizedCatalog.find(
+          (i) =>
+            i.norm.includes("perc") ||
+            i.norm.includes("percus") ||
+            /^perc\b/i.test(i.norm),
+        ) || null;
+      if (percCand) {
+        const weakMatch =
+          !best ||
+          (typeof best.sim === "number" && best.sim < 0.55);
+        if (weakMatch) best = percCand;
+      }
+    }
+
     if (!best) continue;
     if (best.sim !== undefined && best.sim < 0.4) continue; // Umbral de similitud
 
@@ -198,6 +227,64 @@ const getSuggestedParts = (driveFiles, catalogoInstrumentos) => {
   }
 
   return parts;
+};
+
+/** Empareja cada particella sugerida con el primer archivo de Drive cuyo prefijo encaje (1 archivo → 1 parte). */
+const attachDriveLinksByFilename = (partsList, driveFilesSorted) => {
+  if (!partsList?.length || !driveFilesSorted?.length) return partsList;
+
+  const usableFiles = [...driveFilesSorted].filter((f) => {
+    const up = (f.name || "").toUpperCase();
+    return !up.startsWith("PORTADA") && !up.startsWith("AUDIO");
+  });
+  const usedIds = new Set();
+
+  const filePrimaryNorm = (f) => {
+    const base = (f.name || "").split(".")[0].split("-")[0].trim();
+    let n = normalizeInstrumentString(base);
+    const low = base.toLowerCase();
+    if (/picc|piccolo|^fp\b/.test(low) || n.includes("piccolo")) n = "flauta";
+    return n;
+  };
+
+  const partPrimaryNorm = (p) => {
+    const base = (p.nombre_archivo || "").split("-")[0].trim();
+    let n = normalizeInstrumentString(base);
+    const low = base.toLowerCase();
+    if (/picc|piccolo|^fp\b/.test(low) || n.includes("piccolo")) n = "flauta";
+    return n;
+  };
+
+  return partsList.map((part) => {
+    const pn = partPrimaryNorm(part);
+    if (!pn) return part;
+
+    const hit = usableFiles.find((f) => {
+      if (usedIds.has(f.id)) return false;
+      const fn = filePrimaryNorm(f);
+      if (!fn) return false;
+      if (fn === pn || fn.includes(pn) || pn.includes(fn)) return true;
+      if (
+        (pn.includes("flaut") || pn === "flauta") &&
+        (fn.includes("picc") || fn.includes("piccolo"))
+      )
+        return true;
+      if (
+        (fn.includes("flaut") || fn === "flauta") &&
+        (pn.includes("picc") || pn.includes("piccolo"))
+      )
+        return true;
+      return false;
+    });
+
+    if (!hit?.webViewLink) return part;
+    usedIds.add(hit.id);
+    const links = [...(part.links || [])];
+    if (!links.some((l) => l.url === hit.webViewLink)) {
+      links.push({ url: hit.webViewLink, description: hit.name });
+    }
+    return { ...part, links };
+  });
 };
 
 export default function DriveMatcherModal({
@@ -264,19 +351,20 @@ export default function DriveMatcherModal({
   );
 
   useEffect(() => {
-    if (isOpen) {
-      const initialMap = {};
-      parts.forEach((p) => {
-        initialMap[p.tempId] = p.links || [];
-      });
-      setAssignments(initialMap);
+    if (!isOpen) return;
+    const initialMap = {};
+    parts.forEach((p) => {
+      initialMap[p.tempId] = p.links || [];
+    });
+    setAssignments(initialMap);
+  }, [isOpen, parts]);
 
-      if (folderUrl) fetchFiles();
-      else setDriveFiles([]);
-
-      setSelectedFiles([]); // Reset selección al abrir
-    }
-  }, [isOpen, folderUrl, parts]);
+  useEffect(() => {
+    if (!isOpen) return;
+    if (folderUrl) fetchFiles();
+    else setDriveFiles([]);
+    setSelectedFiles([]);
+  }, [isOpen, folderUrl]);
 
   useEffect(() => {
     if (editingPartId && editInputRef.current) editInputRef.current.focus();
@@ -592,9 +680,10 @@ export default function DriveMatcherModal({
     return count;
   };
 
-  const handleInsertSuggestedParts = () => {
-    if (!suggestedParts || suggestedParts.length === 0) return;
-    if (onPartsChange) onPartsChange(suggestedParts);
+  const handleApplySuggestedPartsWithLinks = () => {
+    if (!suggestedParts?.length || !onPartsChange) return;
+    const linked = attachDriveLinksByFilename(suggestedParts, sortedDriveFiles);
+    onPartsChange(linked);
   };
 
   const handleAddDirectorPart = () => {
@@ -639,15 +728,17 @@ export default function DriveMatcherModal({
                     <span className="font-mono font-bold">
                       {suggestedInstrumentation || "No identificada"}
                     </span>
-                    . ¿Deseas inicializar las particellas con esta sugerencia?
+                    . Se crearán las particellas en la obra, se guardarán y se
+                    vincularán los PDF/enlaces de Drive cuando el nombre del
+                    archivo coincida con la particella.
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button
                       type="button"
-                      onClick={handleInsertSuggestedParts}
+                      onClick={handleApplySuggestedPartsWithLinks}
                       className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 shadow-sm"
                     >
-                      Insertar
+                      Insertar y vincular
                     </button>
                     {!hasDirector && (
                       <button
@@ -756,21 +847,33 @@ export default function DriveMatcherModal({
 
             <div className="overflow-y-auto p-3 space-y-2 flex-1">
               {sortedParts.map((part) => {
-                const currentLinks = assignments[part.tempId] || [];
-                const isAssigned = currentLinks.length > 0;
+                const persistedLinks = Array.isArray(part.links) ? part.links : [];
+                const hasLinkedFiles = persistedLinks.length > 0;
+                const currentLinks =
+                  persistedLinks.length > 0
+                    ? persistedLinks
+                    : assignments[part.tempId] || [];
                 const isEditing = editingPartId === part.tempId;
+
+                const baseCard =
+                  hasLinkedFiles
+                    ? "bg-emerald-50 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-100"
+                    : part.es_solista
+                      ? "bg-sky-50 border-sky-200 hover:border-sky-400 hover:bg-sky-100"
+                      : "bg-white border-slate-200 hover:border-indigo-300";
+
+                const selectionDropCue =
+                  selectedFiles.length > 0 && !isEditing
+                    ? hasLinkedFiles
+                      ? "cursor-pointer hover:shadow-md ring-2 ring-blue-400/35 border-dashed border-blue-400"
+                      : "cursor-pointer hover:border-blue-500 hover:shadow-md hover:bg-blue-50 border-dashed border-blue-300"
+                    : "";
 
                 return (
                   <div
                     key={part.tempId}
                     onClick={() => handlePartAssignmentClick(part)} // <--- CLICK AQUÍ GATILLA LA CASCADA
-                    className={`p-2 rounded border transition-all relative group ${
-                      selectedFiles.length > 0 && !isEditing
-                        ? "cursor-pointer hover:border-blue-500 hover:shadow-md hover:bg-blue-50 border-dashed border-blue-300"
-                        : part.es_solista
-                          ? "bg-sky-50 border-sky-200 hover:border-sky-400 hover:bg-sky-100"
-                          : "bg-white border-slate-200 hover:border-indigo-300"
-                    }`}
+                    className={`p-2 rounded border transition-all relative group ${baseCard} ${selectionDropCue}`}
                   >
                     <div className="flex justify-between items-center gap-2 flex-wrap">
                       <div className="flex-1 min-w-0">
@@ -825,9 +928,9 @@ export default function DriveMatcherModal({
                       <div className="flex items-center gap-1 shrink-0">
                         {!isEditing && (
                           <>
-                            {isAssigned && (
+                            {hasLinkedFiles && (
                               <span className="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 rounded font-bold mr-1 select-none">
-                                {currentLinks.length}
+                                {persistedLinks.length}
                               </span>
                             )}
                             <button
@@ -862,7 +965,7 @@ export default function DriveMatcherModal({
                         </div>
                       </div>
                     </div>
-                    {isAssigned && !isEditing && (
+                    {currentLinks.length > 0 && !isEditing && (
                       <div className="mt-1 space-y-1 pl-8">
                         {currentLinks.map((link, i) => (
                           <div

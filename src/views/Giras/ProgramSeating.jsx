@@ -167,6 +167,29 @@ const getPartLabelFromPart = (part) => {
   return stripExtension(base);
 };
 
+const getMusicianSeatingTooltip = (musician) => {
+  if (!musician) return "";
+  const ensembles = Array.isArray(musician.ensambles)
+    ? musician.ensambles
+        .map((ens) => ens?.ensamble)
+        .filter(Boolean)
+        .filter((name) => name.trim().toLowerCase() !== "producción")
+        .sort((a, b) => {
+          const aIsCf = a.trim().toUpperCase().startsWith("CF");
+          const bIsCf = b.trim().toUpperCase().startsWith("CF");
+          if (aIsCf === bIsCf) return a.localeCompare(b, "es");
+          return aIsCf ? 1 : -1;
+        })
+        .join(", ")
+    : "";
+  const residence =
+    musician?._loc_residencia?.localidad || musician?.residencia?.localidad || "";
+  const tooltipParts = [];
+  if (ensembles) tooltipParts.push(ensembles);
+  if (residence) tooltipParts.push(`(${residence})`);
+  return tooltipParts.join(" ");
+};
+
 // Elimina tildes/acentos para comparar "Violin" ~ "Violín"
 const removeDiacritics = (str = "") =>
   str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -192,6 +215,7 @@ const MobileSeatingTable = ({
   particellas,
   isEditor = false,
   musiciansWithoutParts = new Set(),
+  musicianTooltipById = {},
 }) => {
   // Estado para acordeón
   const [expandedIds, setExpandedIds] = useState(() => {
@@ -378,6 +402,11 @@ const MobileSeatingTable = ({
                                           ? "text-amber-900 font-bold"
                                           : "text-slate-600"
                                     }`}
+                                    title={
+                                      isPlaceholder
+                                        ? ""
+                                        : musicianTooltipById[musicianId] || ""
+                                    }
                                   >
                                     {isPlaceholder
                                       ? "Hueco"
@@ -476,6 +505,7 @@ const MobileSeatingTable = ({
                     <div className="flex flex-col leading-none">
                       <span
                         className={`font-bold text-[10px] truncate ${isMe ? "text-amber-900" : "text-slate-800"}`}
+                        title={musicianTooltipById[m.id] || ""}
                       >
                         {m.apellido}, {m.nombre?.charAt(0)}.
                       </span>
@@ -508,7 +538,7 @@ const MobileSeatingTable = ({
 };
 
 // --- CELDA DE INFO (ESCRITORIO) ---
-const ContainerInfoCell = ({ container, myStandInfo }) => {
+const ContainerInfoCell = ({ container, myStandInfo, musicianTooltipById }) => {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -572,7 +602,7 @@ const ContainerInfoCell = ({ container, myStandInfo }) => {
                       isEndOfDesk ? "border-b-2 border-slate-300 mb-2 pb-1" : ""
                     }`}
                   >
-                    <span>
+                    <span title={musicianTooltipById?.[item.id_musico] || ""}>
                       {item.integrantes?.apellido},{" "}
                       {item.integrantes?.nombre?.charAt(0)}.
                     </span>
@@ -650,6 +680,13 @@ export default function ProgramSeating({
   const [instrumentList, setInstrumentList] = useState([]);
   const [createModalInfo, setCreateModalInfo] = useState(null);
   const [fetchedBlocks, setFetchedBlocks] = useState([]);
+  const musicianTooltipById = useMemo(() => {
+    const map = {};
+    (filteredRoster || []).forEach((m) => {
+      map[m.id] = getMusicianSeatingTooltip(m);
+    });
+    return map;
+  }, [filteredRoster]);
 
   // Fetch Obras
   useEffect(() => {
@@ -1898,6 +1935,7 @@ export default function ProgramSeating({
             particellas={particellas}
             isEditor={isEditor}
             musiciansWithoutParts={musiciansWithoutParts}
+            musicianTooltipById={musicianTooltipById}
           />
         </div>
 
@@ -2056,6 +2094,7 @@ export default function ProgramSeating({
                               <ContainerInfoCell
                                 container={c}
                                 myStandInfo={myStandText}
+                                musicianTooltipById={musicianTooltipById}
                               />
                               {hasContainerSuggestions && (
                                 <button
@@ -2226,6 +2265,7 @@ export default function ProgramSeating({
                             <div className="flex flex-col min-w-0 flex-1">
                               <span
                                 className={`font-bold truncate text-xs ${isMe ? "text-amber-900" : "text-slate-700"}`}
+                                title={musicianTooltipById[m.id] || ""}
                               >
                                 {m.apellido}, {m.nombre}
                               </span>

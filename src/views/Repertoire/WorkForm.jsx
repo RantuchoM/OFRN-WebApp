@@ -325,6 +325,9 @@ export default function WorkForm({
   const [showYoutubePopover, setShowYoutubePopover] = useState(false);
   const enrichmentTriggerRef = useRef(null);
   const fieldStatusResetRef = useRef(null);
+  /** Evita que guardados async antiguos pisen `nota_organico` u otros campos al escribir rápido. */
+  const partsSaveGenerationRef = useRef(0);
+  const partsPendingPersistRef = useRef(0);
   const [fieldStatus, setFieldStatus] = useState({
     titulo: "idle",
     anio: "idle",
@@ -1010,6 +1013,9 @@ export default function WorkForm({
     setFormData((prev) => ({ ...prev, instrumentacion: instr }));
 
     if (!targetId) return;
+
+    const thisGeneration = ++partsSaveGenerationRef.current;
+    partsPendingPersistRef.current += 1;
     setIsSaving(true);
     try {
       if (!overrideId) {
@@ -1067,30 +1073,41 @@ export default function WorkForm({
         if (insData) results = [...results, ...insData];
       }
 
-      if (results.length > 0 && !overrideId) {
-        const merged = newPartsList.map((p) => {
-          const dbMatch = results.find(
-            (s) =>
-              s.id_instrumento === p.id_instrumento &&
-              s.nombre_archivo === p.nombre_archivo,
-          );
-          return dbMatch ? { ...p, id: dbMatch.id } : p;
-        });
-        setParticellas(merged);
+      if (
+        results.length > 0 &&
+        !overrideId &&
+        thisGeneration === partsSaveGenerationRef.current
+      ) {
+        setParticellas((prev) =>
+          prev.map((p) => {
+            const dbMatch = results.find(
+              (s) =>
+                s.id_instrumento === p.id_instrumento &&
+                s.nombre_archivo === p.nombre_archivo,
+            );
+            return dbMatch ? { ...p, id: dbMatch.id } : p;
+          }),
+        );
       }
 
-      await supabase
-        .from("obras")
-        .update({ instrumentacion: instr })
-        .eq("id", targetId);
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 2000);
-      if (onSave) onSave(targetId, false);
+      if (thisGeneration === partsSaveGenerationRef.current) {
+        await supabase
+          .from("obras")
+          .update({ instrumentacion: instr })
+          .eq("id", targetId);
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+        if (onSave) onSave(targetId, false);
+      }
     } catch (e) {
       console.error("Error al guardar particellas:", e);
       setSaveStatus("error");
     } finally {
-      setIsSaving(false);
+      partsPendingPersistRef.current = Math.max(
+        0,
+        partsPendingPersistRef.current - 1,
+      );
+      if (partsPendingPersistRef.current === 0) setIsSaving(false);
     }
   };
 

@@ -441,6 +441,28 @@ export default function GlobalStringsManager({
 }) {
   const getItemMatrixPosition = (item, fallbackIndex = 0) =>
     seatingItemMatrixPosition(item, fallbackIndex);
+  const getMusicianTooltip = (musician) => {
+    if (!musician) return "";
+    const ensembles = Array.isArray(musician.ensambles)
+      ? musician.ensambles
+          .map((ens) => ens?.ensamble)
+          .filter(Boolean)
+          .filter((name) => name.trim().toLowerCase() !== "producción")
+          .sort((a, b) => {
+            const aIsCf = a.trim().toUpperCase().startsWith("CF");
+            const bIsCf = b.trim().toUpperCase().startsWith("CF");
+            if (aIsCf === bIsCf) return a.localeCompare(b, "es");
+            return aIsCf ? 1 : -1;
+          })
+          .join(", ")
+      : "";
+    const residence =
+      musician?._loc_residencia?.localidad || musician?.residencia?.localidad || "";
+    const tooltipParts = [];
+    if (ensembles) tooltipParts.push(ensembles);
+    if (residence) tooltipParts.push(`(${residence})`);
+    return tooltipParts.join(" ");
+  };
 
   const validMusicianIds = useMemo(() => new Set(roster.map((m) => m.id)), [roster]);
   const displayContainers = useMemo(() => containers.map((c) => ({ ...c, validItems: c.items?.filter((i) => validMusicianIds.has(i.id_musico)) || [] })), [containers, validMusicianIds]);
@@ -1520,6 +1542,12 @@ export default function GlobalStringsManager({
                               item &&
                               handleDragStart(e, "MOVE", item.id, c.id)
                             }
+                            title={(() => {
+                              const rosterMusician = roster.find(
+                                (m) => String(m.id) === String(item?.id_musico),
+                              );
+                              return getMusicianTooltip(rosterMusician);
+                            })()}
                             className={`flex items-center gap-1.5 p-1 border rounded text-[10px] group transition-colors ${
                               dragOverContainerId === c.id &&
                               dragOverItemId === key
