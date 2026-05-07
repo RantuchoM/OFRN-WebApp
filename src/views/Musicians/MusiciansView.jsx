@@ -344,13 +344,6 @@ const AVAILABLE_COLUMNS = [
     displayKey: "instrumentos.instrumento",
   },
   {
-    key: "condicion",
-    label: "Condición",
-    width: "110px",
-    type: "select",
-    sortKey: "condicion",
-  },
-  {
     key: "cargo",
     label: "Cargo",
     width: "140px",
@@ -393,6 +386,13 @@ const AVAILABLE_COLUMNS = [
     type: "select",
     sortKey: "residencia.localidad",
     displayKey: "residencia.localidad",
+  },
+  {
+    key: "condicion",
+    label: "Condición",
+    width: "110px",
+    type: "select",
+    sortKey: "condicion",
   },
   {
     key: "id_loc_viaticos",
@@ -1121,7 +1121,14 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     direction: "asc",
   });
   const [visibleColumns, setVisibleColumns] = useState(
-    new Set(["id_instr", "condicion", "id_localidad", "mail", "telefono"]),
+    new Set([
+      "id_instr",
+      "ensambles",
+      "id_localidad",
+      "condicion",
+      "mail",
+      "telefono",
+    ]),
   );
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
