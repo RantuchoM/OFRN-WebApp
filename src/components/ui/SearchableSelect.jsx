@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { IconSearch, IconX, IconCheck } from './Icons';
+import { normalizeForSearch } from '../../utils/sanitize';
 
 export default function SearchableSelect({ 
     options = [], // Array de { id, label, subLabel }
@@ -17,20 +18,15 @@ export default function SearchableSelect({
     const [dropdownStyle, setDropdownStyle] = useState({});
     const [isDropUp, setIsDropUp] = useState(false);
 
-    const normKey = (t) => String(t || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/\p{M}/gu, "");
-
     // Filtrado local (búsqueda insensible a mayúsculas/acentos)
     const filteredOptions = useMemo(() => {
         if (!search.trim()) return options.slice(0, 300);
-        const s = normKey(search);
+        const s = normalizeForSearch(search);
         return options
             .filter(
                 (o) =>
-                    normKey(o.label).includes(s) ||
-                    (o.subLabel && normKey(o.subLabel).includes(s))
+                    normalizeForSearch(o.label).includes(s) ||
+                    (o.subLabel && normalizeForSearch(o.subLabel).includes(s))
             )
             .slice(0, 80);
     }, [options, search]);

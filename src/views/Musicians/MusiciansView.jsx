@@ -28,6 +28,7 @@ import MusicianForm from "./MusicianForm";
 import HorasCatedraDashboard from "./HorasCatedraDashboard";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import UniversalExporter from "../../components/ui/UniversalExporter";
+import { normalizeForSearch } from "../../utils/sanitize";
 
 // --- CONFIGURACIÓN ---
 const MISSING_DATA_OPTIONS = [
@@ -121,24 +122,69 @@ const getConditionStyles = (condition) => {
 };
 
 const HighlightText = ({ text, highlight }) => {
-  if (!highlight?.trim()) return <span>{text}</span>;
-  const regex = new RegExp(`(${highlight})`, "gi");
-  const parts = String(text).split(regex);
+  const rawText = String(text ?? "");
+  const normalizedHighlight = normalizeForSearch(highlight);
+  if (!normalizedHighlight) return <span>{rawText}</span>;
+
+  const normalizedChars = [];
+  const originalIndexByNormalizedIndex = [];
+  Array.from(rawText).forEach((char, originalIdx) => {
+    const normalizedChar = char
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+    Array.from(normalizedChar).forEach((c) => {
+      normalizedChars.push(c);
+      originalIndexByNormalizedIndex.push(originalIdx);
+    });
+  });
+
+  const normalizedText = normalizedChars.join("");
+  if (!normalizedText) return <span>{rawText}</span>;
+
+  const ranges = [];
+  let searchFrom = 0;
+  while (searchFrom < normalizedText.length) {
+    const foundAt = normalizedText.indexOf(normalizedHighlight, searchFrom);
+    if (foundAt === -1) break;
+    const startOriginal = originalIndexByNormalizedIndex[foundAt];
+    const endNormIdx = foundAt + normalizedHighlight.length - 1;
+    const endOriginal = (originalIndexByNormalizedIndex[endNormIdx] ?? startOriginal) + 1;
+    ranges.push([startOriginal, endOriginal]);
+    searchFrom = foundAt + 1;
+  }
+
+  if (!ranges.length) return <span>{rawText}</span>;
+
+  const mergedRanges = [];
+  ranges.forEach(([start, end]) => {
+    const last = mergedRanges[mergedRanges.length - 1];
+    if (!last || start > last[1]) mergedRanges.push([start, end]);
+    else last[1] = Math.max(last[1], end);
+  });
+
+  const parts = [];
+  let cursor = 0;
+  mergedRanges.forEach(([start, end], idx) => {
+    if (cursor < start) {
+      parts.push(<span key={`t-${idx}`}>{rawText.slice(cursor, start)}</span>);
+    }
+    parts.push(
+      <mark
+        key={`m-${idx}`}
+        className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5"
+      >
+        {rawText.slice(start, end)}
+      </mark>,
+    );
+    cursor = end;
+  });
+  if (cursor < rawText.length) {
+    parts.push(<span key="tail">{rawText.slice(cursor)}</span>);
+  }
+
   return (
-    <span>
-      {parts.map((part, i) =>
-        regex.test(part) ? (
-          <mark
-            key={i}
-            className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5"
-          >
-            {part}
-          </mark>
-        ) : (
-          <span key={i}>{part}</span>
-        ),
-      )}
-    </span>
+    <span>{parts}</span>
   );
 };
 
@@ -1433,16 +1479,18 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
   const processedResultados = useMemo(() => {
     let filtered = [...resultados];
 
-    const globalQ = searchText.trim().toLowerCase();
+    const globalQ = normalizeForSearch(searchText);
     if (globalQ) {
       filtered = filtered.filter((item) => {
-        const full = `${item.apellido || ""} ${item.nombre || ""}`.toLowerCase();
+        const full = normalizeForSearch(
+          `${item.apellido || ""} ${item.nombre || ""}`,
+        );
         return full.includes(globalQ);
       });
     }
 
     Object.keys(columnFilters).forEach((key) => {
-      const term = columnFilters[key].toLowerCase().trim();
+      const term = normalizeForSearch(columnFilters[key]);
       if (term) {
         filtered = filtered.filter((item) => {
           const colCfg = AVAILABLE_COLUMNS.find((c) => c.key === key);
@@ -1452,9 +1500,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
               : key === "apellido_nombre"
                 ? `${item.apellido} ${item.nombre}`
                 : item[key];
-          return String(val || "")
-            .toLowerCase()
-            .includes(term);
+          return normalizeForSearch(val).includes(term);
         });
       }
     });

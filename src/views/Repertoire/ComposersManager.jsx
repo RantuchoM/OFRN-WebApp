@@ -5,6 +5,7 @@ import {
     IconArrowLeft, IconAlertTriangle, IconChevronDown 
 } from '../../components/ui/Icons';
 import DateInput from '../../components/ui/DateInput';
+import { normalizeForSearch } from '../../utils/sanitize';
 
 // --- 1. SUB-COMPONENTE: SELECTOR CON BÚSQUEDA ---
 const SearchableSelect = ({ label, options, value, onChange, placeholder, colorClass, iconColorClass }) => {
@@ -35,7 +36,7 @@ const SearchableSelect = ({ label, options, value, onChange, placeholder, colorC
     }, [selectedItem, value]);
 
     const filteredOptions = options.filter(item => 
-        `${item.apellido} ${item.nombre}`.toLowerCase().includes(query.toLowerCase())
+        normalizeForSearch(`${item.apellido} ${item.nombre}`).includes(normalizeForSearch(query))
     );
 
     return (
@@ -461,8 +462,8 @@ export default function ComposersManager({ supabase, onClose }) {
         setRelatedWorks([]);
     };
 
-    const filtered = composers.filter(c => 
-        `${c.apellido} ${c.nombre}`.toLowerCase().includes(search.toLowerCase())
+    const filtered = composers.filter(c =>
+        normalizeForSearch(`${c.apellido} ${c.nombre}`).includes(normalizeForSearch(search))
     );
 
     return (

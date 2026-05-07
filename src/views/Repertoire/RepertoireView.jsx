@@ -34,6 +34,7 @@ import ComposersManager from "./ComposersManager";
 import TagsManager from "./TagsManager";
 import TagMultiSelect from "../../components/filters/TagMultiSelect";
 import { calculateInstrumentation } from "../../utils/instrumentation";
+import { normalizeForSearch } from "../../utils/sanitize";
 
 // --- ICONOS ADICIONALES ---
 const IconColumns = ({ size = 20, className = "" }) => (
@@ -716,9 +717,25 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   // --- FILTRADO Y ORDENAMIENTO ---
   const allFilteredWorks = useMemo(() => {
     return works.filter((work) => {
-      if (filters.titulo && !work.titulo?.toLowerCase().includes(filters.titulo.toLowerCase())) return false;
-      if (filters.compositor && !work.compositor_full?.toLowerCase().includes(filters.compositor.toLowerCase())) return false;
-      if (filters.arreglador && !work.arreglador_full?.toLowerCase().includes(filters.arreglador.toLowerCase())) return false;
+      if (
+        filters.titulo &&
+        !normalizeForSearch(work.titulo).includes(normalizeForSearch(filters.titulo))
+      )
+        return false;
+      if (
+        filters.compositor &&
+        !normalizeForSearch(work.compositor_full).includes(
+          normalizeForSearch(filters.compositor),
+        )
+      )
+        return false;
+      if (
+        filters.arreglador &&
+        !normalizeForSearch(work.arreglador_full).includes(
+          normalizeForSearch(filters.arreglador),
+        )
+      )
+        return false;
       if (filters.estado !== "Todos" && work.estado !== filters.estado) return false;
       if (filters.solicitante && String(work.id_usuario_carga) !== String(filters.solicitante)) return false;
 
@@ -729,7 +746,13 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       if (filters.fechaDesde && (!work.fecha_esperada || new Date(work.fecha_esperada) < new Date(filters.fechaDesde))) return false;
       if (filters.fechaHasta && (!work.fecha_esperada || new Date(work.fecha_esperada) > new Date(filters.fechaHasta))) return false;
 
-      if (filters.observaciones && !work.observaciones?.toLowerCase().includes(filters.observaciones.toLowerCase())) return false;
+      if (
+        filters.observaciones &&
+        !normalizeForSearch(work.observaciones).includes(
+          normalizeForSearch(filters.observaciones),
+        )
+      )
+        return false;
       if (selectedTags.size > 0 && !work.tags_ids.some((id) => selectedTags.has(id))) return false;
 
       if (stringsFilter !== "all") {

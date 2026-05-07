@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { IconTag, IconPlus, IconTrash, IconEdit, IconSearch, IconX, IconCheck, IconLoader } from '../../components/ui/Icons';
+import { normalizeForSearch } from '../../utils/sanitize';
 
 export default function TagsManager({ supabase, onClose }) {
     const [tags, setTags] = useState([]);
@@ -41,7 +42,9 @@ export default function TagsManager({ supabase, onClose }) {
         setLoading(false);
     };
 
-    const filtered = tags.filter(t => t.tag.toLowerCase().includes(search.toLowerCase()));
+    const filtered = tags.filter((t) =>
+        normalizeForSearch(t.tag).includes(normalizeForSearch(search))
+    );
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">

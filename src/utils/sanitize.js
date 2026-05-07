@@ -13,3 +13,17 @@ export function sanitizeFilename(str) {
     .replace(/[^a-zA-Z0-9.-]/g, "_")
     .toLowerCase();
 }
+
+/**
+ * Normaliza texto para comparaciones de búsqueda (insensible a tildes/diacríticos).
+ * Ej: "Martín", "Martin", "Màrtin" -> "martin"
+ * @param {string} value
+ * @returns {string}
+ */
+export function normalizeForSearch(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}

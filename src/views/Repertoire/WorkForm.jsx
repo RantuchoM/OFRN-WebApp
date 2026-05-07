@@ -34,6 +34,7 @@ import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
 import { toast } from "sonner";
 import DateInput from "../../components/ui/DateInput";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
+import { normalizeForSearch } from "../../utils/sanitize";
 
 // --- COMPONENTE EDITOR WYSIWYG ---
 const WysiwygEditor = ({ value, onChange, placeholder, className = "", fillHeight = false }) => {
@@ -1299,8 +1300,9 @@ export default function WorkForm({
 
   const handleAddParts = () => {
     let selectedId = genInstrument;
+    const queryNorm = normalizeForSearch(instrumentQuery);
     const filtered = [...INSTRUMENT_GROUPS, ...instrumentList].filter((i) =>
-      i.instrumento.toLowerCase().includes(instrumentQuery.toLowerCase()),
+      normalizeForSearch(i.instrumento).includes(queryNorm),
     );
     if (!selectedId && filtered.length > 0 && instrumentQuery.length >= 2)
       selectedId = filtered[0].id;
@@ -1349,7 +1351,7 @@ export default function WorkForm({
 
   const allOptions = [...INSTRUMENT_GROUPS, ...instrumentList];
   const filteredInstruments = allOptions.filter((i) =>
-    i.instrumento.toLowerCase().includes(instrumentQuery.toLowerCase()),
+    normalizeForSearch(i.instrumento).includes(normalizeForSearch(instrumentQuery)),
   );
 
   const copyDriveUrl = useCallback(() => {
