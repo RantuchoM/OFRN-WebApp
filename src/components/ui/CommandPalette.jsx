@@ -1,5 +1,57 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { IconSearch, IconArrowRight } from './Icons';
+import { normalizeForSearch } from '../../utils/sanitize';
+
+const HighlightSearchMatch = ({ text, query }) => {
+  const rawText = String(text ?? "");
+  const normalizedQuery = normalizeForSearch(query);
+  if (!normalizedQuery) return <>{rawText}</>;
+
+  const normalizedChars = [];
+  const originalIndexByNormalizedIndex = [];
+  Array.from(rawText).forEach((char, originalIdx) => {
+    const normalizedChar = char
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+    Array.from(normalizedChar).forEach((c) => {
+      normalizedChars.push(c);
+      originalIndexByNormalizedIndex.push(originalIdx);
+    });
+  });
+
+  const normalizedText = normalizedChars.join("");
+  if (!normalizedText) return <>{rawText}</>;
+
+  const ranges = [];
+  let searchFrom = 0;
+  while (searchFrom < normalizedText.length) {
+    const foundAt = normalizedText.indexOf(normalizedQuery, searchFrom);
+    if (foundAt === -1) break;
+    const startOriginal = originalIndexByNormalizedIndex[foundAt];
+    const endNormIdx = foundAt + normalizedQuery.length - 1;
+    const endOriginal = (originalIndexByNormalizedIndex[endNormIdx] ?? startOriginal) + 1;
+    ranges.push([startOriginal, endOriginal]);
+    searchFrom = foundAt + 1;
+  }
+
+  if (!ranges.length) return <>{rawText}</>;
+
+  const parts = [];
+  let cursor = 0;
+  ranges.forEach(([start, end], idx) => {
+    if (cursor < start) parts.push(<span key={`t-${idx}`}>{rawText.slice(cursor, start)}</span>);
+    parts.push(
+      <mark key={`m-${idx}`} className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5">
+        {rawText.slice(start, end)}
+      </mark>,
+    );
+    cursor = end;
+  });
+  if (cursor < rawText.length) parts.push(<span key="tail">{rawText.slice(cursor)}</span>);
+
+  return <>{parts}</>;
+};
 
 export default function CommandPalette({ isOpen, onClose, actions = [] }) {
   const [query, setQuery] = useState("");
@@ -9,8 +61,9 @@ export default function CommandPalette({ isOpen, onClose, actions = [] }) {
   // Filtrado
   const filteredActions = useMemo(() => {
       if (!query) return actions.slice(0, 10); // Mostrar primeros 10 si no hay búsqueda
+      const normalizedQuery = normalizeForSearch(query);
       return actions.filter(action => 
-        action.label.toLowerCase().includes(query.toLowerCase())
+        normalizeForSearch(action.label).includes(normalizedQuery)
       );
   }, [query, actions]);
 
@@ -80,7 +133,9 @@ export default function CommandPalette({ isOpen, onClose, actions = [] }) {
                         {action.icon || <IconArrowRight size={14}/>}
                     </span>
                     <div className="flex flex-col truncate">
-                        <span className="truncate font-medium">{action.label}</span>
+                        <span className="truncate font-medium">
+                          <HighlightSearchMatch text={action.label} query={query} />
+                        </span>
                         {/* Mostramos la sección pequeñita si existe */}
                         {action.section && <span className={`text-[9px] uppercase tracking-wider ${idx === selectedIndex ? 'text-indigo-200' : 'text-slate-400'}`}>{action.section}</span>}
                     </div>
