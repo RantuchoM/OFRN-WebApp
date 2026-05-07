@@ -35,6 +35,18 @@ const normalizeIntegranteId = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const normalizeStatus = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .trim();
+
+// Compatibilidad: en rooming consideramos "activos" todos salvo ausente/baja/no_convocado.
+// Evita vaciar habitaciones históricas con estados legacy (ej: "presente").
+const isActiveForRooming = (person) => {
+  const status = normalizeStatus(person?.estado_gira || person?.estado);
+  return status !== "ausente" && status !== "baja" && status !== "no_convocado";
+};
+
 const hospedajeExclusionErrorMessage = (err) => {
   const code = err?.code;
   const msg = (
@@ -1559,7 +1571,7 @@ export default function RoomingManager({
     try {
       const currentMaxOrder =
         rooms.length > 0 ? Math.max(...rooms.map((r) => r.orden || 0)) : 0;
-      const { data: newRoomData } = await supabase
+      const { data: newRoomData, error: newRoomErr } = await supabase
         .from("hospedaje_habitaciones")
         .insert([
           {
@@ -1572,6 +1584,7 @@ export default function RoomingManager({
         ])
         .select()
         .single();
+      if (newRoomErr) throw newRoomErr;
 
       if (newRoomData) {
         const newRoomObj = {
@@ -1622,9 +1635,12 @@ export default function RoomingManager({
         setDraggedMusician(null);
         setIsDragging(false);
         setShowAssignModal(false);
+        await fetchInitialData();
+        refreshLogistics();
       }
     } catch (err) {
       console.error(err);
+      alert(`No se pudo crear la habitación: ${err.message || "error desconocido"}`);
     } finally {
       setLoading(false);
     }
@@ -1780,7 +1796,7 @@ export default function RoomingManager({
         const currentMaxOrder =
           rooms.length > 0 ? Math.max(...rooms.map((r) => r.orden || 0)) : 0;
 
-        const { data: newRoomData } = await supabase
+        const { data: newRoomData, error: newRoomErr } = await supabase
           .from("hospedaje_habitaciones")
           .insert([
             {
@@ -1793,6 +1809,7 @@ export default function RoomingManager({
           ])
           .select()
           .single();
+        if (newRoomErr) throw newRoomErr;
 
         if (newRoomData) {
           const newRoomObj = {
@@ -1850,11 +1867,14 @@ export default function RoomingManager({
           setSelectedIds(new Set());
           setDraggedMusician(null);
           setIsDragging(false);
+          await fetchInitialData();
+          refreshLogistics();
         }
         setLoading(false);
       }
     } catch (err) {
       console.error(err);
+      alert(`No se pudo crear la habitación: ${err.message || "error desconocido"}`);
       setLoading(false);
     }
   };
@@ -1940,7 +1960,7 @@ export default function RoomingManager({
       fetchLocations(); // <--- AGREGAR ESTA LÍNEA
       fetchMasterHotels();
     }
-  }, [program.id, logisticsLoading, logisticsSummary]);
+  }, [program.id, logisticsLoading]);
   const fetchLocations = async () => {
     const { data } = await supabase
       .from("localidades")
@@ -2005,6 +2025,13 @@ export default function RoomingManager({
         logMap[person.id] = person.logistics;
         allMusiciansMap.set(person.id, person);
       });
+      // Fallback defensivo: si logística aún no resolvió completo, usamos roster base
+      // para no "vaciar" asignaciones válidas al sincronizar habitaciones.
+      (roster || []).forEach((person) => {
+        if (!allMusiciansMap.has(person.id)) {
+          allMusiciansMap.set(person.id, person);
+        }
+      });
       setLogisticsMap(logMap);
 
       // 4. Mapear ocupantes a habitaciones usando asignaciones_config
@@ -2024,10 +2051,11 @@ export default function RoomingManager({
         const rawIds = Array.isArray(room.id_integrantes_asignados)
           ? room.id_integrantes_asignados
           : [];
+        const unresolvedIds = rawIds.filter((id) => !allMusiciansMap.has(id));
 
         const occupants = rawIds
           .map((id) => allMusiciansMap.get(id))
-          .filter((p) => p && p.estado_gira === "confirmado")
+          .filter((p) => p && isActiveForRooming(p))
           .map((p) => ({
             ...p,
             ocupa_cama: configById.has(Number(p.id))
@@ -2047,7 +2075,9 @@ export default function RoomingManager({
             (id, i) => Number(id) !== Number(rawIds[i]),
           );
 
-        if (staleVsDb) {
+        // Si todavía no resolvimos todos los IDs (ej: carga parcial de datos),
+        // no sincronizamos para evitar borrar ocupantes de DB por error.
+        if (staleVsDb && unresolvedIds.length === 0) {
           roomsToSyncAssignment.push({
             id: room.id,
             id_integrantes_asignados: desiredIds,
@@ -2097,7 +2127,7 @@ export default function RoomingManager({
         .filter(
           (m) =>
             !assignedIds.has(m.id) &&
-            m.estado_gira === "confirmado" &&
+            isActiveForRooming(m) &&
             !excludedSet.has(m.id),
         )
         .sort((a, b) => {
@@ -2419,41 +2449,52 @@ export default function RoomingManager({
     await syncRoomOccupants(roomId, updatedOccupants);
   };
   const handleSaveRoom = async (roomData) => {
-    const currentMaxOrder =
-      rooms.length > 0 ? Math.max(...rooms.map((r) => r.orden || 0)) : 0;
+    try {
+      const currentMaxOrder =
+        rooms.length > 0 ? Math.max(...rooms.map((r) => r.orden || 0)) : 0;
 
-    if (roomData.id) {
-      setRooms((prev) =>
-        prev.map((r) => (r.id === roomData.id ? { ...r, ...roomData } : r)),
-      );
-      await supabase
-        .from("hospedaje_habitaciones")
-        .update(roomData)
-        .eq("id", roomData.id);
-    } else {
-      setLoading(true);
-      const { data } = await supabase
-        .from("hospedaje_habitaciones")
-        .insert([
-          {
-            ...roomData,
-            id_hospedaje: activeBookingIdForNewRoom,
-            id_integrantes_asignados: [],
-            orden: currentMaxOrder + 10,
-          },
-        ])
-        .select()
-        .single();
+      if (roomData.id) {
+        setRooms((prev) =>
+          prev.map((r) => (r.id === roomData.id ? { ...r, ...roomData } : r)),
+        );
+        const { error: updateErr } = await supabase
+          .from("hospedaje_habitaciones")
+          .update(roomData)
+          .eq("id", roomData.id);
+        if (updateErr) throw updateErr;
+      } else {
+        setLoading(true);
+        const { data, error: insertErr } = await supabase
+          .from("hospedaje_habitaciones")
+          .insert([
+            {
+              ...roomData,
+              id_hospedaje: activeBookingIdForNewRoom,
+              id_integrantes_asignados: [],
+              orden: currentMaxOrder + 10,
+            },
+          ])
+          .select()
+          .single();
+        if (insertErr) throw insertErr;
 
-      if (data) {
-        const newRoom = { ...data, occupants: [], roomGender: "Mixto" };
-        // CAMBIO: Prepend (poner al principio) en lugar de append
-        setRooms((prev) => [newRoom, ...prev]);
+        if (data) {
+          const newRoom = { ...data, occupants: [], roomGender: "Mixto" };
+          setRooms((prev) => [newRoom, ...prev]);
+          await fetchInitialData();
+          refreshLogistics();
+        }
       }
+      if (onDataChange) onDataChange();
+      setEditingRoomData(null);
+    } catch (err) {
+      console.error("Error guardando habitación:", err);
+      alert(
+        `No se pudo guardar la habitación: ${err.message || "error desconocido"}`,
+      );
+    } finally {
       setLoading(false);
     }
-    if (onDataChange) onDataChange();
-    setEditingRoomData(null);
   };
   const handleDeleteRoom = async (id) => {
     const roomToDelete = rooms.find((r) => r.id === id);
