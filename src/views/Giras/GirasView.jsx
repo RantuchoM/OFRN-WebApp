@@ -1205,6 +1205,17 @@ export default function GirasView({ supabase, trigger = 0 }) {
     { mode: "DIFUSION", label: "Difusión", icon: IconMegaphone },
     { mode: "EDICION", label: "Edición", icon: IconEdit },
   ];
+  const shortDateRangeLabel = useMemo(() => {
+    if (!selectedGira?.fecha_desde || !selectedGira?.fecha_hasta) return "";
+    try {
+      return `(${format(parseISO(selectedGira.fecha_desde), "dd/MM")} - ${format(
+        parseISO(selectedGira.fecha_hasta),
+        "dd/MM",
+      )})`;
+    } catch {
+      return "";
+    }
+  }, [selectedGira?.fecha_desde, selectedGira?.fecha_hasta]);
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
@@ -1223,7 +1234,14 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 <IconArrowLeft size={20} />{" "}
               </button>
               <div className="flex flex-col overflow-hidden">
-                <h2 className="text-sm sm:text-m font-bold text-slate-800 truncate leading-tight">{`${selectedGira.mes_letra} | ${selectedGira.nomenclador}. ${selectedGira.nombre_gira}`}</h2>
+                <h2 className="text-sm sm:text-m font-bold text-slate-800 truncate leading-tight">
+                  {`${selectedGira.mes_letra} | ${selectedGira.nomenclador}. ${selectedGira.nombre_gira}`}
+                  {shortDateRangeLabel && (
+                    <span className="ml-2 text-xs font-normal text-slate-500">
+                      {shortDateRangeLabel}
+                    </span>
+                  )}
+                </h2>
                 <div className="flex items-center gap-1.5 sm:gap-2">
                   {isGuest && !user.isGeneral && (
                     <div className="hidden sm:flex animate-in fade-in items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[10px] font-bold border border-indigo-200 whitespace-nowrap">
