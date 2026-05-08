@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
 import {
   IconCheck,
   IconX,
@@ -204,7 +205,7 @@ export default function MusicianTourManager({ supabase, musician }) {
         .select(`
             id, condicion, fecha_alta, fecha_baja, id_instr,
             instrumentos (familia),
-            integrantes_ensambles (id_ensamble)
+            integrantes_ensambles (id, id_ensamble, fecha_desde, fecha_hasta)
         `)
         .eq("id", musician.id)
         .single();
@@ -280,9 +281,7 @@ export default function MusicianTourManager({ supabase, musician }) {
     const myFamily = normalize(instrumentoObj?.familia);
     const isEstable = normalize(dbMusicianData.condicion) === "estable" || normalize(dbMusicianData.condicion) === "contratado"; 
     
-    const myEnsembleIds = new Set(
-       dbMusicianData.integrantes_ensambles?.map(ie => String(ie.id_ensamble)) || []
-    );
+    const ieRows = dbMusicianData.integrantes_ensambles || [];
 
     const fechaAlta = dbMusicianData.fecha_alta ? new Date(dbMusicianData.fecha_alta) : null;
     const fechaBaja = dbMusicianData.fecha_baja ? new Date(dbMusicianData.fecha_baja) : null;
@@ -294,6 +293,7 @@ export default function MusicianTourManager({ supabase, musician }) {
       const giraInicio = gira.fecha_desde ? new Date(gira.fecha_desde) : new Date();
       const giraFin = gira.fecha_hasta ? new Date(gira.fecha_hasta) : new Date();
       giraFin.setHours(23, 59, 59, 999);
+      const refProgramDesde = gira.fecha_desde;
 
       let isBaseCandidate = false;
       let isExcluded = false;
@@ -303,10 +303,18 @@ export default function MusicianTourManager({ supabase, musician }) {
             if (normalize(src.valor_texto) === myFamily) isBaseCandidate = true;
         }
         if (src.tipo === "ENSAMBLE") {
-           if (myEnsembleIds.has(String(src.valor_id))) isBaseCandidate = true;
+           if (ieRows.some(
+             (ie) =>
+               Number(ie.id_ensamble) === Number(src.valor_id) &&
+               membershipActiveOnProgramDate(ie, refProgramDesde),
+           )) isBaseCandidate = true;
         }
         if (src.tipo === "EXCL_ENSAMBLE") {
-           if (myEnsembleIds.has(String(src.valor_id))) isExcluded = true;
+           if (ieRows.some(
+             (ie) =>
+               Number(ie.id_ensamble) === Number(src.valor_id) &&
+               membershipActiveOnProgramDate(ie, refProgramDesde),
+           )) isExcluded = true;
         }
       });
 

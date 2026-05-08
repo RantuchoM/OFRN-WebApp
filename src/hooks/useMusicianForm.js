@@ -90,7 +90,8 @@ export function useMusicianForm(musician, supabase, onSave) {
   const [locationsOptions, setLocationsOptions] = useState([]);
   const [locacionesOptions, setLocacionesOptions] = useState([]);
   const [ensemblesOptions, setEnsemblesOptions] = useState([]);
-  const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
+  /** @type {Array<{ id: number, id_ensamble: number, fecha_desde: string, fecha_hasta: string | null }>} */
+  const [ensembleMembershipRows, setEnsembleMembershipRows] = useState([]);
 
   const inputClass =
     "w-full border border-slate-300 p-2.5 rounded-xl text-sm outline-none transition-all focus:ring-4 focus:ring-indigo-50 focus:border-indigo-400";
@@ -120,8 +121,11 @@ export function useMusicianForm(musician, supabase, onSave) {
       catalogoInstrumentos.find(
         (i) => String(i.id) === String(formData.id_instr),
       ) || {},
-    integrantes_ensambles: Array.from(selectedEnsembles).map((id) => ({
-      id_ensamble: id,
+    integrantes_ensambles: ensembleMembershipRows.map((r) => ({
+      id: r.id,
+      id_ensamble: r.id_ensamble,
+      fecha_desde: r.fecha_desde,
+      fecha_hasta: r.fecha_hasta,
     })),
   };
 
@@ -168,16 +172,34 @@ export function useMusicianForm(musician, supabase, onSave) {
     fetchCatalogs();
   }, [supabase]);
 
+  const reloadEnsembleMembershipRows = useCallback(async () => {
+    const id = getValues("id");
+    if (!id || !supabase) return;
+    const { data, error } = await supabase
+      .from("integrantes_ensambles")
+      .select("id, id_ensamble, fecha_desde, fecha_hasta")
+      .eq("id_integrante", id)
+      .order("id_ensamble", { ascending: true })
+      .order("id", { ascending: true });
+    if (error) {
+      console.warn("[useMusicianForm] ensemble rows:", error);
+      return;
+    }
+    setEnsembleMembershipRows(data || []);
+  }, [getValues, supabase]);
+
   useEffect(() => {
     const fetchAssignedEnsembles = async () => {
       if (musician?.id && supabase) {
         const { data } = await supabase
           .from("integrantes_ensambles")
-          .select("id_ensamble")
-          .eq("id_integrante", musician.id);
-        if (data) {
-          setSelectedEnsembles(new Set(data.map((d) => d.id_ensamble)));
-        }
+          .select("id, id_ensamble, fecha_desde, fecha_hasta")
+          .eq("id_integrante", musician.id)
+          .order("id_ensamble", { ascending: true })
+          .order("id", { ascending: true });
+        setEnsembleMembershipRows(data || []);
+      } else {
+        setEnsembleMembershipRows([]);
       }
     };
     fetchAssignedEnsembles();
@@ -296,33 +318,112 @@ export function useMusicianForm(musician, supabase, onSave) {
     [setValue, getValues, debouncedSave],
   );
 
-  const handleEnsemblesChange = useCallback(
-    async (newSet) => {
-      setSelectedEnsembles(newSet);
-      if (!getValues("id") || !supabase) return;
-      const currentIds = Array.from(selectedEnsembles);
-      const newIds = Array.from(newSet);
-      const toAdd = newIds.filter((id) => !currentIds.includes(id));
-      const toRemove = currentIds.filter((id) => !newIds.includes(id));
+  const defaultMembershipFechaDesde = useCallback(() => {
+    const fa = (getValues("fecha_alta") || "").toString().trim();
+    const iso = fa.length >= 10 ? fa.slice(0, 10) : "";
+    return iso || new Date().toISOString().slice(0, 10);
+  }, [getValues]);
+
+  const handleAddEnsembleMembership = useCallback(
+    async (idEnsamble) => {
       const idIntegrante = getValues("id");
-      if (toAdd.length > 0) {
-        await supabase.from("integrantes_ensambles").insert(
-          toAdd.map((idEns) => ({
-            id_integrante: idIntegrante,
-            id_ensamble: idEns,
-          })),
-        );
+      if (!idIntegrante || !supabase) {
+        toast.error("Guardá la ficha antes de asignar ensambles.");
+        return;
       }
-      if (toRemove.length > 0) {
-        await supabase
+      const { error } = await supabase.from("integrantes_ensambles").insert({
+        id_integrante: idIntegrante,
+        id_ensamble: Number(idEnsamble),
+        fecha_desde: defaultMembershipFechaDesde(),
+        fecha_hasta: null,
+      });
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      await reloadEnsembleMembershipRows();
+    },
+    [
+      getValues,
+      supabase,
+      defaultMembershipFechaDesde,
+      reloadEnsembleMembershipRows,
+    ],
+  );
+
+  const handleUpdateMembershipRow = useCallback(
+    async (rowId, patch) => {
+      const idIntegrante = getValues("id");
+      if (!idIntegrante || !supabase) return;
+      const payload = {};
+      if (patch.fecha_desde !== undefined)
+        payload.fecha_desde = patch.fecha_desde || defaultMembershipFechaDesde();
+      if (patch.fecha_hasta !== undefined)
+        payload.fecha_hasta = patch.fecha_hasta;
+      const { error } = await supabase
+        .from("integrantes_ensambles")
+        .update(payload)
+        .eq("id", rowId)
+        .eq("id_integrante", idIntegrante);
+      if (error) toast.error(error.message);
+      else await reloadEnsembleMembershipRows();
+    },
+    [
+      getValues,
+      supabase,
+      reloadEnsembleMembershipRows,
+      defaultMembershipFechaDesde,
+    ],
+  );
+
+  const handleCloseMembershipRow = useCallback(
+    async (row) => {
+      const idIntegrante = getValues("id");
+      if (!idIntegrante || !supabase) return false;
+      const hoy = new Date().toISOString().slice(0, 10);
+      let error = null;
+      if (row.fecha_hasta == null || row.fecha_hasta === "") {
+        const res = await supabase
+          .from("integrantes_ensambles")
+          .update({ fecha_hasta: hoy })
+          .eq("id", row.id)
+          .eq("id_integrante", idIntegrante);
+        error = res.error;
+      } else {
+        const res = await supabase
           .from("integrantes_ensambles")
           .delete()
-          .eq("id_integrante", idIntegrante)
-          .in("id_ensamble", toRemove);
+          .eq("id", row.id)
+          .eq("id_integrante", idIntegrante);
+        error = res.error;
       }
+      if (error) {
+        toast.error(error.message);
+        return false;
+      }
+      await reloadEnsembleMembershipRows();
+      return true;
     },
-    [getValues, selectedEnsembles, supabase],
+    [getValues, supabase, reloadEnsembleMembershipRows],
   );
+
+  const [pendingMembershipTrashRow, setPendingMembershipTrashRow] =
+    useState(null);
+
+  const requestMembershipTrash = useCallback((row) => {
+    setPendingMembershipTrashRow(row);
+  }, []);
+
+  const cancelMembershipTrashConfirm = useCallback(() => {
+    setPendingMembershipTrashRow(null);
+  }, []);
+
+  const confirmMembershipTrash = useCallback(async () => {
+    const row = pendingMembershipTrashRow;
+    if (!row) return;
+    const ok = await handleCloseMembershipRow(row);
+    if (!ok) throw new Error("membership_trash_failed");
+  }, [pendingMembershipTrashRow, handleCloseMembershipRow]);
 
   const uploadToSupabase = useCallback(
     async (file, field, oldUrl) => {
@@ -684,11 +785,7 @@ export function useMusicianForm(musician, supabase, onSave) {
           motivo: (formValues.motivo || "").trim() || null,
         };
         if (process.env.NODE_ENV === "development") {
-          if (process.env.NODE_ENV === "development") {
-          if (process.env.NODE_ENV === "development") {
           console.log("Creando Músico - Payload:", payload);
-        }
-        }
         }
         const { data, error } = await supabase
           .from("integrantes")
@@ -696,14 +793,6 @@ export function useMusicianForm(musician, supabase, onSave) {
           .select()
           .single();
         if (error) throw error;
-        if (selectedEnsembles.size > 0) {
-          await supabase.from("integrantes_ensambles").insert(
-            Array.from(selectedEnsembles).map((idEns) => ({
-              id_integrante: data.id,
-              id_ensamble: idEns,
-            })),
-          );
-        }
         reset({ ...getValues(), id: data.id });
         if (onSave) onSave(data, false);
         toast.success("Ficha del músico creada correctamente.");
@@ -714,7 +803,7 @@ export function useMusicianForm(musician, supabase, onSave) {
         setLoading(false);
       }
     },
-    [supabase, selectedEnsembles, reset, getValues, onSave],
+    [supabase, reset, getValues, onSave],
   );
 
   return {
@@ -747,12 +836,19 @@ export function useMusicianForm(musician, supabase, onSave) {
     locationsOptions,
     locacionesOptions,
     ensemblesOptions,
-    selectedEnsembles,
+    ensembleMembershipRows,
+    defaultMembershipFechaDesde,
+    handleAddEnsembleMembership,
+    handleUpdateMembershipRow,
+    handleCloseMembershipRow,
+    pendingMembershipTrashRow,
+    requestMembershipTrash,
+    cancelMembershipTrashConfirm,
+    confirmMembershipTrash,
     inputClass,
     labelClass,
     getInputStatusClass,
     updateField,
-    handleEnsemblesChange,
     uploadToSupabase,
     deleteOldFile,
     handleStartCrop,

@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext"; // Importamos el contexto de autenticación
 import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import { integranteKey } from "../../utils/integranteIds";
+import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
 
 export default function IndependentRehearsalForm({
   supabase,
@@ -107,12 +108,14 @@ export default function IndependentRehearsalForm({
         if (baseEnsembleIds.length > 0) {
           const { data: rels } = await supabase
             .from("integrantes_ensambles")
-            .select("id_integrante, id_ensamble")
+            .select("id_integrante, id_ensamble, fecha_desde, fecha_hasta")
             .in("id_ensamble", baseEnsembleIds);
 
+          const hoy = new Date().toISOString().slice(0, 10);
           const activeMemberIds = [
             ...new Set(
               (rels || [])
+                .filter((r) => membershipActiveOnProgramDate(r, hoy))
                 .map((r) => integranteKey(r.id_integrante))
                 .filter(Boolean),
             ),

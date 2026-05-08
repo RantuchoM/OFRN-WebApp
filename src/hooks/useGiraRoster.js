@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { integranteKey } from "../utils/integranteIds";
+import {
+  membershipActiveOnProgramDate,
+  filterMembershipRowsForProgramDate,
+} from "../utils/ensembleMembership";
 
 const normalizeText = (value) =>
   String(value || "")
@@ -42,6 +46,19 @@ const inferDefaultTourRole = (member) => {
 export async function fetchRosterForGira(supabase, gira) {
   if (!gira?.id) return { roster: [], sources: [] };
 
+  let programRefDesde = gira.fecha_desde ?? null;
+  if (!programRefDesde) {
+    const { data: prog } = await supabase
+      .from("programas")
+      .select("fecha_desde")
+      .eq("id", gira.id)
+      .maybeSingle();
+    programRefDesde = prog?.fecha_desde ?? null;
+  }
+  if (!programRefDesde) {
+    programRefDesde = new Date().toISOString().slice(0, 10);
+  }
+
   const { data: fuentes, error: errFuentes } = await supabase
     .from("giras_fuentes")
     .select("*")
@@ -52,9 +69,9 @@ export async function fetchRosterForGira(supabase, gira) {
   const inclFamilies = new Set();
   const exclEnsembles = new Set();
   fuentes?.forEach((f) => {
-    if (f.tipo === "ENSAMBLE") inclEnsembles.add(f.valor_id);
+    if (f.tipo === "ENSAMBLE") inclEnsembles.add(Number(f.valor_id));
     if (f.tipo === "FAMILIA") inclFamilies.add(f.valor_texto);
-    if (f.tipo === "EXCL_ENSAMBLE") exclEnsembles.add(f.valor_id);
+    if (f.tipo === "EXCL_ENSAMBLE") exclEnsembles.add(Number(f.valor_id));
   });
 
   // Usar "*" para no pedir columnas que quizá aún no existan en BD (motivo_estado, …).
@@ -77,17 +94,36 @@ export async function fetchRosterForGira(supabase, gira) {
     };
   });
 
-  const [membersEns, membersFam, membersExcl] = await Promise.all([
+  const [rowsEns, membersFam, rowsExcl] = await Promise.all([
     inclEnsembles.size > 0
-      ? supabase.from("integrantes_ensambles").select("id_integrante").in("id_ensamble", Array.from(inclEnsembles)).then((res) => res.data || [])
+      ? supabase
+          .from("integrantes_ensambles")
+          .select("id_integrante, id_ensamble, fecha_desde, fecha_hasta")
+          .in("id_ensamble", Array.from(inclEnsembles))
+          .then((res) => res.data || [])
       : Promise.resolve([]),
     inclFamilies.size > 0
       ? supabase.from("integrantes").select("id, instrumentos!inner(familia)").eq("condicion", "Estable").in("instrumentos.familia", Array.from(inclFamilies)).then((res) => res.data || [])
       : Promise.resolve([]),
     exclEnsembles.size > 0
-      ? supabase.from("integrantes_ensambles").select("id_integrante").in("id_ensamble", Array.from(exclEnsembles)).then((res) => res.data || [])
+      ? supabase
+          .from("integrantes_ensambles")
+          .select("id_integrante, id_ensamble, fecha_desde, fecha_hasta")
+          .in("id_ensamble", Array.from(exclEnsembles))
+          .then((res) => res.data || [])
       : Promise.resolve([]),
   ]);
+
+  const membersEns = rowsEns.filter(
+    (r) =>
+      inclEnsembles.has(Number(r.id_ensamble)) &&
+      membershipActiveOnProgramDate(r, programRefDesde),
+  );
+  const membersExcl = rowsExcl.filter(
+    (r) =>
+      exclEnsembles.has(Number(r.id_ensamble)) &&
+      membershipActiveOnProgramDate(r, programRefDesde),
+  );
 
   const baseIncludedIds = new Set([
     ...membersEns.map((m) => integranteKey(m.id_integrante)),
@@ -123,7 +159,7 @@ export async function fetchRosterForGira(supabase, gira) {
            instrumentos(instrumento, familia, plaza_extra),
            residencia:localidades!id_localidad(id, localidad, id_region, regiones(region)),
            viaticos:localidades!id_loc_viaticos(id, localidad, id_region, regiones(region)),
-           integrantes_ensambles(id_ensamble, ensambles(id, ensamble))`
+           integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`
         )
         // chunk son claves string unificadas; PostgREST acepta string para bigint
         .in(
@@ -155,13 +191,18 @@ export async function fetchRosterForGira(supabase, gira) {
     const isBaseIncluded = baseIncludedIds.has(id);
 
     const localidadEfectiva = m.viaticos || m.residencia;
+    const ieForProgram = filterMembershipRowsForProgramDate(
+      m.integrantes_ensambles,
+      programRefDesde,
+    );
     const processedMember = {
       ...m,
       localidades: localidadEfectiva,
       nombre_completo: `${m.apellido}, ${m.nombre}`,
       _loc_residencia: m.residencia,
       _loc_viaticos: m.viaticos,
-      ensambles: m.integrantes_ensambles?.map((ie) => ie.ensambles) || [],
+      integrantes_ensambles: ieForProgram,
+      ensambles: ieForProgram.map((ie) => ie.ensambles).filter(Boolean),
     };
 
     let keep = false;

@@ -44,6 +44,7 @@ import CommentButton from "../../components/comments/CommentButton";
 import GiraDifusion from "./GiraDifusion";
 import SectionStatusControl from "../../components/giras/SectionStatusControl";
 import { deleteGira } from "../../services/giraActions";
+import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
 import { toast } from "sonner";
 
 // Componentes Modularizados
@@ -390,7 +391,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
           (userRole === "consulta_personal" || userRole === "personal") &&
           user.id !== "guest-general" &&
           !isDifusion;
-        let myEnsembles = new Set();
+        /** @type {Array<{ id_ensamble: number, fecha_desde?: string, fecha_hasta?: string | null }>} */
+        let myEnsembleMembershipRows = [];
         let myFamily = null;
         // Misma regla que MusicianTourManager: FAMILIA solo "levanta" a Estable/Contratado;
         // Invitados entran solo si están en giras_integrantes o califican por ENSAMBLE.
@@ -399,15 +401,13 @@ export default function GirasView({ supabase, trigger = 0 }) {
           const { data: me } = await supabase
             .from("integrantes")
             .select(
-              "*, instrumentos(familia), integrantes_ensambles(id_ensamble)",
+              "*, instrumentos(familia), integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta)",
             )
             .eq("id", user.id)
             .single();
           if (me) {
             myFamily = me.instrumentos?.familia;
-            me.integrantes_ensambles?.forEach((ie) =>
-              myEnsembles.add(ie.id_ensamble),
-            );
+            myEnsembleMembershipRows = me.integrantes_ensambles || [];
             const nc = (me.condicion || "")
               .toString()
               .toLowerCase()
@@ -453,10 +453,17 @@ export default function GirasView({ supabase, trigger = 0 }) {
             );
             if (myOverride && myOverride.estado === "ausente") return false;
             if (myOverride) return true;
+            const progRef = gira.fecha_desde;
+            const ensembleActiveOnProgram = (valorId) =>
+              myEnsembleMembershipRows.some(
+                (ie) =>
+                  Number(ie.id_ensamble) === Number(valorId) &&
+                  membershipActiveOnProgramDate(ie, progRef),
+              );
             const isIncluded = sources.some(
               (s) =>
                 (s.tipo === "ENSAMBLE" &&
-                  (myEnsembles.has(s.valor_id) ||
+                  (ensembleActiveOnProgram(s.valor_id) ||
                     coordinatedEnsembles.has(s.valor_id))) ||
                 (s.tipo === "FAMILIA" &&
                   s.valor_texto === myFamily &&
@@ -466,7 +473,11 @@ export default function GirasView({ supabase, trigger = 0 }) {
               const excludedEnsembles = sources
                 .filter((s) => s.tipo === "EXCL_ENSAMBLE")
                 .map((s) => s.valor_id);
-              if (excludedEnsembles.some((exclId) => myEnsembles.has(exclId)))
+              if (
+                excludedEnsembles.some((exclId) =>
+                  ensembleActiveOnProgram(exclId),
+                )
+              )
                 return false;
               return true;
             }

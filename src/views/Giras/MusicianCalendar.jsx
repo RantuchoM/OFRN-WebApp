@@ -32,6 +32,7 @@ import { useAuth } from "../../context/AuthContext";
 import CommentsManager from "../../components/comments/CommentsManager"; 
 import CommentButton from "../../components/comments/CommentButton";  
 import EventForm from '../../components/forms/EventForm'; 
+import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
 
 export default function MusicianCalendar({ supabase }) {
   const { user, isEditor } = useAuth(); 
@@ -85,29 +86,27 @@ export default function MusicianCalendar({ supabase }) {
       const userRole = user?.rol_sistema || "";
       const isPersonal =
         userRole === "consulta_personal" || userRole === "personal";
-      let myEnsembles = new Set();
+      let myEnsembleRows = [];
       let myFamily = null;
 
       if (isPersonal) {
         const { data: me } = await supabase
           .from("integrantes")
           .select(
-            "*, instrumentos(familia), integrantes_ensambles(id_ensamble)"
+            "*, instrumentos(familia), integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta)",
           )
           .eq("id", user.id)
           .single();
         if (me) {
           myFamily = me.instrumentos?.familia;
-          me.integrantes_ensambles?.forEach((ie) =>
-            myEnsembles.add(ie.id_ensamble)
-          );
+          myEnsembleRows = me.integrantes_ensambles || [];
         }
       }
 
       const { data: eventsData } = await supabase
         .from("eventos")
         .select(
-          `id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, tipos_evento (id, nombre, color), locaciones (id, nombre), programas (id, google_drive_folder_id, nomenclador, giras_fuentes (tipo, valor_id), giras_integrantes (id_integrante, estado))`
+          `id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, tipos_evento (id, nombre, color), locaciones (id, nombre), programas (id, fecha_desde, google_drive_folder_id, nomenclador, giras_fuentes (tipo, valor_id), giras_integrantes (id_integrante, estado))`
         )
         .gte("fecha", startDateString) // <-- FIX APLICADO
         .lte("fecha", endDateString);   // <-- FIX APLICADO
@@ -128,10 +127,20 @@ export default function MusicianCalendar({ supabase }) {
         const myOverride = overrides.find((o) => o.id_integrante === user.id);
         if (myOverride && myOverride.estado === "ausente") return false;
         if (myOverride) return true;
+        const progRef =
+          (item.fecha_desde && String(item.fecha_desde).slice(0, 10)) ||
+          (item.programas?.fecha_desde &&
+            String(item.programas.fecha_desde).slice(0, 10)) ||
+          startDateString;
         return sources.some(
           (s) =>
-            (s.tipo === "ENSAMBLE" && myEnsembles.has(s.valor_id)) ||
-            (s.tipo === "FAMILIA" && s.valor_texto === myFamily)
+            (s.tipo === "ENSAMBLE" &&
+              myEnsembleRows.some(
+                (ie) =>
+                  Number(ie.id_ensamble) === Number(s.valor_id) &&
+                  membershipActiveOnProgramDate(ie, progRef),
+              )) ||
+            (s.tipo === "FAMILIA" && s.valor_texto === myFamily),
         );
       };
 

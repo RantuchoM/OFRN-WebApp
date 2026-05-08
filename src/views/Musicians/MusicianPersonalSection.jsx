@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import {
   IconMail,
   IconCamera,
@@ -7,9 +7,10 @@ import {
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import DateInput from "../../components/ui/DateInput";
 import WhatsAppLink from "../../components/ui/WhatsAppLink";
-import EnsembleMultiSelect from "../../components/filters/EnsembleMultiSelect";
+import EnsembleMembershipEditor from "../../components/musicians/EnsembleMembershipEditor";
 import LocalitySelectWithCreate from "../../components/forms/LocalitySelectWithCreate";
 import { useMusicianFormContext } from "./MusicianFormContext";
+import { toIsoDateString } from "../../utils/ensembleMembership";
 
 const DIET_OPTIONS = [
   "General",
@@ -34,11 +35,32 @@ export default function MusicianPersonalSection() {
     locationsOptions,
     locacionesOptions,
     ensemblesOptions,
-    selectedEnsembles,
-    handleEnsemblesChange,
+    ensembleMembershipRows,
+    defaultMembershipFechaDesde,
+    handleAddEnsembleMembership,
+    handleUpdateMembershipRow,
+    requestMembershipTrash,
     setLocationsOptions,
     supabase,
   } = useMusicianFormContext();
+
+  const [showHistoricEnsembles, setShowHistoricEnsembles] = useState(false);
+
+  const { ensembleRowsActive, ensembleRowsHistoric } = useMemo(() => {
+    const hoy = new Date().toISOString().slice(0, 10);
+    const active = [];
+    const historic = [];
+    for (const r of ensembleMembershipRows || []) {
+      const hasta =
+        r.fecha_hasta != null ? toIsoDateString(r.fecha_hasta) : null;
+      if (hasta != null && hasta < hoy) historic.push(r);
+      else active.push(r);
+    }
+    historic.sort((a, b) =>
+      String(b.fecha_desde || "").localeCompare(String(a.fecha_desde || "")),
+    );
+    return { ensembleRowsActive: active, ensembleRowsHistoric: historic };
+  }, [ensembleMembershipRows]);
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -276,16 +298,46 @@ export default function MusicianPersonalSection() {
             <span className="text-red-500 text-[10px]">{errors.id_instr.message}</span>
           )}
         </div>
-        <div>
-          <label className={labelClass}>Ensambles</label>
-          <EnsembleMultiSelect
-            ensembles={ensemblesOptions.map((o) => ({
-              id: o.value,
-              ensamble: o.label,
-            }))}
-            selectedEnsembleIds={selectedEnsembles}
-            onChange={handleEnsemblesChange}
+        <div className="md:col-span-2 space-y-3">
+          <EnsembleMembershipEditor
+            rows={ensembleRowsActive}
+            ensemblesOptions={ensemblesOptions}
+            defaultFechaDesde={defaultMembershipFechaDesde()}
+            onAddEnsemble={handleAddEnsembleMembership}
+            onUpdateRow={handleUpdateMembershipRow}
+            onCloseRow={requestMembershipTrash}
           />
+          <button
+            type="button"
+            onClick={() => setShowHistoricEnsembles((v) => !v)}
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-wide"
+          >
+            {showHistoricEnsembles ? "Ocultar históricos" : "Ver históricos"}
+            {ensembleRowsHistoric.length > 0
+              ? ` (${ensembleRowsHistoric.length})`
+              : ""}
+          </button>
+          {showHistoricEnsembles && (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-3 space-y-2">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                Ensambles con baja anterior a hoy
+              </div>
+              {ensembleRowsHistoric.length === 0 ? (
+                <p className="text-xs text-slate-400 py-2">
+                  No hay períodos cerrados en el pasado.
+                </p>
+              ) : (
+                <EnsembleMembershipEditor
+                  rows={ensembleRowsHistoric}
+                  ensemblesOptions={ensemblesOptions}
+                  defaultFechaDesde={defaultMembershipFechaDesde()}
+                  onAddEnsemble={handleAddEnsembleMembership}
+                  onUpdateRow={handleUpdateMembershipRow}
+                  onCloseRow={requestMembershipTrash}
+                />
+              )}
+            </div>
+          )}
         </div>
       </div>
 

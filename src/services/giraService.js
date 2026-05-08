@@ -3,6 +3,8 @@
  * Servicio autónomo para cálculos On-Demand en el Dashboard
  */
 
+import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
+
 /**
  * Resuelve los IDs de los integrantes de una gira:
  * (Miembros de Ensambles Convocados + Familias Convocadas + Overrides) MINUS (Miembros de Ensambles Excluidos) MINUS (Ausentes).
@@ -12,6 +14,14 @@
 export const resolveGiraRosterIds = async (supabase, giraId) => {
   try {
     const num = (id) => Number(id);
+
+    const { data: progRow } = await supabase
+      .from("programas")
+      .select("fecha_desde")
+      .eq("id", giraId)
+      .maybeSingle();
+    const programRefDesde =
+      progRow?.fecha_desde ?? new Date().toISOString().slice(0, 10);
 
     // A. Traemos configuración de fuentes y overrides
     const [fuentesRes, overridesRes] = await Promise.all([
@@ -30,15 +40,23 @@ export const resolveGiraRosterIds = async (supabase, giraId) => {
     // B. Ensambles convocados (fuentes activas)
     const ensambleIds = fuentes
       .filter((f) => f.tipo === "ENSAMBLE")
-      .map((f) => f.valor_id);
+      .map((f) => num(f.valor_id));
 
     if (ensambleIds.length > 0) {
-      const { data: ensambleMembers } = await supabase
+      const ensambleIdSet = new Set(ensambleIds);
+      const { data: ensambleRows } = await supabase
         .from("integrantes_ensambles")
-        .select("id_integrante")
+        .select("id_integrante, id_ensamble, fecha_desde, fecha_hasta")
         .in("id_ensamble", ensambleIds);
 
-      ensambleMembers?.forEach((i) => integrantesIds.add(num(i.id_integrante)));
+      ensambleRows?.forEach((row) => {
+        if (
+          ensambleIdSet.has(num(row.id_ensamble)) &&
+          membershipActiveOnProgramDate(row, programRefDesde)
+        ) {
+          integrantesIds.add(num(row.id_integrante));
+        }
+      });
     }
 
     // C. Familias convocadas
@@ -50,6 +68,7 @@ export const resolveGiraRosterIds = async (supabase, giraId) => {
       const { data: familiaMembers } = await supabase
         .from("integrantes")
         .select("id, instrumentos!inner(familia)")
+        .eq("condicion", "Estable")
         .in("instrumentos.familia", familias);
 
       familiaMembers?.forEach((i) => integrantesIds.add(num(i.id)));
@@ -65,16 +84,24 @@ export const resolveGiraRosterIds = async (supabase, giraId) => {
     // E. Excluidos por ensamble: sus miembros se sacan siempre (la exclusión manda)
     const exclEnsambleIds = fuentes
       .filter((f) => f.tipo === "EXCL_ENSAMBLE")
-      .map((f) => f.valor_id);
+      .map((f) => num(f.valor_id));
 
     const excludedByEnsamble = new Set();
     if (exclEnsambleIds.length > 0) {
-      const { data: exclMembers } = await supabase
+      const exclSet = new Set(exclEnsambleIds);
+      const { data: exclRows } = await supabase
         .from("integrantes_ensambles")
-        .select("id_integrante")
+        .select("id_integrante, id_ensamble, fecha_desde, fecha_hasta")
         .in("id_ensamble", exclEnsambleIds);
 
-      exclMembers?.forEach((i) => excludedByEnsamble.add(num(i.id_integrante)));
+      exclRows?.forEach((row) => {
+        if (
+          exclSet.has(num(row.id_ensamble)) &&
+          membershipActiveOnProgramDate(row, programRefDesde)
+        ) {
+          excludedByEnsamble.add(num(row.id_integrante));
+        }
+      });
     }
 
     // F. Ausentes (giras_integrantes.estado === 'ausente')
@@ -136,7 +163,9 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
         )
         .order("id_instr", { ascending: true }),
       supabase.from("ensambles").select("id, ensamble").order("ensamble"),
-      supabase.from("integrantes_ensambles").select("id_ensamble, id_integrante"),
+      supabase
+        .from("integrantes_ensambles")
+        .select("id_ensamble, id_integrante, fecha_desde, fecha_hasta"),
     ]);
 
     const err =

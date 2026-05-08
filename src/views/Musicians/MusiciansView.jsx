@@ -27,6 +27,10 @@ import WhatsAppLink from "../../components/ui/WhatsAppLink";
 import MusicianForm from "./MusicianForm";
 import HorasCatedraDashboard from "./HorasCatedraDashboard";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import {
+  membershipActiveOnProgramDate,
+  toIsoDateString,
+} from "../../utils/ensembleMembership";
 import UniversalExporter from "../../components/ui/UniversalExporter";
 import { normalizeForSearch } from "../../utils/sanitize";
 
@@ -192,6 +196,8 @@ const HighlightText = ({ text, highlight }) => {
 
 const EnsembleManagerCell = ({
   musicianId,
+  musicianFechaAlta,
+  membershipRowsRaw,
   assignedEnsembles,
   allEnsembles,
   supabase,
@@ -213,17 +219,39 @@ const EnsembleManagerCell = ({
     }
   }, [isOpen]);
 
+  const hoyRef = () => new Date().toISOString().slice(0, 10);
+
   const toggleEnsemble = async (ensembleId) => {
-    const isAssigned = assignedEnsembles.some((e) => e.id === ensembleId);
+    const hoy = hoyRef();
+    const isAssigned = (membershipRowsRaw || []).some(
+      (r) =>
+        Number(r.id_ensamble) === Number(ensembleId) &&
+        membershipActiveOnProgramDate(r, hoy),
+    );
     if (isAssigned) {
-      await supabase
-        .from("integrantes_ensambles")
-        .delete()
-        .match({ id_integrante: musicianId, id_ensamble: ensembleId });
+      const openRows = (membershipRowsRaw || []).filter(
+        (r) =>
+          Number(r.id_ensamble) === Number(ensembleId) &&
+          membershipActiveOnProgramDate(r, hoy) &&
+          (r.fecha_hasta == null || r.fecha_hasta === ""),
+      );
+      for (const row of openRows) {
+        await supabase
+          .from("integrantes_ensambles")
+          .update({ fecha_hasta: hoy })
+          .eq("id", row.id)
+          .eq("id_integrante", musicianId);
+      }
     } else {
-      await supabase
-        .from("integrantes_ensambles")
-        .insert({ id_integrante: musicianId, id_ensamble: ensembleId });
+      const fd =
+        toIsoDateString(musicianFechaAlta) ||
+        hoy;
+      await supabase.from("integrantes_ensambles").insert({
+        id_integrante: musicianId,
+        id_ensamble: ensembleId,
+        fecha_desde: fd,
+        fecha_hasta: null,
+      });
     }
     onRefresh();
   };
@@ -258,8 +286,10 @@ const EnsembleManagerCell = ({
             </div>
             <div className="max-h-48 overflow-y-auto">
               {allEnsembles.map((ens) => {
-                const isAssigned = assignedEnsembles.some(
-                  (e) => e.id === ens.id,
+                const isAssigned = (membershipRowsRaw || []).some(
+                  (r) =>
+                    Number(r.id_ensamble) === Number(ens.id) &&
+                    membershipActiveOnProgramDate(r, hoyRef()),
                 );
                 return (
                   <div
@@ -418,6 +448,8 @@ const AVAILABLE_COLUMNS = [
     render: (item, { ensemblesList, supabase, refreshData }) => (
       <EnsembleManagerCell
         musicianId={item.id}
+        musicianFechaAlta={item.fecha_alta}
+        membershipRowsRaw={item.integrantes_ensambles_ie || []}
         assignedEnsembles={item.integrantes_ensambles || []}
         allEnsembles={ensemblesList}
         supabase={supabase}
@@ -1282,13 +1314,21 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
       let musicianIdsWithEnsembles = null;
       if (selectedEnsemblesArg && selectedEnsemblesArg.size > 0) {
+        const hoy = new Date().toISOString().slice(0, 10);
+        const sel = Array.from(selectedEnsemblesArg).map(Number);
         const { data: integrantesEnsambles } = await supabase
           .from("integrantes_ensambles")
-          .select("id_integrante")
-          .in("id_ensamble", Array.from(selectedEnsemblesArg));
+          .select("id_integrante, id_ensamble, fecha_desde, fecha_hasta")
+          .in("id_ensamble", sel);
         if (integrantesEnsambles) {
           musicianIdsWithEnsembles = new Set(
-            integrantesEnsambles.map((ie) => ie.id_integrante),
+            integrantesEnsambles
+              .filter(
+                (ie) =>
+                  sel.includes(Number(ie.id_ensamble)) &&
+                  membershipActiveOnProgramDate(ie, hoy),
+              )
+              .map((ie) => ie.id_integrante),
           );
         }
       }
@@ -1299,7 +1339,7 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
 
       for (;;) {
         let query = supabase.from("integrantes").select(
-          `*, instrumentos(instrumento), residencia:localidades!id_localidad(localidad), viaticos:localidades!id_loc_viaticos(localidad), integrantes_ensambles(ensambles(id, ensamble))`,
+          `*, instrumentos(instrumento), residencia:localidades!id_localidad(localidad), viaticos:localidades!id_loc_viaticos(localidad), integrantes_ensambles(id, id_ensamble, fecha_desde, fecha_hasta, ensambles(id, ensamble))`,
         );
 
         if (musicianIdsWithEnsembles && musicianIdsWithEnsembles.size > 0) {
@@ -1345,12 +1385,28 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         offset += CHUNK;
       }
 
-      const formatted = musiciansAccum.map((m) => ({
-        ...m,
-        integrantes_ensambles:
-          m.integrantes_ensambles?.map((ie) => ie.ensambles).filter(Boolean) ||
-          [],
-      }));
+      const hoy = new Date().toISOString().slice(0, 10);
+      const formatted = musiciansAccum.map((m) => {
+        const rawIe = m.integrantes_ensambles || [];
+        const activeToday = rawIe.filter((ie) =>
+          membershipActiveOnProgramDate(ie, hoy),
+        );
+        const seen = new Set();
+        const ensList = [];
+        for (const ie of activeToday) {
+          const ens = ie.ensambles;
+          if (!ens) continue;
+          const eid = Number(ens.id);
+          if (seen.has(eid)) continue;
+          seen.add(eid);
+          ensList.push(ens);
+        }
+        return {
+          ...m,
+          integrantes_ensambles_ie: rawIe,
+          integrantes_ensambles: ensList,
+        };
+      });
       setResultados(formatted);
     } catch (err) {
       console.error("Error en fetchData:", err);

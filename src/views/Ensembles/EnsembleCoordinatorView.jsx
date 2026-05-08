@@ -54,6 +54,7 @@ import { fetchRosterForGira, useGiraRoster } from "../../hooks/useGiraRoster";
 import GiraCard from "../Giras/GiraCard";
 import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
 import { integranteKey } from "../../utils/integranteIds";
+import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
 
 // --- UTILIDADES ---
 /** Fecha "hoy" en zona local como YYYY-MM-DD (evita desfase por UTC). */
@@ -1053,13 +1054,17 @@ export const RepertoireCyclesTab = ({
     });
     try {
       // 1) Obtener los IDs de integrantes asociados al ensamble
+      const hoyModal = toLocalDateString();
       const { data: rels, error: relError } = await supabase
         .from("integrantes_ensambles")
-        .select("id_integrante")
+        .select("id_integrante, fecha_desde, fecha_hasta")
         .eq("id_ensamble", ensemble.id);
       if (relError) throw relError;
 
-      const ids = (rels || []).map((r) => r.id_integrante).filter(Boolean);
+      const ids = (rels || [])
+        .filter((r) => membershipActiveOnProgramDate(r, hoyModal))
+        .map((r) => r.id_integrante)
+        .filter(Boolean);
       if (ids.length === 0) {
         setMembersModal((prev) => ({
           ...prev,
@@ -2628,7 +2633,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
           const ids = ensemblesToManage.map((e) => e.id);
           const { data: relData } = await supabase
             .from("integrantes_ensambles")
-            .select("id_integrante, id_ensamble")
+            .select("id_integrante, id_ensamble, fecha_desde, fecha_hasta")
             .in("id_ensamble", ids);
           setRawRelationships(relData || []);
 
@@ -2656,14 +2661,16 @@ export default function EnsembleCoordinatorView({ supabase }) {
           const { data: ensMemberRels, error: ensMembersError } = await supabase
             .from("integrantes_ensambles")
             .select(
-              "id_ensamble, integrantes(apellido, nombre, instrumentos ( instrumento ))",
+              "id_ensamble, fecha_desde, fecha_hasta, integrantes(apellido, nombre, instrumentos ( instrumento ))",
             )
             .in("id_ensamble", ids);
 
           if (ensMembersError) throw ensMembersError;
 
+          const hoyTip = toLocalDateString();
           const memberMap = {};
           (ensMemberRels || []).forEach((r) => {
+            if (!membershipActiveOnProgramDate(r, hoyTip)) return;
             const ensembleId = r?.id_ensamble;
             const ap = r?.integrantes?.apellido;
             const nom = r?.integrantes?.nombre;
@@ -2758,8 +2765,13 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   const activeMembersSet = useMemo(() => {
     const activeEnsembleIds = new Set(activeEnsembles.map((e) => e.id));
+    const todayStr = toLocalDateString();
     const memberIds = rawRelationships
-      .filter((r) => activeEnsembleIds.has(r.id_ensamble))
+      .filter(
+        (r) =>
+          activeEnsembleIds.has(r.id_ensamble) &&
+          membershipActiveOnProgramDate(r, todayStr),
+      )
       .map((r) => integranteKey(r.id_integrante))
       .filter(Boolean);
     return new Set(memberIds);

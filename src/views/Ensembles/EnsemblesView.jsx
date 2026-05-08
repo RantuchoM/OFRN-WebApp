@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import {
+    membershipActiveOnProgramDate,
+    toIsoDateString,
+} from '../../utils/ensembleMembership';
 import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, IconCheck, IconMusic, IconUsers, IconMail } from '../../components/ui/Icons';
 import WhatsAppLink from '../../components/ui/WhatsAppLink';
+import DateInput from '../../components/ui/DateInput';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 
 const createEmptyEnsembleInstrumentation = () => ({
     fl: 0,
@@ -37,6 +43,20 @@ const classifyInstrument = (instrumentData) => {
     return null;
 };
 
+const membershipRowFromIe = (row) => {
+    const pickPerson = (r) =>
+        Array.isArray(r.integrantes) ? r.integrantes[0] : r.integrantes;
+    const p = pickPerson(row);
+    if (!p?.id) return null;
+    return {
+        membershipId: row.id,
+        id_integrante: row.id_integrante,
+        fecha_desde: row.fecha_desde,
+        fecha_hasta: row.fecha_hasta,
+        ...p,
+    };
+};
+
 const formatEnsembleInstrumentation = (counter) => {
     if (!counter) return '';
     const hasWinds = [counter.fl, counter.ob, counter.cl, counter.bn, counter.hn, counter.tpt, counter.tbn, counter.tba].some((v) => v > 0);
@@ -63,7 +83,11 @@ export default function EnsemblesView({ supabase }) {
     const [showMusicianPicker, setShowMusicianPicker] = useState(false);
     const [loadingAllMusicians, setLoadingAllMusicians] = useState(false);
     const [musiciansLoaded, setMusiciansLoaded] = useState(false);
-    const [ensembleMembersDetailed, setEnsembleMembersDetailed] = useState([]);
+    /** Filas activas hoy: una por período en integrantes_ensambles */
+    const [ensembleMemberRows, setEnsembleMemberRows] = useState([]);
+    const [historicMemberRows, setHistoricMemberRows] = useState([]);
+    const [savingMembershipId, setSavingMembershipId] = useState(null);
+    const [membershipDeleteConfirm, setMembershipDeleteConfirm] = useState(null);
 
     useEffect(() => { fetchEnsembles(); }, []);
 
@@ -88,7 +112,8 @@ export default function EnsemblesView({ supabase }) {
         } else {
             setMemberIds(new Set());
             setCoordinatorIds(new Set());
-            setEnsembleMembersDetailed([]);
+            setEnsembleMemberRows([]);
+            setHistoricMemberRows([]);
             setShowMusicianPicker(false);
             setSearchText('');
         }
@@ -103,17 +128,24 @@ export default function EnsemblesView({ supabase }) {
             .order('ensamble');
         if (error) return;
 
+        const hoyListado = new Date().toISOString().slice(0, 10);
         const { data: membersByEnsemble } = await supabase
             .from('integrantes_ensambles')
-            .select('id_ensamble, integrantes(id, instrumentos(instrumento, familia))');
+            .select('id_ensamble, fecha_desde, fecha_hasta, integrantes(id, instrumentos(instrumento, familia))');
 
         const instrumentationByEnsemble = {};
+        const countedPair = new Set();
         (membersByEnsemble || []).forEach((row) => {
+            if (!membershipActiveOnProgramDate(row, hoyListado)) return;
             const ensambleId = row.id_ensamble;
+            const integrante = Array.isArray(row.integrantes) ? row.integrantes[0] : row.integrantes;
+            const iid = integrante?.id;
+            const dedupeKey = `${ensambleId}:${iid}`;
+            if (countedPair.has(dedupeKey)) return;
+            countedPair.add(dedupeKey);
             if (!instrumentationByEnsemble[ensambleId]) {
                 instrumentationByEnsemble[ensambleId] = createEmptyEnsembleInstrumentation();
             }
-            const integrante = Array.isArray(row.integrantes) ? row.integrantes[0] : row.integrantes;
             const bucket = classifyInstrument(integrante?.instrumentos);
             if (!bucket) return;
             if (bucket.type === 'wind') {
@@ -132,7 +164,7 @@ export default function EnsemblesView({ supabase }) {
 
     const fetchAllMusicians = async () => {
         setLoadingAllMusicians(true);
-        const { data, error } = await supabase.from('integrantes').select('id, nombre, apellido, mail, telefono, id_instr, instrumentos(instrumento, familia)').order('apellido');
+        const { data, error } = await supabase.from('integrantes').select('id, nombre, apellido, mail, telefono, id_instr, fecha_alta, instrumentos(instrumento, familia)').order('apellido');
         if (!error) {
             setAllMusicians(data || []);
             setMusiciansLoaded(true);
@@ -144,19 +176,35 @@ export default function EnsemblesView({ supabase }) {
 
     const fetchEnsembleMembers = async (ensambleId) => {
         setLoadingMembers(true);
+        const hoy = new Date().toISOString().slice(0, 10);
         const [membersRes, coordinatorsRes] = await Promise.all([
             supabase
                 .from('integrantes_ensambles')
-                .select('id_integrante, integrantes(id, nombre, apellido, mail, telefono, id_instr, instrumentos(instrumento, familia))')
+                .select('id, id_integrante, fecha_desde, fecha_hasta, integrantes(id, nombre, apellido, mail, telefono, id_instr, instrumentos(instrumento, familia))')
                 .eq('id_ensamble', ensambleId),
             supabase.from('ensambles_coordinadores').select('id_integrante').eq('id_ensamble', ensambleId),
         ]);
         if (!membersRes.error && membersRes.data) {
-            setMemberIds(new Set(membersRes.data.map(row => row.id_integrante)));
-            const detailedMembers = membersRes.data
-                .map((row) => (Array.isArray(row.integrantes) ? row.integrantes[0] : row.integrantes))
-                .filter(Boolean);
-            setEnsembleMembersDetailed(detailedMembers);
+            const rows = membersRes.data;
+            const activeRows = rows.filter((row) =>
+                membershipActiveOnProgramDate(row, hoy),
+            );
+            const activeIds = new Set(activeRows.map((row) => row.id_integrante));
+            setMemberIds(activeIds);
+
+            const activePeopleRows = activeRows.map(membershipRowFromIe).filter(Boolean);
+            setEnsembleMemberRows(activePeopleRows);
+
+            const historicPeopleRows = rows
+                .filter((row) => !membershipActiveOnProgramDate(row, hoy))
+                .map(membershipRowFromIe)
+                .filter(Boolean)
+                .sort((a, b) => {
+                    const c = (a.apellido || '').localeCompare(b.apellido || '', 'es');
+                    if (c !== 0) return c;
+                    return String(b.fecha_desde || '').localeCompare(String(a.fecha_desde || ''));
+                });
+            setHistoricMemberRows(historicPeopleRows);
         }
         if (!coordinatorsRes.error && coordinatorsRes.data) setCoordinatorIds(new Set(coordinatorsRes.data.map(row => row.id_integrante)));
         setLoadingMembers(false);
@@ -189,28 +237,114 @@ export default function EnsemblesView({ supabase }) {
     const toggleMembership = async (musicianId) => {
         if (!selectedEnsemble) return;
         setTogglingId(musicianId); 
-        const isMember = memberIds.has(musicianId);
+        const isMember = memberIds.has(musicianId) || memberIds.has(Number(musicianId));
         const ensambleIdInt = parseInt(selectedEnsemble.id, 10);
         const musicianIdInt = parseInt(musicianId, 10);
+        const hoy = new Date().toISOString().slice(0, 10);
         let error = null;
         
         if (isMember) {
-            const { error: err } = await supabase.from('integrantes_ensambles').delete().eq('id_ensamble', ensambleIdInt).eq('id_integrante', musicianIdInt); error = err;
+            const { data: openRows, error: qErr } = await supabase
+                .from('integrantes_ensambles')
+                .select('id, fecha_desde, fecha_hasta')
+                .eq('id_ensamble', ensambleIdInt)
+                .eq('id_integrante', musicianIdInt);
+            error = qErr;
+            if (!error && openRows?.length) {
+                for (const row of openRows) {
+                    if (!membershipActiveOnProgramDate(row, hoy)) continue;
+                    if (row.fecha_hasta != null) continue;
+                    const { error: uErr } = await supabase
+                        .from('integrantes_ensambles')
+                        .update({ fecha_hasta: hoy })
+                        .eq('id', row.id);
+                    if (uErr) error = uErr;
+                }
+            }
         } else {
-            const { error: err } = await supabase.from('integrantes_ensambles').insert([{ id_ensamble: ensambleIdInt, id_integrante: musicianIdInt }]); error = err;
+            const m = allMusicians.find((x) => Number(x.id) === musicianIdInt);
+            const fd = toIsoDateString(m?.fecha_alta) || hoy;
+            const { error: err } = await supabase.from('integrantes_ensambles').insert([{
+                id_ensamble: ensambleIdInt,
+                id_integrante: musicianIdInt,
+                fecha_desde: fd,
+                fecha_hasta: null,
+            }]);
+            error = err;
         }
         
         if (error) toast.error(`Error: ${error.message}`); 
         else { 
-            const newSet = new Set(memberIds); 
-            if (isMember) newSet.delete(musicianId); else newSet.add(musicianId); 
-            setMemberIds(newSet);
-            
-            // --- CAMBIO 3: ACTUALIZAR CONTADOR ---
-            // Recargamos la lista de la izquierda para que el número cambie
+            await fetchEnsembleMembers(selectedEnsemble.id);
             await fetchEnsembles(); 
         }
         setTogglingId(null);
+    };
+
+    const updateMembershipDates = async (row, partial) => {
+        if (!selectedEnsemble || !row?.membershipId) return;
+        const membershipId = row.membershipId;
+
+        const patch = {};
+        if (partial.fecha_desde !== undefined) {
+            const fd = toIsoDateString(partial.fecha_desde);
+            if (!fd) {
+                toast.error('La fecha de alta es obligatoria.');
+                await fetchEnsembleMembers(selectedEnsemble.id);
+                return;
+            }
+            patch.fecha_desde = fd;
+        }
+        if (partial.fecha_hasta !== undefined) {
+            patch.fecha_hasta =
+                partial.fecha_hasta === '' || partial.fecha_hasta == null
+                    ? null
+                    : toIsoDateString(partial.fecha_hasta);
+        }
+
+        const nextDesde = patch.fecha_desde ?? toIsoDateString(row.fecha_desde);
+        const nextHasta =
+            partial.fecha_hasta !== undefined
+                ? patch.fecha_hasta
+                : row.fecha_hasta != null
+                  ? toIsoDateString(row.fecha_hasta)
+                  : null;
+        if (nextHasta != null && nextDesde && nextHasta < nextDesde) {
+            toast.error('La fecha de baja no puede ser anterior a la fecha de alta.');
+            await fetchEnsembleMembers(selectedEnsemble.id);
+            return;
+        }
+
+        setSavingMembershipId(membershipId);
+        const { error } = await supabase
+            .from('integrantes_ensambles')
+            .update(patch)
+            .eq('id', membershipId);
+        setSavingMembershipId(null);
+
+        if (error) {
+            toast.error(error.message || 'No se pudieron guardar las fechas.');
+            await fetchEnsembleMembers(selectedEnsemble.id);
+            return;
+        }
+        await fetchEnsembleMembers(selectedEnsemble.id);
+        await fetchEnsembles();
+    };
+
+    const confirmDeleteMembershipRecord = async () => {
+        const target = membershipDeleteConfirm;
+        if (!target?.membershipId || !selectedEnsemble) return;
+        const { error } = await supabase
+            .from('integrantes_ensambles')
+            .delete()
+            .eq('id', target.membershipId);
+        if (error) {
+            toast.error(error.message || 'No se pudo eliminar el registro.');
+            throw error;
+        }
+        toast.success('Registro de membresía eliminado.');
+        await fetchEnsembleMembers(selectedEnsemble.id);
+        await fetchEnsembles();
     };
 
     const getInstrumentSortKey = (musician) => {
@@ -233,8 +367,8 @@ export default function EnsemblesView({ supabase }) {
         const instrument = m.instrumentos?.instrumento?.toLowerCase() || '';
         return fullName.includes(term) || instrument.includes(term);
     }).sort((a, b) => {
-        const isMemberA = memberIds.has(a.id);
-        const isMemberB = memberIds.has(b.id);
+        const isMemberA = memberIds.has(a.id) || memberIds.has(Number(a.id));
+        const isMemberB = memberIds.has(b.id) || memberIds.has(Number(b.id));
         if (isMemberA && !isMemberB) return -1;
         if (!isMemberA && isMemberB) return 1;
         if (musicianSortMode === 'instrument') {
@@ -243,7 +377,7 @@ export default function EnsemblesView({ supabase }) {
         }
         return (a.apellido || '').localeCompare(b.apellido || '');
     });
-    const sortedEnsembleMembers = [...ensembleMembersDetailed].sort((a, b) => {
+    const sortedEnsembleMembers = [...ensembleMemberRows].sort((a, b) => {
         if (musicianSortMode === 'instrument') {
             const instrumentCompare = getInstrumentSortKey(a).localeCompare(getInstrumentSortKey(b));
             if (instrumentCompare !== 0) return instrumentCompare;
@@ -251,9 +385,23 @@ export default function EnsemblesView({ supabase }) {
         return (a.apellido || '').localeCompare(b.apellido || '');
     });
     const visibleMusicians = showMusicianPicker ? filteredMusicians : sortedEnsembleMembers;
-    const firstNonMemberIndex = filteredMusicians.findIndex(m => !memberIds.has(m.id));
+    const firstNonMemberIndex = filteredMusicians.findIndex(m => !memberIds.has(m.id) && !memberIds.has(Number(m.id)));
 
     return (
+        <>
+        <ConfirmDialog
+            isOpen={!!membershipDeleteConfirm}
+            onClose={() => setMembershipDeleteConfirm(null)}
+            onConfirm={confirmDeleteMembershipRecord}
+            title="Eliminar membresía"
+            message={
+                membershipDeleteConfirm
+                    ? `¿Eliminar el registro de membresía de ${membershipDeleteConfirm.musicianLabel}? Se borrará este tramo (alta/baja) del ensamble.`
+                    : ''
+            }
+            confirmText="Eliminar"
+            confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]"
+        />
         <div className="flex h-full gap-4 lg:gap-5 flex-col lg:flex-row min-w-0 w-full">
             <div className="lg:hidden w-full min-w-0 max-w-none bg-white border border-slate-200 rounded-xl p-3 sm:p-3 shadow-sm">
                 <div className="flex items-center justify-between gap-2 mb-2">
@@ -380,16 +528,60 @@ export default function EnsemblesView({ supabase }) {
                             {loadingMembers ? (<div className="flex items-center justify-center h-full text-indigo-600 gap-2"><IconLoader size={24}/> Cargando miembros...</div>) : !showMusicianPicker ? (
                                 <div className="space-y-2">
                                     {visibleMusicians.map((musician) => {
-                                        const isMember = memberIds.has(musician.id);
-                                        const isCoordinator = coordinatorIds.has(musician.id);
+                                        const isMember = memberIds.has(musician.id) || memberIds.has(Number(musician.id));
+                                        const isCoordinator = coordinatorIds.has(musician.id) || coordinatorIds.has(Number(musician.id));
                                         const isToggling = togglingId === musician.id;
+                                        const dateBusy = savingMembershipId === musician.membershipId;
+                                        const compactDateClass =
+                                            'border border-slate-300 bg-white text-xs py-0.5 pl-6 min-h-[2rem]';
                                         return (
-                                            <div key={musician.id} onClick={() => !isToggling && toggleMembership(musician.id)} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none ${isMember ? 'bg-indigo-50 shadow-sm z-10' : 'bg-white'} ${isCoordinator ? 'border-2 border-amber-400' : isMember ? 'border-indigo-200' : 'border-slate-200 hover:border-indigo-300'}`}>
-                                                <div className="flex items-center gap-3">
-                                                    <div className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${isMember ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}>{isToggling ? (<IconLoader size={14} className={isMember ? "text-white" : "text-indigo-600"}/>) : (isMember && <IconCheck size={14} className="text-white"/>)}</div>
-                                                    <div><div className={`font-bold ${isMember ? 'text-indigo-900' : 'text-slate-700'}`}>{musician.apellido}, {musician.nombre}</div><div className="text-xs text-slate-500 flex items-center gap-1"><IconMusic size={10}/> {musician.instrumentos?.instrumento || 'Sin instrumento'}</div></div>
+                                            <div
+                                                key={musician.membershipId}
+                                                onClick={() => !isToggling && toggleMembership(musician.id)}
+                                                className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg border cursor-pointer transition-all select-none ${isMember ? 'bg-indigo-50 shadow-sm z-10' : 'bg-white'} ${isCoordinator ? 'border-2 border-amber-400' : isMember ? 'border-indigo-200' : 'border-slate-200 hover:border-indigo-300'}`}
+                                            >
+                                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                    <div className={`w-6 h-6 shrink-0 rounded border flex items-center justify-center transition-colors ${isMember ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}>{isToggling ? (<IconLoader size={14} className={isMember ? "text-white" : "text-indigo-600"}/>) : (isMember && <IconCheck size={14} className="text-white"/>)}</div>
+                                                    <div className="min-w-0"><div className={`font-bold truncate ${isMember ? 'text-indigo-900' : 'text-slate-700'}`}>{musician.apellido}, {musician.nombre}</div><div className="text-xs text-slate-500 flex items-center gap-1"><IconMusic size={10}/> {musician.instrumentos?.instrumento || 'Sin instrumento'}</div></div>
                                                 </div>
-                                                <div className="flex items-center gap-1.5">
+                                                <div
+                                                    className={`flex flex-wrap items-end gap-2 sm:justify-center ${dateBusy ? 'opacity-60 pointer-events-none' : ''}`}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    <div className="w-[124px] shrink-0">
+                                                        <DateInput
+                                                            label="Alta"
+                                                            showDayName={false}
+                                                            showCalendarPicker
+                                                            value={toIsoDateString(musician.fecha_desde) || ''}
+                                                            onChange={(iso) =>
+                                                                void updateMembershipDates(musician, {
+                                                                    fecha_desde: iso || null,
+                                                                })
+                                                            }
+                                                            className={compactDateClass}
+                                                        />
+                                                    </div>
+                                                    <div className="w-[124px] shrink-0">
+                                                        <DateInput
+                                                            label="Baja"
+                                                            showDayName={false}
+                                                            showCalendarPicker
+                                                            value={
+                                                                musician.fecha_hasta != null
+                                                                    ? toIsoDateString(musician.fecha_hasta) || ''
+                                                                    : ''
+                                                            }
+                                                            onChange={(iso) =>
+                                                                void updateMembershipDates(musician, {
+                                                                    fecha_hasta: iso === '' ? null : iso,
+                                                                })
+                                                            }
+                                                            className={compactDateClass}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center" onClick={(e) => e.stopPropagation()}>
                                                     {musician.mail && (
                                                         <a href={`mailto:${musician.mail}`} onClick={(e) => e.stopPropagation()} className="p-1 rounded-full text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Enviar mail">
                                                             <IconMail size={14} />
@@ -398,6 +590,20 @@ export default function EnsemblesView({ supabase }) {
                                                     <WhatsAppLink phone={musician.telefono} className="p-1 rounded-full text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors inline-flex items-center justify-center" iconSize={14} title="Enviar WhatsApp" />
                                                     <button type="button" onClick={(e) => { e.stopPropagation(); goToMusicianEditor(musician); }} className="p-1 rounded-full text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Editar músico">
                                                         <IconEdit size={14} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setMembershipDeleteConfirm({
+                                                                membershipId: musician.membershipId,
+                                                                musicianLabel: `${musician.apellido}, ${musician.nombre}`,
+                                                            });
+                                                        }}
+                                                        className="p-1 rounded-full text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                        title="Eliminar registro de membresía"
+                                                    >
+                                                        <IconTrash size={14} />
                                                     </button>
                                                     {isMember && (<span className="text-xs font-bold text-indigo-600 bg-white px-2 py-1 rounded border border-indigo-100">MIEMBRO</span>)}
                                                 </div>
@@ -409,12 +615,90 @@ export default function EnsemblesView({ supabase }) {
                                             No hay integrantes en este ensamble. Presiona <span className="font-bold mx-1">Agregar músico</span> para sumar.
                                         </div>
                                     )}
+                                    {historicMemberRows.length > 0 && (
+                                        <div className="mt-6 pt-4 border-t border-slate-200">
+                                            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Histórico (sin membresía vigente hoy)</div>
+                                            <div className="space-y-2 opacity-90">
+                                                {historicMemberRows.map((musician) => {
+                                                    const dateBusy = savingMembershipId === musician.membershipId;
+                                                    const compactDateClass =
+                                                        'border border-slate-300 bg-white text-xs py-0.5 pl-6 min-h-[2rem]';
+                                                    return (
+                                                        <div
+                                                            key={`hist-${musician.membershipId}`}
+                                                            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg border border-dashed border-slate-200 bg-white"
+                                                        >
+                                                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                                <div className="w-6 h-6 shrink-0 rounded border border-slate-200 bg-slate-50" />
+                                                                <div className="min-w-0">
+                                                                    <div className="font-semibold text-slate-600 truncate">{musician.apellido}, {musician.nombre}</div>
+                                                                    <div className="text-xs text-slate-400 flex items-center gap-1"><IconMusic size={10}/> {musician.instrumentos?.instrumento || 'Sin instrumento'}</div>
+                                                                </div>
+                                                            </div>
+                                                            <div className={`flex flex-wrap items-end gap-2 ${dateBusy ? 'opacity-60 pointer-events-none' : ''}`}>
+                                                                <div className="w-[124px] shrink-0">
+                                                                    <DateInput
+                                                                        label="Alta"
+                                                                        showDayName={false}
+                                                                        showCalendarPicker
+                                                                        value={toIsoDateString(musician.fecha_desde) || ''}
+                                                                        onChange={(iso) =>
+                                                                            void updateMembershipDates(musician, {
+                                                                                fecha_desde: iso || null,
+                                                                            })
+                                                                        }
+                                                                        className={compactDateClass}
+                                                                    />
+                                                                </div>
+                                                                <div className="w-[124px] shrink-0">
+                                                                    <DateInput
+                                                                        label="Baja"
+                                                                        showDayName={false}
+                                                                        showCalendarPicker
+                                                                        value={
+                                                                            musician.fecha_hasta != null
+                                                                                ? toIsoDateString(musician.fecha_hasta) || ''
+                                                                                : ''
+                                                                        }
+                                                                        onChange={(iso) =>
+                                                                            void updateMembershipDates(musician, {
+                                                                                fecha_hasta: iso === '' ? null : iso,
+                                                                            })
+                                                                        }
+                                                                        className={compactDateClass}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                                                                <button type="button" onClick={() => goToMusicianEditor(musician)} className="p-1 rounded-full text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Editar músico">
+                                                                    <IconEdit size={14} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        setMembershipDeleteConfirm({
+                                                                            membershipId: musician.membershipId,
+                                                                            musicianLabel: `${musician.apellido}, ${musician.nombre}`,
+                                                                        })
+                                                                    }
+                                                                    className="p-1 rounded-full text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                                                    title="Eliminar registro de membresía"
+                                                                >
+                                                                    <IconTrash size={14} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="space-y-2">
                                     {filteredMusicians.map((musician, index) => {
-                                        const isMember = memberIds.has(musician.id);
-                                        const isCoordinator = coordinatorIds.has(musician.id);
+                                        const isMember = memberIds.has(musician.id) || memberIds.has(Number(musician.id));
+                                        const isCoordinator = coordinatorIds.has(musician.id) || coordinatorIds.has(Number(musician.id));
                                         const isToggling = togglingId === musician.id;
                                         const showSeparator = index === firstNonMemberIndex && index > 0;
                                         return (
@@ -467,5 +751,6 @@ export default function EnsemblesView({ supabase }) {
                 ) : (<div className="flex-1 flex flex-col items-center justify-center text-slate-300"><IconLayers size={64} className="mb-4 opacity-20"/><p className="text-lg font-medium">Selecciona un ensamble para gestionar</p></div>)}
             </div>
         </div>
+        </>
     );
 }

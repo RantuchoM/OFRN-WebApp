@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
+import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
 import { createPortal } from "react-dom";
 import {
   IconLoader, IconFilter, IconPlus, IconX, IconUser, IconTrash, IconEdit,
@@ -93,6 +94,9 @@ export default function HorasCatedraDashboard({ supabase }) {
             id, nombre, apellido, condicion, dni,
             instrumentos(nombre:instrumento, familia),
             integrantes_ensambles(
+                id_ensamble,
+                fecha_desde,
+                fecha_hasta,
                 ensambles(id, ensamble)
             )
         `)
@@ -134,7 +138,12 @@ export default function HorasCatedraDashboard({ supabase }) {
             concepts[c.id] = (cult[c.id] || 0) + (edu[c.id] || 0);
         });
 
-        const myEnsembles = m.integrantes_ensambles?.map(ie => ie.ensambles) || [];
+        const hoy = new Date().toISOString().slice(0, 10);
+        const myEnsembles =
+          m.integrantes_ensambles
+            ?.filter((ie) => membershipActiveOnProgramDate(ie, hoy))
+            .map((ie) => ie.ensambles)
+            .filter(Boolean) || [];
 
         return {
             ...m,
@@ -151,7 +160,9 @@ export default function HorasCatedraDashboard({ supabase }) {
         
         let matchesEnsemble = true;
         if (selectedEnsembles.size > 0) {
-            matchesEnsemble = m.myEnsembles.some(e => selectedEnsembles.has(e.id));
+            matchesEnsemble = m.myEnsembles.some((e) =>
+              selectedEnsembles.has(e.id) || selectedEnsembles.has(String(e.id)),
+            );
         }
 
         // Filtro de Actividad (Nómina)

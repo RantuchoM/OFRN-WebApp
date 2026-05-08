@@ -22,6 +22,7 @@ import {
   IconScissor,
   IconCalendar,
 } from "../../components/ui/Icons";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
 
 const condicionColors = {
   Estable: "bg-green-600 text-white",
@@ -65,6 +66,17 @@ export default function MusicianForm({
 
   const condicionClass =
     condicionColors[formData.condicion] || "bg-slate-100 text-slate-800";
+
+  const pendingTrash = ctx.pendingMembershipTrashRow;
+  const pendingTrashOpen =
+    pendingTrash &&
+    (pendingTrash.fecha_hasta == null || pendingTrash.fecha_hasta === "");
+  const pendingTrashEnsLabel =
+    pendingTrash &&
+    ((ctx.ensemblesOptions || []).find(
+      (o) => Number(o.value) === Number(pendingTrash.id_ensamble),
+    )?.label ||
+      `Ensamble #${pendingTrash.id_ensamble}`);
 
   return (
     <MusicianFormContext.Provider value={{ ...ctx, onCancel }}>
@@ -192,6 +204,20 @@ export default function MusicianForm({
             </div>
           </form>
         </div>
+
+        <ConfirmDialog
+          isOpen={!!pendingTrash}
+          onClose={ctx.cancelMembershipTrashConfirm}
+          onConfirm={ctx.confirmMembershipTrash}
+          title={pendingTrashOpen ? "Cerrar membresía" : "Eliminar tramo"}
+          message={
+            pendingTrashOpen
+              ? `¿Cerrar la membresía en «${pendingTrashEnsLabel}»? Se registrará la fecha de baja con el día de hoy.`
+              : `¿Eliminar del historial el tramo en «${pendingTrashEnsLabel}»? Esta acción no se puede deshacer.`
+          }
+          confirmText={pendingTrashOpen ? "Cerrar membresía" : "Eliminar"}
+          confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]"
+        />
 
         {/* --- MODAL DE RECORTE (DIBUJADO LIBRE) --- */}
         {cropModal.isOpen && (

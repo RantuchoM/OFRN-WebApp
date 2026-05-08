@@ -588,7 +588,7 @@ export default function UnifiedAgenda({
         const { data } = await supabase
           .from("integrantes")
           .select(
-            "*, instrumentos(familia, instrumento), integrantes_ensambles(id_ensamble), datos_residencia:localidades!id_localidad (id, id_region)",
+            "*, instrumentos(familia, instrumento), integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta), datos_residencia:localidades!id_localidad (id, id_region)",
           )
           .eq("id", effectiveUserId)
           .single();

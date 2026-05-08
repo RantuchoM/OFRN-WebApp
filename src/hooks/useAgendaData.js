@@ -3,6 +3,7 @@ import { startOfDay, endOfDay, addMonths, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { getTodayDateStringLocal } from "../utils/dates";
 import { calculateLogisticsSummary } from "./useLogistics";
+import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
 
 const EVENT_SELECT = `
     id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, updated_at, is_deleted, deleted_at, id_estado_venue,
@@ -182,9 +183,11 @@ export function useAgendaData({
         let myEnsembles = new Set();
         let myFamily = null;
         if (userProfile) {
-          userProfile.integrantes_ensambles?.forEach((ie) =>
-            myEnsembles.add(ie.id_ensamble),
-          );
+          userProfile.integrantes_ensambles?.forEach((ie) => {
+            if (membershipActiveOnProgramDate(ie, todayStr)) {
+              myEnsembles.add(ie.id_ensamble);
+            }
+          });
           myFamily = userProfile.instrumentos?.familia;
         }
 
@@ -291,9 +294,6 @@ export function useAgendaData({
               transportsByGira[t.id_gira].push(t);
             });
 
-            const userEnsemblesIds = (
-              userProfile.integrantes_ensambles || []
-            ).map((ie) => String(ie.id_ensamble));
             const cleanLocId = userProfile.id_localidad
               ? Number(userProfile.id_localidad)
               : null;
@@ -325,10 +325,18 @@ export function useAgendaData({
                 }
                 const sources = sampleEvt.programas.giras_fuentes || [];
                 const myFamilySrc = userProfile.instrumentos?.familia;
+                const progFd =
+                  sampleEvt.programas.fecha_desde?.slice?.(0, 10) ||
+                  String(sampleEvt.programas.fecha_desde || "").slice(0, 10) ||
+                  todayStr;
                 const matchesSource = sources.some((src) => {
                   if (
                     src.tipo === "ENSAMBLE" &&
-                    userEnsemblesIds.includes(String(src.valor_id))
+                    userProfile.integrantes_ensambles?.some(
+                      (ie) =>
+                        Number(ie.id_ensamble) === Number(src.valor_id) &&
+                        membershipActiveOnProgramDate(ie, progFd),
+                    )
                   )
                     return true;
                   if (src.tipo === "FAMILIA" && src.valor_texto === myFamilySrc)

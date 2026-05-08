@@ -794,9 +794,12 @@ CREATE TABLE public.integrantes (
   CONSTRAINT integrantes_id_domicilio_laboral_fkey FOREIGN KEY (id_domicilio_laboral) REFERENCES public.locaciones(id)
 );
 CREATE TABLE public.integrantes_ensambles (
-  id_ensamble bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_ensamble bigint NOT NULL,
   id_integrante bigint NOT NULL,
-  CONSTRAINT integrantes_ensambles_pkey PRIMARY KEY (id_ensamble, id_integrante),
+  fecha_desde date NOT NULL,
+  fecha_hasta date,
+  CONSTRAINT integrantes_ensambles_pkey PRIMARY KEY (id),
   CONSTRAINT integrantes_ensambles_id_ensamble_fkey FOREIGN KEY (id_ensamble) REFERENCES public.ensambles(id),
   CONSTRAINT integrantes_ensambles_id_integrante_fkey FOREIGN KEY (id_integrante) REFERENCES public.integrantes(id)
 );

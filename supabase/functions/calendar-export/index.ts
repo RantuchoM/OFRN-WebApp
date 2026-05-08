@@ -43,6 +43,23 @@ const cleanText = (text: string) => {
   return text.replace(/,/g, "\\,").replace(/\n/g, "\\n").replace(/;/g, "\\;");
 };
 
+/** Membresía vigente en día ref (YYYY-MM-DD); fecha_hasta null = abierta. */
+const membershipActiveOnProgramDate = (
+  row: { fecha_desde?: string | null; fecha_hasta?: string | null },
+  ref: string,
+): boolean => {
+  const refD = String(ref || "").slice(0, 10);
+  const from = row?.fecha_desde ? String(row.fecha_desde).slice(0, 10) : "";
+  const until =
+    row?.fecha_hasta != null && row?.fecha_hasta !== ""
+      ? String(row.fecha_hasta).slice(0, 10)
+      : null;
+  if (!refD || !from) return false;
+  if (from > refD) return false;
+  if (until != null && until < refD) return false;
+  return true;
+};
+
 serve(async (req) => {
   const url = new URL(req.url);
   const userId = url.searchParams.get("uid");
@@ -59,7 +76,9 @@ serve(async (req) => {
   // 1. Obtener Perfil
   const { data: profile, error: profileError } = await supabase
     .from("integrantes")
-    .select("*, instrumentos(familia), integrantes_ensambles(id_ensamble)")
+    .select(
+      "*, instrumentos(familia), integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta)",
+    )
     .eq("id", userId)
     .single();
 
@@ -67,9 +86,6 @@ serve(async (req) => {
     return new Response(debug ? `Error perfil: ${JSON.stringify(profileError)}` : "Usuario no encontrado", { status: 404 });
   }
 
-  const myEnsembles = new Set(
-    profile.integrantes_ensambles?.map((ie: any) => ie.id_ensamble) || []
-  );
   const myFamily = profile.instrumentos?.familia;
   
   const startDateFilter = '2024-01-01'; 
@@ -144,10 +160,18 @@ serve(async (req) => {
       );
       if (myOverride) return myOverride.estado !== "ausente";
 
+      const refProgramDesde =
+        String(prog.fecha_desde || "").slice(0, 10) ||
+        new Date().toISOString().slice(0, 10);
       const fuentes = prog.giras_fuentes || [];
       return fuentes.some(
         (s: any) =>
-          (s.tipo === "ENSAMBLE" && myEnsembles.has(s.valor_id)) ||
+          (s.tipo === "ENSAMBLE" &&
+            profile.integrantes_ensambles?.some(
+              (ie: any) =>
+                Number(ie.id_ensamble) === Number(s.valor_id) &&
+                membershipActiveOnProgramDate(ie, refProgramDesde),
+            )) ||
           (s.tipo === "FAMILIA" && s.valor_texto === myFamily)
       );
     }
