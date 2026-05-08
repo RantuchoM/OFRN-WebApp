@@ -2080,7 +2080,23 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                       (col) =>
                         visibleColumns.has(col.key) && (
                           <td key={col.key} className="p-0 border-r">
-                            {col.render ? (
+                            {col.key === "telefono" ? (
+                              <div className="flex items-center justify-between gap-1 pr-1">
+                                <div className="min-w-0 flex-1">
+                                  <EditableCell
+                                    value={item.telefono}
+                                    rowId={item.id}
+                                    field="telefono"
+                                    type="text"
+                                    onSave={handleInlineUpdate}
+                                    highlight={columnFilters.telefono || ""}
+                                  />
+                                </div>
+                                {item.telefono ? (
+                                  <WhatsAppLink phone={item.telefono} />
+                                ) : null}
+                              </div>
+                            ) : col.render ? (
                               col.render(item, {
                                 ensemblesList,
                                 supabase,
