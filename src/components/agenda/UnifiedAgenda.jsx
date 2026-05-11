@@ -75,6 +75,23 @@ import EventTranspositionModal from "./EventTranspositionModal";
 
 /** tipos_evento.id: Traslado interno — "mi transporte" para todo integrante activo (sin reglas de asignación). */
 const ID_TIPO_TRASLADO_INTERNO = 35;
+const TIPO_TRANSPORTE_SALIDA = 11;
+const TIPO_TRANSPORTE_LLEGADA = 12;
+
+/**
+ * Solo paradas / traslado interno con tramo: si el tipo ya no es transporte pero quedó
+ * `id_gira_transporte`, no debe aplicarse el filtro ni el atenuado de “mi vehículo”.
+ */
+function isLogisticsTransportEvent(item) {
+  if (!item) return false;
+  const tipo = Number(item.id_tipo_evento);
+  const isTipoTransporte =
+    tipo === TIPO_TRANSPORTE_SALIDA ||
+    tipo === TIPO_TRANSPORTE_LLEGADA ||
+    tipo === ID_TIPO_TRASLADO_INTERNO;
+  if (!isTipoTransporte) return false;
+  return !!item.id_gira_transporte;
+}
 const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
 
 function getInitialDeletedFilterState(storageKey, key, defaultValue = false) {
@@ -675,8 +692,8 @@ export default function UnifiedAgenda({
         if (filterDateTo && item.fecha > filterDateTo) return false;
       }
 
-      // Detectar si este evento de transporte es MI subida/bajada
-      const isTransportEvent = !!item.id_gira_transporte;
+      // Detectar si este evento de transporte es MI subida/bajada (solo si el tipo sigue siendo transporte)
+      const isTransportEvent = isLogisticsTransportEvent(item);
       let isMyTransport = false;
       let isMyUpOrDown = false;
       if (showOnlyMyTransport && isTransportEvent && item.id_gira_transporte) {
@@ -1755,7 +1772,7 @@ export default function UnifiedAgenda({
                         .includes("comida");
                     const isNonConvokedMeal = isMeal && !evt.is_convoked;
 
-                    const isTransportEvent = !!evt.id_gira_transporte;
+                    const isTransportEvent = isLogisticsTransportEvent(evt);
                     let isMyTransport = false;
                     let isMyUp = false;
                     let isMyDown = false;
