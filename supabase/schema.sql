@@ -1044,6 +1044,7 @@ CREATE TABLE public.repertorio_obras (
   estado_curaduria text DEFAULT 'Propuesto'::text CHECK (estado_curaduria = ANY (ARRAY['Propuesto'::text, 'Aceptado'::text, 'Rechazado'::text])),
   observacion_curaduria text,
   en_definicion boolean DEFAULT false,
+  duracion_segundos_concierto integer,
   CONSTRAINT repertorio_obras_pkey PRIMARY KEY (id),
   CONSTRAINT repertorio_obras_id_repertorio_fkey FOREIGN KEY (id_repertorio) REFERENCES public.programas_repertorios(id),
   CONSTRAINT repertorio_obras_id_arco_seleccionado_fkey FOREIGN KEY (id_arco_seleccionado) REFERENCES public.obras_arcos(id),

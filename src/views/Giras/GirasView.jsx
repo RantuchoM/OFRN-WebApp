@@ -1229,7 +1229,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
   }, [selectedGira?.fecha_desde, selectedGira?.fecha_hasta]);
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 relative">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-slate-50">
       <div className="bg-white border-b border-slate-200 sticky top-0 shadow-sm shrink-0 z-40">
         {isDetailView ? (
           <div className="px-2.5 sm:px-4 py-1.5 sm:py-2 flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-3 print:hidden">
@@ -1383,8 +1383,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
       <div
         ref={scrollContainerRef}
-        // Cambiamos 'overflow-x-hidden' por 'overflow-x-auto' y agregamos bg-slate-50
-        className="flex-1 overflow-y-auto overflow-x-auto relative bg-slate-50 print:overflow-visible print:h-auto"
+        className="relative min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto bg-slate-50 print:h-auto print:overflow-visible"
       >
         {mode === "FULL_AGENDA" && <AgendaGeneral supabase={supabase} />}
         {mode === "CALENDAR" && <MusicianCalendar supabase={supabase} />}

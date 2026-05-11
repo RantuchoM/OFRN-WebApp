@@ -16,6 +16,7 @@ import {
 import SearchableSelect from "../ui/SearchableSelect";
 import { calculateInstrumentation } from "../../utils/instrumentation";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups"; // <--- IMPORTAR
+import { normalizeForSearch } from "../../utils/sanitize";
 
 const capitalize = (s) => s && s[0].toUpperCase() + s.slice(1);
 
@@ -296,6 +297,7 @@ export default function DriveMatcherModal({
   supabase,
   catalogoInstrumentos,
 }) {
+  const [closing, setClosing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [driveFiles, setDriveFiles] = useState([]);
   const [assignments, setAssignments] = useState({});
@@ -315,6 +317,10 @@ export default function DriveMatcherModal({
 
   const instrumentInputRef = useRef(null);
   const editInputRef = useRef(null);
+  const particellaSelectAllRef = useRef(null);
+
+  /** Multiselección de particellas en el modal (tempId) */
+  const [selectedPartTempIds, setSelectedPartTempIds] = useState(() => new Set());
 
   const currentInstrumentation = calculateInstrumentation(parts);
   const suggestedParts = useMemo(
@@ -360,6 +366,10 @@ export default function DriveMatcherModal({
   }, [isOpen, parts]);
 
   useEffect(() => {
+    if (!isOpen) setSelectedPartTempIds(new Set());
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen) return;
     if (folderUrl) fetchFiles();
     else setDriveFiles([]);
@@ -369,6 +379,22 @@ export default function DriveMatcherModal({
   useEffect(() => {
     if (editingPartId && editInputRef.current) editInputRef.current.focus();
   }, [editingPartId]);
+
+  useEffect(() => {
+    const valid = new Set((parts || []).map((p) => p.tempId));
+    setSelectedPartTempIds((prev) => {
+      const next = new Set([...prev].filter((id) => valid.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [parts]);
+
+  useEffect(() => {
+    const el = particellaSelectAllRef.current;
+    if (!el) return;
+    const n = selectedPartTempIds.size;
+    const total = (parts || []).length;
+    el.indeterminate = total > 0 && n > 0 && n < total;
+  }, [selectedPartTempIds, parts]);
 
   const fetchFiles = async () => {
     if (!folderUrl) return;
@@ -521,8 +547,9 @@ export default function DriveMatcherModal({
   // ... (Gestsión de Partes: handleAddPart, handleDeletePart, etc. se mantienen igual)
   const allOptions = [...INSTRUMENT_GROUPS, ...(catalogoInstrumentos || [])];
 
+  const queryNorm = normalizeForSearch(instrumentQuery);
   const filteredInstruments = allOptions.filter((i) =>
-    i.instrumento.toLowerCase().includes(instrumentQuery.toLowerCase()),
+    normalizeForSearch(i.instrumento).includes(queryNorm),
   );
 
   const handleAddPart = () => {
@@ -535,7 +562,9 @@ export default function DriveMatcherModal({
     ) {
       const match =
         filteredInstruments.find(
-          (i) => i.instrumento.toLowerCase() === instrumentQuery.toLowerCase(),
+          (i) =>
+            normalizeForSearch(i.instrumento) ===
+            normalizeForSearch(instrumentQuery),
         ) || filteredInstruments[0];
       if (match) finalInstrId = match.id;
     }
@@ -611,6 +640,20 @@ export default function DriveMatcherModal({
   const handleDeletePart = (tempId) => {
     if (!confirm("¿Eliminar?")) return;
     if (onPartsChange) onPartsChange(parts.filter((p) => p.tempId !== tempId));
+  };
+
+  const handleBulkDeleteSelectedParticellas = () => {
+    const n = selectedPartTempIds.size;
+    if (n === 0) return;
+    const msg =
+      n === 1
+        ? "¿Eliminar esta particella?"
+        : `¿Eliminar las ${n} particellas seleccionadas?`;
+    if (!window.confirm(msg)) return;
+    const sel = selectedPartTempIds;
+    if (onPartsChange)
+      onPartsChange(parts.filter((x) => !sel.has(x.tempId)));
+    setSelectedPartTempIds(new Set());
   };
   const startEditing = (e, part) => {
     e.stopPropagation();
@@ -704,6 +747,16 @@ export default function DriveMatcherModal({
     if (onPartsChange) onPartsChange([...parts, newPart]);
   };
 
+  const requestClose = async () => {
+    if (closing) return;
+    setClosing(true);
+    try {
+      await onClose?.();
+    } finally {
+      setClosing(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   const sortedParts = [...parts].sort(sortByNameEs);
@@ -770,8 +823,11 @@ export default function DriveMatcherModal({
               />
             </button>
             <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-slate-600"
+              type="button"
+              disabled={closing}
+              onClick={() => void requestClose()}
+              className="text-slate-400 hover:text-slate-600 disabled:opacity-50"
+              title={closing ? "Guardando cambios…" : "Cerrar"}
             >
               <IconX size={24} />
             </button>
@@ -840,9 +896,63 @@ export default function DriveMatcherModal({
               </button>
             </div>
 
-            <div className="p-2 bg-slate-100 border-b text-xs font-bold text-slate-500 uppercase flex justify-between sticky top-0 z-10">
-              <span>Particellas ({parts.length})</span>
-              <span>Enlaces</span>
+            {selectedPartTempIds.size > 0 && (
+              <div className="mx-2 mt-1 mb-1 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50/90 px-2 py-1.5 text-[11px] shadow-sm shrink-0">
+                <span className="font-semibold text-rose-900">
+                  {selectedPartTempIds.size}{" "}
+                  {selectedPartTempIds.size === 1
+                    ? "seleccionada"
+                    : "seleccionadas"}
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPartTempIds(new Set())}
+                    className="rounded border border-slate-200 bg-white px-2 py-0.5 font-bold text-slate-600 hover:bg-slate-50"
+                  >
+                    Quitar selección
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBulkDeleteSelectedParticellas}
+                    className="flex items-center gap-1 rounded bg-red-600 px-2 py-0.5 font-bold text-white hover:bg-red-700"
+                  >
+                    <IconTrash size={12} />
+                    Eliminar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="p-2 bg-slate-100 border-b text-xs font-bold text-slate-500 uppercase flex justify-between items-center gap-2 sticky top-0 z-10">
+              <div className="flex items-center gap-2 min-w-0">
+                <input
+                  ref={particellaSelectAllRef}
+                  type="checkbox"
+                  disabled={parts.length === 0}
+                  checked={
+                    parts.length > 0 &&
+                    selectedPartTempIds.size === parts.length
+                  }
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedPartTempIds(
+                        new Set(parts.map((x) => x.tempId)),
+                      );
+                    } else {
+                      setSelectedPartTempIds(new Set());
+                    }
+                  }}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                  title="Seleccionar todas"
+                  aria-label="Seleccionar todas las particellas"
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <span className="truncate">
+                  Particellas ({parts.length})
+                </span>
+              </div>
+              <span className="shrink-0">Enlaces</span>
             </div>
 
             <div className="overflow-y-auto p-3 space-y-2 flex-1">
@@ -876,6 +986,27 @@ export default function DriveMatcherModal({
                     className={`p-2 rounded border transition-all relative group ${baseCard} ${selectionDropCue}`}
                   >
                     <div className="flex justify-between items-center gap-2 flex-wrap">
+                      <label
+                        className="shrink-0 flex items-start pt-0.5 cursor-pointer"
+                        onClick={(e) => e.stopPropagation()}
+                        title="Seleccionar para eliminar varias"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedPartTempIds.has(part.tempId)}
+                          onChange={() =>
+                            setSelectedPartTempIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(part.tempId))
+                                next.delete(part.tempId);
+                              else next.add(part.tempId);
+                              return next;
+                            })
+                          }
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          aria-label={`Seleccionar ${part.nombre_archivo || "particella"}`}
+                        />
+                      </label>
                       <div className="flex-1 min-w-0">
                         {isEditing ? (
                           <input
@@ -1084,10 +1215,19 @@ export default function DriveMatcherModal({
         </div>
         <div className="p-4 border-t border-slate-200 bg-white flex justify-end shrink-0 z-30">
           <button
-            onClick={onClose}
-            className="px-6 py-2 rounded bg-indigo-600 text-white font-bold hover:bg-indigo-700 shadow text-sm"
+            type="button"
+            disabled={closing}
+            onClick={() => void requestClose()}
+            className="flex items-center gap-2 px-6 py-2 rounded bg-indigo-600 text-white font-bold hover:bg-indigo-700 shadow text-sm disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Cerrar
+            {closing ? (
+              <>
+                <IconLoader size={16} className="animate-spin shrink-0" />
+                Guardando…
+              </>
+            ) : (
+              "Cerrar"
+            )}
           </button>
         </div>
       </div>

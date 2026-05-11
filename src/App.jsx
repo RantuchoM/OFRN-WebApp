@@ -984,7 +984,7 @@ const ProtectedApp = ({ initialTab }) => {
       </aside>
 
       {/* MAIN */}
-      <div className="flex-1 flex flex-col h-full relative overflow-hidden">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header className="h-14 md:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-4 sm:px-8 shrink-0 z-30 gap-2 md:gap-4">
           {/* 1. SECCIÓN IZQUIERDA (Logo/Título/Suplantación) */}
           <div className="flex items-center gap-2 shrink-0">
@@ -1191,7 +1191,7 @@ const ProtectedApp = ({ initialTab }) => {
 
         <main
           key={roles.join(",") || "all"}
-          className="flex-1 overflow-hidden relative bg-slate-50 print:overflow-visible print:static"
+          className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-50 print:static print:overflow-visible"
         >
           {" "}
           {renderContent()}

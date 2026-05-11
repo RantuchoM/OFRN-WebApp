@@ -31,6 +31,8 @@ import {
   IconFilter,
   IconGripVertical,
   IconCopy,
+  IconRefresh,
+  IconViolin,
 } from "../ui/Icons";
 import {
   updateWorkPosition,
@@ -42,6 +44,8 @@ import {
   calculateInstrumentation,
   calculateTotalDuration,
   calculateNetDuration,
+  effectiveRepertorioObraDurationSeconds,
+  hasRepertorioObraDurationOverride,
   getInstrumentValue,
   hasStrings,
 } from "../../utils/instrumentation";
@@ -79,6 +83,176 @@ const normalizeSearchText = (value) =>
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+
+function secondsToMmSsDurationInput(totalSeconds) {
+  if (totalSeconds == null || !Number.isFinite(Number(totalSeconds))) return "";
+  const n = Math.max(0, Math.floor(Number(totalSeconds)));
+  const m = Math.floor(n / 60);
+  const s = n % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** Celda Dur.repertorio: sin "0:00" si no hay duración (catálogo ni override > 0). */
+function formatRepertorioDuracionVisible(seconds) {
+  const n = Number(seconds);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return formatSecondsToTime(n);
+}
+
+/** Duración por programa: cursiva si hay override; escritorio = IconEdit al hover; móvil = IconEdit junto al tiempo; al editar, IconRefresh restaura catálogo. */
+function RepertorioProgramDurationCell({ item, isEditor, updateWorkDetail, compact }) {
+  const effective = effectiveRepertorioObraDurationSeconds(item);
+  const hasOv = hasRepertorioObraDurationOverride(item);
+  const catalogSeconds = item.obras?.duracion_segundos ?? 0;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(hasOv ? secondsToMmSsDurationInput(item.duracion_segundos_concierto) : "");
+    }
+  }, [item.id, item.duracion_segundos_concierto, editing, hasOv]);
+
+  const revertCatalog = () => {
+    updateWorkDetail(item.id, "duracion_segundos_concierto", null);
+    setDraft("");
+    setEditing(false);
+  };
+
+  const persistDraftAndClose = (raw) => {
+    const t = String(raw ?? "").trim();
+    if (!t) {
+      if (hasRepertorioObraDurationOverride(item)) {
+        updateWorkDetail(item.id, "duracion_segundos_concierto", null);
+      }
+    } else {
+      updateWorkDetail(item.id, "duracion_segundos_concierto", inputToSeconds(t));
+    }
+    setEditing(false);
+  };
+
+  const catalogTitle = hasOv
+    ? `Duración en catálogo: ${formatRepertorioDuracionVisible(catalogSeconds) || "—"}`
+    : undefined;
+  const spanItalic = hasOv ? "italic text-indigo-900 font-semibold" : "";
+
+  if (!isEditor) {
+    return (
+      <span
+        className={`font-mono tabular-nums text-[10px] text-slate-600 ${spanItalic}`}
+        title={catalogTitle}
+      >
+        {formatRepertorioDuracionVisible(effective)}
+      </span>
+    );
+  }
+
+  if (compact) {
+    return (
+      <div className="flex flex-col items-end gap-0.5 min-w-0">
+        <div className="flex items-center gap-0.5 shrink-0">
+          <span
+            className={`font-mono tabular-nums text-[10px] text-slate-600 ${spanItalic}`}
+            title={catalogTitle}
+          >
+            {formatRepertorioDuracionVisible(effective)}
+          </span>
+          <button
+            type="button"
+            className="p-0.5 rounded text-slate-400 hover:text-fixed-indigo-600 shrink-0"
+            title={editing ? "Guardar y cerrar" : "Editar duración solo este programa"}
+            aria-label={editing ? "Guardar duración" : "Editar duración del programa"}
+            onClick={() => {
+              if (editing) persistDraftAndClose(draft);
+              else {
+                setDraft(hasOv ? secondsToMmSsDurationInput(item.duracion_segundos_concierto) : "");
+                setEditing(true);
+              }
+            }}
+          >
+            <IconEdit size={11} />
+          </button>
+        </div>
+        {editing && (
+          <div className="flex items-center gap-1 justify-end w-full">
+            <input
+              type="text"
+              className="w-[4.25rem] text-[9px] px-1 py-0.5 rounded border border-slate-200 font-mono"
+              placeholder="mm:ss"
+              title="Minutos (ej. 8) o mm:ss. Vacío = catálogo."
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => persistDraftAndClose(draft)}
+              autoFocus
+            />
+            <button
+              type="button"
+              className="p-0.5 rounded text-slate-500 hover:text-emerald-600 shrink-0"
+              title="Volver a la duración del catálogo"
+              aria-label="Restaurar duración original"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={revertCatalog}
+            >
+              <IconRefresh size={12} />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (editing) {
+    return (
+      <div className="flex flex-col items-center gap-1 py-0.5 w-full min-w-0 px-0.5">
+        <div className="flex items-center justify-center gap-1 w-full">
+          <input
+            type="text"
+            className="flex-1 min-w-0 max-w-[5rem] text-[10px] px-1 py-0.5 rounded border border-slate-200 font-mono text-center"
+            placeholder="mm:ss"
+            title="Minutos o mm:ss; vacío = obra."
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => persistDraftAndClose(draft)}
+            autoFocus
+          />
+          <button
+            type="button"
+            className="p-0.5 rounded text-slate-500 hover:text-emerald-600 shrink-0"
+            title="Volver a la duración del catálogo"
+            aria-label="Restaurar duración original"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={revertCatalog}
+          >
+            <IconRefresh size={14} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group relative flex items-center justify-center min-h-[2rem] px-6">
+      <span
+        className={`font-mono tabular-nums text-[10px] text-slate-600 ${spanItalic}`}
+        title={catalogTitle}
+      >
+        {formatRepertorioDuracionVisible(effective)}
+      </span>
+      <button
+        type="button"
+        className="absolute right-0 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-fixed-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"
+        title="Editar duración solo para este programa"
+        aria-label="Editar duración del programa"
+        onClick={() => {
+          setDraft(hasOv ? secondsToMmSsDurationInput(item.duracion_segundos_concierto) : "");
+          setEditing(true);
+        }}
+      >
+        <IconEdit size={14} />
+      </button>
+    </div>
+  );
+}
 
 // --- RENDERER DE TEXTO RICO ---
 const RichTextPreview = ({ content, className = "" }) => {
@@ -124,6 +298,107 @@ const MultiLineTitle = ({ content }) => {
     </div>
   );
 };
+
+const NOTAS_STICKY_PANEL_CLASS =
+  "bg-yellow-50 border border-yellow-100 text-yellow-900 rounded-lg shadow-[2px_3px_10px_rgba(234,179,8,0.22)] relative leading-tight rotate-[0.15deg]";
+
+/** Notas por programa: stick-it en escritorio; estado local + guardado en blur (evita perder foco). */
+function NotasProgramaStickyCell({ item, isEditor, updateWorkDetail, shrinkWhenEmpty = false }) {
+  const editingRef = useRef(false);
+  const [draft, setDraft] = useState(() => item.notas_especificas ?? "");
+  const [notesFocused, setNotesFocused] = useState(false);
+
+  useEffect(() => {
+    if (!editingRef.current) {
+      setDraft(item.notas_especificas ?? "");
+    }
+  }, [item.id, item.notas_especificas]);
+
+  const stickyWrap = (inner) => (
+    <div
+      className={`${NOTAS_STICKY_PANEL_CLASS} ${shrinkWhenEmpty ? "px-2 py-1" : "p-2"}`}
+    >
+      <IconAlertCircle
+        size={10}
+        className={`absolute left-1.5 text-amber-500/75 pointer-events-none ${shrinkWhenEmpty ? "top-1.5" : "top-2"}`}
+      />
+      <div className="min-w-0 pl-3">{inner}</div>
+    </div>
+  );
+
+  if (isEditor) {
+    const showPostIt = draft.trim().length > 0 || notesFocused;
+    const collapsedEmpty = shrinkWhenEmpty && !showPostIt;
+    const textarea = (
+      <textarea
+        rows={collapsedEmpty ? 1 : shrinkWhenEmpty && showPostIt ? 1 : 3}
+        spellCheck
+        className={
+          collapsedEmpty
+            ? "w-full min-h-0 max-h-[1.35rem] resize-none overflow-hidden bg-transparent border-0 p-0 text-[10px] outline-none focus:ring-0 leading-snug text-slate-700 placeholder:text-slate-400"
+            : showPostIt
+              ? shrinkWhenEmpty
+                ? "w-full min-h-[1.35rem] max-h-[6.5rem] resize-y overflow-y-auto bg-transparent border-0 p-0 text-[10px] outline-none focus:ring-0 leading-snug text-yellow-950 placeholder:text-amber-800/40 [field-sizing:content]"
+                : "w-full min-h-[2.75rem] resize-y bg-transparent border-0 p-0 text-[10px] outline-none focus:ring-0 leading-snug text-yellow-950 placeholder:text-amber-800/40"
+              : "w-full min-h-[2.75rem] resize-y bg-transparent border-0 p-0 text-[10px] outline-none focus:ring-0 leading-snug text-slate-700 placeholder:text-slate-400"
+        }
+        placeholder="Notas para este programa…"
+        value={draft}
+        onFocus={() => {
+          editingRef.current = true;
+          setNotesFocused(true);
+        }}
+        onBlur={() => {
+          editingRef.current = false;
+          setNotesFocused(false);
+          const prev = item.notas_especificas ?? "";
+          if (draft !== prev) {
+            updateWorkDetail(item.id, "notas_especificas", draft);
+          }
+        }}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+    );
+
+    return (
+      <div
+        className={`min-w-0 max-w-full ${collapsedEmpty || (shrinkWhenEmpty && showPostIt) ? "px-1 py-0" : "p-1"}`}
+      >
+        {showPostIt ? (
+          stickyWrap(textarea)
+        ) : (
+          <div
+            className={`rounded-lg border border-dashed border-slate-200 bg-white shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] ${collapsedEmpty ? "px-1.5 py-0.5" : "p-2"}`}
+          >
+            {textarea}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (!item.notas_especificas?.trim()) {
+    return (
+      <span
+        className={`block text-[10px] text-slate-300 italic text-center ${shrinkWhenEmpty ? "px-1 py-0" : "p-2"}`}
+      >
+        —
+      </span>
+    );
+  }
+
+  return (
+    <div className={`min-w-0 ${shrinkWhenEmpty ? "px-1 py-0" : "p-1"}`}>
+      {stickyWrap(
+        <div
+          className={`text-[10px] text-yellow-950 [&_*]:text-inherit [&_a]:underline ${shrinkWhenEmpty ? "max-h-[6.5rem] overflow-y-auto pr-0.5" : ""}`}
+        >
+          <RichTextPreview content={item.notas_especificas} />
+        </div>,
+      )}
+    </div>
+  );
+}
 
 // --- FILTRO POR ORGÁNICO (misma estructura que RepertoireView) ---
 const InstrumentationFilterModal = ({
@@ -580,7 +855,8 @@ export default function RepertoireManager({
           ids_solistas,
           google_drive_shortcut_id, 
           excluir, 
-          id_arco_seleccionado, 
+          id_arco_seleccionado,
+          duracion_segundos_concierto,
           obras (
               id, titulo, duracion_segundos, estado, link_drive, link_youtube, anio_composicion, instrumentacion, observaciones, comentarios,
               obras_arcos (id, nombre, link, descripcion, id_drive_folder),
@@ -896,6 +1172,27 @@ export default function RepertoireManager({
       : obra.compositores
         ? `${obra.compositores.apellido}, ${obra.compositores.nombre}`
         : "Anónimo";
+
+  /** Lista { apellido, nombre } por compositor (p. ej. celda escritorio en dos líneas). */
+  const getComposersNameParts = (obra) => {
+    if (obra.obras_compositores?.length > 0) {
+      return obra.obras_compositores
+        .filter((oc) => !oc.rol || oc.rol === "compositor")
+        .map((oc) => ({
+          apellido: oc.compositores?.apellido ?? "",
+          nombre: oc.compositores?.nombre ?? "",
+        }));
+    }
+    if (obra.compositores) {
+      return [
+        {
+          apellido: obra.compositores.apellido ?? "",
+          nombre: obra.compositores.nombre ?? "",
+        },
+      ];
+    }
+    return [{ apellido: "Anónimo", nombre: "" }];
+  };
   const getArranger = (obra) => {
     const arr = obra.obras_compositores?.find((oc) => oc.rol === "arreglador");
     return arr
@@ -1159,19 +1456,19 @@ export default function RepertoireManager({
         title={rowTitle}
         className={`${rowClassName} ${isOver ? "ring-2 ring-inset ring-indigo-400 bg-indigo-50/80" : ""}`}
       >
-        <td className="p-1 text-center w-8 align-middle">
+        <td className="px-0 py-1 text-center align-middle">
           {isEditor && !isCompact && (
             <div
               {...listeners}
               {...attributes}
-              className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-600 inline-flex touch-none"
+              className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-600 inline-flex touch-none justify-center w-full"
               title="Arrastrar para reordenar"
             >
-              <IconGripVertical size={16} />
+              <IconGripVertical size={14} />
             </div>
           )}
         </td>
-        <td className="p-1 text-center font-bold text-slate-500">
+        <td className="px-0 py-1 text-center font-bold text-slate-500 tabular-nums">
           <span>{idx + 1}</span>
         </td>
         {children}
@@ -1182,12 +1479,12 @@ export default function RepertoireManager({
   const BLOCK_ZONE_START = (repId) => `block-${repId}-start`;
   const BLOCK_ZONE_END = (repId) => `block-${repId}-end`;
 
-  const BlockDropZoneRow = ({ zoneId, label }) => {
+  const BlockDropZoneRow = ({ zoneId, label, colSpan }) => {
     const { setNodeRef, isOver } = useDroppable({ id: zoneId });
     return (
       <tr ref={setNodeRef}>
         <td
-          colSpan={13}
+          colSpan={colSpan}
           className={`min-h-[28px] py-1 px-2 border-2 border-dashed rounded text-[10px] text-slate-400 transition-colors ${
             isOver ? "border-indigo-400 bg-indigo-50 text-indigo-600" : "border-slate-200 bg-slate-50/50"
           }`}
@@ -1198,7 +1495,7 @@ export default function RepertoireManager({
     );
   };
 
-  const QuickWorkRow = ({ rep }) => {
+  const QuickWorkRow = ({ rep, definitionMode }) => {
     const MIN_SEARCH_LEN = 2;
     const [composerInput, setComposerInput] = useState("");
     const [composerOptions, setComposerOptions] = useState([]);
@@ -1863,195 +2160,196 @@ export default function RepertoireManager({
           Nueva
         </td>
         <td className="p-1 text-center text-slate-300">+</td>
-        <td className="p-1 align-middle">
-          <div className="relative">
-            <input
-              type="text"
-              value={composerInput}
-              onChange={handleComposerChange}
-              onKeyDown={handleKeyDown}
-              placeholder="Compositor (Apellido, Nombre)"
-              ref={composerInputRef}
-              className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
-            />
-            {searchingComposer && (
-              <div className="absolute right-1 top-1.5">
-                <IconLoader size={12} className="animate-spin text-slate-400" />
-              </div>
-            )}
-            {showComposerDropdown &&
-              composerDropdownPos &&
-              (composerOptions.length > 0 || composerInput.trim().length >= 2) &&
-              createPortal(
-                <div
-                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs min-w-[220px]"
-                  style={{
-                    top: composerDropdownPos.top,
-                    left: composerDropdownPos.left,
-                    width: composerDropdownPos.width,
-                    maxHeight: composerDropdownPos.maxHeight,
-                  }}
-                >
-                  {composerOptions.map((c, index) => (
-                    <div
-                      key={c.id}
-                      className={`px-2 py-1 cursor-pointer flex justify-between items-center ${index === activeComposerIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
-                      onMouseEnter={() => setActiveComposerIndex(index)}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        handleComposerSelect(c);
-                      }}
-                    >
-                      <span className="text-[11px] text-slate-700">
-                        {c.apellido}, {c.nombre}
-                      </span>
-                    </div>
-                  ))}
-                  {composerOptions.length === 0 && composerInput.trim().length >= 2 && (
-                    <button
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        handleQuickCreateComposerFromInput();
-                      }}
-                      className="w-full text-left px-2 py-1 border-t border-slate-100 text-fixed-indigo-600 text-[10px] font-semibold hover:bg-fixed-indigo-50"
-                    >
-                      + Crear "{composerInput.trim()}"
-                    </button>
-                  )}
-                </div>,
-                document.body,
+        <td className="min-w-0 p-1 align-middle">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
+            <div className="relative max-w-[42%] shrink-0 min-w-[7rem]">
+              <input
+                type="text"
+                value={composerInput}
+                onChange={handleComposerChange}
+                onKeyDown={handleKeyDown}
+                placeholder="Compositor (Apellido, Nombre)"
+                ref={composerInputRef}
+                className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+              />
+              {searchingComposer && (
+                <div className="absolute right-1 top-1.5">
+                  <IconLoader size={12} className="animate-spin text-slate-400" />
+                </div>
               )}
-          </div>
-        </td>
-        <td className="p-1 align-middle">
-          <div className="relative flex flex-col gap-1">
-            <input
-              type="text"
-              value={titulo}
-              onChange={(e) => {
-                const val = e.target.value;
-                setTitulo(val);
-                setSelectedWork(null);
-                if (selectedComposer && val.trim().length >= MIN_SEARCH_LEN) {
-                  setSearchingWork(true);
-                  debouncedSearchWorks(selectedComposer.id, val);
-                } else {
-                  setWorkOptions([]);
-                  setShowWorkDropdown(false);
-                  setIsNewWorkForComposer(false);
-                }
-              }}
-              onFocus={() => {
-                if (selectedComposer) {
-                  setSearchingWork(true);
-                  debouncedSearchWorks(selectedComposer.id, "");
-                }
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder="Título de la obra"
-              ref={workInputRef}
-              className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
-            />
-            {selectedComposer && titulo.trim().length >= MIN_SEARCH_LEN && isNewWorkForComposer && (
-              <span className="inline-flex items-center gap-1 text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 w-fit">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Nueva obra para este compositor
-              </span>
-            )}
-            {showWorkDropdown &&
-              selectedComposer &&
-              workDropdownPos &&
-              (workOptions.length > 0 || titulo.trim().length >= MIN_SEARCH_LEN) &&
-              createPortal(
-                <div
-                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs"
-                  style={{
-                    top: workDropdownPos.top,
-                    left: workDropdownPos.left,
-                    width: workDropdownPos.width,
-                    maxHeight: workDropdownPos.maxHeight,
-                  }}
-                >
-                  <div className="px-2 py-1 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500 flex items-center justify-between">
-                    <span>Obras del archivo</span>
-                    {searchingWork && (
-                      <IconLoader size={10} className="animate-spin text-slate-400" />
-                    )}
-                  </div>
-                  {workOptions.map((w, index) => {
-                    const cleanTitle = (w.titulo || "").replace(/<[^>]*>?/gm, "") || "";
-                    return (
+              {showComposerDropdown &&
+                composerDropdownPos &&
+                (composerOptions.length > 0 || composerInput.trim().length >= 2) &&
+                createPortal(
+                  <div
+                    className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs min-w-[220px]"
+                    style={{
+                      top: composerDropdownPos.top,
+                      left: composerDropdownPos.left,
+                      width: composerDropdownPos.width,
+                      maxHeight: composerDropdownPos.maxHeight,
+                    }}
+                  >
+                    {composerOptions.map((c, index) => (
                       <div
-                        key={w.id}
-                        className={`w-full px-2 py-1.5 flex items-center gap-2 ${index === activeWorkIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
-                        onMouseEnter={() => setActiveWorkIndex(index)}
+                        key={c.id}
+                        className={`px-2 py-1 cursor-pointer flex justify-between items-center ${index === activeComposerIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
+                        onMouseEnter={() => setActiveComposerIndex(index)}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          handleComposerSelect(c);
+                        }}
                       >
-                        <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[11px] text-slate-700">
+                          {c.apellido}, {c.nombre}
+                        </span>
+                      </div>
+                    ))}
+                    {composerOptions.length === 0 && composerInput.trim().length >= 2 && (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          handleQuickCreateComposerFromInput();
+                        }}
+                        className="w-full text-left px-2 py-1 border-t border-slate-100 text-fixed-indigo-600 text-[10px] font-semibold hover:bg-fixed-indigo-50"
+                      >
+                        + Crear "{composerInput.trim()}"
+                      </button>
+                    )}
+                  </div>,
+                  document.body,
+                )}
+            </div>
+            <div className="relative flex min-w-0 flex-1 flex-col gap-1">
+              <input
+                type="text"
+                value={titulo}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setTitulo(val);
+                  setSelectedWork(null);
+                  if (selectedComposer && val.trim().length >= MIN_SEARCH_LEN) {
+                    setSearchingWork(true);
+                    debouncedSearchWorks(selectedComposer.id, val);
+                  } else {
+                    setWorkOptions([]);
+                    setShowWorkDropdown(false);
+                    setIsNewWorkForComposer(false);
+                  }
+                }}
+                onFocus={() => {
+                  if (selectedComposer) {
+                    setSearchingWork(true);
+                    debouncedSearchWorks(selectedComposer.id, "");
+                  }
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder="Título de la obra"
+                ref={workInputRef}
+                className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+              />
+              {selectedComposer && titulo.trim().length >= MIN_SEARCH_LEN && isNewWorkForComposer && (
+                <span className="inline-flex items-center gap-1 text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 w-fit">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  Nueva obra para este compositor
+                </span>
+              )}
+              {showWorkDropdown &&
+                selectedComposer &&
+                workDropdownPos &&
+                (workOptions.length > 0 || titulo.trim().length >= MIN_SEARCH_LEN) &&
+                createPortal(
+                  <div
+                    className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs"
+                    style={{
+                      top: workDropdownPos.top,
+                      left: workDropdownPos.left,
+                      width: workDropdownPos.width,
+                      maxHeight: workDropdownPos.maxHeight,
+                    }}
+                  >
+                    <div className="px-2 py-1 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500 flex items-center justify-between">
+                      <span>Obras del archivo</span>
+                      {searchingWork && (
+                        <IconLoader size={10} className="animate-spin text-slate-400" />
+                      )}
+                    </div>
+                    {workOptions.map((w, index) => {
+                      const cleanTitle = (w.titulo || "").replace(/<[^>]*>?/gm, "") || "";
+                      return (
+                        <div
+                          key={w.id}
+                          className={`w-full px-2 py-1.5 flex items-center gap-2 ${index === activeWorkIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
+                          onMouseEnter={() => setActiveWorkIndex(index)}
+                        >
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              title="Copiar título en la fila (crear nueva obra)"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setSelectedWork(w);
+                                setTitulo(cleanTitle);
+                                setShowWorkDropdown(false);
+                                setIsNewWorkForComposer(false);
+                              }}
+                              className="p-1 rounded-full text-slate-400 hover:text-fixed-indigo-600 hover:bg-fixed-indigo-50"
+                            >
+                              <IconCopy size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              title="Insertar esta obra en el bloque"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleInsertExistingWork(w);
+                              }}
+                              className="p-1 rounded-full text-fixed-indigo-600 hover:text-white hover:bg-fixed-indigo-600 bg-fixed-indigo-50"
+                            >
+                              <IconPlus size={12} />
+                            </button>
+                          </div>
                           <button
                             type="button"
-                            title="Copiar título en la fila (crear nueva obra)"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              setSelectedWork(w);
-                              setTitulo(cleanTitle);
-                              setShowWorkDropdown(false);
-                              setIsNewWorkForComposer(false);
-                            }}
-                            className="p-1 rounded-full text-slate-400 hover:text-fixed-indigo-600 hover:bg-fixed-indigo-50"
-                          >
-                            <IconCopy size={12} />
-                          </button>
-                          <button
-                            type="button"
-                            title="Insertar esta obra en el bloque"
                             onMouseDown={(e) => {
                               e.preventDefault();
                               handleInsertExistingWork(w);
                             }}
-                            className="p-1 rounded-full text-fixed-indigo-600 hover:text-white hover:bg-fixed-indigo-600 bg-fixed-indigo-50"
+                            className="flex-1 text-left flex flex-col gap-0.5"
                           >
-                            <IconPlus size={12} />
+                            <span
+                              className="font-semibold text-[11px] text-slate-800 truncate"
+                              title={cleanTitle}
+                            >
+                              {cleanTitle}
+                            </span>
+                            <div className="flex items-center justify-between text-[10px] text-slate-500">
+                              <span className="font-mono">
+                                {w.instrumentacion ||
+                                  calculateInstrumentation(w.obras_particellas || []) ||
+                                  "-"}
+                              </span>
+                              <span className="font-mono">
+                                {formatSecondsToTime(w.duracion_segundos || 0)}
+                              </span>
+                            </div>
                           </button>
                         </div>
-                        <button
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            handleInsertExistingWork(w);
-                          }}
-                          className="flex-1 text-left flex flex-col gap-0.5"
-                        >
-                          <span
-                            className="font-semibold text-[11px] text-slate-800 truncate"
-                            title={cleanTitle}
-                          >
-                            {cleanTitle}
-                          </span>
-                          <div className="flex items-center justify-between text-[10px] text-slate-500">
-                            <span className="font-mono">
-                              {w.instrumentacion ||
-                                calculateInstrumentation(w.obras_particellas || []) ||
-                                "-"}
-                            </span>
-                            <span className="font-mono">
-                              {formatSecondsToTime(w.duracion_segundos || 0)}
-                            </span>
-                          </div>
-                        </button>
+                      );
+                    })}
+                    {workOptions.length === 0 && titulo.trim().length >= MIN_SEARCH_LEN && (
+                      <div className="px-2 py-1 text-[10px] text-slate-400 border-t border-slate-100">
+                        Sin coincidencias en el archivo para este compositor.
                       </div>
-                    );
-                  })}
-                  {workOptions.length === 0 && titulo.trim().length >= MIN_SEARCH_LEN && (
-                    <div className="px-2 py-1 text-[10px] text-slate-400 border-t border-slate-100">
-                      Sin coincidencias en el archivo para este compositor.
-                    </div>
-                  )}
-                </div>,
-                document.body,
-              )}
+                    )}
+                  </div>,
+                  document.body,
+                )}
+            </div>
           </div>
         </td>
+        {definitionMode && <td className="p-1 bg-slate-50/40" aria-hidden />}
         <td className="p-1 text-center">
           <input
             type="text"
@@ -2124,7 +2422,6 @@ export default function RepertoireManager({
               )}
           </div>
         </td>
-        <td className="p-1" />
         <td className="p-1" />
         <td className="p-1" />
         <td className="p-1 text-right">
@@ -2256,8 +2553,8 @@ export default function RepertoireManager({
         return (
           <div
             key={rep.id}
-            className={`border border-slate-200 ${
-              isCompact ? "mb-4 rounded shadow-sm" : "shadow-sm bg-white mb-6"
+            className={`flex w-full max-w-full min-w-0 flex-col items-stretch border border-slate-200 ${
+              isCompact ? "mb-4 rounded shadow-sm" : "bg-white shadow-sm"
             } overflow-visible ${activeDragId ? "z-10" : ""}`}
           >
             {/* --- HEADER DEL BLOQUE (TÍTULO Y DURACIÓN) --- */}
@@ -2375,10 +2672,13 @@ export default function RepertoireManager({
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-mono font-bold text-slate-600 bg-white px-1.5 rounded border">
-                  Total: {calculateTotalDuration(rep.repertorio_obras)}{" "}
-                  <span className="text-slate-500 font-normal">
-                    (Neto {calculateNetDuration(rep.repertorio_obras)})
-                  </span>
+                  Total: {calculateTotalDuration(rep.repertorio_obras)}
+                  {(rep.repertorio_obras || []).some((o) => o.excluir) ? (
+                    <span className="text-slate-500 font-normal">
+                      {" "}
+                      (Neto {calculateNetDuration(rep.repertorio_obras)})
+                    </span>
+                  ) : null}
                 </span>
                 {isEditor && (
                   <>
@@ -2438,7 +2738,7 @@ export default function RepertoireManager({
                     <div className="flex gap-2 pl-2 pr-1">
                       <div className="flex-1 min-w-0">
                         {/* Fila 1: Orden, Compositor, Duración */}
-                        <div className="flex justify-between items-start mb-1">
+                        <div className="flex justify-between items-center mb-1">
                           <div className="flex items-center gap-2">
                             <span className="bg-slate-100 text-slate-500 text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full relative">
                               {idx + 1}
@@ -2453,8 +2753,13 @@ export default function RepertoireManager({
                               {getComposers(item.obras)}
                             </span>
                           </div>
-                          <span className="text-[10px] font-mono bg-slate-50 px-1.5 py-0.5 rounded text-slate-600 border border-slate-100">
-                            {formatSecondsToTime(item.obras.duracion_segundos)}
+                          <span className="text-[10px] font-mono bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100 inline-flex items-start justify-end">
+                            <RepertorioProgramDurationCell
+                              item={item}
+                              isEditor={isEditor}
+                              updateWorkDetail={updateWorkDetail}
+                              compact
+                            />
                           </span>
                         </div>
 
@@ -2522,18 +2827,14 @@ export default function RepertoireManager({
                           {renderMyPartBadge(item.obras)}
                         </div>
 
-                        {/* Fila 4: Notas */}
-                        {item.notas_especificas && (
+                        {/* Fila 4: Notas (misma línea stick-it que escritorio en lectura) */}
+                        {(item.notas_especificas?.trim() || isEditor) && (
                           <div className="mb-2">
-                            <div className="bg-yellow-50 border border-yellow-100 text-yellow-800 text-[10px] p-1.5 rounded relative">
-                              <IconAlertCircle
-                                size={10}
-                                className="absolute top-2 left-1 opacity-50"
-                              />
-                              <div className="pl-3 leading-tight">
-                                <RichTextPreview content={item.notas_especificas} />
-                              </div>
-                            </div>
+                            <NotasProgramaStickyCell
+                              item={item}
+                              isEditor={isEditor}
+                              updateWorkDetail={updateWorkDetail}
+                            />
                           </div>
                         )}
 
@@ -2731,52 +3032,65 @@ export default function RepertoireManager({
             {/* ============================================================ */}
             {/* VISTA ESCRITORIO: TABLA (Visible solo en md o superior)      */}
             {/* ============================================================ */}
-            <div className="hidden md:block pb-4 overflow-x-auto overflow-y-visible">
-              <table className="w-full text-left text-xs border-collapse table-fixed min-w-[1200px]">
-                {/* --- NUEVO: DEFINICIÓN DE ANCHOS INDEPENDIENTE DE HEADER --- */}
+            <div className="hidden min-w-0 w-full max-w-none pb-4 md:grid md:grid-cols-1 md:[grid-template-columns:minmax(0,1fr)] md:overflow-x-auto md:overflow-y-visible [&>*]:max-w-none [&>*]:min-w-0">
+              <table
+                className="w-full max-w-none min-w-0 table-fixed border-collapse text-left text-xs"
+                style={{ width: "100%", tableLayout: "fixed" }}
+              >
+                {/* Px estrechos + columna principal en % para que `table-layout:fixed` llene el ancho real del bloque. */}
                 <colgroup>
-                  <col className="w-8" />
-                  <col className="w-8" />
-                  <col className="w-10" />
-                  <col className="w-[88px]" />
-                  <col className="w-[280px]" />
-                  {isDefinitionMode && <col className="w-[160px]" />}
-                  <col className="w-[150px]" />
-                  <col className="w-14" />
-                  <col className="w-[96px]" />
-                  <col className="w-[72px]" />
-                  <col className="w-28" />
-                  <col className="w-[160px]" />
-                  <col className="w-12" />
-                  <col className="w-[72px]" />
-                  <col className="w-10" />
+                  <col style={{ width: "26px" }} />
+                  <col style={{ width: "22px" }} />
+                  <col style={{ width: "32px" }} />
+                  <col style={{ width: "48%" }} />
+                  {isDefinitionMode && <col style={{ width: "140px" }} />}
+                  <col style={{ width: "124px" }} />
+                  <col style={{ width: "90px" }} />
+                  <col style={{ width: "88px" }} />
+                  <col style={{ width: "62px" }} />
+                  <col style={{ width: "110px" }} />
+                  <col style={{ width: "118px" }} />
+                  <col style={{ width: "32px" }} />
                 </colgroup>
 
                 <thead className={tableHeaderClasses(isCompact)}>
                   <tr>
-                    <th className="p-1 w-8" aria-label="Arrastrar" />
-                    <th className="p-1 text-center">#</th>
-                    <th className="p-1 text-center">GD</th>
-                    <th className="p-1">Compositor</th>
-                    <th className="p-1">Obra</th>
+                    <th className="px-0 py-1 w-[26px]" aria-label="Arrastrar" />
+                    <th className="px-0 py-1 text-center">#</th>
+                    <th className="px-0 py-1 text-center">GD</th>
+                    <th className="p-1 min-w-0">Compositor / Obra</th>
                     {isDefinitionMode && (
                       <th className="p-1 text-center">Curaduría</th>
                     )}
                     <th className="p-1 text-center">Instr.</th>
-                    <th className="p-1 text-center">Dur.</th>
+                    <th
+                      className="p-1 text-center"
+                      title="Cursiva = duración solo este programa. Pase el mouse para editar."
+                    >
+                      Dur.
+                    </th>
                     <th className="p-1">Solista</th>
                     <th className="p-1">Arr.</th>
                     <th className="p-1">Notas</th>
-                    <th className="p-1 text-center">Arcos</th>
-                    <th className="p-1 text-center">YT</th>
-                    <th className="p-1 text-right"></th>
-                    <th className="p-1 text-center">Excl.</th>
+                    <th
+                      className="px-0 py-1 text-center text-slate-500"
+                      title="Arcos, YouTube y acciones"
+                      scope="col"
+                    >
+                      <span className="sr-only">Arcos, YouTube y acciones</span>
+                      <span className="inline-flex items-center justify-center gap-0 opacity-80">
+                        <IconViolin size={11} aria-hidden />
+                        <IconYoutube size={11} className="opacity-70" aria-hidden />
+                      </span>
+                    </th>
+                    <th className="px-0 py-1 text-center">Excl.</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {isEditor && !isCompact && activeDragId && (
                     <BlockDropZoneRow
                       zoneId={BLOCK_ZONE_START(rep.id)}
+                      colSpan={isDefinitionMode ? 12 : 11}
                       label={
                         (rep.repertorio_obras || []).length === 0
                           ? "Soltar aquí para agregar la primera obra"
@@ -2807,7 +3121,7 @@ export default function RepertoireManager({
                       moveWork={moveWork}
                       dragOverId={dragOverId}
                     >
-                      <td className="p-1 text-center">
+                      <td className="px-0 py-1 text-center">
                         {item.obras.estado === "Informativo" ? (
                           <span className="text-slate-300 text-[10px]" title="Obra informativa (sin archivo)">—</span>
                         ) : item.google_drive_shortcut_id ? (
@@ -2819,10 +3133,10 @@ export default function RepertoireManager({
                               className="inline-flex justify-center text-slate-600 hover:text-fixed-indigo-600"
                               title="Abrir carpeta original en Drive"
                             >
-                              <IconDrive className="w-3.5 h-3.5" />
+                              <IconDrive className="w-3 h-3" />
                             </a>
                           ) : (
-                            <IconDrive className="w-3.5 h-3.5 mx-auto text-slate-600" />
+                            <IconDrive className="w-3 h-3 mx-auto text-slate-600" />
                           )
                         ) : item.obras.link_drive ? (
                           <a
@@ -2836,49 +3150,65 @@ export default function RepertoireManager({
                           <span className="text-slate-200">-</span>
                         )}
                       </td>
-                      <td className="p-1 text-slate-600 align-middle">
-                        <div className="flex flex-col justify-center">
-                          <span
-                            className="truncate text-[11px] font-medium leading-tight"
-                            title={getComposers(item.obras)}
-                          >
-                            {getComposers(item.obras)}
-                          </span>
-                          {renderMyPartBadge(item.obras)}
-                        </div>
-                      </td>
                       <td
-                        className="p-1 text-slate-800"
+                        className="min-w-0 p-1 align-middle text-slate-800"
                         title={item.obras.titulo?.replace(/<[^>]*>?/gm, "")}
                       >
-                        <div className="flex flex-col gap-1 w-full min-w-0">
-                          <div className="flex items-center gap-1 flex-wrap">
-                            <RichTextPreview content={item.obras.titulo} />
-                            {item.obras.estado === "Informativo" && (
-                              <span className="ml-1 text-[8px] bg-blue-100 text-blue-600 px-1 rounded border border-blue-200 align-text-top">
-                                INFO
-                              </span>
-                            )}
-                            {(item.obras.estado === "Solicitud" || item.obras.estado === "Pendiente") && (
-                              <span className="ml-1 text-[8px] bg-amber-100 text-amber-700 px-1 rounded border border-amber-200 align-text-top">
-                                PEND
-                              </span>
+                        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
+                          <div className="flex max-w-[42%] shrink-0 min-w-[7rem] flex-col items-center justify-center text-center text-slate-600">
+                            <div className="flex w-full flex-col items-center justify-center gap-1">
+                              <div
+                                className="min-w-0 w-full space-y-1"
+                                title={getComposers(item.obras)}
+                              >
+                                {getComposersNameParts(item.obras).map((c, i) => (
+                                  <div
+                                    key={i}
+                                    className={`min-w-0 ${i > 0 ? "pt-1 border-t border-slate-100" : ""}`}
+                                  >
+                                    <div className="truncate text-[11px] font-semibold text-slate-700 leading-tight">
+                                      {c.apellido}
+                                    </div>
+                                    {c.nombre ? (
+                                      <div className="truncate text-[10px] font-medium normal-case tracking-normal text-slate-500 leading-tight">
+                                        {c.nombre}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                              {renderMyPartBadge(item.obras)}
+                            </div>
+                          </div>
+                          <div className="flex min-w-0 flex-1 flex-col gap-1">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <RichTextPreview content={item.obras.titulo} />
+                              {item.obras.estado === "Informativo" && (
+                                <span className="ml-1 text-[8px] bg-blue-100 text-blue-600 px-1 rounded border border-blue-200 align-text-top">
+                                  INFO
+                                </span>
+                              )}
+                              {(item.obras.estado === "Solicitud" || item.obras.estado === "Pendiente") && (
+                                <span className="ml-1 text-[8px] bg-amber-100 text-amber-700 px-1 rounded border border-amber-200 align-text-top">
+                                  PEND
+                                </span>
+                              )}
+                            </div>
+                            {canSeeInternalNotes && (item.obras.estado === "Solicitud" || item.obras.estado === "Pendiente") && (item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios) && (
+                              <div className="group relative max-w-full">
+                                <div className="flex max-w-full cursor-help items-center gap-1 rounded-sm border border-yellow-200 bg-yellow-100 px-2 py-0.5 text-[10px] text-yellow-800 shadow-sm transition-transform hover:rotate-0 origin-left -rotate-1">
+                                  <span className="text-[9px] shrink-0">📝</span>
+                                  <span className="min-w-0 truncate font-normal">
+                                    {(item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, "").trim().slice(0, 60)}
+                                    {((item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, "").trim().length || 0) > 60 ? "…" : ""}
+                                  </span>
+                                </div>
+                                <div className="absolute left-0 top-full z-[60] mt-1 hidden w-56 rounded border border-yellow-200 bg-yellow-50 p-2 text-xs font-normal whitespace-normal text-slate-700 shadow-xl group-hover:block animate-in fade-in zoom-in-95">
+                                  {(item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, " ").replace(/\s+/g, " ").trim()}
+                                </div>
+                              </div>
                             )}
                           </div>
-                          {canSeeInternalNotes && (item.obras.estado === "Solicitud" || item.obras.estado === "Pendiente") && (item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios) && (
-                            <div className="group relative w-fit">
-                              <div className="bg-yellow-100 border border-yellow-200 text-yellow-800 text-[10px] px-2 py-0.5 rounded-sm shadow-sm flex items-center gap-1 cursor-help transform -rotate-1 hover:rotate-0 transition-transform origin-left max-w-[160px]">
-                                <span className="text-[9px]">📝</span>
-                                <span className="truncate font-normal">
-                                  {(item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, "").trim().slice(0, 60)}
-                                  {((item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, "").trim().length || 0) > 60 ? "…" : ""}
-                                </span>
-                              </div>
-                              <div className="absolute left-0 top-full mt-1 hidden group-hover:block w-56 bg-yellow-50 border border-yellow-200 shadow-xl p-2 rounded text-xs font-normal text-slate-700 z-[60] whitespace-normal animate-in fade-in zoom-in-95">
-                                {(item.obras.nota_interna || item.obras.observaciones || item.obras.comentarios)?.replace(/<[^>]*>?/gm, " ").replace(/\s+/g, " ").trim()}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       </td>
                       {isDefinitionMode && (
@@ -2974,8 +3304,13 @@ export default function RepertoireManager({
                           ) ||
                           "-"}
                       </td>
-                      <td className="p-1 text-center font-mono">
-                        {formatSecondsToTime(item.obras.duracion_segundos)}
+                      <td className="p-1 text-center align-middle min-w-0">
+                        <RepertorioProgramDurationCell
+                          item={item}
+                          isEditor={isEditor}
+                          updateWorkDetail={updateWorkDetail}
+                          compact={false}
+                        />
                       </td>
                       <td className="p-0 border-l border-slate-100 align-middle">
                         {isEditor ? (
@@ -3041,151 +3376,162 @@ export default function RepertoireManager({
                       <td className="p-1 truncate text-slate-500">
                         {getArranger(item.obras)}
                       </td>
-                      <td className="p-0 border-l border-slate-100 align-middle">
-                        {isEditor ? (
-                          <input
-                            type="text"
-                            className="w-full bg-transparent p-1 text-[10px] outline-none"
-                            placeholder="..."
-                            value={item.notas_especificas || ""}
-                            onChange={(e) =>
-                              updateWorkDetail(
-                                item.id,
-                                "notas_especificas",
-                                e.target.value,
-                              )
-                            }
-                          />
-                        ) : (
-                          <div className="block p-1 text-[10px]">
-                            <RichTextPreview content={item.notas_especificas} />
-                          </div>
-                        )}
+                      <td className="p-0 border-l border-slate-100 align-middle min-w-0">
+                        <NotasProgramaStickyCell
+                          item={item}
+                          isEditor={isEditor}
+                          updateWorkDetail={updateWorkDetail}
+                          shrinkWhenEmpty
+                        />
                       </td>
-                      <td className="px-2 py-4 align-middle w-[160px] min-w-[140px]">
-                        <div className="flex flex-row items-center gap-2 w-full max-w-[160px]">
-                          <div className="relative flex-1 min-w-0 group">
-                            <div
-                              className={`flex items-center justify-between px-2 py-1 rounded-full border text-[10px] font-medium truncate transition-all ${item.id_arco_seleccionado ? "bg-fixed-indigo-50 border-fixed-indigo-200 text-fixed-indigo-700 group-hover:border-fixed-indigo-300" : "bg-white border-slate-200 text-slate-400 border-dashed group-hover:border-fixed-indigo-300 group-hover:text-fixed-indigo-400"}`}
-                            >
-                              <span className="truncate w-full text-center">
-                                {item.id_arco_seleccionado
-                                  ? (arcosByWork[item.obras?.id ?? item.id_obra] ?? []).find(
-                                      (a) => a.id == item.id_arco_seleccionado,
-                                    )?.nombre
-                                  : "+ Asignar Arcos"}
-                              </span>
-                            </div>
-                            <select
-                              value={item.id_arco_seleccionado || ""}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                if (val === "NEW_SET_ACTION") {
-                                  const nombreSet = prompt(
-                                    "Nombre para el nuevo set de arcos:",
-                                    `Arcos ${new Date().getFullYear()}`,
-                                  );
-                                  if (!nombreSet?.trim()) return;
-                                  handleCreateBowingSetForManager(
-                                    item.obras?.id ?? item.id_obra,
-                                    item.obras?.titulo ?? "",
-                                    nombreSet.trim(),
-                                  ).then((result) => {
-                                    if (result?.newArcoId) {
-                                      handleArcoSelectionChange(item, result.newArcoId);
-                                      fetchFullRepertoire();
-                                    }
-                                  }).catch((err) => {
-                                    console.error("Error creando set de arcos:", err);
-                                    alert(err?.message || "Error al crear set de arcos.");
-                                  });
-                                } else {
-                                  handleArcoSelectionChange(
-                                    item,
-                                    val === "" ? null : val,
-                                  );
+                      <td className="px-0 py-0.5 align-middle">
+                        {(() => {
+                          const obraArcos =
+                            arcosByWork[item.obras?.id ?? item.id_obra] ?? [];
+                          const arcoSel =
+                            item.id_arco_seleccionado != null &&
+                            item.id_arco_seleccionado !== ""
+                              ? obraArcos.find(
+                                  (a) =>
+                                    String(a.id) ===
+                                    String(item.id_arco_seleccionado),
+                                )
+                              : null;
+                          const arcTitle =
+                            arcoSel?.nombre ?? "Sin set de arcos";
+                          const arcDriveHref = arcoSel?.link || null;
+                          return (
+                            <div className="flex min-w-0 flex-nowrap items-center justify-end gap-0">
+                              <div
+                                className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors ${isEditor ? "hover:bg-slate-100/90" : ""}`}
+                                title={
+                                  isEditor
+                                    ? `${arcTitle} · Click para elegir set`
+                                    : arcTitle
                                 }
-                              }}
-                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                              title={
-                                item.id_arco_seleccionado
-                                  ? (arcosByWork[item.obras?.id ?? item.id_obra] ?? []).find(
-                                      (a) => a.id == item.id_arco_seleccionado,
-                                    )?.nombre
-                                  : "Seleccionar set de arcos"
-                              }
-                            >
-                              <option value="">-- Sin definir --</option>
-                              {(arcosByWork[item.obras?.id ?? item.id_obra] ?? []).map((arco) => (
-                                <option key={arco.id} value={arco.id}>
-                                  {arco.nombre}
-                                </option>
-                              ))}
-                              <option disabled>──────────</option>
-                              <option value="NEW_SET_ACTION">
-                                + Crear Nuevo Set...
-                              </option>
-                            </select>
-                          </div>
-                          {item.id_arco_seleccionado && (arcosByWork[item.obras?.id ?? item.id_obra] ?? []).find((a) => a.id == item.id_arco_seleccionado)?.link && (
-                            <a
-                              href={(arcosByWork[item.obras?.id ?? item.id_obra] ?? []).find((a) => a.id == item.id_arco_seleccionado)?.link}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="shrink-0 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-fixed-indigo-600 hover:bg-fixed-indigo-50 rounded-full transition-colors"
-                              title="Ver carpeta en Drive"
-                            >
-                              <IconLink size={14} />
-                            </a>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-1 text-center">
-                        {item.obras.link_youtube ? (
-                          <a
-                            href={item.obras.link_youtube}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-red-600"
-                          >
-                            <IconYoutube size={14} />
-                          </a>
-                        ) : (
-                          <span className="text-slate-200">-</span>
-                        )}
-                      </td>
-                      <td className="p-1 text-right">
-                        <div className="flex justify-end gap-1">
-                          <CommentButton
-                            supabase={supabase}
-                            entityType="OBRA"
-                            entityId={item.id}
-                            onClick={() =>
-                              setCommentsState({
-                                type: "OBRA",
-                                id: item.id,
-                                title: item.obras.titulo,
-                              })
-                            }
-                            className="p-1"
-                          />
-                          {isEditor && (
-                            <>
-                              <button
-                                onClick={() => openEditModal(item)}
-                                className="text-slate-300 hover:text-fixed-indigo-600 p-1"
                               >
-                                <IconEdit size={12} />
-                              </button>
-                              <button
-                                onClick={() => removeWork(item.id)}
-                                className="text-slate-300 hover:text-red-600 p-1"
-                              >
-                                <IconTrash size={12} />
-                              </button>
-                            </>
-                          )}
-                        </div>
+                                <IconViolin
+                                  size={14}
+                                  className={`pointer-events-none ${item.id_arco_seleccionado ? "text-emerald-600" : "text-slate-400"}`}
+                                  aria-hidden
+                                />
+                                {isEditor ? (
+                                  <select
+                                    value={item.id_arco_seleccionado || ""}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      if (val === "NEW_SET_ACTION") {
+                                        const nombreSet = prompt(
+                                          "Nombre para el nuevo set de arcos:",
+                                          `Arcos ${new Date().getFullYear()}`,
+                                        );
+                                        if (!nombreSet?.trim()) return;
+                                        handleCreateBowingSetForManager(
+                                          item.obras?.id ?? item.id_obra,
+                                          item.obras?.titulo ?? "",
+                                          nombreSet.trim(),
+                                        )
+                                          .then((result) => {
+                                            if (result?.newArcoId) {
+                                              handleArcoSelectionChange(
+                                                item,
+                                                result.newArcoId,
+                                              );
+                                              fetchFullRepertoire();
+                                            }
+                                          })
+                                          .catch((err) => {
+                                            console.error(
+                                              "Error creando set de arcos:",
+                                              err,
+                                            );
+                                            alert(
+                                              err?.message ||
+                                                "Error al crear set de arcos.",
+                                            );
+                                          });
+                                      } else {
+                                        handleArcoSelectionChange(
+                                          item,
+                                          val === "" ? null : val,
+                                        );
+                                      }
+                                    }}
+                                    className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                                    aria-label="Seleccionar set de arcos"
+                                  >
+                                    <option value="">-- Sin definir --</option>
+                                    {obraArcos.map((arco) => (
+                                      <option key={arco.id} value={arco.id}>
+                                        {arco.nombre}
+                                      </option>
+                                    ))}
+                                    <option disabled>──────────</option>
+                                    <option value="NEW_SET_ACTION">
+                                      + Crear Nuevo Set...
+                                    </option>
+                                  </select>
+                                ) : null}
+                              </div>
+                              {arcDriveHref ? (
+                                <a
+                                  href={arcDriveHref}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex shrink-0 items-center justify-center rounded p-0.5 text-slate-400 hover:bg-fixed-indigo-50 hover:text-fixed-indigo-600"
+                                  title="Carpeta de arcos en Drive"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <IconLink size={11} />
+                                </a>
+                              ) : null}
+                              {item.obras.link_youtube ? (
+                                <a
+                                  href={item.obras.link_youtube}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex shrink-0 items-center justify-center rounded p-0.5 text-red-600 hover:bg-red-50"
+                                  title="YouTube"
+                                >
+                                  <IconYoutube size={13} />
+                                </a>
+                              ) : null}
+                              <CommentButton
+                                supabase={supabase}
+                                entityType="OBRA"
+                                entityId={item.id}
+                                onClick={() =>
+                                  setCommentsState({
+                                    type: "OBRA",
+                                    id: item.id,
+                                    title: item.obras.titulo,
+                                  })
+                                }
+                                className="p-0.5"
+                              />
+                              {isEditor ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditModal(item)}
+                                    className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-fixed-indigo-600"
+                                    title="Editar obra"
+                                  >
+                                    <IconEdit size={12} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeWork(item.id)}
+                                    className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                    title="Quitar del programa"
+                                  >
+                                    <IconTrash size={12} />
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="p-1 text-center align-middle">
                         {isEditor ? (
@@ -3215,11 +3561,12 @@ export default function RepertoireManager({
                   {isEditor && !isCompact && activeDragId && (rep.repertorio_obras || []).length > 0 && (
                     <BlockDropZoneRow
                       zoneId={BLOCK_ZONE_END(rep.id)}
+                      colSpan={isDefinitionMode ? 12 : 11}
                       label="Soltar aquí para colocar al final"
                     />
                   )}
                   {isEditor && !isCompact && (
-                    <QuickWorkRow rep={rep} />
+                    <QuickWorkRow rep={rep} definitionMode={isDefinitionMode} />
                   )}
                 </tbody>
               </table>
@@ -3254,8 +3601,12 @@ export default function RepertoireManager({
               <span className="text-[11px] font-medium text-slate-800 truncate max-w-[180px]" title={activeDragItemData.item.obras?.titulo?.replace(/<[^>]*>?/gm, "")}>
                 <RichTextPreview content={activeDragItemData.item.obras?.titulo} />
               </span>
-              <span className="text-[10px] font-mono text-slate-500 shrink-0">
-                {formatSecondsToTime(activeDragItemData.item.obras?.duracion_segundos)}
+              <span
+                className={`text-[10px] font-mono text-slate-500 shrink-0 ${hasRepertorioObraDurationOverride(activeDragItemData.item) ? "italic text-indigo-800" : ""}`}
+              >
+                {formatRepertorioDuracionVisible(
+                  effectiveRepertorioObraDurationSeconds(activeDragItemData.item),
+                )}
               </span>
             </div>
           ) : null}
@@ -3397,7 +3748,7 @@ export default function RepertoireManager({
                   <div className="md:hidden p-2 space-y-2">
                     {filteredLibrary.map((w) => (
                       <div key={w.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                        <div className="text-[11px] font-semibold text-slate-600 truncate">
+                        <div className="text-[11px] font-semibold text-slate-600 truncate text-center">
                           {w.compositor_full}
                         </div>
                         {w.arreglador_full !== "-" && (
@@ -3443,7 +3794,7 @@ export default function RepertoireManager({
                     </colgroup>
                     <thead className="bg-slate-50 text-slate-500 uppercase sticky top-0 font-bold shadow-sm">
                       <tr>
-                        <th className="p-2">Compositor</th>
+                        <th className="p-2 text-center align-middle">Compositor</th>
                         <th className="p-2">Arreglador</th>
                         <th className="p-2">Obra</th>
                         <th className="p-2 text-center">Duración</th>
@@ -3456,8 +3807,10 @@ export default function RepertoireManager({
                     <tbody className="divide-y divide-slate-50">
                       {filteredLibrary.map((w) => (
                         <tr key={w.id} className="hover:bg-fixed-indigo-50 group">
-                          <td className="p-2 text-slate-600 font-medium truncate">
-                            {w.compositor_full}
+                          <td className="p-2 text-center align-middle text-slate-600 font-medium">
+                            <div className="truncate" title={w.compositor_full}>
+                              {w.compositor_full}
+                            </div>
                           </td>
                           <td className="p-2 text-slate-500 truncate max-w-0">
                             {w.arreglador_full !== "-" ? w.arreglador_full : ""}
@@ -3722,7 +4075,10 @@ export default function RepertoireManager({
   );
 }
 
-const containerClasses = (isCompact) => (isCompact ? "bg-white" : "space-y-8");
+const containerClasses = (isCompact) =>
+  isCompact
+    ? "w-full min-w-0 bg-white"
+    : "flex w-full min-w-0 flex-col items-stretch gap-8";
 const tableHeaderClasses = (isCompact) =>
   isCompact
     ? "hidden"

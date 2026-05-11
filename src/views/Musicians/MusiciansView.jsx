@@ -67,6 +67,8 @@ const MASS_EDIT_FIELDS = [
     type: "select",
     options: CONDITION_OPTIONS.map((c) => ({ value: c, label: c })),
   },
+  { key: "fecha_alta", label: "Fecha de alta", type: "date" },
+  { key: "fecha_baja", label: "Fecha de baja", type: "date" },
   {
     key: "alimentacion",
     label: "Dieta / Alimentación",
@@ -560,7 +562,7 @@ const MusicianCard = ({
   item,
   onEdit,
   isSelected,
-  onSelect,
+  onCheckboxChange,
   highlightText,
 }) => {
   const missing = getMissingFieldsList(item);
@@ -587,8 +589,8 @@ const MusicianCard = ({
             <input
               type="checkbox"
               checked={isSelected}
-              onChange={() => onSelect(item.id)}
-              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              onChange={(ev) => onCheckboxChange(ev)}
+              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
             />
           </div>
           <div className="min-w-0">
@@ -1137,6 +1139,13 @@ const MassEditModal = ({
                         </option>
                       ))}
                     </select>
+                  ) : fieldConfig.type === "date" ? (
+                    <input
+                      type="date"
+                      className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                      value={row.value}
+                      onChange={(e) => updateFieldRow(row.id, { value: e.target.value })}
+                    />
                   ) : (
                     <input
                       type="text"
@@ -1229,6 +1238,10 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     missingFieldsFilters.size;
 
   const [selectedMusicians, setSelectedMusicians] = useState(new Set());
+  /** Índice dentro de `paginatedMusicians` para Shift+clic (selección por rango). */
+  const lastClickedRowIndexRef = useRef(null);
+  /** Shift no llega de forma fiable en todos los navegadores en el mismo evento que el cambio del checkbox. */
+  const shiftKeyHeldRef = useRef(false);
   const [isMassEditOpen, setIsMassEditOpen] = useState(false);
   const [columnFilters, setColumnFilters] = useState({});
 
@@ -1661,15 +1674,81 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
     label: c,
   }));
 
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Shift") shiftKeyHeldRef.current = true;
+    };
+    const onKeyUp = (e) => {
+      if (e.key === "Shift") shiftKeyHeldRef.current = false;
+    };
+    const clearShift = () => {
+      shiftKeyHeldRef.current = false;
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") shiftKeyHeldRef.current = false;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", clearShift);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", clearShift);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
+  const pageRowIdsKey = useMemo(
+    () => paginatedMusicians.map((m) => m.id).join(","),
+    [paginatedMusicians],
+  );
+
+  useEffect(() => {
+    lastClickedRowIndexRef.current = null;
+  }, [currentPage, pageSize, pageRowIdsKey]);
+
   const toggleSelection = (id) => {
-    const newSet = new Set(selectedMusicians);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedMusicians(newSet);
+    setSelectedMusicians((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleMusicianCheckboxChange = (id, pageIndex, e) => {
+    const ne = e?.nativeEvent;
+    const shiftFromEvent =
+      ne &&
+      typeof ne.getModifierState === "function" &&
+      ne.getModifierState("Shift");
+    const shiftHeld = shiftKeyHeldRef.current || shiftFromEvent;
+
+    if (
+      shiftHeld &&
+      lastClickedRowIndexRef.current !== null &&
+      paginatedMusicians.length > 0
+    ) {
+      const start = Math.min(lastClickedRowIndexRef.current, pageIndex);
+      const end = Math.max(lastClickedRowIndexRef.current, pageIndex);
+      setSelectedMusicians((prev) => {
+        const next = new Set(prev);
+        for (let i = start; i <= end; i++) {
+          const row = paginatedMusicians[i];
+          if (row) next.add(row.id);
+        }
+        return next;
+      });
+      return;
+    }
+    toggleSelection(id);
+    lastClickedRowIndexRef.current = pageIndex;
   };
   const toggleAllSelection = () => {
     const pageIds = paginatedMusicians.map((m) => m.id);
     if (pageIds.length === 0) return;
+    lastClickedRowIndexRef.current = null;
     const allPageSelected = pageIds.every((id) => selectedMusicians.has(id));
     const next = new Set(selectedMusicians);
     if (allPageSelected) pageIds.forEach((id) => next.delete(id));
@@ -1933,13 +2012,15 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
         {/* --- VISTA MÓVIL --- */}
         <div className="md:hidden flex-1 overflow-y-auto p-2 bg-slate-50">
           <div className="flex flex-col gap-2">
-            {paginatedMusicians.map((item) => (
+            {paginatedMusicians.map((item, idx) => (
               <MusicianCard
                 key={item.id}
                 item={item}
                 onEdit={startEditModal}
                 isSelected={selectedMusicians.has(item.id)}
-                onSelect={toggleSelection}
+                onCheckboxChange={(ev) =>
+                  handleMusicianCheckboxChange(item.id, idx, ev)
+                }
                 highlightText={searchText}
               />
             ))}
@@ -2100,7 +2181,9 @@ export default function MusiciansView({ supabase, catalogoInstrumentos }) {
                         type="checkbox"
                         className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                         checked={selectedMusicians.has(item.id)}
-                        onChange={() => toggleSelection(item.id)}
+                        onChange={(ev) =>
+                          handleMusicianCheckboxChange(item.id, idx, ev)
+                        }
                       />
                     </td>
                     <td

@@ -1055,8 +1055,8 @@ export default function GiraCard({
           document.body,
         )}
       {shouldShowRepertoire && (
-        <div className="border-t border-black/5 bg-white/40 p-2 relative z-20">
-          <div className="animate-in slide-in-from-top-2">
+        <div className="relative z-20 border-t border-black/5 bg-white/40 p-2 min-w-0 w-full max-w-none">
+          <div className="min-w-0 w-full max-w-none animate-in slide-in-from-top-2">
             <RepertoireManager
               supabase={supabase}
               programId={gira.id}

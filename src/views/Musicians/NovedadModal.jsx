@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { IconCheck, IconX, IconLoader, IconRefresh, IconUser, IconClock, IconEdit, IconTrash, IconPlus } from "../../components/ui/Icons";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 
@@ -12,13 +12,80 @@ const CONCEPTOS = [
   { id: "h_otros", label: "Otros", color: "text-slate-600 bg-slate-100 border-slate-300" },
 ];
 
-export default function NovedadModal({ isOpen, onClose, supabase, musician, allMusicians, recordToEdit, onSuccess }) {
-  if (!isOpen) return null;
+const ORIGENES = ["CULTURA", "EDUCACION"];
 
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+/** Primer día del mes de vigencia del registro de horas (YYYY-MM-DD). */
+function fechaAltaIsoFromMes(anio, mes) {
+  return `${Number(anio)}-${pad2(Number(mes))}-01`;
+}
+
+/** Último día del mes de vigencia del registro de horas (YYYY-MM-DD). */
+function fechaBajaIsoFromMes(anio, mes) {
+  const last = new Date(Number(anio), Number(mes), 0);
+  return `${last.getFullYear()}-${pad2(last.getMonth() + 1)}-${pad2(last.getDate())}`;
+}
+
+function rowTotalHoras(record) {
+  return CONCEPTOS.reduce((acc, c) => acc + (Number(record[c.id]) || 0), 0);
+}
+
+/** Total hs cátedra “vigente”: último registro por origen (misma heurística que el panel del modal). */
+function grandTotalFromHistory(history) {
+  let sum = 0;
+  for (const org of ORIGENES) {
+    const orgRows = (history || []).filter((r) => r.origen === org);
+    if (!orgRows.length) continue;
+    const latest = orgRows.reduce((best, r) => {
+      const score = Number(r.anio_inicio) * 100 + Number(r.mes_inicio);
+      const bestScore = best ? Number(best.anio_inicio) * 100 + Number(best.mes_inicio) : -1;
+      return score >= bestScore ? r : best;
+    }, null);
+    sum += rowTotalHoras(latest);
+  }
+  return sum;
+}
+
+function mergePendingHorasHistory(history, activeRecord, pendingRow, isInsert) {
+  const h = history || [];
+  if (isInsert) return [...h, { ...pendingRow, id: pendingRow.id ?? -1 }];
+  return h.map((r) => (r.id === activeRecord.id ? { ...r, ...pendingRow } : r));
+}
+
+function buildHorasPayload({ selectedId, form, mode, activeRecord, contextTotals }) {
+  const payload = {
+    id_integrante: selectedId,
+    origen: form.origen,
+    mes_inicio: parseInt(form.mes_inicio, 10),
+    anio_inicio: parseInt(form.anio_inicio, 10),
+    mes_fin: form.mes_fin ? parseInt(form.mes_fin, 10) : null,
+    anio_fin: form.anio_fin ? parseInt(form.anio_fin, 10) : null,
+    observaciones: form.observaciones,
+  };
+
+  CONCEPTOS.forEach((c) => {
+    const inputVal = parseInt(form[c.id], 10) || 0;
+    let finalVal = inputVal;
+    if (!activeRecord && mode === "RELATIVE") {
+      const currentVal = (contextTotals[form.origen] && contextTotals[form.origen][c.id]) || 0;
+      finalVal = currentVal + inputVal;
+    }
+    if (finalVal < 0) finalVal = 0;
+    payload[c.id] = finalVal;
+  });
+
+  return payload;
+}
+
+export default function NovedadModal({ isOpen, onClose, supabase, musician, allMusicians, recordToEdit, onSuccess }) {
   // Estado del Músico
   const [selectedId, setSelectedId] = useState(musician?.id || recordToEdit?.id_integrante || null);
   const [contextLoading, setContextLoading] = useState(false);
   const [contextData, setContextData] = useState({ totals: { CULTURA: {}, EDUCACION: {} }, history: [] });
+  const [integranteCondicion, setIntegranteCondicion] = useState(null);
 
   // Registro activo (puede venir de props o ser seleccionado internamente desde el historial)
   const [activeRecord, setActiveRecord] = useState(recordToEdit);
@@ -26,6 +93,7 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
   // Estado del Formulario
   const [mode, setMode] = useState("ABSOLUTE"); 
   const [saving, setSaving] = useState(false);
+  const [syncLegajoCondicion, setSyncLegajoCondicion] = useState(true);
   const [form, setForm] = useState({
     origen: "CULTURA",
     mes_inicio: new Date().getMonth() + 1,
@@ -66,31 +134,33 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
     }
   }, [activeRecord, isOpen]);
 
-  // Buscar contexto (historial y totales)
   useEffect(() => {
-    if (selectedId) {
-        fetchMusicianContext(selectedId);
-    } else {
-        setContextData({ totals: { CULTURA: {}, EDUCACION: {} }, history: [] });
-    }
-  }, [selectedId, activeRecord]); // Recargar si cambia activeRecord para ajustar los totales de referencia
+    if (!isOpen) return;
+    setSyncLegajoCondicion(true);
+    const initialId = musician?.id || recordToEdit?.id_integrante || null;
+    if (initialId != null) setSelectedId(initialId);
+  }, [isOpen, musician?.id, recordToEdit?.id_integrante]);
 
-  const fetchMusicianContext = async (id) => {
+  const fetchMusicianContext = useCallback(async (id) => {
     setContextLoading(true);
     try {
-        const { data: history, error } = await supabase
-            .from("horas_catedra")
-            .select("*")
-            .eq("id_integrante", id)
-            .order("anio_inicio", { ascending: false })
-            .order("mes_inicio", { ascending: false });
-        
+        const [{ data: history, error }, { data: intRow }] = await Promise.all([
+            supabase
+                .from("horas_catedra")
+                .select("*")
+                .eq("id_integrante", id)
+                .order("anio_inicio", { ascending: false })
+                .order("mes_inicio", { ascending: false }),
+            supabase.from("integrantes").select("condicion").eq("id", id).maybeSingle(),
+        ]);
+
         if (error) throw error;
+
+        setIntegranteCondicion(intRow?.condicion ?? null);
 
         // Calcular Totales Actuales excluyendo el registro que se está editando (si aplica)
         const totals = { CULTURA: {}, EDUCACION: {} };
-        ["CULTURA", "EDUCACION"].forEach(org => {
-            // Buscamos el último registro válido que NO sea el que estamos editando
+        ORIGENES.forEach(org => {
             const latest = history?.find(h => h.origen === org && h.id !== activeRecord?.id);
             if (latest) {
                 CONCEPTOS.forEach(c => totals[org][c.id] = latest[c.id] || 0);
@@ -103,35 +173,103 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
     } finally {
         setContextLoading(false);
     }
-  };
+  }, [supabase, activeRecord?.id]);
+
+  // Buscar contexto (historial y totales)
+  useEffect(() => {
+    if (!isOpen) return;
+    if (selectedId) {
+        fetchMusicianContext(selectedId);
+    } else {
+        setContextData({ totals: { CULTURA: {}, EDUCACION: {} }, history: [] });
+        setIntegranteCondicion(null);
+    }
+  }, [selectedId, activeRecord, fetchMusicianContext, isOpen]);
+
+  const pendingPayloadPreview = useMemo(() => {
+    if (!selectedId) return null;
+    return buildHorasPayload({
+      selectedId,
+      form,
+      mode,
+      activeRecord,
+      contextTotals: contextData.totals,
+    });
+  }, [selectedId, form, mode, activeRecord, contextData.totals]);
+
+  const prevGrandHoras = useMemo(
+    () => grandTotalFromHistory(contextData.history),
+    [contextData.history],
+  );
+
+  const newGrandHoras = useMemo(() => {
+    if (!pendingPayloadPreview) return 0;
+    const merged = mergePendingHorasHistory(
+      contextData.history,
+      activeRecord,
+      pendingPayloadPreview,
+      !activeRecord,
+    );
+    return grandTotalFromHistory(merged);
+  }, [contextData.history, activeRecord, pendingPayloadPreview]);
+
+  const scenarioAltaLegajo = !activeRecord && prevGrandHoras === 0 && newGrandHoras > 0;
+  const scenarioBajaLegajo = prevGrandHoras > 0 && newGrandHoras === 0;
+
+  const pendingRowTotalHs = useMemo(() => {
+    if (!pendingPayloadPreview) return 0;
+    return rowTotalHoras(pendingPayloadPreview);
+  }, [pendingPayloadPreview]);
+
+  const nominaCambia = prevGrandHoras !== newGrandHoras;
+
+  /** Por qué no hay toggle de legajo (cuando no aplica alta/baja nominal). */
+  const legajoSinToggleMotivo = useMemo(() => {
+    if (!selectedId || scenarioAltaLegajo || scenarioBajaLegajo) return null;
+    if (!activeRecord) {
+      if (prevGrandHoras === 0 && newGrandHoras === 0) {
+        return "La nómina nominal sigue en 0 hs: confirmar con todo en cero no da de alta horas. Para ver la opción de marcar estable y fecha de alta, cargá al menos una hora en algún concepto.";
+      }
+      if (prevGrandHoras > 0 && newGrandHoras > 0) {
+        return "El total nominal combinado no llega a 0 hs tras guardar (sigue habiendo horas en el otro origen o el último período de ese origen no queda en cero). Por eso no aparece la baja de legajo; solo aparece cuando el total combinado pasa a 0.";
+      }
+      return null;
+    }
+    if (prevGrandHoras > 0 && newGrandHoras > 0) {
+      return "Este cambio no deja la nómina nominal total en 0 hs, así que no aplica la opción de quitar estable / fecha de baja.";
+    }
+    return null;
+  }, [
+    selectedId,
+    activeRecord,
+    scenarioAltaLegajo,
+    scenarioBajaLegajo,
+    prevGrandHoras,
+    newGrandHoras,
+  ]);
 
   const handleSave = async () => {
     if (!selectedId) return alert("Seleccione un integrante");
     setSaving(true);
     try {
-      const payload = {
-        id_integrante: selectedId,
-        origen: form.origen,
-        mes_inicio: parseInt(form.mes_inicio),
-        anio_inicio: parseInt(form.anio_inicio),
-        mes_fin: form.mes_fin ? parseInt(form.mes_fin) : null,
-        anio_fin: form.anio_fin ? parseInt(form.anio_fin) : null,
-        observaciones: form.observaciones,
-      };
-
-      CONCEPTOS.forEach(c => {
-        const inputVal = parseInt(form[c.id]) || 0;
-        let finalVal = inputVal;
-        
-        // Si es NUEVO y modo RELATIVO, sumamos al total actual
-        if (!activeRecord && mode === "RELATIVE") {
-             const currentVal = (contextData.totals[form.origen] && contextData.totals[form.origen][c.id]) || 0;
-             finalVal = currentVal + inputVal;
-        }
-        
-        if (finalVal < 0) finalVal = 0;
-        payload[c.id] = finalVal;
+      const payload = buildHorasPayload({
+        selectedId,
+        form,
+        mode,
+        activeRecord,
+        contextTotals: contextData.totals,
       });
+
+      const merged = mergePendingHorasHistory(
+        contextData.history,
+        activeRecord,
+        payload,
+        !activeRecord,
+      );
+      const prevG = grandTotalFromHistory(contextData.history);
+      const newG = grandTotalFromHistory(merged);
+      const esAlta = !activeRecord && prevG === 0 && newG > 0;
+      const esBaja = prevG > 0 && newG === 0;
 
       if (activeRecord) {
           const { error } = await supabase.from("horas_catedra").update(payload).eq("id", activeRecord.id);
@@ -140,10 +278,25 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
           const { error } = await supabase.from("horas_catedra").insert(payload);
           if(error) throw error;
       }
+
+      if (syncLegajoCondicion && esAlta) {
+        const legajoPatch = {
+          condicion: "Estable",
+          fecha_alta: fechaAltaIsoFromMes(payload.anio_inicio, payload.mes_inicio),
+          fecha_baja: null,
+        };
+        const { error: legErr } = await supabase.from("integrantes").update(legajoPatch).eq("id", selectedId);
+        if (legErr) throw legErr;
+      } else if (syncLegajoCondicion && esBaja) {
+        const legajoPatch = {
+          fecha_baja: fechaBajaIsoFromMes(payload.anio_inicio, payload.mes_inicio),
+        };
+        if (integranteCondicion === "Estable") legajoPatch.condicion = "Contratado";
+        const { error: legErr } = await supabase.from("integrantes").update(legajoPatch).eq("id", selectedId);
+        if (legErr) throw legErr;
+      }
       
       onSuccess();
-      // No cerramos automáticamente si estamos editando desde la lista interna, para permitir seguir trabajando, 
-      // o cerramos si se prefiere. Aquí cerramos por consistencia.
       onClose();
     } catch (err) {
       alert(err.message);
@@ -211,6 +364,8 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
           </div>
       )
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
@@ -361,6 +516,85 @@ export default function NovedadModal({ isOpen, onClose, supabase, musician, allM
                             </div>
                         ))}
                     </div>
+
+                    {selectedId && pendingPayloadPreview && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                        <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                          Nómina nominal (vigente)
+                        </p>
+                        <p className="text-sm text-slate-800 leading-snug">
+                          <span className="font-black tabular-nums">{prevGrandHoras}</span>
+                          <span className="text-slate-400 mx-1.5">→</span>
+                          <span
+                            className={`font-black tabular-nums ${nominaCambia ? "text-indigo-700" : "text-slate-800"}`}
+                          >
+                            {newGrandHoras}
+                          </span>
+                          <span className="text-slate-600 font-semibold"> hs</span>
+                          <span className="text-[11px] text-slate-500 font-normal block mt-1">
+                            Suma del último período por CULTURA y por EDUCACIÓN (así verás si hay baja total o no).
+                          </span>
+                        </p>
+                        {!activeRecord && (
+                          <p className="text-[11px] text-slate-600 leading-relaxed border-t border-slate-200/80 pt-2">
+                            Registro nuevo en <strong>{form.origen}</strong> desde{" "}
+                            <strong>
+                              {form.mes_inicio}/{form.anio_inicio}
+                            </strong>
+                            {pendingRowTotalHs === 0 ? (
+                              <>
+                                {" "}
+                                con <strong>0 hs</strong> en todos los conceptos: solo cambia la nómina si este
+                                período queda como el más reciente para ese origen (y el otro origen también queda
+                                en 0 para llegar a baja total).
+                              </>
+                            ) : null}
+                          </p>
+                        )}
+                        {scenarioBajaLegajo && (
+                          <p className="text-[11px] font-semibold text-rose-800 bg-rose-50 border border-rose-100 rounded-lg px-2 py-1.5">
+                            Tras guardar la nómina nominal total queda en <strong>0 hs</strong>: puede aplicarse la
+                            baja de legajo (toggle debajo).
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {selectedId && (
+                      <div className="rounded-xl border border-slate-200 p-3 space-y-2">
+                        <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                          Legajo — estable y fechas
+                        </p>
+                        {(scenarioAltaLegajo || scenarioBajaLegajo) ? (
+                          <>
+                            <label className="flex items-start gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50/90 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 rounded border-slate-300 text-slate-900 focus:ring-indigo-500"
+                                checked={syncLegajoCondicion}
+                                onChange={(e) => setSyncLegajoCondicion(e.target.checked)}
+                              />
+                              <span className="text-xs font-semibold text-slate-800 leading-snug">
+                                {scenarioAltaLegajo
+                                  ? "Marcar como estable y cargar fecha de alta"
+                                  : "Quitar como estable y cargar fecha de baja"}
+                              </span>
+                            </label>
+                            <p className="text-[10px] text-slate-500 leading-snug">
+                              {scenarioAltaLegajo
+                                ? "Solo aparece cuando pasás de no tener horas nominales a tenerlas."
+                                : "Solo aparece cuando el total nominal combinado llega a 0 hs."}
+                            </p>
+                          </>
+                        ) : legajoSinToggleMotivo ? (
+                          <p className="text-[11px] text-slate-600 leading-relaxed">{legajoSinToggleMotivo}</p>
+                        ) : (
+                          <p className="text-[11px] text-slate-500">
+                            No aplica sincronizar legajo con este guardado.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     
                     <textarea className="w-full border rounded-lg p-3 text-xs h-20 resize-none outline-none focus:ring-2 ring-indigo-100" placeholder="Observaciones..." value={form.observaciones} onChange={e => setForm({...form, observaciones: e.target.value})} />
                 </div>

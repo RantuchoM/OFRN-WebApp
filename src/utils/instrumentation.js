@@ -247,10 +247,30 @@ export const calculateInstrumentation = (parts) => {
   return finalStr || "";
 };
 
+/** Segundos efectivos en fila de repertorio: override por programa o catálogo. */
+export const effectiveRepertorioObraDurationSeconds = (item) => {
+  if (!item) return 0;
+  const ov = item.duracion_segundos_concierto;
+  if (ov !== null && ov !== undefined && ov !== "") {
+    const n = Number(ov);
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  return item.obras?.duracion_segundos || 0;
+};
+
+/** Hay duración solo para este programa/bloque (distinta del uso del catálogo). */
+export const hasRepertorioObraDurationOverride = (item) => {
+  if (!item) return false;
+  const ov = item.duracion_segundos_concierto;
+  if (ov === null || ov === undefined) return false;
+  const n = Number(ov);
+  return Number.isFinite(n) && n >= 0;
+};
+
 export const calculateTotalDuration = (works) => {
   if (!works) return "0h 0m";
   const totalSeconds = works.reduce(
-    (acc, item) => acc + (item.obras?.duracion_segundos || 0),
+    (acc, item) => acc + effectiveRepertorioObraDurationSeconds(item),
     0,
   );
   return formatSecondsToHm(totalSeconds);
@@ -261,7 +281,7 @@ export const calculateNetDuration = (works) => {
   if (!works) return "0h 0m";
   const totalSeconds = works.reduce((acc, item) => {
     if (item.excluir) return acc;
-    return acc + (item.obras?.duracion_segundos || 0);
+    return acc + effectiveRepertorioObraDurationSeconds(item);
   }, 0);
   return formatSecondsToHm(totalSeconds);
 };

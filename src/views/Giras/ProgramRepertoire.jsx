@@ -838,7 +838,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
     );
 
   return (
-    <div className="flex flex-col h-full bg-slate-100 animate-in fade-in">
+    <div className="flex h-full min-h-0 min-w-0 w-full max-w-none flex-col bg-slate-100 animate-in fade-in">
       {/* Header */}
       <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
         <div className="flex items-center gap-4 w-full md:w-auto">
@@ -919,16 +919,16 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden relative">
+      <div className="relative min-h-0 min-w-0 w-full flex-1 overflow-hidden">
         {activeTab === "repertoire" && (
-          <div className="h-full overflow-y-auto p-4">
+          <div className="box-border h-full min-h-0 w-full min-w-0 overflow-y-auto p-4">
             {loadingRepo ? (
               <div className="flex justify-center p-10">
                 <IconLoader className="animate-spin text-indigo-500" />
               </div>
             ) : (
-              <>
-                <div className="flex justify-end mb-2">
+              <div className="w-full min-w-0 max-w-none space-y-2">
+                <div className="flex w-full min-w-0 justify-end">
                   {(isEditor || isManagement) && (
                     <div className="flex gap-2">
                       <button
@@ -1002,13 +1002,13 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
                   readOnly={!canEdit}
                   onSyncArco={handleSyncArco}
                 />
-              </>
+              </div>
             )}
           </div>
         )}
 
         {activeTab === "seating" && (
-          <div className="h-full overflow-y-auto">
+          <div className="box-border h-full min-h-0 min-w-0 w-full overflow-y-auto">
             <ProgramSeating
               key={repertoireKey}
               supabase={supabase}
@@ -1020,7 +1020,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
         )}
 
         {activeTab === "my_parts" && (
-          <div className="h-full overflow-hidden">
+          <div className="box-border h-full min-h-0 min-w-0 w-full overflow-hidden">
             <MyPartsViewer
               supabase={supabase}
               gira={program}

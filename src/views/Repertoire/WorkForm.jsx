@@ -36,6 +36,69 @@ import DateInput from "../../components/ui/DateInput";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import { normalizeForSearch } from "../../utils/sanitize";
 
+/**
+ * `unique_part_per_work`: (id_obra, id_instrumento, nombre_archivo) debe ser único.
+ * Solo se añaden sufijos (a)…(z), (27)… cuando hay colisión real de clave.
+ * Orden: primero filas ya persistidas (`id`), luego nuevas — así las ya guardadas conservan el nombre base frente a duplicados nuevos.
+ * @param {Set<string>|null} externalReservedKeys — claves `instr|||nombre` ocupadas fuera de `parts` (uso excepcional).
+ */
+function uniquifyParticellaRows(parts, externalReservedKeys = null) {
+  const keyOf = (instr, name) =>
+    `${String(instr ?? "").trim()}|||${String(name ?? "").trim()}`;
+  const used = externalReservedKeys ? new Set(externalReservedKeys) : new Set();
+
+  const baseRawOf = (p) => (p.nombre_archivo ?? "").trim() || "Particella";
+  const hasPersistedId = (p) =>
+    p.id != null && String(p.id).trim() !== "";
+
+  function pickUniqueName(p, baseRaw) {
+    const instr = p.id_instrumento;
+    let candidate = baseRaw;
+    let key = keyOf(instr, candidate);
+    if (!used.has(key)) {
+      used.add(key);
+      return String(p.nombre_archivo ?? "").trim() === candidate
+        ? p
+        : { ...p, nombre_archivo: candidate };
+    }
+
+    for (let i = 0; i < 26; i++) {
+      candidate = `${baseRaw} (${String.fromCharCode(97 + i)})`;
+      key = keyOf(instr, candidate);
+      if (!used.has(key)) {
+        used.add(key);
+        return { ...p, nombre_archivo: candidate };
+      }
+    }
+    let n = 27;
+    while (n < 10000) {
+      candidate = `${baseRaw} (${n})`;
+      key = keyOf(instr, candidate);
+      if (!used.has(key)) {
+        used.add(key);
+        return { ...p, nombre_archivo: candidate };
+      }
+      n += 1;
+    }
+    candidate = `${baseRaw} (${Date.now()})`;
+    used.add(keyOf(instr, candidate));
+    return { ...p, nombre_archivo: candidate };
+  }
+
+  const out = new Array(parts.length);
+
+  parts.forEach((p, idx) => {
+    if (!hasPersistedId(p)) return;
+    out[idx] = pickUniqueName(p, baseRawOf(p));
+  });
+  parts.forEach((p, idx) => {
+    if (hasPersistedId(p)) return;
+    out[idx] = pickUniqueName(p, baseRawOf(p));
+  });
+
+  return out;
+}
+
 // --- COMPONENTE EDITOR WYSIWYG ---
 const WysiwygEditor = ({ value, onChange, placeholder, className = "", fillHeight = false }) => {
   const editorRef = useRef(null);
@@ -300,6 +363,9 @@ export default function WorkForm({
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState("idle");
   const [particellas, setParticellas] = useState([]);
+  /** Multiselección en tabla de particellas (tempId) */
+  const [selectedPartTempIds, setSelectedPartTempIds] = useState(() => new Set());
+  const particellaSelectAllRef = useRef(null);
   const [instrumentList, setInstrumentList] = useState(
     catalogoInstrumentos || [],
   );
@@ -326,8 +392,8 @@ export default function WorkForm({
   const [showYoutubePopover, setShowYoutubePopover] = useState(false);
   const enrichmentTriggerRef = useRef(null);
   const fieldStatusResetRef = useRef(null);
-  /** Evita que guardados async antiguos pisen `nota_organico` u otros campos al escribir rápido. */
-  const partsSaveGenerationRef = useRef(0);
+  /** Serializa persistencias de particellas: varios `handlePartsChange` en paralelo pueden borrar filas recién insertadas si `activeIds` aún no tiene los `id`. */
+  const partsPersistChainRef = useRef(Promise.resolve());
   const partsPendingPersistRef = useRef(0);
   const [fieldStatus, setFieldStatus] = useState({
     titulo: "idle",
@@ -1007,109 +1073,177 @@ export default function WorkForm({
     if (onSave) onSave(formData.id, false);
   };
 
-  const handlePartsChange = async (newPartsList, overrideId = null) => {
+  const handlePartsChange = (newPartsList, overrideId = null) => {
+    const uniquified = uniquifyParticellaRows(newPartsList);
+    const renamed = uniquified.some((p, i) => {
+      const orig = newPartsList[i];
+      if (!orig) return true;
+      return (
+        String(p.nombre_archivo ?? "").trim() !==
+        String(orig.nombre_archivo ?? "").trim()
+      );
+    });
+    if (renamed) {
+      toast.info(
+        "Varias particellas coincidían en instrumento y nombre: se añadieron sufijos (a), (b), … para poder guardarlas.",
+      );
+    }
+
     const targetId = overrideId || formData.id;
-    setParticellas(newPartsList);
-    const instr = calculateInstrumentation(newPartsList);
+    setParticellas(uniquified);
+    const instr = calculateInstrumentation(uniquified);
     setFormData((prev) => ({ ...prev, instrumentacion: instr }));
 
-    if (!targetId) return;
+    if (!targetId) return Promise.resolve();
 
-    const thisGeneration = ++partsSaveGenerationRef.current;
-    partsPendingPersistRef.current += 1;
-    setIsSaving(true);
-    try {
-      if (!overrideId) {
-        const activeIds = newPartsList.filter((p) => p.id).map((p) => p.id);
-        const { data: currentParts } = await supabase
-          .from("obras_particellas")
-          .select("id")
-          .eq("id_obra", targetId);
-        if (currentParts) {
-          const idsToDelete = currentParts
-            .filter((dbP) => !activeIds.includes(dbP.id))
-            .map((x) => x.id);
-          if (idsToDelete.length > 0)
-            await supabase
+    const snapshot = uniquified;
+    const snapshotInstr = instr;
+
+    partsPersistChainRef.current = partsPersistChainRef.current
+      .catch(() => {})
+      .then(async () => {
+        partsPendingPersistRef.current += 1;
+        setIsSaving(true);
+        try {
+          let workingSnapshot = snapshot;
+          let workingInstr = snapshotInstr;
+
+          if (!overrideId) {
+            const activeIdsAfter = workingSnapshot
+              .filter((p) => p.id)
+              .map((p) => p.id);
+            const { data: dbRows } = await supabase
               .from("obras_particellas")
-              .delete()
-              .in("id", idsToDelete);
-        }
-      }
+              .select("id, id_instrumento, nombre_archivo")
+              .eq("id_obra", targetId);
 
-      const toUpdate = [];
-      const toInsert = [];
+            // Borrar huérfanos primero: si no, ocuparían la misma clave que una fila nueva y forzaríamos sufijos falsos.
+            if (dbRows?.length) {
+              const idsToDelete = dbRows
+                .filter((dbP) => !activeIdsAfter.includes(dbP.id))
+                .map((x) => x.id);
+              if (idsToDelete.length > 0)
+                await supabase
+                  .from("obras_particellas")
+                  .delete()
+                  .in("id", idsToDelete);
+            }
 
-      newPartsList.forEach((p) => {
-        const row = {
-          id_obra: targetId,
-          id_instrumento: p.id_instrumento,
-          nombre_archivo: p.nombre_archivo,
-          nota_organico: p.nota_organico,
-          url_archivo: JSON.stringify(p.links || []),
-          es_solista: !!p.es_solista,
-        };
-        if (p.id) {
-          row.id = p.id;
-          toUpdate.push(row);
-        } else {
-          toInsert.push(row);
+            const adjusted = uniquifyParticellaRows(workingSnapshot);
+            const dbCollisionRenamed = adjusted.some(
+              (p, i) =>
+                String(p.nombre_archivo ?? "").trim() !==
+                String(workingSnapshot[i]?.nombre_archivo ?? "").trim(),
+            );
+            if (dbCollisionRenamed) {
+              toast.info(
+                "Algún nombre coincidía con otra particella ya guardada en la obra; se añadieron sufijos (a), (b), …",
+              );
+              setParticellas(adjusted);
+              workingSnapshot = adjusted;
+              workingInstr = calculateInstrumentation(adjusted);
+              setFormData((prev) => ({ ...prev, instrumentacion: workingInstr }));
+            }
+          }
+
+          const toUpdate = [];
+          const toInsert = [];
+
+          workingSnapshot.forEach((p) => {
+            const row = {
+              id_obra: targetId,
+              id_instrumento: p.id_instrumento,
+              nombre_archivo: p.nombre_archivo,
+              nota_organico: p.nota_organico,
+              url_archivo: JSON.stringify(p.links || []),
+              es_solista: !!p.es_solista,
+            };
+            if (p.id) {
+              row.id = p.id;
+              toUpdate.push(row);
+            } else {
+              toInsert.push(row);
+            }
+          });
+
+          let insData = [];
+          if (toUpdate.length > 0) {
+            const { error: updErr } = await supabase
+              .from("obras_particellas")
+              .upsert(toUpdate);
+            if (updErr) throw updErr;
+          }
+          if (toInsert.length > 0) {
+            const { data: inserted, error: insErr } = await supabase
+              .from("obras_particellas")
+              .insert(toInsert)
+              .select();
+            if (insErr) throw insErr;
+            insData = inserted || [];
+          }
+
+          if (insData.length > 0 && !overrideId) {
+            let insertOrd = 0;
+            const mergedList = workingSnapshot.map((p) => {
+              if (p.id) return p;
+              const row = insData[insertOrd++];
+              return row ? { ...p, id: row.id } : p;
+            });
+            setParticellas(mergedList);
+          }
+
+          await supabase
+            .from("obras")
+            .update({ instrumentacion: workingInstr })
+            .eq("id", targetId);
+          setSaveStatus("saved");
+          setTimeout(() => setSaveStatus("idle"), 2000);
+          if (onSave) onSave(targetId, false);
+        } catch (e) {
+          console.error("Error al guardar particellas:", e);
+          setSaveStatus("error");
+        } finally {
+          partsPendingPersistRef.current = Math.max(
+            0,
+            partsPendingPersistRef.current - 1,
+          );
+          if (partsPendingPersistRef.current === 0) setIsSaving(false);
         }
       });
 
-      let results = [];
-      if (toUpdate.length > 0) {
-        const { data: updData } = await supabase
-          .from("obras_particellas")
-          .upsert(toUpdate)
-          .select();
-        if (updData) results = [...results, ...updData];
-      }
-      if (toInsert.length > 0) {
-        const { data: insData, error: insErr } = await supabase
-          .from("obras_particellas")
-          .insert(toInsert)
-          .select();
-        if (insErr) throw insErr;
-        if (insData) results = [...results, ...insData];
-      }
+    return partsPersistChainRef.current;
+  };
 
-      if (
-        results.length > 0 &&
-        !overrideId &&
-        thisGeneration === partsSaveGenerationRef.current
-      ) {
-        setParticellas((prev) =>
-          prev.map((p) => {
-            const dbMatch = results.find(
-              (s) =>
-                s.id_instrumento === p.id_instrumento &&
-                s.nombre_archivo === p.nombre_archivo,
-            );
-            return dbMatch ? { ...p, id: dbMatch.id } : p;
-          }),
-        );
-      }
+  const flushPartsPersistQueue = () =>
+    partsPersistChainRef.current.catch(() => {});
 
-      if (thisGeneration === partsSaveGenerationRef.current) {
-        await supabase
-          .from("obras")
-          .update({ instrumentacion: instr })
-          .eq("id", targetId);
-        setSaveStatus("saved");
-        setTimeout(() => setSaveStatus("idle"), 2000);
-        if (onSave) onSave(targetId, false);
-      }
-    } catch (e) {
-      console.error("Error al guardar particellas:", e);
-      setSaveStatus("error");
-    } finally {
-      partsPendingPersistRef.current = Math.max(
-        0,
-        partsPendingPersistRef.current - 1,
-      );
-      if (partsPendingPersistRef.current === 0) setIsSaving(false);
-    }
+  useEffect(() => {
+    const valid = new Set(particellas.map((p) => p.tempId));
+    setSelectedPartTempIds((prev) => {
+      const next = new Set([...prev].filter((id) => valid.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [particellas]);
+
+  useEffect(() => {
+    const el = particellaSelectAllRef.current;
+    if (!el) return;
+    const n = selectedPartTempIds.size;
+    const total = particellas.length;
+    el.indeterminate = total > 0 && n > 0 && n < total;
+  }, [selectedPartTempIds, particellas.length]);
+
+  const handleBulkDeleteSelectedParticellas = () => {
+    const n = selectedPartTempIds.size;
+    if (n === 0) return;
+    const msg =
+      n === 1
+        ? "¿Eliminar esta particella?"
+        : `¿Eliminar las ${n} particellas seleccionadas?`;
+    if (!window.confirm(msg)) return;
+    const sel = selectedPartTempIds;
+    handlePartsChange(particellas.filter((x) => !sel.has(x.tempId)));
+    setSelectedPartTempIds(new Set());
   };
 
   const handleCreateInitial = async () => {
@@ -1814,41 +1948,54 @@ export default function WorkForm({
             <div className="text-[10px] font-bold uppercase text-indigo-600 tracking-wide">
               Drive
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                onClick={copyDriveUrl}
-                className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/80"
-              >
-                <IconCopy size={14} className="text-indigo-600 shrink-0" />
-                Copiar
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowDriveField((v) => !v)}
-                className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/80"
-              >
-                <IconEdit size={14} className="text-indigo-600 shrink-0" />
-                Editar
-              </button>
-              <button
-                type="button"
-                onClick={openDriveInBrowser}
-                className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/80"
-              >
-                <IconFolder size={14} className="text-amber-600 shrink-0" />
-                Abrir
-              </button>
-              <button
-                type="button"
-                disabled={!formData.id || !((formData.link_drive || "").trim())}
-                onClick={() => setShowDriveMatcher(true)}
-                className="flex items-center justify-center gap-0.5 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50/80 disabled:cursor-not-allowed disabled:opacity-40"
-                title="Escanear y emparejar particellas (Drive)"
-              >
-                <IconLink size={16} className="text-blue-600" />
-              </button>
-            </div>
+            {(formData.link_drive || "").trim() ? (
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={copyDriveUrl}
+                  className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/80"
+                >
+                  <IconCopy size={14} className="text-indigo-600 shrink-0" />
+                  Copiar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDriveField((v) => !v)}
+                  className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/80"
+                >
+                  <IconEdit size={14} className="text-indigo-600 shrink-0" />
+                  Editar
+                </button>
+                <button
+                  type="button"
+                  onClick={openDriveInBrowser}
+                  className="flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/80"
+                >
+                  <IconFolder size={14} className="text-amber-600 shrink-0" />
+                  Abrir
+                </button>
+                <button
+                  type="button"
+                  disabled={!formData.id || !((formData.link_drive || "").trim())}
+                  onClick={() => setShowDriveMatcher(true)}
+                  className="flex items-center justify-center gap-0.5 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-blue-300 hover:bg-blue-50/80 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Escanear y emparejar particellas (Drive)"
+                >
+                  <IconLink size={16} className="text-blue-600" />
+                </button>
+              </div>
+            ) : (
+              !showDriveField && (
+                <button
+                  type="button"
+                  onClick={() => setShowDriveField(true)}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-2.5 text-[10px] font-bold uppercase text-slate-600 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/80"
+                >
+                  <IconPlus size={14} className="text-indigo-600 shrink-0" />
+                  Agregar enlace
+                </button>
+              )
+            )}
             {showDriveField && (
               <input
                 type="text"
@@ -1984,11 +2131,59 @@ export default function WorkForm({
           </button>
         </div>
 
+        {selectedPartTempIds.size > 0 && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50/90 px-3 py-2 text-xs shadow-sm">
+            <span className="font-semibold text-rose-900">
+              {selectedPartTempIds.size}{" "}
+              {selectedPartTempIds.size === 1 ? "seleccionada" : "seleccionadas"}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedPartTempIds(new Set())}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-bold text-slate-600 hover:bg-slate-50"
+              >
+                Quitar selección
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDeleteSelectedParticellas}
+                disabled={isSaving}
+                className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 font-bold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <IconTrash size={14} />
+                Eliminar seleccionadas
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* TABLA DE PARTICELLAS */}
         <div className="bg-white/90 rounded-lg border border-slate-200/80 overflow-hidden shadow-sm">
-          <div className="grid grid-cols-12 gap-2 bg-slate-50 border-b border-slate-200 px-4 py-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+          <div className="grid grid-cols-12 gap-2 bg-slate-50 border-b border-slate-200 px-4 py-2 text-[10px] font-bold uppercase text-slate-500 tracking-wider items-center">
+            <div className="col-span-1 flex justify-center">
+              <input
+                ref={particellaSelectAllRef}
+                type="checkbox"
+                disabled={particellas.length === 0 || isSaving}
+                checked={
+                  particellas.length > 0 &&
+                  selectedPartTempIds.size === particellas.length
+                }
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSelectedPartTempIds(new Set(particellas.map((x) => x.tempId)));
+                  } else {
+                    setSelectedPartTempIds(new Set());
+                  }
+                }}
+                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                title="Seleccionar todas"
+                aria-label="Seleccionar todas las particellas"
+              />
+            </div>
             <div className="col-span-1 text-center">ID</div>
-            <div className="col-span-4">Nombre de Particella</div>
+            <div className="col-span-3">Nombre de Particella</div>
             <div className="col-span-1 text-center text-[10px] font-bold text-slate-500">Solista</div>
             <div className="col-span-2 text-center">Nota Org.</div>
             <div className="col-span-2 text-center">Enlaces</div>
@@ -2002,11 +2197,29 @@ export default function WorkForm({
                 className={`grid grid-cols-12 gap-2 px-4 py-2 items-center transition-colors group text-sm ${p.es_solista ? "bg-sky-50 hover:bg-sky-100" : "hover:bg-slate-50"}`}
               >
                 <div className="col-span-1 flex justify-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedPartTempIds.has(p.tempId)}
+                    disabled={isSaving}
+                    onChange={() =>
+                      setSelectedPartTempIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(p.tempId)) next.delete(p.tempId);
+                        else next.add(p.tempId);
+                        return next;
+                      })
+                    }
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    aria-label={`Seleccionar particella ${p.nombre_archivo || p.tempId}`}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+                <div className="col-span-1 flex justify-center">
                   <span className="w-8 h-6 rounded bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 uppercase">
                     {p.id_instrumento}
                   </span>
                 </div>
-                <div className="col-span-4">
+                <div className="col-span-3">
                   <input
                     className="w-full bg-transparent border-none p-0 text-slate-700 font-bold focus:ring-0 placeholder:text-slate-300 focus:bg-white focus:shadow-sm rounded px-1 transition-all"
                     value={p.nombre_archivo ?? ""}
@@ -2072,11 +2285,17 @@ export default function WorkForm({
                 </div>
                 <div className="col-span-2 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={() =>
+                    type="button"
+                    onClick={() => {
+                      setSelectedPartTempIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(p.tempId);
+                        return next;
+                      });
                       handlePartsChange(
                         particellas.filter((x) => x.tempId !== p.tempId),
-                      )
-                    }
+                      );
+                    }}
                     className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
                     title="Eliminar"
                   >
@@ -2139,7 +2358,10 @@ export default function WorkForm({
       {/* MODALES */}
       <DriveMatcherModal
         isOpen={showDriveMatcher}
-        onClose={() => setShowDriveMatcher(false)}
+        onClose={async () => {
+          await flushPartsPersistQueue();
+          setShowDriveMatcher(false);
+        }}
         folderUrl={formData.link_drive}
         parts={particellas}
         onPartsChange={handlePartsChange}
