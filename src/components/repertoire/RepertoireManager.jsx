@@ -342,7 +342,7 @@ function NotasProgramaStickyCell({ item, isEditor, updateWorkDetail, shrinkWhenE
                 : "w-full min-h-[2.75rem] resize-y bg-transparent border-0 p-0 text-[10px] outline-none focus:ring-0 leading-snug text-yellow-950 placeholder:text-amber-800/40"
               : "w-full min-h-[2.75rem] resize-y bg-transparent border-0 p-0 text-[10px] outline-none focus:ring-0 leading-snug text-slate-700 placeholder:text-slate-400"
         }
-        placeholder="Notas para este programa…"
+        placeholder="Observaciones..."
         value={draft}
         onFocus={() => {
           editingRef.current = true;
@@ -2834,6 +2834,7 @@ export default function RepertoireManager({
                               item={item}
                               isEditor={isEditor}
                               updateWorkDetail={updateWorkDetail}
+                              shrinkWhenEmpty
                             />
                           </div>
                         )}
@@ -3042,7 +3043,7 @@ export default function RepertoireManager({
                   <col style={{ width: "26px" }} />
                   <col style={{ width: "22px" }} />
                   <col style={{ width: "32px" }} />
-                  <col style={{ width: "48%" }} />
+                  <col style={{ width: "40%" }} />
                   {isDefinitionMode && <col style={{ width: "140px" }} />}
                   <col style={{ width: "124px" }} />
                   <col style={{ width: "90px" }} />
@@ -3181,7 +3182,7 @@ export default function RepertoireManager({
                             </div>
                           </div>
                           <div className="flex min-w-0 flex-1 flex-col gap-1">
-                            <div className="flex flex-wrap items-center gap-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-1">
                               <RichTextPreview content={item.obras.titulo} />
                               {item.obras.estado === "Informativo" && (
                                 <span className="ml-1 text-[8px] bg-blue-100 text-blue-600 px-1 rounded border border-blue-200 align-text-top">
