@@ -227,7 +227,10 @@ export const getMatchStrength = (rule, person, allLocalities = []) => {
 
 /**
  * Verifica si una regla aplica a la persona.
- * Si regla es General/Localidad/Region Y transporte físico Y person.condicion !== 'estable', retorna false.
+ * Reglas de transporte (General / Región / Localidad): no aplican solo a
+ * producción, staff o chofer. En alcance Localidad, además de músicos,
+ * aplican a solistas y directores con residencia en alguna localidad objetivo
+ * de la regla (`id_localidad` o `target_localities`).
  */
 export const matchesRule = (rule, person, allLocalities = []) => {
   if (!rule || !person) return false;
@@ -237,7 +240,6 @@ export const matchesRule = (rule, person, allLocalities = []) => {
   const pId = String(person.id ?? person.id_integrante);
   const pLoc = person.id_localidad ? String(person.id_localidad) : "";
   const pRole = normalize(person.rol ?? person.rol_gira ?? "musico");
-  const pCondicion = normalize(person.condicion ?? "");
 
   const locInfo = allLocalities.find((l) => String(l.id) === pLoc);
   const pReg = String(
@@ -249,17 +251,34 @@ export const matchesRule = (rule, person, allLocalities = []) => {
 
   const isTransportRule = "id_transporte_fisico" in rule;
   if (isTransportRule && ["general", "region", "localidad"].includes(scope)) {
-    const isStaff = ["produccion", "staff", "director", "chofer"].includes(
-      pRole,
-    );
-    if (isStaff || pCondicion !== "estable") return false;
+    const isStaffOnly = ["produccion", "staff", "chofer"].includes(pRole);
+    if (isStaffOnly) return false;
 
-    // Reglas de Localidad de transporte:
-    // solo aplican a músicos estables, con excepción de solistas estables.
     if (scope === "localidad") {
-      const isMusician = pRole.includes("music");
-      const isStableSolist = pRole === "solista" && pCondicion === "estable";
-      if (!isMusician && !isStableSolist) return false;
+      const ruleLocalityIds = new Set();
+      if (rule.id_localidad != null && String(rule.id_localidad).trim() !== "") {
+        ruleLocalityIds.add(String(rule.id_localidad).trim());
+      }
+      (rule.target_localities || []).forEach((id) => {
+        if (id != null && String(id).trim() !== "")
+          ruleLocalityIds.add(String(id).trim());
+      });
+      if (ruleLocalityIds.size > 0) {
+        const atRuleLocality = Boolean(pLoc) && ruleLocalityIds.has(pLoc);
+
+        const isMusician = pRole.includes("music");
+        const isSolistaAtRuleLocality =
+          pRole === "solista" && atRuleLocality;
+        const isDirectorAtRuleLocality =
+          pRole === "director" && atRuleLocality;
+        if (
+          !isMusician &&
+          !isSolistaAtRuleLocality &&
+          !isDirectorAtRuleLocality
+        ) {
+          return false;
+        }
+      }
     }
   }
 

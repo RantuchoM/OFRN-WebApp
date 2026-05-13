@@ -83,7 +83,7 @@ export default function StopRulesManager({
   }, [isOpen, transportId, event]);
   const fetchAdmissions = async () => {
     // Centralizamos: si useLogistics ya resolvió que un pasajero "viaja en este transporte",
-    // entonces ya respetó la lógica de rol/condición. Usamos eso como fuente de verdad.
+    // entonces ya respetó la lógica de roles y alcance (matchesRule). Usamos eso como fuente de verdad.
     const ids = new Set();
     (passengers || []).forEach((p) => {
       const trans = p?.logistics?.transports || [];

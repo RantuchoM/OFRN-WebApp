@@ -16,9 +16,13 @@ import {
   TIPOS_PROGRAMA_ASISTENCIA_MATRIZ,
 } from "../../services/giraService";
 import {
+  ASISTENCIA_MATRIX_SUMMARY_HEADER_TITLE,
   buildAsistenciaMatrixRowGroups,
+  buildAsistenciaMatrixSummaryValues,
+  computeAsistenciaMatrixRowTotals,
   downloadAsistenciaMatrixExcel,
   downloadAsistenciaMatrixPdf,
+  getAsistenciaMatrixSummaryHeadLabels,
 } from "../../utils/asistenciaMatrixExport";
 import { IconDownload } from "../../components/ui/Icons";
 
@@ -306,6 +310,11 @@ export default function AsistenciaMatrixReport({ supabase }) {
     [visibleRows, ensambles, membershipsByEnsamble, selectedIntegranteIds],
   );
 
+  const summaryHeadLabels = useMemo(
+    () => getAsistenciaMatrixSummaryHeadLabels(selectedTypes),
+    [selectedTypes],
+  );
+
   const toggleType = useCallback((tipo) => {
     setSelectedTypes((prev) => {
       const next = new Set(prev);
@@ -401,6 +410,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
       ensambles,
       membershipsByEnsamble,
       selectedIntegranteIds,
+      selectedTypes,
     });
   }, [
     exportDisabled,
@@ -411,6 +421,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
     ensambles,
     membershipsByEnsamble,
     selectedIntegranteIds,
+    selectedTypes,
   ]);
 
   const handleExportPdf = useCallback(() => {
@@ -423,6 +434,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
       ensambles,
       membershipsByEnsamble,
       selectedIntegranteIds,
+      selectedTypes,
     });
   }, [
     exportDisabled,
@@ -433,6 +445,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
     ensambles,
     membershipsByEnsamble,
     selectedIntegranteIds,
+    selectedTypes,
   ]);
 
   if (loading) {
@@ -639,6 +652,26 @@ export default function AsistenciaMatrixReport({ supabase }) {
                       </div>
                     </th>
                   ))}
+                  {summaryHeadLabels.map((label, si) => {
+                    const isTotal = label === "Total";
+                    const isFirstSummary = si === 0;
+                    return (
+                      <th
+                        key={`summary-h-${si}-${label}`}
+                        scope="col"
+                        title={
+                          ASISTENCIA_MATRIX_SUMMARY_HEADER_TITLE[label] ?? label
+                        }
+                        className={`sticky top-0 z-20 min-w-[2.35rem] border-b border-slate-200 bg-slate-200 px-0.5 py-2 text-center align-middle text-[10px] font-bold uppercase leading-none tracking-wide text-slate-700 dark:border-slate-700 dark:bg-slate-700 dark:text-slate-200 ${
+                          isFirstSummary
+                            ? "border-l-2 border-l-slate-400 dark:border-l-slate-500"
+                            : ""
+                        } ${isTotal ? "text-indigo-900 dark:text-indigo-100" : ""}`}
+                      >
+                        {label}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -646,7 +679,11 @@ export default function AsistenciaMatrixReport({ supabase }) {
                   <Fragment key={grp.key}>
                     <tr className="bg-slate-200/90 dark:bg-slate-800/95">
                       <td
-                        colSpan={1 + filteredProgramas.length}
+                        colSpan={
+                          1 +
+                          filteredProgramas.length +
+                          summaryHeadLabels.length
+                        }
                         className="border-b border-slate-300 px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-800 dark:border-slate-600 dark:text-slate-100"
                       >
                         {grp.label}
@@ -670,6 +707,16 @@ export default function AsistenciaMatrixReport({ supabase }) {
                       const subLine = [instLabel, ensLabels.join(", ")]
                         .filter(Boolean)
                         .join(" · ");
+                      const totals = computeAsistenciaMatrixRowTotals(
+                        iid,
+                        filteredProgramas,
+                        rosterByGiraId,
+                        selectedTypes,
+                      );
+                      const summaryVals = buildAsistenciaMatrixSummaryValues(
+                        totals,
+                        selectedTypes,
+                      );
 
                       return (
                         <tr
@@ -707,6 +754,27 @@ export default function AsistenciaMatrixReport({ supabase }) {
                                     ·
                                   </span>
                                 )}
+                              </td>
+                            );
+                          })}
+                          {summaryVals.map((val, si) => {
+                            const isTotal =
+                              si === summaryVals.length - 1;
+                            const isFirstSummary = si === 0;
+                            return (
+                              <td
+                                key={`${iid}-sum-${si}`}
+                                className={`border-l border-slate-200 bg-slate-200 px-1 py-1 text-center align-middle tabular-nums text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-700 dark:text-slate-100 ${
+                                  isFirstSummary
+                                    ? "border-l-2 border-l-slate-400 dark:border-l-slate-500"
+                                    : ""
+                                } ${
+                                  isTotal
+                                    ? "font-bold text-indigo-950 dark:text-indigo-100"
+                                    : ""
+                                }`}
+                              >
+                                {val}
                               </td>
                             );
                           })}

@@ -3,7 +3,11 @@
  * Servicio autónomo para cálculos On-Demand en el Dashboard
  */
 
-import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
+import {
+  filterMembershipRowsForProgramDate,
+  membershipActiveOnProgramDate,
+} from "../utils/ensembleMembership";
+import { getTodayDateStringLocal } from "../utils/dates";
 
 /**
  * Resuelve los IDs de los integrantes de una gira:
@@ -134,6 +138,8 @@ export const TIPOS_PROGRAMA_ASISTENCIA_MATRIZ = [
 /**
  * Carga datos base para el reporte Matriz de Asistencia (programas recientes, integrantes con instrumento, ensambles).
  * Los programas se traen desde el 1-ene del año anterior para no perder giras que cruzan de año.
+ * Las membresías a ensamble solo incluyen tramos activos a la fecha de hoy (hora local): si `fecha_hasta`
+ * es anterior a hoy, esa relación no entra en el informe.
  */
 export const fetchAsistenciaMatrixBaseData = async (supabase) => {
   if (!supabase) {
@@ -184,11 +190,14 @@ export const fetchAsistenciaMatrixBaseData = async (supabase) => {
       };
     }
 
+    const hoy = getTodayDateStringLocal();
+    const membershipsRaw = ieRes.data || [];
+
     return {
       programas: programasRes.data || [],
       integrantes: integrantesRes.data || [],
       ensambles: ensRes.data || [],
-      memberships: ieRes.data || [],
+      memberships: filterMembershipRowsForProgramDate(membershipsRaw, hoy),
       error: null,
     };
   } catch (e) {

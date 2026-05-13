@@ -99,6 +99,67 @@ function integranteDetalle(row, ensambles, membershipsByEnsamble) {
 }
 
 /**
+ * Conteos por tipo de programa visible y total de convocatorias en la fila.
+ * La columna Ensamble solo aplica si el filtro de tipos incluye "Ensamble".
+ *
+ * @param {number|string} integranteId
+ * @param {Array<{ id: string|number, tipo?: string }>} filteredProgramas
+ * @param {Record<string, Set<number>>} rosterByGiraId
+ * @param {Set<string>} selectedTypes
+ */
+export function computeAsistenciaMatrixRowTotals(
+  integranteId,
+  filteredProgramas,
+  rosterByGiraId,
+  selectedTypes,
+) {
+  const iid = Number(integranteId);
+  const active = (gid) => {
+    const set = rosterByGiraId[gid];
+    return set && set.has(iid);
+  };
+  const countTipo = (tipo) =>
+    filteredProgramas.filter((g) => g.tipo === tipo && active(g.id)).length;
+  const total = filteredProgramas.filter((g) => active(g.id)).length;
+  return {
+    sinfonico: countTipo("Sinfónico"),
+    camerata: countTipo("Camerata Filarmónica"),
+    ensamble: selectedTypes.has("Ensamble") ? countTipo("Ensamble") : null,
+    total,
+  };
+}
+
+/** ARGB gris claro para bloque de columnas de totales (Excel). */
+const SUMMARY_FILL_ARGB = "FFE2E8F0";
+
+/** RGB gris claro para bloque de columnas de totales (PDF). */
+const SUMMARY_FILL_RGB = [226, 232, 240];
+
+/** Tooltips para encabezados abreviados de totales (p. ej. en la UI). */
+export const ASISTENCIA_MATRIX_SUMMARY_HEADER_TITLE = {
+  Sinf: "Sinfónico",
+  CF: "Camerata Filarmónica",
+  Ens: "Ensamble",
+  Total: "Total en todos los programas visibles",
+};
+
+/** Encabezados cortos de columnas de resumen (PDF/Excel/UI). */
+export function getAsistenciaMatrixSummaryHeadLabels(selectedTypes) {
+  const labels = ["Sinf", "CF"];
+  if (selectedTypes.has("Ensamble")) labels.push("Ens");
+  labels.push("Total");
+  return labels;
+}
+
+/** Valores numéricos en el mismo orden que {@link getAsistenciaMatrixSummaryHeadLabels}. */
+export function buildAsistenciaMatrixSummaryValues(totals, selectedTypes) {
+  const cells = [totals.sinfonico, totals.camerata];
+  if (selectedTypes.has("Ensamble")) cells.push(totals.ensamble ?? 0);
+  cells.push(totals.total);
+  return cells;
+}
+
+/**
  * @param {object} params
  * @param {Array} params.visibleRows
  * @param {Array} params.filteredProgramas
@@ -107,6 +168,7 @@ function integranteDetalle(row, ensambles, membershipsByEnsamble) {
  * @param {Array} params.ensambles
  * @param {Map<number, number[]>} params.membershipsByEnsamble
  * @param {Set<number>|Iterable<number>} params.selectedIntegranteIds
+ * @param {Set<string>} params.selectedTypes — filtros de tipo de programa (define columna Ensamble en totales)
  */
 export async function downloadAsistenciaMatrixExcel({
   visibleRows,
@@ -116,6 +178,7 @@ export async function downloadAsistenciaMatrixExcel({
   ensambles,
   membershipsByEnsamble,
   selectedIntegranteIds,
+  selectedTypes,
 }) {
   const groups = buildAsistenciaMatrixRowGroups(
     visibleRows,
@@ -123,7 +186,8 @@ export async function downloadAsistenciaMatrixExcel({
     membershipsByEnsamble,
     selectedIntegranteIds,
   );
-  const colCount = 2 + filteredProgramas.length;
+  const summaryLabels = getAsistenciaMatrixSummaryHeadLabels(selectedTypes);
+  const colCount = 2 + filteredProgramas.length + summaryLabels.length;
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Matriz asistencia", {
@@ -134,17 +198,20 @@ export async function downloadAsistenciaMatrixExcel({
     "Integrante",
     "Instrumento / Ensamble",
     ...filteredProgramas.map((g) => headerLabel(g)),
+    ...summaryLabels,
   ];
   sheet.addRow(header);
   const hr = sheet.getRow(1);
+  const summaryStartCol = 3 + filteredProgramas.length;
   hr.font = { bold: true };
-  hr.fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FFF1F5F9" },
-  };
-  hr.eachCell((cell) => {
+  hr.eachCell((cell, colNumber) => {
     cell.alignment = { horizontal: "center", vertical: "middle" };
+    const isSummaryCol = colNumber >= summaryStartCol;
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: isSummaryCol ? SUMMARY_FILL_ARGB : "FFF1F5F9" },
+    };
   });
 
   for (const g of groups) {
@@ -163,6 +230,12 @@ export async function downloadAsistenciaMatrixExcel({
       const iid = Number(row.id);
       const name = `${row.nombre || ""} ${row.apellido || ""}`.trim();
       const det = integranteDetalle(row, ensambles, membershipsByEnsamble);
+      const totals = computeAsistenciaMatrixRowTotals(
+        iid,
+        filteredProgramas,
+        rosterByGiraId,
+        selectedTypes,
+      );
       const cells = [
         name,
         det,
@@ -170,6 +243,7 @@ export async function downloadAsistenciaMatrixExcel({
           const set = rosterByGiraId[p.id];
           return set && set.has(iid) ? "X" : "";
         }),
+        ...buildAsistenciaMatrixSummaryValues(totals, selectedTypes),
       ];
       const dataRow = sheet.addRow(cells);
       dataRow.eachCell((cell, colNumber) => {
@@ -178,12 +252,23 @@ export async function downloadAsistenciaMatrixExcel({
         } else {
           cell.alignment = { vertical: "middle" };
         }
+        if (colNumber >= summaryStartCol) {
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: SUMMARY_FILL_ARGB },
+          };
+        }
       });
     }
   }
 
   sheet.columns.forEach((col, i) => {
-    col.width = i === 0 ? 28 : i === 1 ? 36 : 10;
+    const progCount = filteredProgramas.length;
+    if (i === 0) col.width = 28;
+    else if (i === 1) col.width = 36;
+    else if (i < 2 + progCount) col.width = 10;
+    else col.width = 7;
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -198,6 +283,7 @@ export async function downloadAsistenciaMatrixExcel({
 
 /**
  * @param {object} params — mismos que Excel + reportTitle opcional
+ * @param {Set<string>} params.selectedTypes
  */
 export function downloadAsistenciaMatrixPdf({
   visibleRows,
@@ -207,6 +293,7 @@ export function downloadAsistenciaMatrixPdf({
   ensambles,
   membershipsByEnsamble,
   selectedIntegranteIds,
+  selectedTypes,
   reportTitle = "Matriz de asistencia",
 }) {
   const groups = buildAsistenciaMatrixRowGroups(
@@ -215,7 +302,8 @@ export function downloadAsistenciaMatrixPdf({
     membershipsByEnsamble,
     selectedIntegranteIds,
   );
-  const colSpan = 2 + filteredProgramas.length;
+  const summaryLabels = getAsistenciaMatrixSummaryHeadLabels(selectedTypes);
+  const colSpan = 2 + filteredProgramas.length + summaryLabels.length;
 
   const doc = new jsPDF({
     orientation: "landscape",
@@ -235,6 +323,7 @@ export function downloadAsistenciaMatrixPdf({
       "Integrante",
       "Detalle",
       ...filteredProgramas.map((g) => headerLabel(g)),
+      ...summaryLabels,
     ],
   ];
 
@@ -255,6 +344,12 @@ export function downloadAsistenciaMatrixPdf({
       const iid = Number(row.id);
       const name = `${row.nombre || ""} ${row.apellido || ""}`.trim();
       const det = integranteDetalle(row, ensambles, membershipsByEnsamble);
+      const totals = computeAsistenciaMatrixRowTotals(
+        iid,
+        filteredProgramas,
+        rosterByGiraId,
+        selectedTypes,
+      );
       body.push([
         name,
         det,
@@ -262,11 +357,14 @@ export function downloadAsistenciaMatrixPdf({
           const set = rosterByGiraId[p.id];
           return set && set.has(iid) ? "X" : "";
         }),
+        ...buildAsistenciaMatrixSummaryValues(totals, selectedTypes),
       ]);
     }
   }
 
   const borderGray = [180, 180, 180];
+  const progCount = filteredProgramas.length;
+  const summaryStartCol = 2 + progCount;
 
   autoTable(doc, {
     head,
@@ -293,6 +391,23 @@ export function downloadAsistenciaMatrixPdf({
     columnStyles: {
       0: { cellWidth: 32, halign: "left" },
       1: { cellWidth: 36, halign: "left" },
+    },
+    didParseCell: (data) => {
+      if (data.section === "head" && data.column.index >= summaryStartCol) {
+        data.cell.styles.fillColor = [...SUMMARY_FILL_RGB];
+      }
+      if (data.section === "body") {
+        const raw = data.row?.raw;
+        const isGroupSep =
+          Array.isArray(raw) &&
+          raw.length === 1 &&
+          raw[0] &&
+          typeof raw[0] === "object" &&
+          Number(raw[0].colSpan) > 1;
+        if (!isGroupSep && data.column.index >= summaryStartCol) {
+          data.cell.styles.fillColor = [...SUMMARY_FILL_RGB];
+        }
+      }
     },
     margin: { left: 10, right: 10 },
     tableWidth: "auto",
