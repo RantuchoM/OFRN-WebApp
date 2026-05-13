@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import SearchableSelect from "../ui/SearchableSelect";
+import LocalitySelectWithCreate from "./LocalitySelectWithCreate";
 import { IconPlus, IconLoader } from "../ui/Icons";
 import { toast } from "sonner";
 
@@ -153,12 +154,27 @@ export default function LocationSelectWithCreate({
                   <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1.5">
                     Localidad
                   </label>
-                  <SearchableSelect
+                  <LocalitySelectWithCreate
+                    supabase={supabase}
                     options={localidadesOptions}
                     value={newIdLocalidad}
                     onChange={setNewIdLocalidad}
+                    onCreated={(row) => {
+                      if (!row?.id) return;
+                      setLocalidadesOptions((prev) => {
+                        const label = row.localidad || "";
+                        const filtered = prev.filter((o) => String(o.id) !== String(row.id));
+                        const next = [
+                          ...filtered,
+                          { id: row.id, label },
+                        ];
+                        return next.sort((a, b) =>
+                          String(a.label || "").localeCompare(String(b.label || ""), "es"),
+                        );
+                      });
+                    }}
                     placeholder="Seleccionar ciudad..."
-                    className="border border-slate-300 rounded-xl"
+                    className="rounded-xl"
                   />
                 </div>
                 <div>

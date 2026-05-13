@@ -585,6 +585,981 @@ const SoloistSelect = ({ currentId, musicians, onChange }) => {
   );
 };
 
+
+function QuickWorkRow({
+  rep,
+  definitionMode,
+  isEditor,
+  user,
+  supabase,
+  addWorkToBlock,
+  fetchFullRepertoire,
+  setQuickEntryFollowup,
+}) {
+  const MIN_SEARCH_LEN = 2;
+  const [composerInput, setComposerInput] = useState("");
+  const [composerOptions, setComposerOptions] = useState([]);
+  const [activeComposerIndex, setActiveComposerIndex] = useState(-1);
+  const [selectedComposer, setSelectedComposer] = useState(null);
+  const [showComposerDropdown, setShowComposerDropdown] = useState(false);
+  const [searchingComposer, setSearchingComposer] = useState(false);
+  const [titulo, setTitulo] = useState("");
+  const [instrumentacion, setInstrumentacion] = useState("");
+  const [duracion, setDuracion] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [isNewWorkForComposer, setIsNewWorkForComposer] = useState(false);
+  const [workOptions, setWorkOptions] = useState([]);
+  const [activeWorkIndex, setActiveWorkIndex] = useState(-1);
+  const [showWorkDropdown, setShowWorkDropdown] = useState(false);
+  const [searchingWork, setSearchingWork] = useState(false);
+  const [selectedWork, setSelectedWork] = useState(null);
+  const composerInputRef = useRef(null);
+  const workInputRef = useRef(null);
+  const [composerDropdownPos, setComposerDropdownPos] = useState(null);
+  const [workDropdownPos, setWorkDropdownPos] = useState(null);
+  const [arrangerInput, setArrangerInput] = useState("");
+  const [arrangerOptions, setArrangerOptions] = useState([]);
+  const [activeArrangerIndex, setActiveArrangerIndex] = useState(-1);
+  const [selectedArranger, setSelectedArranger] = useState(null);
+  const [showArrangerDropdown, setShowArrangerDropdown] = useState(false);
+  const [searchingArranger, setSearchingArranger] = useState(false);
+  const arrangerInputRef = useRef(null);
+  const [arrangerDropdownPos, setArrangerDropdownPos] = useState(null);
+  const getDropdownPosition = (inputRef, minWidth = 260) => {
+    if (!inputRef?.current) return null;
+    const rect = inputRef.current.getBoundingClientRect();
+    const margin = 8;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const width = Math.min(
+      Math.max(rect.width, minWidth),
+      Math.max(180, viewportWidth - margin * 2),
+    );
+    const spaceBelow = viewportHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    /** Preferir debajo del campo; solo arriba si abajo no entra una lista mínima y hay hueco claro arriba. */
+    const minBelowPx = 100;
+    const placeAbove =
+      spaceBelow < minBelowPx &&
+      spaceAbove >= minBelowPx + 32 &&
+      spaceAbove > spaceBelow + 16;
+    const maxHeight = Math.max(
+      100,
+      placeAbove ? spaceAbove - margin - 8 : spaceBelow - margin - 8,
+    );
+    let left = rect.left;
+    if (left + width > viewportWidth - margin) left = viewportWidth - margin - width;
+    if (left < margin) left = margin;
+    if (placeAbove) {
+      return {
+        left,
+        width,
+        maxHeight,
+        bottom: viewportHeight - rect.top + 4,
+      };
+    }
+    return {
+      left,
+      width,
+      maxHeight,
+      top: rect.bottom + 4,
+    };
+  };
+
+  const debouncedSearchComposer = useDebouncedCallback(
+    async (query) => {
+      const trimmed = query.trim();
+      if (trimmed.length < 2) {
+        setComposerOptions([]);
+        setSearchingComposer(false);
+        setShowComposerDropdown(false);
+        return;
+      }
+
+      let apellido = trimmed;
+      let nombre = "";
+      if (trimmed.includes(",")) {
+        const parts = trimmed.split(",");
+        apellido = parts[0].trim();
+        nombre = parts[1]?.trim() || "";
+      }
+
+      try {
+        let q = supabase
+          .from("compositores")
+          .select("id, apellido, nombre")
+          .order("apellido")
+          .limit(8);
+        if (apellido) q = q.ilike("apellido", `${apellido}%`);
+        if (nombre) q = q.ilike("nombre", `${nombre}%`);
+        const { data, error } = await q;
+        if (error) {
+          console.error("Error buscando compositores:", error);
+          setComposerOptions([]);
+        } else {
+          setComposerOptions(data || []);
+        }
+      } catch (e) {
+        console.error("Error buscando compositores:", e);
+        setComposerOptions([]);
+      } finally {
+        setSearchingComposer(false);
+        setShowComposerDropdown(true);
+      }
+    },
+    300,
+  );
+
+  const debouncedSearchArranger = useDebouncedCallback(
+    async (query) => {
+      const trimmed = query.trim();
+      if (trimmed.length < 2) {
+        setArrangerOptions([]);
+        setSearchingArranger(false);
+        setShowArrangerDropdown(false);
+        return;
+      }
+
+      let apellido = trimmed;
+      let nombre = "";
+      if (trimmed.includes(",")) {
+        const parts = trimmed.split(",");
+        apellido = parts[0].trim();
+        nombre = parts[1]?.trim() || "";
+      }
+
+      try {
+        let q = supabase
+          .from("compositores")
+          .select("id, apellido, nombre")
+          .order("apellido")
+          .limit(8);
+        if (apellido) q = q.ilike("apellido", `${apellido}%`);
+        if (nombre) q = q.ilike("nombre", `${nombre}%`);
+        const { data, error } = await q;
+        if (error) {
+          console.error("Error buscando arregladores:", error);
+          setArrangerOptions([]);
+        } else {
+          setArrangerOptions(data || []);
+        }
+      } catch (e) {
+        console.error("Error buscando arregladores:", e);
+        setArrangerOptions([]);
+      } finally {
+        setSearchingArranger(false);
+        setShowArrangerDropdown(true);
+      }
+    },
+    300,
+  );
+
+  const debouncedSearchWorks = useDebouncedCallback(
+    async (composerId, rawTitle) => {
+      const clean = (rawTitle || "").trim();
+      if (!composerId) {
+        setWorkOptions([]);
+        setIsNewWorkForComposer(false);
+        setSearchingWork(false);
+        setShowWorkDropdown(false);
+        return;
+      }
+      try {
+        let query = supabase
+          .from("obras")
+          .select(
+            "id, titulo, duracion_segundos, instrumentacion, link_drive, link_youtube, observaciones, obras_compositores!inner(id_compositor, rol)",
+          )
+          .eq("obras_compositores.id_compositor", composerId)
+          .eq("obras_compositores.rol", "compositor")
+          .order("titulo")
+          .limit(20);
+
+        if (clean.length >= 2) {
+          query = query.ilike("titulo", `%${clean}%`);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+          console.warn("Error buscando obras del compositor:", error);
+          setWorkOptions([]);
+          setIsNewWorkForComposer(false);
+          return;
+        }
+        const list = data || [];
+        setWorkOptions(list);
+        setIsNewWorkForComposer(!(list.length > 0 && clean.length >= 3));
+        setShowWorkDropdown(true);
+      } catch (e) {
+        console.warn("Error buscando obras del compositor:", e);
+        setWorkOptions([]);
+        setIsNewWorkForComposer(false);
+      } finally {
+        setSearchingWork(false);
+      }
+    },
+    400,
+  );
+
+  useEffect(() => {
+    if (!showComposerDropdown) {
+      setComposerDropdownPos(null);
+      return undefined;
+    }
+    const updatePosition = () => setComposerDropdownPos(getDropdownPosition(composerInputRef, 260));
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [showComposerDropdown]);
+
+  useEffect(() => {
+    if (!showWorkDropdown) {
+      setWorkDropdownPos(null);
+      return undefined;
+    }
+    const updatePosition = () => setWorkDropdownPos(getDropdownPosition(workInputRef, 320));
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [showWorkDropdown]);
+
+  useEffect(() => {
+    if (!showArrangerDropdown) {
+      setArrangerDropdownPos(null);
+      return undefined;
+    }
+    const updatePosition = () => setArrangerDropdownPos(getDropdownPosition(arrangerInputRef, 260));
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [showArrangerDropdown]);
+
+  const handleComposerChange = (e) => {
+    const val = e.target.value;
+    setComposerInput(val);
+    setSelectedComposer(null);
+    setSelectedWork(null);
+    setSelectedArranger(null);
+    setWorkOptions([]);
+    setShowWorkDropdown(false);
+    setIsNewWorkForComposer(false);
+    if (val.trim().length >= MIN_SEARCH_LEN) {
+      setSearchingComposer(true);
+      debouncedSearchComposer(val);
+    } else {
+      setComposerOptions([]);
+      setShowComposerDropdown(false);
+    }
+  };
+
+  const handleComposerSelect = (comp) => {
+    setSelectedComposer(comp);
+    setComposerInput(`${comp.apellido}, ${comp.nombre}`);
+    setShowComposerDropdown(false);
+    setActiveComposerIndex(-1);
+    setSelectedWork(null);
+    setWorkOptions([]);
+    setShowWorkDropdown(false);
+    setIsNewWorkForComposer(false);
+  };
+
+  const handleQuickCreateComposerFromInput = async () => {
+    const raw = composerInput.trim();
+    if (!raw) return;
+
+    let apellido = raw;
+    let nombre = "";
+    if (raw.includes(",")) {
+      const parts = raw.split(",");
+      apellido = parts[0].trim();
+      nombre = parts[1]?.trim() || "";
+    }
+    if (!apellido) return;
+
+    try {
+      // Buscar si ya existe uno igual
+      let qComp = supabase
+        .from("compositores")
+        .select("id, apellido, nombre")
+        .eq("apellido", apellido)
+        .limit(1);
+      if (nombre) {
+        qComp = qComp.eq("nombre", nombre);
+      } else {
+        qComp = qComp.is("nombre", null);
+      }
+      const { data: existing, error: findError } = await qComp;
+      if (findError) {
+        console.error("Error buscando compositor para creación rápida:", findError);
+      }
+
+      let comp = existing && existing.length > 0 ? existing[0] : null;
+      if (!comp) {
+        const payload = { apellido, nombre: nombre || null };
+        const { data: newComp, error: insertError } = await supabase
+          .from("compositores")
+          .insert([payload])
+          .select()
+          .single();
+        if (insertError) {
+          console.error("Error creando compositor rápido:", insertError);
+          return;
+        }
+        comp = newComp;
+      }
+
+      setSelectedComposer(comp);
+      setComposerInput(`${comp.apellido}${comp.nombre ? `, ${comp.nombre}` : ""}`);
+      setComposerOptions([]);
+      setShowComposerDropdown(false);
+    } catch (e) {
+      console.error("Error en creación rápida de compositor:", e);
+    }
+  };
+
+  const handleArrangerChange = (e) => {
+    const val = e.target.value;
+    setArrangerInput(val);
+    setSelectedArranger(null);
+    if (val.trim().length >= MIN_SEARCH_LEN) {
+      setSearchingArranger(true);
+      debouncedSearchArranger(val);
+    } else {
+      setArrangerOptions([]);
+      setShowArrangerDropdown(false);
+    }
+  };
+
+  const handleArrangerSelect = (comp) => {
+    setSelectedArranger(comp);
+    setArrangerInput(`${comp.apellido}, ${comp.nombre}`);
+    setShowArrangerDropdown(false);
+    setActiveArrangerIndex(-1);
+  };
+
+  useEffect(() => {
+    if (!showComposerDropdown || composerOptions.length === 0) {
+      setActiveComposerIndex(-1);
+      return;
+    }
+    setActiveComposerIndex(0);
+  }, [showComposerDropdown, composerOptions]);
+
+  useEffect(() => {
+    if (!showWorkDropdown || workOptions.length === 0) {
+      setActiveWorkIndex(-1);
+      return;
+    }
+    setActiveWorkIndex(0);
+  }, [showWorkDropdown, workOptions]);
+
+  useEffect(() => {
+    if (!showArrangerDropdown || arrangerOptions.length === 0) {
+      setActiveArrangerIndex(-1);
+      return;
+    }
+    setActiveArrangerIndex(0);
+  }, [showArrangerDropdown, arrangerOptions]);
+
+  const handleInsertExistingWork = async (work) => {
+    if (!isEditor || saving) return;
+    if (!selectedComposer) return;
+
+    setSaving(true);
+    try {
+      await addWorkToBlock(work.id, rep.id);
+
+      setComposerInput("");
+      setSelectedComposer(null);
+      setComposerOptions([]);
+      setShowComposerDropdown(false);
+      setTitulo("");
+      setInstrumentacion("");
+      setDuracion("");
+      setWorkOptions([]);
+      setShowWorkDropdown(false);
+      setSelectedWork(null);
+      setArrangerInput("");
+      setSelectedArranger(null);
+      setArrangerOptions([]);
+      setShowArrangerDropdown(false);
+      setIsNewWorkForComposer(false);
+
+      // No se abre el modal de follow-up porque la obra ya existe
+      fetchFullRepertoire();
+    } catch (e) {
+      console.error("Error insertando obra existente:", e);
+      alert("No se pudo insertar la obra seleccionada. Intenta nuevamente.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!isEditor || saving) return;
+    const composerText = composerInput.trim();
+    const hasComposer = !!selectedComposer || !!composerText;
+
+    if (!hasComposer || !titulo.trim()) {
+      alert("Completa al menos Compositor y Título para crear la obra.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      let composerId = selectedComposer?.id || null;
+      let composerApellido = selectedComposer?.apellido || "";
+      let composerNombre = selectedComposer?.nombre || "";
+
+      if (selectedWork && composerId) {
+        const insertedRepObra = await addWorkToBlock(selectedWork.id, rep.id);
+
+        setComposerInput("");
+        setSelectedComposer(null);
+        setComposerOptions([]);
+        setShowComposerDropdown(false);
+        setTitulo("");
+        setInstrumentacion("");
+        setDuracion("");
+        setWorkOptions([]);
+        setShowWorkDropdown(false);
+        setSelectedWork(null);
+        setIsNewWorkForComposer(false);
+
+        setQuickEntryFollowup({
+          obraId: selectedWork.id,
+          repertorioObraId: insertedRepObra?.id ?? null,
+          titulo: selectedWork.titulo,
+          composerLabel:
+            composerApellido || composerNombre
+              ? `${composerApellido}${composerNombre ? `, ${composerNombre}` : ""}`
+              : "",
+          link_drive: selectedWork.link_drive || "",
+          link_youtube: selectedWork.link_youtube || "",
+          observaciones: selectedWork.observaciones || "",
+        estado: selectedWork.estado || "Solicitud",
+        comentarios: selectedWork.comentarios || "",
+          notas_especificas: "",
+        });
+
+        fetchFullRepertoire();
+        return;
+      }
+
+      if (!composerId) {
+        let apellido = composerText;
+        let nombre = "";
+        if (composerText.includes(",")) {
+          const parts = composerText.split(",");
+          apellido = parts[0].trim();
+          nombre = parts[1]?.trim() || "";
+        }
+        if (!apellido) {
+          throw new Error("El apellido del compositor es obligatorio.");
+        }
+
+        let qComp = supabase
+          .from("compositores")
+          .select("id, apellido, nombre")
+          .eq("apellido", apellido)
+          .limit(1);
+        if (nombre) {
+          qComp = qComp.eq("nombre", nombre);
+        } else {
+          qComp = qComp.is("nombre", null);
+        }
+        const { data: existing } = await qComp;
+
+        if (existing && existing.length > 0) {
+          composerId = existing[0].id;
+          composerApellido = existing[0].apellido;
+          composerNombre = existing[0].nombre;
+        } else {
+          const { data: newComp, error: compError } = await supabase
+            .from("compositores")
+            .insert([{ apellido, nombre }])
+            .select()
+            .single();
+          if (compError) throw compError;
+          composerId = newComp.id;
+          composerApellido = newComp.apellido;
+          composerNombre = newComp.nombre;
+        }
+      }
+
+      const tituloHtml = `<p>${titulo}</p>`;
+      const payload = {
+        titulo: tituloHtml,
+        duracion_segundos: inputToSeconds(duracion),
+        instrumentacion: instrumentacion || null,
+        estado: "Solicitud",
+        id_usuario_carga: user?.id ?? null,
+      };
+
+      const { data: newWork, error: obraError } = await supabase
+        .from("obras")
+        .insert([payload])
+        .select()
+        .single();
+      if (obraError) throw obraError;
+
+      const newWorkId = newWork.id;
+
+      const relaciones = [
+        {
+          id_obra: newWorkId,
+          id_compositor: composerId,
+          rol: "compositor",
+        },
+      ];
+      if (selectedArranger?.id && selectedArranger.id !== composerId) {
+        relaciones.push({
+          id_obra: newWorkId,
+          id_compositor: selectedArranger.id,
+          rol: "arreglador",
+        });
+      }
+      await supabase.from("obras_compositores").insert(relaciones);
+
+      const insertedRepObra = await addWorkToBlock(newWorkId, rep.id);
+
+      setComposerInput("");
+      setSelectedComposer(null);
+      setComposerOptions([]);
+      setShowComposerDropdown(false);
+      setTitulo("");
+      setInstrumentacion("");
+      setDuracion("");
+      setWorkOptions([]);
+      setShowWorkDropdown(false);
+      setSelectedWork(null);
+      setArrangerInput("");
+      setSelectedArranger(null);
+      setArrangerOptions([]);
+      setShowArrangerDropdown(false);
+      setIsNewWorkForComposer(false);
+
+      setQuickEntryFollowup({
+        obraId: newWorkId,
+        repertorioObraId: insertedRepObra?.id ?? null,
+        titulo: tituloHtml,
+        composerLabel:
+          composerApellido || composerNombre
+            ? `${composerApellido}${composerNombre ? `, ${composerNombre}` : ""}`
+            : "",
+        link_drive: newWork.link_drive || "",
+        link_youtube: newWork.link_youtube || "",
+        observaciones: newWork.observaciones || "",
+        estado: newWork.estado || "Solicitud",
+        comentarios: newWork.comentarios || "",
+        notas_especificas: "",
+      });
+
+      fetchFullRepertoire();
+    } catch (e) {
+      console.error("Error en creación rápida de obra:", e);
+      alert("No se pudo crear la obra. Intenta nuevamente.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Escape") {
+      if (showComposerDropdown || showWorkDropdown || showArrangerDropdown) {
+        e.preventDefault();
+        setShowComposerDropdown(false);
+        setShowWorkDropdown(false);
+        setShowArrangerDropdown(false);
+      }
+      return;
+    }
+
+    if (showComposerDropdown && composerOptions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveComposerIndex((prev) => (prev + 1) % composerOptions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveComposerIndex((prev) =>
+          prev <= 0 ? composerOptions.length - 1 : prev - 1,
+        );
+        return;
+      }
+    }
+    if (showWorkDropdown && workOptions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveWorkIndex((prev) => (prev + 1) % workOptions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveWorkIndex((prev) =>
+          prev <= 0 ? workOptions.length - 1 : prev - 1,
+        );
+        return;
+      }
+    }
+    if (showArrangerDropdown && arrangerOptions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveArrangerIndex((prev) => (prev + 1) % arrangerOptions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveArrangerIndex((prev) =>
+          prev <= 0 ? arrangerOptions.length - 1 : prev - 1,
+        );
+        return;
+      }
+    }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (showComposerDropdown) {
+        if (composerOptions.length > 0) {
+          const target = composerOptions[Math.max(0, activeComposerIndex)];
+          if (target) handleComposerSelect(target);
+          return;
+        }
+        if (composerInput.trim().length >= MIN_SEARCH_LEN) {
+          handleQuickCreateComposerFromInput();
+          return;
+        }
+      }
+      if (showWorkDropdown && workOptions.length > 0) {
+        const target = workOptions[Math.max(0, activeWorkIndex)];
+        if (target) {
+          const cleanTitle = (target.titulo || "").replace(/<[^>]*>?/gm, "") || "";
+          setSelectedWork(target);
+          setTitulo(cleanTitle);
+          setShowWorkDropdown(false);
+          setIsNewWorkForComposer(false);
+          return;
+        }
+      }
+      if (showArrangerDropdown && arrangerOptions.length > 0) {
+        const target = arrangerOptions[Math.max(0, activeArrangerIndex)];
+        if (target) {
+          handleArrangerSelect(target);
+          return;
+        }
+      }
+      handleSubmit();
+    }
+  };
+
+  return (
+    <tr className="bg-white/80 border-t border-slate-200">
+      <td className="p-1 text-center text-slate-300">
+        <IconPlus size={12} />
+      </td>
+      <td className="p-1 text-center text-[10px] text-slate-400 font-bold">
+        Nueva
+      </td>
+      <td className="p-1 text-center text-slate-300">+</td>
+      <td className="min-w-0 p-1 align-middle">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
+          <div className="relative max-w-[42%] shrink-0 min-w-[7rem]">
+            <input
+              type="text"
+              value={composerInput}
+              onChange={handleComposerChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Compositor (Apellido, Nombre)"
+              ref={composerInputRef}
+              className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+            />
+            {searchingComposer && (
+              <div className="absolute right-1 top-1.5">
+                <IconLoader size={12} className="animate-spin text-slate-400" />
+              </div>
+            )}
+            {showComposerDropdown &&
+              composerDropdownPos &&
+              (composerOptions.length > 0 || composerInput.trim().length >= 2) &&
+              createPortal(
+                <div
+                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs min-w-[220px]"
+                  style={{
+                    left: composerDropdownPos.left,
+                    width: composerDropdownPos.width,
+                    maxHeight: composerDropdownPos.maxHeight,
+                    ...(composerDropdownPos.top != null
+                      ? { top: composerDropdownPos.top, bottom: "auto" }
+                      : { bottom: composerDropdownPos.bottom, top: "auto" }),
+                  }}
+                >
+                  {composerOptions.map((c, index) => (
+                    <div
+                      key={c.id}
+                      className={`px-2 py-1 cursor-pointer flex justify-between items-center ${index === activeComposerIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
+                      onMouseEnter={() => setActiveComposerIndex(index)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleComposerSelect(c);
+                      }}
+                    >
+                      <span className="text-[11px] text-slate-700">
+                        {c.apellido}, {c.nombre}
+                      </span>
+                    </div>
+                  ))}
+                  {composerOptions.length === 0 && composerInput.trim().length >= 2 && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleQuickCreateComposerFromInput();
+                      }}
+                      className="w-full text-left px-2 py-1 border-t border-slate-100 text-fixed-indigo-600 text-[10px] font-semibold hover:bg-fixed-indigo-50"
+                    >
+                      + Crear "{composerInput.trim()}"
+                    </button>
+                  )}
+                </div>,
+                document.body,
+              )}
+          </div>
+          <div className="relative flex min-w-0 flex-1 flex-col gap-1">
+            <input
+              type="text"
+              value={titulo}
+              onChange={(e) => {
+                const val = e.target.value;
+                setTitulo(val);
+                setSelectedWork(null);
+                if (selectedComposer && val.trim().length >= MIN_SEARCH_LEN) {
+                  setSearchingWork(true);
+                  debouncedSearchWorks(selectedComposer.id, val);
+                } else {
+                  setWorkOptions([]);
+                  setShowWorkDropdown(false);
+                  setIsNewWorkForComposer(false);
+                }
+              }}
+              onFocus={() => {
+                if (selectedComposer) {
+                  setSearchingWork(true);
+                  debouncedSearchWorks(selectedComposer.id, "");
+                }
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder="Título de la obra"
+              ref={workInputRef}
+              className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+            />
+            {selectedComposer && titulo.trim().length >= MIN_SEARCH_LEN && isNewWorkForComposer && (
+              <span className="inline-flex items-center gap-1 text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 w-fit">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Nueva obra para este compositor
+              </span>
+            )}
+            {showWorkDropdown &&
+              selectedComposer &&
+              workDropdownPos &&
+              (workOptions.length > 0 || titulo.trim().length >= MIN_SEARCH_LEN) &&
+              createPortal(
+                <div
+                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs"
+                  style={{
+                    left: workDropdownPos.left,
+                    width: workDropdownPos.width,
+                    maxHeight: workDropdownPos.maxHeight,
+                    ...(workDropdownPos.top != null
+                      ? { top: workDropdownPos.top, bottom: "auto" }
+                      : { bottom: workDropdownPos.bottom, top: "auto" }),
+                  }}
+                >
+                  <div className="px-2 py-1 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500 flex items-center justify-between">
+                    <span>Obras del archivo</span>
+                    {searchingWork && (
+                      <IconLoader size={10} className="animate-spin text-slate-400" />
+                    )}
+                  </div>
+                  {workOptions.map((w, index) => {
+                    const cleanTitle = (w.titulo || "").replace(/<[^>]*>?/gm, "") || "";
+                    return (
+                      <div
+                        key={w.id}
+                        className={`w-full px-2 py-1.5 flex items-center gap-2 ${index === activeWorkIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
+                        onMouseEnter={() => setActiveWorkIndex(index)}
+                      >
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            title="Copiar título en la fila (crear nueva obra)"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSelectedWork(w);
+                              setTitulo(cleanTitle);
+                              setShowWorkDropdown(false);
+                              setIsNewWorkForComposer(false);
+                            }}
+                            className="p-1 rounded-full text-slate-400 hover:text-fixed-indigo-600 hover:bg-fixed-indigo-50"
+                          >
+                            <IconCopy size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            title="Insertar esta obra en el bloque"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handleInsertExistingWork(w);
+                            }}
+                            className="p-1 rounded-full text-fixed-indigo-600 hover:text-white hover:bg-fixed-indigo-600 bg-fixed-indigo-50"
+                          >
+                            <IconPlus size={12} />
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            handleInsertExistingWork(w);
+                          }}
+                          className="flex-1 text-left flex flex-col gap-0.5"
+                        >
+                          <span
+                            className="font-semibold text-[11px] text-slate-800 truncate"
+                            title={cleanTitle}
+                          >
+                            {cleanTitle}
+                          </span>
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
+                            <span className="font-mono">
+                              {w.instrumentacion ||
+                                calculateInstrumentation(w.obras_particellas || []) ||
+                                "-"}
+                            </span>
+                            <span className="font-mono">
+                              {formatSecondsToTime(w.duracion_segundos || 0)}
+                            </span>
+                          </div>
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {workOptions.length === 0 && titulo.trim().length >= MIN_SEARCH_LEN && (
+                    <div className="px-2 py-1 text-[10px] text-slate-400 border-t border-slate-100">
+                      Sin coincidencias en el archivo para este compositor.
+                    </div>
+                  )}
+                </div>,
+                document.body,
+              )}
+          </div>
+        </div>
+      </td>
+      {definitionMode && <td className="p-1 bg-slate-50/40" aria-hidden />}
+      <td className="p-1 text-center">
+        <input
+          type="text"
+          value={instrumentacion}
+          onChange={(e) => setInstrumentacion(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Instr."
+          className="w-full px-1.5 py-1 text-[10px] border border-slate-300 rounded font-mono text-slate-600 focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+        />
+      </td>
+      <td className="p-1 text-center">
+        <input
+          type="text"
+          value={duracion}
+          onChange={(e) => setDuracion(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="00:00"
+          className="w-full px-1.5 py-1 text-[10px] border border-slate-300 rounded font-mono text-slate-700 text-center focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+        />
+      </td>
+      {/* Columna Solista (se deja vacía en la fila rápida) */}
+      <td className="p-1" />
+      {/* Columna Arr.: Arreglador opcional */}
+      <td className="p-1 align-middle">
+        <div className="relative">
+          <input
+            type="text"
+            value={arrangerInput}
+            onChange={handleArrangerChange}
+            onKeyDown={handleKeyDown}
+            placeholder="Arreglador (Opcional)"
+            ref={arrangerInputRef}
+            className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
+          />
+          {searchingArranger && (
+            <div className="absolute right-1 top-1.5">
+              <IconLoader size={12} className="animate-spin text-slate-400" />
+            </div>
+          )}
+          {showArrangerDropdown &&
+            arrangerDropdownPos &&
+            (arrangerOptions.length > 0 || arrangerInput.trim().length >= 2) &&
+            createPortal(
+                <div
+                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs min-w-[220px]"
+                  style={{
+                    left: arrangerDropdownPos.left,
+                    width: arrangerDropdownPos.width,
+                    maxHeight: arrangerDropdownPos.maxHeight,
+                    ...(arrangerDropdownPos.top != null
+                      ? { top: arrangerDropdownPos.top, bottom: "auto" }
+                      : { bottom: arrangerDropdownPos.bottom, top: "auto" }),
+                  }}
+                >
+                {arrangerOptions.map((c, index) => (
+                  <div
+                    key={c.id}
+                    className={`px-2 py-1 cursor-pointer flex justify-between items-center ${index === activeArrangerIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
+                    onMouseEnter={() => setActiveArrangerIndex(index)}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleArrangerSelect(c);
+                    }}
+                  >
+                    <span className="text-[11px] text-slate-700">
+                      {c.apellido}, {c.nombre}
+                    </span>
+                  </div>
+                ))}
+              </div>,
+              document.body,
+            )}
+        </div>
+      </td>
+      <td className="p-1" />
+      <td className="p-1" />
+      <td className="p-1 text-right">
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={saving}
+          className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold bg-fixed-indigo-600 text-white hover:bg-fixed-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+        >
+          {saving ? <IconLoader size={12} className="animate-spin" /> : <IconCheck size={12} />}
+          Guardar
+        </button>
+      </td>
+      <td className="p-1" />
+    </tr>
+  );
+}
+
 export default function RepertoireManager({
   supabase,
   programId,
@@ -1495,950 +2470,6 @@ export default function RepertoireManager({
     );
   };
 
-  const QuickWorkRow = ({ rep, definitionMode }) => {
-    const MIN_SEARCH_LEN = 2;
-    const [composerInput, setComposerInput] = useState("");
-    const [composerOptions, setComposerOptions] = useState([]);
-    const [activeComposerIndex, setActiveComposerIndex] = useState(-1);
-    const [selectedComposer, setSelectedComposer] = useState(null);
-    const [showComposerDropdown, setShowComposerDropdown] = useState(false);
-    const [searchingComposer, setSearchingComposer] = useState(false);
-    const [titulo, setTitulo] = useState("");
-    const [instrumentacion, setInstrumentacion] = useState("");
-    const [duracion, setDuracion] = useState("");
-    const [saving, setSaving] = useState(false);
-    const [isNewWorkForComposer, setIsNewWorkForComposer] = useState(false);
-    const [workOptions, setWorkOptions] = useState([]);
-    const [activeWorkIndex, setActiveWorkIndex] = useState(-1);
-    const [showWorkDropdown, setShowWorkDropdown] = useState(false);
-    const [searchingWork, setSearchingWork] = useState(false);
-    const [selectedWork, setSelectedWork] = useState(null);
-    const composerInputRef = useRef(null);
-    const workInputRef = useRef(null);
-    const [composerDropdownPos, setComposerDropdownPos] = useState(null);
-    const [workDropdownPos, setWorkDropdownPos] = useState(null);
-    const [arrangerInput, setArrangerInput] = useState("");
-    const [arrangerOptions, setArrangerOptions] = useState([]);
-    const [activeArrangerIndex, setActiveArrangerIndex] = useState(-1);
-    const [selectedArranger, setSelectedArranger] = useState(null);
-    const [showArrangerDropdown, setShowArrangerDropdown] = useState(false);
-    const [searchingArranger, setSearchingArranger] = useState(false);
-    const arrangerInputRef = useRef(null);
-    const [arrangerDropdownPos, setArrangerDropdownPos] = useState(null);
-    const getDropdownPosition = (inputRef, minWidth = 260) => {
-      if (!inputRef?.current) return null;
-      const rect = inputRef.current.getBoundingClientRect();
-      const margin = 8;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const width = Math.min(
-        Math.max(rect.width, minWidth),
-        Math.max(180, viewportWidth - margin * 2),
-      );
-      const spaceBelow = viewportHeight - rect.bottom;
-      const spaceAbove = rect.top;
-      const dropdownHeight = 280;
-      const placeAbove = spaceBelow < 180 && spaceAbove > spaceBelow;
-      const top = placeAbove
-        ? Math.max(margin, rect.top - Math.min(dropdownHeight, spaceAbove - margin) - 4)
-        : Math.min(viewportHeight - margin, rect.bottom + 4);
-      const maxHeight = Math.max(
-        140,
-        placeAbove ? spaceAbove - margin - 8 : spaceBelow - margin - 8,
-      );
-      let left = rect.left;
-      if (left + width > viewportWidth - margin) left = viewportWidth - margin - width;
-      if (left < margin) left = margin;
-      return { top, left, width, maxHeight };
-    };
-
-    const debouncedSearchComposer = useDebouncedCallback(
-      async (query) => {
-        const trimmed = query.trim();
-        if (trimmed.length < 2) {
-          setComposerOptions([]);
-          setSearchingComposer(false);
-          setShowComposerDropdown(false);
-          return;
-        }
-
-        let apellido = trimmed;
-        let nombre = "";
-        if (trimmed.includes(",")) {
-          const parts = trimmed.split(",");
-          apellido = parts[0].trim();
-          nombre = parts[1]?.trim() || "";
-        }
-
-        try {
-          let q = supabase
-            .from("compositores")
-            .select("id, apellido, nombre")
-            .order("apellido")
-            .limit(8);
-          if (apellido) q = q.ilike("apellido", `${apellido}%`);
-          if (nombre) q = q.ilike("nombre", `${nombre}%`);
-          const { data, error } = await q;
-          if (error) {
-            console.error("Error buscando compositores:", error);
-            setComposerOptions([]);
-          } else {
-            setComposerOptions(data || []);
-          }
-        } catch (e) {
-          console.error("Error buscando compositores:", e);
-          setComposerOptions([]);
-        } finally {
-          setSearchingComposer(false);
-          setShowComposerDropdown(true);
-        }
-      },
-      300,
-    );
-
-    const debouncedSearchArranger = useDebouncedCallback(
-      async (query) => {
-        const trimmed = query.trim();
-        if (trimmed.length < 2) {
-          setArrangerOptions([]);
-          setSearchingArranger(false);
-          setShowArrangerDropdown(false);
-          return;
-        }
-
-        let apellido = trimmed;
-        let nombre = "";
-        if (trimmed.includes(",")) {
-          const parts = trimmed.split(",");
-          apellido = parts[0].trim();
-          nombre = parts[1]?.trim() || "";
-        }
-
-        try {
-          let q = supabase
-            .from("compositores")
-            .select("id, apellido, nombre")
-            .order("apellido")
-            .limit(8);
-          if (apellido) q = q.ilike("apellido", `${apellido}%`);
-          if (nombre) q = q.ilike("nombre", `${nombre}%`);
-          const { data, error } = await q;
-          if (error) {
-            console.error("Error buscando arregladores:", error);
-            setArrangerOptions([]);
-          } else {
-            setArrangerOptions(data || []);
-          }
-        } catch (e) {
-          console.error("Error buscando arregladores:", e);
-          setArrangerOptions([]);
-        } finally {
-          setSearchingArranger(false);
-          setShowArrangerDropdown(true);
-        }
-      },
-      300,
-    );
-
-    const debouncedSearchWorks = useDebouncedCallback(
-      async (composerId, rawTitle) => {
-        const clean = (rawTitle || "").trim();
-        if (!composerId) {
-          setWorkOptions([]);
-          setIsNewWorkForComposer(false);
-          setSearchingWork(false);
-          setShowWorkDropdown(false);
-          return;
-        }
-        try {
-          let query = supabase
-            .from("obras")
-            .select(
-              "id, titulo, duracion_segundos, instrumentacion, link_drive, link_youtube, observaciones, obras_compositores!inner(id_compositor, rol)",
-            )
-            .eq("obras_compositores.id_compositor", composerId)
-            .eq("obras_compositores.rol", "compositor")
-            .order("titulo")
-            .limit(20);
-
-          if (clean.length >= 2) {
-            query = query.ilike("titulo", `%${clean}%`);
-          }
-
-          const { data, error } = await query;
-          if (error) {
-            console.warn("Error buscando obras del compositor:", error);
-            setWorkOptions([]);
-            setIsNewWorkForComposer(false);
-            return;
-          }
-          const list = data || [];
-          setWorkOptions(list);
-          setIsNewWorkForComposer(!(list.length > 0 && clean.length >= 3));
-          setShowWorkDropdown(true);
-        } catch (e) {
-          console.warn("Error buscando obras del compositor:", e);
-          setWorkOptions([]);
-          setIsNewWorkForComposer(false);
-        } finally {
-          setSearchingWork(false);
-        }
-      },
-      400,
-    );
-
-    useEffect(() => {
-      if (!showComposerDropdown) {
-        setComposerDropdownPos(null);
-        return undefined;
-      }
-      const updatePosition = () => setComposerDropdownPos(getDropdownPosition(composerInputRef, 260));
-      updatePosition();
-      window.addEventListener("resize", updatePosition);
-      window.addEventListener("scroll", updatePosition, true);
-      return () => {
-        window.removeEventListener("resize", updatePosition);
-        window.removeEventListener("scroll", updatePosition, true);
-      };
-    }, [showComposerDropdown]);
-
-    useEffect(() => {
-      if (!showWorkDropdown) {
-        setWorkDropdownPos(null);
-        return undefined;
-      }
-      const updatePosition = () => setWorkDropdownPos(getDropdownPosition(workInputRef, 320));
-      updatePosition();
-      window.addEventListener("resize", updatePosition);
-      window.addEventListener("scroll", updatePosition, true);
-      return () => {
-        window.removeEventListener("resize", updatePosition);
-        window.removeEventListener("scroll", updatePosition, true);
-      };
-    }, [showWorkDropdown]);
-
-    useEffect(() => {
-      if (!showArrangerDropdown) {
-        setArrangerDropdownPos(null);
-        return undefined;
-      }
-      const updatePosition = () => setArrangerDropdownPos(getDropdownPosition(arrangerInputRef, 260));
-      updatePosition();
-      window.addEventListener("resize", updatePosition);
-      window.addEventListener("scroll", updatePosition, true);
-      return () => {
-        window.removeEventListener("resize", updatePosition);
-        window.removeEventListener("scroll", updatePosition, true);
-      };
-    }, [showArrangerDropdown]);
-
-    const handleComposerChange = (e) => {
-      const val = e.target.value;
-      setComposerInput(val);
-      setSelectedComposer(null);
-      setSelectedWork(null);
-      setSelectedArranger(null);
-      setWorkOptions([]);
-      setShowWorkDropdown(false);
-      setIsNewWorkForComposer(false);
-      if (val.trim().length >= MIN_SEARCH_LEN) {
-        setSearchingComposer(true);
-        debouncedSearchComposer(val);
-      } else {
-        setComposerOptions([]);
-        setShowComposerDropdown(false);
-      }
-    };
-
-    const handleComposerSelect = (comp) => {
-      setSelectedComposer(comp);
-      setComposerInput(`${comp.apellido}, ${comp.nombre}`);
-      setShowComposerDropdown(false);
-      setActiveComposerIndex(-1);
-      setSelectedWork(null);
-      setWorkOptions([]);
-      setShowWorkDropdown(false);
-      setIsNewWorkForComposer(false);
-    };
-
-    const handleQuickCreateComposerFromInput = async () => {
-      const raw = composerInput.trim();
-      if (!raw) return;
-
-      let apellido = raw;
-      let nombre = "";
-      if (raw.includes(",")) {
-        const parts = raw.split(",");
-        apellido = parts[0].trim();
-        nombre = parts[1]?.trim() || "";
-      }
-      if (!apellido) return;
-
-      try {
-        // Buscar si ya existe uno igual
-        let qComp = supabase
-          .from("compositores")
-          .select("id, apellido, nombre")
-          .eq("apellido", apellido)
-          .limit(1);
-        if (nombre) {
-          qComp = qComp.eq("nombre", nombre);
-        } else {
-          qComp = qComp.is("nombre", null);
-        }
-        const { data: existing, error: findError } = await qComp;
-        if (findError) {
-          console.error("Error buscando compositor para creación rápida:", findError);
-        }
-
-        let comp = existing && existing.length > 0 ? existing[0] : null;
-        if (!comp) {
-          const payload = { apellido, nombre: nombre || null };
-          const { data: newComp, error: insertError } = await supabase
-            .from("compositores")
-            .insert([payload])
-            .select()
-            .single();
-          if (insertError) {
-            console.error("Error creando compositor rápido:", insertError);
-            return;
-          }
-          comp = newComp;
-        }
-
-        setSelectedComposer(comp);
-        setComposerInput(`${comp.apellido}${comp.nombre ? `, ${comp.nombre}` : ""}`);
-        setComposerOptions([]);
-        setShowComposerDropdown(false);
-      } catch (e) {
-        console.error("Error en creación rápida de compositor:", e);
-      }
-    };
-
-    const handleArrangerChange = (e) => {
-      const val = e.target.value;
-      setArrangerInput(val);
-      setSelectedArranger(null);
-      if (val.trim().length >= MIN_SEARCH_LEN) {
-        setSearchingArranger(true);
-        debouncedSearchArranger(val);
-      } else {
-        setArrangerOptions([]);
-        setShowArrangerDropdown(false);
-      }
-    };
-
-    const handleArrangerSelect = (comp) => {
-      setSelectedArranger(comp);
-      setArrangerInput(`${comp.apellido}, ${comp.nombre}`);
-      setShowArrangerDropdown(false);
-      setActiveArrangerIndex(-1);
-    };
-
-    useEffect(() => {
-      if (!showComposerDropdown || composerOptions.length === 0) {
-        setActiveComposerIndex(-1);
-        return;
-      }
-      setActiveComposerIndex(0);
-    }, [showComposerDropdown, composerOptions]);
-
-    useEffect(() => {
-      if (!showWorkDropdown || workOptions.length === 0) {
-        setActiveWorkIndex(-1);
-        return;
-      }
-      setActiveWorkIndex(0);
-    }, [showWorkDropdown, workOptions]);
-
-    useEffect(() => {
-      if (!showArrangerDropdown || arrangerOptions.length === 0) {
-        setActiveArrangerIndex(-1);
-        return;
-      }
-      setActiveArrangerIndex(0);
-    }, [showArrangerDropdown, arrangerOptions]);
-
-    const handleInsertExistingWork = async (work) => {
-      if (!isEditor || saving) return;
-      if (!selectedComposer) return;
-
-      setSaving(true);
-      try {
-        await addWorkToBlock(work.id, rep.id);
-
-        setComposerInput("");
-        setSelectedComposer(null);
-        setComposerOptions([]);
-        setShowComposerDropdown(false);
-        setTitulo("");
-        setInstrumentacion("");
-        setDuracion("");
-        setWorkOptions([]);
-        setShowWorkDropdown(false);
-        setSelectedWork(null);
-        setArrangerInput("");
-        setSelectedArranger(null);
-        setArrangerOptions([]);
-        setShowArrangerDropdown(false);
-        setIsNewWorkForComposer(false);
-
-        // No se abre el modal de follow-up porque la obra ya existe
-        fetchFullRepertoire();
-      } catch (e) {
-        console.error("Error insertando obra existente:", e);
-        alert("No se pudo insertar la obra seleccionada. Intenta nuevamente.");
-      } finally {
-        setSaving(false);
-      }
-    };
-
-    const handleSubmit = async () => {
-      if (!isEditor || saving) return;
-      const composerText = composerInput.trim();
-      const hasComposer = !!selectedComposer || !!composerText;
-
-      if (!hasComposer || !titulo.trim()) {
-        alert("Completa al menos Compositor y Título para crear la obra.");
-        return;
-      }
-
-      setSaving(true);
-      try {
-        let composerId = selectedComposer?.id || null;
-        let composerApellido = selectedComposer?.apellido || "";
-        let composerNombre = selectedComposer?.nombre || "";
-
-        if (selectedWork && composerId) {
-          const insertedRepObra = await addWorkToBlock(selectedWork.id, rep.id);
-
-          setComposerInput("");
-          setSelectedComposer(null);
-          setComposerOptions([]);
-          setShowComposerDropdown(false);
-          setTitulo("");
-          setInstrumentacion("");
-          setDuracion("");
-          setWorkOptions([]);
-          setShowWorkDropdown(false);
-          setSelectedWork(null);
-          setIsNewWorkForComposer(false);
-
-          setQuickEntryFollowup({
-            obraId: selectedWork.id,
-            repertorioObraId: insertedRepObra?.id ?? null,
-            titulo: selectedWork.titulo,
-            composerLabel:
-              composerApellido || composerNombre
-                ? `${composerApellido}${composerNombre ? `, ${composerNombre}` : ""}`
-                : "",
-            link_drive: selectedWork.link_drive || "",
-            link_youtube: selectedWork.link_youtube || "",
-            observaciones: selectedWork.observaciones || "",
-          estado: selectedWork.estado || "Solicitud",
-          comentarios: selectedWork.comentarios || "",
-            notas_especificas: "",
-          });
-
-          fetchFullRepertoire();
-          return;
-        }
-
-        if (!composerId) {
-          let apellido = composerText;
-          let nombre = "";
-          if (composerText.includes(",")) {
-            const parts = composerText.split(",");
-            apellido = parts[0].trim();
-            nombre = parts[1]?.trim() || "";
-          }
-          if (!apellido) {
-            throw new Error("El apellido del compositor es obligatorio.");
-          }
-
-          let qComp = supabase
-            .from("compositores")
-            .select("id, apellido, nombre")
-            .eq("apellido", apellido)
-            .limit(1);
-          if (nombre) {
-            qComp = qComp.eq("nombre", nombre);
-          } else {
-            qComp = qComp.is("nombre", null);
-          }
-          const { data: existing } = await qComp;
-
-          if (existing && existing.length > 0) {
-            composerId = existing[0].id;
-            composerApellido = existing[0].apellido;
-            composerNombre = existing[0].nombre;
-          } else {
-            const { data: newComp, error: compError } = await supabase
-              .from("compositores")
-              .insert([{ apellido, nombre }])
-              .select()
-              .single();
-            if (compError) throw compError;
-            composerId = newComp.id;
-            composerApellido = newComp.apellido;
-            composerNombre = newComp.nombre;
-          }
-        }
-
-        const tituloHtml = `<p>${titulo}</p>`;
-        const payload = {
-          titulo: tituloHtml,
-          duracion_segundos: inputToSeconds(duracion),
-          instrumentacion: instrumentacion || null,
-          estado: "Solicitud",
-          id_usuario_carga: user?.id ?? null,
-        };
-
-        const { data: newWork, error: obraError } = await supabase
-          .from("obras")
-          .insert([payload])
-          .select()
-          .single();
-        if (obraError) throw obraError;
-
-        const newWorkId = newWork.id;
-
-        const relaciones = [
-          {
-            id_obra: newWorkId,
-            id_compositor: composerId,
-            rol: "compositor",
-          },
-        ];
-        if (selectedArranger?.id && selectedArranger.id !== composerId) {
-          relaciones.push({
-            id_obra: newWorkId,
-            id_compositor: selectedArranger.id,
-            rol: "arreglador",
-          });
-        }
-        await supabase.from("obras_compositores").insert(relaciones);
-
-        const insertedRepObra = await addWorkToBlock(newWorkId, rep.id);
-
-        setComposerInput("");
-        setSelectedComposer(null);
-        setComposerOptions([]);
-        setShowComposerDropdown(false);
-        setTitulo("");
-        setInstrumentacion("");
-        setDuracion("");
-        setWorkOptions([]);
-        setShowWorkDropdown(false);
-        setSelectedWork(null);
-        setArrangerInput("");
-        setSelectedArranger(null);
-        setArrangerOptions([]);
-        setShowArrangerDropdown(false);
-        setIsNewWorkForComposer(false);
-
-        setQuickEntryFollowup({
-          obraId: newWorkId,
-          repertorioObraId: insertedRepObra?.id ?? null,
-          titulo: tituloHtml,
-          composerLabel:
-            composerApellido || composerNombre
-              ? `${composerApellido}${composerNombre ? `, ${composerNombre}` : ""}`
-              : "",
-          link_drive: newWork.link_drive || "",
-          link_youtube: newWork.link_youtube || "",
-          observaciones: newWork.observaciones || "",
-          estado: newWork.estado || "Solicitud",
-          comentarios: newWork.comentarios || "",
-          notas_especificas: "",
-        });
-
-        fetchFullRepertoire();
-      } catch (e) {
-        console.error("Error en creación rápida de obra:", e);
-        alert("No se pudo crear la obra. Intenta nuevamente.");
-      } finally {
-        setSaving(false);
-      }
-    };
-
-    const handleKeyDown = (e) => {
-      if (e.key === "Escape") {
-        if (showComposerDropdown || showWorkDropdown || showArrangerDropdown) {
-          e.preventDefault();
-          setShowComposerDropdown(false);
-          setShowWorkDropdown(false);
-          setShowArrangerDropdown(false);
-        }
-        return;
-      }
-
-      if (showComposerDropdown && composerOptions.length > 0) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setActiveComposerIndex((prev) => (prev + 1) % composerOptions.length);
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setActiveComposerIndex((prev) =>
-            prev <= 0 ? composerOptions.length - 1 : prev - 1,
-          );
-          return;
-        }
-      }
-      if (showWorkDropdown && workOptions.length > 0) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setActiveWorkIndex((prev) => (prev + 1) % workOptions.length);
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setActiveWorkIndex((prev) =>
-            prev <= 0 ? workOptions.length - 1 : prev - 1,
-          );
-          return;
-        }
-      }
-      if (showArrangerDropdown && arrangerOptions.length > 0) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setActiveArrangerIndex((prev) => (prev + 1) % arrangerOptions.length);
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setActiveArrangerIndex((prev) =>
-            prev <= 0 ? arrangerOptions.length - 1 : prev - 1,
-          );
-          return;
-        }
-      }
-
-      if (e.key === "Enter") {
-        e.preventDefault();
-        if (showComposerDropdown) {
-          if (composerOptions.length > 0) {
-            const target = composerOptions[Math.max(0, activeComposerIndex)];
-            if (target) handleComposerSelect(target);
-            return;
-          }
-          if (composerInput.trim().length >= MIN_SEARCH_LEN) {
-            handleQuickCreateComposerFromInput();
-            return;
-          }
-        }
-        if (showWorkDropdown && workOptions.length > 0) {
-          const target = workOptions[Math.max(0, activeWorkIndex)];
-          if (target) {
-            const cleanTitle = (target.titulo || "").replace(/<[^>]*>?/gm, "") || "";
-            setSelectedWork(target);
-            setTitulo(cleanTitle);
-            setShowWorkDropdown(false);
-            setIsNewWorkForComposer(false);
-            return;
-          }
-        }
-        if (showArrangerDropdown && arrangerOptions.length > 0) {
-          const target = arrangerOptions[Math.max(0, activeArrangerIndex)];
-          if (target) {
-            handleArrangerSelect(target);
-            return;
-          }
-        }
-        handleSubmit();
-      }
-    };
-
-    return (
-      <tr className="bg-white/80 border-t border-slate-200">
-        <td className="p-1 text-center text-slate-300">
-          <IconPlus size={12} />
-        </td>
-        <td className="p-1 text-center text-[10px] text-slate-400 font-bold">
-          Nueva
-        </td>
-        <td className="p-1 text-center text-slate-300">+</td>
-        <td className="min-w-0 p-1 align-middle">
-          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:gap-2">
-            <div className="relative max-w-[42%] shrink-0 min-w-[7rem]">
-              <input
-                type="text"
-                value={composerInput}
-                onChange={handleComposerChange}
-                onKeyDown={handleKeyDown}
-                placeholder="Compositor (Apellido, Nombre)"
-                ref={composerInputRef}
-                className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
-              />
-              {searchingComposer && (
-                <div className="absolute right-1 top-1.5">
-                  <IconLoader size={12} className="animate-spin text-slate-400" />
-                </div>
-              )}
-              {showComposerDropdown &&
-                composerDropdownPos &&
-                (composerOptions.length > 0 || composerInput.trim().length >= 2) &&
-                createPortal(
-                  <div
-                    className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs min-w-[220px]"
-                    style={{
-                      top: composerDropdownPos.top,
-                      left: composerDropdownPos.left,
-                      width: composerDropdownPos.width,
-                      maxHeight: composerDropdownPos.maxHeight,
-                    }}
-                  >
-                    {composerOptions.map((c, index) => (
-                      <div
-                        key={c.id}
-                        className={`px-2 py-1 cursor-pointer flex justify-between items-center ${index === activeComposerIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
-                        onMouseEnter={() => setActiveComposerIndex(index)}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          handleComposerSelect(c);
-                        }}
-                      >
-                        <span className="text-[11px] text-slate-700">
-                          {c.apellido}, {c.nombre}
-                        </span>
-                      </div>
-                    ))}
-                    {composerOptions.length === 0 && composerInput.trim().length >= 2 && (
-                      <button
-                        type="button"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          handleQuickCreateComposerFromInput();
-                        }}
-                        className="w-full text-left px-2 py-1 border-t border-slate-100 text-fixed-indigo-600 text-[10px] font-semibold hover:bg-fixed-indigo-50"
-                      >
-                        + Crear "{composerInput.trim()}"
-                      </button>
-                    )}
-                  </div>,
-                  document.body,
-                )}
-            </div>
-            <div className="relative flex min-w-0 flex-1 flex-col gap-1">
-              <input
-                type="text"
-                value={titulo}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setTitulo(val);
-                  setSelectedWork(null);
-                  if (selectedComposer && val.trim().length >= MIN_SEARCH_LEN) {
-                    setSearchingWork(true);
-                    debouncedSearchWorks(selectedComposer.id, val);
-                  } else {
-                    setWorkOptions([]);
-                    setShowWorkDropdown(false);
-                    setIsNewWorkForComposer(false);
-                  }
-                }}
-                onFocus={() => {
-                  if (selectedComposer) {
-                    setSearchingWork(true);
-                    debouncedSearchWorks(selectedComposer.id, "");
-                  }
-                }}
-                onKeyDown={handleKeyDown}
-                placeholder="Título de la obra"
-                ref={workInputRef}
-                className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
-              />
-              {selectedComposer && titulo.trim().length >= MIN_SEARCH_LEN && isNewWorkForComposer && (
-                <span className="inline-flex items-center gap-1 text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 w-fit">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  Nueva obra para este compositor
-                </span>
-              )}
-              {showWorkDropdown &&
-                selectedComposer &&
-                workDropdownPos &&
-                (workOptions.length > 0 || titulo.trim().length >= MIN_SEARCH_LEN) &&
-                createPortal(
-                  <div
-                    className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs"
-                    style={{
-                      top: workDropdownPos.top,
-                      left: workDropdownPos.left,
-                      width: workDropdownPos.width,
-                      maxHeight: workDropdownPos.maxHeight,
-                    }}
-                  >
-                    <div className="px-2 py-1 border-b border-slate-100 text-[10px] font-bold uppercase text-slate-500 flex items-center justify-between">
-                      <span>Obras del archivo</span>
-                      {searchingWork && (
-                        <IconLoader size={10} className="animate-spin text-slate-400" />
-                      )}
-                    </div>
-                    {workOptions.map((w, index) => {
-                      const cleanTitle = (w.titulo || "").replace(/<[^>]*>?/gm, "") || "";
-                      return (
-                        <div
-                          key={w.id}
-                          className={`w-full px-2 py-1.5 flex items-center gap-2 ${index === activeWorkIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
-                          onMouseEnter={() => setActiveWorkIndex(index)}
-                        >
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              type="button"
-                              title="Copiar título en la fila (crear nueva obra)"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                setSelectedWork(w);
-                                setTitulo(cleanTitle);
-                                setShowWorkDropdown(false);
-                                setIsNewWorkForComposer(false);
-                              }}
-                              className="p-1 rounded-full text-slate-400 hover:text-fixed-indigo-600 hover:bg-fixed-indigo-50"
-                            >
-                              <IconCopy size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              title="Insertar esta obra en el bloque"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                handleInsertExistingWork(w);
-                              }}
-                              className="p-1 rounded-full text-fixed-indigo-600 hover:text-white hover:bg-fixed-indigo-600 bg-fixed-indigo-50"
-                            >
-                              <IconPlus size={12} />
-                            </button>
-                          </div>
-                          <button
-                            type="button"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              handleInsertExistingWork(w);
-                            }}
-                            className="flex-1 text-left flex flex-col gap-0.5"
-                          >
-                            <span
-                              className="font-semibold text-[11px] text-slate-800 truncate"
-                              title={cleanTitle}
-                            >
-                              {cleanTitle}
-                            </span>
-                            <div className="flex items-center justify-between text-[10px] text-slate-500">
-                              <span className="font-mono">
-                                {w.instrumentacion ||
-                                  calculateInstrumentation(w.obras_particellas || []) ||
-                                  "-"}
-                              </span>
-                              <span className="font-mono">
-                                {formatSecondsToTime(w.duracion_segundos || 0)}
-                              </span>
-                            </div>
-                          </button>
-                        </div>
-                      );
-                    })}
-                    {workOptions.length === 0 && titulo.trim().length >= MIN_SEARCH_LEN && (
-                      <div className="px-2 py-1 text-[10px] text-slate-400 border-t border-slate-100">
-                        Sin coincidencias en el archivo para este compositor.
-                      </div>
-                    )}
-                  </div>,
-                  document.body,
-                )}
-            </div>
-          </div>
-        </td>
-        {definitionMode && <td className="p-1 bg-slate-50/40" aria-hidden />}
-        <td className="p-1 text-center">
-          <input
-            type="text"
-            value={instrumentacion}
-            onChange={(e) => setInstrumentacion(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Instr."
-            className="w-full px-1.5 py-1 text-[10px] border border-slate-300 rounded font-mono text-slate-600 focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
-          />
-        </td>
-        <td className="p-1 text-center">
-          <input
-            type="text"
-            value={duracion}
-            onChange={(e) => setDuracion(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="00:00"
-            className="w-full px-1.5 py-1 text-[10px] border border-slate-300 rounded font-mono text-slate-700 text-center focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
-          />
-        </td>
-        {/* Columna Solista (se deja vacía en la fila rápida) */}
-        <td className="p-1" />
-        {/* Columna Arr.: Arreglador opcional */}
-        <td className="p-1 align-middle">
-          <div className="relative">
-            <input
-              type="text"
-              value={arrangerInput}
-              onChange={handleArrangerChange}
-              onKeyDown={handleKeyDown}
-              placeholder="Arreglador (Opcional)"
-              ref={arrangerInputRef}
-              className="w-full px-2 py-1 text-[11px] border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-fixed-indigo-500 focus:border-fixed-indigo-500 bg-white"
-            />
-            {searchingArranger && (
-              <div className="absolute right-1 top-1.5">
-                <IconLoader size={12} className="animate-spin text-slate-400" />
-              </div>
-            )}
-            {showArrangerDropdown &&
-              arrangerDropdownPos &&
-              (arrangerOptions.length > 0 || arrangerInput.trim().length >= 2) &&
-              createPortal(
-                <div
-                  className="fixed z-[13000] bg-white border border-slate-200 rounded shadow-lg overflow-y-auto text-xs min-w-[220px]"
-                  style={{
-                    top: arrangerDropdownPos.top,
-                    left: arrangerDropdownPos.left,
-                    width: arrangerDropdownPos.width,
-                    maxHeight: arrangerDropdownPos.maxHeight,
-                  }}
-                >
-                  {arrangerOptions.map((c, index) => (
-                    <div
-                      key={c.id}
-                      className={`px-2 py-1 cursor-pointer flex justify-between items-center ${index === activeArrangerIndex ? "bg-fixed-indigo-50" : "hover:bg-fixed-indigo-50"}`}
-                      onMouseEnter={() => setActiveArrangerIndex(index)}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        handleArrangerSelect(c);
-                      }}
-                    >
-                      <span className="text-[11px] text-slate-700">
-                        {c.apellido}, {c.nombre}
-                      </span>
-                    </div>
-                  ))}
-                </div>,
-                document.body,
-              )}
-          </div>
-        </td>
-        <td className="p-1" />
-        <td className="p-1" />
-        <td className="p-1 text-right">
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={saving}
-            className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold bg-fixed-indigo-600 text-white hover:bg-fixed-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
-          >
-            {saving ? <IconLoader size={12} className="animate-spin" /> : <IconCheck size={12} />}
-            Guardar
-          </button>
-        </td>
-        <td className="p-1" />
-      </tr>
-    );
-  };
 
   const handleDragEnd = async (event) => {
     const { active, over } = event;
@@ -3567,7 +3598,16 @@ export default function RepertoireManager({
                     />
                   )}
                   {isEditor && !isCompact && (
-                    <QuickWorkRow rep={rep} definitionMode={isDefinitionMode} />
+                    <QuickWorkRow
+                      rep={rep}
+                      definitionMode={isDefinitionMode}
+                      isEditor={isEditor}
+                      user={user}
+                      supabase={supabase}
+                      addWorkToBlock={addWorkToBlock}
+                      fetchFullRepertoire={fetchFullRepertoire}
+                      setQuickEntryFollowup={setQuickEntryFollowup}
+                    />
                   )}
                 </tbody>
               </table>

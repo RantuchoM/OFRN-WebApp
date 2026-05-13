@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
@@ -43,7 +43,7 @@ import {
 } from "../../components/ui/Icons";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
-import SearchableSelect from "../../components/ui/SearchableSelect";
+import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import CnrtExportModal from "./CnrtExportModal";
 import ItineraryManagerModal from "./ItineraryManagerModal";
 import BoardingManagerModal from "./BoardingManagerModal";
@@ -1448,6 +1448,25 @@ export default function GirasTransportesManager({ supabase, gira }) {
       setLoading(false);
     }
   };
+
+  const refreshLocationsList = useCallback(async () => {
+    const { data: locData, error } = await supabase
+      .from("locaciones")
+      .select("id, nombre, direccion, localidades(localidad)")
+      .order("nombre");
+    if (error) {
+      console.error(error);
+      return;
+    }
+    setLocationsList(
+      (locData || []).map((l) => ({
+        id: l.id,
+        nombre: l.nombre,
+        direccion: l.direccion,
+        ciudad: l.localidades?.localidad || "Sin ciudad",
+      })),
+    );
+  }, [supabase]);
 
   const handleUpdateEvent = async (eventId, field, value) => {
     const key = `${eventId}-${field}`;
@@ -3222,13 +3241,16 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 className="p-2 align-middle overflow-hidden"
                                 style={{ maxWidth: "100%" }}
                               >
-                                <SearchableSelect
+                                <LocationSelectWithCreate
+                                  supabase={supabase}
                                   options={locationOptions}
                                   value={evt.id_locacion}
                                   onChange={(v) =>
                                     handleUpdateEvent(evt.id, "id_locacion", v)
                                   }
-                                  className={`h-8 text-[11px] w-full rounded ${getInputClass(evt.id, "id_locacion")}`}
+                                  onRefresh={refreshLocationsList}
+                                  placeholder="Lugar / sala"
+                                  className={`min-w-0 h-7 max-h-7 w-full rounded-lg text-[10px] leading-tight [&>div:first-child>div>div]:!h-7 [&>div:first-child>div>div]:!min-h-0 [&>div:first-child>div>div]:!px-2 [&>div:first-child>div>div]:!py-0 [&>div:first-child>div>div]:!text-[10px] [&>button:last-child]:h-6 [&>button:last-child]:w-6 [&>button:last-child]:min-h-0 [&>button:last-child]:p-0 [&>button:last-child>svg]:!h-2.5 [&>button:last-child>svg]:!w-2.5 ${getInputClass(evt.id, "id_locacion")}`}
                                 />
                               </td>
                               <td className="p-2 align-middle">
@@ -3490,13 +3512,16 @@ export default function GirasTransportesManager({ supabase, gira }) {
                                 />
                             </td>
                             <td className="p-2 align-middle">
-                              <SearchableSelect
+                              <LocationSelectWithCreate
+                                supabase={supabase}
                                 options={locationOptions}
                                 value={newEvent.id_locacion}
                                 onChange={(v) =>
                                   setNewEvent({ ...newEvent, id_locacion: v })
                                 }
-                                className="h-8 text-[11px] w-full rounded border-indigo-300"
+                                onRefresh={refreshLocationsList}
+                                placeholder="Lugar / sala"
+                                className="min-w-0 h-7 max-h-7 w-full rounded-lg border-indigo-300 text-[10px] leading-tight [&>div:first-child>div>div]:!h-7 [&>div:first-child>div>div]:!min-h-0 [&>div:first-child>div>div]:!px-2 [&>div:first-child>div>div]:!py-0 [&>div:first-child>div>div]:!text-[10px] [&>button:last-child]:h-6 [&>button:last-child]:w-6 [&>button:last-child]:min-h-0 [&>button:last-child]:p-0 [&>button:last-child>svg]:!h-2.5 [&>button:last-child>svg]:!w-2.5"
                               />
                             </td>
                             <td className="p-2 align-middle">

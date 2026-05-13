@@ -78,7 +78,7 @@ export default function LocalitySelectWithCreate({
       {open &&
         createPortal(
           <div
-            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            className="fixed inset-0 z-[100001] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
             onClick={closeModal}
           >
             <div
