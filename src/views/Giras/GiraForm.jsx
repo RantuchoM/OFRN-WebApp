@@ -1,4 +1,11 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+  useId,
+} from "react";
 import {
   IconPlus,
   IconX,
@@ -32,6 +39,8 @@ import SearchableSelect from "../../components/ui/SearchableSelect";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import { getProgramStyle } from "../../utils/giraUtils";
+
+const ZONA_PRESETS = ["Andina", "Atlántica", "Valle"];
 
 // --- COMPONENTE INTERNO: Modal de Edición de Concierto ---
 const ConcertFormModal = ({
@@ -433,6 +442,7 @@ export default function GiraForm({
   const [shiftLoading, setShiftLoading] = useState(false);
   const [staffRole, setStaffRole] = useState("director");
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | pending | saving | saved | error
+  const zonaDatalistId = useId();
   const trackedFields = useMemo(
     () => [
       "nombre_gira",
@@ -1178,11 +1188,19 @@ export default function GiraForm({
           </label>
           <input
             type="text"
+            list={zonaDatalistId}
+            autoComplete="off"
+            placeholder="Andina, Atlántica, Valle u otra…"
             className={`w-full h-[42px] border border-slate-300 p-2 rounded ${getFieldStatusClass("zona", "bg-white")}`}
             value={formData.zona || ""}
             onChange={(e) => setFormData({ ...formData, zona: e.target.value })}
             onBlur={() => handleAutoSave("zona")}
           />
+          <datalist id={zonaDatalistId}>
+            {ZONA_PRESETS.map((z) => (
+              <option key={z} value={z} />
+            ))}
+          </datalist>
         </div>
         <div className="col-span-12 md:col-span-4">
           <div className="flex items-center gap-1 mb-1 min-h-[16px] overflow-x-auto whitespace-nowrap">

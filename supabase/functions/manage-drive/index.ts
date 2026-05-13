@@ -160,13 +160,11 @@ const isOrquestaType = (tipo: string) => {
   return !t.includes("ensamble");
 };
 
-function getEnsembleSigla(ensambleNombre: string, siglaFromDb?: string | null): string {
-  if (siglaFromDb?.trim()) return siglaFromDb.trim().toUpperCase();
-  if (!ensambleNombre?.trim()) return "Ens";
-  const words = ensambleNombre.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "Ens";
-  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
-  return words.map((w) => w[0]).join("").toUpperCase().slice(0, 4);
+/** Nombre del ensamble para nomenclador (sin truncar a siglas de 3 letras). */
+function getEnsembleDisplayNameForNomenclador(ensambleNombre: string): string {
+  const t = ensambleNombre?.trim();
+  if (!t) return "Ens";
+  return t;
 }
 
 function fiscalYearFromDate(fechaDesde: string): string {
@@ -176,7 +174,7 @@ function fiscalYearFromDate(fechaDesde: string): string {
 }
 
 // =================================================================================
-// NOMENCLADOR: auditoría automática por año fiscal (orquestas cronológico, ensambles por sigla)
+// NOMENCLADOR: auditoría automática por año fiscal (orquestas cronológico, ensambles por nombre + índice/año)
 // =================================================================================
 
 type ProgramRow = {
@@ -223,7 +221,7 @@ function computeOrquestaNomenclador(
 function computeEnsambleNomenclador(
   programsInYear: ProgramRow[],
   prog: ProgramRow,
-  ensembleIdToSigla: Map<number, string>,
+  ensembleIdToName: Map<number, string>,
   year2: string
 ): string {
   const sources = (prog.giras_fuentes || []).filter((f) => f.tipo === "ENSAMBLE" && f.valor_id != null);
@@ -232,9 +230,9 @@ function computeEnsambleNomenclador(
   const parts: string[] = [];
   for (const s of sources) {
     const eid = s.valor_id!;
-    const sigla =
-      ensembleIdToSigla.get(eid) ||
-      (s.valor_texto?.trim() ? getEnsembleSigla(s.valor_texto.trim(), null) : "Ens");
+    const name =
+      ensembleIdToName.get(eid) ||
+      (s.valor_texto?.trim() ? s.valor_texto.trim() : "Ens");
     const girasWithThisEnsemble = programsInYear.filter((p) =>
       (p.giras_fuentes || []).some((f) => f.tipo === "ENSAMBLE" && f.valor_id === eid)
     );
@@ -243,12 +241,12 @@ function computeEnsambleNomenclador(
     );
     const idx = ordenado.findIndex((p) => p.id === prog.id);
     const num = idx >= 0 ? idx + 1 : 1;
-    parts.push(`${sigla} ${String(num).padStart(2, "0")}`);
+    parts.push(`${name} ${String(num).padStart(2, "0")}/${year2}`);
   }
-  return parts.join(" | ") + ` /${year2}`;
+  return parts.join(" | ");
 }
 
-async function loadEnsembleSiglas(supabase: any, ensembleIds: number[]): Promise<Map<number, string>> {
+async function loadEnsembleDisplayNames(supabase: any, ensembleIds: number[]): Promise<Map<number, string>> {
   const map = new Map<number, string>();
   if (ensembleIds.length === 0) return map;
   const { data: rows } = await supabase
@@ -256,7 +254,7 @@ async function loadEnsembleSiglas(supabase: any, ensembleIds: number[]): Promise
     .select("id, ensamble")
     .in("id", [...new Set(ensembleIds)]);
   for (const r of rows || []) {
-    map.set(r.id, getEnsembleSigla(r.ensamble ?? "", null));
+    map.set(r.id, getEnsembleDisplayNameForNomenclador(r.ensamble ?? ""));
   }
   return map;
 }
@@ -296,7 +294,7 @@ async function auditAndApplyNomencladores(
       }
     }
 
-    const ensembleSiglas = await loadEnsembleSiglas(supabase, [...ensembleIds]);
+    const ensembleDisplayNames = await loadEnsembleDisplayNames(supabase, [...ensembleIds]);
 
     for (const p of programsInYear) {
       let computed = "";
@@ -304,7 +302,7 @@ async function auditAndApplyNomencladores(
         const list = orquestaByPrefix.get(getTypeAbbreviation(p.tipo || "")) || [];
         computed = computeOrquestaNomenclador(list, p.id, p.tipo || "", year2);
       } else {
-        computed = computeEnsambleNomenclador(programsInYear, p, ensembleSiglas, year2);
+        computed = computeEnsambleNomenclador(programsInYear, p, ensembleDisplayNames, year2);
       }
       if (
         computed &&
