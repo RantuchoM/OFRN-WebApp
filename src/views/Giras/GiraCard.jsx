@@ -385,10 +385,15 @@ export default function GiraCard({
     const inclusions = [];
     const exclusions = [];
     sources.forEach((s) => {
-      let label =
-        s.tipo === "ENSAMBLE"
-          ? ensembleMap.get(String(s.valor_id)) || `Ensamble ${s.valor_id}`
-          : s.valor_texto;
+      const isEnsembleRef =
+        s.tipo === "ENSAMBLE" || s.tipo === "EXCL_ENSAMBLE";
+      let label = isEnsembleRef
+        ? ensembleMap.get(String(s.valor_id)) ||
+          `Ensamble ${s.valor_id ?? ""}`
+        : s.valor_texto;
+      if (label == null || String(label).trim() === "") {
+        label = isEnsembleRef ? `Ensamble ${s.valor_id ?? ""}` : "—";
+      }
       const element = (
         <span
           key={s.id}
@@ -406,26 +411,39 @@ export default function GiraCard({
     });
     if (inclusions.length === 0 && exclusions.length === 0) return null;
     return (
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs ml-2 pl-2 border-l border-black/10 shrink-0">
-        {inclusions.reduce(
-          (acc, curr, idx) =>
-            idx === 0
-              ? [curr]
-              : [
-                  ...acc,
-                  <span key={`s${idx}`} className="opacity-30">
-                    |
-                  </span>,
-                  curr,
-                ],
-          [],
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs shrink-0 min-w-0 max-w-full">
+        <span className="opacity-30 shrink-0">|</span>
+        {inclusions.length > 0 &&
+          inclusions.reduce(
+            (acc, curr, idx) =>
+              idx === 0
+                ? [curr]
+                : [
+                    ...acc,
+                    <span key={`s${idx}`} className="opacity-30">
+                      |
+                    </span>,
+                    curr,
+                  ],
+            [],
+          )}
+        {inclusions.length > 0 && exclusions.length > 0 && (
+          <span className="opacity-30">|</span>
         )}
-        {exclusions.length > 0 && (
-          <>
-            <span className="opacity-30">|</span>
-            {exclusions}
-          </>
-        )}
+        {exclusions.length > 0 &&
+          exclusions.reduce(
+            (acc, curr, idx) =>
+              idx === 0
+                ? [curr]
+                : [
+                    ...acc,
+                    <span key={`sx${idx}`} className="opacity-30">
+                      |
+                    </span>,
+                    curr,
+                  ],
+            [],
+          )}
       </div>
     );
   };
@@ -757,6 +775,7 @@ export default function GiraCard({
                   {gira.estado}
                 </span>
               )}
+              {getSourcesDisplayDesktop()}
             </div>
             <div className="mb-1">
               <h3 className="text-base font-bold text-slate-800 truncate leading-tight">
@@ -778,10 +797,6 @@ export default function GiraCard({
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs opacity-80">
               {getPersonnelDisplayDesktop()}
-              {gira.giras_integrantes?.length > 0 && (
-                <span className="opacity-20">|</span>
-              )}
-              {getSourcesDisplayDesktop()}
             </div>
           </div>
         </div>
