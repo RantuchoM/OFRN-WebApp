@@ -162,7 +162,7 @@ CREATE TABLE public.entrada_reserva (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   concierto_id bigint NOT NULL,
   usuario_id uuid NOT NULL,
-  cantidad_solicitada integer NOT NULL CHECK (cantidad_solicitada >= 1 AND cantidad_solicitada <= 5),
+  cantidad_solicitada integer NOT NULL CHECK (cantidad_solicitada >= 1 AND cantidad_solicitada <= 4),
   estado USER-DEFINED NOT NULL DEFAULT 'activa'::entrada_reserva_estado,
   codigo_reserva text NOT NULL UNIQUE,
   qr_reserva_hash text NOT NULL UNIQUE,

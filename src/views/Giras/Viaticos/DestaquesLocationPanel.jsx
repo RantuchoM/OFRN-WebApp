@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { 
     IconBus, IconClock, IconAlertTriangle, IconChevronDown, IconChevronUp, 
     IconUsers, IconHistory, IconEye, IconEyeOff, IconCheck, IconSettings, 
@@ -561,7 +561,9 @@ export default function DestaquesLocationPanel({
     onExportBatch, 
     isExporting, 
     exportStatus,
-    globalConfig 
+    globalConfig,
+    exportFailureLog = [],
+    onClearExportFailureLog,
 }) {
    const [selectedGroupIds, setSelectedGroupIds] = useState([]); 
     const [showBackup, setShowBackup] = useState(false);
@@ -701,16 +703,40 @@ export default function DestaquesLocationPanel({
         });
     };
 
-    const handleSelectAll = () => {
-        if (selectedGroupIds.length === groupedData.length) {
+    const allLocationIds = useMemo(() => groupedData.map((g) => g.id), [groupedData]);
+    const allLocationsSelected =
+        allLocationIds.length > 0 &&
+        allLocationIds.every((id) => selectedGroupIds.includes(id));
+    const masterCheckboxRef = useRef(null);
+
+    useEffect(() => {
+        const el = masterCheckboxRef.current;
+        if (!el) return;
+        const n = allLocationIds.filter((id) => selectedGroupIds.includes(id)).length;
+        el.indeterminate = n > 0 && n < allLocationIds.length;
+    }, [allLocationIds, selectedGroupIds]);
+
+    const handleToggleAllLocations = () => {
+        if (allLocationsSelected) setSelectedGroupIds([]);
+        else setSelectedGroupIds([...allLocationIds]);
+    };
+
+    const handleSelectPendingClick = () => {
+        if (selectedGroupIds.length > 0) {
             setSelectedGroupIds([]);
-        } else {
-            const validGroups = groupedData.filter(g => {
-                const exportedIds = configs[g.id]?.ids_exportados_viatico || [];
-                return g.people.some(p => !p.hasIndividual && !exportedIds.includes(Number(p.id)));
-            }).map(g => g.id);
-            setSelectedGroupIds(validGroups);
+            return;
         }
+        const pendingIds = groupedData
+            .filter((g) => {
+                const exportedIds = configs[g.id]?.ids_exportados_viatico || [];
+                return g.people.some(
+                    (p) =>
+                        !p.hasIndividual &&
+                        !exportedIds.includes(Number(p.id)),
+                );
+            })
+            .map((g) => g.id);
+        setSelectedGroupIds(pendingIds);
     };
 
     // --- CÁLCULO DE ESTADÍSTICAS PARA EL PANEL BULK (CORREGIDO) ---
@@ -852,9 +878,74 @@ export default function DestaquesLocationPanel({
                     <button onClick={() => setShowBackup(!showBackup)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${showBackup ? 'bg-cyan-100 text-cyan-800 border-cyan-200 shadow-inner' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600 shadow-sm'}`}>
                         <IconHistory size={14} /> Historial {showBackup ? <IconEye size={14}/> : <IconEyeOff size={14}/>}
                     </button>
-                    {groupedData.length > 0 && (<button onClick={handleSelectAll} className="text-xs text-indigo-600 font-medium hover:underline ml-2">{selectedGroupIds.length > 0 ? 'Deseleccionar' : 'Sel. Pendientes'}</button>)}
+                    {groupedData.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={handleSelectPendingClick}
+                            className="text-xs text-indigo-600 font-medium hover:underline ml-2"
+                        >
+                            {selectedGroupIds.length > 0 ? "Deseleccionar todo" : "Sel. pendientes"}
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {exportFailureLog.length > 0 && (
+                <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50/90 p-3 text-xs shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                        <p className="font-bold text-amber-900">
+                            Registro de exportación: no se pudo completar algo para estas personas
+                        </p>
+                        {typeof onClearExportFailureLog === "function" && (
+                            <button
+                                type="button"
+                                onClick={onClearExportFailureLog}
+                                className="shrink-0 rounded border border-amber-300 bg-white px-2 py-0.5 text-[10px] font-bold text-amber-900 hover:bg-amber-100"
+                            >
+                                Limpiar registro
+                            </button>
+                        )}
+                    </div>
+                    <ul className="max-h-40 space-y-1.5 overflow-y-auto font-mono text-[11px] text-amber-950">
+                        {exportFailureLog.map((row, i) => (
+                            <li
+                                key={`${row.ts}-${row.personId}-${i}`}
+                                className="border-b border-amber-100/80 pb-1 last:border-0"
+                            >
+                                <span className="text-amber-700/90">
+                                    {row.ts
+                                        ? new Date(row.ts).toLocaleString("es-AR")
+                                        : "—"}
+                                </span>
+                                {" · "}
+                                <span className="font-semibold">{row.personLabel}</span>
+                                {" · "}
+                                <span>{row.item}</span>
+                                {row.message ? (
+                                    <span className="block text-amber-800/90 mt-0.5">
+                                        {row.message}
+                                    </span>
+                                ) : null}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
+            {groupedData.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 mb-2 px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 select-none">
+                        <input
+                            ref={masterCheckboxRef}
+                            type="checkbox"
+                            checked={allLocationsSelected}
+                            onChange={handleToggleAllLocations}
+                            className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        Todas las localidades
+                    </label>
+                </div>
+            )}
 
             <div className={`space-y-3 transition-all duration-300 ${selectedGroupIds.length > 0 ? 'pr-[340px]' : ''}`}>
                 {groupedData.map(group => (

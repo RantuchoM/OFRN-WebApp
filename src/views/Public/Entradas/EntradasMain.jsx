@@ -650,7 +650,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     onChange={(event) => setCantidad(Number(event.target.value))}
                     disabled={tieneReservaEnConcierto(selectedConcierto.id)}
                   >
-                    {[1, 2, 3, 4, 5].map((n) => (<option key={n} value={n}>{n} entrada{n > 1 ? "s" : ""}</option>))}
+                    {[1, 2, 3, 4].map((n) => (<option key={n} value={n}>{n} entrada{n > 1 ? "s" : ""}</option>))}
                   </select>
                   <button
                     onClick={handleCreateReserva}

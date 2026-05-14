@@ -82,6 +82,72 @@ export function buildAsistenciaMatrixRowGroups(
   return groups;
 }
 
+/**
+ * Filas de ensamble para la vista agregada: un renglón por ensamble con al menos
+ * un integrante visible en la selección actual.
+ *
+ * @param {Array<{ id: string|number }>} visibleRows
+ * @param {Array<{ id: string|number, ensamble?: string }>} ensambles
+ * @param {Map<number, number[]>} membershipsByEnsamble
+ * @returns {Array<{ key: number, label: string, visibleMemberIds: number[] }>}
+ */
+export function buildAsistenciaMatrixEnsambleAggregateRows(
+  visibleRows,
+  ensambles,
+  membershipsByEnsamble,
+) {
+  const visibleSet = new Set(visibleRows.map((r) => Number(r.id)));
+  const out = [];
+  for (const en of ensambles) {
+    const eid = Number(en.id);
+    const memberIds = membershipsByEnsamble.get(eid) || [];
+    const visibleMemberIds = memberIds.filter((id) =>
+      visibleSet.has(Number(id)),
+    );
+    if (visibleMemberIds.length === 0) continue;
+    out.push({
+      key: eid,
+      label: en.ensamble?.trim() || `Ensamble ${eid}`,
+      visibleMemberIds,
+    });
+  }
+  return out;
+}
+
+/**
+ * Totales de resumen para una fila de ensamble: suma de los conteos por persona
+ * (misma semántica que sumar columnas Sinf/CF/Ens/Total de cada integrante).
+ */
+export function computeAsistenciaMatrixEnsambleTotals(
+  visibleMemberIds,
+  filteredProgramas,
+  rosterByGiraId,
+  selectedTypes,
+) {
+  let sinfonico = 0;
+  let camerata = 0;
+  let ensamble = 0;
+  let total = 0;
+  for (const iid of visibleMemberIds) {
+    const t = computeAsistenciaMatrixRowTotals(
+      iid,
+      filteredProgramas,
+      rosterByGiraId,
+      selectedTypes,
+    );
+    sinfonico += t.sinfonico;
+    camerata += t.camerata;
+    if (t.ensamble != null) ensamble += t.ensamble;
+    total += t.total;
+  }
+  return {
+    sinfonico,
+    camerata,
+    ensamble: selectedTypes.has("Ensamble") ? ensamble : null,
+    total,
+  };
+}
+
 function integranteDetalle(row, ensambles, membershipsByEnsamble) {
   const iid = Number(row.id);
   const inst = row.instrumentos;
@@ -169,6 +235,7 @@ export function buildAsistenciaMatrixSummaryValues(totals, selectedTypes) {
  * @param {Map<number, number[]>} params.membershipsByEnsamble
  * @param {Set<number>|Iterable<number>} params.selectedIntegranteIds
  * @param {Set<string>} params.selectedTypes — filtros de tipo de programa (define columna Ensamble en totales)
+ * @param {boolean} [params.groupByEnsambles]
  */
 export async function downloadAsistenciaMatrixExcel({
   visibleRows,
@@ -179,13 +246,8 @@ export async function downloadAsistenciaMatrixExcel({
   membershipsByEnsamble,
   selectedIntegranteIds,
   selectedTypes,
+  groupByEnsambles = false,
 }) {
-  const groups = buildAsistenciaMatrixRowGroups(
-    visibleRows,
-    ensambles,
-    membershipsByEnsamble,
-    selectedIntegranteIds,
-  );
   const summaryLabels = getAsistenciaMatrixSummaryHeadLabels(selectedTypes);
   const colCount = 2 + filteredProgramas.length + summaryLabels.length;
 
@@ -194,12 +256,19 @@ export async function downloadAsistenciaMatrixExcel({
     views: [{ state: "frozen", xSplit: 2, ySplit: 1 }],
   });
 
-  const header = [
-    "Integrante",
-    "Instrumento / Ensamble",
-    ...filteredProgramas.map((g) => headerLabel(g)),
-    ...summaryLabels,
-  ];
+  const header = groupByEnsambles
+    ? [
+        "Ensamble",
+        "Músicos en selección",
+        ...filteredProgramas.map((g) => headerLabel(g)),
+        ...summaryLabels,
+      ]
+    : [
+        "Integrante",
+        "Instrumento / Ensamble",
+        ...filteredProgramas.map((g) => headerLabel(g)),
+        ...summaryLabels,
+      ];
   sheet.addRow(header);
   const hr = sheet.getRow(1);
   const summaryStartCol = 3 + filteredProgramas.length;
@@ -214,34 +283,27 @@ export async function downloadAsistenciaMatrixExcel({
     };
   });
 
-  for (const g of groups) {
-    const sep = sheet.addRow([g.label]);
-    sheet.mergeCells(sep.number, 1, sep.number, colCount);
-    const sc = sep.getCell(1);
-    sc.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFE2E8F0" },
-    };
-    sc.font = { bold: true, size: 11 };
-    sc.alignment = { horizontal: "center", vertical: "middle" };
-
-    for (const row of g.rows) {
-      const iid = Number(row.id);
-      const name = `${row.nombre || ""} ${row.apellido || ""}`.trim();
-      const det = integranteDetalle(row, ensambles, membershipsByEnsamble);
-      const totals = computeAsistenciaMatrixRowTotals(
-        iid,
+  if (groupByEnsambles) {
+    const aggRows = buildAsistenciaMatrixEnsambleAggregateRows(
+      visibleRows,
+      ensambles,
+      membershipsByEnsamble,
+    );
+    for (const ar of aggRows) {
+      const totals = computeAsistenciaMatrixEnsambleTotals(
+        ar.visibleMemberIds,
         filteredProgramas,
         rosterByGiraId,
         selectedTypes,
       );
       const cells = [
-        name,
-        det,
+        ar.label,
+        String(ar.visibleMemberIds.length),
         ...filteredProgramas.map((p) => {
           const set = rosterByGiraId[p.id];
-          return set && set.has(iid) ? "X" : "";
+          if (!set) return "";
+          const n = ar.visibleMemberIds.filter((id) => set.has(Number(id))).length;
+          return n > 0 ? String(n) : "";
         }),
         ...buildAsistenciaMatrixSummaryValues(totals, selectedTypes),
       ];
@@ -260,6 +322,62 @@ export async function downloadAsistenciaMatrixExcel({
           };
         }
       });
+    }
+  } else {
+    const groups = buildAsistenciaMatrixRowGroups(
+      visibleRows,
+      ensambles,
+      membershipsByEnsamble,
+      selectedIntegranteIds,
+    );
+
+    for (const g of groups) {
+      const sep = sheet.addRow([g.label]);
+      sheet.mergeCells(sep.number, 1, sep.number, colCount);
+      const sc = sep.getCell(1);
+      sc.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFE2E8F0" },
+      };
+      sc.font = { bold: true, size: 11 };
+      sc.alignment = { horizontal: "center", vertical: "middle" };
+
+      for (const row of g.rows) {
+        const iid = Number(row.id);
+        const name = `${row.nombre || ""} ${row.apellido || ""}`.trim();
+        const det = integranteDetalle(row, ensambles, membershipsByEnsamble);
+        const totals = computeAsistenciaMatrixRowTotals(
+          iid,
+          filteredProgramas,
+          rosterByGiraId,
+          selectedTypes,
+        );
+        const cells = [
+          name,
+          det,
+          ...filteredProgramas.map((p) => {
+            const set = rosterByGiraId[p.id];
+            return set && set.has(iid) ? "X" : "";
+          }),
+          ...buildAsistenciaMatrixSummaryValues(totals, selectedTypes),
+        ];
+        const dataRow = sheet.addRow(cells);
+        dataRow.eachCell((cell, colNumber) => {
+          if (colNumber >= 3) {
+            cell.alignment = { horizontal: "center", vertical: "middle" };
+          } else {
+            cell.alignment = { vertical: "middle" };
+          }
+          if (colNumber >= summaryStartCol) {
+            cell.fill = {
+              type: "pattern",
+              pattern: "solid",
+              fgColor: { argb: SUMMARY_FILL_ARGB },
+            };
+          }
+        });
+      }
     }
   }
 
@@ -295,13 +413,8 @@ export function downloadAsistenciaMatrixPdf({
   selectedIntegranteIds,
   selectedTypes,
   reportTitle = "Matriz de asistencia",
+  groupByEnsambles = false,
 }) {
-  const groups = buildAsistenciaMatrixRowGroups(
-    visibleRows,
-    ensambles,
-    membershipsByEnsamble,
-    selectedIntegranteIds,
-  );
   const summaryLabels = getAsistenciaMatrixSummaryHeadLabels(selectedTypes);
   const colSpan = 2 + filteredProgramas.length + summaryLabels.length;
 
@@ -319,46 +432,86 @@ export function downloadAsistenciaMatrixPdf({
   doc.setTextColor(0);
 
   const head = [
-    [
-      "Integrante",
-      "Detalle",
-      ...filteredProgramas.map((g) => headerLabel(g)),
-      ...summaryLabels,
-    ],
+    groupByEnsambles
+      ? [
+          "Ensamble",
+          "Nº músicos",
+          ...filteredProgramas.map((g) => headerLabel(g)),
+          ...summaryLabels,
+        ]
+      : [
+          "Integrante",
+          "Detalle",
+          ...filteredProgramas.map((g) => headerLabel(g)),
+          ...summaryLabels,
+        ],
   ];
 
   const body = [];
-  for (const g of groups) {
-    body.push([
-      {
-        content: `  ▸ ${g.label}`,
-        colSpan: colSpan,
-        styles: {
-          fillColor: [226, 232, 240],
-          fontStyle: "bold",
-          halign: "left",
-        },
-      },
-    ]);
-    for (const row of g.rows) {
-      const iid = Number(row.id);
-      const name = `${row.nombre || ""} ${row.apellido || ""}`.trim();
-      const det = integranteDetalle(row, ensambles, membershipsByEnsamble);
-      const totals = computeAsistenciaMatrixRowTotals(
-        iid,
+  if (groupByEnsambles) {
+    const aggRows = buildAsistenciaMatrixEnsambleAggregateRows(
+      visibleRows,
+      ensambles,
+      membershipsByEnsamble,
+    );
+    for (const ar of aggRows) {
+      const totals = computeAsistenciaMatrixEnsambleTotals(
+        ar.visibleMemberIds,
         filteredProgramas,
         rosterByGiraId,
         selectedTypes,
       );
       body.push([
-        name,
-        det,
+        ar.label,
+        String(ar.visibleMemberIds.length),
         ...filteredProgramas.map((p) => {
           const set = rosterByGiraId[p.id];
-          return set && set.has(iid) ? "X" : "";
+          if (!set) return "";
+          const n = ar.visibleMemberIds.filter((id) => set.has(Number(id))).length;
+          return n > 0 ? String(n) : "";
         }),
         ...buildAsistenciaMatrixSummaryValues(totals, selectedTypes),
       ]);
+    }
+  } else {
+    const groups = buildAsistenciaMatrixRowGroups(
+      visibleRows,
+      ensambles,
+      membershipsByEnsamble,
+      selectedIntegranteIds,
+    );
+    for (const g of groups) {
+      body.push([
+        {
+          content: `  ▸ ${g.label}`,
+          colSpan: colSpan,
+          styles: {
+            fillColor: [226, 232, 240],
+            fontStyle: "bold",
+            halign: "left",
+          },
+        },
+      ]);
+      for (const row of g.rows) {
+        const iid = Number(row.id);
+        const name = `${row.nombre || ""} ${row.apellido || ""}`.trim();
+        const det = integranteDetalle(row, ensambles, membershipsByEnsamble);
+        const totals = computeAsistenciaMatrixRowTotals(
+          iid,
+          filteredProgramas,
+          rosterByGiraId,
+          selectedTypes,
+        );
+        body.push([
+          name,
+          det,
+          ...filteredProgramas.map((p) => {
+            const set = rosterByGiraId[p.id];
+            return set && set.has(iid) ? "X" : "";
+          }),
+          ...buildAsistenciaMatrixSummaryValues(totals, selectedTypes),
+        ]);
+      }
     }
   }
 

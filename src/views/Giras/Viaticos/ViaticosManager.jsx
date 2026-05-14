@@ -317,6 +317,8 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState("");
   const [exportDetail, setExportDetail] = useState(""); // Segunda línea de detalle
+  /** Registro persistente por corrida de export (persona + ítem que falló). */
+  const [exportFailureLog, setExportFailureLog] = useState([]);
   const [showEmailConfirm, setShowEmailConfirm] = useState(false);
   const [notification, setNotification] = useState(null);
 
@@ -677,11 +679,28 @@ export default function ViaticosManager({ supabase, giraId }) {
     pdfExportConfig,
     setDetail,
   ) => {
-    const name = personData.apellido;
+    const shortName = personData.apellido;
+    const personLabel = `${personData.apellido || ""}, ${personData.nombre || ""}`.trim();
 
-    const mergeBytes = async (bytes, label) => {
-      if (!bytes) return;
+    const pushExportFailure = (item, message) => {
+      const entry = {
+        ts: new Date().toISOString(),
+        personId: personData.id,
+        personLabel: personLabel || `id ${personData.id}`,
+        item,
+        message: message || "Error desconocido",
+      };
+      setExportFailureLog((prev) => [...prev, entry]);
+      console.warn("[Export viáticos/destaques]", entry);
+    };
+
+    const mergeBytes = async (bytesSource, label) => {
       try {
+        const bytes =
+          bytesSource && typeof bytesSource.then === "function"
+            ? await bytesSource
+            : bytesSource;
+        if (!bytes) return;
         const srcDoc = await PDFDocument.load(bytes);
         const copiedPages = await targetDoc.copyPages(
           srcDoc,
@@ -690,7 +709,9 @@ export default function ViaticosManager({ supabase, giraId }) {
         copiedPages.forEach((p) => targetDoc.addPage(p));
       } catch (e) {
         console.error(`Error fusionando ${label}:`, e);
-        toast.error(`Error al unir ${label} de ${name}`);
+        const msg = e?.message || String(e);
+        pushExportFailure(label, msg);
+        toast.error(`No se pudo incluir ${label}: ${personLabel} — ${msg}`);
       }
     };
 
@@ -699,9 +720,9 @@ export default function ViaticosManager({ supabase, giraId }) {
     if (options.destaque) {
       const destaqueData = zeroDestaqueMonetaryFields(personData);
       const singleDestaque = [destaqueData];
-      if (setDetail) setDetail(`Generando Destaque (${name})...`);
+      if (setDetail) setDetail(`Generando Destaque (${shortName})...`);
       await mergeBytes(
-        await exportViaticosToPDFForm(
+        exportViaticosToPDFForm(
           giraData,
           singleDestaque,
           pdfExportConfig,
@@ -711,9 +732,9 @@ export default function ViaticosManager({ supabase, giraId }) {
       );
     }
     if (options.viatico) {
-      if (setDetail) setDetail(`Generando Viático (${name})...`);
+      if (setDetail) setDetail(`Generando Viático (${shortName})...`);
       await mergeBytes(
-        await exportViaticosToPDFForm(
+        exportViaticosToPDFForm(
           giraData,
           single,
           pdfExportConfig,
@@ -723,9 +744,9 @@ export default function ViaticosManager({ supabase, giraId }) {
       );
     }
     if (options.rendicion) {
-      if (setDetail) setDetail(`Generando Rendición (${name})...`);
+      if (setDetail) setDetail(`Generando Rendición (${shortName})...`);
       await mergeBytes(
-        await exportViaticosToPDFForm(
+        exportViaticosToPDFForm(
           giraData,
           single,
           pdfExportConfig,
@@ -736,22 +757,42 @@ export default function ViaticosManager({ supabase, giraId }) {
     }
 
     if (options.docComun && personData.documentacion) {
-      if (setDetail) setDetail(`Descargando Documentación (${name})...`);
+      if (setDetail) setDetail(`Descargando Documentación (${shortName})...`);
       const bytes = await fetchPdfFromDrive(personData.documentacion);
       if (bytes) await mergeBytes(bytes, "Documentación");
+      else
+        pushExportFailure(
+          "Documentación",
+          "No se pudo descargar el PDF (enlace vacío o error de red/Drive).",
+        );
     }
     if (options.docReducida && options.addDj) {
       const djUrl = getDjUrl(personData);
       if (djUrl) {
-        if (setDetail) setDetail(`Descargando DJ (${name})...`);
+        if (setDetail) setDetail(`Descargando DJ (${shortName})...`);
         const bytes = await fetchPdfFromDrive(djUrl);
         if (bytes) await mergeBytes(bytes, "DJ");
+        else
+          pushExportFailure(
+            "DJ",
+            "No se pudo descargar el PDF de la declaración jurada.",
+          );
+      } else {
+        pushExportFailure(
+          "DJ",
+          "Marcado para adjuntar DJ pero la persona no tiene enlace de declaración jurada.",
+        );
       }
     }
     if (options.docReducida && personData.docred) {
-      if (setDetail) setDetail(`Descargando Doc. Reducida (${name})...`);
+      if (setDetail) setDetail(`Descargando Doc. Reducida (${shortName})...`);
       const bytes = await fetchPdfFromDrive(personData.docred);
       if (bytes) await mergeBytes(bytes, "Doc. Reducida");
+      else
+        pushExportFailure(
+          "Doc. Reducida",
+          "No se pudo descargar el PDF de documentación reducida.",
+        );
     }
   };
 
@@ -767,6 +808,7 @@ export default function ViaticosManager({ supabase, giraId }) {
 
     setExportStatus("Iniciando...");
     setExportDetail("Actualizando registros en BD...");
+    setExportFailureLog([]);
 
     const pdfExportConfig = { ...config, useHistoricalCalc };
 
@@ -912,91 +954,120 @@ export default function ViaticosManager({ supabase, giraId }) {
 
       // MODO INDIVIDUAL
     } else {
-      let count = 0;
+      let successCount = 0;
+      let attempt = 0;
       for (const personData of dataList) {
-        count++;
+        attempt++;
         const nameSafe = `${personData.apellido}, ${personData.nombre}`;
-        const prefix = `[${count}/${total}]`;
+        const prefix = `[${attempt}/${total}]`;
         setExportStatus(`${prefix} ${nameSafe}`);
 
-        if (options.viatico) {
-          setExportDetail("Generando PDF Viático...");
-          const pdfBytes = await exportViaticosToPDFForm(
-            giraData,
-            [personData],
-            pdfExportConfig,
-            "viatico",
-          );
-          setExportDetail("Subiendo PDF Viático...");
-          await uploadPdfToDrive(
-            pdfBytes,
-            `${nameSafe} - Viático.pdf`,
-            folderId,
-          );
-        }
-        if (options.destaque) {
-          setExportDetail("Generando PDF Destaque...");
-          const destaqueData = zeroDestaqueMonetaryFields(personData);
-          const pdfBytes = await exportViaticosToPDFForm(
-            giraData,
-            [destaqueData],
-            pdfExportConfig,
-            "destaque",
-          );
-          setExportDetail("Subiendo PDF Destaque...");
-          await uploadPdfToDrive(
-            pdfBytes,
-            `${nameSafe} - Destaque.pdf`,
-            folderId,
-          );
-        }
-        if (options.rendicion) {
-          setExportDetail("Generando PDF Rendición...");
-          const pdfBytes = await exportViaticosToPDFForm(
-            giraData,
-            [personData],
-            pdfExportConfig,
-            "rendicion",
-          );
-          setExportDetail("Subiendo PDF Rendición...");
-          await uploadPdfToDrive(
-            pdfBytes,
-            `${nameSafe} - Rendición.pdf`,
-            folderId,
-          );
-        }
-
-        if (options.docComun && personData.documentacion) {
-          setExportDetail("Duplicando Documentación en Drive...");
-          await copyDriveFile(
-            personData.documentacion,
-            folderId,
-            `${nameSafe} - Documentación`,
-          );
-        }
-        if (options.docReducida && options.addDj) {
-          const djUrl = getDjUrl(personData);
-          if (djUrl) {
-            setExportDetail("Duplicando DJ en Drive...");
-            await copyDriveFile(
-              djUrl,
+        try {
+          if (options.viatico) {
+            setExportDetail("Generando PDF Viático...");
+            const pdfBytes = await exportViaticosToPDFForm(
+              giraData,
+              [personData],
+              pdfExportConfig,
+              "viatico",
+            );
+            setExportDetail("Subiendo PDF Viático...");
+            await uploadPdfToDrive(
+              pdfBytes,
+              `${nameSafe} - Viático.pdf`,
               folderId,
-              `${nameSafe} - DJ`,
             );
           }
-        }
-        if (options.docReducida && personData.docred) {
-          setExportDetail("Duplicando Doc. Reducida en Drive...");
-          await copyDriveFile(
-            personData.docred,
-            folderId,
-            `${nameSafe} - Doc. Reducida`,
-          );
+          if (options.destaque) {
+            setExportDetail("Generando PDF Destaque...");
+            const destaqueData = zeroDestaqueMonetaryFields(personData);
+            const pdfBytes = await exportViaticosToPDFForm(
+              giraData,
+              [destaqueData],
+              pdfExportConfig,
+              "destaque",
+            );
+            setExportDetail("Subiendo PDF Destaque...");
+            await uploadPdfToDrive(
+              pdfBytes,
+              `${nameSafe} - Destaque.pdf`,
+              folderId,
+            );
+          }
+          if (options.rendicion) {
+            setExportDetail("Generando PDF Rendición...");
+            const pdfBytes = await exportViaticosToPDFForm(
+              giraData,
+              [personData],
+              pdfExportConfig,
+              "rendicion",
+            );
+            setExportDetail("Subiendo PDF Rendición...");
+            await uploadPdfToDrive(
+              pdfBytes,
+              `${nameSafe} - Rendición.pdf`,
+              folderId,
+            );
+          }
+
+          if (options.docComun && personData.documentacion) {
+            setExportDetail("Duplicando Documentación en Drive...");
+            await copyDriveFile(
+              personData.documentacion,
+              folderId,
+              `${nameSafe} - Documentación`,
+            );
+          }
+          if (options.docReducida && options.addDj) {
+            const djUrl = getDjUrl(personData);
+            if (djUrl) {
+              setExportDetail("Duplicando DJ en Drive...");
+              await copyDriveFile(
+                djUrl,
+                folderId,
+                `${nameSafe} - DJ`,
+              );
+            }
+          }
+          if (options.docReducida && personData.docred) {
+            setExportDetail("Duplicando Doc. Reducida en Drive...");
+            await copyDriveFile(
+              personData.docred,
+              folderId,
+              `${nameSafe} - Doc. Reducida`,
+            );
+          }
+          successCount++;
+        } catch (err) {
+          console.error("processExportList individual:", err);
+          const msg = err?.message || String(err);
+          setExportFailureLog((prev) => [
+            ...prev,
+            {
+              ts: new Date().toISOString(),
+              personId: personData.id,
+              personLabel: nameSafe,
+              item: "Exportación (PDF/Drive)",
+              message: msg,
+            },
+          ]);
+          console.warn("[Export viáticos/destaques]", {
+            personLabel: nameSafe,
+            item: "Exportación (PDF/Drive)",
+            message: msg,
+          });
+          toast.error(`No se pudo exportar todo para ${nameSafe}: ${msg}`);
         }
       }
 
-      setNotification(`Se procesaron ${count} integrantes correctamente.`);
-      toast.success(`Se procesaron ${count} integrantes correctamente.`);
+      if (successCount > 0) {
+        setNotification(
+          `Se procesaron ${successCount} integrantes correctamente.`,
+        );
+        toast.success(
+          `Se procesaron ${successCount} integrantes correctamente.`,
+        );
+      }
     }
     setExportDetail("");
     setExportStatus("");
@@ -1157,7 +1228,18 @@ export default function ViaticosManager({ supabase, giraId }) {
       );
     } catch (err) {
       console.error(err);
-      toast.error("Error batch: " + err.message);
+      const msg = err?.message || String(err);
+      setExportFailureLog((prev) => [
+        ...prev,
+        {
+          ts: new Date().toISOString(),
+          personLabel: "(lote destaques)",
+          item: "Exportación masiva",
+          message: msg,
+        },
+      ]);
+      console.warn("[Export viáticos/destaques]", { item: "Batch", message: msg });
+      toast.error("Error batch: " + msg);
     } finally {
       setIsExporting(false);
       setExportStatus("");
@@ -1744,6 +1826,8 @@ export default function ViaticosManager({ supabase, giraId }) {
               isExporting={isExporting}
               exportStatus={exportStatus}
               exportDetail={exportDetail} // PASAMOS EL DETALLE AL COMPONENTE HIJO
+              exportFailureLog={exportFailureLog}
+              onClearExportFailureLog={() => setExportFailureLog([])}
             />
           </div>
         )}

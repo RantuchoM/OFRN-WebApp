@@ -17,8 +17,10 @@ import {
 } from "../../services/giraService";
 import {
   ASISTENCIA_MATRIX_SUMMARY_HEADER_TITLE,
+  buildAsistenciaMatrixEnsambleAggregateRows,
   buildAsistenciaMatrixRowGroups,
   buildAsistenciaMatrixSummaryValues,
+  computeAsistenciaMatrixEnsambleTotals,
   computeAsistenciaMatrixRowTotals,
   downloadAsistenciaMatrixExcel,
   downloadAsistenciaMatrixPdf,
@@ -191,6 +193,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
     () => new Set(["Sinfónico", "Camerata Filarmónica"]),
   );
   const [showPastInYear, setShowPastInYear] = useState(false);
+  const [groupByEnsambles, setGroupByEnsambles] = useState(false);
   const [selectedIntegranteIds, setSelectedIntegranteIds] = useState(
     () => new Set(),
   );
@@ -310,6 +313,16 @@ export default function AsistenciaMatrixReport({ supabase }) {
     [visibleRows, ensambles, membershipsByEnsamble, selectedIntegranteIds],
   );
 
+  const ensambleAggregateRows = useMemo(
+    () =>
+      buildAsistenciaMatrixEnsambleAggregateRows(
+        visibleRows,
+        ensambles,
+        membershipsByEnsamble,
+      ),
+    [visibleRows, ensambles, membershipsByEnsamble],
+  );
+
   const summaryHeadLabels = useMemo(
     () => getAsistenciaMatrixSummaryHeadLabels(selectedTypes),
     [selectedTypes],
@@ -411,6 +424,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
       membershipsByEnsamble,
       selectedIntegranteIds,
       selectedTypes,
+      groupByEnsambles,
     });
   }, [
     exportDisabled,
@@ -422,6 +436,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
     membershipsByEnsamble,
     selectedIntegranteIds,
     selectedTypes,
+    groupByEnsambles,
   ]);
 
   const handleExportPdf = useCallback(() => {
@@ -435,6 +450,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
       membershipsByEnsamble,
       selectedIntegranteIds,
       selectedTypes,
+      groupByEnsambles,
     });
   }, [
     exportDisabled,
@@ -446,6 +462,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
     membershipsByEnsamble,
     selectedIntegranteIds,
     selectedTypes,
+    groupByEnsambles,
   ]);
 
   if (loading) {
@@ -596,11 +613,24 @@ export default function AsistenciaMatrixReport({ supabase }) {
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              {filteredProgramas.length} programa(s) · {visibleRows.length}{" "}
-              músico(s)
-              {rosterLoading ? " · calculando nóminas…" : ""}
-            </span>
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {filteredProgramas.length} programa(s) ·{" "}
+                {groupByEnsambles
+                  ? `${ensambleAggregateRows.length} ensamble(s)`
+                  : `${visibleRows.length} músico(s)`}
+                {rosterLoading ? " · calculando nóminas…" : ""}
+              </span>
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={groupByEnsambles}
+                  onChange={(e) => setGroupByEnsambles(e.target.checked)}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                Agrupar por ensambles
+              </label>
+            </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
@@ -632,7 +662,7 @@ export default function AsistenciaMatrixReport({ supabase }) {
                     className="sticky left-0 top-0 z-30 min-w-[10rem] border-b border-r border-slate-200 bg-slate-100 px-2 py-2 text-left text-xs font-bold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
                     scope="col"
                   >
-                    Integrante
+                    {groupByEnsambles ? "Ensamble" : "Integrante"}
                   </th>
                   {filteredProgramas.map((g) => (
                     <th
@@ -675,7 +705,89 @@ export default function AsistenciaMatrixReport({ supabase }) {
                 </tr>
               </thead>
               <tbody>
-                {rowGroups.map((grp) => (
+                {groupByEnsambles
+                  ? ensambleAggregateRows.map((ar) => {
+                      const totals = computeAsistenciaMatrixEnsambleTotals(
+                        ar.visibleMemberIds,
+                        filteredProgramas,
+                        rosterByGiraId,
+                        selectedTypes,
+                      );
+                      const summaryVals = buildAsistenciaMatrixSummaryValues(
+                        totals,
+                        selectedTypes,
+                      );
+                      return (
+                        <tr
+                          key={`agg-${ar.key}`}
+                          className="border-b border-slate-100 dark:border-slate-800"
+                        >
+                          <th
+                            scope="row"
+                            className="sticky left-0 z-10 border-r border-slate-200 bg-white px-2 py-1.5 text-left align-top dark:border-slate-700 dark:bg-slate-900"
+                          >
+                            <div className="font-medium text-slate-800 dark:text-slate-100">
+                              {ar.label}
+                            </div>
+                            <div className="text-[10px] leading-snug text-slate-500 dark:text-slate-400">
+                              {ar.visibleMemberIds.length}{" "}
+                              {ar.visibleMemberIds.length === 1
+                                ? "músico"
+                                : "músicos"}{" "}
+                              en selección
+                            </div>
+                          </th>
+                          {filteredProgramas.map((g) => {
+                            const set = rosterByGiraId[g.id];
+                            const n = set
+                              ? ar.visibleMemberIds.filter((id) =>
+                                  set.has(Number(id)),
+                                ).length
+                              : 0;
+                            return (
+                              <td
+                                key={`${ar.key}-${g.id}`}
+                                className="border-l border-slate-100 px-1 py-1 text-center align-middle tabular-nums dark:border-slate-800"
+                              >
+                                {n > 0 ? (
+                                  <span
+                                    className="text-sm font-bold text-slate-800 dark:text-slate-200"
+                                    title={`${n} convocado(s) de este ensamble en nómina`}
+                                  >
+                                    {n}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300 dark:text-slate-600">
+                                    ·
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          })}
+                          {summaryVals.map((val, si) => {
+                            const isTotal = si === summaryVals.length - 1;
+                            const isFirstSummary = si === 0;
+                            return (
+                              <td
+                                key={`${ar.key}-sum-${si}`}
+                                className={`border-l border-slate-200 bg-slate-200 px-1 py-1 text-center align-middle tabular-nums text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-700 dark:text-slate-100 ${
+                                  isFirstSummary
+                                    ? "border-l-2 border-l-slate-400 dark:border-l-slate-500"
+                                    : ""
+                                } ${
+                                  isTotal
+                                    ? "font-bold text-indigo-950 dark:text-indigo-100"
+                                    : ""
+                                }`}
+                              >
+                                {val}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })
+                  : rowGroups.map((grp) => (
                   <Fragment key={grp.key}>
                     <tr className="bg-slate-200/90 dark:bg-slate-800/95">
                       <td

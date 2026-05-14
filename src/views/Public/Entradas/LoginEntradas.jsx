@@ -96,7 +96,7 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
             className="h-16 w-auto max-w-[220px] rounded-xl object-contain mx-auto border border-slate-200 bg-white p-1"
           />
           <h1 className="text-xl font-extrabold text-slate-800">Entradas OFRN</h1>
-          <p className="text-sm text-slate-500">Reservá tus entradas gratuitas con código por email.</p>
+          <p className="text-sm text-slate-500">Obtené tus entradas gratuitas con código por email.</p>
         </div>
 
         {!user && (
