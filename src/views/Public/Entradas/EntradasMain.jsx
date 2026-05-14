@@ -254,6 +254,30 @@ export default function EntradasMain({ user, profile, onLogout }) {
     return d;
   }, []);
 
+  /** Fin del día que cierra la ventana de 14 días (hoy + 13 días), inclusive. */
+  const finDiaVentanaCatalogo = useMemo(() => {
+    const d = new Date(inicioDiaHoy);
+    d.setDate(d.getDate() + 13);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }, [inicioDiaHoy]);
+
+  const programasCatalogo = useMemo(
+    () =>
+      programas
+        .map((programa) => ({
+          ...programa,
+          entrada_concierto: (programa.entrada_concierto || []).filter((concierto) => {
+            if (!concierto?.fecha_hora) return false;
+            const t = new Date(concierto.fecha_hora);
+            if (Number.isNaN(t.getTime())) return false;
+            return t >= inicioDiaHoy && t <= finDiaVentanaCatalogo;
+          }),
+        }))
+        .filter((p) => (p.entrada_concierto || []).length > 0),
+    [programas, inicioDiaHoy, finDiaVentanaCatalogo],
+  );
+
   const conciertosRecepcion = useMemo(() => {
     return concertosFlat
       .filter((c) => c.activo && c.fecha_hora && new Date(c.fecha_hora) >= inicioDiaHoy)
@@ -545,7 +569,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
             <section className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 p-4 space-y-4">
               <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Programas y conciertos</h2>
               <div className="space-y-3">
-                {programas.map((programa) => (
+                {programasCatalogo.length === 0 && (
+                  <p className="text-sm text-slate-500">No hay conciertos publicados en las próximas dos semanas.</p>
+                )}
+                {programasCatalogo.map((programa) => (
                   <article key={programa.id} className="rounded-xl border border-slate-200 p-3">
                     <h3 className="font-bold text-slate-800">{programa.nombre}</h3>
                     <div className="mt-2 space-y-2">
