@@ -19,8 +19,10 @@ import {
   computeDisponibles,
   crearReserva,
   cancelarReserva,
+  deltaEntradaSinEntrada,
   descargarPdfDesdeReservaRow,
   enviarMailCancelacionReserva,
+  fetchEntradaSinEntradaCount,
   enviarMailReserva,
   getConciertoBySlug,
   listAdminData,
@@ -32,6 +34,7 @@ import {
   validarYConsumirQr,
 } from "../../../services/entradaService";
 import { downloadEntradasReservaPdfBlob } from "../../../utils/entradasReservaPdf";
+import { formatEntradasConciertoFechaHora as formatConciertoFechaHoraEs } from "../../../utils/entradasReservaCopy";
 import {
   formatEntradasPreviewError,
   formatEntradasValidacionError,
@@ -71,26 +74,6 @@ function fechaDesdeProxyDesdeEventos(idGira, eventos, hoyYmd) {
 function formatDate(value) {
   if (!value) return "-";
   return new Date(value).toLocaleString("es-AR", { dateStyle: "medium", timeStyle: "short" });
-}
-
-/** Día de la semana en mayúsculas (es-AR), precediendo fecha y hora del concierto. */
-const WEEKDAY_UPPER_ES = ["DOMINGO", "LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO"];
-
-function formatConciertoFechaHoraEs(value) {
-  if (!value) return "-";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  const weekday = WEEKDAY_UPPER_ES[date.getDay()] || "";
-  const datePart = new Intl.DateTimeFormat("es-AR", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(date);
-  const timePart = new Intl.DateTimeFormat("es-AR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-  return `${weekday}, ${datePart} · ${timePart}`;
 }
 
 function formatDateLongEs(value) {
@@ -233,6 +216,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [qrPreview, setQrPreview] = useState(null);
   const [qrPreviewLoading, setQrPreviewLoading] = useState(false);
   const [ingresando, setIngresando] = useState(false);
+  /** Recepción: personas que ingresan sin reserva/QR (cuenta compartida en tiempo real). */
+  const [sinEntradaCount, setSinEntradaCount] = useState(0);
+  const [sinEntradaBusy, setSinEntradaBusy] = useState(false);
   const [cancelReservaTarget, setCancelReservaTarget] = useState(null);
   const [cancelingReserva, setCancelingReserva] = useState(false);
   const [conciertosConReservaActiva, setConciertosConReservaActiva] = useState([]);
@@ -640,6 +626,49 @@ export default function EntradasMain({ user, profile, onLogout }) {
     };
   }, [scannerToken, section, canRecepcion, recepcionConciertoId]);
 
+  useEffect(() => {
+    if (section !== "recepcion" || !canRecepcion || !recepcionConciertoId) {
+      setSinEntradaCount(0);
+      return undefined;
+    }
+    const cid = String(recepcionConciertoId);
+    let cancelled = false;
+    (async () => {
+      try {
+        const n = await fetchEntradaSinEntradaCount(cid);
+        if (!cancelled) setSinEntradaCount(n);
+      } catch {
+        if (!cancelled) setSinEntradaCount(0);
+      }
+    })();
+
+    const channel = supabaseEntradasPublic
+      .channel(`entradas-sin-entrada:${cid}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "entrada_concierto_sin_entrada",
+          filter: `entrada_concierto_id=eq.${cid}`,
+        },
+        (payload) => {
+          const row = payload.new;
+          if (row && row.cantidad != null) {
+            setSinEntradaCount(Number(row.cantidad));
+          } else if (payload.eventType === "DELETE") {
+            setSinEntradaCount(0);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabaseEntradasPublic.removeChannel(channel);
+    };
+  }, [section, canRecepcion, recepcionConciertoId]);
+
   const tieneReservaEnConcierto = (conciertoId) =>
     conciertosConReservaActiva.includes(Number(conciertoId));
 
@@ -726,6 +755,20 @@ export default function EntradasMain({ user, profile, onLogout }) {
       setQrPreview(null);
     } finally {
       setIngresando(false);
+    }
+  };
+
+  const adjustSinEntrada = async (delta) => {
+    if (!recepcionConciertoId || sinEntradaBusy) return;
+    if (delta === -1 && sinEntradaCount <= 0) return;
+    setSinEntradaBusy(true);
+    try {
+      const n = await deltaEntradaSinEntrada(recepcionConciertoId, delta);
+      setSinEntradaCount(n);
+    } catch (err) {
+      toast.error(err?.message || "No se pudo actualizar el contador.");
+    } finally {
+      setSinEntradaBusy(false);
     }
   };
 
@@ -1597,6 +1640,37 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 {decodingQrPhoto ? <span className="text-[10px] font-bold">…</span> : <IconCamera size={26} className="shrink-0" />}
               </button>
             </div>
+            {recepcionConciertoId && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-3 shadow-sm">
+                <p className="text-[10px] font-black uppercase tracking-wide text-amber-900">Sin entrada / sin QR</p>
+                <p className="text-xs text-amber-950/90 mt-0.5 mb-3 leading-snug">
+                  Personas que ingresan sin reserva (invitados, boletería, etc.). El número se comparte en vivo con otros recepcionistas.
+                </p>
+                <div className="flex items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    aria-label="Restar una persona"
+                    disabled={sinEntradaBusy || sinEntradaCount <= 0}
+                    onClick={() => adjustSinEntrada(-1)}
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-amber-700/40 bg-white text-2xl font-black text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-35 disabled:cursor-not-allowed"
+                  >
+                    −
+                  </button>
+                  <div className="min-w-[4.5rem] rounded-xl border border-amber-300/80 bg-white px-4 py-2 text-center shadow-inner">
+                    <span className="text-3xl font-black tabular-nums text-amber-950 leading-none">{sinEntradaCount}</span>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Sumar una persona"
+                    disabled={sinEntradaBusy}
+                    onClick={() => adjustSinEntrada(1)}
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-amber-700/40 bg-white text-2xl font-black text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-35"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            )}
             <input
               value={scannerToken}
               onChange={(event) => setScannerToken(event.target.value)}

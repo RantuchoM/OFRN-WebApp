@@ -17,6 +17,35 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+/** Misma redacción que `src/utils/entradasReservaCopy.js` (HTML con <strong>). */
+const NOTA_ASISTENCIA_HTML =
+  "Les solicitamos presentarse con la entrada <strong>10 minutos antes del inicio del concierto</strong>. Luego de ese horario, los lugares no ocupados podrán ser cedidos a asistentes que no cuenten con reserva previa.";
+
+/** Zona horaria de cartel de conciertos (Edge corre en UTC; sin esto el mail muestra UTC). */
+const OFRN_CONCIERTO_TZ = "America/Argentina/Buenos_Aires";
+
+function formatConciertoFechaHoraMail(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  const tz = OFRN_CONCIERTO_TZ;
+  const weekday = (
+    new Intl.DateTimeFormat("es-AR", { timeZone: tz, weekday: "long" }).formatToParts(date).find((p) => p.type === "weekday")?.value || ""
+  ).toUpperCase();
+  const datePart = new Intl.DateTimeFormat("es-AR", {
+    timeZone: tz,
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+  const timePart = new Intl.DateTimeFormat("es-AR", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+  return `${weekday}, ${datePart} · ${timePart}`;
+}
+
 function esc(s: string | null | undefined) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -45,7 +74,20 @@ function templateEntradasReservaConfirmada(d: {
   linkConcierto: string;
   qrReservaToken: string;
   qrEntradaTokens: string[];
+  programaNombre?: string;
+  /** HTML de confianza (contenido Quill desde BD). */
+  programaDetalleHtml?: string;
 }): string {
+  const programaDetalle = String(d.programaDetalleHtml || "").trim();
+  const programaNombre = String(d.programaNombre || "").trim();
+  const programaBlock = programaDetalle
+    ? `<div style="margin:18px 0;padding:16px 18px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;">
+    <p style="margin:0 0 8px;font-size:11px;font-weight:800;letter-spacing:0.07em;color:#64748b;text-transform:uppercase;">Programa</p>
+    <h3 style="margin:0 0 12px;font-size:17px;color:#0f172a;">${esc(programaNombre || "Programa")}</h3>
+    <div class="entradas-mail-rich" style="font-size:14px;line-height:1.55;color:#334155;">${programaDetalle}</div>
+  </div>`
+    : "";
+
   const entradasList = d.qrEntradaTokens
     .map(
       (t, i) => `
@@ -68,6 +110,16 @@ function templateEntradasReservaConfirmada(d: {
     .box { border-left: 4px solid #4f46e5; background-color: #f9fafb; padding: 18px 20px; margin: 20px 0; border-radius: 6px; }
     .muted { color: #64748b; font-size: 12px; }
     a { color: #4f46e5; font-weight: 600; }
+    .entradas-mail-rich p { margin: 0.45em 0; }
+    .entradas-mail-rich ul, .entradas-mail-rich ol { margin: 0.35em 0; padding-left: 1.25em; }
+    .entradas-mail-rich ul { list-style: disc; }
+    .entradas-mail-rich ol { list-style: decimal; }
+    .entradas-mail-rich li { margin: 0.2em 0; }
+    .entradas-mail-rich strong, .entradas-mail-rich b { font-weight: 700; color: #0f172a; }
+    .entradas-mail-rich em { font-style: italic; }
+    .entradas-mail-rich h1 { font-size: 1.25em; margin: 0.5em 0 0.35em; font-weight: 700; }
+    .entradas-mail-rich h2 { font-size: 1.12em; margin: 0.45em 0 0.3em; font-weight: 700; }
+    .entradas-mail-rich h3 { font-size: 1.05em; margin: 0.4em 0 0.25em; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -81,7 +133,13 @@ function templateEntradasReservaConfirmada(d: {
     <p style="margin:0;"><strong>Cantidad de entradas:</strong> ${d.cantidad}</p>
   </div>
 
-  <p>Adjuntamos un <strong>PDF</strong> con el mismo resumen, el detalle del concierto y los códigos QR para descargar o imprimir. Podés mostrar en puerta <strong>este correo</strong>, el PDF o los códigos QR de abajo. Cada QR individual sirve para un ingreso; el QR de reserva completa agrupa a todas las entradas pendientes.</p>
+  ${programaBlock}
+
+  <div style="margin:16px 0;padding:14px 16px;background:#fffbeb;border-left:4px solid #ca8a04;border-radius:8px;font-size:14px;line-height:1.55;color:#422006;">
+    ${NOTA_ASISTENCIA_HTML}
+  </div>
+
+  <p>Adjuntamos un <strong>PDF</strong> con el mismo resumen, el detalle del programa (si aplica), los códigos QR y la misma nota sobre la puntualidad. Podés mostrar en puerta <strong>este correo</strong>, el PDF o los códigos QR de abajo. Cada QR individual sirve para un ingreso; el QR de reserva completa agrupa a todas las entradas pendientes.</p>
 
   <div class="box" style="background:#f5f3ff;border-left-color:#6366f1;">
     <p style="margin:0 0 10px 0;font-weight:700;color:#1e1b4b;">QR de reserva (toda la fila / grupo)</p>
@@ -153,7 +211,7 @@ async function loadReservaForUser(
   const { data: reserva, error: reservaError } = await supabaseUser
     .from("entrada_reserva")
     .select(
-      "id, usuario_id, estado, codigo_reserva, cantidad_solicitada, concierto:entrada_concierto(nombre, fecha_hora, slug_publico)",
+      "id, usuario_id, estado, codigo_reserva, cantidad_solicitada, concierto:entrada_concierto(nombre, fecha_hora, slug_publico, detalle_richtext, entrada_programa(nombre, detalle_richtext))",
     )
     .eq("id", reservaId)
     .maybeSingle();
@@ -168,7 +226,13 @@ async function loadReservaForUser(
     estado: string;
     codigo_reserva: string;
     cantidad_solicitada: number;
-    concierto: { nombre?: string; fecha_hora?: string; slug_publico?: string } | null;
+    concierto: {
+      nombre?: string;
+      fecha_hora?: string;
+      slug_publico?: string;
+      detalle_richtext?: string;
+      entrada_programa?: { nombre?: string; detalle_richtext?: string } | null;
+    } | null;
   } };
 }
 
@@ -265,10 +329,12 @@ serve(async (req) => {
     const conciertoNombre = concierto?.nombre || "Concierto";
     const slug = concierto?.slug_publico || "";
     const fechaHora = concierto?.fecha_hora;
-    const fechaTexto = fechaHora
-      ? new Date(fechaHora).toLocaleString("es-AR", { dateStyle: "long", timeStyle: "short" })
-      : "—";
+    const fechaTexto = formatConciertoFechaHoraMail(fechaHora);
     const linkConcierto = `${appUrl}/entradas?view=catalogo&concierto=${encodeURIComponent(slug)}`;
+
+    const ep = concierto?.entrada_programa;
+    const programaNombre = ep?.nombre ? String(ep.nombre) : "";
+    const programaDetalleHtml = ep?.detalle_richtext ? String(ep.detalle_richtext) : "";
 
     const nombreSaludo = [perfil?.nombre, perfil?.apellido].filter(Boolean).join(" ").trim() || "Usuario";
     const html = action === "cancelacion"
@@ -289,6 +355,8 @@ serve(async (req) => {
         linkConcierto,
         qrReservaToken,
         qrEntradaTokens,
+        programaNombre,
+        programaDetalleHtml,
       });
 
     const subject = action === "cancelacion"

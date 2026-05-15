@@ -1,11 +1,19 @@
 import QRCode from "qrcode";
+import { supabase, supabaseEntradasPublic } from "./supabase";
 import {
   blobToBase64NoPrefix,
   buildEntradasReservaPdfBlob,
   downloadEntradasReservaPdfBlob,
   makeEntradasReservaFilename,
 } from "../utils/entradasReservaPdf";
-import { supabase, supabaseEntradasPublic } from "./supabase";
+
+function programaPdfFieldsFromConcierto(concierto) {
+  const ep = concierto?.entrada_programa;
+  return {
+    programaNombre: ep?.nombre ? String(ep.nombre) : "",
+    programaDetalleRichtext: ep?.detalle_richtext ? String(ep.detalle_richtext) : "",
+  };
+}
 
 export async function getEntradasSessionProfile() {
   const {
@@ -149,6 +157,7 @@ export async function buildEntradasReservaPdfConQr({
     fechaHora: concierto?.fecha_hora,
     lugarNombre: concierto?.lugar_nombre,
     detalleRichtext: concierto?.detalle_richtext,
+    ...programaPdfFieldsFromConcierto(concierto),
     codigoReserva: reserva?.codigo_reserva,
     cantidad: Number(reserva?.cantidad_solicitada) || 0,
     linkConcierto,
@@ -166,6 +175,7 @@ export async function buildEntradasReservaPdfConDataUrls({ concierto, reserva, r
     fechaHora: concierto?.fecha_hora,
     lugarNombre: concierto?.lugar_nombre,
     detalleRichtext: concierto?.detalle_richtext,
+    ...programaPdfFieldsFromConcierto(concierto),
     codigoReserva: reserva?.codigo_reserva,
     cantidad: Number(reserva?.cantidad_solicitada) || 0,
     linkConcierto: linkCatalogoConcierto(concierto),
@@ -245,7 +255,7 @@ export async function listarMisReservas() {
   const { data, error } = await supabaseEntradasPublic
     .from("entrada_reserva")
     .select(
-      "id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token, concierto:entrada_concierto(id, nombre, fecha_hora, slug_publico, lugar_nombre, detalle_richtext), entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token)",
+      "id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token, concierto:entrada_concierto(id, nombre, fecha_hora, slug_publico, lugar_nombre, detalle_richtext, entrada_programa(id, nombre, detalle_richtext)), entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token)",
     )
     .eq("usuario_id", session.user.id)
     .order("id", { ascending: false });
@@ -445,4 +455,31 @@ export async function adminUpsertConcierto(payload) {
 export async function adminUpdateUsuarioRol({ id, rol }) {
   const { error } = await supabaseEntradasPublic.from("entrada_usuario").update({ rol }).eq("id", id);
   if (error) throw error;
+}
+
+/** Contador recepción: personas sin entrada/reserva (fila en `entrada_concierto_sin_entrada`). */
+export async function fetchEntradaSinEntradaCount(conciertoId) {
+  const id = Number(conciertoId);
+  if (!Number.isFinite(id) || id <= 0) return 0;
+  const { data, error } = await supabaseEntradasPublic
+    .from("entrada_concierto_sin_entrada")
+    .select("cantidad")
+    .eq("entrada_concierto_id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return Number(data?.cantidad ?? 0);
+}
+
+/** +1 / −1; solo recepción/admin. Retorna la cantidad resultante. */
+export async function deltaEntradaSinEntrada(conciertoId, delta) {
+  const id = Number(conciertoId);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("Concierto inválido.");
+  if (delta !== 1 && delta !== -1) throw new Error("delta inválido.");
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_sin_entrada_delta", {
+    p_concierto_id: id,
+    p_delta: delta,
+  });
+  if (error) throw error;
+  const n = data == null ? 0 : Number(data);
+  return Number.isFinite(n) ? n : 0;
 }
