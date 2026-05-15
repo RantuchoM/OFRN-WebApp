@@ -1,4 +1,4 @@
--- Texto de QR en BD para reimprimir PDF / Mis reservas (el hash se sigue usando en escaneo)
+-- Texto de QR en BD para reimprimir PDF / Mis entradas (el hash se sigue usando en escaneo)
 
 alter table public.entrada_reserva
   add column if not exists qr_reserva_token text;

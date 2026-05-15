@@ -814,7 +814,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
         pdfBase64 = await blobToPdfBase64ForMail(blob);
       } catch (pdfErr) {
         console.error(pdfErr);
-        toast.message("Reserva creada. No se pudo generar el PDF; podés intentar desde «Mis reservas» luego.");
+        toast.message("Reserva creada. No se pudo generar el PDF; podés intentar desde «Mis entradas» luego.");
       }
       try {
         await enviarMailReserva({
@@ -826,7 +826,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
         if (pdfBase64) {
           toast.success("Reserva confirmada: se descargó el PDF y el mail se envió con el mismo adjunto.");
         } else {
-          toast.success("Reserva confirmada y mail enviado. El PDF no se generó; probá descargar desde «Mis reservas».");
+          toast.success("Reserva confirmada y mail enviado. El PDF no se generó; probá descargar desde «Mis entradas».");
         }
       } catch {
         toast.message(
@@ -1479,7 +1479,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
             </div>
             {statMailBtn("sinIngreso", {
               title:
-                "Copiar mails con reserva activa sin ningún ingreso registrado en este concierto (no asistieron)",
+                "Copiar mails con entrada activa sin ningún ingreso registrado en este concierto (no asistieron)",
             })}
           </div>
         </div>
@@ -1599,7 +1599,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       <main className="max-w-7xl mx-auto px-4 py-4 space-y-4">
         <div className="grid grid-cols-2 sm:flex gap-2">
           <button className={`rounded-xl px-3 py-2 text-xs font-bold ${section === "catalogo" ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-700"}`} onClick={() => setSearchParams({ view: "catalogo" })}>Catálogo</button>
-          <button className={`rounded-xl px-3 py-2 text-xs font-bold ${section === "mis-reservas" ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-700"}`} onClick={() => setSearchParams({ view: "mis-reservas" })}>Mis reservas</button>
+          <button className={`rounded-xl px-3 py-2 text-xs font-bold ${section === "mis-reservas" ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-700"}`} onClick={() => setSearchParams({ view: "mis-reservas" })}>Mis entradas</button>
           {canRecepcion && <button className={`rounded-xl px-3 py-2 text-xs font-bold ${section === "recepcion" ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-700"}`} onClick={() => setSearchParams({ view: "recepcion" })}>Recepción</button>}
           {canAdmin && <button className={`rounded-xl px-3 py-2 text-xs font-bold ${section === "admin" ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-700"}`} onClick={() => setSearchParams({ view: "admin" })}>Admin</button>}
         </div>
@@ -1643,7 +1643,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                 )}
                                 {tieneReservaEnConcierto(concierto.id) && (
                                   <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
-                                    Con reserva
+                                    Ya tenés entrada/s
                                   </span>
                                 )}
                               </div>
@@ -1707,7 +1707,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   </div>
                   {tieneReservaEnConcierto(selectedConcierto.id) && (
                     <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      Ya tenés una reserva activa para este concierto. Podés verla en &quot;Mis reservas&quot;.
+                      Ya tenés una reserva activa para este concierto. Podés verla en &quot;Mis entradas&quot;.
                     </p>
                   )}
                   <label className="text-xs font-bold uppercase tracking-wide text-slate-500">Cantidad</label>
@@ -1729,7 +1729,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     }
                     className="w-full rounded-lg bg-blue-700 text-white py-2 text-sm font-semibold disabled:bg-slate-300"
                   >
-                    {creatingReserva ? "Reservando..." : "Reservar"}
+                    {creatingReserva ? "Obteniendo..." : "Obtener"}
                   </button>
                   {reservaResult && (
                     <div className="space-y-2 border-t border-slate-200 pt-3">
@@ -1773,7 +1773,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
         {section === "mis-reservas" && (
           <section className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Mis reservas</h2>
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Mis entradas</h2>
             <div className="space-y-2">
               {misReservas.map((reserva) => {
                 const ingresadas = (reserva.entradas || []).filter((x) => x.estado_ingreso === "ingresada").length;
@@ -1905,7 +1905,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   <div className="flex shrink-0 flex-col justify-center rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 shadow-sm sm:w-[42%] sm:max-w-[220px]">
                     <p className="text-[10px] font-black uppercase tracking-wide text-emerald-900">Ingresos por QR</p>
                     <p className="text-xs text-emerald-950/85 mt-0.5 mb-2 leading-snug">
-                      Plazas con reserva ya registradas en puerta (código o QR). Tiempo real con otros recepcionistas.
+                      Plazas con entrada ya registradas en puerta (código o QR). Tiempo real con otros recepcionistas.
                     </p>
                     <div className="flex flex-1 items-center justify-center py-1">
                       <span className="text-3xl font-black tabular-nums text-emerald-950">

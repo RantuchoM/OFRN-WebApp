@@ -19,7 +19,7 @@ const corsHeaders = {
 
 /** Misma redacción que `src/utils/entradasReservaCopy.js` (HTML con <strong>). */
 const NOTA_ASISTENCIA_HTML =
-  "Les solicitamos presentarse con la entrada <strong>10 minutos antes del inicio del concierto</strong>. Luego de ese horario, los lugares no ocupados podrán ser cedidos a asistentes que no cuenten con reserva previa.";
+  "Les solicitamos presentarse con la entrada <strong>10 minutos antes del inicio del concierto</strong>. Luego de ese horario, los lugares no ocupados podrán ser cedidos a asistentes que no cuenten con entrada previa.";
 
 /** Zona horaria de cartel de conciertos (Edge corre en UTC; sin esto el mail muestra UTC). */
 const OFRN_CONCIERTO_TZ = "America/Argentina/Buenos_Aires";

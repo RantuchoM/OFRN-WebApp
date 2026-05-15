@@ -42,5 +42,5 @@ export const ENTRADAS_NOTA_ASISTENCIA_PDF = {
   /** Párrafo 2 (negrita en PDF). */
   p2Bold: "10 minutos antes del inicio del concierto.",
   /** Párrafo 3 (normal). */
-  p3: "Luego de ese horario, los lugares no ocupados podrán ser cedidos a asistentes que no cuenten con reserva previa.",
+  p3: "Luego de ese horario, los lugares no ocupados podrán ser cedidos a asistentes que no cuenten con entrada previa.",
 };
