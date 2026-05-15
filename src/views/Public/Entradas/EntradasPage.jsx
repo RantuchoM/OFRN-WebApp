@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabaseEntradasPublic } from "../../../services/supabase";
-import { getEntradasSessionProfile } from "../../../services/entradaService";
+import { getEntradasSessionProfile, verifyEntradasMagicLink } from "../../../services/entradaService";
+import { clearMagicTokenFromUrl, readMagicTokenFromSearch } from "../../../utils/entradasMagicLink";
 import LoginEntradas from "./LoginEntradas";
 import EntradasMain from "./EntradasMain";
 
@@ -10,6 +11,7 @@ export default function EntradasPage() {
   const [loading, setLoading] = useState(true);
   const [bootError, setBootError] = useState("");
   const [profileChecked, setProfileChecked] = useState(false);
+  const [magicLinkPending, setMagicLinkPending] = useState(false);
   const activeUserIdRef = useRef(null);
 
   const loadProfile = useCallback(async () => {
@@ -27,7 +29,40 @@ export default function EntradasPage() {
   }, []);
 
   useEffect(() => {
-    loadProfile();
+    let cancelled = false;
+
+    (async () => {
+      const magicToken = readMagicTokenFromSearch();
+      setLoading(true);
+      setBootError("");
+
+      if (magicToken) {
+        setMagicLinkPending(true);
+        try {
+          await verifyEntradasMagicLink({ token: magicToken, app: "entradas" });
+          clearMagicTokenFromUrl();
+        } catch (error) {
+          if (!cancelled) {
+            clearMagicTokenFromUrl();
+            setBootError(error?.message || "No se pudo acceder con el enlace del email.");
+            setProfileChecked(true);
+            setLoading(false);
+          }
+          return;
+        } finally {
+          if (!cancelled) setMagicLinkPending(false);
+        }
+      }
+
+      if (!cancelled) await loadProfile();
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadProfile]);
+
+  useEffect(() => {
     const {
       data: { subscription },
     } = supabaseEntradasPublic.auth.onAuthStateChange((event, nextSession) => {
@@ -51,10 +86,12 @@ export default function EntradasPage() {
     setProfile(null);
   };
 
-  if (loading || (session?.user && !profileChecked)) {
+  if (loading || magicLinkPending || (session?.user && !profileChecked)) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center">
-        <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Cargando entradas...</span>
+        <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          {magicLinkPending ? "Accediendo con enlace seguro…" : "Cargando entradas…"}
+        </span>
       </div>
     );
   }
@@ -71,4 +108,4 @@ export default function EntradasPage() {
   }
 
   return <EntradasMain user={session.user} profile={profile} onLogout={onLogout} onProfileRefresh={loadProfile} />;
-}
+};

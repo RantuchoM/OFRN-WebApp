@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../../../services/supabase";
+import { verifyEntradasMagicLink } from "../../../services/entradaService";
+import { clearMagicTokenFromUrl, readMagicTokenFromSearch } from "../../../utils/entradasMagicLink";
 import LoginSCRN from "./LoginSCRN";
 import TransporteSCRNMain from "./TransporteSCRNMain";
 
@@ -9,6 +11,7 @@ export default function TransporteSCRNPage() {
   const [loading, setLoading] = useState(true);
   const [bootError, setBootError] = useState("");
   const [profileChecked, setProfileChecked] = useState(false);
+  const [magicLinkPending, setMagicLinkPending] = useState(false);
   const activeUserIdRef = useRef(null);
 
   const loadProfile = useCallback(async (userId) => {
@@ -51,6 +54,26 @@ export default function TransporteSCRNPage() {
 
     const initialize = async () => {
       try {
+        const magicToken = readMagicTokenFromSearch();
+        if (magicToken) {
+          setMagicLinkPending(true);
+          setBootError("");
+          try {
+            await verifyEntradasMagicLink({ token: magicToken, app: "scrn" });
+            clearMagicTokenFromUrl();
+          } catch (error) {
+            if (!isMounted) return;
+            clearMagicTokenFromUrl();
+            setBootError(error?.message || "No se pudo acceder con el enlace del email.");
+            setProfile(null);
+            setProfileChecked(true);
+            setLoading(false);
+            return;
+          } finally {
+            if (isMounted) setMagicLinkPending(false);
+          }
+        }
+
         const {
           data: { session: currentSession },
         } = await supabase.auth.getSession();
@@ -133,11 +156,11 @@ export default function TransporteSCRNPage() {
     setProfile(null);
   };
 
-  if (loading || (session?.user && !profileChecked)) {
+  if (loading || magicLinkPending || (session?.user && !profileChecked)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100">
         <div className="text-sm font-semibold tracking-wide text-slate-500 uppercase">
-          Cargando transporte SCRN...
+          {magicLinkPending ? "Accediendo con enlace seguro…" : "Cargando transporte SCRN…"}
         </div>
       </div>
     );

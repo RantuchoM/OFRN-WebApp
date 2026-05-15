@@ -127,7 +127,7 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
             {otpSent && (
               <form className="space-y-2" onSubmit={verifyOtp}>
                 <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
-                  Código OTP (6 a 8 dígitos)
+                  Código (8 dígitos)
                 </label>
                 <input
                   type="text"
@@ -154,7 +154,7 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
                   {verifying ? "Validando..." : "Validar"}
                 </button>
                 <p className="text-[11px] text-slate-500">
-                  Ingresá los 8 dígitos exactamente como llegaron por email.
+                  Ingresá los 8 dígitos del email, o usá el enlace «Accedé sin contraseña».
                 </p>
               </form>
             )}

@@ -53,10 +53,22 @@ export async function requestEntradasEmailCode(email, app = "entradas") {
   return data;
 }
 
+async function signInAfterEntradasAuthPayload(data, app = "entradas") {
+  if (data?.error) throw new Error(data.error);
+  if (!data?.email || !data?.password) {
+    throw new Error("No se pudo completar el acceso.");
+  }
+  const authClient = app === "scrn" ? supabase : supabaseEntradasPublic;
+  const { error: signInError } = await authClient.auth.signInWithPassword({
+    email: data.email,
+    password: data.password,
+  });
+  if (signInError) throw signInError;
+}
+
 export async function verifyEntradasEmailCode({ email, code, app = "entradas" }) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const normalizedCode = String(code || "").trim();
-  const authClient = app === "scrn" ? supabase : supabaseEntradasPublic;
   const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
     body: {
       action: "verify_code",
@@ -65,15 +77,19 @@ export async function verifyEntradasEmailCode({ email, code, app = "entradas" })
     },
   });
   if (error) throw error;
-  if (data?.error) throw new Error(data.error);
-  if (!data?.email || !data?.password) {
-    throw new Error("No se pudo completar la validación del código.");
-  }
-  const { error: signInError } = await authClient.auth.signInWithPassword({
-    email: data.email,
-    password: data.password,
+  await signInAfterEntradasAuthPayload(data, app);
+}
+
+export async function verifyEntradasMagicLink({ token, app = "entradas" }) {
+  const normalizedToken = String(token || "").trim().toLowerCase();
+  const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
+    body: {
+      action: "verify_magic_link",
+      token: normalizedToken,
+    },
   });
-  if (signInError) throw signInError;
+  if (error) throw error;
+  await signInAfterEntradasAuthPayload(data, app);
 }
 
 export async function listProgramasConConciertos() {
@@ -461,6 +477,7 @@ export async function adminUpsertConcierto(payload) {
     p_limite_recordatorio_at: payload.limite_recordatorio_at ?? null,
     p_limite_cierre_reservas_at: payload.limite_cierre_reservas_at ?? null,
     p_limite_encuesta_at: payload.limite_encuesta_at ?? null,
+    p_encuesta_url: payload.encuesta_url ? String(payload.encuesta_url).trim() : null,
   });
   if (error) throw error;
   return data;

@@ -185,7 +185,7 @@ serve(async (req) => {
 
   const { data: encuestaRows, error: encErr } = await supabase
     .from("entrada_concierto")
-    .select("id, nombre, limite_encuesta_at, encuesta_enviada_at")
+    .select("id, nombre, limite_encuesta_at, encuesta_enviada_at, encuesta_url")
     .eq("activo", true)
     .is("encuesta_enviada_at", null)
     .lte("limite_encuesta_at", nowIso);
@@ -194,6 +194,14 @@ serve(async (req) => {
     out.errores.push(`encuesta query: ${encErr.message}`);
   } else {
     for (const concierto of encuestaRows || []) {
+      const encuestaUrl = String(concierto.encuesta_url || "").trim() || ENCUESTA_URL;
+      if (!encuestaUrl.startsWith("http")) {
+        out.errores.push(
+          `encuesta concierto ${concierto.id}: sin URL válida (cargar enlace en admin del concierto)`,
+        );
+        continue;
+      }
+
       const { data: reservas, error: rErr } = await supabase
         .from("entrada_reserva")
         .select(
@@ -231,7 +239,7 @@ serve(async (req) => {
             html: templateEncuesta({
               nombre,
               conciertoNombre: String(concierto.nombre || "Concierto"),
-              encuestaUrl: ENCUESTA_URL,
+              encuestaUrl,
             }),
           });
           out.encuestas += 1;

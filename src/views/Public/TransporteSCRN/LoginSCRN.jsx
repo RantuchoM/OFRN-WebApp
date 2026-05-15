@@ -185,11 +185,13 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
             {otpSent && (
               <form className="space-y-3" onSubmit={handleVerifyOtp}>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Código OTP (8 dígitos)
+                  Código (8 dígitos)
                 </label>
                 <input
                   type="text"
                   required
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
                   value={otpCode}
                   onChange={(event) =>
                     setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 8))
@@ -210,7 +212,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
                   {verifyingOtp ? "Validando..." : "Verificar código"}
                 </button>
                 <p className="text-[11px] text-slate-500">
-                  Ingresá los 8 dígitos exactamente como llegaron por email.
+                  Ingresá los 8 dígitos del email, o usá el enlace «Accedé sin contraseña».
                 </p>
               </form>
             )}

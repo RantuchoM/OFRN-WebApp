@@ -295,6 +295,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     limite_recordatorio_at: "",
     limite_cierre_reservas_at: "",
     limite_encuesta_at: "",
+    encuesta_url: "",
   });
   /** { id, nombre } para confirmar borrado de concierto (admin) */
   const [deleteConciertoTarget, setDeleteConciertoTarget] = useState(null);
@@ -1117,6 +1118,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       limite_recordatorio_at: "",
       limite_cierre_reservas_at: "",
       limite_encuesta_at: "",
+      encuesta_url: "",
     });
   };
 
@@ -1181,6 +1183,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       limite_recordatorio_at: datetimeLocalInputToIso(conciertoForm.limite_recordatorio_at),
       limite_cierre_reservas_at: datetimeLocalInputToIso(conciertoForm.limite_cierre_reservas_at),
       limite_encuesta_at: datetimeLocalInputToIso(conciertoForm.limite_encuesta_at),
+      encuesta_url: conciertoForm.encuesta_url?.trim() || null,
     });
     toast.success(conciertoForm.id ? "Concierto actualizado." : "Concierto guardado.");
     closeConciertoEditor();
@@ -1297,6 +1300,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       limite_recordatorio_at: isoToDatetimeLocalInput(concierto.limite_recordatorio_at),
       limite_cierre_reservas_at: isoToDatetimeLocalInput(concierto.limite_cierre_reservas_at),
       limite_encuesta_at: isoToDatetimeLocalInput(concierto.limite_encuesta_at),
+      encuesta_url: concierto.encuesta_url || "",
     });
     setConciertoEditor(concierto.id);
   };
@@ -1380,6 +1384,19 @@ export default function EntradasMain({ user, profile, onLogout }) {
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
           />
         </label>
+        <label className="block text-xs font-semibold text-slate-700">
+          Enlace de la encuesta (Google Form u otro)
+          <input
+            type="url"
+            value={conciertoForm.encuesta_url}
+            onChange={(e) => setConciertoForm((prev) => ({ ...prev, encuesta_url: e.target.value }))}
+            placeholder="https://forms.gle/..."
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
+          />
+        </label>
+        <p className="text-[10px] text-slate-500 leading-snug">
+          Este enlace se usa en el mail automático de encuesta después del concierto. Si queda vacío, no se envía ese mail (salvo URL global en el servidor).
+        </p>
       </div>
       <RichTextEditor
         key={`detalle-${conciertoForm.id ?? "nuevo"}`}
