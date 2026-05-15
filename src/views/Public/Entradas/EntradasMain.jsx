@@ -219,6 +219,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
   /** Recepción: personas que ingresan sin reserva/QR (cuenta compartida en tiempo real). */
   const [sinEntradaCount, setSinEntradaCount] = useState(0);
   const [sinEntradaBusy, setSinEntradaBusy] = useState(false);
+  /** Plazas ingresadas vía QR vs total reservado (reservas activas), mismo criterio que estadísticas admin. */
+  const [recepcionQrStats, setRecepcionQrStats] = useState({ ingresadas: 0, reservadas: 0, capacidad: 0 });
   const [cancelReservaTarget, setCancelReservaTarget] = useState(null);
   const [cancelingReserva, setCancelingReserva] = useState(false);
   const [conciertosConReservaActiva, setConciertosConReservaActiva] = useState([]);
@@ -629,21 +631,46 @@ export default function EntradasMain({ user, profile, onLogout }) {
   useEffect(() => {
     if (section !== "recepcion" || !canRecepcion || !recepcionConciertoId) {
       setSinEntradaCount(0);
+      setRecepcionQrStats({ ingresadas: 0, reservadas: 0, capacidad: 0 });
       return undefined;
     }
     const cid = String(recepcionConciertoId);
     let cancelled = false;
+    let debTimer;
+
+    const scheduleQrStatsRefresh = () => {
+      if (cancelled) return;
+      clearTimeout(debTimer);
+      debTimer = setTimeout(async () => {
+        if (cancelled) return;
+        try {
+          const s = await getAdminConciertoStats(cid);
+          if (!cancelled) {
+            setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad });
+          }
+        } catch {
+          if (!cancelled) setRecepcionQrStats({ ingresadas: 0, reservadas: 0, capacidad: 0 });
+        }
+      }, 120);
+    };
+
     (async () => {
       try {
-        const n = await fetchEntradaSinEntradaCount(cid);
-        if (!cancelled) setSinEntradaCount(n);
+        const [n, s] = await Promise.all([fetchEntradaSinEntradaCount(cid), getAdminConciertoStats(cid)]);
+        if (!cancelled) {
+          setSinEntradaCount(n);
+          setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad });
+        }
       } catch {
-        if (!cancelled) setSinEntradaCount(0);
+        if (!cancelled) {
+          setSinEntradaCount(0);
+          setRecepcionQrStats({ ingresadas: 0, reservadas: 0, capacidad: 0 });
+        }
       }
     })();
 
     const channel = supabaseEntradasPublic
-      .channel(`entradas-sin-entrada:${cid}`)
+      .channel(`entradas-recepcion-live:${cid}`)
       .on(
         "postgres_changes",
         {
@@ -661,10 +688,31 @@ export default function EntradasMain({ user, profile, onLogout }) {
           }
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "entrada_reserva_entrada",
+          filter: `concierto_id=eq.${cid}`,
+        },
+        scheduleQrStatsRefresh,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "entrada_reserva",
+          filter: `concierto_id=eq.${cid}`,
+        },
+        scheduleQrStatsRefresh,
+      )
       .subscribe();
 
     return () => {
       cancelled = true;
+      clearTimeout(debTimer);
       supabaseEntradasPublic.removeChannel(channel);
     };
   }, [section, canRecepcion, recepcionConciertoId]);
@@ -753,6 +801,11 @@ export default function EntradasMain({ user, profile, onLogout }) {
       setScannerToken("");
       setManualReservaCode("");
       setQrPreview(null);
+      getAdminConciertoStats(recepcionConciertoId)
+        .then((s) =>
+          setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
+        )
+        .catch(() => {});
     } finally {
       setIngresando(false);
     }
@@ -1641,33 +1694,65 @@ export default function EntradasMain({ user, profile, onLogout }) {
               </button>
             </div>
             {recepcionConciertoId && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-3 shadow-sm">
-                <p className="text-[10px] font-black uppercase tracking-wide text-amber-900">Sin entrada / sin QR</p>
-                <p className="text-xs text-amber-950/90 mt-0.5 mb-3 leading-snug">
-                  Personas que ingresan sin reserva (invitados, boletería, etc.). El número se comparte en vivo con otros recepcionistas.
-                </p>
-                <div className="flex items-center justify-center gap-3">
-                  <button
-                    type="button"
-                    aria-label="Restar una persona"
-                    disabled={sinEntradaBusy || sinEntradaCount <= 0}
-                    onClick={() => adjustSinEntrada(-1)}
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-amber-700/40 bg-white text-2xl font-black text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-35 disabled:cursor-not-allowed"
-                  >
-                    −
-                  </button>
-                  <div className="min-w-[4.5rem] rounded-xl border border-amber-300/80 bg-white px-4 py-2 text-center shadow-inner">
-                    <span className="text-3xl font-black tabular-nums text-amber-950 leading-none">{sinEntradaCount}</span>
+              <div className="space-y-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
+                  <div className="min-w-0 flex-1 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-3 shadow-sm">
+                    <p className="text-[10px] font-black uppercase tracking-wide text-amber-900">Sin entrada / sin QR</p>
+                    <p className="text-xs text-amber-950/90 mt-0.5 mb-3 leading-snug">
+                      Personas que ingresan sin reserva (invitados, boletería, etc.). El número se comparte en vivo con otros recepcionistas.
+                    </p>
+                    <div className="flex items-center justify-center gap-3">
+                      <button
+                        type="button"
+                        aria-label="Restar una persona"
+                        disabled={sinEntradaBusy || sinEntradaCount <= 0}
+                        onClick={() => adjustSinEntrada(-1)}
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-amber-700/40 bg-white text-2xl font-black text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-35 disabled:cursor-not-allowed"
+                      >
+                        −
+                      </button>
+                      <div className="min-w-[4.5rem] rounded-xl border border-amber-300/80 bg-white px-4 py-2 text-center shadow-inner">
+                        <span className="text-3xl font-black tabular-nums text-amber-950 leading-none">{sinEntradaCount}</span>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Sumar una persona"
+                        disabled={sinEntradaBusy}
+                        onClick={() => adjustSinEntrada(1)}
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-amber-700/40 bg-white text-2xl font-black text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-35"
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    aria-label="Sumar una persona"
-                    disabled={sinEntradaBusy}
-                    onClick={() => adjustSinEntrada(1)}
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-amber-700/40 bg-white text-2xl font-black text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-35"
-                  >
-                    +
-                  </button>
+                  <div className="flex shrink-0 flex-col justify-center rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 shadow-sm sm:w-[42%] sm:max-w-[220px]">
+                    <p className="text-[10px] font-black uppercase tracking-wide text-emerald-900">Ingresos por QR</p>
+                    <p className="text-xs text-emerald-950/85 mt-0.5 mb-2 leading-snug">
+                      Plazas con reserva ya registradas en puerta (código o QR). Tiempo real con otros recepcionistas.
+                    </p>
+                    <div className="flex flex-1 items-center justify-center py-1">
+                      <span className="text-3xl font-black tabular-nums text-emerald-950">
+                        {recepcionQrStats.ingresadas}
+                        <span className="mx-0.5 text-2xl font-black text-emerald-700/75">/</span>
+                        {recepcionQrStats.reservadas}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-center font-medium text-emerald-900/80">ingresadas / reservadas (activas)</p>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-300 bg-slate-100/95 px-4 py-3 shadow-sm">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">Total en sala</p>
+                  <p className="text-xs text-slate-700 mt-0.5 mb-2 leading-snug">
+                    Sin QR + ingresos por QR frente al aforo máximo del concierto.
+                  </p>
+                  <div className="flex items-center justify-center py-1">
+                    <span className="text-3xl font-black tabular-nums text-slate-900">
+                      {recepcionQrStats.ingresadas + sinEntradaCount}
+                      <span className="mx-0.5 text-2xl font-black text-slate-500">/</span>
+                      {recepcionQrStats.capacidad}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-center font-medium text-slate-600">total ingresados / capacidad</p>
                 </div>
               </div>
             )}
