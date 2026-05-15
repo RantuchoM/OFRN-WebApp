@@ -40,6 +40,7 @@ import {
   formatEntradasValidacionError,
   formatEntradasValidacionSuccess,
 } from "../../../utils/entradasQrMessages";
+import { formatEntradasIngresoConRecepcionista } from "../../../utils/entradasIngresoDisplay";
 import { decodeQrFromImageFile } from "../../../utils/qrDecodeFromImage";
 
 const ADMIN_TABS = ["programas", "usuarios"];
@@ -95,12 +96,31 @@ function formatDateLongEs(value) {
 
 function getProgramaNombre(programa) {
   if (!programa) return "Programa sin nombre";
+  const nombreEntradas = String(programa.nombre || "").trim();
+  if (nombreEntradas) return nombreEntradas;
   return (
     programa.nombre_gira
     || programa.nomenclador
     || programa.subtitulo
     || `Programa ${programa.id || "-"}`
   );
+}
+
+/** ISO timestamptz → valor para `<input type="datetime-local" />` (hora local del navegador). */
+function isoToDatetimeLocalInput(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function datetimeLocalInputToIso(value) {
+  const t = String(value || "").trim();
+  if (!t) return null;
+  const d = new Date(t);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
 
 function buildProgramaLabel(programa) {
@@ -131,7 +151,10 @@ function entradasBloqueoIngreso(p) {
       return "La reserva asociada no está activa (p. ej. cancelada).";
     }
     if (p.estado_ingreso === "ingresada") {
-      return "Esta entrada ya registró ingreso a sala.";
+      const det = p.ingresada_at
+        ? formatEntradasIngresoConRecepcionista(p.ingresada_at, p.ingresada_por_nombre)
+        : "";
+      return det ? `Esta entrada ya ingresó. ${det}.` : "Esta entrada ya registró ingreso a sala.";
     }
     return "No se puede completar el ingreso con este estado.";
   }
@@ -165,11 +188,17 @@ function recepcionPanelClass(p) {
   return "bg-slate-100 border-slate-200";
 }
 
+function isQrOfrnTokenInput(value) {
+  const token = String(value || "").trim();
+  return /^ENTR-(RSV|TCK)-[a-f0-9]{32}$/i.test(token);
+}
+
 function isManualReservaCodeInput(value) {
   const token = String(value || "").trim();
-  if (!token) return false;
+  if (!token || isQrOfrnTokenInput(token)) return false;
   if (/^\d{10}$/.test(token)) return true;
-  return /^ENT-RSV(?:-[A-Z0-9]+)*-\d{10}$/i.test(token);
+  if (/^ENTR-C\d+-[0-9]{10}$/i.test(token)) return true;
+  return /^ENT-RSV(?:-[A-Z0-9]+)*-[0-9]{10}$/i.test(token);
 }
 
 /** Misma ventana que el catálogo público: hoy hasta +13 días inclusive. */
@@ -216,6 +245,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [qrPreview, setQrPreview] = useState(null);
   const [qrPreviewLoading, setQrPreviewLoading] = useState(false);
   const [ingresando, setIngresando] = useState(false);
+  /** Órdenes de plaza (1..n) a ingresar ahora con QR de reserva grupal */
+  const [recepcionOrdenesIngreso, setRecepcionOrdenesIngreso] = useState(() => new Set());
   /** Recepción: personas que ingresan sin reserva/QR (cuenta compartida en tiempo real). */
   const [sinEntradaCount, setSinEntradaCount] = useState(0);
   const [sinEntradaBusy, setSinEntradaBusy] = useState(false);
@@ -261,6 +292,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
     capacidad_maxima: 100,
     reservas_habilitadas: true,
     activo: true,
+    limite_recordatorio_at: "",
+    limite_cierre_reservas_at: "",
+    limite_encuesta_at: "",
   });
   /** { id, nombre } para confirmar borrado de concierto (admin) */
   const [deleteConciertoTarget, setDeleteConciertoTarget] = useState(null);
@@ -629,6 +663,38 @@ export default function EntradasMain({ user, profile, onLogout }) {
   }, [scannerToken, section, canRecepcion, recepcionConciertoId]);
 
   useEffect(() => {
+    if (qrPreview?.ok && qrPreview.tipo === "reserva" && Array.isArray(qrPreview.entradas)) {
+      const pendientes = qrPreview.entradas
+        .filter((e) => e.estado_ingreso === "pendiente")
+        .map((e) => Number(e.orden))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      setRecepcionOrdenesIngreso(new Set(pendientes));
+    } else {
+      setRecepcionOrdenesIngreso(new Set());
+    }
+  }, [qrPreview]);
+
+  const puedeIngresarRecepcion = useMemo(() => {
+    if (!qrPreview?.ok || !qrPreview.puede_ingresar) return false;
+    if (qrPreview.tipo === "reserva") {
+      const hayPendiente = (qrPreview.entradas || []).some((e) => e.estado_ingreso === "pendiente");
+      return hayPendiente && recepcionOrdenesIngreso.size > 0;
+    }
+    return true;
+  }, [qrPreview, recepcionOrdenesIngreso]);
+
+  const toggleRecepcionOrdenIngreso = (orden) => {
+    const n = Number(orden);
+    if (!Number.isFinite(n)) return;
+    setRecepcionOrdenesIngreso((prev) => {
+      const next = new Set(prev);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
+  };
+
+  useEffect(() => {
     if (section !== "recepcion" || !canRecepcion || !recepcionConciertoId) {
       setSinEntradaCount(0);
       setRecepcionQrStats({ ingresadas: 0, reservadas: 0, capacidad: 0 });
@@ -782,12 +848,18 @@ export default function EntradasMain({ user, profile, onLogout }) {
       return;
     }
     setIngresando(true);
+    const esReservaGrupo = qrPreview?.tipo === "reserva";
+    const ordenesIngresar =
+      esReservaGrupo && !forceParcial && recepcionOrdenesIngreso.size > 0
+        ? [...recepcionOrdenesIngreso].sort((a, b) => a - b)
+        : null;
     try {
       const result = await validarYConsumirQr({
         token: scannerToken,
         modo: "auto",
         confirmarParcial: forceParcial,
         conciertoId: recepcionConciertoId,
+        ordenesIngresar,
       });
       if (result?.warning || result?.reason === "reserva_uso_parcial") {
         setPendingWarning(result);
@@ -795,12 +867,58 @@ export default function EntradasMain({ user, profile, onLogout }) {
       }
       if (!result?.ok) {
         toast.error(formatEntradasValidacionError(result));
+        if (
+          result?.reason === "entrada_ya_usada"
+          || result?.reason === "reserva_totalmente_usada"
+        ) {
+          setQrPreview((prev) => {
+            const base = prev && typeof prev === "object" ? prev : { ok: true };
+            if (result.reason === "entrada_ya_usada") {
+              return {
+                ...base,
+                ok: true,
+                tipo: "entrada",
+                puede_ingresar: false,
+                estado_ingreso: "ingresada",
+                codigo_reserva: result.codigo_reserva ?? base.codigo_reserva,
+                entrada_orden: result.entrada_orden ?? base.entrada_orden,
+                ingresada_at: result.ingresada_at ?? base.ingresada_at,
+                ingresada_por_nombre: result.ingresada_por_nombre ?? base.ingresada_por_nombre,
+              };
+            }
+            return {
+              ...base,
+              ok: true,
+              tipo: "reserva",
+              puede_ingresar: false,
+              pendientes: 0,
+              codigo_reserva: result.codigo_reserva ?? base.codigo_reserva,
+              ingresada_at: result.ultima_ingresada_at,
+              ingresada_por_nombre: result.ultima_ingresada_por_nombre,
+            };
+          });
+        }
         return;
       }
       toast.success(formatEntradasValidacionSuccess(result));
-      setScannerToken("");
-      setManualReservaCode("");
-      setQrPreview(null);
+      if (esReservaGrupo && scannerToken.trim()) {
+        try {
+          const p = await previewEntradaQr(scannerToken.trim(), recepcionConciertoId);
+          setQrPreview(p);
+          if (!p?.puede_ingresar) {
+            setScannerToken("");
+            setManualReservaCode("");
+          }
+        } catch {
+          setScannerToken("");
+          setManualReservaCode("");
+          setQrPreview(null);
+        }
+      } else {
+        setScannerToken("");
+        setManualReservaCode("");
+        setQrPreview(null);
+      }
       getAdminConciertoStats(recepcionConciertoId)
         .then((s) =>
           setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
@@ -996,6 +1114,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
       capacidad_maxima: 100,
       reservas_habilitadas: true,
       activo: true,
+      limite_recordatorio_at: "",
+      limite_cierre_reservas_at: "",
+      limite_encuesta_at: "",
     });
   };
 
@@ -1057,6 +1178,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
     await adminUpsertConcierto({
       ...conciertoForm,
       imagen_drive_url: normalizeDriveImageUrl(conciertoForm.imagen_drive_url),
+      limite_recordatorio_at: datetimeLocalInputToIso(conciertoForm.limite_recordatorio_at),
+      limite_cierre_reservas_at: datetimeLocalInputToIso(conciertoForm.limite_cierre_reservas_at),
+      limite_encuesta_at: datetimeLocalInputToIso(conciertoForm.limite_encuesta_at),
     });
     toast.success(conciertoForm.id ? "Concierto actualizado." : "Concierto guardado.");
     closeConciertoEditor();
@@ -1170,6 +1294,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
       capacidad_maxima: Number(concierto.capacidad_maxima || 100),
       reservas_habilitadas: concierto.reservas_habilitadas ?? true,
       activo: concierto.activo ?? true,
+      limite_recordatorio_at: isoToDatetimeLocalInput(concierto.limite_recordatorio_at),
+      limite_cierre_reservas_at: isoToDatetimeLocalInput(concierto.limite_cierre_reservas_at),
+      limite_encuesta_at: isoToDatetimeLocalInput(concierto.limite_encuesta_at),
     });
     setConciertoEditor(concierto.id);
   };
@@ -1221,6 +1348,39 @@ export default function EntradasMain({ user, profile, onLogout }) {
         placeholder="Capacidad máxima"
         required
       />
+      <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+        <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">Horarios automáticos</p>
+        <p className="text-[11px] text-slate-500 leading-snug">
+          Por defecto: recordatorio 1 día antes, cierre de reservas 10 min antes del concierto, encuesta 3 h después (editable).
+        </p>
+        <label className="block text-xs font-semibold text-slate-700">
+          Recordatorio por mail
+          <input
+            type="datetime-local"
+            value={conciertoForm.limite_recordatorio_at}
+            onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_recordatorio_at: e.target.value }))}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
+          />
+        </label>
+        <label className="block text-xs font-semibold text-slate-700">
+          Cierre para sacar entradas
+          <input
+            type="datetime-local"
+            value={conciertoForm.limite_cierre_reservas_at}
+            onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_cierre_reservas_at: e.target.value }))}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
+          />
+        </label>
+        <label className="block text-xs font-semibold text-slate-700">
+          Envío encuesta (quienes ingresaron)
+          <input
+            type="datetime-local"
+            value={conciertoForm.limite_encuesta_at}
+            onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_encuesta_at: e.target.value }))}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
+          />
+        </label>
+      </div>
       <RichTextEditor
         key={`detalle-${conciertoForm.id ?? "nuevo"}`}
         defaultOpen
@@ -1813,7 +1973,14 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   {qrPreview.estado_ingreso === "pendiente" ? (
                     <span>Sin ingreso registrado aún con esta plaza.</span>
                   ) : (
-                    <span>Ingreso: {formatDate(qrPreview.ingresada_at) || "—"}</span>
+                    <span>
+                      {qrPreview.ingresada_at
+                        ? formatEntradasIngresoConRecepcionista(
+                            qrPreview.ingresada_at,
+                            qrPreview.ingresada_por_nombre,
+                          )
+                        : "—"}
+                    </span>
                   )}
                 </p>
                 {!qrPreview.puede_ingresar && entradasBloqueoIngreso(qrPreview) && (
@@ -1833,24 +2000,73 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 <p>
                   {qrPreview.pendientes} sin ingresar · {qrPreview.ingresadas} ya ingresaron
                 </p>
-                {qrPreview.necesita_confirmar_parcial && (
-                  <p className="text-xs text-slate-800 border-t border-slate-300/50 pt-2">
-                    Ingreso parcial: al confirmar se completarán las plazas pendientes (se pedirá confirmación).
-                  </p>
-                )}
                 {Array.isArray(qrPreview.entradas) && qrPreview.entradas.length > 0 && (
-                  <ul className="text-xs space-y-1.5 border-t border-slate-300/50 pt-2">
-                    {qrPreview.entradas.map((row) => (
-                      <li key={row.orden} className="flex flex-wrap gap-2 justify-between text-slate-800">
-                        <span>Plaza nº {row.orden}</span>
-                        {row.estado_ingreso === "pendiente" ? (
-                          <span className="font-medium">Pendiente</span>
-                        ) : (
-                          <span>Ingresó {row.ingresada_at ? formatDate(row.ingresada_at) : ""}</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="border-t border-slate-300/50 pt-2 space-y-2">
+                    <p className="text-xs text-slate-700 leading-snug">
+                      Por defecto ingresan todas las plazas pendientes. Destildá quien venga después y presente su QR individual.
+                    </p>
+                    <ul className="text-xs space-y-2">
+                      {qrPreview.entradas.map((row) => {
+                        const orden = Number(row.orden);
+                        const esPendiente = row.estado_ingreso === "pendiente";
+                        const marcada = recepcionOrdenesIngreso.has(orden);
+                        return (
+                          <li
+                            key={row.orden}
+                            className={`rounded-lg border px-2.5 py-2 ${
+                              esPendiente && !marcada
+                                ? "border-amber-200 bg-amber-50/80"
+                                : "border-slate-200 bg-white/80"
+                            }`}
+                          >
+                            <label
+                              className={`flex flex-wrap items-start gap-2 ${
+                                esPendiente ? "cursor-pointer" : "cursor-default"
+                              }`}
+                            >
+                              {esPendiente ? (
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 rounded border-slate-300"
+                                  checked={marcada}
+                                  onChange={() => toggleRecepcionOrdenIngreso(orden)}
+                                />
+                              ) : (
+                                <span className="mt-0.5 w-4 shrink-0" aria-hidden />
+                              )}
+                              <span className="flex-1 min-w-[8rem]">
+                                <span className="font-semibold text-slate-800">Plaza nº {row.orden}</span>
+                                {esPendiente && !marcada && (
+                                  <span className="block text-[10px] font-medium text-amber-900 mt-0.5">
+                                    Vendrá después (QR individual)
+                                  </span>
+                                )}
+                                {esPendiente && marcada && (
+                                  <span className="block text-[10px] text-emerald-800 mt-0.5">Ingresa ahora</span>
+                                )}
+                              </span>
+                              {!esPendiente && (
+                                <span className="text-right text-slate-800 leading-snug">
+                                  {row.ingresada_at
+                                    ? formatEntradasIngresoConRecepcionista(
+                                        row.ingresada_at,
+                                        row.ingresada_por_nombre,
+                                      )
+                                    : "Ingresada"}
+                                </span>
+                              )}
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    {recepcionOrdenesIngreso.size === 0 &&
+                      (qrPreview.entradas || []).some((e) => e.estado_ingreso === "pendiente") && (
+                        <p className="text-xs font-medium text-amber-900">
+                          Marcá al menos una plaza para registrar el ingreso.
+                        </p>
+                      )}
+                  </div>
                 )}
                 {!qrPreview.puede_ingresar && entradasBloqueoIngreso(qrPreview) && (
                   <p className="text-xs text-slate-800 border-t border-slate-300/50 pt-2">{entradasBloqueoIngreso(qrPreview)}</p>
@@ -1867,11 +2083,15 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 || qrPreviewLoading
                 || !qrPreview
                 || !qrPreview.ok
-                || !qrPreview.puede_ingresar
+                || !puedeIngresarRecepcion
                 || ingresando
               }
             >
-              {ingresando ? "Registrando…" : "Ingresar a sala"}
+              {ingresando
+                ? "Registrando…"
+                : qrPreview?.tipo === "reserva" && recepcionOrdenesIngreso.size > 0
+                  ? `Ingresar ${recepcionOrdenesIngreso.size} plaza${recepcionOrdenesIngreso.size === 1 ? "" : "s"}`
+                  : "Ingresar a sala"}
             </button>
           </section>
         )}

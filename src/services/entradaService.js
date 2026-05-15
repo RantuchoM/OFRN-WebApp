@@ -272,12 +272,23 @@ export async function previewEntradaQr(token, conciertoId = null) {
   return data;
 }
 
-export async function validarYConsumirQr({ token, modo = "auto", confirmarParcial, conciertoId = null }) {
+export async function validarYConsumirQr({
+  token,
+  modo = "auto",
+  confirmarParcial,
+  conciertoId = null,
+  ordenesIngresar = null,
+}) {
+  const ordenes =
+    Array.isArray(ordenesIngresar) && ordenesIngresar.length > 0
+      ? ordenesIngresar.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+      : null;
   const { data, error } = await supabaseEntradasPublic.rpc("entrada_validar_y_consumir_qr", {
     p_token: token,
     p_modo: modo,
     p_confirmar_parcial: Boolean(confirmarParcial),
     p_concierto_id: conciertoId == null || conciertoId === "" ? null : Number(conciertoId),
+    p_ordenes_ingresar: ordenes,
   });
   if (error) throw error;
   return data;
@@ -447,6 +458,9 @@ export async function adminUpsertConcierto(payload) {
     p_capacidad_maxima: Number(payload.capacidad_maxima || 0),
     p_reservas_habilitadas: payload.reservas_habilitadas ?? true,
     p_activo: payload.activo ?? true,
+    p_limite_recordatorio_at: payload.limite_recordatorio_at ?? null,
+    p_limite_cierre_reservas_at: payload.limite_cierre_reservas_at ?? null,
+    p_limite_encuesta_at: payload.limite_encuesta_at ?? null,
   });
   if (error) throw error;
   return data;
