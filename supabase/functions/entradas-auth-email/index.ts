@@ -23,6 +23,38 @@ function normalizeEmail(value: unknown): string {
   return String(value || "").trim().toLowerCase();
 }
 
+/** PostgREST / Auth devuelven objetos planos, no instancias de Error. */
+function formatError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const e = error as Record<string, unknown>;
+    const parts = [e.message, e.details, e.hint, e.code].filter(
+      (x) => typeof x === "string" && String(x).trim().length > 0,
+    ) as string[];
+    if (parts.length > 0) return parts.join(" — ");
+    try {
+      return JSON.stringify(error);
+    } catch {
+      /* ignore */
+    }
+  }
+  return String(error);
+}
+
+function throwDbError(
+  error: { message?: string; code?: string; details?: string } | null,
+  context: string,
+): void {
+  if (!error) return;
+  const msg = formatError(error);
+  if (/magic_token_hash/i.test(msg)) {
+    throw new Error(
+      `${context}: falta la columna magic_token_hash. Aplicá la migración 20260516170000_entradas_auth_magic_link.sql en Supabase.`,
+    );
+  }
+  throw new Error(`${context}: ${msg}`);
+}
+
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
@@ -56,7 +88,7 @@ function escHtml(s: string): string {
 }
 
 function buildMagicLinkUrl(token: string, app: string): string {
-  const baseEntradas = (Deno.env.get("ENTRADAS_PUBLIC_URL") ?? "https://entradas.ofrn.gob.ar").replace(/\/$/, "");
+  const baseEntradas = (Deno.env.get("ENTRADAS_PUBLIC_URL") ?? "https://ofrn-web-app.vercel.app").replace(/\/$/, "");
   const baseScrn = (Deno.env.get("SCRN_PUBLIC_URL") ?? baseEntradas).replace(/\/$/, "");
   const isScrn = app === "scrn";
   const base = isScrn ? baseScrn : baseEntradas;
@@ -119,7 +151,7 @@ async function completeEmailAuth(
     .select("user_id, auth_password_plain")
     .eq("email", email)
     .maybeSingle();
-  if (mappedErr) throw mappedErr;
+  throwDbError(mappedErr, "entrada_auth_email_user");
 
   let userId: string | null = mappedUser?.user_id || null;
   let signInPassword: string;
@@ -142,7 +174,7 @@ async function completeEmailAuth(
         { email, user_id: userId, auth_password_plain: signInPassword },
         { onConflict: "email" },
       );
-    if (mapInsertErr) throw mapInsertErr;
+    throwDbError(mapInsertErr, "mapear usuario");
   } else {
     const existingPlain = mappedUser?.auth_password_plain;
     if (existingPlain && String(existingPlain).length > 0) {
@@ -153,12 +185,12 @@ async function completeEmailAuth(
         password: signInPassword,
         email_confirm: true,
       });
-      if (updateErr) throw updateErr;
+      throwDbError(updateErr, "actualizar auth");
       const { error: persistErr } = await admin
         .from("entrada_auth_email_user")
         .update({ auth_password_plain: signInPassword })
         .eq("email", email);
-      if (persistErr) throw persistErr;
+      throwDbError(persistErr, "guardar contraseña broker");
     }
   }
 
@@ -221,7 +253,7 @@ serve(async (req) => {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (linkErr) throw linkErr;
+      throwDbError(linkErr, "buscar enlace mágico");
       if (!linkRow) {
         return new Response(JSON.stringify({ error: "El enlace no es válido o ya fue usado." }), {
           status: 400,
@@ -263,7 +295,7 @@ serve(async (req) => {
         .eq("email", email)
         .gte("created_at", oneMinuteAgo)
         .limit(1);
-      if (cooldownErr) throw cooldownErr;
+      throwDbError(cooldownErr, "cooldown otp");
       if ((cooldownRows || []).length > 0) {
         return new Response(
           JSON.stringify({ error: `Esperá ${OTP_COOLDOWN_SECONDS}s antes de pedir otro código.` }),
@@ -283,8 +315,8 @@ serve(async (req) => {
           .eq("requested_ip", ip)
           .gte("created_at", oneHourAgo),
       ]);
-      if (emailHourErr) throw emailHourErr;
-      if (ipHourErr) throw ipHourErr;
+      throwDbError(emailHourErr, "límite por email");
+      throwDbError(ipHourErr, "límite por ip");
 
       if ((emailHourCount || 0) >= OTP_MAX_PER_HOUR_PER_EMAIL || (ipHourCount || 0) >= OTP_MAX_PER_HOUR_PER_IP) {
         return new Response(
@@ -307,7 +339,7 @@ serve(async (req) => {
         requested_ip: ip,
         user_agent: userAgent,
       });
-      if (insertErr) throw insertErr;
+      throwDbError(insertErr, "guardar otp");
 
       const transporter = nodemailer.createTransport({
         service: "gmail",
@@ -347,7 +379,7 @@ serve(async (req) => {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (otpErr) throw otpErr;
+      throwDbError(otpErr, "buscar otp");
       if (!otpRow) {
         return new Response(JSON.stringify({ error: "No hay un código activo para este email." }), {
           status: 400,
@@ -392,8 +424,8 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[entradas-auth-email] ERROR:", message);
+    const message = formatError(error);
+    console.error("[entradas-auth-email] ERROR:", message, error);
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
