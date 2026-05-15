@@ -5,15 +5,15 @@ import {
   downloadEntradasReservaPdfBlob,
   makeEntradasReservaFilename,
 } from "../utils/entradasReservaPdf";
-import { supabase } from "./supabase";
+import { supabase, supabaseEntradasPublic } from "./supabase";
 
 export async function getEntradasSessionProfile() {
   const {
     data: { session },
-  } = await supabase.auth.getSession();
+  } = await supabaseEntradasPublic.auth.getSession();
   if (!session?.user) return { session: null, profile: null };
 
-  const { data: profile } = await supabase
+  const { data: profile } = await supabaseEntradasPublic
     .from("entrada_usuario")
     .select("*")
     .eq("id", session.user.id)
@@ -23,7 +23,7 @@ export async function getEntradasSessionProfile() {
 }
 
 export async function ensureEntradaProfile({ nombre, apellido }) {
-  const { data, error } = await supabase.rpc("entrada_ensure_profile", {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_ensure_profile", {
     p_nombre: nombre,
     p_apellido: apellido,
   });
@@ -45,9 +45,10 @@ export async function requestEntradasEmailCode(email, app = "entradas") {
   return data;
 }
 
-export async function verifyEntradasEmailCode({ email, code }) {
+export async function verifyEntradasEmailCode({ email, code, app = "entradas" }) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const normalizedCode = String(code || "").trim();
+  const authClient = app === "scrn" ? supabase : supabaseEntradasPublic;
   const { data, error } = await supabase.functions.invoke("entradas-auth-email", {
     body: {
       action: "verify_code",
@@ -60,7 +61,7 @@ export async function verifyEntradasEmailCode({ email, code }) {
   if (!data?.email || !data?.password) {
     throw new Error("No se pudo completar la validación del código.");
   }
-  const { error: signInError } = await supabase.auth.signInWithPassword({
+  const { error: signInError } = await authClient.auth.signInWithPassword({
     email: data.email,
     password: data.password,
   });
@@ -68,7 +69,7 @@ export async function verifyEntradasEmailCode({ email, code }) {
 }
 
 export async function listProgramasConConciertos() {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseEntradasPublic
     .from("entrada_programa")
     .select(
       "id, slug_publico, nombre, detalle_richtext, activo, entrada_concierto(id, slug_publico, nombre, fecha_hora, lugar_nombre, capacidad_maxima, reservas_habilitadas, activo, imagen_drive_url, ofrn_programa_id, ofrn_evento_id)",
@@ -80,7 +81,7 @@ export async function listProgramasConConciertos() {
 }
 
 export async function getConciertoBySlug(slug) {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseEntradasPublic
     .from("entrada_concierto")
     .select(
       "*, entrada_programa(id, nombre, slug_publico, detalle_richtext), entrada_reserva!left(id, cantidad_solicitada, estado), evento:eventos!entrada_concierto_ofrn_evento_id_fkey(id, fecha, hora_inicio, id_locacion, descripcion, locaciones(id, nombre, localidades(localidad)))",
@@ -100,7 +101,7 @@ export function computeDisponibles(concierto) {
 }
 
 export async function crearReserva({ conciertoId, cantidad }) {
-  const { data, error } = await supabase.rpc("entrada_crear_reserva", {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_crear_reserva", {
     p_concierto_id: conciertoId,
     p_cantidad: cantidad,
   });
@@ -110,7 +111,7 @@ export async function crearReserva({ conciertoId, cantidad }) {
 }
 
 export async function enviarMailReserva({ reservaId, qrReservaToken, qrEntradaTokens, pdfBase64 }) {
-  const { error } = await supabase.functions.invoke("entradas-send-reserva-email", {
+  const { error } = await supabaseEntradasPublic.functions.invoke("entradas-send-reserva-email", {
     body: {
       action: "confirmacion",
       reservaId,
@@ -199,14 +200,14 @@ export async function blobToPdfBase64ForMail(blob) {
 }
 
 export async function cancelarReserva(reservaId) {
-  const { error } = await supabase.rpc("entrada_cancelar_reserva", {
+  const { error } = await supabaseEntradasPublic.rpc("entrada_cancelar_reserva", {
     p_reserva_id: reservaId,
   });
   if (error) throw error;
 }
 
 export async function enviarMailCancelacionReserva({ reservaId }) {
-  const { error } = await supabase.functions.invoke("entradas-send-reserva-email", {
+  const { error } = await supabaseEntradasPublic.functions.invoke("entradas-send-reserva-email", {
     body: {
       action: "cancelacion",
       reservaId,
@@ -223,30 +224,37 @@ export async function tokenToQrDataUrl(token) {
 export async function listConciertoIdsConReservaActiva() {
   const {
     data: { session },
-  } = await supabase.auth.getSession();
+  } = await supabaseEntradasPublic.auth.getSession();
   if (!session?.user) return [];
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseEntradasPublic
     .from("entrada_reserva")
     .select("concierto_id")
-    .eq("estado", "activa");
+    .eq("estado", "activa")
+    .eq("usuario_id", session.user.id);
   if (error) throw error;
   return (data || []).map((r) => Number(r.concierto_id));
 }
 
 export async function listarMisReservas() {
-  const { data, error } = await supabase
+  const {
+    data: { session },
+  } = await supabaseEntradasPublic.auth.getSession();
+  if (!session?.user) return [];
+
+  const { data, error } = await supabaseEntradasPublic
     .from("entrada_reserva")
     .select(
       "id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token, concierto:entrada_concierto(id, nombre, fecha_hora, slug_publico, lugar_nombre, detalle_richtext), entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token)",
     )
+    .eq("usuario_id", session.user.id)
     .order("id", { ascending: false });
   if (error) throw error;
   return data || [];
 }
 
 export async function previewEntradaQr(token, conciertoId = null) {
-  const { data, error } = await supabase.rpc("entrada_preview_qr", {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_preview_qr", {
     p_token: token,
     p_concierto_id: conciertoId == null || conciertoId === "" ? null : Number(conciertoId),
   });
@@ -255,7 +263,7 @@ export async function previewEntradaQr(token, conciertoId = null) {
 }
 
 export async function validarYConsumirQr({ token, modo = "auto", confirmarParcial, conciertoId = null }) {
-  const { data, error } = await supabase.rpc("entrada_validar_y_consumir_qr", {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_validar_y_consumir_qr", {
     p_token: token,
     p_modo: modo,
     p_confirmar_parcial: Boolean(confirmarParcial),
@@ -265,24 +273,53 @@ export async function validarYConsumirQr({ token, modo = "auto", confirmarParcia
   return data;
 }
 
+function localidadDesdeReservaConcierto(concierto) {
+  const loc = concierto?.evento?.locaciones?.localidades?.localidad;
+  return String(loc || "").trim();
+}
+
 export async function listAdminData() {
-  const [programasRes, conciertosRes, usuariosRes] = await Promise.all([
-    supabase.from("entrada_programa").select("*").order("id", { ascending: false }),
-    supabase
+  const [programasRes, conciertosRes, usuariosRes, reservasLocRes] = await Promise.all([
+    supabaseEntradasPublic.from("entrada_programa").select("*").order("id", { ascending: false }),
+    supabaseEntradasPublic
       .from("entrada_concierto")
       .select(
         "*, programa:entrada_programa(id, nombre), evento:eventos!entrada_concierto_ofrn_evento_id_fkey(id, fecha, hora_inicio, id_locacion, descripcion, locaciones(id, nombre, localidades(localidad)), programas(id, nomenclador, subtitulo))",
       )
       .order("fecha_hora", { ascending: false }),
-    supabase.from("entrada_usuario").select("*").order("apellido", { ascending: true }),
+    supabaseEntradasPublic.from("entrada_usuario").select("*").order("apellido", { ascending: true }),
+    supabaseEntradasPublic
+      .from("entrada_reserva")
+      .select(
+        "usuario_id, concierto:entrada_concierto(evento:eventos!entrada_concierto_ofrn_evento_id_fkey(locaciones(localidades(localidad))))",
+      ),
   ]);
   if (programasRes.error) throw programasRes.error;
   if (conciertosRes.error) throw conciertosRes.error;
   if (usuariosRes.error) throw usuariosRes.error;
+  if (reservasLocRes.error) throw reservasLocRes.error;
+
+  const locByUser = new Map();
+  for (const row of reservasLocRes.data || []) {
+    const uid = row.usuario_id;
+    if (!uid) continue;
+    const loc = localidadDesdeReservaConcierto(row.concierto);
+    if (!loc) continue;
+    if (!locByUser.has(uid)) locByUser.set(uid, new Set());
+    locByUser.get(uid).add(loc);
+  }
+
+  const usuarios = (usuariosRes.data || []).map((u) => ({
+    ...u,
+    localidades_reserva: Array.from(locByUser.get(u.id) || []).sort((a, b) =>
+      a.localeCompare(b, "es", { sensitivity: "base" }),
+    ),
+  }));
+
   return {
     programas: programasRes.data || [],
     conciertos: conciertosRes.data || [],
-    usuarios: usuariosRes.data || [],
+    usuarios,
   };
 }
 
@@ -293,8 +330,8 @@ export async function getAdminConciertoStats(conciertoId) {
   }
 
   const [conciertoRes, reservasRes] = await Promise.all([
-    supabase.from("entrada_concierto").select("id, capacidad_maxima").eq("id", conciertoIdNum).maybeSingle(),
-    supabase
+    supabaseEntradasPublic.from("entrada_concierto").select("id, capacidad_maxima").eq("id", conciertoIdNum).maybeSingle(),
+    supabaseEntradasPublic
       .from("entrada_reserva")
       .select("id, estado, cantidad_solicitada, entrada_reserva_entrada(id, estado_ingreso)")
       .eq("concierto_id", conciertoIdNum),
@@ -318,8 +355,51 @@ export async function getAdminConciertoStats(conciertoId) {
   return { reservadas, disponibles, ingresadas, noUtilizadas, capacidad };
 }
 
+/**
+ * Agrupa mails por categoría para todos los conciertos dados (p. ej. un programa de entradas).
+ * Solo considera reservas **activas**. "Sin uso" = esa reserva no tiene ninguna entrada en estado `ingresada`.
+ */
+export async function getAdminProgramaMailBuckets(conciertoIds) {
+  const ids = [...new Set((conciertoIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) {
+    return { emailsReservaron: [], emailsIngresaron: [], emailsReservaSinIngreso: [] };
+  }
+
+  const { data, error } = await supabaseEntradasPublic
+    .from("entrada_reserva")
+    .select(
+      "estado, entrada_reserva_entrada(estado_ingreso), usuario:entrada_usuario!entrada_reserva_usuario_id_fkey(email)",
+    )
+    .in("concierto_id", ids);
+
+  if (error) throw error;
+
+  const emailsReservaron = new Set();
+  const emailsIngresaron = new Set();
+  const emailsReservaSinIngreso = new Set();
+
+  for (const row of data || []) {
+    if (row.estado !== "activa") continue;
+    const email = String(row?.usuario?.email || "").trim();
+    if (!email) continue;
+    emailsReservaron.add(email);
+
+    const entradas = Array.isArray(row?.entrada_reserva_entrada) ? row.entrada_reserva_entrada : [];
+    const nIngresadas = entradas.filter((e) => e?.estado_ingreso === "ingresada").length;
+    if (nIngresadas > 0) emailsIngresaron.add(email);
+    if (nIngresadas === 0) emailsReservaSinIngreso.add(email);
+  }
+
+  const sortEs = (a, b) => a.localeCompare(b, "es", { sensitivity: "base" });
+  return {
+    emailsReservaron: Array.from(emailsReservaron).sort(sortEs),
+    emailsIngresaron: Array.from(emailsIngresaron).sort(sortEs),
+    emailsReservaSinIngreso: Array.from(emailsReservaSinIngreso).sort(sortEs),
+  };
+}
+
 export async function adminUpsertPrograma(payload) {
-  const { data, error } = await supabase.rpc("entrada_admin_upsert_programa", {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_upsert_programa", {
     p_id: payload.id ?? null,
     p_nombre: payload.nombre,
     p_detalle_richtext: payload.detalle_richtext ?? "",
@@ -329,8 +409,26 @@ export async function adminUpsertPrograma(payload) {
   return data;
 }
 
+export async function adminDeleteConcierto(conciertoId) {
+  const id = Number(conciertoId);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("Concierto inválido.");
+  const { error } = await supabaseEntradasPublic.rpc("entrada_admin_delete_concierto", {
+    p_concierto_id: id,
+  });
+  if (error) throw error;
+}
+
+export async function adminDeletePrograma(programaId) {
+  const id = Number(programaId);
+  if (!Number.isFinite(id) || id <= 0) throw new Error("Programa inválido.");
+  const { error } = await supabaseEntradasPublic.rpc("entrada_admin_delete_programa", {
+    p_programa_id: id,
+  });
+  if (error) throw error;
+}
+
 export async function adminUpsertConcierto(payload) {
-  const { data, error } = await supabase.rpc("entrada_admin_upsert_concierto", {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_upsert_concierto", {
     p_id: payload.id ?? null,
     p_ofrn_evento_id: payload.ofrn_evento_id,
     p_nombre: payload.nombre,
@@ -345,6 +443,6 @@ export async function adminUpsertConcierto(payload) {
 }
 
 export async function adminUpdateUsuarioRol({ id, rol }) {
-  const { error } = await supabase.from("entrada_usuario").update({ rol }).eq("id", id);
+  const { error } = await supabaseEntradasPublic.from("entrada_usuario").update({ rol }).eq("id", id);
   if (error) throw error;
 }

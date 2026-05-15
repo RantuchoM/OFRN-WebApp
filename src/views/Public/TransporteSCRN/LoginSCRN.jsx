@@ -87,6 +87,7 @@ export default function LoginSCRN({ user, profile, onProfileSaved, bootError = "
       await verifyEntradasEmailCode({
         email: email.trim().toLowerCase(),
         code: otpCode.trim(),
+        app: "scrn",
       });
     } catch (verifyError) {
       setError(verifyError?.message || "No se pudo validar el código.");

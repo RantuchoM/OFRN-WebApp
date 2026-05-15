@@ -5,5 +5,15 @@ const SB_URL = "https://muxrbuivopnawnxlcjxq.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im11eHJidWl2b3BuYXdueGxjanhxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3ODI5MzIsImV4cCI6MjA4MDM1ODkzMn0._tMDAJg2r5vfR1y0JPYd3LVDB66CcyXtj5dY4RqrxIg";
 
 export const supabase = createClient(SB_URL, SB_KEY);
+
+/** Sesión aislada del resto de la app: no se borra al cerrar sesión en la intranet. */
+export const supabaseEntradasPublic = createClient(SB_URL, SB_KEY, {
+  auth: {
+    storageKey: "sb-ofrn-entradas-public-session",
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+  },
+});
 /** Implementación canónica (incl. EXCL_ENSAMBLE y familias vía instrumentos) en giraService.js */
 export { resolveGiraRosterIds } from "./giraService";

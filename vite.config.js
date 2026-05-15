@@ -43,6 +43,7 @@ export default defineConfig({
     }),
   ],
   resolve: {
+    dedupe: ["quill"],
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },

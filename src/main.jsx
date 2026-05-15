@@ -1,5 +1,6 @@
 import React from 'react'
 import './global-shim';
+import './components/ui/quillEntradasRegister';
 window.React = React;
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'

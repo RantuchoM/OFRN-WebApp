@@ -62,6 +62,166 @@ body {
 .entradas-richtext .ql-indent-7 { padding-left: 21em; }
 .entradas-richtext .ql-indent-8 { padding-left: 24em; }
 
+/* Salida Quill: tamaños, alineación, imágenes (editor + catálogo / PDF-friendly) */
+.entradas-richtext .ql-size-small { font-size: 0.875rem; line-height: 1.45; }
+.entradas-richtext .ql-size-large { font-size: 1.125rem; line-height: 1.35; }
+.entradas-richtext .ql-size-huge { font-size: 1.35rem; line-height: 1.3; }
+.entradas-richtext .ql-align-center { text-align: center; }
+.entradas-richtext .ql-align-right { text-align: right; }
+.entradas-richtext .ql-align-justify { text-align: justify; }
+.entradas-richtext img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.5rem 0;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(226 232 240);
+}
+.entradas-richtext sub,
+.entradas-richtext sup {
+  font-size: 0.72em;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+.entradas-richtext sub { top: 0.35em; }
+.entradas-richtext sup { top: -0.35em; }
+.entradas-richtext u { text-underline-offset: 2px; }
+.entradas-richtext s,
+.entradas-richtext del { text-decoration-thickness: 1px; }
+
+/* Tipografías base Quill (`ql-font-*`): editor + catálogo (clases nuevas + legado con guiones) */
+.ql-editor .ql-font-ofrnsystem,
+.ql-editor .ql-font-ofrn-system,
+.entradas-richtext .ql-font-ofrnsystem,
+.entradas-richtext .ql-font-ofrn-system {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+}
+.ql-editor .ql-font-ofrnserif,
+.ql-editor .ql-font-ofrn-serif,
+.entradas-richtext .ql-font-ofrnserif,
+.entradas-richtext .ql-font-ofrn-serif {
+  font-family: Georgia, Cambria, "Times New Roman", Times, serif !important;
+}
+.ql-editor .ql-font-ofrntimes,
+.ql-editor .ql-font-ofrn-times,
+.entradas-richtext .ql-font-ofrntimes,
+.entradas-richtext .ql-font-ofrn-times {
+  font-family: "Times New Roman", Times, "Liberation Serif", Georgia, serif !important;
+}
+.ql-editor .ql-font-ofrnsans,
+.ql-editor .ql-font-ofrn-sans,
+.entradas-richtext .ql-font-ofrnsans,
+.entradas-richtext .ql-font-ofrn-sans {
+  font-family: Arial, Helvetica, "Liberation Sans", sans-serif !important;
+}
+.ql-editor .ql-font-ofrnmono,
+.ql-editor .ql-font-ofrn-mono,
+.entradas-richtext .ql-font-ofrnmono,
+.entradas-richtext .ql-font-ofrn-mono {
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", Consolas, "Courier New", monospace !important;
+}
+.ql-editor .ql-font-ofrnhumanist,
+.ql-editor .ql-font-ofrn-humanist,
+.entradas-richtext .ql-font-ofrnhumanist,
+.entradas-richtext .ql-font-ofrn-humanist {
+  font-family: Verdana, Geneva, "Lucida Grande", "Segoe UI", sans-serif !important;
+}
+/* Contenido antiguo con fuentes por defecto de Quill */
+.ql-editor .ql-font-serif,
+.entradas-richtext .ql-font-serif {
+  font-family: Georgia, "Times New Roman", Times, serif;
+}
+.ql-editor .ql-font-monospace,
+.entradas-richtext .ql-font-monospace {
+  font-family: "Courier New", Courier, Monaco, monospace;
+}
+
+/* Área de edición Quill (barra y cuerpo) */
+.rich-text-quill .ql-toolbar {
+  flex-wrap: wrap;
+  row-gap: 0.25rem;
+  border-top-left-radius: 0.5rem;
+  border-top-right-radius: 0.5rem;
+  border-color: rgb(226 232 240);
+  background: rgb(248 250 252);
+}
+.rich-text-quill .ql-container {
+  border-bottom-left-radius: 0.5rem;
+  border-bottom-right-radius: 0.5rem;
+  border-color: rgb(226 232 240);
+  min-height: 12rem;
+  font-size: 0.9375rem;
+}
+.rich-text-quill .ql-editor {
+  min-height: 11rem;
+  line-height: 1.55;
+}
+.rich-text-quill .ql-editor.ql-blank::before {
+  font-style: normal;
+  color: rgb(148 163 184);
+}
+
+/* Vista compacta: mismo Quill en solo lectura (sin desmontar = no se pierden fuentes/tamaños) */
+.rich-text-quill--readonly .ql-toolbar {
+  display: none !important;
+}
+.rich-text-quill--readonly .ql-container.ql-snow {
+  border-top-left-radius: 0.5rem;
+  border-top-right-radius: 0.5rem;
+  border: 1px solid rgb(241 245 249);
+  min-height: auto;
+}
+.rich-text-quill--readonly .ql-editor {
+  min-height: 2.75rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+/* Selector de fuente: etiquetas en español + ancho */
+.rich-text-quill .ql-snow .ql-picker.ql-font {
+  width: 11.5rem;
+}
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="ofrnsystem"]::before,
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="ofrnsystem"]::before {
+  content: "Sistema";
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="ofrnserif"]::before,
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="ofrnserif"]::before {
+  content: "Serifa (Georgia)";
+  font-family: Georgia, Cambria, "Times New Roman", serif;
+}
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="ofrntimes"]::before,
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="ofrntimes"]::before {
+  content: "Times";
+  font-family: "Times New Roman", Times, serif;
+}
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="ofrnsans"]::before,
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="ofrnsans"]::before {
+  content: "Sans (Arial)";
+  font-family: Arial, Helvetica, sans-serif;
+}
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="ofrnmono"]::before,
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="ofrnmono"]::before {
+  content: "Monospace";
+  font-family: ui-monospace, Consolas, "Courier New", monospace;
+}
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="ofrnhumanist"]::before,
+.rich-text-quill .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="ofrnhumanist"]::before {
+  content: "Humanista (Verdana)";
+  font-family: Verdana, Geneva, "Segoe UI", sans-serif;
+}
+
+/* Tamaño: tema Snow solo etiqueta small/large/huge; con px hay que definir etiquetas */
+.rich-text-quill .ql-snow .ql-picker.ql-size {
+  width: 5.75rem;
+}
+.rich-text-quill .ql-snow .ql-picker.ql-size .ql-picker-label[data-value$="px"]::before,
+.rich-text-quill .ql-snow .ql-picker.ql-size .ql-picker-item[data-value$="px"]::before {
+  content: attr(data-value);
+}
+
 /* Línea "ahora" en agenda: titileo lento para indicar que es dinámica */
 @keyframes agenda-now-line-pulse {
   0%, 100% { opacity: 0.75; }

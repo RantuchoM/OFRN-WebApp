@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "../../../services/supabase";
+import { supabaseEntradasPublic } from "../../../services/supabase";
 import { getEntradasSessionProfile } from "../../../services/entradaService";
 import LoginEntradas from "./LoginEntradas";
 import EntradasMain from "./EntradasMain";
@@ -30,7 +30,7 @@ export default function EntradasPage() {
     loadProfile();
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+    } = supabaseEntradasPublic.auth.onAuthStateChange((event, nextSession) => {
       const nextUserId = nextSession?.user?.id || null;
       const sameUser = nextUserId && activeUserIdRef.current === nextUserId;
       if (event === "TOKEN_REFRESHED" || (sameUser && event !== "SIGNED_OUT")) {
@@ -46,7 +46,7 @@ export default function EntradasPage() {
   }, [loadProfile]);
 
   const onLogout = async () => {
-    await supabase.auth.signOut();
+    await supabaseEntradasPublic.auth.signOut();
     setSession(null);
     setProfile(null);
   };

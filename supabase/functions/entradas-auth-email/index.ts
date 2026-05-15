@@ -227,16 +227,17 @@ serve(async (req) => {
 
       await admin.from("entrada_auth_email_otp").update({ consumed_at: new Date().toISOString() }).eq("id", otpRow.id);
 
-      let userId: string | null = null;
+      const tempPassword = crypto.randomUUID().replace(/-/g, "");
+
       const { data: mappedUser, error: mappedErr } = await admin
         .from("entrada_auth_email_user")
-        .select("user_id")
+        .select("user_id, auth_password_plain")
         .eq("email", email)
         .maybeSingle();
       if (mappedErr) throw mappedErr;
-      if (mappedUser?.user_id) userId = mappedUser.user_id;
 
-      const tempPassword = crypto.randomUUID().replace(/-/g, "");
+      let userId: string | null = mappedUser?.user_id || null;
+      let signInPassword: string;
 
       if (!userId) {
         const { data: created, error: createErr } = await admin.auth.admin.createUser({
@@ -249,20 +250,37 @@ serve(async (req) => {
         }
         userId = created.user?.id || null;
         if (!userId) throw new Error("No se pudo obtener ID de usuario auth.");
+        signInPassword = tempPassword;
         const { error: mapInsertErr } = await admin
           .from("entrada_auth_email_user")
-          .upsert({ email, user_id: userId }, { onConflict: "email" });
+          .upsert(
+            { email, user_id: userId, auth_password_plain: signInPassword },
+            { onConflict: "email" },
+          );
         if (mapInsertErr) throw mapInsertErr;
       } else {
-        const { error: updateErr } = await admin.auth.admin.updateUserById(userId, {
-          password: tempPassword,
-          email_confirm: true,
-        });
-        if (updateErr) throw updateErr;
+        const existingPlain = mappedUser?.auth_password_plain;
+        if (existingPlain && String(existingPlain).length > 0) {
+          // No rotar contraseña en auth: evita invalidar refresh tokens de otras pestañas/dispositivos.
+          signInPassword = String(existingPlain);
+        } else {
+          // Una sola vez (legado): alinear auth.users con valor guardado para próximos OTP.
+          signInPassword = tempPassword;
+          const { error: updateErr } = await admin.auth.admin.updateUserById(userId, {
+            password: signInPassword,
+            email_confirm: true,
+          });
+          if (updateErr) throw updateErr;
+          const { error: persistErr } = await admin
+            .from("entrada_auth_email_user")
+            .update({ auth_password_plain: signInPassword })
+            .eq("email", email);
+          if (persistErr) throw persistErr;
+        }
       }
 
       return new Response(
-        JSON.stringify({ success: true, email, password: tempPassword }),
+        JSON.stringify({ success: true, email, password: signInPassword }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
