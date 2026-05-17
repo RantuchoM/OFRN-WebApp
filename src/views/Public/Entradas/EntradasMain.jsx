@@ -45,6 +45,20 @@ import { decodeQrFromImageFile } from "../../../utils/qrDecodeFromImage";
 
 const ADMIN_TABS = ["programas", "usuarios"];
 
+function entradaUsuarioRolRowClass(rol) {
+  const r = String(rol || "personal").toLowerCase();
+  if (r === "admin") return "bg-amber-50/90 border-l-4 border-l-amber-500";
+  if (r === "recepcionista") return "bg-emerald-50/90 border-l-4 border-l-emerald-500";
+  return "bg-white border-l-4 border-l-slate-200";
+}
+
+function entradaUsuarioRolLabelClass(rol) {
+  const r = String(rol || "personal").toLowerCase();
+  if (r === "admin") return "bg-amber-100 text-amber-900 border-amber-200";
+  if (r === "recepcionista") return "bg-emerald-100 text-emerald-900 border-emerald-200";
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
 /** Valores de `programas.tipo` en OFRN (alineado con GiraForm). */
 const OFRN_PROGRAMA_TIPO_ENTRADAS_OPTIONS = [
   { value: "Sinfónico", label: "Sinfónico" },
@@ -272,6 +286,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [adminTab, setAdminTab] = useState("programas");
   /** Filtro en pestaña Usuarios: localidades elegidas (vacío = mostrar todos). */
   const [adminUsuarioFiltroLocalidades, setAdminUsuarioFiltroLocalidades] = useState([]);
+  const [adminUsuarioFiltroNombre, setAdminUsuarioFiltroNombre] = useState("");
   const [copyingAdminMails, setCopyingAdminMails] = useState(false);
   const [copyingProgramaMailsKey, setCopyingProgramaMailsKey] = useState("");
   const [copyingConciertoMailsKey, setCopyingConciertoMailsKey] = useState("");
@@ -599,15 +614,30 @@ export default function EntradasMain({ user, profile, onLogout }) {
   }, [adminData.usuarios]);
 
   const adminUsuariosFiltrados = useMemo(() => {
-    const list = adminData.usuarios || [];
-    const filtro = new Set(
+    let list = adminData.usuarios || [];
+    const filtroLoc = new Set(
       (adminUsuarioFiltroLocalidades || []).map((l) => String(l || "").trim()).filter(Boolean),
     );
-    if (filtro.size === 0) return list;
-    return list.filter((u) =>
-      (u.localidades_reserva || []).some((loc) => filtro.has(String(loc || "").trim())),
-    );
-  }, [adminData.usuarios, adminUsuarioFiltroLocalidades]);
+    if (filtroLoc.size > 0) {
+      list = list.filter((u) =>
+        (u.localidades_reserva || []).some((loc) => filtroLoc.has(String(loc || "").trim())),
+      );
+    }
+    const q = adminUsuarioFiltroNombre.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((u) => {
+      const nombreCompleto = `${u.nombre || ""} ${u.apellido || ""}`.trim().toLowerCase();
+      const apellidoNombre = `${u.apellido || ""} ${u.nombre || ""}`.trim().toLowerCase();
+      const email = String(u.email || "").toLowerCase();
+      return (
+        nombreCompleto.includes(q) ||
+        apellidoNombre.includes(q) ||
+        String(u.nombre || "").toLowerCase().includes(q) ||
+        String(u.apellido || "").toLowerCase().includes(q) ||
+        email.includes(q)
+      );
+    });
+  }, [adminData.usuarios, adminUsuarioFiltroLocalidades, adminUsuarioFiltroNombre]);
 
   useEffect(() => {
     const valid = new Set(adminUsuariosLocalidadesOpciones);
@@ -2390,8 +2420,38 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
             {adminTab === "usuarios" && (
               <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="admin-usuario-buscar-nombre"
+                    className="block text-[11px] uppercase tracking-wide text-slate-500 font-semibold"
+                  >
+                    Buscar por nombre
+                  </label>
+                  <input
+                    id="admin-usuario-buscar-nombre"
+                    type="search"
+                    value={adminUsuarioFiltroNombre}
+                    onChange={(e) => setAdminUsuarioFiltroNombre(e.target.value)}
+                    placeholder="Nombre, apellido o mail…"
+                    className="w-full max-w-md rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-600">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-slate-200 border border-slate-300" aria-hidden />
+                    Personal
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" aria-hidden />
+                    Recepcionista
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-amber-500" aria-hidden />
+                    Admin
+                  </span>
+                </div>
                 <div className="flex flex-wrap gap-4 items-start justify-between">
-                  <div className="space-y-2 min-w-[12rem] max-w-md flex-1">
+                  <div className="space-y-2 min-w-0 w-full sm:min-w-[12rem] sm:max-w-md sm:flex-1">
                     <span className="block text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
                       Filtrar por localidad (una o más; sin marcar = todas)
                     </span>
@@ -2478,7 +2538,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   Las localidades salen del evento OFRN vinculado a cada concierto. Con varias marcadas se listan usuarios que tengan reserva en{" "}
                   <span className="font-semibold">cualquiera</span> de esas localidades.
                 </p>
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wide text-slate-500 border-b border-slate-200">
@@ -2491,7 +2551,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     </thead>
                     <tbody>
                       {adminUsuariosFiltrados.map((usr) => (
-                        <tr key={usr.id} className="border-b border-slate-100 last:border-0 align-top hover:bg-slate-50/80">
+                        <tr
+                          key={usr.id}
+                          className={`border-b border-slate-100 last:border-0 align-top ${entradaUsuarioRolRowClass(usr.rol)}`}
+                        >
                           <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">{usr.apellido}</td>
                           <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{usr.nombre}</td>
                           <td className="px-3 py-2 text-slate-600 break-all max-w-[16rem]">{usr.email}</td>
@@ -2509,7 +2572,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                 await adminUpdateUsuarioRol({ id: usr.id, rol: event.target.value });
                                 setAdminData(await listAdminData());
                               }}
-                              className="w-full max-w-[8.5rem] rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                              className={`w-full max-w-[8.5rem] rounded-lg border px-2 py-1.5 text-xs font-semibold ${entradaUsuarioRolLabelClass(usr.rol)}`}
                             >
                               <option value="personal">personal</option>
                               <option value="recepcionista">recepcionista</option>
@@ -2521,11 +2584,64 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     </tbody>
                   </table>
                 </div>
+
+                <div className="md:hidden space-y-3">
+                  {adminUsuariosFiltrados.map((usr) => (
+                    <article
+                      key={usr.id}
+                      className={`rounded-xl border border-slate-200 shadow-sm p-4 space-y-3 ${entradaUsuarioRolRowClass(usr.rol)}`}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-base font-bold text-slate-900 leading-snug">
+                            {[usr.apellido, usr.nombre].filter(Boolean).join(", ") || "—"}
+                          </h3>
+                          <p className="mt-1 text-sm text-slate-600 break-all">{usr.email || "—"}</p>
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${entradaUsuarioRolLabelClass(usr.rol)}`}
+                        >
+                          {usr.rol || "personal"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+                          Localidades
+                        </span>
+                        <p className="text-sm text-slate-700 leading-snug">
+                          {(usr.localidades_reserva || []).length
+                            ? (usr.localidades_reserva || []).join(" · ")
+                            : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+                          Cambiar rol
+                        </label>
+                        <select
+                          value={usr.rol}
+                          onChange={async (event) => {
+                            await adminUpdateUsuarioRol({ id: usr.id, rol: event.target.value });
+                            setAdminData(await listAdminData());
+                          }}
+                          className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold ${entradaUsuarioRolLabelClass(usr.rol)}`}
+                        >
+                          <option value="personal">personal</option>
+                          <option value="recepcionista">recepcionista</option>
+                          <option value="admin">admin</option>
+                        </select>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
                 {adminUsuariosFiltrados.length === 0 && (
                   <p className="text-sm text-slate-500">
-                    {adminUsuarioFiltroLocalidades.length > 0
-                      ? "Ningún usuario coincide con la combinación de localidades elegida."
-                      : "No hay usuarios registrados."}
+                    {adminUsuarioFiltroNombre.trim()
+                      ? "Ningún usuario coincide con la búsqueda."
+                      : adminUsuarioFiltroLocalidades.length > 0
+                        ? "Ningún usuario coincide con la combinación de localidades elegida."
+                        : "No hay usuarios registrados."}
                   </p>
                 )}
               </div>
