@@ -209,13 +209,12 @@ export default function EntradasRecordarmePage() {
               )}
             </div>
             <p className={`text-sm ${ui.textBody}`}>
-              Dejá tu mail y te escribimos cuando se habiliten las entradas para este concierto. Sin
-              trámites raros: un mail y listo.
+              Dejá tu mail y te escribimos cuando se habiliten las entradas para este concierto.
             </p>
 
             {suscrito && (
               <p className={ui.warningBox}>
-                Con este mail ya estás anotado/a. Si querés, podés confirmar de nuevo igual.
+                Con este mail ya estás anotado/a.
               </p>
             )}
 

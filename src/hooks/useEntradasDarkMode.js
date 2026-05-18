@@ -85,7 +85,10 @@ export function entradasUi(isDark) {
     warningBox: d
       ? "text-sm text-amber-200 bg-amber-950/50 border border-amber-800 rounded-lg px-3 py-2"
       : "text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2",
-    btnPrimary: `entradas-btn-primary entradas-interactive w-full rounded-md py-2.5 text-sm`,
+    btnPrimary: `entradas-btn-primary entradas-interactive w-full rounded-md py-2.5 text-sm font-bold`,
+    btnSolid: d
+      ? "entradas-interactive w-full rounded-md border border-slate-600 bg-slate-800 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+      : "entradas-interactive w-full rounded-md border border-[#333333] bg-[#333333] py-2.5 text-sm font-semibold text-white hover:bg-[#111111] disabled:opacity-50",
     btnGhost: `${ix} ${d ? "rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-700" : "rounded-md border border-[#e8eaed] bg-white px-3 py-2 text-sm font-semibold text-[#333333] hover:bg-[#f6f8fa]"}`,
     btnIcon: d
       ? "p-2 rounded-lg border border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700"

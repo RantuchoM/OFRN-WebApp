@@ -1,5 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { tokenToQrDataUrl } from "../../services/entradaService";
+import {
+  asegurarQrTokensReserva,
+  entradasConTokensCompletos,
+  mergeAsegurarQrEnReserva,
+  tokenQrReservaGrupo,
+  tokenToQrDataUrl,
+} from "../../services/entradaService";
 import { entradasTodasIngresadas } from "../../utils/entradasMisReservas";
 
 export default function MisReservasQrPanel({ reserva, isDark = false }) {
@@ -22,17 +28,24 @@ export default function MisReservasQrPanel({ reserva, isDark = false }) {
       setLoading(true);
       setError("");
       try {
-        if (!reserva?.qr_reserva_token) {
-          throw new Error("No hay QR de reserva guardado para esta reserva.");
+        let row = reserva;
+        if (!entradasConTokensCompletos(row)) {
+          const payload = await asegurarQrTokensReserva(row.id);
+          row = mergeAsegurarQrEnReserva(row, payload);
         }
-        const tokens = sortedEntradas.map((e) => e.qr_entrada_token).filter(Boolean);
-        if (tokens.length !== Number(reserva.cantidad_solicitada) || !tokens.length) {
+        const grupoToken = tokenQrReservaGrupo(row);
+        if (!grupoToken) {
+          throw new Error("No hay código de reserva para mostrar el QR grupal.");
+        }
+        const entradasRows = [...(row.entradas || [])].sort((a, b) => (a.orden || 0) - (b.orden || 0));
+        const tokens = entradasRows.map((e) => e.qr_entrada_token).filter(Boolean);
+        if (tokens.length !== Number(row.cantidad_solicitada) || !tokens.length) {
           throw new Error("Faltan datos de entradas individuales.");
         }
         const [grupo, ...individuales] = await Promise.all([
-          tokenToQrDataUrl(reserva.qr_reserva_token, { used: qrReservaUsado }),
+          tokenToQrDataUrl(grupoToken, { used: qrReservaUsado }),
           ...tokens.map((t, i) =>
-            tokenToQrDataUrl(t, { used: sortedEntradas[i]?.estado_ingreso === "ingresada" }),
+            tokenToQrDataUrl(t, { used: entradasRows[i]?.estado_ingreso === "ingresada" }),
           ),
         ]);
         if (cancelled) return;

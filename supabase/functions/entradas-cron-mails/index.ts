@@ -5,6 +5,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import nodemailer from "npm:nodemailer@6.9.7";
+import {
+  ENTRADA_CONCIERTO_EVENTO_SELECT,
+  fechaHoraDesdeEventoOfrn,
+  lugarNombreDesdeEventoOfrn,
+} from "../_shared/entradasConciertoEvento.ts";
 
 const GMAIL_USER = Deno.env.get("GMAIL_USER");
 const GMAIL_PASS = Deno.env.get("GMAIL_PASS");
@@ -122,7 +127,7 @@ serve(async (req) => {
   const { data: recordatorioRows, error: recErr } = await supabase
     .from("entrada_concierto")
     .select(
-      "id, nombre, fecha_hora, lugar_nombre, slug_publico, limite_recordatorio_at, recordatorio_enviado_at",
+      `id, nombre, slug_publico, limite_recordatorio_at, recordatorio_enviado_at, ofrn_evento_id, ${ENTRADA_CONCIERTO_EVENTO_SELECT}`,
     )
     .eq("activo", true)
     .is("recordatorio_enviado_at", null)
@@ -147,7 +152,7 @@ serve(async (req) => {
 
       const baseUrl = Deno.env.get("ENTRADAS_PUBLIC_URL") ?? "https://entradas.ofrn.gob.ar";
       const linkConcierto = `${baseUrl.replace(/\/$/, "")}/?concierto=${encodeURIComponent(concierto.slug_publico || "")}`;
-      const fechaTexto = formatFechaHora(concierto.fecha_hora);
+      const fechaTexto = formatFechaHora(fechaHoraDesdeEventoOfrn(concierto.evento));
 
       for (const row of reservas || []) {
         const email = String(row?.usuario?.email || "").trim();
@@ -165,7 +170,7 @@ serve(async (req) => {
               nombre,
               conciertoNombre: String(concierto.nombre || "Concierto"),
               fechaTexto,
-              lugar: String(concierto.lugar_nombre || ""),
+              lugar: lugarNombreDesdeEventoOfrn(concierto.evento),
               codigo: String(row.codigo_reserva || ""),
               linkConcierto,
             }),

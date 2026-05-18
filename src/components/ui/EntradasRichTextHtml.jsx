@@ -19,9 +19,9 @@ export default function EntradasRichTextHtml({
 
   return (
     <div className={className}>
-      <div className="ql-snow">
+      <div className={`ql-snow ${isDark ? "entradas-richtext-host--dark" : ""}`.trim()}>
         <div
-          className={`ql-editor entradas-richtext entradas-font-detail max-w-none text-sm ${isDark ? "text-slate-300" : "text-slate-700"} ${innerClassName}`.trim()}
+          className={`ql-editor entradas-richtext entradas-font-detail max-w-none text-sm ${isDark ? "entradas-richtext--dark text-slate-300" : "text-slate-700"} ${innerClassName}`.trim()}
           dangerouslySetInnerHTML={{ __html: raw }}
         />
       </div>

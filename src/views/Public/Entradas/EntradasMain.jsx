@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
+import EntradasDisponibilidadBar from "../../../components/entradas/EntradasDisponibilidadBar";
+import EntradasDriveCoverImage from "../../../components/entradas/EntradasDriveCoverImage";
 import EntradasMisReservasSection from "../../../components/entradas/EntradasMisReservasSection";
 import {
   IconCamera,
@@ -30,6 +32,9 @@ import {
   buildEntradasReservaPdfConDataUrls,
   computeDisponibles,
   crearReserva,
+  fetchConciertosDisponibilidad,
+  programasConDisponibilidad,
+  todosConciertoIdsEnProgramas,
   cancelarReserva,
   deltaEntradaSinEntrada,
   enviarMailCancelacionReserva,
@@ -40,13 +45,18 @@ import {
   listConciertoIdsConReservaActiva,
   listarMisReservas,
   listProgramasConConciertos,
+  compareConciertosPorFechaHora,
+  fechaHoraDesdeConciertoEntrada,
+  localidadDesdeConciertoEntrada,
   localidadLabelDesdeProgramaEntrada,
+  lugarNombreDesdeConciertoEntrada,
   listarRecordatoriosAperturaConciertoIds,
   previewEntradaQr,
   suscribirRecordatorioApertura,
   tokenToQrDataUrl,
   validarYConsumirQr,
 } from "../../../services/entradaService";
+import { normalizeDriveImageUrlForStorage } from "../../../utils/entradasDriveImage";
 import { downloadEntradasReservaPdfBlob } from "../../../utils/entradasReservaPdf";
 import { formatEntradasConciertoFechaHora as formatConciertoFechaHoraEs } from "../../../utils/entradasReservaCopy";
 import {
@@ -217,28 +227,15 @@ function isManualReservaCodeInput(value) {
 
 /** Misma ventana que el catálogo público: hoy hasta +13 días inclusive. */
 function conciertoEnVentanaCatalogoDosSemanas(concierto, inicioDiaHoy, finDiaVentanaCatalogo) {
-  if (!concierto?.fecha_hora) return false;
-  const t = new Date(concierto.fecha_hora);
+  const fh = fechaHoraDesdeConciertoEntrada(concierto);
+  if (!fh) return false;
+  const t = new Date(fh);
   if (Number.isNaN(t.getTime())) return false;
   return t >= inicioDiaHoy && t <= finDiaVentanaCatalogo;
 }
 
 function conciertoStatsSinReservasNiIngresos(stats) {
   return Boolean(stats) && Number(stats.reservadas || 0) === 0 && Number(stats.ingresadas || 0) === 0;
-}
-
-function normalizeDriveImageUrl(url) {
-  const raw = String(url || "").trim();
-  if (!raw) return "";
-  const fileIdFromPath = raw.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/i);
-  if (fileIdFromPath?.[1]) {
-    return `https://drive.google.com/thumbnail?id=${fileIdFromPath[1]}&sz=w1600`;
-  }
-  const fileIdFromQuery = raw.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
-  if (fileIdFromQuery?.[1] && raw.includes("drive.google.com")) {
-    return `https://drive.google.com/thumbnail?id=${fileIdFromQuery[1]}&sz=w1600`;
-  }
-  return raw;
 }
 
 export default function EntradasMain({ user, profile, onLogout }) {
@@ -343,7 +340,14 @@ export default function EntradasMain({ user, profile, onLogout }) {
         listConciertoIdsConReservaActiva(),
       ]);
       setConciertosConReservaActiva(idsReservados);
-      setProgramas(data);
+      let programasData = data;
+      try {
+        const dispMap = await fetchConciertosDisponibilidad(todosConciertoIdsEnProgramas(data));
+        programasData = programasConDisponibilidad(data, dispMap);
+      } catch {
+        /* catálogo usable sin agregado de disponibilidad */
+      }
+      setProgramas(programasData);
       if (quiet && section === "catalogo" && conciertoSlug) {
         try {
           const fresh = await getConciertoBySlug(conciertoSlug);
@@ -483,7 +487,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       m.get(pid).push(c);
     }
     for (const arr of m.values()) {
-      arr.sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
+      arr.sort(compareConciertosPorFechaHora);
     }
     return m;
   }, [adminData.conciertos]);
@@ -726,8 +730,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
         .map((programa) => ({
           ...programa,
           entrada_concierto: (programa.entrada_concierto || []).filter((concierto) => {
-            if (!concierto?.fecha_hora) return false;
-            const t = new Date(concierto.fecha_hora);
+            const fhCat = fechaHoraDesdeConciertoEntrada(concierto);
+            if (!fhCat) return false;
+            const t = new Date(fhCat);
             if (Number.isNaN(t.getTime())) return false;
             return t >= inicioDiaHoy && t <= finDiaVentanaCatalogo;
           }),
@@ -755,12 +760,12 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const futurosPorLocalidad = useMemo(() => {
     const m = new Map();
     for (const c of conciertosFuturosRecordatorio) {
-      const loc = String(c.lugar_nombre || "").trim() || "Sin localidad indicada";
+      const loc = localidadDesdeConciertoEntrada(c) || "Sin localidad indicada";
       if (!m.has(loc)) m.set(loc, []);
       m.get(loc).push(c);
     }
     for (const arr of m.values()) {
-      arr.sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
+      arr.sort(compareConciertosPorFechaHora);
     }
     return [...m.entries()].sort(([a], [b]) => a.localeCompare(b, "es", { sensitivity: "base" }));
   }, [conciertosFuturosRecordatorio]);
@@ -815,8 +820,12 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
   const conciertosRecepcion = useMemo(() => {
     return concertosFlat
-      .filter((c) => c.activo && c.fecha_hora && new Date(c.fecha_hora) >= inicioDiaHoy)
-      .sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
+      .filter((c) => {
+        if (!c.activo) return false;
+        const fh = fechaHoraDesdeConciertoEntrada(c);
+        return fh && new Date(fh) >= inicioDiaHoy;
+      })
+      .sort(compareConciertosPorFechaHora);
   }, [concertosFlat, inicioDiaHoy]);
 
   useEffect(() => {
@@ -1385,7 +1394,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     event.preventDefault();
     await adminUpsertConcierto({
       ...conciertoForm,
-      imagen_drive_url: normalizeDriveImageUrl(conciertoForm.imagen_drive_url),
+      imagen_drive_url: normalizeDriveImageUrlForStorage(conciertoForm.imagen_drive_url),
       apertura_reservas_at: datetimeLocalInputToIso(conciertoForm.apertura_reservas_at),
       limite_recordatorio_at: datetimeLocalInputToIso(conciertoForm.limite_recordatorio_at),
       limite_cierre_reservas_at: datetimeLocalInputToIso(conciertoForm.limite_cierre_reservas_at),
@@ -1522,11 +1531,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
     const aperturaGuardada = concierto.apertura_reservas_at
       ? isoToDatetimeLocalInput(concierto.apertura_reservas_at)
       : "";
+    const fhEdit = fechaHoraDesdeConciertoEntrada(concierto);
     const aperturaDefault =
-      !aperturaGuardada && concierto.fecha_hora
-        ? isoToDatetimeLocalInput(
-            defaultAperturaReservasAtFromConcierto(concierto.fecha_hora)?.toISOString(),
-          )
+      !aperturaGuardada && fhEdit
+        ? isoToDatetimeLocalInput(defaultAperturaReservasAtFromConcierto(fhEdit)?.toISOString())
         : "";
     setConciertoForm({
       id: concierto.id,
@@ -1646,11 +1654,23 @@ export default function EntradasMain({ user, profile, onLogout }) {
         placeholder="Nombre del concierto"
         required
       />
-      <p className={`text-xs ${ui.textMuted}`}>
-        {conciertoEditor === "new" && conciertoOfrnProgramaContextId
-          ? "Solo se muestran conciertos del programa OFRN elegido. Fecha, hora y lugar salen del evento."
-          : "Fecha, hora y lugar se toman del evento OFRN seleccionado."}
-      </p>
+      {(() => {
+        const evSel = eventosParaSelectorConcierto.find(
+          (row) => Number(row.id) === Number(conciertoForm.ofrn_evento_id),
+        );
+        if (!evSel) return null;
+        const fh = fechaHoraDesdeConciertoEntrada({ evento: evSel });
+        const lugar = lugarNombreDesdeConciertoEntrada({ evento: evSel });
+        return (
+          <div className={`${ui.inset} space-y-1`}>
+            <p className={ui.label}>Fecha, hora y lugar (solo lectura · evento OFRN)</p>
+            <p className={`text-sm font-semibold ${ui.textBody}`}>
+              {fh ? formatConciertoFechaHoraEs(fh) : "—"}
+            </p>
+            <p className={`text-xs ${ui.textMuted}`}>{lugar || "Sin lugar indicado en el evento"}</p>
+          </div>
+        );
+      })()}
       <input
         value={conciertoForm.imagen_drive_url}
         onChange={(event) => setConciertoForm((prev) => ({ ...prev, imagen_drive_url: event.target.value }))}
@@ -2019,8 +2039,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
         </div>
 
         {section === "catalogo" && (
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-            <section className={`lg:col-span-3 ${ui.section} p-4 space-y-4`}>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <section className={`lg:col-span-1 ${ui.section} p-4 space-y-4`}>
               <h2 className={ui.sectionTitle}>Programas y conciertos</h2>
               <div className="space-y-3">
                 {programasCatalogo.length === 0 && (
@@ -2054,19 +2074,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             onClick={() => handlePickConcierto(concierto.slug_publico)}
                           >
                             {tieneReservaEnConcierto(concierto.id) && (
-                              <div className="mb-1.5 flex flex-wrap gap-1 sm:hidden">
+                              <div className="mb-1.5 flex flex-wrap gap-1">
                                 <span className={ui.badgeReserva}>Ya tenés entrada/s</span>
                               </div>
                             )}
                             <div className="flex items-start justify-between gap-2">
                               <p className={`min-w-0 flex-1 text-sm font-semibold ${ui.textBody}`}>{concierto.nombre}</p>
                               <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                                {catalogoSeleccionado && (
-                                  <span className={ui.badgeSelected}>Seleccionado</span>
-                                )}
-                                {tieneReservaEnConcierto(concierto.id) && (
-                                  <span className={`${ui.badgeReserva} hidden sm:inline`}>Ya tenés entrada/s</span>
-                                )}
                                 {!reservasAbiertas && textoAperturaReservas(concierto) && (
                                   <span className={ui.badgeRecordatorio}>
                                     Apertura {textoAperturaReservas(concierto)}
@@ -2241,29 +2255,20 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     </div>
                   )}
                   {selectedConcierto.imagen_drive_url && (
-                    <img
-                      src={normalizeDriveImageUrl(selectedConcierto.imagen_drive_url)}
+                    <EntradasDriveCoverImage
+                      url={selectedConcierto.imagen_drive_url}
                       alt={selectedConcierto.nombre}
-                      className={`w-full h-44 rounded-xl object-cover ${ui.imgBorder}`}
-                      onError={(event) => {
-                        const img = event.currentTarget;
-                        const original = String(selectedConcierto.imagen_drive_url || "");
-                        const fallbackMatch =
-                          original.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/i)
-                          || original.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
-                        const fallbackId = fallbackMatch?.[1];
-                        if (!fallbackId) return;
-                        const currentSrc = img.getAttribute("src") || "";
-                        if (currentSrc.includes("/thumbnail?")) {
-                          img.src = `https://drive.google.com/uc?export=view&id=${fallbackId}`;
-                        }
-                      }}
+                      wrapperClassName={`flex w-full items-center justify-center overflow-hidden rounded-xl ${ui.imgBorder} ${
+                        isDark ? "bg-slate-900/50" : "bg-slate-50"
+                      }`}
                     />
                   )}
                   <EntradasRichTextHtml html={selectedConcierto.detalle_richtext} isDark={isDark} />
-                  <div className={ui.inset}>
-                    Disponibles: <strong>{computeDisponibles(selectedConcierto)}</strong> / {selectedConcierto.capacidad_maxima}
-                  </div>
+                  {reservasAbiertasSel && (
+                    <div className={ui.inset}>
+                      <EntradasDisponibilidadBar concierto={selectedConcierto} isDark={isDark} />
+                    </div>
+                  )}
                   <div className={ui.linkBox}>
                     URL: {window.location.origin}/entradas?view=catalogo&concierto={selectedConcierto.slug_publico}
                   </div>

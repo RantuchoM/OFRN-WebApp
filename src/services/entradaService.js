@@ -6,7 +6,23 @@ import {
   downloadEntradasReservaPdfBlob,
   makeEntradasReservaFilename,
 } from "../utils/entradasReservaPdf";
+import {
+  aplicarDatosEventoAConciertoEntrada,
+  ENTRADA_CONCIERTO_EVENTO_EMBED,
+  fechaHoraDesdeConciertoEntrada,
+  localidadDesdeConciertoEntrada,
+  localidadLabelDesdeProgramaEntrada,
+  lugarNombreDesdeConciertoEntrada,
+} from "../utils/entradasConciertoEvento";
 import { conciertoAdminSoloRecordatoriosProgramados } from "../utils/entradasReservasApertura";
+
+export {
+  compareConciertosPorFechaHora,
+  fechaHoraDesdeConciertoEntrada,
+  localidadDesdeConciertoEntrada,
+  localidadLabelDesdeProgramaEntrada,
+  lugarNombreDesdeConciertoEntrada,
+} from "../utils/entradasConciertoEvento";
 
 function programaPdfFieldsFromConcierto(concierto) {
   const ep = concierto?.entrada_programa;
@@ -97,32 +113,93 @@ export async function listProgramasConConciertos() {
   const { data, error } = await supabaseEntradasPublic
     .from("entrada_programa")
     .select(
-      "id, slug_publico, nombre, detalle_richtext, activo, entrada_concierto(id, slug_publico, nombre, fecha_hora, lugar_nombre, capacidad_maxima, reservas_habilitadas, apertura_reservas_at, activo, imagen_drive_url, ofrn_programa_id, ofrn_evento_id, evento:eventos!entrada_concierto_ofrn_evento_id_fkey(locaciones(localidades(localidad))))",
+      `id, slug_publico, nombre, detalle_richtext, activo, entrada_concierto(id, slug_publico, nombre, capacidad_maxima, reservas_habilitadas, apertura_reservas_at, activo, imagen_drive_url, ofrn_programa_id, ofrn_evento_id, ${ENTRADA_CONCIERTO_EVENTO_EMBED})`,
     )
     .eq("activo", true)
     .order("nombre", { ascending: true });
   if (error) throw error;
-  return data || [];
+  return (data || []).map((programa) => ({
+    ...programa,
+    entrada_concierto: (programa.entrada_concierto || []).map(aplicarDatosEventoAConciertoEntrada),
+  }));
 }
 
 export async function getConciertoBySlug(slug) {
   const { data, error } = await supabaseEntradasPublic
     .from("entrada_concierto")
     .select(
-      "*, entrada_programa(id, nombre, slug_publico, detalle_richtext), entrada_reserva!left(id, cantidad_solicitada, estado), evento:eventos!entrada_concierto_ofrn_evento_id_fkey(id, fecha, hora_inicio, id_locacion, descripcion, locaciones(id, nombre, localidades(localidad)))",
+      `*, entrada_programa(id, nombre, slug_publico, detalle_richtext), evento:eventos!entrada_concierto_ofrn_evento_id_fkey(id, fecha, hora_inicio, id_locacion, descripcion, locaciones(id, nombre, localidades(localidad)))`,
     )
     .eq("slug_publico", slug)
     .eq("activo", true)
     .maybeSingle();
   if (error) throw error;
-  return data || null;
+  if (!data) return null;
+  const concierto = aplicarDatosEventoAConciertoEntrada(data);
+  const map = await fetchConciertosDisponibilidad([concierto.id]);
+  return aplicarDisponibilidadAConcierto(concierto, map);
+}
+
+/** Agregado vía RPC (RLS no permite sumar reservas ajenas). */
+export async function fetchConciertosDisponibilidad(conciertoIds) {
+  const ids = [...new Set((conciertoIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return {};
+
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_conciertos_disponibilidad", {
+    p_concierto_ids: ids,
+  });
+  if (error) throw error;
+
+  const map = {};
+  for (const row of data || []) {
+    const id = Number(row.concierto_id);
+    if (!id) continue;
+    map[id] = {
+      porcentaje: Number(row.porcentaje_disponible ?? 0),
+      plazas: Number(row.plazas_disponibles ?? 0),
+    };
+  }
+  return map;
+}
+
+export function aplicarDisponibilidadAConcierto(concierto, map) {
+  if (!concierto?.id) return concierto;
+  const d = map?.[Number(concierto.id)];
+  if (!d) return concierto;
+  return { ...concierto, disponibilidad: d };
+}
+
+export function programasConDisponibilidad(programas, map) {
+  return (programas || []).map((programa) => ({
+    ...programa,
+    entrada_concierto: (programa.entrada_concierto || []).map((c) => aplicarDisponibilidadAConcierto(c, map)),
+  }));
+}
+
+export function porcentajeDisponibleConcierto(concierto) {
+  const p = concierto?.disponibilidad?.porcentaje;
+  return p == null || Number.isNaN(Number(p)) ? null : Math.max(0, Math.min(100, Math.round(Number(p))));
 }
 
 export function computeDisponibles(concierto) {
+  const desdeRpc = concierto?.disponibilidad?.plazas;
+  if (desdeRpc != null && !Number.isNaN(Number(desdeRpc))) {
+    return Math.max(0, Number(desdeRpc));
+  }
   const ocupadas = (concierto?.entrada_reserva || [])
     .filter((r) => r.estado === "activa")
     .reduce((acc, row) => acc + Number(row.cantidad_solicitada || 0), 0);
   return Math.max(0, Number(concierto?.capacidad_maxima || 0) - ocupadas);
+}
+
+export function todosConciertoIdsEnProgramas(programas) {
+  const ids = [];
+  for (const p of programas || []) {
+    for (const c of p.entrada_concierto || []) {
+      if (c?.id) ids.push(Number(c.id));
+    }
+  }
+  return ids;
 }
 
 export async function crearReserva({ conciertoId, cantidad }) {
@@ -171,8 +248,8 @@ export async function buildEntradasReservaPdfConQr({
   const entriesQrDataUrls = await Promise.all((qrEntradaTokens || []).map((t) => tokenToQrDataUrl(t)));
   const blob = await buildEntradasReservaPdfBlob({
     conciertoNombre: concierto?.nombre,
-    fechaHora: concierto?.fecha_hora,
-    lugarNombre: concierto?.lugar_nombre,
+    fechaHora: fechaHoraDesdeConciertoEntrada(concierto),
+    lugarNombre: lugarNombreDesdeConciertoEntrada(concierto),
     detalleRichtext: concierto?.detalle_richtext,
     ...programaPdfFieldsFromConcierto(concierto),
     codigoReserva: reserva?.codigo_reserva,
@@ -189,8 +266,8 @@ export async function buildEntradasReservaPdfConQr({
 export async function buildEntradasReservaPdfConDataUrls({ concierto, reserva, reservaQrDataUrl, entriesQrDataUrls }) {
   const blob = await buildEntradasReservaPdfBlob({
     conciertoNombre: concierto?.nombre,
-    fechaHora: concierto?.fecha_hora,
-    lugarNombre: concierto?.lugar_nombre,
+    fechaHora: fechaHoraDesdeConciertoEntrada(concierto),
+    lugarNombre: lugarNombreDesdeConciertoEntrada(concierto),
     detalleRichtext: concierto?.detalle_richtext,
     ...programaPdfFieldsFromConcierto(concierto),
     codigoReserva: reserva?.codigo_reserva,
@@ -202,21 +279,66 @@ export async function buildEntradasReservaPdfConDataUrls({ concierto, reserva, r
   return { blob, filename: makeEntradasReservaFilename(reserva?.codigo_reserva) };
 }
 
-export async function descargarPdfDesdeReservaRow(reserva) {
-  if (!reserva?.qr_reserva_token) {
-    throw new Error(
-      "No hay códigos guardados en el sistema para esta reserva. Solo se puede descargar el PDF de reservas creadas después de la actualización de almacenamiento de QR.",
-    );
-  }
+/** Token para QR grupal: guardado en BD o código de reserva (válido en recepción). */
+export function tokenQrReservaGrupo(reserva) {
+  const stored = String(reserva?.qr_reserva_token || "").trim();
+  if (stored) return stored;
+  return String(reserva?.codigo_reserva || "").trim();
+}
+
+export function entradasConTokensCompletos(reserva) {
+  const n = Number(reserva?.cantidad_solicitada) || 0;
+  if (!n || !tokenQrReservaGrupo(reserva)) return false;
   const sorted = [...(reserva.entradas || [])].sort((a, b) => (a.orden || 0) - (b.orden || 0));
   const tokens = sorted.map((e) => e.qr_entrada_token).filter(Boolean);
-  if (tokens.length !== Number(reserva.cantidad_solicitada) || !tokens.length) {
+  return tokens.length === n;
+}
+
+/** Completa tokens de plazas en BD si faltan (reservas legacy). */
+export async function asegurarQrTokensReserva(reservaId) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_asegurar_qr_tokens", {
+    p_reserva_id: Number(reservaId),
+  });
+  if (error) throw error;
+  if (!data?.ok) {
+    throw new Error("No se pudieron obtener los códigos QR de la reserva.");
+  }
+  return data;
+}
+
+export function mergeAsegurarQrEnReserva(reserva, payload) {
+  if (!reserva || !payload?.ok) return reserva;
+  const byId = new Map((payload.entradas || []).map((e) => [Number(e.id), e]));
+  return {
+    ...reserva,
+    qr_reserva_token: payload.qr_reserva_token ?? reserva.qr_reserva_token,
+    entradas: (reserva.entradas || []).map((row) => {
+      const patch = byId.get(Number(row.id));
+      if (!patch?.qr_entrada_token) return row;
+      return { ...row, qr_entrada_token: patch.qr_entrada_token };
+    }),
+  };
+}
+
+export async function descargarPdfDesdeReservaRow(reserva) {
+  let row = reserva;
+  if (!entradasConTokensCompletos(row)) {
+    const payload = await asegurarQrTokensReserva(row.id);
+    row = mergeAsegurarQrEnReserva(row, payload);
+  }
+  const grupoToken = tokenQrReservaGrupo(row);
+  if (!grupoToken) {
+    throw new Error("No hay código de reserva para generar el PDF.");
+  }
+  const sorted = [...(row.entradas || [])].sort((a, b) => (a.orden || 0) - (b.orden || 0));
+  const tokens = sorted.map((e) => e.qr_entrada_token).filter(Boolean);
+  if (tokens.length !== Number(row.cantidad_solicitada) || !tokens.length) {
     throw new Error("Faltan datos de entradas para generar el PDF. Contactá a la administración.");
   }
   const { blob, filename } = await buildEntradasReservaPdfConQr({
-    concierto: reserva.concierto,
-    reserva,
-    qrReservaToken: reserva.qr_reserva_token,
+    concierto: row.concierto,
+    reserva: row,
+    qrReservaToken: grupoToken,
     qrEntradaTokens: tokens,
   });
   downloadEntradasReservaPdfBlob(blob, filename);
@@ -279,12 +401,15 @@ export async function listarMisReservas() {
   const { data, error } = await supabaseEntradasPublic
     .from("entrada_reserva")
     .select(
-      "id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token, concierto:entrada_concierto(id, nombre, fecha_hora, slug_publico, lugar_nombre, detalle_richtext, entrada_programa(id, nombre, detalle_richtext)), entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token)",
+      `id, codigo_reserva, cantidad_solicitada, estado, created_at, qr_reserva_token, concierto:entrada_concierto(id, nombre, slug_publico, detalle_richtext, ofrn_evento_id, entrada_programa(id, nombre, detalle_richtext), ${ENTRADA_CONCIERTO_EVENTO_EMBED}), entradas:entrada_reserva_entrada(id, orden, estado_ingreso, ingresada_at, qr_entrada_token)`,
     )
     .eq("usuario_id", session.user.id)
     .order("id", { ascending: false });
   if (error) throw error;
-  return data || [];
+  return (data || []).map((reserva) => ({
+    ...reserva,
+    concierto: reserva.concierto ? aplicarDatosEventoAConciertoEntrada(reserva.concierto) : reserva.concierto,
+  }));
 }
 
 export async function previewEntradaQr(token, conciertoId = null) {
@@ -318,27 +443,6 @@ export async function validarYConsumirQr({
   return data;
 }
 
-/** Ciudad/localidad del concierto (tabla `localidades`), no el nombre de la locación/sala. */
-export function localidadDesdeConciertoEntrada(concierto) {
-  const loc = concierto?.evento?.locaciones?.localidades?.localidad;
-  return String(loc || "").trim();
-}
-
-/** Localidad(es) únicas de los conciertos de un programa (para encabezado de tarjeta). */
-export function localidadLabelDesdeProgramaEntrada(programa, conciertos = null) {
-  const lista = conciertos ?? programa?.entrada_concierto ?? [];
-  const locs = new Set();
-  for (const c of lista) {
-    const loc = localidadDesdeConciertoEntrada(c);
-    if (loc) locs.add(loc);
-  }
-  return [...locs].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" })).join(" · ");
-}
-
-function localidadDesdeReservaConcierto(concierto) {
-  return localidadDesdeConciertoEntrada(concierto);
-}
-
 export async function listAdminData() {
   const [programasRes, conciertosRes, usuariosRes, reservasLocRes] = await Promise.all([
     supabaseEntradasPublic.from("entrada_programa").select("*").order("id", { ascending: false }),
@@ -347,7 +451,7 @@ export async function listAdminData() {
       .select(
         "*, programa:entrada_programa(id, nombre), evento:eventos!entrada_concierto_ofrn_evento_id_fkey(id, fecha, hora_inicio, id_locacion, descripcion, locaciones(id, nombre, localidades(localidad)), programas(id, nomenclador, subtitulo))",
       )
-      .order("fecha_hora", { ascending: false }),
+      .order("id", { ascending: false }),
     supabaseEntradasPublic.from("entrada_usuario").select("*").order("apellido", { ascending: true }),
     supabaseEntradasPublic
       .from("entrada_reserva")
@@ -364,7 +468,7 @@ export async function listAdminData() {
   for (const row of reservasLocRes.data || []) {
     const uid = row.usuario_id;
     if (!uid) continue;
-    const loc = localidadDesdeReservaConcierto(row.concierto);
+    const loc = localidadDesdeConciertoEntrada(row.concierto);
     if (!loc) continue;
     if (!locByUser.has(uid)) locByUser.set(uid, new Set());
     locByUser.get(uid).add(loc);
@@ -379,7 +483,7 @@ export async function listAdminData() {
 
   return {
     programas: programasRes.data || [],
-    conciertos: conciertosRes.data || [],
+    conciertos: (conciertosRes.data || []).map(aplicarDatosEventoAConciertoEntrada),
     usuarios,
   };
 }
@@ -392,14 +496,17 @@ export async function getAdminConciertoStats(conciertoId) {
 
   const conciertoRes = await supabaseEntradasPublic
     .from("entrada_concierto")
-    .select("id, capacidad_maxima, reservas_habilitadas, apertura_reservas_at, fecha_hora, activo")
+    .select(`id, capacidad_maxima, reservas_habilitadas, apertura_reservas_at, activo, ofrn_evento_id, ${ENTRADA_CONCIERTO_EVENTO_EMBED}`)
     .eq("id", conciertoIdNum)
     .maybeSingle();
 
   if (conciertoRes.error) throw conciertoRes.error;
 
-  const capacidad = Number(conciertoRes.data?.capacidad_maxima || 0);
-  const aperturaPendiente = conciertoAdminSoloRecordatoriosProgramados(conciertoRes.data);
+  const conciertoRow = conciertoRes.data
+    ? aplicarDatosEventoAConciertoEntrada(conciertoRes.data)
+    : null;
+  const capacidad = Number(conciertoRow?.capacidad_maxima || 0);
+  const aperturaPendiente = conciertoAdminSoloRecordatoriosProgramados(conciertoRow);
 
   const recordatoriosPendRes = await supabaseEntradasPublic
     .from("entrada_recordatorio_apertura")

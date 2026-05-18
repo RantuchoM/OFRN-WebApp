@@ -152,7 +152,7 @@ export default function LoginEntradas({ user, profile, onProfileSaved, bootError
                     otpCode.trim().length < 8 ||
                     otpCode.trim().length > 8
                   }
-                  className={`${ui.btnGhost} w-full py-2.5 ${isDark ? "" : "bg-[#333333] text-white border-[#333333] hover:bg-[#111]"}`}
+                  className={ui.btnSolid}
                 >
                   {verifying ? "Validando..." : "Validar"}
                 </button>

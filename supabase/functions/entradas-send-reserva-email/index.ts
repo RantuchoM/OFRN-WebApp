@@ -6,6 +6,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { Buffer } from "node:buffer";
 import nodemailer from "npm:nodemailer@6.9.7";
+import {
+  ENTRADA_CONCIERTO_EVENTO_SELECT,
+  fechaHoraDesdeEventoOfrn,
+} from "../_shared/entradasConciertoEvento.ts";
 
 const GMAIL_USER = Deno.env.get("GMAIL_USER");
 const GMAIL_PASS = Deno.env.get("GMAIL_PASS");
@@ -211,7 +215,7 @@ async function loadReservaForUser(
   const { data: reserva, error: reservaError } = await supabaseUser
     .from("entrada_reserva")
     .select(
-      "id, usuario_id, estado, codigo_reserva, cantidad_solicitada, concierto:entrada_concierto(nombre, fecha_hora, slug_publico, detalle_richtext, entrada_programa(nombre, detalle_richtext))",
+      `id, usuario_id, estado, codigo_reserva, cantidad_solicitada, concierto:entrada_concierto(nombre, slug_publico, detalle_richtext, ofrn_evento_id, entrada_programa(nombre, detalle_richtext), ${ENTRADA_CONCIERTO_EVENTO_SELECT})`,
     )
     .eq("id", reservaId)
     .maybeSingle();
@@ -228,9 +232,10 @@ async function loadReservaForUser(
     cantidad_solicitada: number;
     concierto: {
       nombre?: string;
-      fecha_hora?: string;
       slug_publico?: string;
       detalle_richtext?: string;
+      ofrn_evento_id?: number;
+      evento?: { fecha?: string; hora_inicio?: string; locaciones?: { nombre?: string } };
       entrada_programa?: { nombre?: string; detalle_richtext?: string } | null;
     } | null;
   } };
@@ -328,7 +333,7 @@ serve(async (req) => {
     const concierto = reserva.concierto;
     const conciertoNombre = concierto?.nombre || "Concierto";
     const slug = concierto?.slug_publico || "";
-    const fechaHora = concierto?.fecha_hora;
+    const fechaHora = fechaHoraDesdeEventoOfrn(concierto?.evento);
     const fechaTexto = formatConciertoFechaHoraMail(fechaHora);
     const linkConcierto = `${appUrl}/entradas?view=catalogo&concierto=${encodeURIComponent(slug)}`;
 

@@ -1,6 +1,8 @@
-/** Fecha/hora del concierto como Date o null. */
+import { fechaHoraDesdeConciertoEntrada } from "./entradasConciertoEvento";
+
+/** Fecha/hora del concierto como Date o null (desde evento OFRN si está disponible). */
 export function conciertoDateFromReserva(reserva) {
-  const raw = reserva?.concierto?.fecha_hora;
+  const raw = fechaHoraDesdeConciertoEntrada(reserva?.concierto);
   if (!raw) return null;
   const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? null : d;

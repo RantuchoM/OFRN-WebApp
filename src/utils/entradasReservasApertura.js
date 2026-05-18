@@ -1,8 +1,9 @@
+import { fechaHoraDesdeConciertoEntrada } from "./entradasConciertoEvento";
 import { ENTRADAS_CONCIERTO_TIMEZONE } from "./entradasReservaCopy";
 
 /**
  * Apertura guardada o, si es NULL, jueves 19:00 AR de la semana anterior al concierto.
- * @param {{ apertura_reservas_at?: string|null, fecha_hora?: string|null }} concierto
+ * @param {{ apertura_reservas_at?: string|null, evento?: { fecha?: string, hora_inicio?: string } }} concierto
  * @returns {Date|null}
  */
 export function aperturaReservasEfectivaAt(concierto) {
@@ -11,8 +12,9 @@ export function aperturaReservasEfectivaAt(concierto) {
     const t = new Date(raw);
     if (!Number.isNaN(t.getTime())) return t;
   }
-  if (!concierto?.fecha_hora) return null;
-  return defaultAperturaReservasAtFromConcierto(concierto.fecha_hora, { clampPast: false });
+  const fh = fechaHoraDesdeConciertoEntrada(concierto);
+  if (!fh) return null;
+  return defaultAperturaReservasAtFromConcierto(fh, { clampPast: false });
 }
 
 /** Reservas abiertas: flag admin + fecha de apertura (efectiva) ya alcanzada. */
@@ -88,7 +90,7 @@ export const ADMIN_CONCIERTO_VISTAS = [
 ];
 
 function fechaHoraConciertoMs(concierto) {
-  const fh = concierto?.fecha_hora;
+  const fh = fechaHoraDesdeConciertoEntrada(concierto);
   if (!fh) return null;
   const t = new Date(fh);
   return Number.isNaN(t.getTime()) ? null : t.getTime();
