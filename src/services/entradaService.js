@@ -324,6 +324,17 @@ export function localidadDesdeConciertoEntrada(concierto) {
   return String(loc || "").trim();
 }
 
+/** Localidad(es) únicas de los conciertos de un programa (para encabezado de tarjeta). */
+export function localidadLabelDesdeProgramaEntrada(programa, conciertos = null) {
+  const lista = conciertos ?? programa?.entrada_concierto ?? [];
+  const locs = new Set();
+  for (const c of lista) {
+    const loc = localidadDesdeConciertoEntrada(c);
+    if (loc) locs.add(loc);
+  }
+  return [...locs].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" })).join(" · ");
+}
+
 function localidadDesdeReservaConcierto(concierto) {
   return localidadDesdeConciertoEntrada(concierto);
 }

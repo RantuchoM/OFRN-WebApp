@@ -13,10 +13,14 @@
   --entradas-border: #e8eaed;
   --entradas-duration: 0.35s;
   --entradas-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --entradas-font-sans: "Nunito Sans", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --entradas-font-serif: "PT Serif", Georgia, "Times New Roman", serif;
+  --entradas-radius-concierto: 2px;
+  --entradas-radius-panel: 4px;
 
-  font-family: "Nunito Sans", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--entradas-font-serif);
   font-size: 15px;
-  line-height: 1.5;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   color: var(--entradas-text);
 }
@@ -29,19 +33,51 @@
   --entradas-border: #334155;
 }
 
-/* Títulos: sans (Nunito Sans) */
+/* Encabezados y UI: sans (Nunito Sans, como filarmonica.rionegro.gov.ar) */
 .entradas-app h1,
 .entradas-app h2,
 .entradas-app h3,
-.entradas-app .entradas-font-title {
-  font-family: "Nunito Sans", Roboto, "Helvetica Neue", Arial, sans-serif;
+.entradas-app h4,
+.entradas-app h5,
+.entradas-app h6,
+.entradas-app .entradas-font-title,
+.entradas-app button,
+.entradas-app .entradas-nav-tab,
+.entradas-app .entradas-nav-active,
+.entradas-app .entradas-btn-primary,
+.entradas-app .entradas-btn-secondary {
+  font-family: var(--entradas-font-sans);
   letter-spacing: 0.01em;
 }
 
-/* Detalle / cuerpo: serif (PT Serif) */
-.entradas-app .entradas-font-detail {
-  font-family: "PT Serif", Georgia, "Times New Roman", serif;
+/* Datos, fechas, cuerpo, formularios: serif (PT Serif) */
+.entradas-app .entradas-font-detail,
+.entradas-app p,
+.entradas-app li,
+.entradas-app input,
+.entradas-app select,
+.entradas-app textarea,
+.entradas-app option {
+  font-family: var(--entradas-font-serif);
   letter-spacing: 0;
+}
+
+/* Contenedores de programa vs. tarjetas de concierto (The7: casi sin redondeo) */
+.entradas-app .entradas-programa-card {
+  border-radius: var(--entradas-radius-panel);
+}
+
+.entradas-app .entradas-concierto-card,
+.entradas-app .entradas-programa-card.entradas-concierto-card {
+  border-radius: var(--entradas-radius-concierto);
+}
+
+/* Título de programa (versalitas / small caps) */
+.entradas-app .entradas-programa-title {
+  font-variant: small-caps;
+  font-feature-settings: "smcp";
+  letter-spacing: 0.1em;
+  text-transform: lowercase;
 }
 
 .entradas-interactive {

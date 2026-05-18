@@ -40,6 +40,7 @@ import {
   listConciertoIdsConReservaActiva,
   listarMisReservas,
   listProgramasConConciertos,
+  localidadLabelDesdeProgramaEntrada,
   listarRecordatoriosAperturaConciertoIds,
   previewEntradaQr,
   suscribirRecordatorioApertura,
@@ -731,7 +732,11 @@ export default function EntradasMain({ user, profile, onLogout }) {
             return t >= inicioDiaHoy && t <= finDiaVentanaCatalogo;
           }),
         }))
-        .filter((p) => (p.entrada_concierto || []).length > 0),
+        .filter((p) => (p.entrada_concierto || []).length > 0)
+        .map((p) => ({
+          ...p,
+          localidadLabel: localidadLabelDesdeProgramaEntrada(p),
+        })),
     [programas, inicioDiaHoy, finDiaVentanaCatalogo],
   );
 
@@ -1959,13 +1964,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
               <button
                 type="button"
                 onClick={toggle}
-                className={`rounded-lg p-2.5 ${ui.themeToggle}`}
+                className={`${ui.headerAction} ${ui.themeToggle}`}
                 aria-label={isDark ? "Modo claro" : "Modo oscuro"}
                 title={isDark ? "Modo claro" : "Modo oscuro"}
               >
-                {isDark ? <IconSun size={20} /> : <IconMoon size={20} />}
+                {isDark ? <IconSun size={18} /> : <IconMoon size={18} />}
               </button>
-              <button type="button" onClick={onLogout} className={`rounded-lg px-3 py-2 text-xs font-bold ${ui.logout}`}>
+              <button
+                type="button"
+                onClick={onLogout}
+                className={`${ui.headerAction} ${ui.logout} text-xs font-bold`}
+              >
                 Cerrar sesión
               </button>
             </div>
@@ -2019,7 +2028,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 )}
                 {programasCatalogo.map((programa) => (
                   <article key={programa.id} className={`${ui.cardInner} p-3 space-y-2`}>
-                    <h3 className={`font-bold ${ui.textStrong}`}>{programa.nombre}</h3>
+                    {programa.localidadLabel ? (
+                      <p className={ui.programaLocalidad}>{programa.localidadLabel}</p>
+                    ) : null}
+                    <h3 className={ui.programaTitle}>{programa.nombre}</h3>
                     <EntradasRichTextHtml
                       html={programa.detalle_richtext}
                       isDark={isDark}
@@ -2041,14 +2053,19 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             className={ui.catalogConciertoBtn(catalogoSeleccionado)}
                             onClick={() => handlePickConcierto(concierto.slug_publico)}
                           >
+                            {tieneReservaEnConcierto(concierto.id) && (
+                              <div className="mb-1.5 flex flex-wrap gap-1 sm:hidden">
+                                <span className={ui.badgeReserva}>Ya tenés entrada/s</span>
+                              </div>
+                            )}
                             <div className="flex items-start justify-between gap-2">
-                              <p className={`text-sm font-semibold ${ui.textStrong}`}>{concierto.nombre}</p>
+                              <p className={`min-w-0 flex-1 text-sm font-semibold ${ui.textBody}`}>{concierto.nombre}</p>
                               <div className="flex shrink-0 flex-wrap justify-end gap-1">
                                 {catalogoSeleccionado && (
                                   <span className={ui.badgeSelected}>Seleccionado</span>
                                 )}
                                 {tieneReservaEnConcierto(concierto.id) && (
-                                  <span className={ui.badgeReserva}>Ya tenés entrada/s</span>
+                                  <span className={`${ui.badgeReserva} hidden sm:inline`}>Ya tenés entrada/s</span>
                                 )}
                                 {!reservasAbiertas && textoAperturaReservas(concierto) && (
                                   <span className={ui.badgeRecordatorio}>
@@ -2098,7 +2115,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                           <button
                             key={loc}
                             type="button"
-                            className={`${ui.cardInner} p-3 text-left entradas-interactive`}
+                            className={`entradas-concierto-card ${ui.cardInner} p-3 text-left entradas-interactive`}
                             onClick={() => setCatalogoFuturosLocalidad(loc)}
                           >
                             <p className={`text-sm font-bold ${ui.textStrong}`}>{loc}</p>
@@ -2124,9 +2141,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
                           const inscripto = recordatorioConciertoIds.has(Number(concierto.id));
                           const busy = recordatorioBusyId === Number(concierto.id);
                           return (
-                            <article key={concierto.id} className={`${ui.cardInner} p-3 space-y-2`}>
+                            <article key={concierto.id} className={`entradas-concierto-card ${ui.cardInner} p-3 space-y-2`}>
                               <div>
-                                <p className={`text-sm font-semibold ${ui.textStrong}`}>{concierto.nombre}</p>
+                                <p className={`text-sm font-semibold ${ui.textBody}`}>{concierto.nombre}</p>
                                 <p className={`text-xs ${ui.textSoft}`}>
                                   {formatConciertoFechaHoraEs(concierto.fecha_hora)}
                                 </p>
@@ -2754,6 +2771,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
                           && listaCompleta.every((c) =>
                             conciertoStatsSinReservasNiIngresos(adminConciertoStatsById[c.id]),
                           ));
+                      const programaLocalidadLabel = localidadLabelDesdeProgramaEntrada(
+                        programa,
+                        listaCompleta,
+                      );
                       return (
                         <article
                           key={programa.id}
@@ -2784,7 +2805,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
                           ) : (
                           <div className={`flex flex-wrap items-start justify-between gap-2 border-b pb-2 ${ui.dividerLight}`}>
                             <div className="min-w-0 flex-1">
-                              <p className={`font-bold ${ui.textStrong}`}>{programa.nombre}</p>
+                              {programaLocalidadLabel ? (
+                                <p className={ui.programaLocalidad}>{programaLocalidadLabel}</p>
+                              ) : null}
+                              <p className={ui.programaTitle}>{programa.nombre}</p>
                               {(() => {
                                 const ofrnRow = ofrnPid
                                   ? ofrnProgramasPicker.find((p) => Number(p.id) === ofrnPid)

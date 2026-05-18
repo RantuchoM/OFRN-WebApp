@@ -41,13 +41,15 @@ export function entradasUi(isDark) {
     navActive: `entradas-nav-active ${ix} entradas-nav-tab entradas-font-title`,
     section: `${lift} ${d ? "bg-slate-800 rounded-lg border border-slate-700 shadow-sm" : "bg-white rounded-lg border border-[#e8eaed] shadow-sm"}`,
     sectionTitle: `entradas-font-title text-sm font-black uppercase tracking-wide ${d ? "text-slate-400" : "text-slate-500"}`,
+    programaLocalidad: `entradas-font-detail mb-0.5 text-[11px] leading-tight ${d ? "text-slate-500" : "text-slate-500"}`,
+    programaTitle: `entradas-programa-title entradas-font-title text-lg font-bold tracking-wide leading-snug ${d ? "text-slate-100" : "text-slate-900"}`,
     card: `${lift} ${ix} ${d ? "rounded-lg border border-slate-600 bg-slate-800/80" : "rounded-lg border border-[#e8eaed] bg-white"}`,
     cardMuted: d
       ? "rounded-xl border border-slate-600 bg-slate-800/50"
       : "rounded-xl border border-slate-200 bg-slate-50/80",
     cardInner: d
-      ? "rounded-xl border border-slate-600 bg-slate-800"
-      : "rounded-xl border border-slate-200 bg-white",
+      ? "entradas-programa-card border border-slate-600 bg-slate-800"
+      : "entradas-programa-card border border-slate-200 bg-white",
     cardCancelada: d
       ? "rounded-xl border border-rose-900/60 bg-rose-950/50"
       : "rounded-xl border border-rose-200 bg-rose-50/90",
@@ -106,15 +108,15 @@ export function entradasUi(isDark) {
     adminTabActive: `entradas-nav-active ${ix} entradas-nav-tab entradas-font-title px-3 py-2`,
     tableWrap: d ? "overflow-x-auto rounded-xl border border-slate-700" : "overflow-x-auto rounded-xl border border-slate-200",
     tableHead: d
-      ? "bg-slate-900 text-left text-[10px] font-black uppercase tracking-wide text-slate-400 border-b border-slate-700"
-      : "bg-slate-50 text-left text-[10px] font-black uppercase tracking-wide text-slate-500 border-b border-slate-200",
+      ? "entradas-font-title bg-slate-900 text-left text-[10px] font-black uppercase tracking-wide text-slate-400 border-b border-slate-700"
+      : "entradas-font-title bg-slate-50 text-left text-[10px] font-black uppercase tracking-wide text-slate-500 border-b border-slate-200",
     tableRow: d ? "border-b border-slate-700 last:border-0 align-top" : "border-b border-slate-100 last:border-0 align-top",
     catalogConciertoBtn: (selected) =>
       d
-        ? `entradas-interactive w-full text-left rounded-lg border-2 px-3 py-2 bg-slate-800 ${
+        ? `entradas-concierto-card entradas-interactive w-full text-left border-2 px-3 py-2 bg-slate-800 ${
             selected ? "border-[#1ebbf0] shadow-md ring-1 ring-[#1ebbf0]/30" : "border-slate-600 hover:border-[#1ebbf0]/60"
           }`
-        : `entradas-interactive w-full text-left rounded-lg border-2 px-3 py-2 bg-white ${
+        : `entradas-concierto-card entradas-interactive w-full text-left border-2 px-3 py-2 bg-white ${
             selected ? "border-[#1ebbf0] shadow-md ring-1 ring-[#1ebbf0]/25" : "border-[#e8eaed] hover:border-[#1ebbf0]/50"
           }`,
     badgeSelected: d
@@ -192,14 +194,14 @@ export function entradasUi(isDark) {
         amber: d ? "text-amber-200" : "text-amber-900",
         emerald: d ? "text-emerald-200" : "text-emerald-900",
       };
-      return `text-[10px] font-black uppercase tracking-wide ${tones[tone] || tones.amber}`;
+      return `entradas-font-title text-[10px] font-black uppercase tracking-wide ${tones[tone] || tones.amber}`;
     },
     recepcionStatHint: (tone) => {
       const tones = {
         emerald: d ? "text-emerald-300/90" : "text-emerald-900/80",
         slate: d ? "text-slate-400" : "text-slate-600",
       };
-      return `text-[10px] text-center font-medium ${tones[tone] || tones.slate}`;
+      return `entradas-font-detail text-[10px] text-center font-medium ${tones[tone] || tones.slate}`;
     },
     recepcionQrValue: d
       ? "text-3xl font-black tabular-nums text-emerald-100"
@@ -228,12 +230,13 @@ export function entradasUi(isDark) {
     countdown: d
       ? "rounded-md bg-[#0c4a6e]/60 border border-[#1ebbf0]/40 text-sky-100"
       : "rounded-md bg-[#1ebbf0]/10 border border-[#1ebbf0]/30 text-[#0c4a6e]",
+    headerAction: `${ix} inline-flex h-9 shrink-0 items-center justify-center rounded-sm border transition-colors`,
     themeToggle: d
-      ? "bg-slate-700 text-fixed-indigo-300 hover:bg-slate-600"
-      : "bg-slate-100 text-orange-500 hover:bg-slate-200",
+      ? "w-9 border-slate-600 bg-slate-700 text-fixed-indigo-300 hover:bg-slate-600"
+      : "w-9 border-slate-300 bg-slate-100 text-orange-500 hover:bg-slate-200",
     logout: d
-      ? "border border-slate-600 text-slate-200 hover:bg-slate-700"
-      : "border border-slate-300 text-slate-700",
+      ? "px-3 border-slate-600 text-slate-200 hover:bg-slate-700"
+      : "px-3 border-slate-300 text-slate-700 hover:bg-slate-50",
     richtextBorder: d ? "mt-2 border-t border-slate-600 pt-2" : "mt-2 border-t border-slate-100 pt-2",
     imgBorder: d ? "border border-slate-600" : "border border-slate-200",
   };
