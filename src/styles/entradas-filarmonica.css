@@ -72,6 +72,25 @@
   border-radius: var(--entradas-radius-concierto);
 }
 
+/* Catálogo: paneles y controles con el mismo redondeo mínimo que el resto de Entradas */
+.entradas-catalogo .entradas-catalog-panel {
+  border-radius: var(--entradas-radius-panel) !important;
+}
+
+.entradas-catalogo .entradas-catalog-control,
+.entradas-catalogo .entradas-btn-primary,
+.entradas-catalogo .entradas-btn-secondary,
+.entradas-catalogo .entradas-btn-ghost,
+.entradas-catalogo select.entradas-catalog-control,
+.entradas-catalogo p.entradas-catalog-control {
+  border-radius: var(--entradas-radius-concierto) !important;
+}
+
+.entradas-catalogo .entradas-disponibilidad-track,
+.entradas-catalogo .entradas-disponibilidad-fill {
+  border-radius: var(--entradas-radius-concierto) !important;
+}
+
 /* Título de programa (versalitas / small caps) */
 .entradas-app .entradas-programa-title {
   font-variant: small-caps;

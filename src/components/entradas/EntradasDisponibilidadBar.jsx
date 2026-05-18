@@ -6,7 +6,9 @@ export default function EntradasDisponibilidadBar({
   isDark = false,
   className = "",
   loading = false,
+  square = false,
 }) {
+  const trackRadius = square ? "rounded-sm" : "rounded-full";
   const pct = porcentajeDisponibleConcierto(concierto);
   const ocupadoPct = pct == null ? 0 : Math.max(0, Math.min(100, 100 - pct));
 
@@ -14,7 +16,7 @@ export default function EntradasDisponibilidadBar({
     return (
       <div className={`space-y-1.5 ${className}`} aria-busy="true" aria-label="Cargando disponibilidad">
         <div className={`h-3 w-28 rounded ${isDark ? "bg-slate-700" : "bg-slate-200"} animate-pulse`} />
-        <div className={`h-2.5 rounded-full ${isDark ? "bg-slate-700" : "bg-slate-200"} animate-pulse`} />
+        <div className={`h-2.5 ${trackRadius} ${isDark ? "bg-slate-700" : "bg-slate-200"} animate-pulse`} />
       </div>
     );
   }
@@ -51,7 +53,7 @@ export default function EntradasDisponibilidadBar({
         </span>
       </div>
       <div
-        className={`entradas-disponibilidad-track h-2.5 w-full overflow-hidden rounded-full ${
+        className={`entradas-disponibilidad-track h-2.5 w-full overflow-hidden ${trackRadius} ${
           isDark ? "bg-slate-700" : "bg-slate-200"
         }`}
         role="progressbar"
@@ -61,7 +63,7 @@ export default function EntradasDisponibilidadBar({
         aria-label={`${pct} por ciento de entradas disponibles`}
       >
         <div
-          className={`entradas-disponibilidad-fill entradas-disponibilidad-fill--${tone} h-full rounded-full transition-[width] duration-500 ease-out`}
+          className={`entradas-disponibilidad-fill entradas-disponibilidad-fill--${tone} h-full ${trackRadius} transition-[width] duration-500 ease-out`}
           style={{ width: `${pct}%` }}
         />
         {ocupadoPct > 0 && pct < 100 && (

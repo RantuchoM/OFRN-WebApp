@@ -2,11 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 
 const STORAGE_KEY = "entradas_theme_mode";
 
+function readEntradasThemeIsDark() {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored === "light") return false;
+  return true;
+}
+
 export const ENTRADAS_LOGO_URL =
   "https://filarmonica.rionegro.gov.ar/wp-content/uploads/2025/11/logo-filarmonica-2026-negativo.png";
 
 export function useEntradasDarkMode() {
-  const [isDark, setIsDark] = useState(() => localStorage.getItem(STORAGE_KEY) === "dark");
+  const [isDark, setIsDark] = useState(readEntradasThemeIsDark);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, isDark ? "dark" : "light");
@@ -89,7 +95,7 @@ export function entradasUi(isDark) {
     btnSolid: d
       ? "entradas-interactive w-full rounded-md border border-slate-600 bg-slate-800 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-700 disabled:opacity-50"
       : "entradas-interactive w-full rounded-md border border-[#333333] bg-[#333333] py-2.5 text-sm font-semibold text-white hover:bg-[#111111] disabled:opacity-50",
-    btnGhost: `${ix} ${d ? "rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-700" : "rounded-md border border-[#e8eaed] bg-white px-3 py-2 text-sm font-semibold text-[#333333] hover:bg-[#f6f8fa]"}`,
+    btnGhost: `entradas-btn-ghost ${ix} ${d ? "rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-700" : "rounded-md border border-[#e8eaed] bg-white px-3 py-2 text-sm font-semibold text-[#333333] hover:bg-[#f6f8fa]"}`,
     btnIcon: d
       ? "p-2 rounded-lg border border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700"
       : "p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100",

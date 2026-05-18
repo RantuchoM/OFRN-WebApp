@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
+import EntradasCompartirConciertoBtn from "../../../components/entradas/EntradasCompartirConciertoBtn";
 import EntradasDisponibilidadBar from "../../../components/entradas/EntradasDisponibilidadBar";
 import EntradasDriveCoverImage from "../../../components/entradas/EntradasDriveCoverImage";
 import EntradasMisReservasSection from "../../../components/entradas/EntradasMisReservasSection";
@@ -2039,8 +2040,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
         </div>
 
         {section === "catalogo" && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <section className={`lg:col-span-1 ${ui.section} p-4 space-y-4`}>
+          <div className="entradas-catalogo grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <section className={`lg:col-span-1 entradas-catalog-panel ${ui.section} p-4 space-y-4`}>
               <h2 className={ui.sectionTitle}>Programas y conciertos</h2>
               <div className="space-y-3">
                 {programasCatalogo.length === 0 && (
@@ -2195,7 +2196,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
               )}
             </section>
 
-            <section className={`lg:col-span-2 ${ui.section} p-4 space-y-3 min-h-[12rem]`}>
+            <section className={`lg:col-span-2 entradas-catalog-panel ${ui.section} p-4 space-y-3 min-h-[12rem]`}>
               {selectedConciertoLoading && conciertoSlug && (
                 <div className={`flex flex-col items-center justify-center gap-2 py-10 ${ui.textMuted}`}>
                   <span
@@ -2226,7 +2227,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   <p className={`text-xs ${ui.textSoft}`}>{formatConciertoFechaHoraEs(selectedConcierto.fecha_hora)}</p>
                   {selectedConcierto.lugar_nombre && <p className={`text-xs ${ui.textMuted}`}>{selectedConcierto.lugar_nombre}</p>}
                   {!reservasAbiertasSel && (
-                    <div className={ui.warningBox}>
+                    <div className={`entradas-catalog-control ${ui.warningBox}`}>
                       <p className="text-sm font-semibold">Reservas aún no abiertas</p>
                       {textoAperturaReservas(selectedConcierto) && (
                         <p className={`text-xs mt-1 ${ui.textMuted}`}>
@@ -2258,28 +2259,26 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     <EntradasDriveCoverImage
                       url={selectedConcierto.imagen_drive_url}
                       alt={selectedConcierto.nombre}
-                      wrapperClassName={`flex w-full items-center justify-center overflow-hidden rounded-xl ${ui.imgBorder} ${
+                      wrapperClassName={`entradas-concierto-card flex w-full items-center justify-center overflow-hidden ${ui.imgBorder} ${
                         isDark ? "bg-slate-900/50" : "bg-slate-50"
                       }`}
                     />
                   )}
                   <EntradasRichTextHtml html={selectedConcierto.detalle_richtext} isDark={isDark} />
                   {reservasAbiertasSel && (
-                    <div className={ui.inset}>
-                      <EntradasDisponibilidadBar concierto={selectedConcierto} isDark={isDark} />
+                    <div className={`entradas-catalog-control ${ui.inset}`}>
+                      <EntradasDisponibilidadBar concierto={selectedConcierto} isDark={isDark} square />
                     </div>
                   )}
-                  <div className={ui.linkBox}>
-                    URL: {window.location.origin}/entradas?view=catalogo&concierto={selectedConcierto.slug_publico}
-                  </div>
+                  <EntradasCompartirConciertoBtn concierto={selectedConcierto} />
                   {tieneReservaEnConcierto(selectedConcierto.id) && (
-                    <p className={ui.warningBox}>Ya tenés una reserva activa para este concierto. Podés verla en &quot;Mis entradas&quot;.</p>
+                    <p className={`entradas-catalog-control ${ui.warningBox}`}>Ya tenés una reserva activa para este concierto. Podés verla en &quot;Mis entradas&quot;.</p>
                   )}
                   {reservasAbiertasSel && (
                     <>
                   <label className={ui.label}>Cantidad</label>
                   <select
-                    className={`${ui.select} w-full disabled:opacity-60`}
+                    className={`entradas-catalog-control ${ui.select} w-full disabled:opacity-60`}
                     value={cantidad}
                     onChange={(event) => setCantidad(Number(event.target.value))}
                     disabled={tieneReservaEnConcierto(selectedConcierto.id)}
