@@ -2,7 +2,18 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
-import { IconCamera, IconEdit, IconMail, IconTrash, IconX } from "../../../components/ui/Icons";
+import EntradasMisReservasSection from "../../../components/entradas/EntradasMisReservasSection";
+import {
+  IconCamera,
+  IconCopy,
+  IconEdit,
+  IconHelpCircle,
+  IconMail,
+  IconMoon,
+  IconSun,
+  IconTrash,
+  IconX,
+} from "../../../components/ui/Icons";
 import EntradasRichTextHtml from "../../../components/ui/EntradasRichTextHtml";
 import RichTextEditor from "../../../components/ui/RichTextEditor";
 import { supabaseEntradasPublic } from "../../../services/supabase";
@@ -15,12 +26,12 @@ import {
   adminDeleteConcierto,
   adminDeletePrograma,
   blobToPdfBase64ForMail,
+  buildEntradasRecordarmeUrl,
   buildEntradasReservaPdfConDataUrls,
   computeDisponibles,
   crearReserva,
   cancelarReserva,
   deltaEntradaSinEntrada,
-  descargarPdfDesdeReservaRow,
   enviarMailCancelacionReserva,
   fetchEntradaSinEntradaCount,
   enviarMailReserva,
@@ -29,7 +40,9 @@ import {
   listConciertoIdsConReservaActiva,
   listarMisReservas,
   listProgramasConConciertos,
+  listarRecordatoriosAperturaConciertoIds,
   previewEntradaQr,
+  suscribirRecordatorioApertura,
   tokenToQrDataUrl,
   validarYConsumirQr,
 } from "../../../services/entradaService";
@@ -42,22 +55,27 @@ import {
 } from "../../../utils/entradasQrMessages";
 import { formatEntradasIngresoConRecepcionista } from "../../../utils/entradasIngresoDisplay";
 import { decodeQrFromImageFile } from "../../../utils/qrDecodeFromImage";
+import {
+  ADMIN_CONCIERTO_VISTAS,
+  aperturaReservasEfectivaAt,
+  conciertoAceptaRecordatorioApertura,
+  conciertoAdminSoloRecordatoriosProgramados,
+  conciertoCumpleFiltroAdminVista,
+  conciertoParaReglasEntradas,
+  defaultAperturaReservasAtFromConcierto,
+  entradaConciertoReservasAbiertas,
+} from "../../../utils/entradasReservasApertura";
+import {
+  ENTRADAS_LOGO_URL,
+  entradaUsuarioRolLabelClass,
+  entradaUsuarioRolRowClass,
+  entradasUi,
+  recepcionPanelClass,
+  useEntradasDarkMode,
+} from "../../../hooks/useEntradasDarkMode";
+import "../../../styles/entradas-filarmonica.css";
 
 const ADMIN_TABS = ["programas", "usuarios"];
-
-function entradaUsuarioRolRowClass(rol) {
-  const r = String(rol || "personal").toLowerCase();
-  if (r === "admin") return "bg-amber-50/90 border-l-4 border-l-amber-500";
-  if (r === "recepcionista") return "bg-emerald-50/90 border-l-4 border-l-emerald-500";
-  return "bg-white border-l-4 border-l-slate-200";
-}
-
-function entradaUsuarioRolLabelClass(rol) {
-  const r = String(rol || "personal").toLowerCase();
-  if (r === "admin") return "bg-amber-100 text-amber-900 border-amber-200";
-  if (r === "recepcionista") return "bg-emerald-100 text-emerald-900 border-emerald-200";
-  return "bg-slate-100 text-slate-700 border-slate-200";
-}
 
 /** Valores de `programas.tipo` en OFRN (alineado con GiraForm). */
 const OFRN_PROGRAMA_TIPO_ENTRADAS_OPTIONS = [
@@ -183,25 +201,6 @@ function entradasBloqueoIngreso(p) {
   return "";
 }
 
-function recepcionPanelClass(p) {
-  if (!p) return "bg-slate-50 border-slate-200";
-  if (!p.ok) {
-    if (p.reason === "concierto_distinto") return "bg-orange-50/95 border-orange-300";
-    return "bg-rose-50/95 border-rose-200";
-  }
-  if (p.tipo === "entrada") {
-    if (p.reserva_estado && p.reserva_estado !== "activa") return "bg-orange-100/95 border-orange-300";
-    if (p.estado_ingreso === "ingresada") return "bg-orange-100/95 border-orange-300";
-    return "bg-emerald-100/95 border-emerald-300";
-  }
-  if (p.tipo === "reserva") {
-    if (p.reserva_estado === "cancelada" || p.pendientes === 0) return "bg-orange-100/95 border-orange-300";
-    if (p.ingresadas > 0 && p.pendientes > 0) return "bg-sky-100/95 border-sky-400";
-    return "bg-emerald-100/95 border-emerald-300";
-  }
-  return "bg-slate-100 border-slate-200";
-}
-
 function isQrOfrnTokenInput(value) {
   const token = String(value || "").trim();
   return /^ENTR-(RSV|TCK)-[a-f0-9]{32}$/i.test(token);
@@ -242,6 +241,8 @@ function normalizeDriveImageUrl(url) {
 }
 
 export default function EntradasMain({ user, profile, onLogout }) {
+  const { isDark, toggle } = useEntradasDarkMode();
+  const ui = entradasUi(isDark);
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [programas, setProgramas] = useState([]);
@@ -266,6 +267,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [sinEntradaBusy, setSinEntradaBusy] = useState(false);
   /** Plazas ingresadas vía QR vs total reservado (reservas activas), mismo criterio que estadísticas admin. */
   const [recepcionQrStats, setRecepcionQrStats] = useState({ ingresadas: 0, reservadas: 0, capacidad: 0 });
+  /** Móvil recepción: qué tarjeta de stats muestra la explicación (null = ninguna). */
+  const [recepcionStatHelp, setRecepcionStatHelp] = useState(null);
   const [cancelReservaTarget, setCancelReservaTarget] = useState(null);
   const [cancelingReserva, setCancelingReserva] = useState(false);
   const [conciertosConReservaActiva, setConciertosConReservaActiva] = useState([]);
@@ -284,14 +287,21 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [adminConciertoStatsById, setAdminConciertoStatsById] = useState({});
   const [adminConciertoStatsLoadingById, setAdminConciertoStatsLoadingById] = useState({});
   const [adminTab, setAdminTab] = useState("programas");
+  const [adminConciertoVista, setAdminConciertoVista] = useState("actuales");
   /** Filtro en pestaña Usuarios: localidades elegidas (vacío = mostrar todos). */
   const [adminUsuarioFiltroLocalidades, setAdminUsuarioFiltroLocalidades] = useState([]);
   const [adminUsuarioFiltroNombre, setAdminUsuarioFiltroNombre] = useState("");
   const [copyingAdminMails, setCopyingAdminMails] = useState(false);
   const [copyingProgramaMailsKey, setCopyingProgramaMailsKey] = useState("");
   const [copyingConciertoMailsKey, setCopyingConciertoMailsKey] = useState("");
+  const [catalogoFuturosVisible, setCatalogoFuturosVisible] = useState(false);
+  const [catalogoFuturosLocalidad, setCatalogoFuturosLocalidad] = useState(null);
+  const [recordatorioConciertoIds, setRecordatorioConciertoIds] = useState(() => new Set());
+  const [recordatorioBusyId, setRecordatorioBusyId] = useState(null);
   /** null | "new" | id del concierto en edición inline */
   const [conciertoEditor, setConciertoEditor] = useState(null);
+  /** null | id del programa en edición inline */
+  const [programaEditor, setProgramaEditor] = useState(null);
   const [programaForm, setProgramaForm] = useState({
     id: null,
     nombre: "",
@@ -307,6 +317,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     capacidad_maxima: 100,
     reservas_habilitadas: true,
     activo: true,
+    apertura_reservas_at: "",
     limite_recordatorio_at: "",
     limite_cierre_reservas_at: "",
     limite_encuesta_at: "",
@@ -422,6 +433,24 @@ export default function EntradasMain({ user, profile, onLogout }) {
   }, [section, conciertoSlug]);
 
   useEffect(() => {
+    let cancelled = false;
+    if (!profile?.email && !user?.email) {
+      setRecordatorioConciertoIds(new Set());
+      return undefined;
+    }
+    listarRecordatoriosAperturaConciertoIds()
+      .then((ids) => {
+        if (!cancelled) setRecordatorioConciertoIds(ids);
+      })
+      .catch(() => {
+        if (!cancelled) setRecordatorioConciertoIds(new Set());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.email, user?.email, programas]);
+
+  useEffect(() => {
     if (section !== "admin" || adminTab !== "programas") {
       setConciertoEditor(null);
     }
@@ -471,6 +500,110 @@ export default function EntradasMain({ user, profile, onLogout }) {
       }),
     [adminData.conciertos, programaIdsAdmin],
   );
+
+  const conciertosSinProgramaEnAdminFiltrados = useMemo(
+    () =>
+      conciertosSinProgramaEnAdmin.filter((c) =>
+        conciertoCumpleFiltroAdminVista(c, adminConciertoVista),
+      ),
+    [conciertosSinProgramaEnAdmin, adminConciertoVista],
+  );
+
+  const conciertosByProgramaIdFiltrado = useMemo(() => {
+    const m = new Map();
+    for (const [pid, lista] of conciertosByProgramaId.entries()) {
+      const filtrada = lista.filter((c) => conciertoCumpleFiltroAdminVista(c, adminConciertoVista));
+      if (filtrada.length) m.set(pid, filtrada);
+    }
+    return m;
+  }, [conciertosByProgramaId, adminConciertoVista]);
+
+  const programasAdminVisibles = useMemo(
+    () =>
+      (adminData.programas || []).filter((p) =>
+        (conciertosByProgramaIdFiltrado.get(Number(p.id)) || []).length > 0,
+      ),
+    [adminData.programas, conciertosByProgramaIdFiltrado],
+  );
+
+  const adminConciertoVistaBtn = (active) => (active ? ui.adminTabActive : ui.adminTabIdle);
+
+  const usuarioEmailEntradas = String(profile?.email || user?.email || "")
+    .trim()
+    .toLowerCase();
+
+  const textoAperturaReservas = (concierto) => {
+    const at = aperturaReservasEfectivaAt(concierto);
+    if (!at) return "";
+    return formatConciertoFechaHoraEs(at.toISOString());
+  };
+
+  const handleRecordarmeConcierto = async (concierto) => {
+    const slug = String(concierto?.slug_publico || "").trim();
+    if (!slug) return;
+    const mail = usuarioEmailEntradas;
+    if (!mail) {
+      toast.error("No encontramos tu correo en la sesión.");
+      return;
+    }
+    const cid = Number(concierto.id);
+    setRecordatorioBusyId(cid);
+    try {
+      const result = await suscribirRecordatorioApertura({ slug, email: mail });
+      setRecordatorioConciertoIds((prev) => new Set([...prev, cid]));
+      if (result?.ya_estaba) {
+        toast.message("Ya estabas anotado al recordatorio de este concierto.");
+      } else {
+        toast.success("Te avisaremos por mail cuando se habiliten las reservas.");
+      }
+    } catch (err) {
+      toast.error(err?.message || "No se pudo anotar al recordatorio.");
+    } finally {
+      setRecordatorioBusyId(null);
+    }
+  };
+
+  const recepcionHelpTextClass = (tone) => {
+    const tones = {
+      amber: isDark ? "text-amber-100/90" : "text-amber-950/90",
+      emerald: isDark ? "text-emerald-100/85" : "text-emerald-950/85",
+      slate: isDark ? "text-slate-300/90" : "text-slate-600",
+    };
+    return `text-xs mt-0.5 leading-snug ${tones[tone] || tones.slate}`;
+  };
+
+  const recepcionHelpVisibleClass = (key) =>
+    recepcionStatHelp === key ? "block" : "hidden sm:block";
+
+  const renderRecepcionHelpToggle = (key, tone = "slate") => {
+    const open = recepcionStatHelp === key;
+    const btnTone = {
+      amber: isDark ? "text-amber-200 hover:bg-amber-900/50" : "text-amber-800 hover:bg-amber-100",
+      emerald: isDark ? "text-emerald-200 hover:bg-emerald-900/50" : "text-emerald-800 hover:bg-emerald-100",
+      slate: isDark ? "text-slate-300 hover:bg-slate-700/80" : "text-slate-600 hover:bg-slate-200",
+    }[tone];
+    return (
+      <button
+        type="button"
+        className={`sm:hidden shrink-0 rounded-full p-1 ${btnTone}`}
+        aria-label={open ? "Ocultar explicación" : "Ver explicación"}
+        aria-expanded={open}
+        onClick={() => setRecepcionStatHelp((prev) => (prev === key ? null : key))}
+      >
+        <IconHelpCircle size={18} />
+      </button>
+    );
+  };
+
+  const copiarEnlaceRecordarme = async (concierto) => {
+    const url = buildEntradasRecordarmeUrl(concierto?.slug_publico);
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Enlace de recordatorio copiado.");
+    } catch {
+      toast.error("No se pudo copiar el enlace.");
+    }
+  };
 
   const ofrnProgramasPicker = useMemo(() => {
     if (ofrnProgramasList.length > 0) {
@@ -602,6 +735,37 @@ export default function EntradasMain({ user, profile, onLogout }) {
     [programas, inicioDiaHoy, finDiaVentanaCatalogo],
   );
 
+  const conciertosFuturosRecordatorio = useMemo(
+    () =>
+      concertosFlat.filter((concierto) => {
+        if (concierto?.activo === false) return false;
+        if (!conciertoAceptaRecordatorioApertura(concierto, finDiaVentanaCatalogo)) return false;
+        const enVentana = conciertoEnVentanaCatalogoDosSemanas(concierto, inicioDiaHoy, finDiaVentanaCatalogo);
+        if (enVentana && entradaConciertoReservasAbiertas(concierto)) return false;
+        return true;
+      }),
+    [concertosFlat, finDiaVentanaCatalogo, inicioDiaHoy],
+  );
+
+  const futurosPorLocalidad = useMemo(() => {
+    const m = new Map();
+    for (const c of conciertosFuturosRecordatorio) {
+      const loc = String(c.lugar_nombre || "").trim() || "Sin localidad indicada";
+      if (!m.has(loc)) m.set(loc, []);
+      m.get(loc).push(c);
+    }
+    for (const arr of m.values()) {
+      arr.sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
+    }
+    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b, "es", { sensitivity: "base" }));
+  }, [conciertosFuturosRecordatorio]);
+
+  const conciertosFuturosLocalidadLista = useMemo(() => {
+    if (!catalogoFuturosLocalidad) return [];
+    const row = futurosPorLocalidad.find(([loc]) => loc === catalogoFuturosLocalidad);
+    return row?.[1] || [];
+  }, [catalogoFuturosLocalidad, futurosPorLocalidad]);
+
   const adminUsuariosLocalidadesOpciones = useMemo(() => {
     const s = new Set();
     for (const u of adminData.usuarios || []) {
@@ -649,6 +813,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
       .filter((c) => c.activo && c.fecha_hora && new Date(c.fecha_hora) >= inicioDiaHoy)
       .sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
   }, [concertosFlat, inicioDiaHoy]);
+
+  useEffect(() => {
+    if (section !== "recepcion") setRecepcionStatHelp(null);
+  }, [section]);
 
   useEffect(() => {
     if (section !== "recepcion" || !canRecepcion) {
@@ -1001,6 +1169,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
   const resetProgramaForm = () => {
     setProgramaForm({ id: null, nombre: "", detalle_richtext: "", activo: true });
+    setProgramaEditor(null);
   };
 
   const startEditPrograma = (programa) => {
@@ -1010,6 +1179,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       detalle_richtext: programa.detalle_richtext || "",
       activo: programa.activo !== false,
     });
+    setProgramaEditor(programa.id);
   };
 
   const submitPrograma = async (event) => {
@@ -1079,7 +1249,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     try {
       await adminDeletePrograma(pid);
       toast.success("Programa y conciertos de entradas eliminados.");
-      if (programaForm.id != null && Number(programaForm.id) === pid) {
+      if (programaEditor != null && Number(programaEditor) === pid) {
         resetProgramaForm();
       }
       if (conciertoEditor != null && conciertoEditor !== "new") {
@@ -1145,6 +1315,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       capacidad_maxima: 100,
       reservas_habilitadas: true,
       activo: true,
+      apertura_reservas_at: "",
       limite_recordatorio_at: "",
       limite_cierre_reservas_at: "",
       limite_encuesta_at: "",
@@ -1210,6 +1381,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     await adminUpsertConcierto({
       ...conciertoForm,
       imagen_drive_url: normalizeDriveImageUrl(conciertoForm.imagen_drive_url),
+      apertura_reservas_at: datetimeLocalInputToIso(conciertoForm.apertura_reservas_at),
       limite_recordatorio_at: datetimeLocalInputToIso(conciertoForm.limite_recordatorio_at),
       limite_cierre_reservas_at: datetimeLocalInputToIso(conciertoForm.limite_cierre_reservas_at),
       limite_encuesta_at: datetimeLocalInputToIso(conciertoForm.limite_encuesta_at),
@@ -1226,9 +1398,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
     setAdminConciertoStatsLoadingById({});
   };
 
-  const cargarStatsConcierto = async (conciertoId) => {
+  const cargarStatsConcierto = async (conciertoId, { force = false } = {}) => {
     const id = Number(conciertoId);
-    if (!id || adminConciertoStatsById[id]) return;
+    if (!id) return;
+    if (!force && adminConciertoStatsById[id]) return;
     setAdminConciertoStatsLoadingById((prev) => ({ ...prev, [id]: true }));
     try {
       const stats = await getAdminConciertoStats(id);
@@ -1255,7 +1428,11 @@ export default function EntradasMain({ user, profile, onLogout }) {
           ? out.emailsReservaron
           : bucket === "ingresaron"
           ? out.emailsIngresaron
-          : out.emailsReservaSinIngreso;
+          : bucket === "sinIngreso"
+          ? out.emailsReservaSinIngreso
+          : bucket === "recordatorio"
+          ? out.emailsRecordatorioApertura
+          : [];
       if (!list.length) {
         toast.message("No hay direcciones en esa categoría.");
         return;
@@ -1266,6 +1443,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
           ? "quienes reservaron"
           : bucket === "ingresaron"
           ? "con al menos un ingreso registrado"
+          : bucket === "recordatorio"
+          ? "recordatorio de apertura"
           : "reserva sin ningún ingreso (no asistieron)";
       toast.success(`${list.length} mail${list.length === 1 ? "" : "es"} copiados (${label}).`);
     } catch (err) {
@@ -1289,6 +1468,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
           ? out.emailsIngresaron
           : bucket === "sinIngreso"
           ? out.emailsReservaSinIngreso
+          : bucket === "recordatorio"
+          ? out.emailsRecordatorioApertura
           : [];
       if (!list.length) {
         toast.message("No hay direcciones en esa categoría para este concierto.");
@@ -1300,6 +1481,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
           ? "reservaron"
           : bucket === "ingresaron"
           ? "con ingreso"
+          : bucket === "recordatorio"
+          ? "recordatorio de apertura"
           : "sin ingreso (no asistieron)";
       toast.success(`${list.length} mail${list.length === 1 ? "" : "es"} copiados (${label}).`);
     } catch (err) {
@@ -1317,7 +1500,29 @@ export default function EntradasMain({ user, profile, onLogout }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- precarga al entrar a Admin programas
   }, [section, canAdmin, adminTab, adminData.conciertos]);
 
+  useEffect(() => {
+    if (conciertoEditor == null || conciertoEditor === "new") return;
+    const id = Number(conciertoEditor);
+    if (!Number.isFinite(id) || id <= 0) return;
+    setAdminConciertoStatsById((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    void cargarStatsConcierto(id, { force: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recargar stats al cambiar apertura en el formulario
+  }, [conciertoForm.apertura_reservas_at, conciertoForm.reservas_habilitadas]);
+
   const startEditConcierto = (concierto) => {
+    const aperturaGuardada = concierto.apertura_reservas_at
+      ? isoToDatetimeLocalInput(concierto.apertura_reservas_at)
+      : "";
+    const aperturaDefault =
+      !aperturaGuardada && concierto.fecha_hora
+        ? isoToDatetimeLocalInput(
+            defaultAperturaReservasAtFromConcierto(concierto.fecha_hora)?.toISOString(),
+          )
+        : "";
     setConciertoForm({
       id: concierto.id,
       ofrn_evento_id: concierto.ofrn_evento_id ?? "",
@@ -1327,25 +1532,99 @@ export default function EntradasMain({ user, profile, onLogout }) {
       capacidad_maxima: Number(concierto.capacidad_maxima || 100),
       reservas_habilitadas: concierto.reservas_habilitadas ?? true,
       activo: concierto.activo ?? true,
+      apertura_reservas_at: aperturaGuardada || aperturaDefault,
       limite_recordatorio_at: isoToDatetimeLocalInput(concierto.limite_recordatorio_at),
       limite_cierre_reservas_at: isoToDatetimeLocalInput(concierto.limite_cierre_reservas_at),
       limite_encuesta_at: isoToDatetimeLocalInput(concierto.limite_encuesta_at),
       encuesta_url: concierto.encuesta_url || "",
     });
     setConciertoEditor(concierto.id);
+    const reglas = conciertoParaReglasEntradas(
+      concierto,
+      {
+        apertura_reservas_at: aperturaGuardada || aperturaDefault,
+        reservas_habilitadas: concierto.reservas_habilitadas ?? true,
+        activo: concierto.activo ?? true,
+      },
+      { editing: true },
+    );
+    if (conciertoAdminSoloRecordatoriosProgramados(reglas)) {
+      setAdminConciertoStatsById((prev) => {
+        const next = { ...prev };
+        delete next[concierto.id];
+        return next;
+      });
+      void cargarStatsConcierto(concierto.id, { force: true });
+    }
   };
+
+  const renderProgramaEditorForm = () => (
+    <form className="space-y-3" onSubmit={submitPrograma}>
+      {ofrnProgramaEnEdicionReferencia && (
+        <div className={ui.inset}>
+          <p className={ui.label}>Gira OFRN (referencia)</p>
+          <p className={`text-xs font-semibold ${ui.textBody}`}>{buildProgramaLabel(ofrnProgramaEnEdicionReferencia)}</p>
+          {String(ofrnProgramaEnEdicionReferencia.subtitulo || "").trim() ? (
+            <p className={`text-xs leading-relaxed ${ui.textSoft}`}>{String(ofrnProgramaEnEdicionReferencia.subtitulo).trim()}</p>
+          ) : (
+            <p className={`text-[11px] italic ${ui.textMuted}`}>Sin subtítulo en la gira OFRN.</p>
+          )}
+        </div>
+      )}
+      <input
+        value={programaForm.nombre}
+        onChange={(event) => setProgramaForm((prev) => ({ ...prev, nombre: event.target.value }))}
+        className={ui.input}
+        placeholder="Nombre del programa"
+        required
+      />
+      <RichTextEditor
+        key={`programa-detalle-${programaForm.id ?? "nuevo"}`}
+        value={programaForm.detalle_richtext}
+        onChange={(value) => setProgramaForm((prev) => ({ ...prev, detalle_richtext: value }))}
+        placeholder="Detalle del programa (texto enriquecido)"
+      />
+      <label className={`flex items-center gap-2 text-sm ${ui.textBody}`}>
+        <input
+          type="checkbox"
+          checked={programaForm.activo}
+          onChange={(event) => setProgramaForm((prev) => ({ ...prev, activo: event.target.checked }))}
+          className={ui.checkbox}
+        />
+        Programa activo (visible en catálogo cuando tenga conciertos publicados)
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" className={`${ui.btnPrimary} w-auto px-4`}>
+          Actualizar programa
+        </button>
+        <button type="button" onClick={resetProgramaForm} className={ui.btnGhost}>
+          Cancelar
+        </button>
+      </div>
+    </form>
+  );
 
   const renderConciertoEditorForm = () => (
     <form className="space-y-3" onSubmit={submitConcierto}>
       <select
         value={conciertoForm.ofrn_evento_id === "" ? "" : String(conciertoForm.ofrn_evento_id)}
-        onChange={(event) =>
+        onChange={(event) => {
+          const nextId = event.target.value === "" ? "" : Number(event.target.value);
+          const ev = eventosParaSelectorConcierto.find((row) => Number(row.id) === Number(nextId));
+          let apertura_reservas_at = conciertoForm.apertura_reservas_at;
+          if (ev?.fecha) {
+            const hora = String(ev.hora_inicio || "20:00").trim().slice(0, 5);
+            const fechaHora = `${ev.fecha}T${hora}`;
+            const def = defaultAperturaReservasAtFromConcierto(fechaHora);
+            if (def) apertura_reservas_at = isoToDatetimeLocalInput(def.toISOString());
+          }
           setConciertoForm((prev) => ({
             ...prev,
-            ofrn_evento_id: event.target.value === "" ? "" : Number(event.target.value),
-          }))
-        }
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            ofrn_evento_id: nextId,
+            apertura_reservas_at,
+          }));
+        }}
+        className={ui.select}
         required
       >
         <option value="">Seleccionar evento OFRN (tipo concierto)</option>
@@ -1358,11 +1637,11 @@ export default function EntradasMain({ user, profile, onLogout }) {
       <input
         value={conciertoForm.nombre}
         onChange={(event) => setConciertoForm((prev) => ({ ...prev, nombre: event.target.value }))}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        className={ui.input}
         placeholder="Nombre del concierto"
         required
       />
-      <p className="text-xs text-slate-500">
+      <p className={`text-xs ${ui.textMuted}`}>
         {conciertoEditor === "new" && conciertoOfrnProgramaContextId
           ? "Solo se muestran conciertos del programa OFRN elegido. Fecha, hora y lugar salen del evento."
           : "Fecha, hora y lugar se toman del evento OFRN seleccionado."}
@@ -1370,7 +1649,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       <input
         value={conciertoForm.imagen_drive_url}
         onChange={(event) => setConciertoForm((prev) => ({ ...prev, imagen_drive_url: event.target.value }))}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        className={ui.input}
         placeholder="URL pública de portada (Google Drive)"
       />
       <input
@@ -1378,53 +1657,80 @@ export default function EntradasMain({ user, profile, onLogout }) {
         min={1}
         value={conciertoForm.capacidad_maxima}
         onChange={(event) => setConciertoForm((prev) => ({ ...prev, capacidad_maxima: Number(event.target.value) }))}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        className={ui.input}
         placeholder="Capacidad máxima"
         required
       />
-      <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 space-y-2">
-        <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">Horarios automáticos</p>
-        <p className="text-[11px] text-slate-500 leading-snug">
+      <div className={ui.insetPanel}>
+        <p className={ui.sectionTitle}>Apertura de reservas</p>
+        <label className={`flex items-center gap-2 text-sm ${ui.textBody}`}>
+          <input
+            type="checkbox"
+            checked={conciertoForm.reservas_habilitadas}
+            onChange={(e) =>
+              setConciertoForm((prev) => ({ ...prev, reservas_habilitadas: e.target.checked }))
+            }
+            className={ui.checkbox}
+          />
+          Reservas habilitadas (flag admin)
+        </label>
+        <label className={`block text-xs font-semibold mt-2 ${ui.textBody}`}>
+          Fecha y hora de apertura
+          <input
+            type="datetime-local"
+            value={conciertoForm.apertura_reservas_at}
+            onChange={(e) => setConciertoForm((prev) => ({ ...prev, apertura_reservas_at: e.target.value }))}
+            className={`mt-1 ${ui.input}`}
+          />
+        </label>
+        <p className={`text-[10px] leading-snug mt-1 ${ui.textMuted}`}>
+          Si dejás vacío en base, se usa por defecto el jueves anterior al concierto a las 19:00 (Argentina). Mientras no
+          llegue la apertura, en admin solo verás recordatorios programados.
+        </p>
+      </div>
+      <div className={ui.insetPanel}>
+        <p className={ui.sectionTitle}>Horarios automáticos</p>
+        <p className={`text-[11px] leading-snug ${ui.textMuted}`}>
           Por defecto: recordatorio 1 día antes, cierre de reservas 10 min antes del concierto, encuesta 3 h después (editable).
         </p>
-        <label className="block text-xs font-semibold text-slate-700">
+        <label className={`block text-xs font-semibold ${ui.textBody}`}>
           Recordatorio por mail
           <input
             type="datetime-local"
             value={conciertoForm.limite_recordatorio_at}
             onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_recordatorio_at: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
+            className={`mt-1 ${ui.input}`}
           />
         </label>
-        <label className="block text-xs font-semibold text-slate-700">
+        <label className={`block text-xs font-semibold ${ui.textBody}`}>
           Cierre para sacar entradas
           <input
             type="datetime-local"
             value={conciertoForm.limite_cierre_reservas_at}
             onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_cierre_reservas_at: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
+            className={`mt-1 ${ui.input}`}
           />
         </label>
-        <label className="block text-xs font-semibold text-slate-700">
+        <label className={`block text-xs font-semibold ${ui.textBody}`}>
           Envío encuesta (quienes ingresaron)
           <input
             type="datetime-local"
             value={conciertoForm.limite_encuesta_at}
             onChange={(e) => setConciertoForm((prev) => ({ ...prev, limite_encuesta_at: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
+            className={`mt-1 ${ui.input}`}
           />
         </label>
-        <label className="block text-xs font-semibold text-slate-700">
+        <label className={`block text-xs font-semibold ${ui.textBody}`}>
           Enlace de la encuesta (Google Form u otro)
           <input
             type="url"
             value={conciertoForm.encuesta_url}
             onChange={(e) => setConciertoForm((prev) => ({ ...prev, encuesta_url: e.target.value }))}
             placeholder="https://forms.gle/..."
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal"
+            className={`mt-1 ${ui.input}`}
           />
         </label>
-        <p className="text-[10px] text-slate-500 leading-snug">
+        <p className={`text-[10px] leading-snug ${ui.textMuted}`}>
           Este enlace se usa en el mail automático de encuesta después del concierto. Si queda vacío, no se envía ese mail (salvo URL global en el servidor).
         </p>
       </div>
@@ -1436,14 +1742,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
         placeholder="Detalle del concierto"
       />
       <div className="flex flex-wrap gap-2 items-center">
-        <button type="submit" className="rounded-lg bg-blue-700 text-white px-4 py-2 text-sm font-semibold">
+        <button type="submit" className={`${ui.btnPrimary} w-auto px-4`}>
           {conciertoForm.id ? "Actualizar concierto" : "Guardar concierto"}
         </button>
-        <button
-          type="button"
-          onClick={closeConciertoEditor}
-          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
-        >
+        <button type="button" onClick={closeConciertoEditor} className={ui.btnGhost}>
           Cancelar
         </button>
       </div>
@@ -1453,11 +1755,18 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const renderAdminConciertoItem = (concierto) => {
     const stats = adminConciertoStatsById[concierto.id];
     const loadingStats = Boolean(adminConciertoStatsLoadingById[concierto.id]);
+    const editingThis =
+      conciertoEditor != null
+      && conciertoEditor !== "new"
+      && Number(conciertoEditor) === Number(concierto.id);
+    const conciertoReglas = conciertoParaReglasEntradas(concierto, conciertoForm, { editing: editingThis });
+    const vistaSoloRecordatorios = conciertoAdminSoloRecordatoriosProgramados(conciertoReglas);
     const enVentana = conciertoEnVentanaCatalogoDosSemanas(concierto, inicioDiaHoy, finDiaVentanaCatalogo);
     const puedeEliminarConcierto = conciertoStatsSinReservasNiIngresos(stats);
-    const muestraCargandoStats = enVentana && loadingStats && !stats;
-    const muestraVerStats = !enVentana && !stats && !loadingStats;
+    const muestraCargandoStats = (enVentana || vistaSoloRecordatorios) && loadingStats && !stats;
+    const muestraVerStats = !enVentana && !vistaSoloRecordatorios && !stats && !loadingStats;
     const conciertoMailBusy = copyingConciertoMailsKey.startsWith(`${concierto.id}:`);
+    const recordatoriosPendientes = stats?.recordatoriosAperturaPendientes ?? stats?.recordatoriosApertura ?? 0;
     const statMailBtn = (bucket, { disabled = false, title }) => (
       <button
         type="button"
@@ -1467,45 +1776,68 @@ export default function EntradasMain({ user, profile, onLogout }) {
         onClick={() => {
           if (!disabled) void copiarMailsConciertoAdmin(concierto.id, bucket);
         }}
-        className="shrink-0 rounded p-0.5 text-slate-600 hover:text-indigo-800 hover:bg-white/70 border border-transparent hover:border-slate-200 disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:border-transparent disabled:cursor-not-allowed"
+        className={`shrink-0 ${ui.btnIcon} p-1.5 disabled:opacity-25 disabled:cursor-not-allowed`}
       >
         <IconMail size={16} className={copyingConciertoMailsKey === `${concierto.id}:${bucket}` ? "opacity-40" : ""} />
       </button>
     );
     const statsGrid = stats && (
+      vistaSoloRecordatorios ? (
+        <div className="mt-2 space-y-2 text-xs">
+          <div
+            className={`rounded-md border px-2 py-1.5 flex items-start justify-between gap-1 ${ui.adminStatCard("recordatorio")}`}
+          >
+            <div className="min-w-0">
+              <span className={ui.adminStatLabel("recordatorio")}>Recordatorios programados:</span>{" "}
+              <span>{recordatoriosPendientes}</span>
+            </div>
+            {statMailBtn("recordatorio", {
+              title: "Copiar mails inscriptos al recordatorio de apertura (pendientes de aviso)",
+            })}
+          </div>
+          <p className={`text-[11px] ${ui.textMuted}`}>Capacidad máxima: {stats.capacidad}</p>
+          <p className={`text-[10px] leading-snug ${ui.textMuted}`}>
+            Las reservas aún no están abiertas
+            {textoAperturaReservas(conciertoReglas)
+              ? ` (apertura prevista: ${textoAperturaReservas(conciertoReglas)})`
+              : ""}
+            . Hasta entonces solo tiene sentido el contador de recordatorios.
+          </p>
+        </div>
+      ) : (
       <>
         <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
-          <div className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1.5 flex items-start justify-between gap-1">
+          <div className={`rounded-md border px-2 py-1.5 flex items-start justify-between gap-1 ${ui.adminStatCard("reservadas")}`}>
             <div className="min-w-0">
-              <span className="font-bold text-indigo-800">Reservadas:</span>{" "}
-              <span className="text-indigo-900">{stats.reservadas}</span>
+              <span className={ui.adminStatLabel("reservadas")}>Reservadas:</span>{" "}
+              <span>{stats.reservadas}</span>
             </div>
             {statMailBtn("reservaron", {
               title: "Copiar mails de quienes tienen reserva activa en este concierto",
             })}
           </div>
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 flex items-start justify-between gap-1">
+          <div className={`rounded-md border px-2 py-1.5 flex items-start justify-between gap-1 ${ui.adminStatCard("disponibles")}`}>
             <div className="min-w-0">
-              <span className="font-bold text-emerald-800">Disponibles:</span>{" "}
-              <span className="text-emerald-900">{stats.disponibles}</span>
+              <span className={ui.adminStatLabel("disponibles")}>Disponibles:</span>{" "}
+              <span>{stats.disponibles}</span>
             </div>
             {statMailBtn("disponibles", {
               disabled: true,
               title: "Sin destinatarios: son plazas libres (no hay mails asociados)",
             })}
           </div>
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 flex items-start justify-between gap-1">
+          <div className={`rounded-md border px-2 py-1.5 flex items-start justify-between gap-1 ${ui.adminStatCard("ingresadas")}`}>
             <div className="min-w-0">
-              <span className="font-bold text-amber-800">Ingresadas:</span>{" "}
-              <span className="text-amber-900">{stats.ingresadas}</span>
+              <span className={ui.adminStatLabel("ingresadas")}>Ingresadas:</span>{" "}
+              <span>{stats.ingresadas}</span>
             </div>
             {statMailBtn("ingresaron", {
               title: "Copiar mails con al menos un ingreso registrado en este concierto",
             })}
           </div>
-          <div className="rounded-md border border-slate-300 bg-slate-100 px-2 py-1.5 text-slate-700 flex items-start justify-between gap-1">
+          <div className={`rounded-md border px-2 py-1.5 flex items-start justify-between gap-1 ${ui.adminStatCard("noUtilizadas")}`}>
             <div className="min-w-0">
-              <span className="font-bold">Reservadas no utilizadas:</span> {stats.noUtilizadas}
+              <span className={ui.adminStatLabel("noUtilizadas")}>Reservadas no utilizadas:</span> {stats.noUtilizadas}
             </div>
             {statMailBtn("sinIngreso", {
               title:
@@ -1513,27 +1845,21 @@ export default function EntradasMain({ user, profile, onLogout }) {
             })}
           </div>
         </div>
-        <p className="mt-1 text-[11px] text-slate-500">Capacidad máxima: {stats.capacidad}</p>
+        <p className={`mt-1 text-[11px] ${ui.textMuted}`}>Capacidad máxima: {stats.capacidad}</p>
       </>
+      )
     );
-    const editingThis =
-      conciertoEditor != null
-      && conciertoEditor !== "new"
-      && Number(conciertoEditor) === Number(concierto.id);
     if (editingThis) {
       return (
-        <li
-          key={concierto.id}
-          className="rounded-xl border-2 border-indigo-300 bg-white p-3 text-sm space-y-3 shadow-sm list-none"
-        >
+        <li key={concierto.id} className={`${ui.editorHighlight} text-sm space-y-3 list-none`}>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <h4 className="text-[10px] font-black uppercase tracking-wide text-slate-600">Editar concierto</h4>
-              <p className="mt-1 text-sm font-semibold text-slate-800">
+              <h4 className={ui.sectionTitle}>Editar concierto</h4>
+              <p className={`mt-1 text-sm font-semibold ${ui.textStrong}`}>
                 {formatConciertoFechaHoraEs(concierto.fecha_hora)}
                 {concierto.lugar_nombre ? ` · ${concierto.lugar_nombre}` : ""}
               </p>
-              <p className="text-xs text-slate-500">{concierto.nombre}</p>
+              <p className={`text-xs ${ui.textMuted}`}>{concierto.nombre}</p>
             </div>
             {puedeEliminarConcierto && (
               <button
@@ -1541,7 +1867,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 title="Eliminar concierto"
                 aria-label="Eliminar concierto"
                 onClick={() => setDeleteConciertoTarget({ id: concierto.id, nombre: concierto.nombre })}
-                className="shrink-0 p-2 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50"
+                className={ui.btnIconDanger}
               >
                 <IconTrash size={18} />
               </button>
@@ -1549,19 +1875,21 @@ export default function EntradasMain({ user, profile, onLogout }) {
           </div>
           {renderConciertoEditorForm()}
           {muestraCargandoStats && (
-            <p className="text-xs text-slate-500 pt-2 border-t border-slate-200">Cargando estadísticas…</p>
+            <p className={`text-xs pt-2 border-t ${ui.dividerLight} ${ui.textMuted}`}>Cargando estadísticas…</p>
           )}
-          {statsGrid && <div className="pt-2 border-t border-slate-200">{statsGrid}</div>}
+          {statsGrid && (
+            <div className={`pt-2 border-t ${ui.dividerLight}`}>{statsGrid}</div>
+          )}
         </li>
       );
     }
     return (
-      <li key={concierto.id} className="rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 text-sm list-none">
+      <li key={concierto.id} className={`${ui.cardMuted} p-2.5 text-sm list-none`}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-slate-800">{formatConciertoFechaHoraEs(concierto.fecha_hora)}</p>
-            <p className="text-xs text-slate-600">{concierto.lugar_nombre || "Sin lugar"}</p>
-            <p className="text-[11px] text-slate-500 mt-0.5">{concierto.nombre}</p>
+            <p className={`text-sm font-semibold ${ui.textStrong}`}>{formatConciertoFechaHoraEs(concierto.fecha_hora)}</p>
+            <p className={`text-xs ${ui.textSoft}`}>{concierto.lugar_nombre || "Sin lugar"}</p>
+            <p className={`text-[11px] mt-0.5 ${ui.textMuted}`}>{concierto.nombre}</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <button
@@ -1569,7 +1897,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
               title="Editar concierto"
               aria-label="Editar concierto"
               onClick={() => startEditConcierto(concierto)}
-              className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+              className={ui.btnIcon}
             >
               <IconEdit size={18} />
             </button>
@@ -1579,20 +1907,20 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 title="Eliminar concierto"
                 aria-label="Eliminar concierto"
                 onClick={() => setDeleteConciertoTarget({ id: concierto.id, nombre: concierto.nombre })}
-                className="p-2 rounded-lg border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+                className={ui.btnIconDanger}
               >
                 <IconTrash size={18} />
               </button>
             )}
           </div>
         </div>
-        {muestraCargandoStats && <p className="text-xs text-slate-500 mt-2">Cargando estadísticas…</p>}
+        {muestraCargandoStats && <p className={`text-xs mt-2 ${ui.textMuted}`}>Cargando estadísticas…</p>}
         {statsGrid}
         {muestraVerStats && (
           <button
             type="button"
             onClick={() => cargarStatsConcierto(concierto.id)}
-            className="mt-2 rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
+            className={`mt-2 ${ui.btnIndigoSmall}`}
           >
             Ver estadísticas
           </button>
@@ -1603,83 +1931,137 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
-        <span className="text-sm uppercase tracking-wide font-semibold text-slate-500">Cargando entradas...</span>
+      <div className={`${ui.page} flex items-center justify-center px-4`}>
+        <span className={`text-sm uppercase tracking-wide font-semibold ${ui.textMuted}`}>Cargando entradas...</span>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
-          <div>
-            <h1 className="text-lg font-extrabold text-slate-800">Entradas OFRN</h1>
-            <p className="text-xs text-slate-500">{profile.apellido}, {profile.nombre}</p>
+    <div className={ui.page}>
+      <header className={ui.header}>
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-start justify-between gap-3 entradas-app-header">
+          <div className="flex flex-col gap-2 min-w-0 sm:flex-row sm:items-center sm:gap-3">
+            <h1 className={`${ui.title} uppercase tracking-tight leading-tight sm:order-2`}>ENTRADAS</h1>
+            <div className={`${ui.logoWrap} sm:order-1`}>
+              <img
+                src={ENTRADAS_LOGO_URL}
+                alt="Orquesta Filarmónica de Río Negro"
+                className="h-10 w-auto max-w-[180px] object-contain"
+              />
+            </div>
           </div>
-          <button
-            onClick={onLogout}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700"
-          >
-            Cerrar sesión
-          </button>
+          <div className="flex flex-col items-end gap-2 shrink-0 sm:flex-row sm:items-center sm:gap-3">
+            <p className={`${ui.subtitle} text-right max-w-[10rem] sm:max-w-none truncate sm:whitespace-nowrap`}>
+              {profile.apellido}, {profile.nombre}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggle}
+                className={`rounded-lg p-2.5 ${ui.themeToggle}`}
+                aria-label={isDark ? "Modo claro" : "Modo oscuro"}
+                title={isDark ? "Modo claro" : "Modo oscuro"}
+              >
+                {isDark ? <IconSun size={20} /> : <IconMoon size={20} />}
+              </button>
+              <button type="button" onClick={onLogout} className={`rounded-lg px-3 py-2 text-xs font-bold ${ui.logout}`}>
+                Cerrar sesión
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-4 space-y-4">
-        <div className="grid grid-cols-2 sm:flex gap-2">
-          <button className={`rounded-xl px-3 py-2 text-xs font-bold ${section === "catalogo" ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-700"}`} onClick={() => setSearchParams({ view: "catalogo" })}>Catálogo</button>
-          <button className={`rounded-xl px-3 py-2 text-xs font-bold ${section === "mis-reservas" ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-700"}`} onClick={() => setSearchParams({ view: "mis-reservas" })}>Mis entradas</button>
-          {canRecepcion && <button className={`rounded-xl px-3 py-2 text-xs font-bold ${section === "recepcion" ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-700"}`} onClick={() => setSearchParams({ view: "recepcion" })}>Recepción</button>}
-          {canAdmin && <button className={`rounded-xl px-3 py-2 text-xs font-bold ${section === "admin" ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-700"}`} onClick={() => setSearchParams({ view: "admin" })}>Admin</button>}
+        <div className="entradas-nav-row grid grid-cols-2 sm:flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={section === "catalogo" ? ui.navActive : ui.navIdle}
+            onClick={() => setSearchParams({ view: "catalogo" })}
+          >
+            Catálogo
+          </button>
+          <button
+            type="button"
+            className={section === "mis-reservas" ? ui.navActive : ui.navIdle}
+            onClick={() => setSearchParams({ view: "mis-reservas" })}
+          >
+            Mis entradas
+          </button>
+          {canRecepcion && (
+            <button
+              type="button"
+              className={section === "recepcion" ? ui.navActive : ui.navIdle}
+              onClick={() => setSearchParams({ view: "recepcion" })}
+            >
+              Recepción
+            </button>
+          )}
+          {canAdmin && (
+            <button
+              type="button"
+              className={section === "admin" ? ui.navActive : ui.navIdle}
+              onClick={() => setSearchParams({ view: "admin" })}
+            >
+              Admin
+            </button>
+          )}
         </div>
 
         {section === "catalogo" && (
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-            <section className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 p-4 space-y-4">
-              <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Programas y conciertos</h2>
+            <section className={`lg:col-span-3 ${ui.section} p-4 space-y-4`}>
+              <h2 className={ui.sectionTitle}>Programas y conciertos</h2>
               <div className="space-y-3">
                 {programasCatalogo.length === 0 && (
-                  <p className="text-sm text-slate-500">No hay conciertos publicados en las próximas dos semanas.</p>
+                  <p className={`text-sm ${ui.textMuted}`}>No hay conciertos publicados en las próximas dos semanas.</p>
                 )}
                 {programasCatalogo.map((programa) => (
-                  <article key={programa.id} className="rounded-xl border border-slate-200 p-3">
-                    <h3 className="font-bold text-slate-800">{programa.nombre}</h3>
+                  <article key={programa.id} className={`${ui.cardInner} p-3 space-y-2`}>
+                    <h3 className={`font-bold ${ui.textStrong}`}>{programa.nombre}</h3>
                     <EntradasRichTextHtml
                       html={programa.detalle_richtext}
-                      className="mt-2 border-t border-slate-100 pt-2"
+                      isDark={isDark}
+                      className={ui.richtextBorder}
                     />
                     <div className="mt-2 space-y-2">
                       {(programa.entrada_concierto || []).map((concierto) => {
                         const catalogoSeleccionado = String(concierto.slug_publico || "") === conciertoSlug;
+                        const reservasAbiertas = entradaConciertoReservasAbiertas(concierto);
+                        const aceptaRecordatorio = conciertoAceptaRecordatorioApertura(
+                          concierto,
+                          finDiaVentanaCatalogo,
+                        );
+                        const inscriptoRecordatorio = recordatorioConciertoIds.has(Number(concierto.id));
                         return (
                           <button
                             key={concierto.id}
                             type="button"
-                            className={`w-full text-left rounded-lg border-2 px-3 py-2 transition-colors bg-white ${
-                              catalogoSeleccionado
-                                ? "border-indigo-600 shadow-sm"
-                                : "border-slate-200 hover:border-indigo-400"
-                            }`}
+                            className={ui.catalogConciertoBtn(catalogoSeleccionado)}
                             onClick={() => handlePickConcierto(concierto.slug_publico)}
                           >
                             <div className="flex items-start justify-between gap-2">
-                              <p className="text-sm font-semibold text-slate-700">{concierto.nombre}</p>
+                              <p className={`text-sm font-semibold ${ui.textStrong}`}>{concierto.nombre}</p>
                               <div className="flex shrink-0 flex-wrap justify-end gap-1">
                                 {catalogoSeleccionado && (
-                                  <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-700 border-2 border-indigo-600 rounded px-1.5 py-0.5 bg-white">
-                                    Seleccionado
-                                  </span>
+                                  <span className={ui.badgeSelected}>Seleccionado</span>
                                 )}
                                 {tieneReservaEnConcierto(concierto.id) && (
-                                  <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
-                                    Ya tenés entrada/s
+                                  <span className={ui.badgeReserva}>Ya tenés entrada/s</span>
+                                )}
+                                {!reservasAbiertas && textoAperturaReservas(concierto) && (
+                                  <span className={ui.badgeRecordatorio}>
+                                    Apertura {textoAperturaReservas(concierto)}
                                   </span>
+                                )}
+                                {aceptaRecordatorio && inscriptoRecordatorio && (
+                                  <span className={ui.badgeRecordatorio}>Recordatorio activo</span>
                                 )}
                               </div>
                             </div>
-                            <p className="text-xs text-slate-600 mt-0.5">{formatConciertoFechaHoraEs(concierto.fecha_hora)}</p>
-                            {concierto.lugar_nombre && <p className="text-xs text-slate-500">{concierto.lugar_nombre}</p>}
+                            <p className={`text-xs mt-0.5 ${ui.textSoft}`}>{formatConciertoFechaHoraEs(concierto.fecha_hora)}</p>
+                            {concierto.lugar_nombre && <p className={`text-xs ${ui.textMuted}`}>{concierto.lugar_nombre}</p>}
                           </button>
                         );
                       })}
@@ -1687,32 +2069,165 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   </article>
                 ))}
               </div>
+
+              {conciertosFuturosRecordatorio.length > 0 && (
+                <button
+                  type="button"
+                  className={`w-full sm:w-auto ${catalogoFuturosVisible ? ui.navActive : ui.navIdle}`}
+                  onClick={() => {
+                    setCatalogoFuturosVisible((v) => {
+                      if (v) setCatalogoFuturosLocalidad(null);
+                      return !v;
+                    });
+                  }}
+                >
+                  {catalogoFuturosVisible ? "Ocultar conciertos futuros" : "Mostrar conciertos futuros"}
+                </button>
+              )}
+
+              {catalogoFuturosVisible && conciertosFuturosRecordatorio.length > 0 && (
+                <div className={`border-t pt-4 space-y-3 ${ui.divider}`}>
+                  <h3 className={ui.sectionTitle}>Conciertos futuros (recordatorio)</h3>
+                  {!catalogoFuturosLocalidad ? (
+                    <>
+                      <p className={`text-xs ${ui.textMuted}`}>
+                        Elegí una localidad para ver conciertos con reservas aún no abiertas o más allá de la ventana habitual.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {futurosPorLocalidad.map(([loc, lista]) => (
+                          <button
+                            key={loc}
+                            type="button"
+                            className={`${ui.cardInner} p-3 text-left entradas-interactive`}
+                            onClick={() => setCatalogoFuturosLocalidad(loc)}
+                          >
+                            <p className={`text-sm font-bold ${ui.textStrong}`}>{loc}</p>
+                            <p className={`text-xs ${ui.textMuted}`}>
+                              {lista.length} concierto{lista.length === 1 ? "" : "s"}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className={`text-xs font-bold ${isDark ? "text-[#7dd3fc]" : "text-[#0e7490]"}`}
+                        onClick={() => setCatalogoFuturosLocalidad(null)}
+                      >
+                        ← Todas las localidades
+                      </button>
+                      <p className={`text-xs ${ui.textMuted}`}>{catalogoFuturosLocalidad}</p>
+                      <div className="space-y-2">
+                        {conciertosFuturosLocalidadLista.map((concierto) => {
+                          const inscripto = recordatorioConciertoIds.has(Number(concierto.id));
+                          const busy = recordatorioBusyId === Number(concierto.id);
+                          return (
+                            <article key={concierto.id} className={`${ui.cardInner} p-3 space-y-2`}>
+                              <div>
+                                <p className={`text-sm font-semibold ${ui.textStrong}`}>{concierto.nombre}</p>
+                                <p className={`text-xs ${ui.textSoft}`}>
+                                  {formatConciertoFechaHoraEs(concierto.fecha_hora)}
+                                </p>
+                                {textoAperturaReservas(concierto) && (
+                                  <p className={`text-[11px] mt-0.5 ${ui.textMuted}`}>
+                                    Apertura de reservas: {textoAperturaReservas(concierto)}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={busy || inscripto}
+                                  onClick={() => void handleRecordarmeConcierto(concierto)}
+                                  className={`${ui.btnPrimary} w-auto px-3 py-1.5 text-xs`}
+                                >
+                                  {busy ? "Anotando…" : inscripto ? "Ya estás anotado" : "Recordarme"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void copiarEnlaceRecordarme(concierto)}
+                                  className={`${ui.btnGhost} px-2 py-1.5`}
+                                  title="Copiar enlace público de recordatorio"
+                                >
+                                  <IconCopy size={16} />
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </section>
 
-            <section className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 space-y-3 min-h-[12rem]">
+            <section className={`lg:col-span-2 ${ui.section} p-4 space-y-3 min-h-[12rem]`}>
               {selectedConciertoLoading && conciertoSlug && (
-                <div className="flex flex-col items-center justify-center gap-2 py-10 text-slate-500">
-                  <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" aria-hidden />
+                <div className={`flex flex-col items-center justify-center gap-2 py-10 ${ui.textMuted}`}>
+                  <span
+                    className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-[#1ebbf0] border-t-transparent"
+                    aria-hidden
+                  />
                   <span className="text-sm font-medium">Cargando concierto…</span>
                 </div>
               )}
               {!selectedConciertoLoading && !conciertoSlug && (
-                <p className="text-sm text-slate-500">Seleccioná un concierto para ver su URL compartible y reservar.</p>
+                <p className={`text-sm ${ui.textMuted}`}>Seleccioná un concierto para ver su URL compartible y reservar.</p>
               )}
               {!selectedConciertoLoading && conciertoSlug && !selectedConcierto && (
-                <p className="text-sm text-slate-500">No se pudo mostrar este concierto. Volvé al listado o probá con otro enlace.</p>
+                <p className={`text-sm ${ui.textMuted}`}>No se pudo mostrar este concierto. Volvé al listado o probá con otro enlace.</p>
               )}
-              {!selectedConciertoLoading && selectedConcierto && (
+              {!selectedConciertoLoading && selectedConcierto && (() => {
+                const reservasAbiertasSel = entradaConciertoReservasAbiertas(selectedConcierto);
+                const aceptaRecSel = conciertoAceptaRecordatorioApertura(
+                  selectedConcierto,
+                  finDiaVentanaCatalogo,
+                );
+                const inscriptoRecSel = recordatorioConciertoIds.has(Number(selectedConcierto.id));
+                const busyRecSel = recordatorioBusyId === Number(selectedConcierto.id);
+                return (
                 <>
-                  <p className="text-[10px] font-black uppercase tracking-wide text-indigo-600">Concierto seleccionado</p>
-                  <h3 className="text-lg font-bold text-slate-800">{selectedConcierto.nombre}</h3>
-                  <p className="text-xs text-slate-600">{formatConciertoFechaHoraEs(selectedConcierto.fecha_hora)}</p>
-                  {selectedConcierto.lugar_nombre && <p className="text-xs text-slate-500">{selectedConcierto.lugar_nombre}</p>}
+                  <p className={ui.accentEyebrow}>Concierto seleccionado</p>
+                  <h3 className={`text-lg font-bold ${ui.textStrong}`}>{selectedConcierto.nombre}</h3>
+                  <p className={`text-xs ${ui.textSoft}`}>{formatConciertoFechaHoraEs(selectedConcierto.fecha_hora)}</p>
+                  {selectedConcierto.lugar_nombre && <p className={`text-xs ${ui.textMuted}`}>{selectedConcierto.lugar_nombre}</p>}
+                  {!reservasAbiertasSel && (
+                    <div className={ui.warningBox}>
+                      <p className="text-sm font-semibold">Reservas aún no abiertas</p>
+                      {textoAperturaReservas(selectedConcierto) && (
+                        <p className={`text-xs mt-1 ${ui.textMuted}`}>
+                          Apertura prevista: {textoAperturaReservas(selectedConcierto)}
+                        </p>
+                      )}
+                      {aceptaRecSel && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={busyRecSel || inscriptoRecSel}
+                            onClick={() => void handleRecordarmeConcierto(selectedConcierto)}
+                            className={`${ui.btnPrimary} w-auto px-3 py-1.5 text-xs`}
+                          >
+                            {busyRecSel ? "Anotando…" : inscriptoRecSel ? "Ya estás anotado al recordatorio" : "Recordarme cuando abran"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void copiarEnlaceRecordarme(selectedConcierto)}
+                            className={`${ui.btnGhost} px-2 py-1.5 text-xs`}
+                          >
+                            Copiar enlace
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {selectedConcierto.imagen_drive_url && (
                     <img
                       src={normalizeDriveImageUrl(selectedConcierto.imagen_drive_url)}
                       alt={selectedConcierto.nombre}
-                      className="w-full h-44 rounded-xl object-cover border border-slate-200"
+                      className={`w-full h-44 rounded-xl object-cover ${ui.imgBorder}`}
                       onError={(event) => {
                         const img = event.currentTarget;
                         const original = String(selectedConcierto.imagen_drive_url || "");
@@ -1728,42 +2243,51 @@ export default function EntradasMain({ user, profile, onLogout }) {
                       }}
                     />
                   )}
-                  <EntradasRichTextHtml html={selectedConcierto.detalle_richtext} />
-                  <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm">
+                  <EntradasRichTextHtml html={selectedConcierto.detalle_richtext} isDark={isDark} />
+                  <div className={ui.inset}>
                     Disponibles: <strong>{computeDisponibles(selectedConcierto)}</strong> / {selectedConcierto.capacidad_maxima}
                   </div>
-                  <div className="rounded-lg bg-indigo-50 border border-indigo-100 px-3 py-2 text-xs break-all">
+                  <div className={ui.linkBox}>
                     URL: {window.location.origin}/entradas?view=catalogo&concierto={selectedConcierto.slug_publico}
                   </div>
                   {tieneReservaEnConcierto(selectedConcierto.id) && (
-                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      Ya tenés una reserva activa para este concierto. Podés verla en &quot;Mis entradas&quot;.
-                    </p>
+                    <p className={ui.warningBox}>Ya tenés una reserva activa para este concierto. Podés verla en &quot;Mis entradas&quot;.</p>
                   )}
-                  <label className="text-xs font-bold uppercase tracking-wide text-slate-500">Cantidad</label>
+                  {reservasAbiertasSel && (
+                    <>
+                  <label className={ui.label}>Cantidad</label>
                   <select
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-60"
+                    className={`${ui.select} w-full disabled:opacity-60`}
                     value={cantidad}
                     onChange={(event) => setCantidad(Number(event.target.value))}
                     disabled={tieneReservaEnConcierto(selectedConcierto.id)}
                   >
-                    {[1, 2, 3, 4].map((n) => (<option key={n} value={n}>{n} entrada{n > 1 ? "s" : ""}</option>))}
+                    {[1, 2, 3, 4].map((n) => (
+                      <option key={n} value={n}>
+                        {n} entrada{n > 1 ? "s" : ""}
+                      </option>
+                    ))}
                   </select>
                   <button
+                    type="button"
                     onClick={handleCreateReserva}
                     disabled={
                       creatingReserva
-                      || !selectedConcierto.reservas_habilitadas
+                      || !entradaConciertoReservasAbiertas(selectedConcierto)
                       || computeDisponibles(selectedConcierto) < cantidad
                       || tieneReservaEnConcierto(selectedConcierto.id)
                     }
-                    className="w-full rounded-lg bg-blue-700 text-white py-2 text-sm font-semibold disabled:bg-slate-300"
+                    className={ui.btnPrimary}
                   >
                     {creatingReserva ? "Obteniendo..." : "Obtener"}
                   </button>
+                    </>
+                  )}
                   {reservaResult && (
-                    <div className="space-y-2 border-t border-slate-200 pt-3">
-                      <p className="text-sm font-bold text-emerald-700">Reserva #{reservaResult.codigo_reserva}</p>
+                    <div className={`space-y-2 border-t pt-3 ${ui.divider}`}>
+                      <p className={`text-sm font-bold ${isDark ? "text-emerald-300" : "text-emerald-700"}`}>
+                        Reserva #{reservaResult.codigo_reserva}
+                      </p>
                       <button
                         type="button"
                         onClick={async () => {
@@ -1783,88 +2307,46 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             toast.error(e?.message || "No se pudo generar el PDF.");
                           }
                         }}
-                        className="w-full rounded-lg border border-slate-300 bg-white py-2 text-sm font-semibold text-slate-800"
+                        className={ui.btnGhost}
                       >
                         Descargar PDF (detalle y QRs)
                       </button>
-                      <img src={reservaResult.reservaQr} alt="QR reserva general" className="w-40 h-40 border border-slate-200 rounded-lg" />
+                      <img
+                        src={reservaResult.reservaQr}
+                        alt="QR reserva general"
+                        className={`w-40 h-40 rounded-lg ${ui.imgBorder}`}
+                      />
                       <div className="grid grid-cols-2 gap-2">
                         {reservaResult.entriesQr.map((qr, idx) => (
-                          <img key={idx} src={qr} alt={`QR entrada ${idx + 1}`} className="w-full border border-slate-200 rounded-lg" />
+                          <img key={idx} src={qr} alt={`QR entrada ${idx + 1}`} className={`w-full rounded-lg ${ui.imgBorder}`} />
                         ))}
                       </div>
                     </div>
                   )}
                 </>
-              )}
+                );
+              })()}
             </section>
           </div>
         )}
 
         {section === "mis-reservas" && (
-          <section className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Mis entradas</h2>
-            <div className="space-y-2">
-              {misReservas.map((reserva) => {
-                const ingresadas = (reserva.entradas || []).filter((x) => x.estado_ingreso === "ingresada").length;
-                const esActiva = reserva.estado === "activa";
-                return (
-                  <article key={reserva.id} className="rounded-xl border border-slate-200 p-3 space-y-2">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-bold text-slate-800">{reserva.concierto?.nombre} · {reserva.codigo_reserva}</p>
-                        <p className="text-xs text-slate-500">{formatConciertoFechaHoraEs(reserva.concierto?.fecha_hora)}</p>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                          esActiva ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"
-                        }`}
-                      >
-                        {esActiva ? "Activa" : "Cancelada"}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-600">
-                      Entradas: {reserva.cantidad_solicitada} · Ingresadas: {ingresadas}
-                    </p>
-                    {esActiva && (
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <button
-                          type="button"
-                          disabled={downloadingPdfReservaId === reserva.id}
-                          onClick={async () => {
-                            setDownloadingPdfReservaId(reserva.id);
-                            try {
-                              await descargarPdfDesdeReservaRow(reserva);
-                            } catch (e) {
-                              toast.error(e?.message || "No se pudo generar el PDF.");
-                            } finally {
-                              setDownloadingPdfReservaId(null);
-                            }
-                          }}
-                          className="w-full sm:w-auto rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-900 hover:bg-indigo-100 disabled:opacity-60"
-                        >
-                          {downloadingPdfReservaId === reserva.id ? "Generando PDF…" : "Descargar PDF (detalle y QRs)"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCancelReservaTarget(reserva)}
-                          className="w-full sm:w-auto rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100"
-                        >
-                          Cancelar reserva
-                        </button>
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-              {misReservas.length === 0 && <p className="text-sm text-slate-500">Aún no tenés reservas.</p>}
-            </div>
+          <section className={`${ui.section} p-4 space-y-3`}>
+            <h2 className={ui.sectionTitle}>Mis entradas</h2>
+            <EntradasMisReservasSection
+              misReservas={misReservas}
+              ui={ui}
+              isDark={isDark}
+              downloadingPdfReservaId={downloadingPdfReservaId}
+              setDownloadingPdfReservaId={setDownloadingPdfReservaId}
+              onCancelReserva={(reserva) => setCancelReservaTarget(reserva)}
+            />
           </section>
         )}
 
         {section === "recepcion" && canRecepcion && (
-          <section className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Recepción</h2>
+          <section className={`${ui.section} p-4 space-y-3`}>
+            <h2 className={ui.sectionTitle}>Recepción</h2>
             <input
               ref={qrPhotoInputRef}
               type="file"
@@ -1875,12 +2357,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
             />
             <div className="flex w-full items-stretch gap-2 min-w-0">
               <select
-                className="min-w-0 rounded-lg border border-slate-300 px-2 py-2.5 text-sm font-medium text-slate-800 w-[80%] max-w-[80%] shrink-0"
+                className={`min-w-0 w-[80%] max-w-[80%] shrink-0 ${ui.select}`}
                 value={recepcionConciertoId}
                 onChange={(e) => {
                   setRecepcionConciertoId(e.target.value);
                   setScannerToken("");
                   setQrPreview(null);
+                  setRecepcionStatHelp(null);
                 }}
               >
                 <option value="">Concierto (desde hoy)…</option>
@@ -1895,7 +2378,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 title="Escanear QR (cámara)"
                 onClick={() => qrPhotoInputRef.current?.click()}
                 disabled={decodingQrPhoto || !recepcionConciertoId}
-                className="flex w-[20%] min-w-0 max-w-[20%] shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-slate-50 text-slate-800 hover:bg-slate-100 disabled:opacity-40"
+                className={ui.recepcionCamera}
               >
                 {decodingQrPhoto ? <span className="text-[10px] font-bold">…</span> : <IconCamera size={26} className="shrink-0" />}
               </button>
@@ -1903,9 +2386,12 @@ export default function EntradasMain({ user, profile, onLogout }) {
             {recepcionConciertoId && (
               <div className="space-y-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
-                  <div className="min-w-0 flex-1 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-3 shadow-sm">
-                    <p className="text-[10px] font-black uppercase tracking-wide text-amber-900">Sin entrada / sin QR</p>
-                    <p className="text-xs text-amber-950/90 mt-0.5 mb-3 leading-snug">
+                  <div className={`min-w-0 flex-1 ${ui.recepcionAmber}`}>
+                    <div className="flex items-center gap-1.5">
+                      <p className={ui.recepcionStatTitle("amber")}>Sin entrada / sin QR</p>
+                      {renderRecepcionHelpToggle("sin-entrada", "amber")}
+                    </div>
+                    <p className={`${recepcionHelpTextClass("amber")} mb-3 ${recepcionHelpVisibleClass("sin-entrada")}`}>
                       Personas que ingresan sin reserva (invitados, boletería, etc.). El número se comparte en vivo con otros recepcionistas.
                     </p>
                     <div className="flex items-center justify-center gap-3">
@@ -1914,59 +2400,85 @@ export default function EntradasMain({ user, profile, onLogout }) {
                         aria-label="Restar una persona"
                         disabled={sinEntradaBusy || sinEntradaCount <= 0}
                         onClick={() => adjustSinEntrada(-1)}
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-amber-700/40 bg-white text-2xl font-black text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-35 disabled:cursor-not-allowed"
+                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 text-2xl font-black shadow-sm disabled:opacity-35 disabled:cursor-not-allowed ${
+                          isDark
+                            ? "border-amber-600/50 bg-slate-900 text-amber-100 hover:bg-slate-800"
+                            : "border-amber-700/40 bg-white text-amber-950 hover:bg-amber-100"
+                        }`}
                       >
                         −
                       </button>
-                      <div className="min-w-[4.5rem] rounded-xl border border-amber-300/80 bg-white px-4 py-2 text-center shadow-inner">
-                        <span className="text-3xl font-black tabular-nums text-amber-950 leading-none">{sinEntradaCount}</span>
+                      <div
+                        className={`min-w-[4.5rem] rounded-xl border px-4 py-2 text-center shadow-inner ${
+                          isDark ? "border-amber-700 bg-slate-900" : "border-amber-300/80 bg-white"
+                        }`}
+                      >
+                        <span
+                          className={`text-3xl font-black tabular-nums leading-none ${
+                            isDark ? "text-amber-100" : "text-amber-950"
+                          }`}
+                        >
+                          {sinEntradaCount}
+                        </span>
                       </div>
                       <button
                         type="button"
                         aria-label="Sumar una persona"
                         disabled={sinEntradaBusy}
                         onClick={() => adjustSinEntrada(1)}
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 border-amber-700/40 bg-white text-2xl font-black text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-35"
+                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 text-2xl font-black shadow-sm disabled:opacity-35 ${
+                          isDark
+                            ? "border-amber-600/50 bg-slate-900 text-amber-100 hover:bg-slate-800"
+                            : "border-amber-700/40 bg-white text-amber-950 hover:bg-amber-100"
+                        }`}
                       >
                         +
                       </button>
                     </div>
                   </div>
-                  <div className="flex shrink-0 flex-col justify-center rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 shadow-sm sm:w-[42%] sm:max-w-[220px]">
-                    <p className="text-[10px] font-black uppercase tracking-wide text-emerald-900">Ingresos por QR</p>
-                    <p className="text-xs text-emerald-950/85 mt-0.5 mb-2 leading-snug">
+                  <div className={`${ui.recepcionEmerald}`}>
+                    <div className="flex items-center gap-1.5">
+                      <p className={ui.recepcionStatTitle("emerald")}>Ingresos por QR</p>
+                      {renderRecepcionHelpToggle("qr", "emerald")}
+                    </div>
+                    <p className={`${recepcionHelpTextClass("emerald")} mb-2 ${recepcionHelpVisibleClass("qr")}`}>
                       Plazas con entrada ya registradas en puerta (código o QR). Tiempo real con otros recepcionistas.
                     </p>
                     <div className="flex flex-1 items-center justify-center py-1">
-                      <span className="text-3xl font-black tabular-nums text-emerald-950">
+                      <span className={ui.recepcionQrValue}>
                         {recepcionQrStats.ingresadas}
-                        <span className="mx-0.5 text-2xl font-black text-emerald-700/75">/</span>
+                        <span className={ui.recepcionQrSep}>/</span>
                         {recepcionQrStats.reservadas}
                       </span>
                     </div>
-                    <p className="text-[10px] text-center font-medium text-emerald-900/80">ingresadas / reservadas (activas)</p>
+                    <p className={ui.recepcionStatHint("emerald")}>ingresadas / reservadas (activas)</p>
                   </div>
                 </div>
-                <div className="rounded-xl border border-slate-300 bg-slate-100/95 px-4 py-3 shadow-sm">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">Total en sala</p>
-                  <p className="text-xs text-slate-700 mt-0.5 mb-2 leading-snug">
+                <div className={ui.recepcionTotal}>
+                  <div className="flex items-center gap-1.5 justify-center sm:justify-start">
+                    <p className={`text-[10px] font-black uppercase tracking-wide ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                      Total en sala
+                    </p>
+                    {renderRecepcionHelpToggle("total", "slate")}
+                  </div>
+                  <p className={`${recepcionHelpTextClass("slate")} mb-2 ${recepcionHelpVisibleClass("total")}`}>
                     Sin QR + ingresos por QR frente al aforo máximo del concierto.
                   </p>
                   <div className="flex items-center justify-center py-1">
-                    <span className="text-3xl font-black tabular-nums text-slate-900">
+                    <span className={ui.recepcionTotalValue}>
                       {recepcionQrStats.ingresadas + sinEntradaCount}
-                      <span className="mx-0.5 text-2xl font-black text-slate-500">/</span>
+                      <span className={ui.recepcionTotalSep}>/</span>
                       {recepcionQrStats.capacidad}
                     </span>
                   </div>
-                  <p className="text-[10px] text-center font-medium text-slate-600">total ingresados / capacidad</p>
+                  <p className={ui.recepcionStatHint("slate")}>total ingresados / capacidad</p>
                 </div>
               </div>
             )}
             <input
               value={scannerToken}
               onChange={(event) => setScannerToken(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
+              className={ui.input}
               placeholder="Pegá el token QR completo (ENTR-...) o usá código manual abajo"
             />
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
@@ -1984,7 +2496,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     setScannerToken(onlyDigits);
                   }
                 }}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm tracking-[0.18em]"
+                className={`${ui.input} tracking-[0.18em]`}
                 placeholder="Código manual (10 dígitos)"
               />
               <button
@@ -1995,61 +2507,56 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   }
                 }}
                 disabled={manualReservaCode.length !== 10}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 disabled:opacity-50"
+                className={ui.btnGhost}
               >
                 Usar código
               </button>
             </div>
-            {qrPreviewLoading && <p className="text-sm text-indigo-600 font-medium">Analizando código…</p>}
+            {qrPreviewLoading && (
+              <p className="text-sm font-medium entradas-accent-text">Analizando código…</p>
+            )}
             {qrPreview && !qrPreview.ok && (
-              <div
-                className={`rounded-xl border-2 p-3 text-sm text-slate-800 shadow-sm ${recepcionPanelClass(qrPreview)}`}
-              >
-                <p className="font-medium">{formatEntradasPreviewError(qrPreview)}</p>
+              <div className={`rounded-xl border-2 p-3 text-sm shadow-sm ${recepcionPanelClass(qrPreview, isDark)}`}>
+                <p className={`font-medium ${ui.textBody}`}>{formatEntradasPreviewError(qrPreview)}</p>
               </div>
             )}
             {qrPreview && qrPreview.ok && qrPreview.tipo === "entrada" && (
-              <div
-                className={`rounded-xl border-2 p-4 space-y-2 text-sm shadow-sm ${recepcionPanelClass(qrPreview)}`}
-              >
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-600">Entrada individual</p>
-                <p className="text-slate-800">
-                  Reserva <span className="font-mono font-semibold">{qrPreview.codigo_reserva || "—"}</span> · Entrada nº {qrPreview.entrada_orden} de {qrPreview.cantidad_en_reserva}
+              <div className={`rounded-xl border-2 p-4 space-y-2 text-sm shadow-sm ${recepcionPanelClass(qrPreview, isDark)}`}>
+                <p className={`text-[10px] font-black uppercase tracking-wider ${ui.textMuted}`}>Entrada individual</p>
+                <p className={ui.textBody}>
+                  Reserva <span className="font-mono font-semibold">{qrPreview.codigo_reserva || "—"}</span> · Entrada nº{" "}
+                  {qrPreview.entrada_orden} de {qrPreview.cantidad_en_reserva}
                 </p>
-                <p className="font-medium text-slate-800">
+                <p className={`font-medium ${ui.textBody}`}>
                   {qrPreview.estado_ingreso === "pendiente" ? (
                     <span>Sin ingreso registrado aún con esta plaza.</span>
                   ) : (
                     <span>
                       {qrPreview.ingresada_at
-                        ? formatEntradasIngresoConRecepcionista(
-                            qrPreview.ingresada_at,
-                            qrPreview.ingresada_por_nombre,
-                          )
+                        ? formatEntradasIngresoConRecepcionista(qrPreview.ingresada_at, qrPreview.ingresada_por_nombre)
                         : "—"}
                     </span>
                   )}
                 </p>
                 {!qrPreview.puede_ingresar && entradasBloqueoIngreso(qrPreview) && (
-                  <p className="text-xs text-slate-800 border-t border-slate-300/50 pt-2 mt-1">{entradasBloqueoIngreso(qrPreview)}</p>
+                  <p className={`text-xs border-t pt-2 mt-1 ${ui.dividerLight} ${ui.textBody}`}>{entradasBloqueoIngreso(qrPreview)}</p>
                 )}
               </div>
             )}
             {qrPreview && qrPreview.ok && qrPreview.tipo === "reserva" && (
-              <div
-                className={`rounded-xl border-2 p-4 space-y-2 text-sm shadow-sm ${recepcionPanelClass(qrPreview)}`}
-              >
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-600">Reserva (grupo)</p>
-                <p>
-                  Código <span className="font-mono font-semibold">{qrPreview.codigo_reserva}</span> · {qrPreview.cantidad_solicitada} plaza
+              <div className={`rounded-xl border-2 p-4 space-y-2 text-sm shadow-sm ${recepcionPanelClass(qrPreview, isDark)}`}>
+                <p className={`text-[10px] font-black uppercase tracking-wider ${ui.textMuted}`}>Reserva (grupo)</p>
+                <p className={ui.textBody}>
+                  Código <span className="font-mono font-semibold">{qrPreview.codigo_reserva}</span> · {qrPreview.cantidad_solicitada}{" "}
+                  plaza
                   {Number(qrPreview.cantidad_solicitada) !== 1 ? "s" : ""}
                 </p>
-                <p>
+                <p className={ui.textBody}>
                   {qrPreview.pendientes} sin ingresar · {qrPreview.ingresadas} ya ingresaron
                 </p>
                 {Array.isArray(qrPreview.entradas) && qrPreview.entradas.length > 0 && (
-                  <div className="border-t border-slate-300/50 pt-2 space-y-2">
-                    <p className="text-xs text-slate-700 leading-snug">
+                  <div className={`border-t pt-2 space-y-2 ${ui.dividerLight}`}>
+                    <p className={`text-xs leading-snug ${ui.textSoft}`}>
                       Por defecto ingresan todas las plazas pendientes. Destildá quien venga después y presente su QR individual.
                     </p>
                     <ul className="text-xs space-y-2">
@@ -2062,19 +2569,21 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             key={row.orden}
                             className={`rounded-lg border px-2.5 py-2 ${
                               esPendiente && !marcada
-                                ? "border-amber-200 bg-amber-50/80"
-                                : "border-slate-200 bg-white/80"
+                                ? isDark
+                                  ? "border-amber-800 bg-amber-950/50"
+                                  : "border-amber-200 bg-amber-50/80"
+                                : isDark
+                                  ? "border-slate-600 bg-slate-800/80"
+                                  : "border-slate-200 bg-white/80"
                             }`}
                           >
                             <label
-                              className={`flex flex-wrap items-start gap-2 ${
-                                esPendiente ? "cursor-pointer" : "cursor-default"
-                              }`}
+                              className={`flex flex-wrap items-start gap-2 ${esPendiente ? "cursor-pointer" : "cursor-default"}`}
                             >
                               {esPendiente ? (
                                 <input
                                   type="checkbox"
-                                  className="mt-0.5 rounded border-slate-300"
+                                  className={`mt-0.5 ${ui.checkbox}`}
                                   checked={marcada}
                                   onChange={() => toggleRecepcionOrdenIngreso(orden)}
                                 />
@@ -2082,23 +2591,22 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                 <span className="mt-0.5 w-4 shrink-0" aria-hidden />
                               )}
                               <span className="flex-1 min-w-[8rem]">
-                                <span className="font-semibold text-slate-800">Plaza nº {row.orden}</span>
+                                <span className={`font-semibold ${ui.textStrong}`}>Plaza nº {row.orden}</span>
                                 {esPendiente && !marcada && (
-                                  <span className="block text-[10px] font-medium text-amber-900 mt-0.5">
+                                  <span className={`block text-[10px] font-medium mt-0.5 ${isDark ? "text-amber-200" : "text-amber-900"}`}>
                                     Vendrá después (QR individual)
                                   </span>
                                 )}
                                 {esPendiente && marcada && (
-                                  <span className="block text-[10px] text-emerald-800 mt-0.5">Ingresa ahora</span>
+                                  <span className={`block text-[10px] mt-0.5 ${isDark ? "text-emerald-300" : "text-emerald-800"}`}>
+                                    Ingresa ahora
+                                  </span>
                                 )}
                               </span>
                               {!esPendiente && (
-                                <span className="text-right text-slate-800 leading-snug">
+                                <span className={`text-right leading-snug ${ui.textBody}`}>
                                   {row.ingresada_at
-                                    ? formatEntradasIngresoConRecepcionista(
-                                        row.ingresada_at,
-                                        row.ingresada_por_nombre,
-                                      )
+                                    ? formatEntradasIngresoConRecepcionista(row.ingresada_at, row.ingresada_por_nombre)
                                     : "Ingresada"}
                                 </span>
                               )}
@@ -2109,21 +2617,21 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     </ul>
                     {recepcionOrdenesIngreso.size === 0 &&
                       (qrPreview.entradas || []).some((e) => e.estado_ingreso === "pendiente") && (
-                        <p className="text-xs font-medium text-amber-900">
+                        <p className={`text-xs font-medium ${isDark ? "text-amber-200" : "text-amber-900"}`}>
                           Marcá al menos una plaza para registrar el ingreso.
                         </p>
                       )}
                   </div>
                 )}
                 {!qrPreview.puede_ingresar && entradasBloqueoIngreso(qrPreview) && (
-                  <p className="text-xs text-slate-800 border-t border-slate-300/50 pt-2">{entradasBloqueoIngreso(qrPreview)}</p>
+                  <p className={`text-xs border-t pt-2 ${ui.dividerLight} ${ui.textBody}`}>{entradasBloqueoIngreso(qrPreview)}</p>
                 )}
               </div>
             )}
             <button
               type="button"
               onClick={() => consumeToken()}
-              className="w-full rounded-lg bg-emerald-600 text-white py-3 text-sm font-bold disabled:bg-slate-300"
+              className={ui.btnSuccess}
               disabled={
                 !recepcionConciertoId
                 || !scannerToken.trim()
@@ -2144,12 +2652,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
         )}
 
         {section === "admin" && canAdmin && (
-          <section className="bg-white rounded-2xl border border-slate-200 p-4 space-y-4">
-            <div className="flex gap-2">
+          <section className={`${ui.section} p-4 space-y-4`}>
+            <div className="flex flex-wrap gap-2">
               {ADMIN_TABS.map((tab) => (
                 <button
                   key={tab}
-                  className={`rounded-lg px-3 py-2 text-xs font-bold uppercase ${adminTab === tab ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700"}`}
+                  type="button"
+                  className={adminTab === tab ? ui.adminTabActive : ui.adminTabIdle}
                   onClick={() => setAdminTab(tab)}
                 >
                   {tab === "programas" ? "Programas y conciertos" : "Usuarios"}
@@ -2160,47 +2669,32 @@ export default function EntradasMain({ user, profile, onLogout }) {
             {adminTab === "programas" && (
               <div className="space-y-6">
                 <div className="space-y-3">
-                  <button
-                    type="button"
-                    onClick={openNuevoProgramaModal}
-                    className="inline-flex items-center justify-center rounded-xl border-2 border-dashed border-indigo-300 bg-white px-4 py-2.5 text-sm font-bold text-indigo-800 shadow-sm hover:bg-indigo-50/80 transition-colors"
-                  >
-                    + Programa
-                  </button>
                   {conciertoOfrnProgramaContextId && (
-                    <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-2.5 space-y-2">
-                      <p className="text-sm text-slate-800">
+                    <div className={ui.contextBox}>
+                      <p className={`text-sm ${ui.textBody}`}>
                         <span className="font-bold">Programa elegido:</span> {contextProgramaLabel}
                       </p>
                       {String(contextOfrnProgramaRow?.subtitulo || "").trim() && (
-                        <p className="text-xs text-slate-600 leading-relaxed border-t border-indigo-200/70 pt-2">
-                          <span className="font-semibold text-slate-700">Subtítulo (OFRN): </span>
+                        <p className={`text-xs leading-relaxed border-t pt-2 ${ui.dividerLight} ${ui.textSoft}`}>
+                          <span className={`font-semibold ${ui.textStrong}`}>Subtítulo (OFRN): </span>
                           {String(contextOfrnProgramaRow.subtitulo).trim()}
                         </p>
                       )}
                       <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openNuevoConcierto()}
-                          className="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-900 hover:bg-indigo-100"
-                        >
+                        <button type="button" onClick={() => openNuevoConcierto()} className={ui.btnIndigoSmall}>
                           Agregar concierto
                         </button>
-                        <button
-                          type="button"
-                          onClick={cambiarProgramaOfrnContexto}
-                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                        >
+                        <button type="button" onClick={cambiarProgramaOfrnContexto} className={ui.btnGhost}>
                           Elegir otro programa
                         </button>
                       </div>
                     </div>
                   )}
                   {conciertoEditor === "new" && (
-                    <div className="rounded-xl border-2 border-indigo-300 bg-white p-4 space-y-3">
-                      <h3 className="text-xs font-black uppercase tracking-wide text-indigo-900">Nuevo concierto</h3>
+                    <div className={ui.editorHighlight}>
+                      <h3 className={ui.accentEyebrow}>Nuevo concierto</h3>
                       {eventosParaSelectorConcierto.length === 0 && (
-                        <p className="text-xs text-amber-800">
+                        <p className={`text-xs ${isDark ? "text-amber-200" : "text-amber-800"}`}>
                           No hay eventos tipo concierto futuros para esta gira. Revisá fechas en OFRN o elegí otra gira.
                         </p>
                       )}
@@ -2209,85 +2703,88 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   )}
                 </div>
 
-                {programaForm.id != null && (
-                  <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-                    <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">Editar programa en catálogo</h3>
-                    <form className="space-y-3" onSubmit={submitPrograma}>
-                      <p className="text-xs font-black uppercase tracking-wide text-indigo-800">Programa #{programaForm.id}</p>
-                      {ofrnProgramaEnEdicionReferencia && (
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 space-y-1">
-                          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Gira OFRN (referencia)</p>
-                          <p className="text-xs font-semibold text-slate-800">{buildProgramaLabel(ofrnProgramaEnEdicionReferencia)}</p>
-                          {String(ofrnProgramaEnEdicionReferencia.subtitulo || "").trim() ? (
-                            <p className="text-xs text-slate-600 leading-relaxed">{String(ofrnProgramaEnEdicionReferencia.subtitulo).trim()}</p>
-                          ) : (
-                            <p className="text-[11px] text-slate-400 italic">Sin subtítulo en la gira OFRN.</p>
-                          )}
-                        </div>
-                      )}
-                      <input
-                        value={programaForm.nombre}
-                        onChange={(event) => setProgramaForm((prev) => ({ ...prev, nombre: event.target.value }))}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        placeholder="Nombre del programa"
-                        required
-                      />
-                      <RichTextEditor
-                        value={programaForm.detalle_richtext}
-                        onChange={(value) => setProgramaForm((prev) => ({ ...prev, detalle_richtext: value }))}
-                        placeholder="Detalle del programa (texto enriquecido)"
-                      />
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={programaForm.activo}
-                          onChange={(event) => setProgramaForm((prev) => ({ ...prev, activo: event.target.checked }))}
-                          className="rounded border-slate-300"
-                        />
-                        Programa activo (visible en catálogo cuando tenga conciertos publicados)
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        <button type="submit" className="rounded-lg bg-blue-700 text-white px-4 py-2 text-sm font-semibold">
-                          Actualizar programa
-                        </button>
-                        <button
-                          type="button"
-                          onClick={resetProgramaForm}
-                          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
-                        >
-                          Cancelar edición
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                )}
-
-                <div className="border-t border-slate-200 pt-4 space-y-4">
+                <div className={`border-t pt-4 space-y-4 ${ui.divider}`}>
                   <div>
-                    <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">Programas con entradas</h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
+                    <h3 className={ui.sectionTitle}>Programas con entradas</h3>
+                    <p className={`text-[11px] mt-0.5 ${ui.textMuted}`}>
                       Editá nombre y detalle del programa en Entradas, agregá conciertos de la misma gira OFRN o administrá los ya creados. En la lista solo se muestran fecha, lugar y nombre; el detalle al editar.
                     </p>
                   </div>
 
+                  <div className="flex flex-wrap items-center gap-2">
+                    {ADMIN_CONCIERTO_VISTAS.map(({ id, label }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={adminConciertoVistaBtn(adminConciertoVista === id)}
+                        onClick={() => setAdminConciertoVista(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <button type="button" onClick={openNuevoProgramaModal} className={adminConciertoVistaBtn(false)}>
+                      + Programa
+                    </button>
+                  </div>
+                  <p className={`text-[10px] -mt-2 leading-snug ${ui.textMuted}`}>
+                    {adminConciertoVista === "actuales"
+                      ? "Hoy o después, con reservas ya abiertas."
+                      : adminConciertoVista === "futuros"
+                      ? "Hoy o después, reservas aún no abiertas."
+                      : "Funciones de días anteriores (antes de las 00:00 de hoy, hora Argentina)."}
+                  </p>
+
                   <div className="space-y-4">
-                    {adminData.programas.map((programa) => {
-                      const lista = conciertosByProgramaId.get(Number(programa.id)) || [];
-                      const ofrnPid = getOfrnProgramaIdForEntradaPrograma(programa, lista);
+                    {programasAdminVisibles.length === 0
+                    && conciertosSinProgramaEnAdminFiltrados.length === 0 && (
+                      <p className={`text-sm ${ui.textMuted}`}>No hay conciertos en esta vista.</p>
+                    )}
+                    {programasAdminVisibles.map((programa) => {
+                      const listaCompleta = conciertosByProgramaId.get(Number(programa.id)) || [];
+                      const lista = conciertosByProgramaIdFiltrado.get(Number(programa.id)) || [];
+                      const ofrnPid = getOfrnProgramaIdForEntradaPrograma(programa, listaCompleta);
+                      const editingPrograma =
+                        programaEditor != null && Number(programaEditor) === Number(programa.id);
                       const programaStatsCompletas =
-                        lista.length === 0
-                        || lista.every((c) => Boolean(adminConciertoStatsById[c.id]));
+                        listaCompleta.length === 0
+                        || listaCompleta.every((c) => Boolean(adminConciertoStatsById[c.id]));
                       const programaMuestraEliminar =
-                        lista.length === 0
+                        listaCompleta.length === 0
                         || (programaStatsCompletas
-                          && lista.every((c) =>
+                          && listaCompleta.every((c) =>
                             conciertoStatsSinReservasNiIngresos(adminConciertoStatsById[c.id]),
                           ));
                       return (
-                        <article key={programa.id} className="rounded-xl border border-slate-200 bg-white p-3 space-y-3">
-                          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 pb-2">
+                        <article
+                          key={programa.id}
+                          className={
+                            editingPrograma ? `${ui.editorHighlight} p-3 space-y-3` : `${ui.cardInner} p-3 space-y-3`
+                          }
+                        >
+                          {editingPrograma ? (
+                            <div className="space-y-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className={ui.accentEyebrow}>Editar programa</h4>
+                                {programaMuestraEliminar && (
+                                  <button
+                                    type="button"
+                                    title="Eliminar programa"
+                                    aria-label="Eliminar programa"
+                                    onClick={() =>
+                                      setDeleteProgramaTarget({ id: programa.id, nombre: programa.nombre })
+                                    }
+                                    className={ui.btnIconDanger}
+                                  >
+                                    <IconTrash size={18} />
+                                  </button>
+                                )}
+                              </div>
+                              {renderProgramaEditorForm()}
+                            </div>
+                          ) : (
+                          <div className={`flex flex-wrap items-start justify-between gap-2 border-b pb-2 ${ui.dividerLight}`}>
                             <div className="min-w-0 flex-1">
-                              <p className="font-bold text-slate-800">{programa.nombre}</p>
+                              <p className={`font-bold ${ui.textStrong}`}>{programa.nombre}</p>
                               {(() => {
                                 const ofrnRow = ofrnPid
                                   ? ofrnProgramasPicker.find((p) => Number(p.id) === ofrnPid)
@@ -2295,14 +2792,16 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                 const st = String(ofrnRow?.subtitulo || "").trim();
                                 if (!st) return null;
                                 return (
-                                  <p className="text-xs text-slate-500 mt-0.5 leading-snug">
-                                    <span className="font-semibold text-slate-600">OFRN: </span>
+                                  <p className={`text-xs mt-0.5 leading-snug ${ui.textMuted}`}>
+                                    <span className={`font-semibold ${ui.textSoft}`}>OFRN: </span>
                                     {st}
                                   </p>
                                 );
                               })()}
                               {programa.activo === false && (
-                                <span className="text-[10px] font-bold uppercase text-amber-700">Programa inactivo</span>
+                                <span className={`text-[10px] font-bold uppercase ${isDark ? "text-amber-300" : "text-amber-700"}`}>
+                                  Programa inactivo
+                                </span>
                               )}
                             </div>
                             <div className="flex shrink-0 flex-wrap items-center gap-1.5 justify-end">
@@ -2317,7 +2816,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                   }
                                   openNuevoConcierto(ofrnPid);
                                 }}
-                                className="rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-xs font-bold text-indigo-900 hover:bg-indigo-100"
+                                className={ui.btnIndigoSmall}
                               >
                                 Agregar concierto
                               </button>
@@ -2326,7 +2825,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                 title="Editar programa"
                                 aria-label="Editar programa"
                                 onClick={() => startEditPrograma(programa)}
-                                className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                                className={ui.btnIcon}
                               >
                                 <IconEdit size={18} />
                               </button>
@@ -2336,18 +2835,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                   title="Eliminar programa"
                                   aria-label="Eliminar programa"
                                   onClick={() => setDeleteProgramaTarget({ id: programa.id, nombre: programa.nombre })}
-                                  className="p-2 rounded-lg border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+                                  className={ui.btnIconDanger}
                                 >
                                   <IconTrash size={18} />
                                 </button>
                               )}
                             </div>
                           </div>
+                          )}
                           {lista.length > 0 && (
-                            <div className="rounded-lg border border-slate-100 bg-slate-50/90 px-3 py-2 space-y-1.5">
-                              <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">
-                                Mails del programa (todos los conciertos)
-                              </p>
+                            <div className={`rounded-lg border px-3 py-2 space-y-1.5 ${isDark ? "border-slate-600 bg-slate-900/40" : "border-slate-100 bg-slate-50/90"}`}>
+                              <p className={ui.sectionTitle}>Mails del programa (todos los conciertos)</p>
                               <div className="flex flex-wrap gap-2">
                                 {(() => {
                                   const busy = copyingProgramaMailsKey.startsWith(`${programa.id}:`);
@@ -2357,8 +2855,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                         type="button"
                                         disabled={busy}
                                         title="Personas con al menos una reserva activa en cualquier concierto del programa"
-                                        onClick={() => copiarMailsProgramaAdmin(programa.id, lista, "reservaron")}
-                                        className="rounded-md border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-indigo-900 hover:bg-indigo-50 disabled:opacity-50"
+                                        onClick={() => copiarMailsProgramaAdmin(programa.id, listaCompleta, "reservaron")}
+                                        className={ui.adminMailBucketBtn("reservaron")}
                                       >
                                         {copyingProgramaMailsKey === `${programa.id}:reservaron`
                                           ? "Copiando…"
@@ -2368,8 +2866,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                         type="button"
                                         disabled={busy}
                                         title="Personas con al menos una entrada registrada como ingresada (reserva activa)"
-                                        onClick={() => copiarMailsProgramaAdmin(programa.id, lista, "ingresaron")}
-                                        className="rounded-md border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-emerald-900 hover:bg-emerald-50/80 disabled:opacity-50"
+                                        onClick={() => copiarMailsProgramaAdmin(programa.id, listaCompleta, "ingresaron")}
+                                        className={ui.adminMailBucketBtn("ingresaron")}
                                       >
                                         {copyingProgramaMailsKey === `${programa.id}:ingresaron`
                                           ? "Copiando…"
@@ -2379,24 +2877,35 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                         type="button"
                                         disabled={busy}
                                         title="Personas con al menos una reserva activa donde ninguna entrada figura como ingresada (no asistieron a esa reserva)"
-                                        onClick={() => copiarMailsProgramaAdmin(programa.id, lista, "sinIngreso")}
-                                        className="rounded-md border border-amber-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-amber-900 hover:bg-amber-50/80 disabled:opacity-50"
+                                        onClick={() => copiarMailsProgramaAdmin(programa.id, listaCompleta, "sinIngreso")}
+                                        className={ui.adminMailBucketBtn("sinIngreso")}
                                       >
                                         {copyingProgramaMailsKey === `${programa.id}:sinIngreso`
                                           ? "Copiando…"
                                           : "Mails: sin ingreso"}
                                       </button>
+                                      <button
+                                        type="button"
+                                        disabled={busy}
+                                        title="Mails inscriptos al recordatorio de apertura en cualquier concierto del programa"
+                                        onClick={() => copiarMailsProgramaAdmin(programa.id, listaCompleta, "recordatorio")}
+                                        className={ui.adminMailBucketBtn("recordatorio")}
+                                      >
+                                        {copyingProgramaMailsKey === `${programa.id}:recordatorio`
+                                          ? "Copiando…"
+                                          : "Mails: recordatorio"}
+                                      </button>
                                     </>
                                   );
                                 })()}
                               </div>
-                              <p className="text-[10px] text-slate-500 leading-snug">
+                              <p className={`text-[10px] leading-snug ${ui.textMuted}`}>
                                 Solo reservas activas. «Sin ingreso» = esa reserva no tiene ninguna plaza marcada como ingresada.
                               </p>
                             </div>
                           )}
                           {lista.length === 0 ? (
-                            <p className="text-xs text-slate-500">Sin conciertos de entradas en este programa.</p>
+                            <p className={`text-xs ${ui.textMuted}`}>Sin conciertos de entradas en este programa.</p>
                           ) : (
                             <ul className="space-y-2 pl-0">{lista.map((c) => renderAdminConciertoItem(c))}</ul>
                           )}
@@ -2405,13 +2914,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     })}
                   </div>
 
-                  {conciertosSinProgramaEnAdmin.length > 0 && (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-3 space-y-2">
-                      <h4 className="text-xs font-black uppercase tracking-wide text-amber-900">Conciertos sin programa listado</h4>
-                      <p className="text-[11px] text-amber-900/90">
+                  {conciertosSinProgramaEnAdminFiltrados.length > 0 && (
+                    <div className={ui.warningBox}>
+                      <h4 className={`text-xs font-black uppercase tracking-wide ${isDark ? "text-amber-200" : "text-amber-900"}`}>
+                        Conciertos sin programa listado
+                      </h4>
+                      <p className={`text-[11px] ${isDark ? "text-amber-100/95" : "text-amber-900/90"}`}>
                         Estos conciertos no coinciden con ningún programa de la lista superior. Revisá datos o sincronización.
                       </p>
-                      <ul className="space-y-2 pl-0">{conciertosSinProgramaEnAdmin.map((c) => renderAdminConciertoItem(c))}</ul>
+                      <ul className="space-y-2 pl-0">
+                        {conciertosSinProgramaEnAdminFiltrados.map((c) => renderAdminConciertoItem(c))}
+                      </ul>
                     </div>
                   )}
                 </div>
@@ -2421,10 +2934,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
             {adminTab === "usuarios" && (
               <div className="space-y-3">
                 <div className="space-y-1.5">
-                  <label
-                    htmlFor="admin-usuario-buscar-nombre"
-                    className="block text-[11px] uppercase tracking-wide text-slate-500 font-semibold"
-                  >
+                  <label htmlFor="admin-usuario-buscar-nombre" className={ui.label}>
                     Buscar por nombre
                   </label>
                   <input
@@ -2433,39 +2943,43 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     value={adminUsuarioFiltroNombre}
                     onChange={(e) => setAdminUsuarioFiltroNombre(e.target.value)}
                     placeholder="Nombre, apellido o mail…"
-                    className="w-full max-w-md rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    className={`w-full max-w-md ${ui.input}`}
                   />
                 </div>
                 <div className="flex flex-wrap gap-2 text-[11px]">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-600">
-                    <span className="h-2.5 w-2.5 rounded-sm bg-slate-200 border border-slate-300" aria-hidden />
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 ${isDark ? "border-slate-600 bg-slate-800 text-slate-300" : "border-slate-200 bg-white text-slate-600"}`}
+                  >
+                    <span
+                      className={`h-2.5 w-2.5 rounded-sm border ${isDark ? "bg-slate-600 border-slate-500" : "bg-slate-200 border-slate-300"}`}
+                      aria-hidden
+                    />
                     Personal
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 ${isDark ? "border-emerald-800 bg-emerald-950 text-emerald-200" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}
+                  >
                     <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" aria-hidden />
                     Recepcionista
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900">
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 ${isDark ? "border-amber-800 bg-amber-950 text-amber-200" : "border-amber-200 bg-amber-50 text-amber-900"}`}
+                  >
                     <span className="h-2.5 w-2.5 rounded-sm bg-amber-500" aria-hidden />
                     Admin
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-4 items-start justify-between">
                   <div className="space-y-2 min-w-0 w-full sm:min-w-[12rem] sm:max-w-md sm:flex-1">
-                    <span className="block text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
-                      Filtrar por localidad (una o más; sin marcar = todas)
-                    </span>
-                    <div className="rounded-lg border border-slate-200 bg-white p-2 max-h-44 overflow-y-auto space-y-1.5">
+                    <span className={ui.label}>Filtrar por localidad (una o más; sin marcar = todas)</span>
+                    <div className={ui.filterScroll}>
                       {adminUsuariosLocalidadesOpciones.length === 0 ? (
-                        <p className="text-xs text-slate-400 px-1">Sin localidades en reservas cargadas.</p>
+                        <p className={`text-xs px-1 ${ui.textMuted}`}>Sin localidades en reservas cargadas.</p>
                       ) : (
                         adminUsuariosLocalidadesOpciones.map((loc) => {
                           const checked = adminUsuarioFiltroLocalidades.includes(loc);
                           return (
-                            <label
-                              key={loc}
-                              className="flex items-start gap-2 cursor-pointer text-xs text-slate-700 hover:bg-slate-50 rounded px-1 py-0.5"
-                            >
+                            <label key={loc} className={ui.filterLabel}>
                               <input
                                 type="checkbox"
                                 checked={checked}
@@ -2477,7 +2991,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                     return Array.from(next);
                                   });
                                 }}
-                                className="rounded border-slate-300 mt-0.5 shrink-0"
+                                className={`mt-0.5 shrink-0 ${ui.checkbox}`}
                               />
                               <span className="leading-snug">{loc}</span>
                             </label>
@@ -2489,14 +3003,14 @@ export default function EntradasMain({ user, profile, onLogout }) {
                       <div className="flex flex-wrap gap-2 text-[11px]">
                         <button
                           type="button"
-                          className="rounded-md border border-slate-300 bg-white px-2 py-1 font-bold text-slate-700 hover:bg-slate-50"
+                          className={`${ui.btnGhost} px-2 py-1 text-[11px]`}
                           onClick={() => setAdminUsuarioFiltroLocalidades([...adminUsuariosLocalidadesOpciones])}
                         >
                           Marcar todas
                         </button>
                         <button
                           type="button"
-                          className="rounded-md border border-slate-300 bg-white px-2 py-1 font-bold text-slate-700 hover:bg-slate-50"
+                          className={`${ui.btnGhost} px-2 py-1 text-[11px]`}
                           onClick={() => setAdminUsuarioFiltroLocalidades([])}
                         >
                           Quitar todas
@@ -2528,20 +3042,20 @@ export default function EntradasMain({ user, profile, onLogout }) {
                           setCopyingAdminMails(false);
                         }
                       }}
-                      className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-bold hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed whitespace-nowrap"
+                      className={`${ui.btnPrimary} w-full sm:w-auto px-4 whitespace-nowrap`}
                     >
                       {copyingAdminMails ? "Copiando…" : `Copiar mails (${adminUsuariosFiltrados.length})`}
                     </button>
                   </div>
                 </div>
-                <p className="text-[11px] text-slate-500 max-w-3xl">
+                <p className={`text-[11px] max-w-3xl ${ui.textMuted}`}>
                   Las localidades salen del evento OFRN vinculado a cada concierto. Con varias marcadas se listan usuarios que tengan reserva en{" "}
-                  <span className="font-semibold">cualquiera</span> de esas localidades.
+                  <span className={`font-semibold ${ui.textBody}`}>cualquiera</span> de esas localidades.
                 </p>
-                <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200">
+                <div className={`hidden md:block ${ui.tableWrap}`}>
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wide text-slate-500 border-b border-slate-200">
+                      <tr className={ui.tableHead}>
                         <th className="px-3 py-2 whitespace-nowrap">Apellido</th>
                         <th className="px-3 py-2 whitespace-nowrap">Nombre</th>
                         <th className="px-3 py-2 min-w-[10rem]">Mail</th>
@@ -2551,18 +3065,15 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     </thead>
                     <tbody>
                       {adminUsuariosFiltrados.map((usr) => (
-                        <tr
-                          key={usr.id}
-                          className={`border-b border-slate-100 last:border-0 align-top ${entradaUsuarioRolRowClass(usr.rol)}`}
-                        >
-                          <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">{usr.apellido}</td>
-                          <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{usr.nombre}</td>
-                          <td className="px-3 py-2 text-slate-600 break-all max-w-[16rem]">{usr.email}</td>
-                          <td className="px-3 py-2 text-xs text-slate-600">
+                        <tr key={usr.id} className={`${ui.tableRow} ${entradaUsuarioRolRowClass(usr.rol, isDark)}`}>
+                          <td className={`px-3 py-2 font-medium whitespace-nowrap ${ui.textStrong}`}>{usr.apellido}</td>
+                          <td className={`px-3 py-2 whitespace-nowrap ${ui.textBody}`}>{usr.nombre}</td>
+                          <td className={`px-3 py-2 break-all max-w-[16rem] ${ui.textSoft}`}>{usr.email}</td>
+                          <td className={`px-3 py-2 text-xs ${ui.textSoft}`}>
                             {(usr.localidades_reserva || []).length ? (
                               <span className="leading-snug">{(usr.localidades_reserva || []).join(" · ")}</span>
                             ) : (
-                              <span className="text-slate-400 italic">—</span>
+                              <span className={`italic ${ui.textMuted}`}>—</span>
                             )}
                           </td>
                           <td className="px-3 py-2">
@@ -2572,7 +3083,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                 await adminUpdateUsuarioRol({ id: usr.id, rol: event.target.value });
                                 setAdminData(await listAdminData());
                               }}
-                              className={`w-full max-w-[8.5rem] rounded-lg border px-2 py-1.5 text-xs font-semibold ${entradaUsuarioRolLabelClass(usr.rol)}`}
+                              className={`w-full max-w-[8.5rem] rounded-lg border px-2 py-1.5 text-xs font-semibold ${entradaUsuarioRolLabelClass(usr.rol, isDark)}`}
                             >
                               <option value="personal">personal</option>
                               <option value="recepcionista">recepcionista</option>
@@ -2589,42 +3100,36 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   {adminUsuariosFiltrados.map((usr) => (
                     <article
                       key={usr.id}
-                      className={`rounded-xl border border-slate-200 shadow-sm p-4 space-y-3 ${entradaUsuarioRolRowClass(usr.rol)}`}
+                      className={`${ui.cardInner} border p-4 space-y-3 shadow-sm ${entradaUsuarioRolRowClass(usr.rol, isDark)}`}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <h3 className="text-base font-bold text-slate-900 leading-snug">
+                          <h3 className={`text-base font-bold leading-snug ${ui.textStrong}`}>
                             {[usr.apellido, usr.nombre].filter(Boolean).join(", ") || "—"}
                           </h3>
-                          <p className="mt-1 text-sm text-slate-600 break-all">{usr.email || "—"}</p>
+                          <p className={`mt-1 text-sm break-all ${ui.textSoft}`}>{usr.email || "—"}</p>
                         </div>
                         <span
-                          className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${entradaUsuarioRolLabelClass(usr.rol)}`}
+                          className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${entradaUsuarioRolLabelClass(usr.rol, isDark)}`}
                         >
                           {usr.rol || "personal"}
                         </span>
                       </div>
                       <div>
-                        <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
-                          Localidades
-                        </span>
-                        <p className="text-sm text-slate-700 leading-snug">
-                          {(usr.localidades_reserva || []).length
-                            ? (usr.localidades_reserva || []).join(" · ")
-                            : "—"}
+                        <span className={`block text-[10px] font-bold uppercase tracking-wide mb-1 ${ui.textMuted}`}>Localidades</span>
+                        <p className={`text-sm leading-snug ${ui.textBody}`}>
+                          {(usr.localidades_reserva || []).length ? (usr.localidades_reserva || []).join(" · ") : "—"}
                         </p>
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
-                          Cambiar rol
-                        </label>
+                        <label className={`block text-[10px] font-bold uppercase tracking-wide mb-1 ${ui.textMuted}`}>Cambiar rol</label>
                         <select
                           value={usr.rol}
                           onChange={async (event) => {
                             await adminUpdateUsuarioRol({ id: usr.id, rol: event.target.value });
                             setAdminData(await listAdminData());
                           }}
-                          className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold ${entradaUsuarioRolLabelClass(usr.rol)}`}
+                          className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold ${entradaUsuarioRolLabelClass(usr.rol, isDark)}`}
                         >
                           <option value="personal">personal</option>
                           <option value="recepcionista">recepcionista</option>
@@ -2636,7 +3141,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 </div>
 
                 {adminUsuariosFiltrados.length === 0 && (
-                  <p className="text-sm text-slate-500">
+                  <p className={`text-sm ${ui.textMuted}`}>
                     {adminUsuarioFiltroNombre.trim()
                       ? "Ningún usuario coincide con la búsqueda."
                       : adminUsuarioFiltroLocalidades.length > 0
@@ -2659,33 +3164,33 @@ export default function EntradasMain({ user, profile, onLogout }) {
           }}
         >
           <div
-            className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-5 shadow-2xl animate-in zoom-in-95 duration-200"
+            className={`w-full max-w-lg p-5 shadow-2xl animate-in zoom-in-95 duration-200 ${ui.cardInner}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="entradas-nuevo-programa-titulo"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-2">
-              <h3 id="entradas-nuevo-programa-titulo" className="text-xs font-black uppercase tracking-wide text-slate-800 pr-2">
+              <h3 id="entradas-nuevo-programa-titulo" className={`${ui.sectionTitle} pr-2 text-xs`}>
                 Nuevo programa de entradas
               </h3>
               <button
                 type="button"
-                className="text-slate-500 hover:text-slate-800 shrink-0 rounded p-1"
+                className={`shrink-0 rounded p-1 ${ui.btnIcon}`}
                 aria-label="Cerrar"
                 onClick={() => setNuevoProgramaModalOpen(false)}
               >
                 <IconX size={20} />
               </button>
             </div>
-            <p className="text-[11px] text-slate-600 mt-2 leading-relaxed">
+            <p className={`text-[11px] mt-2 leading-relaxed ${ui.textMuted}`}>
               Elegí el tipo de programa y una gira de la app OFRN que aún no tenga entradas. Luego cargá los conciertos: solo se listan eventos futuros de tipo concierto de esa gira.
             </p>
             <div className="mt-4 space-y-3">
-              <label className="block text-xs font-semibold text-slate-700 space-y-1">
-                <span className="block text-[11px] uppercase tracking-wide text-slate-600">Tipo de programa</span>
+              <label className={`block text-xs font-semibold space-y-1 ${ui.textBody}`}>
+                <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Tipo de programa</span>
                 <select
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className={ui.select}
                   value={nuevoProgramaTipoSelect}
                   onChange={(event) => {
                     setNuevoProgramaTipoSelect(event.target.value);
@@ -2699,10 +3204,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   ))}
                 </select>
               </label>
-              <label className="block text-xs font-semibold text-slate-700 space-y-1">
-                <span className="block text-[11px] uppercase tracking-wide text-slate-600">Programa OFRN</span>
+              <label className={`block text-xs font-semibold space-y-1 ${ui.textBody}`}>
+                <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Programa OFRN</span>
                 <select
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className={ui.select}
                   value={nuevoProgramaOfrnSelect}
                   onChange={(event) => setNuevoProgramaOfrnSelect(event.target.value)}
                   disabled={programasOfrnDisponiblesNuevoEntrada.length === 0}
@@ -2720,27 +3225,25 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 </select>
               </label>
               {ofrnSeleccionadoModal && (
-                <div className="rounded-lg border border-indigo-100 bg-white px-3 py-2 space-y-1">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-indigo-900/80">Subtítulo en OFRN</p>
+                <div className={ui.contextBox}>
+                  <p className={`text-[10px] font-black uppercase tracking-wide ${isDark ? "text-indigo-200" : "text-indigo-900/80"}`}>
+                    Subtítulo en OFRN
+                  </p>
                   {String(ofrnSeleccionadoModal.subtitulo || "").trim() ? (
-                    <p className="text-xs text-slate-700 leading-relaxed">{String(ofrnSeleccionadoModal.subtitulo).trim()}</p>
+                    <p className={`text-xs leading-relaxed ${ui.textBody}`}>{String(ofrnSeleccionadoModal.subtitulo).trim()}</p>
                   ) : (
-                    <p className="text-[11px] text-slate-500 italic">Esta gira no tiene subtítulo cargado en OFRN.</p>
+                    <p className={`text-[11px] italic ${ui.textMuted}`}>Esta gira no tiene subtítulo cargado en OFRN.</p>
                   )}
                 </div>
               )}
               {programasOfrnDisponiblesNuevoEntrada.length === 0 && (
-                <p className="text-xs text-amber-900 bg-amber-50/90 border border-amber-200 rounded-lg px-2.5 py-2">
+                <p className={ui.warningBox}>
                   No hay giras de este tipo con inicio a partir de hoy y sin módulo de entradas. Revisá fechas en OFRN o probá con otro tipo.
                 </p>
               )}
             </div>
             <div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setNuevoProgramaModalOpen(false)}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-              >
+              <button type="button" onClick={() => setNuevoProgramaModalOpen(false)} className={ui.btnGhost}>
                 Cancelar
               </button>
               <button
@@ -2748,7 +3251,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 onClick={() => {
                   if (confirmarProgramaOfrnParaNuevo()) setNuevoProgramaModalOpen(false);
                 }}
-                className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-bold hover:bg-indigo-700"
+                className={`${ui.btnPrimary} w-full sm:w-auto px-4`}
               >
                 Continuar
               </button>

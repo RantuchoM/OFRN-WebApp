@@ -27,7 +27,11 @@ body {
 .entradas-richtext ul { list-style: disc; }
 .entradas-richtext ol { list-style: decimal; }
 .entradas-richtext li { margin: 0.25rem 0; }
-.entradas-richtext strong { font-weight: 700; color: rgb(30 41 59); }
+.entradas-richtext strong {
+  font-weight: 700;
+  color: rgb(30 41 59);
+  font-family: "Nunito Sans", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
 .entradas-richtext em { font-style: italic; }
 .entradas-richtext h1,
 .entradas-richtext h2,
@@ -156,6 +160,44 @@ body {
 .rich-text-quill .ql-editor {
   min-height: 11rem;
   line-height: 1.55;
+}
+
+/* Modo oscuro local en /entradas (no usa html.dark global de OFRN) */
+.min-h-screen.bg-slate-900 .entradas-richtext,
+.min-h-screen.bg-slate-900 .entradas-richtext strong,
+.min-h-screen.bg-slate-900 .entradas-richtext h1,
+.min-h-screen.bg-slate-900 .entradas-richtext h2,
+.min-h-screen.bg-slate-900 .entradas-richtext h3,
+.min-h-screen.bg-slate-900 .entradas-richtext h4 {
+  color: rgb(226 232 240);
+}
+.min-h-screen.bg-slate-900 .entradas-richtext a {
+  color: rgb(147 197 253);
+}
+.min-h-screen.bg-slate-900 .entradas-richtext blockquote {
+  border-left-color: rgb(71 85 105);
+  color: rgb(148 163 184);
+}
+.min-h-screen.bg-slate-900 .rich-text-quill .ql-toolbar {
+  border-color: rgb(71 85 105);
+  background: rgb(30 41 59);
+}
+.min-h-screen.bg-slate-900 .rich-text-quill .ql-container {
+  border-color: rgb(71 85 105);
+  background: rgb(15 23 42);
+  color: rgb(226 232 240);
+}
+.min-h-screen.bg-slate-900 .rich-text-quill .ql-editor.ql-blank::before {
+  color: rgb(100 116 139);
+}
+.min-h-screen.bg-slate-900 .rich-text-quill .ql-stroke {
+  stroke: rgb(203 213 225);
+}
+.min-h-screen.bg-slate-900 .rich-text-quill .ql-fill {
+  fill: rgb(203 213 225);
+}
+.min-h-screen.bg-slate-900 .rich-text-quill .ql-picker {
+  color: rgb(226 232 240);
 }
 .rich-text-quill .ql-editor.ql-blank::before {
   font-style: normal;

@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import "../../../styles/entradas-filarmonica.css";
+import { entradasUi, useEntradasDarkMode } from "../../../hooks/useEntradasDarkMode";
 import { supabaseEntradasPublic } from "../../../services/supabase";
 import { getEntradasSessionProfile, verifyEntradasMagicLink } from "../../../services/entradaService";
 import { clearMagicTokenFromUrl, readMagicTokenFromSearch } from "../../../utils/entradasMagicLink";
@@ -6,6 +8,8 @@ import LoginEntradas from "./LoginEntradas";
 import EntradasMain from "./EntradasMain";
 
 export default function EntradasPage() {
+  const { isDark } = useEntradasDarkMode();
+  const ui = entradasUi(isDark);
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -88,8 +92,8 @@ export default function EntradasPage() {
 
   if (loading || magicLinkPending || (session?.user && !profileChecked)) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
-        <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+      <div className={`${ui.page} flex items-center justify-center`}>
+        <span className={`text-sm font-semibold uppercase tracking-wide ${ui.textMuted}`}>
           {magicLinkPending ? "Accediendo con enlace seguro…" : "Cargando entradas…"}
         </span>
       </div>

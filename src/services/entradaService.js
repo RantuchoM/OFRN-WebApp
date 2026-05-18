@@ -6,6 +6,7 @@ import {
   downloadEntradasReservaPdfBlob,
   makeEntradasReservaFilename,
 } from "../utils/entradasReservaPdf";
+import { conciertoAdminSoloRecordatoriosProgramados } from "../utils/entradasReservasApertura";
 
 function programaPdfFieldsFromConcierto(concierto) {
   const ep = concierto?.entrada_programa;
@@ -96,7 +97,7 @@ export async function listProgramasConConciertos() {
   const { data, error } = await supabaseEntradasPublic
     .from("entrada_programa")
     .select(
-      "id, slug_publico, nombre, detalle_richtext, activo, entrada_concierto(id, slug_publico, nombre, fecha_hora, lugar_nombre, capacidad_maxima, reservas_habilitadas, activo, imagen_drive_url, ofrn_programa_id, ofrn_evento_id)",
+      "id, slug_publico, nombre, detalle_richtext, activo, entrada_concierto(id, slug_publico, nombre, fecha_hora, lugar_nombre, capacidad_maxima, reservas_habilitadas, apertura_reservas_at, activo, imagen_drive_url, ofrn_programa_id, ofrn_evento_id, evento:eventos!entrada_concierto_ofrn_evento_id_fkey(locaciones(localidades(localidad))))",
     )
     .eq("activo", true)
     .order("nombre", { ascending: true });
@@ -243,8 +244,15 @@ export async function enviarMailCancelacionReserva({ reservaId }) {
   if (error) throw error;
 }
 
-export async function tokenToQrDataUrl(token) {
-  return QRCode.toDataURL(token, { margin: 1, width: 320 });
+export async function tokenToQrDataUrl(token, { used = false } = {}) {
+  return QRCode.toDataURL(token, {
+    margin: 1,
+    width: 320,
+    color: {
+      dark: used ? "#dc2626" : "#000000",
+      light: "#ffffff",
+    },
+  });
 }
 
 export async function listConciertoIdsConReservaActiva() {
@@ -310,9 +318,14 @@ export async function validarYConsumirQr({
   return data;
 }
 
-function localidadDesdeReservaConcierto(concierto) {
+/** Ciudad/localidad del concierto (tabla `localidades`), no el nombre de la locación/sala. */
+export function localidadDesdeConciertoEntrada(concierto) {
   const loc = concierto?.evento?.locaciones?.localidades?.localidad;
   return String(loc || "").trim();
+}
+
+function localidadDesdeReservaConcierto(concierto) {
+  return localidadDesdeConciertoEntrada(concierto);
 }
 
 export async function listAdminData() {
@@ -366,16 +379,62 @@ export async function getAdminConciertoStats(conciertoId) {
     throw new Error("Concierto inválido.");
   }
 
-  const [conciertoRes, reservasRes] = await Promise.all([
-    supabaseEntradasPublic.from("entrada_concierto").select("id, capacidad_maxima").eq("id", conciertoIdNum).maybeSingle(),
+  const conciertoRes = await supabaseEntradasPublic
+    .from("entrada_concierto")
+    .select("id, capacidad_maxima, reservas_habilitadas, apertura_reservas_at, fecha_hora, activo")
+    .eq("id", conciertoIdNum)
+    .maybeSingle();
+
+  if (conciertoRes.error) throw conciertoRes.error;
+
+  const capacidad = Number(conciertoRes.data?.capacidad_maxima || 0);
+  const aperturaPendiente = conciertoAdminSoloRecordatoriosProgramados(conciertoRes.data);
+
+  const recordatoriosPendRes = await supabaseEntradasPublic
+    .from("entrada_recordatorio_apertura")
+    .select("id", { count: "exact", head: true })
+    .eq("concierto_id", conciertoIdNum)
+    .is("apertura_notificado_at", null);
+
+  if (recordatoriosPendRes.error) throw recordatoriosPendRes.error;
+
+  const recordatoriosAperturaPendientes = recordatoriosPendRes.count ?? 0;
+
+  if (aperturaPendiente) {
+    return {
+      aperturaPendiente: true,
+      reservadas: 0,
+      disponibles: capacidad,
+      ingresadas: 0,
+      noUtilizadas: 0,
+      capacidad,
+      recordatoriosApertura: recordatoriosAperturaPendientes,
+      recordatoriosAperturaPendientes,
+    };
+  }
+
+  const [recordatoriosRes, recordatoriosPendAbiertasRes, reservasRes] = await Promise.all([
+    supabaseEntradasPublic
+      .from("entrada_recordatorio_apertura")
+      .select("id", { count: "exact", head: true })
+      .eq("concierto_id", conciertoIdNum),
+    supabaseEntradasPublic
+      .from("entrada_recordatorio_apertura")
+      .select("id", { count: "exact", head: true })
+      .eq("concierto_id", conciertoIdNum)
+      .is("apertura_notificado_at", null),
     supabaseEntradasPublic
       .from("entrada_reserva")
       .select("id, estado, cantidad_solicitada, entrada_reserva_entrada(id, estado_ingreso)")
       .eq("concierto_id", conciertoIdNum),
   ]);
 
-  if (conciertoRes.error) throw conciertoRes.error;
+  if (recordatoriosRes.error) throw recordatoriosRes.error;
+  if (recordatoriosPendAbiertasRes.error) throw recordatoriosPendAbiertasRes.error;
   if (reservasRes.error) throw reservasRes.error;
+
+  const recordatoriosApertura = recordatoriosRes.count ?? 0;
+  const recordatoriosAperturaPendientesAbiertas = recordatoriosPendAbiertasRes.count ?? 0;
 
   const reservas = reservasRes.data || [];
   const reservadas = reservas
@@ -385,11 +444,19 @@ export async function getAdminConciertoStats(conciertoId) {
     const entradas = Array.isArray(r?.entrada_reserva_entrada) ? r.entrada_reserva_entrada : [];
     return acc + entradas.filter((e) => e?.estado_ingreso === "ingresada").length;
   }, 0);
-  const capacidad = Number(conciertoRes.data?.capacidad_maxima || 0);
   const disponibles = Math.max(0, capacidad - reservadas);
   const noUtilizadas = Math.max(0, reservadas - ingresadas);
 
-  return { reservadas, disponibles, ingresadas, noUtilizadas, capacidad };
+  return {
+    aperturaPendiente: false,
+    reservadas,
+    disponibles,
+    ingresadas,
+    noUtilizadas,
+    capacidad,
+    recordatoriosApertura,
+    recordatoriosAperturaPendientes: recordatoriosAperturaPendientesAbiertas,
+  };
 }
 
 /**
@@ -399,17 +466,28 @@ export async function getAdminConciertoStats(conciertoId) {
 export async function getAdminProgramaMailBuckets(conciertoIds) {
   const ids = [...new Set((conciertoIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
   if (!ids.length) {
-    return { emailsReservaron: [], emailsIngresaron: [], emailsReservaSinIngreso: [] };
+    return {
+      emailsReservaron: [],
+      emailsIngresaron: [],
+      emailsReservaSinIngreso: [],
+      emailsRecordatorioApertura: [],
+    };
   }
 
-  const { data, error } = await supabaseEntradasPublic
-    .from("entrada_reserva")
-    .select(
-      "estado, entrada_reserva_entrada(estado_ingreso), usuario:entrada_usuario!entrada_reserva_usuario_id_fkey(email)",
-    )
-    .in("concierto_id", ids);
+  const [reservasRes, recordatoriosRes] = await Promise.all([
+    supabaseEntradasPublic
+      .from("entrada_reserva")
+      .select(
+        "estado, entrada_reserva_entrada(estado_ingreso), usuario:entrada_usuario!entrada_reserva_usuario_id_fkey(email)",
+      )
+      .in("concierto_id", ids),
+    supabaseEntradasPublic.from("entrada_recordatorio_apertura").select("email").in("concierto_id", ids),
+  ]);
 
-  if (error) throw error;
+  if (reservasRes.error) throw reservasRes.error;
+  if (recordatoriosRes.error) throw recordatoriosRes.error;
+
+  const data = reservasRes.data;
 
   const emailsReservaron = new Set();
   const emailsIngresaron = new Set();
@@ -427,11 +505,18 @@ export async function getAdminProgramaMailBuckets(conciertoIds) {
     if (nIngresadas === 0) emailsReservaSinIngreso.add(email);
   }
 
+  const emailsRecordatorioApertura = new Set();
+  for (const row of recordatoriosRes.data || []) {
+    const email = String(row?.email || "").trim();
+    if (email) emailsRecordatorioApertura.add(email);
+  }
+
   const sortEs = (a, b) => a.localeCompare(b, "es", { sensitivity: "base" });
   return {
     emailsReservaron: Array.from(emailsReservaron).sort(sortEs),
     emailsIngresaron: Array.from(emailsIngresaron).sort(sortEs),
     emailsReservaSinIngreso: Array.from(emailsReservaSinIngreso).sort(sortEs),
+    emailsRecordatorioApertura: Array.from(emailsRecordatorioApertura).sort(sortEs),
   };
 }
 
@@ -478,6 +563,7 @@ export async function adminUpsertConcierto(payload) {
     p_limite_cierre_reservas_at: payload.limite_cierre_reservas_at ?? null,
     p_limite_encuesta_at: payload.limite_encuesta_at ?? null,
     p_encuesta_url: payload.encuesta_url ? String(payload.encuesta_url).trim() : null,
+    p_apertura_reservas_at: payload.apertura_reservas_at ?? null,
   });
   if (error) throw error;
   return data;
@@ -502,6 +588,44 @@ export async function fetchEntradaSinEntradaCount(conciertoId) {
 }
 
 /** +1 / −1; solo recepción/admin. Retorna la cantidad resultante. */
+export function buildEntradasRecordarmeUrl(slugPublico) {
+  const slug = String(slugPublico || "").trim();
+  if (!slug) return `${window.location.origin}/entradas/recordarme`;
+  return `${window.location.origin}/entradas/recordarme?concierto=${encodeURIComponent(slug)}`;
+}
+
+export async function getRecordatorioAperturaInfo(slug) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_recordatorio_apertura_info", {
+    p_slug: String(slug || "").trim(),
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function consultarRecordatorioApertura({ slug, email }) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_consultar_recordatorio_apertura", {
+    p_slug: String(slug || "").trim(),
+    p_email: String(email || "").trim().toLowerCase(),
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function suscribirRecordatorioApertura({ slug, email }) {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_suscribir_recordatorio_apertura", {
+    p_slug: String(slug || "").trim(),
+    p_email: String(email || "").trim().toLowerCase(),
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function listarRecordatoriosAperturaConciertoIds() {
+  const { data, error } = await supabaseEntradasPublic.rpc("entrada_listar_recordatorios_apertura");
+  if (error) throw error;
+  return new Set((data || []).map((row) => Number(row.concierto_id)).filter((id) => Number.isFinite(id)));
+}
+
 export async function deltaEntradaSinEntrada(conciertoId, delta) {
   const id = Number(conciertoId);
   if (!Number.isFinite(id) || id <= 0) throw new Error("Concierto inválido.");

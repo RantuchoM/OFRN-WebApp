@@ -1,0 +1,193 @@
+/* Estética alineada con filarmonica.rionegro.gov.ar (The7 / Elementor) */
+
+.entradas-app {
+  --entradas-accent: #1ebbf0;
+  --entradas-accent-hover: #23aadd;
+  --entradas-mint: #39dfaa;
+  --entradas-gradient: linear-gradient(135deg, #1ebbf0 30%, #39dfaa 100%);
+  --entradas-gradient-hover: linear-gradient(135deg, #23aadd 30%, #37ce9d 100%);
+  --entradas-text: #333333;
+  --entradas-text-muted: #8b8d94;
+  --entradas-surface: #ffffff;
+  --entradas-surface-muted: #f6f8fa;
+  --entradas-border: #e8eaed;
+  --entradas-duration: 0.35s;
+  --entradas-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  font-family: "Nunito Sans", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  color: var(--entradas-text);
+}
+
+.entradas-app.entradas-app--dark {
+  --entradas-text: #e8eaed;
+  --entradas-text-muted: #9ca3af;
+  --entradas-surface: #1e293b;
+  --entradas-surface-muted: #0f172a;
+  --entradas-border: #334155;
+}
+
+/* Títulos: sans (Nunito Sans) */
+.entradas-app h1,
+.entradas-app h2,
+.entradas-app h3,
+.entradas-app .entradas-font-title {
+  font-family: "Nunito Sans", Roboto, "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: 0.01em;
+}
+
+/* Detalle / cuerpo: serif (PT Serif) */
+.entradas-app .entradas-font-detail {
+  font-family: "PT Serif", Georgia, "Times New Roman", serif;
+  letter-spacing: 0;
+}
+
+.entradas-interactive {
+  transition:
+    color var(--entradas-duration) var(--entradas-ease),
+    background-color var(--entradas-duration) var(--entradas-ease),
+    background var(--entradas-duration) var(--entradas-ease),
+    border-color var(--entradas-duration) var(--entradas-ease),
+    box-shadow var(--entradas-duration) var(--entradas-ease),
+    transform 0.25s var(--entradas-ease),
+    opacity 0.25s ease;
+}
+
+.entradas-interactive:hover {
+  transform: translateY(-1px);
+}
+
+.entradas-interactive:active {
+  transform: translateY(0);
+}
+
+.entradas-interactive:disabled {
+  transform: none;
+}
+
+.entradas-card-lift {
+  transition:
+    box-shadow var(--entradas-duration) var(--entradas-ease),
+    border-color var(--entradas-duration) var(--entradas-ease);
+}
+
+.entradas-card-lift:hover {
+  box-shadow: 0 10px 28px rgba(30, 187, 240, 0.1);
+}
+
+.entradas-app--dark .entradas-card-lift:hover {
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.entradas-btn-primary {
+  background: var(--entradas-gradient);
+  color: #fff;
+  font-weight: 700;
+  border: none;
+  box-shadow: 0 4px 14px rgba(30, 187, 240, 0.28);
+}
+
+.entradas-btn-primary:hover:not(:disabled) {
+  background: var(--entradas-gradient-hover);
+  box-shadow: 0 6px 18px rgba(30, 187, 240, 0.35);
+}
+
+.entradas-btn-primary:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+.entradas-nav-tab {
+  border-radius: 0;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 700;
+  padding: 0.5rem 0.75rem;
+}
+
+.entradas-nav-active {
+  border-radius: 0 !important;
+  background: var(--entradas-gradient) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  box-shadow: 0 4px 12px rgba(30, 187, 240, 0.25);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 700;
+  padding: 0.5rem 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .entradas-nav-tab,
+  .entradas-nav-active {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    padding: 0.75rem 1.5rem;
+    min-width: 9.5rem;
+    text-align: center;
+  }
+
+  .entradas-nav-row {
+    gap: 1rem;
+  }
+}
+
+.entradas-btn-secondary {
+  border: 1px solid rgba(30, 187, 240, 0.45);
+  background: rgba(30, 187, 240, 0.08);
+  color: #0e7490;
+  font-weight: 700;
+}
+
+.entradas-btn-secondary:hover:not(:disabled) {
+  background: rgba(30, 187, 240, 0.14);
+  border-color: var(--entradas-accent);
+  color: #0c4a6e;
+}
+
+.entradas-app--dark .entradas-btn-secondary {
+  border-color: rgba(30, 187, 240, 0.55);
+  background: rgba(30, 187, 240, 0.12);
+  color: #bae6fd;
+}
+
+.entradas-app--dark .entradas-btn-secondary:hover:not(:disabled) {
+  background: rgba(30, 187, 240, 0.22);
+  color: #fff;
+}
+
+.entradas-accent-text {
+  color: var(--entradas-accent);
+}
+
+.entradas-app input:focus,
+.entradas-app select:focus,
+.entradas-app textarea:focus {
+  outline: none;
+  border-color: var(--entradas-accent) !important;
+  box-shadow: 0 0 0 3px rgba(30, 187, 240, 0.2);
+  transition:
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.entradas-app--dark input:focus,
+.entradas-app--dark select:focus,
+.entradas-app--dark textarea:focus {
+  box-shadow: 0 0 0 3px rgba(30, 187, 240, 0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entradas-interactive,
+  .entradas-card-lift,
+  .entradas-app input:focus,
+  .entradas-app select:focus {
+    transition: none;
+  }
+
+  .entradas-interactive:hover {
+    transform: none;
+  }
+}

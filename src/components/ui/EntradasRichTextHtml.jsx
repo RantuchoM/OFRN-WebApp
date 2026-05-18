@@ -12,6 +12,7 @@ export default function EntradasRichTextHtml({
   className = "",
   /** Clases en el nodo interno (además de ql-editor entradas-richtext …). */
   innerClassName = "",
+  isDark = false,
 }) {
   const raw = normalizeLegacyEntradasQuillHtml(String(html || "").trim());
   if (!raw) return null;
@@ -20,7 +21,7 @@ export default function EntradasRichTextHtml({
     <div className={className}>
       <div className="ql-snow">
         <div
-          className={`ql-editor entradas-richtext max-w-none text-sm text-slate-700 ${innerClassName}`.trim()}
+          className={`ql-editor entradas-richtext entradas-font-detail max-w-none text-sm ${isDark ? "text-slate-300" : "text-slate-700"} ${innerClassName}`.trim()}
           dangerouslySetInnerHTML={{ __html: raw }}
         />
       </div>

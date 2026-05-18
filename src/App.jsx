@@ -33,6 +33,7 @@ import ViaticosManual from "./views/Public/ViaticosManual";
 import RendicionesManual from "./views/Public/RendicionesManual";
 import TransporteSCRNPage from "./views/Public/TransporteSCRN/TransporteSCRNPage";
 import EntradasPage from "./views/Public/Entradas/EntradasPage";
+import EntradasRecordarmePage from "./views/Public/Entradas/EntradasRecordarmePage";
 import DashboardGeneral from "./views/Dashboard/DashboardGeneral";
 import DifusionGeneral from "./views/Difusion/DifusionGeneral";
 import NewsModal from "./components/news/NewsModal";
@@ -1325,6 +1326,7 @@ export default function App() {
               <Route path="/viaticos-manual" element={<ViaticosManual />} />
               <Route path="/rendiciones-manual" element={<RendicionesManual />} />
               <Route path="/transporte-scrn" element={<TransporteSCRNPage />} />
+              <Route path="/entradas/recordarme" element={<EntradasRecordarmePage />} />
               <Route path="/entradas" element={<EntradasPage />} />
               <Route
                 path="/management/*"
