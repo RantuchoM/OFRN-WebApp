@@ -707,6 +707,21 @@ export async function adminUpdateUsuarioRol({ id, rol }) {
   if (error) throw error;
 }
 
+/** Pre-registra usuario Entradas (auth + perfil) antes del primer login OTP. Solo admin. */
+export async function adminInviteEntradaUsuario({ email, nombre, apellido, rol = "recepcionista" }) {
+  const { data, error } = await supabaseEntradasPublic.functions.invoke("entradas-admin-invite-user", {
+    body: {
+      email: String(email || "").trim().toLowerCase(),
+      nombre: String(nombre || "").trim(),
+      apellido: String(apellido || "").trim(),
+      rol: String(rol || "recepcionista").trim().toLowerCase(),
+    },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
 /** Contador recepción: personas sin entrada/reserva (fila en `entrada_concierto_sin_entrada`). */
 export async function fetchEntradaSinEntradaCount(conciertoId) {
   const id = Number(conciertoId);

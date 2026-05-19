@@ -1,7 +1,7 @@
 # Spec: Lógica de Datos Externos (Google Sheets) para Viáticos Manuales
 
 ## 1. Fuente de Datos
-- **URL CSV**: `https://docs.google.com/spreadsheets/d/e/2PACX-1vSbSsEWy2XWoa-NLD4a_vk8XdUWo2a9qz9y-hKQKaljcptw_eSy-C3mRU7Kb8IwO2pnD3sL7qt-dWbd/pub?gid=0&single=true&output=csv`
+- **URL CSV**: publicación con `gid=657797988` (misma pestaña que “Editar datos base”). Fallback: export `gviz` del spreadsheet `1qMaN5c8Ss3QNk2QPAQZ86X1jM8J4f8mToM2600Dls1M`.
 
 ## 2. Procesamiento del CSV (Parsing)
 Al cargar el componente, se debe realizar un `fetch` y filtrar los datos de la siguiente manera:

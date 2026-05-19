@@ -42,3 +42,9 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/entradas-send-test-mail/deno.json"
 entrypoint = "./functions/entradas-send-test-mail/index.ts"
+
+[functions.entradas-admin-invite-user]
+enabled = true
+verify_jwt = true
+import_map = "./functions/entradas-admin-invite-user/deno.json"
+entrypoint = "./functions/entradas-admin-invite-user/index.ts"

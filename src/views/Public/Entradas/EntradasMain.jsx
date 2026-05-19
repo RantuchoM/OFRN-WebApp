@@ -21,6 +21,7 @@ import EntradasRichTextHtml from "../../../components/ui/EntradasRichTextHtml";
 import RichTextEditor from "../../../components/ui/RichTextEditor";
 import { supabaseEntradasPublic } from "../../../services/supabase";
 import {
+  adminInviteEntradaUsuario,
   adminUpdateUsuarioRol,
   getAdminConciertoStats,
   getAdminProgramaMailBuckets,
@@ -291,6 +292,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
   /** Filtro en pestaña Usuarios: localidades elegidas (vacío = mostrar todos). */
   const [adminUsuarioFiltroLocalidades, setAdminUsuarioFiltroLocalidades] = useState([]);
   const [adminUsuarioFiltroNombre, setAdminUsuarioFiltroNombre] = useState("");
+  const [adminInviteForm, setAdminInviteForm] = useState({
+    email: "",
+    nombre: "",
+    apellido: "",
+    rol: "recepcionista",
+  });
+  const [invitingEntradaUsuario, setInvitingEntradaUsuario] = useState(false);
   const [copyingAdminMails, setCopyingAdminMails] = useState(false);
   const [copyingProgramaMailsKey, setCopyingProgramaMailsKey] = useState("");
   const [copyingConciertoMailsKey, setCopyingConciertoMailsKey] = useState("");
@@ -3041,6 +3049,108 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
             {adminTab === "usuarios" && (
               <div className="space-y-3">
+                <div className={`${ui.cardInner} border p-4 space-y-3`}>
+                  <div>
+                    <h3 className={`text-sm font-bold ${ui.textStrong}`}>Pre-registrar usuario</h3>
+                    <p className={`text-[11px] mt-1 leading-relaxed ${ui.textMuted}`}>
+                      Creá la cuenta antes del primer acceso. La persona entra con su mail (código OTP) y conserva el rol asignado.
+                    </p>
+                  </div>
+                  <form
+                    className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      const email = adminInviteForm.email.trim().toLowerCase();
+                      const nombre = adminInviteForm.nombre.trim();
+                      const apellido = adminInviteForm.apellido.trim();
+                      const rolInvitado = adminInviteForm.rol;
+                      if (!email || !nombre || !apellido) {
+                        toast.error("Completá mail, nombre y apellido.");
+                        return;
+                      }
+                      setInvitingEntradaUsuario(true);
+                      try {
+                        const result = await adminInviteEntradaUsuario({
+                          email,
+                          nombre,
+                          apellido,
+                          rol: rolInvitado,
+                        });
+                        setAdminData(await listAdminData());
+                        setAdminInviteForm({
+                          email: "",
+                          nombre: "",
+                          apellido: "",
+                          rol: rolInvitado,
+                        });
+                        toast.success(
+                          result?.created
+                            ? `${nombre} ${apellido} quedó pre-registrado como ${rolInvitado}.`
+                            : `Se actualizó el perfil de ${email}.`,
+                        );
+                      } catch (inviteError) {
+                        toast.error(inviteError?.message || "No se pudo pre-registrar el usuario.");
+                      } finally {
+                        setInvitingEntradaUsuario(false);
+                      }
+                    }}
+                  >
+                    <label className={`block space-y-1 sm:col-span-2 lg:col-span-1 ${ui.textBody}`}>
+                      <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Mail</span>
+                      <input
+                        type="email"
+                        required
+                        autoComplete="off"
+                        value={adminInviteForm.email}
+                        onChange={(e) => setAdminInviteForm((f) => ({ ...f, email: e.target.value }))}
+                        className={ui.input}
+                        placeholder="recepcion@ejemplo.com"
+                      />
+                    </label>
+                    <label className={`block space-y-1 ${ui.textBody}`}>
+                      <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Nombre</span>
+                      <input
+                        type="text"
+                        required
+                        value={adminInviteForm.nombre}
+                        onChange={(e) => setAdminInviteForm((f) => ({ ...f, nombre: e.target.value }))}
+                        className={ui.input}
+                      />
+                    </label>
+                    <label className={`block space-y-1 ${ui.textBody}`}>
+                      <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Apellido</span>
+                      <input
+                        type="text"
+                        required
+                        value={adminInviteForm.apellido}
+                        onChange={(e) => setAdminInviteForm((f) => ({ ...f, apellido: e.target.value }))}
+                        className={ui.input}
+                      />
+                    </label>
+                    <label className={`block space-y-1 ${ui.textBody}`}>
+                      <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Rol</span>
+                      <select
+                        value={adminInviteForm.rol}
+                        onChange={(e) => setAdminInviteForm((f) => ({ ...f, rol: e.target.value }))}
+                        className={ui.select}
+                      >
+                        <option value="recepcionista">recepcionista</option>
+                        <option value="personal">personal</option>
+                        <option value="admin">admin</option>
+                      </select>
+                    </label>
+                    <div className="flex items-end sm:col-span-2 lg:col-span-1">
+                      <button
+                        type="submit"
+                        disabled={invitingEntradaUsuario}
+                        className={`${ui.btnPrimary} w-full py-2.5 disabled:opacity-60`}
+                      >
+                        {invitingEntradaUsuario ? "Guardando…" : "Pre-registrar"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
                 <div className="space-y-1.5">
                   <label htmlFor="admin-usuario-buscar-nombre" className={ui.label}>
                     Buscar por nombre

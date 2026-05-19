@@ -18,8 +18,27 @@ import { calculateDaysDiff } from "../../hooks/viaticos/useViaticosIndividuales"
 
 const STORAGE_KEY = "ofrn_manual_viatico_data";
 const LOCALIDADES_DATALIST_ID = "viaticos_manual_localidades";
-const CSV_URL =
-  "https://docs.google.com/spreadsheets/d/e/2PACX-1vSbSsEWy2XWoa-NLD4a_vk8XdUWo2a9qz9y-hKQKaljcptw_eSy-C3mRU7Kb8IwO2pnD3sL7qt-dWbd/pub?gid=0&single=true&output=csv";
+const SHEET_GID = "657797988";
+const CSV_URLS = [
+  `https://docs.google.com/spreadsheets/d/e/2PACX-1vSbSsEWy2XWoa-NLD4a_vk8XdUWo2a9qz9y-hKQKaljcptw_eSy-C3mRU7Kb8IwO2pnD3sL7qt-dWbd/pub?gid=${SHEET_GID}&single=true&output=csv`,
+  `https://docs.google.com/spreadsheets/d/1qMaN5c8Ss3QNk2QPAQZ86X1jM8J4f8mToM2600Dls1M/gviz/tq?tqx=out:csv&gid=${SHEET_GID}`,
+];
+
+const fetchSheetCsv = async () => {
+  let lastErr;
+  for (const url of CSV_URLS) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      if (!String(text || "").trim()) throw new Error("CSV vacío");
+      return text;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("No se pudo cargar el CSV");
+};
 
 const normalizeHeader = (h) =>
   String(h || "")
@@ -44,9 +63,19 @@ const round2 = (num) =>
 
 const toNumber = (v) => {
   if (v === null || v === undefined || v === "") return 0;
-  const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+  let s = String(v).trim().replace(/[$\s]/g, "");
+  if (!s) return 0;
+  if (/,\d{1,2}$/.test(s) && s.includes(".")) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else if (s.includes(",") && !s.includes(".")) {
+    s = s.replace(",", ".");
+  }
+  const n = parseFloat(s);
   return Number.isFinite(n) ? n : 0;
 };
+
+const isValorDiarioBaseUnset = (v) => toNumber(v) === 0;
 
 const fmtMoneyPreview = (val) =>
   toNumber(val).toLocaleString("es-AR", {
@@ -259,13 +288,19 @@ export default function RendicionesManual() {
   }, [dias_computables, valorDiarioCalc]);
 
   useEffect(() => {
+    if (montoDefault <= 0) return;
+    setBase((prev) => {
+      if (!isValorDiarioBaseUnset(prev.valor_diario_base)) return prev;
+      return { ...prev, valor_diario_base: montoDefault };
+    });
+  }, [montoDefault]);
+
+  useEffect(() => {
     let cancelled = false;
     const run = async () => {
       setCsvStatus({ loading: true, error: "" });
       try {
-        const res = await fetch(CSV_URL, { cache: "no-store" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const text = await res.text();
+        const text = await fetchSheetCsv();
 
         const rawRows = parseCsv(text || "");
         if (!rawRows || rawRows.length === 0) throw new Error("CSV vacío");
@@ -278,12 +313,20 @@ export default function RendicionesManual() {
             ? idx("localidades")
             : idxFirstMatch((h) => h.includes("localidad"));
 
+        const idxValorDiario =
+          idx("valor_diario") >= 0
+            ? idx("valor_diario")
+            : idx("valor_diario_base") >= 0
+              ? idx("valor_diario_base")
+              : idxFirstMatch((h) => h.includes("valor") && h.includes("diario"));
+
         const get = (row, name) => {
           const i = idx(name);
           if (i < 0) return "";
           return row[i] ?? "";
         };
         const getByIdx = (row, i) => (i >= 0 ? (row[i] ?? "") : "");
+        const getValorDiario = (row) => getByIdx(row, idxValorDiario);
 
         const people = [];
         const locSet = new Set();
@@ -303,7 +346,7 @@ export default function RendicionesManual() {
               .forEach((l) => locSet.add(l));
           }
 
-          const valorDiario = toNumber(get(row, "valor_diario"));
+          const valorDiario = toNumber(getValorDiario(row));
           if (valorDiario > maxValorDiario) maxValorDiario = valorDiario;
 
           const apellido = String(get(row, "apellido") || "").trim();
@@ -341,8 +384,7 @@ export default function RendicionesManual() {
 
           if ((maxValorDiario || 0) > 0) {
             setBase((prev) => {
-              const current = toNumber(prev.valor_diario_base);
-              if (current > 0) return prev;
+              if (!isValorDiarioBaseUnset(prev.valor_diario_base)) return prev;
               return { ...prev, valor_diario_base: maxValorDiario };
             });
           }
@@ -363,7 +405,7 @@ export default function RendicionesManual() {
     return () => {
       cancelled = true;
     };
-  }, [loadedFromStorage]);
+  }, []);
 
   const personaOptions = useMemo(() => {
     return (personas || []).map((p) => ({
