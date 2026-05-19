@@ -521,7 +521,7 @@ export default function GiraForm({
     const { data } = await supabase
       .from("eventos")
       .select(
-        "id, fecha, hora_inicio, hora_fin, descripcion, id_locacion, locaciones(nombre)",
+        "id, fecha, hora_inicio, hora_fin, descripcion, id_locacion, locaciones(nombre, localidades(localidad))",
       )
       .eq("id_gira", giraId)
       .eq("id_tipo_evento", 1)
@@ -1306,7 +1306,13 @@ export default function GiraForm({
                         <IconClock size={10} /> {c.hora_inicio?.slice(0, 5)} hs{" "}
                         <span className="text-slate-300">|</span>{" "}
                         <IconMapPin size={10} />{" "}
-                        {c.locaciones?.nombre || "Sin Sala"}
+                        {c.locaciones?.nombre
+                          ? `${c.locaciones.nombre}${
+                              c.locaciones.localidades?.localidad
+                                ? ` (${c.locaciones.localidades.localidad})`
+                                : ""
+                            }`
+                          : "Sin Sala"}
                       </div>
                     </div>
                   </div>

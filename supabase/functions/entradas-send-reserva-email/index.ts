@@ -9,7 +9,7 @@ import nodemailer from "npm:nodemailer@6.9.7";
 import {
   ENTRADA_CONCIERTO_EVENTO_SELECT,
   fechaHoraDesdeEventoOfrn,
-} from "../_shared/entradasConciertoEvento.ts";
+} from "./entradasConciertoEvento.ts";
 
 const GMAIL_USER = Deno.env.get("GMAIL_USER");
 const GMAIL_PASS = Deno.env.get("GMAIL_PASS");

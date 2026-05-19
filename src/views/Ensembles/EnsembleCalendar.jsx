@@ -1,8 +1,13 @@
-import React, { useMemo } from 'react';
+import React, { forwardRef, useMemo } from 'react';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop';
 import { format, parse, startOfWeek, getDay, parseISO, differenceInMinutes, roundToNearestMinutes } from 'date-fns';
 import { es } from 'date-fns/locale';
+import {
+  getCalendarEventTitle,
+  getEventEnsambles,
+  isEnsayoEnsambleEvent,
+} from '../../utils/eventDisplayUtils';
 
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css';
@@ -18,14 +23,24 @@ const localizer = dateFnsLocalizer({
 
 const DnDCalendar = withDragAndDrop(Calendar);
 
-export default function EnsembleCalendar({ 
-    events, onEventUpdate, onSelectEvent, 
-    date, onNavigate, view, onView 
-}) {
-  
+function buildEventTooltip(evt, title) {
+  const parts = [title];
+  const ensambles = getEventEnsambles(evt);
+  if (isEnsayoEnsambleEvent(evt) && ensambles.length > 0) {
+    parts.push(ensambles.map((e) => e.ensamble).join(', '));
+  }
+  parts.push(
+    `${evt.hora_inicio.slice(0, 5)} - ${evt.hora_fin?.slice(0, 5) || '?'}`,
+  );
+  return parts.join('\n');
+}
+
+const EnsembleCalendar = forwardRef(function EnsembleCalendar(
+  { events, onEventUpdate, onSelectEvent, date, onNavigate, view, onView },
+  ref,
+) {
   const calendarEvents = useMemo(() => {
     return events.map(evt => {
-        // 1. Limpieza estricta de segundos/ms
         const dateBase = parseISO(evt.fecha);
         const [hStart, mStart] = (evt.hora_inicio || "00:00").split(':').map(Number);
         
@@ -43,21 +58,17 @@ export default function EnsembleCalendar({
 
         if (end <= start) end = new Date(start.getTime() + 60 * 60 * 1000);
 
-        // 2. EL TRUCO DEL MILISEGUNDO (Solo para el layout)
-        // Al restar 1ms, si Evento A termina 10:00 y B empieza 10:00:
-        // A termina 09:59:59.999 -> No toca a B -> Se apilan verticalmente.
-        // Si A termina 10:30 y B empieza 10:00 -> Se superponen -> Se ponen lado a lado.
         const visualEnd = new Date(end.getTime() - 1); 
 
-        const eventTitle = evt.descripcion || (evt.tipos_evento?.nombre || "Evento");
-        const tooltipText = `${eventTitle}\n${evt.hora_inicio.slice(0,5)} - ${evt.hora_fin?.slice(0,5) || '?'}`;
+        const eventTitle = getCalendarEventTitle(evt);
+        const tooltipText = buildEventTooltip(evt, eventTitle);
 
         return {
             id: evt.id,
             title: eventTitle,
             start, 
             end: visualEnd,
-            resource: { ...evt, realEnd: end }, // Guardamos el final real para texto
+            resource: { ...evt, realEnd: end },
             color: evt.tipos_evento?.color || '#6366f1', 
             isDraggable: !!evt.isMyRehearsal,
             tooltip: tooltipText
@@ -67,24 +78,35 @@ export default function EnsembleCalendar({
 
   const { formats } = useMemo(() => ({
     formats: {
-      // Ocultamos la hora automática del calendario para controlarla nosotros
       eventTimeRangeFormat: () => "" 
     }
   }), []);
 
   const EventComponent = ({ event }) => {
-      // Usamos la duración real para decidir qué mostrar
       const duration = differenceInMinutes(event.resource.realEnd, event.start);
+      const ensambles = getEventEnsambles(event.resource);
+      const showEnsambleTags =
+        isEnsayoEnsambleEvent(event.resource) && ensambles.length > 0;
       
-      // Evento < 30 min: Caja vacía (solo color)
       if (duration < 30) return null; 
 
       return (
-          <div className="flex flex-col h-full overflow-hidden px-1 py-0.5 leading-tight select-none">
+          <div className="flex flex-col h-full overflow-hidden px-1 py-0.5 leading-tight select-none gap-0.5">
               <div className="text-[10px] font-bold truncate">
                   {event.title}
               </div>
-              {/* Solo mostrar hora si hay espacio suficiente (>50 min) */}
+              {showEnsambleTags && (
+                <div className="flex flex-wrap gap-1 max-h-[2.8em] overflow-hidden">
+                  {ensambles.map((ens) => (
+                    <span
+                      key={ens.id}
+                      className="text-[10px] font-semibold uppercase bg-white/25 px-1.5 py-0.5 rounded truncate max-w-full leading-tight"
+                    >
+                      {ens.ensamble}
+                    </span>
+                  ))}
+                </div>
+              )}
               {duration >= 50 && (
                   <div className="text-[9px] opacity-90 truncate font-normal">
                       {format(event.start, 'HH:mm')} - {format(event.resource.realEnd, 'HH:mm')}
@@ -96,7 +118,6 @@ export default function EnsembleCalendar({
 
   const eventPropGetter = (event) => {
     const isMyEvent = event.resource.isMyRehearsal;
-    // Detectamos si es corto para aplicar clase CSS específica
     const duration = differenceInMinutes(event.resource.realEnd, event.start);
     const isShort = duration < 30;
 
@@ -113,7 +134,6 @@ export default function EnsembleCalendar({
         margin: 0,
         cursor: isMyEvent ? 'pointer' : 'default',
         boxShadow: 'none',
-        // Esto permite que el CSS controle la altura mínima real
         minHeight: '0px' 
       },
       title: event.tooltip 
@@ -122,7 +142,6 @@ export default function EnsembleCalendar({
 
   const handleEventDrop = ({ event, start, end }) => {
     if (!event.resource.isMyRehearsal) return;
-    // Redondeo para limpiar el milisegundo al guardar
     const cleanEnd = roundToNearestMinutes(end, { nearestTo: 15 });
     const cleanStart = roundToNearestMinutes(start, { nearestTo: 15 });
     onEventUpdate(event.id, {
@@ -143,34 +162,29 @@ export default function EnsembleCalendar({
   };
 
   return (
-    <div className="h-[750px] bg-white p-2 rounded-xl shadow-sm border border-slate-200 relative">
-      
-      {/* CSS EQUILIBRADO:
-          1. Eliminamos min-height y padding para permitir eventos finos.
-          2. NO tocamos 'width' ni 'left' para permitir que el calendario calcule superposiciones reales.
-          3. Ocultamos labels por defecto.
-      */}
+    <div
+      ref={ref}
+      data-calendar-export-root="coordinator-ensemble"
+      className="h-[750px] bg-white p-2 rounded-xl shadow-sm border border-slate-200 relative coordinator-calendar-export-root"
+    >
       <style>{`
         .rbc-event {
             padding: 0 !important;
-            min-height: 0px !important; /* Permite eventos de 15 min reales */
+            min-height: 0px !important;
         }
         
         .rbc-event-label {
-            display: none !important; /* Ocultar texto automático siempre */
+            display: none !important;
         }
 
         .rbc-event-content {
             font-size: inherit;
-            /* width: 100%; <- ELIMINADO para permitir side-by-side */
         }
 
-        /* Ajuste de la grilla */
         .rbc-time-slot {
-            min-height: 12px; /* Altura física del slot de 15 min */
+            min-height: 12px;
         }
         
-        /* Opcional: un poco de espacio visual entre eventos */
         .rbc-day-slot .rbc-events-container {
             margin-right: 2px;
         }
@@ -216,4 +230,6 @@ export default function EnsembleCalendar({
       />
     </div>
   );
-}
+});
+
+export default EnsembleCalendar;

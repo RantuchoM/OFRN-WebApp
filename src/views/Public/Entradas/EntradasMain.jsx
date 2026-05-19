@@ -39,6 +39,7 @@ import {
   cancelarReserva,
   deltaEntradaSinEntrada,
   enviarMailCancelacionReserva,
+  enviarMailPruebaConciertoAdmin,
   fetchEntradaSinEntradaCount,
   enviarMailReserva,
   getConciertoBySlug,
@@ -327,6 +328,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
   /** { id, nombre } para confirmar borrado de programa (admin) */
   const [deleteProgramaTarget, setDeleteProgramaTarget] = useState(null);
   const [adminDeleting, setAdminDeleting] = useState(false);
+  /** 'recordatorio' | 'encuesta' mientras se envía mail de prueba desde config de concierto */
+  const [testMailBusyTipo, setTestMailBusyTipo] = useState(null);
 
   const canAdmin = profile?.rol === "admin";
   const canRecepcion = profile?.rol === "recepcionista" || profile?.rol === "admin";
@@ -542,6 +545,51 @@ export default function EntradasMain({ user, profile, onLogout }) {
     const at = aperturaReservasEfectivaAt(concierto);
     if (!at) return "";
     return formatConciertoFechaHoraEs(at.toISOString());
+  };
+
+  const buildConciertoMailPruebaPreview = () => {
+    const evSel = eventosParaSelectorConcierto.find(
+      (row) => Number(row.id) === Number(conciertoForm.ofrn_evento_id),
+    );
+    const fh = evSel ? fechaHoraDesdeConciertoEntrada({ evento: evSel }) : null;
+    const slugGuardado = conciertoForm.id
+      ? String(
+          adminData.conciertos?.find((c) => Number(c.id) === Number(conciertoForm.id))?.slug_publico || "",
+        ).trim()
+      : "";
+    return {
+      nombre: conciertoForm.nombre,
+      slugPublico: slugGuardado || undefined,
+      encuestaUrl: conciertoForm.encuesta_url?.trim() || undefined,
+      fechaTexto: fh ? formatConciertoFechaHoraEs(fh) : undefined,
+      lugar: evSel ? lugarNombreDesdeConciertoEntrada({ evento: evSel }) : undefined,
+    };
+  };
+
+  const handleEnviarMailPruebaConcierto = async (tipo) => {
+    if (!usuarioEmailEntradas) {
+      toast.error("No encontramos tu correo en la sesión.");
+      return;
+    }
+    setTestMailBusyTipo(tipo);
+    try {
+      const data = await enviarMailPruebaConciertoAdmin({
+        tipo,
+        conciertoId: conciertoForm.id || undefined,
+        preview: buildConciertoMailPruebaPreview(),
+      });
+      const dest = data?.to || usuarioEmailEntradas;
+      if (tipo === "recordatorio") {
+        toast.success(`Mail de prueba (recordatorio) enviado a ${dest}.`);
+      } else {
+        const fallback = data?.encuestaFallback ? " con enlace por defecto (Linktree)" : "";
+        toast.success(`Mail de prueba (encuesta) enviado a ${dest}${fallback}.`);
+      }
+    } catch (err) {
+      toast.error(err?.message || "No se pudo enviar el mail de prueba.");
+    } finally {
+      setTestMailBusyTipo(null);
+    }
   };
 
   const handleRecordarmeConcierto = async (concierto) => {
@@ -1720,7 +1768,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
           Por defecto: recordatorio 1 día antes, cierre de reservas 10 min antes del concierto, encuesta 3 h después (editable).
         </p>
         <label className={`block text-xs font-semibold ${ui.textBody}`}>
-          Recordatorio por mail
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>Recordatorio por mail</span>
+            <button
+              type="button"
+              disabled={testMailBusyTipo != null}
+              onClick={() => void handleEnviarMailPruebaConcierto("recordatorio")}
+              className={`${ui.btnGhost} text-[11px] px-2 py-1 shrink-0 disabled:opacity-50`}
+            >
+              {testMailBusyTipo === "recordatorio" ? "Enviando…" : "Enviar mail de prueba"}
+            </button>
+          </div>
           <input
             type="datetime-local"
             value={conciertoForm.limite_recordatorio_at}
@@ -1729,7 +1787,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
           />
         </label>
         <label className={`block text-xs font-semibold ${ui.textBody}`}>
-          Cierre para sacar entradas
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>Cierre para sacar entradas</span>
+            <span className={`text-[10px] font-normal ${ui.textMuted}`}>Sin correo automático</span>
+          </div>
           <input
             type="datetime-local"
             value={conciertoForm.limite_cierre_reservas_at}
@@ -1738,7 +1799,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
           />
         </label>
         <label className={`block text-xs font-semibold ${ui.textBody}`}>
-          Envío encuesta (quienes ingresaron)
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>Envío encuesta (quienes ingresaron)</span>
+            <button
+              type="button"
+              disabled={testMailBusyTipo != null}
+              onClick={() => void handleEnviarMailPruebaConcierto("encuesta")}
+              className={`${ui.btnGhost} text-[11px] px-2 py-1 shrink-0 disabled:opacity-50`}
+            >
+              {testMailBusyTipo === "encuesta" ? "Enviando…" : "Enviar mail de prueba"}
+            </button>
+          </div>
           <input
             type="datetime-local"
             value={conciertoForm.limite_encuesta_at}
@@ -1757,7 +1828,16 @@ export default function EntradasMain({ user, profile, onLogout }) {
           />
         </label>
         <p className={`text-[10px] leading-snug ${ui.textMuted}`}>
-          Este enlace se usa en el mail automático de encuesta después del concierto. Si queda vacío, no se envía ese mail (salvo URL global en el servidor).
+          Opcional: si queda vacío, el mail de encuesta (y la prueba) usan{" "}
+          <a
+            href="https://linktr.ee/conciertos_ofrn"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+          >
+            linktr.ee/conciertos_ofrn
+          </a>
+          . Un enlace acá reemplaza ese default solo para este concierto.
         </p>
       </div>
       <RichTextEditor

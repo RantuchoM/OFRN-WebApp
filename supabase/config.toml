@@ -34,4 +34,11 @@ verify_jwt = false
 import_map = "./functions/entradas-cron-mails/deno.json"
 entrypoint = "./functions/entradas-cron-mails/index.ts"
 # Programar en Dashboard → Edge Functions → entradas-cron-mails (p. ej. */15 * * * *)
-# o vía pg_cron + http_post al endpoint. Requiere ENTRADAS_CRON_SECRET, GMAIL_*, ENTRADAS_ENCUESTA_URL.
+# o vía pg_cron + http_post al endpoint. Requiere ENTRADAS_CRON_SECRET, GMAIL_*.
+# Encuesta sin URL por concierto: default https://linktr.ee/conciertos_ofrn (override: ENTRADAS_ENCUESTA_URL).
+
+[functions.entradas-send-test-mail]
+enabled = true
+verify_jwt = true
+import_map = "./functions/entradas-send-test-mail/deno.json"
+entrypoint = "./functions/entradas-send-test-mail/index.ts"

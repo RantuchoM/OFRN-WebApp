@@ -667,6 +667,21 @@ export async function adminDeletePrograma(programaId) {
   if (error) throw error;
 }
 
+/** Mail de prueba de cron (recordatorio / encuesta) al admin logueado. */
+export async function enviarMailPruebaConciertoAdmin({ tipo, conciertoId, preview }) {
+  const { data, error } = await supabaseEntradasPublic.functions.invoke("entradas-send-test-mail", {
+    body: {
+      tipo,
+      conciertoId: conciertoId ? Number(conciertoId) : undefined,
+      preview: preview || undefined,
+      appUrl: window.location.origin,
+    },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
 export async function adminUpsertConcierto(payload) {
   const { data, error } = await supabaseEntradasPublic.rpc("entrada_admin_upsert_concierto", {
     p_id: payload.id ?? null,

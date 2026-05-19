@@ -8,7 +8,7 @@ import { toast } from "sonner";
 /**
  * Selector de locaciones con botón de creación rápida.
  * Permite insertar una nueva locación (sede de ensayo) sin salir del formulario.
- * Incluye: nombre, localidad, dirección, teléfono, aforo (capacidad) y mail.
+ * Incluye: nombre, localidad, dirección, link Maps, teléfono, aforo (capacidad) y mail.
  */
 export default function LocationSelectWithCreate({
   supabase,
@@ -23,6 +23,7 @@ export default function LocationSelectWithCreate({
   const [newNombre, setNewNombre] = useState("");
   const [newIdLocalidad, setNewIdLocalidad] = useState("");
   const [newDireccion, setNewDireccion] = useState("");
+  const [newLinkMapa, setNewLinkMapa] = useState("");
   const [newTelefono, setNewTelefono] = useState("");
   const [newAforo, setNewAforo] = useState("");
   const [newMail, setNewMail] = useState("");
@@ -49,6 +50,7 @@ export default function LocationSelectWithCreate({
     setNewNombre("");
     setNewIdLocalidad("");
     setNewDireccion("");
+    setNewLinkMapa("");
     setNewTelefono("");
     setNewAforo("");
     setNewMail("");
@@ -68,6 +70,7 @@ export default function LocationSelectWithCreate({
         nombre,
         id_localidad: newIdLocalidad || null,
         direccion: newDireccion?.trim() || null,
+        link_mapa: newLinkMapa?.trim() || null,
         telefono: newTelefono?.trim() || null,
         capacidad: newAforo?.trim() ? Number(newAforo) : null,
         mail: newMail?.trim() || null,
@@ -186,6 +189,18 @@ export default function LocationSelectWithCreate({
                     value={newDireccion}
                     onChange={(e) => setNewDireccion(e.target.value)}
                     placeholder="Ej: Av. 9 de Julio 1234"
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1.5">
+                    Link Google Maps (opcional)
+                  </label>
+                  <input
+                    type="url"
+                    value={newLinkMapa}
+                    onChange={(e) => setNewLinkMapa(e.target.value)}
+                    placeholder="https://maps.google.com/..."
                     className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-400"
                   />
                 </div>

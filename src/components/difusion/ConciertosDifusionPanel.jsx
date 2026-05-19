@@ -9,6 +9,7 @@ import {
 } from "../ui/Icons";
 import ConfirmModal from "../ui/ConfirmModal";
 import MassiveEditModal from "./MassiveEditModal";
+import LocationManagerModal from "../locations/LocationManagerModal";
 import { toast } from "sonner";
 import { getProgramTypeColor } from "../../utils/giraUtils";
 
@@ -192,6 +193,41 @@ function SnapshotWarn({ warn, tooltip, children }) {
   );
 }
 
+function LocacionConEditar({
+  label,
+  locationId,
+  canEditLocation,
+  onEditLocation,
+  warn,
+  tooltip,
+  strikeCls = "",
+  className = "",
+}) {
+  return (
+    <div
+      className={`flex items-center gap-1 min-w-0 max-w-full ${strikeCls} ${className}`}
+    >
+      <SnapshotWarn warn={warn} tooltip={tooltip}>
+        <span className="min-w-0 break-words">{label}</span>
+      </SnapshotWarn>
+      {canEditLocation && locationId != null && locationId !== "" && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEditLocation(locationId);
+          }}
+          className="shrink-0 p-0.5 rounded text-slate-400 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-all"
+          title="Editar locación"
+          aria-label="Editar locación"
+        >
+          <IconEdit size={11} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function HistoryModal({ isOpen, onClose, logs, editorMap }) {
   if (!isOpen) return null;
   return (
@@ -321,6 +357,7 @@ export default function ConciertosDifusionPanel({
   const [massiveOpen, setMassiveOpen] = useState(false);
 
   const [historyEventId, setHistoryEventId] = useState(null);
+  const [editingLocationId, setEditingLocationId] = useState(null);
 
   const latestFor = useCallback(
     (eventId) => {
@@ -626,7 +663,7 @@ export default function ConciertosDifusionPanel({
             return (
               <article
                 key={ev.id}
-                className={`rounded-lg border border-slate-200/80 dark:border-slate-700 p-2 shadow-sm ${estadoFilaBgClass(estadoFondo)} ${r.deleted ? "opacity-60" : ""}`}
+                className={`group rounded-lg border border-slate-200/80 dark:border-slate-700 p-2 shadow-sm ${estadoFilaBgClass(estadoFondo)} ${r.deleted ? "opacity-60" : ""}`}
               >
                 <div className="flex items-start gap-2">
                   {canEdit && (
@@ -661,13 +698,16 @@ export default function ConciertosDifusionPanel({
                             <span>{r.curHora || "—"}</span>
                           </SnapshotWarn>
                         </div>
-                        <div
-                          className={`text-[10px] text-slate-600 dark:text-slate-300 leading-snug ${r.strikeCls}`}
-                        >
-                          <SnapshotWarn warn={r.warnL} tooltip={r.snapTip}>
-                            {r.curLoc}
-                          </SnapshotWarn>
-                        </div>
+                        <LocacionConEditar
+                          label={r.curLoc}
+                          locationId={ev.locaciones?.id}
+                          canEditLocation={canEdit}
+                          onEditLocation={setEditingLocationId}
+                          warn={r.warnL}
+                          tooltip={r.snapTip}
+                          strikeCls={r.strikeCls}
+                          className="text-[10px] text-slate-600 dark:text-slate-300 leading-snug"
+                        />
                       </div>
                       <div className="shrink-0">
                         {r.isEditing ? (
@@ -863,7 +903,7 @@ export default function ConciertosDifusionPanel({
                 return (
                   <tr
                     key={ev.id}
-                    className={`border-t border-slate-100/90 dark:border-slate-800 ${estadoFilaBgClass(estadoFondo)} ${r.deleted ? "opacity-60" : ""}`}
+                    className={`group border-t border-slate-100/90 dark:border-slate-800 ${estadoFilaBgClass(estadoFondo)} ${r.deleted ? "opacity-60" : ""}`}
                   >
                     {canEdit && (
                       <td className={`p-2 align-top ${r.deleted ? "opacity-50" : ""}`}>
@@ -898,9 +938,15 @@ export default function ConciertosDifusionPanel({
                       </SnapshotWarn>
                     </td>
                     <td className={`p-2 align-top text-xs break-words ${r.strikeCls}`}>
-                      <SnapshotWarn warn={r.warnL} tooltip={r.snapTip}>
-                        {r.curLoc}
-                      </SnapshotWarn>
+                      <LocacionConEditar
+                        label={r.curLoc}
+                        locationId={ev.locaciones?.id}
+                        canEditLocation={canEdit}
+                        onEditLocation={setEditingLocationId}
+                        warn={r.warnL}
+                        tooltip={r.snapTip}
+                        strikeCls={r.strikeCls}
+                      />
                     </td>
                     <td className={`p-2 align-top text-xs ${r.strikeCls}`}>
                       <div className="font-semibold text-slate-800 dark:text-slate-100 leading-snug">
@@ -1058,6 +1104,18 @@ export default function ConciertosDifusionPanel({
         count={selected.size}
         onApply={applyMassive}
       />
+
+      {editingLocationId != null && (
+        <LocationManagerModal
+          supabase={supabase}
+          initialLocationId={editingLocationId}
+          onClose={() => setEditingLocationId(null)}
+          onSuccess={() => {
+            setEditingLocationId(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }

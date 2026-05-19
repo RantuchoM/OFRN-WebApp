@@ -9,89 +9,27 @@ import {
   ENTRADA_CONCIERTO_EVENTO_SELECT,
   fechaHoraDesdeEventoOfrn,
   lugarNombreDesdeEventoOfrn,
-} from "../_shared/entradasConciertoEvento.ts";
+} from "./entradasConciertoEvento.ts";
+import {
+  formatFechaHoraEntradasMail,
+  templateEncuesta,
+  templateRecordatorio,
+} from "./entradasCronMailTemplates.ts";
 
 const GMAIL_USER = Deno.env.get("GMAIL_USER");
 const GMAIL_PASS = Deno.env.get("GMAIL_PASS");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const CRON_SECRET = Deno.env.get("ENTRADAS_CRON_SECRET") ?? "";
-const ENCUESTA_URL =
-  Deno.env.get("ENTRADAS_ENCUESTA_URL") ??
-  "https://forms.gle/ejemplo-encuesta-ofrn";
-
-const TZ = "America/Argentina/Buenos_Aires";
+/** Fallback si el concierto no tiene `encuesta_url` (encuesta en Linktree OFRN). */
+const ENCUESTA_URL_DEFAULT = "https://linktr.ee/conciertos_ofrn";
+const ENCUESTA_URL = Deno.env.get("ENTRADAS_ENCUESTA_URL") ?? ENCUESTA_URL_DEFAULT;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-entradas-cron-secret",
 };
-
-function esc(s: string | null | undefined) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function formatFechaHora(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("es-AR", {
-    timeZone: TZ,
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function templateRecordatorio(d: {
-  nombre: string;
-  conciertoNombre: string;
-  fechaTexto: string;
-  lugar: string;
-  codigo: string;
-  linkConcierto: string;
-}): string {
-  return `<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;color:#0f172a;line-height:1.5;">
-  <div style="max-width:560px;margin:0 auto;border:2px solid #4f46e5;border-radius:12px;padding:24px;">
-    <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#4f46e5;font-weight:700;">Recordatorio · Entradas OFRN</p>
-    <p>Hola ${esc(d.nombre)},</p>
-    <p>Te recordamos que tenés reserva para:</p>
-    <p style="margin:16px 0;padding:12px;background:#f8fafc;border-radius:8px;">
-      <strong>${esc(d.conciertoNombre)}</strong><br/>
-      ${esc(d.fechaTexto)}<br/>
-      ${d.lugar ? esc(d.lugar) : ""}
-    </p>
-    <p>Código de reserva: <strong>${esc(d.codigo)}</strong></p>
-    <p>Presentate con tu QR o código al menos <strong>10 minutos antes</strong> del inicio.</p>
-    <p style="margin-top:20px;"><a href="${esc(d.linkConcierto)}" style="color:#4f46e5;font-weight:700;">Ver detalle del concierto</a></p>
-    <p style="margin-top:24px;font-size:12px;color:#64748b;">Orquesta Filarmónica de Río Negro</p>
-  </div></body></html>`;
-}
-
-function templateEncuesta(d: {
-  nombre: string;
-  conciertoNombre: string;
-  encuestaUrl: string;
-}): string {
-  return `<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;color:#0f172a;line-height:1.5;">
-  <div style="max-width:560px;margin:0 auto;border:2px solid #059669;border-radius:12px;padding:24px;">
-    <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#059669;font-weight:700;">Tu opinión · Encuesta anónima</p>
-    <p>Hola ${esc(d.nombre)},</p>
-    <p>Gracias por asistir a <strong>${esc(d.conciertoNombre)}</strong>.</p>
-    <p>Nos ayudaría mucho si completás esta encuesta breve y anónima sobre tu experiencia en la sala:</p>
-    <p style="margin:20px 0;"><a href="${esc(d.encuestaUrl)}" style="display:inline-block;background:#059669;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:700;">Responder encuesta</a></p>
-    <p style="font-size:12px;color:#64748b;">El enlace no identifica tu reserva; las respuestas son anónimas.</p>
-    <p style="margin-top:24px;font-size:12px;color:#64748b;">Orquesta Filarmónica de Río Negro</p>
-  </div></body></html>`;
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -152,7 +90,7 @@ serve(async (req) => {
 
       const baseUrl = Deno.env.get("ENTRADAS_PUBLIC_URL") ?? "https://entradas.ofrn.gob.ar";
       const linkConcierto = `${baseUrl.replace(/\/$/, "")}/?concierto=${encodeURIComponent(concierto.slug_publico || "")}`;
-      const fechaTexto = formatFechaHora(fechaHoraDesdeEventoOfrn(concierto.evento));
+      const fechaTexto = formatFechaHoraEntradasMail(fechaHoraDesdeEventoOfrn(concierto.evento));
 
       for (const row of reservas || []) {
         const email = String(row?.usuario?.email || "").trim();
