@@ -8,10 +8,28 @@ function readEntradasThemeIsDark() {
   return true;
 }
 
+let entradasRouteRefCount = 0;
+
+/** Desactiva la inversión global de OFRN mientras dura Entradas (tema propio). */
+function useIsolateFromGlobalDarkMode() {
+  useEffect(() => {
+    entradasRouteRefCount += 1;
+    document.documentElement.classList.add("entradas-route");
+    return () => {
+      entradasRouteRefCount -= 1;
+      if (entradasRouteRefCount <= 0) {
+        entradasRouteRefCount = 0;
+        document.documentElement.classList.remove("entradas-route");
+      }
+    };
+  }, []);
+}
+
 export const ENTRADAS_LOGO_URL =
   "https://filarmonica.rionegro.gov.ar/wp-content/uploads/2025/11/logo-filarmonica-2026-negativo.png";
 
 export function useEntradasDarkMode() {
+  useIsolateFromGlobalDarkMode();
   const [isDark, setIsDark] = useState(readEntradasThemeIsDark);
 
   useEffect(() => {

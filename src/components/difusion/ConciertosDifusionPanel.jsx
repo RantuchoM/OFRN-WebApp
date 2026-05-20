@@ -22,30 +22,30 @@ export const DIFUSION_ESTADOS = [
 function estadoBadgeClass(estado) {
   switch (estado) {
     case "listo":
-      return "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200";
+      return "bg-green-100 text-green-800";
     case "compartido":
-      return "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200";
+      return "bg-blue-100 text-blue-800";
     case "en_proceso":
-      return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200";
+      return "bg-yellow-100 text-yellow-800";
     default:
-      return "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400";
+      return "bg-slate-100 text-slate-500";
   }
 }
 
 /** Fondo muy tenue para fila de tabla o tarjeta móvil */
 function estadoFilaBgClass(estado) {
   if (estado == null || estado === "") {
-    return "bg-slate-50/40 dark:bg-slate-900/80";
+    return "bg-slate-50/40";
   }
   switch (estado) {
     case "listo":
-      return "bg-green-50/70 dark:bg-green-950/30";
+      return "bg-green-50/70";
     case "compartido":
-      return "bg-blue-50/70 dark:bg-blue-950/30";
+      return "bg-blue-50/70";
     case "en_proceso":
-      return "bg-amber-50/80 dark:bg-amber-950/25";
+      return "bg-amber-50/80";
     default:
-      return "bg-slate-50/40 dark:bg-slate-900/80";
+      return "bg-slate-50/40";
   }
 }
 
@@ -185,7 +185,7 @@ function SnapshotWarn({ warn, tooltip, children }) {
   if (!warn) return children;
   return (
     <span
-      className="text-orange-600 dark:text-orange-400 font-medium cursor-help border-b border-dotted border-orange-400"
+      className="text-orange-600 font-medium cursor-help border-b border-dotted border-orange-400"
       title={tooltip}
     >
       {children}
@@ -217,7 +217,7 @@ function LocacionConEditar({
             e.stopPropagation();
             onEditLocation(locationId);
           }}
-          className="shrink-0 p-0.5 rounded text-slate-400 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-all"
+          className="shrink-0 p-0.5 rounded text-slate-400 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
           title="Editar locación"
           aria-label="Editar locación"
         >
@@ -232,9 +232,9 @@ function HistoryModal({ isOpen, onClose, logs, editorMap }) {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[105] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col border border-slate-100 dark:border-slate-700">
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center shrink-0">
-          <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col border border-slate-100">
+        <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
+          <h3 className="font-bold text-slate-800 flex items-center gap-2">
             <IconHistory size={18} />
             Historial de difusión
           </h3>
@@ -257,7 +257,7 @@ function HistoryModal({ isOpen, onClose, logs, editorMap }) {
               return (
                 <div
                   key={log.id}
-                  className="p-3 rounded-lg border border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50 text-sm"
+                  className="p-3 rounded-lg border border-slate-100 bg-slate-50/80 text-sm"
                 >
                   <div className="flex flex-wrap items-center gap-2 mb-1">
                     <span
@@ -295,7 +295,7 @@ function HistoryModal({ isOpen, onClose, logs, editorMap }) {
                     </div>
                   )}
                   {log.observaciones ? (
-                    <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
+                    <p className="text-slate-700 whitespace-pre-wrap">
                       {log.observaciones}
                     </p>
                   ) : (
@@ -646,12 +646,12 @@ export default function ConciertosDifusionPanel({
       {/* Vista móvil: tarjetas compactas */}
       <div className="md:hidden space-y-1.5">
         {loading ? (
-          <div className="flex items-center justify-center gap-2 py-10 text-slate-400 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+          <div className="flex items-center justify-center gap-2 py-10 text-slate-400 text-sm rounded-xl border border-slate-200 bg-white">
             <IconLoader className="animate-spin" size={18} />
             Cargando…
           </div>
         ) : events.length === 0 ? (
-          <div className="py-10 text-center text-slate-500 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3">
+          <div className="py-10 text-center text-slate-500 text-sm rounded-xl border border-slate-200 bg-white px-3">
             No hay conciertos con los filtros actuales.
           </div>
         ) : (
@@ -663,7 +663,7 @@ export default function ConciertosDifusionPanel({
             return (
               <article
                 key={ev.id}
-                className={`group rounded-lg border border-slate-200/80 dark:border-slate-700 p-2 shadow-sm ${estadoFilaBgClass(estadoFondo)} ${r.deleted ? "opacity-60" : ""}`}
+                className={`group rounded-lg border border-slate-200/80 p-2 shadow-sm ${estadoFilaBgClass(estadoFondo)} ${r.deleted ? "opacity-60" : ""}`}
               >
                 <div className="flex items-start gap-2">
                   {canEdit && (
@@ -679,7 +679,7 @@ export default function ConciertosDifusionPanel({
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
                       <div className="min-w-0 space-y-0.5">
-                        <div className="text-[11px] leading-tight text-slate-800 dark:text-slate-100">
+                        <div className="text-[11px] leading-tight text-slate-800">
                           <SnapshotWarn warn={r.warnF} tooltip={r.snapTip}>
                             <span className="font-semibold">
                               {ev.fecha
@@ -693,7 +693,7 @@ export default function ConciertosDifusionPanel({
                             {formatDiaSemanaLinea(ev.fecha)}
                           </div>
                         )}
-                        <div className="text-[11px] text-slate-800 dark:text-slate-100">
+                        <div className="text-[11px] text-slate-800">
                           <SnapshotWarn warn={r.warnH} tooltip={r.snapTip}>
                             <span>{r.curHora || "—"}</span>
                           </SnapshotWarn>
@@ -706,13 +706,13 @@ export default function ConciertosDifusionPanel({
                           warn={r.warnL}
                           tooltip={r.snapTip}
                           strikeCls={r.strikeCls}
-                          className="text-[10px] text-slate-600 dark:text-slate-300 leading-snug"
+                          className="text-[10px] text-slate-600 leading-snug"
                         />
                       </div>
                       <div className="shrink-0">
                         {r.isEditing ? (
                           <select
-                            className="text-[10px] py-0.5 px-1 border border-slate-200 rounded-md bg-white dark:bg-slate-800 max-w-[112px]"
+                            className="text-[10px] py-0.5 px-1 border border-slate-200 rounded-md bg-white max-w-[112px]"
                             value={draft.estado}
                             onChange={(e) =>
                               setDraft((d) => ({
@@ -755,11 +755,11 @@ export default function ConciertosDifusionPanel({
                     )}
                     {r.isEditing ? (
                       <div className="flex gap-1.5 items-start mt-0.5">
-                        <span className="text-[10px] font-bold text-slate-700 dark:text-slate-200 shrink-0 pt-1">
+                        <span className="text-[10px] font-bold text-slate-700 shrink-0 pt-1">
                           Nota:
                         </span>
                         <textarea
-                          className="flex-1 min-w-0 text-[11px] p-1.5 border border-slate-200 rounded-md bg-white dark:bg-slate-800 min-h-[44px]"
+                          className="flex-1 min-w-0 text-[11px] p-1.5 border border-slate-200 rounded-md bg-white min-h-[44px]"
                           value={draft.observaciones}
                           onChange={(e) =>
                             setDraft((d) => ({
@@ -772,8 +772,8 @@ export default function ConciertosDifusionPanel({
                         />
                       </div>
                     ) : (
-                      <p className="text-[10px] text-slate-600 dark:text-slate-400 line-clamp-4 whitespace-pre-wrap break-words flex gap-1.5 items-start">
-                        <span className="font-bold text-slate-700 dark:text-slate-200 shrink-0">
+                      <p className="text-[10px] text-slate-600 line-clamp-4 whitespace-pre-wrap break-words flex gap-1.5 items-start">
+                        <span className="font-bold text-slate-700 shrink-0">
                           Nota:
                         </span>
                         <span className="min-w-0">
@@ -785,7 +785,7 @@ export default function ConciertosDifusionPanel({
                     )}
                   </div>
                 </div>
-                <div className="mt-1.5 flex flex-wrap justify-end gap-0.5 border-t border-slate-100 dark:border-slate-800 pt-1.5">
+                <div className="mt-1.5 flex flex-wrap justify-end gap-0.5 border-t border-slate-100 pt-1.5">
                   <button
                     type="button"
                     onClick={() => setHistoryEventId(ev.id)}
@@ -848,10 +848,10 @@ export default function ConciertosDifusionPanel({
         )}
       </div>
 
-      <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-sm min-w-[1000px]">
           <thead>
-            <tr className="bg-slate-50 dark:bg-slate-800/80 text-left text-[10px] font-black uppercase tracking-wider text-slate-500">
+            <tr className="bg-slate-50 text-left text-[10px] font-black uppercase tracking-wider text-slate-500">
               {canEdit && (
                 <th className="p-2 w-9">
                   <input
@@ -903,7 +903,7 @@ export default function ConciertosDifusionPanel({
                 return (
                   <tr
                     key={ev.id}
-                    className={`group border-t border-slate-100/90 dark:border-slate-800 ${estadoFilaBgClass(estadoFondo)} ${r.deleted ? "opacity-60" : ""}`}
+                    className={`group border-t border-slate-100/90 ${estadoFilaBgClass(estadoFondo)} ${r.deleted ? "opacity-60" : ""}`}
                   >
                     {canEdit && (
                       <td className={`p-2 align-top ${r.deleted ? "opacity-50" : ""}`}>
@@ -925,7 +925,7 @@ export default function ConciertosDifusionPanel({
                               : "—"}
                           </div>
                           {ev.fecha && (
-                            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-normal">
+                            <div className="text-[10px] text-slate-500 mt-0.5 font-normal">
                               {formatDiaSemanaLinea(ev.fecha)}
                             </div>
                           )}
@@ -949,12 +949,12 @@ export default function ConciertosDifusionPanel({
                       />
                     </td>
                     <td className={`p-2 align-top text-xs ${r.strikeCls}`}>
-                      <div className="font-semibold text-slate-800 dark:text-slate-100 leading-snug">
+                      <div className="font-semibold text-slate-800 leading-snug">
                         {r.tituloPrograma}
                       </div>
                       {(r.lineaNomenMes ||
                         tipoProgramaBadgeSpec(r.tipoPrograma)) && (
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-normal mt-0.5 leading-snug flex flex-wrap items-center gap-1.5">
+                        <div className="text-[10px] text-slate-500 font-normal mt-0.5 leading-snug flex flex-wrap items-center gap-1.5">
                           {r.lineaNomenMes ? (
                             <span>{r.lineaNomenMes}</span>
                           ) : null}
@@ -965,7 +965,7 @@ export default function ConciertosDifusionPanel({
                     <td className={`p-2 align-top ${r.strikeCls}`}>
                       {r.isEditing ? (
                         <select
-                          className="text-xs p-1.5 border border-slate-200 rounded-lg bg-white dark:bg-slate-800 w-full max-w-[130px]"
+                          className="text-xs p-1.5 border border-slate-200 rounded-lg bg-white w-full max-w-[130px]"
                           value={draft.estado}
                           onChange={(e) =>
                             setDraft((d) => ({ ...d, estado: e.target.value }))
@@ -991,7 +991,7 @@ export default function ConciertosDifusionPanel({
                     <td className={`p-2 align-top max-w-[220px] ${r.strikeCls}`}>
                       {r.isEditing ? (
                         <textarea
-                          className="w-full text-xs p-2 border border-slate-200 rounded-lg bg-white dark:bg-slate-800 min-h-[56px]"
+                          className="w-full text-xs p-2 border border-slate-200 rounded-lg bg-white min-h-[56px]"
                           value={draft.observaciones}
                           onChange={(e) =>
                             setDraft((d) => ({
@@ -1002,7 +1002,7 @@ export default function ConciertosDifusionPanel({
                           placeholder="Observaciones…"
                         />
                       ) : (
-                        <span className="text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-words">
+                        <span className="text-slate-600 whitespace-pre-wrap break-words">
                           {r.obs || (
                             <span className="text-slate-400 italic">—</span>
                           )}

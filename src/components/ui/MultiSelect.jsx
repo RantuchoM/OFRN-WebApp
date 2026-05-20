@@ -10,6 +10,8 @@ export default function MultiSelect({
   /** Controles por opción (ej. enlaces); debe usar stopPropagation en clicks si no debe togglear la selección). */
   optionTrailingActions,
   showChips = true,
+  /** Usa opt.optionClassName como fondo de fila (p. ej. color por tipo de programa). */
+  useOptionTypeColors = false,
 }) {
   
   const handleToggle = (id) => {
@@ -30,18 +32,33 @@ export default function MultiSelect({
           <div className="space-y-1">
             {options.map((opt) => {
               const isSelected = selectedIds.includes(opt.id);
+              const typeColorRow =
+                useOptionTypeColors && opt.optionClassName
+                  ? opt.optionClassName
+                  : "";
+              const rowClass = typeColorRow
+                ? `${typeColorRow} border ${isSelected ? "ring-2 ring-indigo-400/60" : "border-transparent hover:brightness-95"}`
+                : isSelected
+                  ? "bg-indigo-50 border border-indigo-100"
+                  : "hover:bg-slate-50 border border-transparent";
               return (
                 <div 
                   key={opt.id} 
                   onClick={() => handleToggle(opt.id)}
                   title={opt?.tooltip || opt?.title || undefined}
-                  className={`flex items-center justify-between gap-2 p-1.5 rounded cursor-pointer text-xs transition-colors ${isSelected ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-50'}`}
+                  className={`flex items-center justify-between gap-2 p-1.5 rounded cursor-pointer text-xs transition-colors ${rowClass}`}
                 >
                   <div className="flex flex-col min-w-0 flex-1">
-                    <span className={`font-medium ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
+                    <span className={`font-medium ${typeColorRow || (isSelected ? "text-indigo-700" : "text-slate-700")}`}>
                       {opt.label}
                     </span>
-                    {opt.subLabel && <span className="text-[9px] text-slate-400">{opt.subLabel}</span>}
+                    {opt.subLabel && (
+                      <span
+                        className={`text-[9px] ${typeColorRow ? "opacity-70" : "text-slate-400"}`}
+                      >
+                        {opt.subLabel}
+                      </span>
+                    )}
                   </div>
                   {opt.suffix != null && opt.suffix !== "" && (
                     <span className="shrink-0 font-mono text-[10px] text-slate-600 tabular-nums">

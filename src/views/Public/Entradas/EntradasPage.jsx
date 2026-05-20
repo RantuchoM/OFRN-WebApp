@@ -67,21 +67,33 @@ export default function EntradasPage() {
   }, [loadProfile]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const {
       data: { subscription },
     } = supabaseEntradasPublic.auth.onAuthStateChange((event, nextSession) => {
+      if (event === "INITIAL_SESSION") return;
+
       const nextUserId = nextSession?.user?.id || null;
       const sameUser = nextUserId && activeUserIdRef.current === nextUserId;
       if (event === "TOKEN_REFRESHED" || (sameUser && event !== "SIGNED_OUT")) {
         setSession(nextSession || null);
         return;
       }
+
       setLoading(true);
       setProfileChecked(false);
       setSession(nextSession || null);
-      loadProfile();
+      // Evita deadlock de Supabase: no llamar getSession dentro del callback sync.
+      setTimeout(() => {
+        if (!cancelled) loadProfile();
+      }, 0);
     });
-    return () => subscription.unsubscribe();
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [loadProfile]);
 
   const onLogout = async () => {

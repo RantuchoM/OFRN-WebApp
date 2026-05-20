@@ -347,6 +347,32 @@ export const getProgramStyle = (type) => {
   return PROGRAM_TYPES[type] || PROGRAM_TYPES["default"];
 };
 
+/** mes_letra, nomenclador y zona no vacíos, unidos con " | ". */
+export const formatProgramNomenMes = (program) => {
+  const mes =
+    program?.mes_letra != null && String(program.mes_letra).trim() !== ""
+      ? String(program.mes_letra).trim()
+      : "";
+  const nom =
+    program?.nomenclador != null && String(program.nomenclador).trim() !== ""
+      ? String(program.nomenclador).trim()
+      : "";
+  const zona =
+    program?.zona != null && String(program.zona).trim() !== ""
+      ? String(program.zona).trim()
+      : "";
+  return [mes, nom, zona].filter(Boolean).join(" | ");
+};
+
+/** Etiqueta para selects: "MES | NOM - Nombre" (omite partes vacías). */
+export const formatProgramSelectLabel = (program) => {
+  const nombre = String(program?.nombre_gira ?? "").trim();
+  const prefix = formatProgramNomenMes(program);
+  if (prefix && nombre) return `${prefix} - ${nombre}`;
+  if (prefix) return prefix;
+  return nombre;
+};
+
 /**
  * Devuelve las clases Tailwind para un badge de programa
  * según el tipo de organismo. Pensado para etiquetas pequeñas

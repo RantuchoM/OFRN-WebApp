@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getProgramStyle, PROGRAM_TYPES } from "../../utils/giraUtils";
+import { getProgramStyle, PROGRAM_TYPES, formatProgramSelectLabel } from "../../utils/giraUtils";
 import { toast } from "sonner";
 import {
   IconCalendar,
@@ -52,7 +52,7 @@ import LocationManagerModal from "../../components/locations/LocationManagerModa
 
 import { format, addMonths, getDay, setDay, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { fetchRosterForGira, useGiraRoster } from "../../hooks/useGiraRoster";
+import { useGiraRoster } from "../../hooks/useGiraRoster";
 import GiraCard from "../Giras/GiraCard";
 import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
 import { integranteKey } from "../../utils/integranteIds";
@@ -62,7 +62,9 @@ import {
   stripHtml,
 } from "../../utils/eventDisplayUtils";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
-import { exportCoordinatorCalendarToPdf } from "../../utils/coordinatorCalendarPdfExporter";
+import { useCoordinatorPrograms } from "../../hooks/useCoordinatorPrograms";
+import { getEventProgramIds } from "../../utils/rehearsalProgramas";
+import RepertorioPreparacionSelect from "../../components/ensembles/RepertorioPreparacionSelect";
 
 // --- UTILIDADES ---
 /** Fecha "hoy" en zona local como YYYY-MM-DD (evita desfase por UTC). */
@@ -182,6 +184,7 @@ const RehearsalCardItem = ({
   onDelete,
   isSelected,
   onSelect,
+  listIndex,
   feriados = [],
 }) => {
   const { day, num, month } = formatDateBox(evt.fecha);
@@ -245,7 +248,9 @@ const RehearsalCardItem = ({
           <input
             type="checkbox"
             checked={isSelected || false}
-            onChange={(e) => onSelect(evt.id, e.target.checked)}
+            onChange={(e) =>
+              onSelect(evt.id, e.target.checked, listIndex, e.nativeEvent)
+            }
             className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
           />
         )}
@@ -324,8 +329,7 @@ const RehearsalCardItem = ({
               >
                 <IconMusic size={10} className="text-slate-400 shrink-0" />{" "}
                 <span className="truncate">
-                  {prog.nomenclador ? `${prog.nomenclador} ` : ""}
-                  {prog.nombre_gira}
+                  {formatProgramSelectLabel(prog)}
                 </span>
               </span>
             ))}
@@ -412,10 +416,6 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailGira, setDetailGira] = useState(null);
 
-  if (loading)
-    return (
-      <div className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm animate-pulse h-24"></div>
-    );
   const myInvolvedMembers = roster.filter(
     (m) =>
       activeMembersSet.has(integranteKey(m.id)) && m.estado_gira !== "ausente",
@@ -423,7 +423,9 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
   const count = myInvolvedMembers.length;
 
   const isFull =
-    activeMembersSet.size > 0 && count >= activeMembersSet.size * 0.9;
+    !loading &&
+    activeMembersSet.size > 0 &&
+    count >= activeMembersSet.size * 0.9;
 
   const showMembersList = (e) => {
     e.stopPropagation();
@@ -536,15 +538,16 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
             )}
             <button
               onClick={showMembersList}
-              className={`text-[10px] flex items-center gap-1 font-bold hover:underline ${isFull ? "text-green-600" : "text-amber-600"}`}
+              disabled={loading || count === 0}
+              className={`text-[10px] flex items-center gap-1 font-bold hover:underline disabled:opacity-50 disabled:no-underline ${isFull ? "text-green-600" : "text-amber-600"}`}
             >
               <IconUsers size={12} />
-              {isFull ? "Todos" : count}
+              {loading ? "…" : isFull ? "Todos" : count}
             </button>
           </div>
         </div>
         <h3 className="font-bold text-sm leading-tight group-hover:opacity-90 transition-opacity">
-          {program.mes_letra} | {program.nomenclador} - {program.nombre_gira}
+          {formatProgramSelectLabel(program)}
         </h3>
         <div className="text-[10px] opacity-80 flex items-center gap-1 pt-2 border-t border-current/20 mt-2">
           <IconCalendar size={10} />{" "}
@@ -1200,7 +1203,7 @@ export const RepertoireCyclesTab = ({
         const { data: progsData, error: progsError } = await supabase
           .from("programas")
           .select(
-            "id, nombre_gira, fecha_desde, fecha_hasta, mes_letra, nomenclador, estado",
+            "id, nombre_gira, fecha_desde, fecha_hasta, mes_letra, nomenclador, estado, zona",
           )
           .in("id", usedProgramIds);
         if (progsError) throw progsError;
@@ -1208,7 +1211,7 @@ export const RepertoireCyclesTab = ({
         (progsData || []).forEach((p) => {
           programsMap[String(p.id)] = {
             id: p.id,
-            label: `${p.mes_letra || "?"} | ${p.nomenclador || ""} - ${p.nombre_gira}`,
+            label: formatProgramSelectLabel(p),
             subLabel: p.fecha_desde
               ? `Inicio: ${format(parseLocalDate(p.fecha_desde), "dd/MM/yyyy")}`
               : "",
@@ -1971,7 +1974,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
   // Listas para Selectores
   const [locationsList, setLocationsList] = useState([]);
   const [eventTypesList, setEventTypesList] = useState([]);
-  const [programasOptions, setProgramasOptions] = useState([]);
   const [ensamblesOptions, setEnsamblesOptions] = useState([]);
   const [membersOptions, setMembersOptions] = useState([]);
   const [isGiraModalOpen, setIsGiraModalOpen] = useState(false);
@@ -2202,6 +2204,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   // Selección
   const [selectedIds, setSelectedIds] = useState([]);
+  const [listProgramFilterIds, setListProgramFilterIds] = useState([]);
+  const [showListProgramFilter, setShowListProgramFilter] = useState(false);
+  /** Índice en la lista visible para Shift+clic (rango consecutivo). */
+  const lastSelectedRehearsalIndexRef = useRef(null);
+  const shiftKeyHeldRef = useRef(false);
   const [showSmartSelect, setShowSmartSelect] = useState(false);
   const [smartFilter, setSmartFilter] = useState({
     days: [],
@@ -2247,6 +2254,31 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   // Coordinador general puede ver/gestionar todos los ensambles para filtrar.
   const canSelectAllEnsembles = isSuperUser || userRoles.includes("coord_general");
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Shift") shiftKeyHeldRef.current = true;
+    };
+    const onKeyUp = (e) => {
+      if (e.key === "Shift") shiftKeyHeldRef.current = false;
+    };
+    const clearShift = () => {
+      shiftKeyHeldRef.current = false;
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") shiftKeyHeldRef.current = false;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", clearShift);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", clearShift);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
 
   // --- CARGA DE DATOS ESTÁTICOS ---
   useEffect(() => {
@@ -2399,48 +2431,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
           });
 
           setEnsembleTooltipMap(tooltipMap);
-
-          const uniqueMemberIds = [
-            ...new Set(relData?.map((r) => r.id_integrante) || []),
-          ];
-          if (uniqueMemberIds.length > 0) {
-            // --- PROGRAMAS RELEVANTES PARA EDICIÓN MASIVA (POR PARTICIPACIÓN REAL DE MÚSICOS) ---
-            const candidateGiraIds = new Set();
-
-            if (uniqueMemberIds.length > 0) {
-              const { data: memberPrograms } = await supabase
-                .from("giras_integrantes")
-                .select("id_gira")
-                .in("id_integrante", uniqueMemberIds);
-              memberPrograms?.forEach((mp) =>
-                candidateGiraIds.add(mp.id_gira),
-              );
-            }
-
-            const allIds = Array.from(candidateGiraIds);
-            if (allIds.length > 0) {
-              const { data: progsData } = await supabase
-                .from("programas")
-                .select(
-                  "id, nombre_gira, fecha_desde, fecha_hasta, mes_letra, nomenclador, estado",
-                )
-                .in("id", allIds)
-                .order("fecha_desde", { ascending: true });
-
-              setProgramasOptions(
-                (progsData || []).map((p) => ({
-                  id: p.id,
-                  label: `${p.mes_letra || "?"} | ${p.nomenclador || ""} - ${p.nombre_gira}`,
-                  subLabel: p.fecha_desde
-                    ? `Inicio: ${format(parseLocalDate(p.fecha_desde), "dd/MM/yyyy")}`
-                    : "",
-                  estado: p.estado || "Borrador",
-                })),
-              );
-            } else {
-              setProgramasOptions([]);
-            }
-          }
         }
       } catch (error) {
         console.error("Error context:", error);
@@ -2479,6 +2469,31 @@ export default function EnsembleCoordinatorView({ supabase }) {
     [activeMembersSet],
   );
 
+  const activeEnsembleIds = useMemo(
+    () => activeEnsembles.map((e) => e.id),
+    [activeEnsembles],
+  );
+
+  const {
+    programs,
+    programasOptions,
+    isLoading: programsLoading,
+  } = useCoordinatorPrograms(supabase, {
+    ensembleIds: activeEnsembleIds,
+    memberIds: activeMemberIdsArray,
+    enabled: activeEnsembles.length > 0,
+  });
+
+  const locationSelectOptions = useMemo(
+    () =>
+      (locationsList || []).map((l) => ({
+        id: l.id,
+        label: `${l.nombre} (${l.localidades?.localidad || "Sin localidad"})`,
+        originalName: l.nombre,
+      })),
+    [locationsList],
+  );
+
   // --- QUERY: ENSAYOS + SUPERPOSICIONES ---
   const { data: rehearsals = [], isLoading: rehearsalsLoading } = useQuery({
     queryKey: [
@@ -2515,8 +2530,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
               id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, id_gira, is_deleted,
               locaciones ( nombre, localidades(localidad) ),
               tipos_evento ( nombre, color, id_categoria ),
-              programas ( id, nombre_gira, mes_letra, nomenclador ),
-              eventos_programas_asociados ( programas ( id, nombre_gira, mes_letra, nomenclador ) ),
+              programas ( id, nombre_gira, mes_letra, nomenclador, zona ),
+              eventos_programas_asociados ( programas ( id, nombre_gira, mes_letra, nomenclador, zona ) ),
               eventos_ensambles ( ensambles ( id, ensamble ) ),
               eventos_asistencia_custom ( tipo, id_integrante, integrantes(nombre, apellido) ) 
             )
@@ -2582,8 +2597,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 id, fecha, hora_inicio, hora_fin, descripcion, id_tipo_evento, id_locacion, is_deleted,
                 locaciones ( nombre, localidades(localidad) ),
                 tipos_evento!inner ( nombre, color, id_categoria ),
-                programas ( id, nombre_gira, mes_letra, nomenclador ),
-                eventos_programas_asociados ( programas ( id, nombre_gira, mes_letra, nomenclador ) ),
+                programas ( id, nombre_gira, mes_letra, nomenclador, zona ),
+                eventos_programas_asociados ( programas ( id, nombre_gira, mes_letra, nomenclador, zona ) ),
                 eventos_ensambles ( ensambles ( id, ensamble ) )
             `,
           )
@@ -2649,46 +2664,35 @@ export default function EnsembleCoordinatorView({ supabase }) {
     },
   });
 
+  const filteredRehearsals = useMemo(() => {
+    if (!listProgramFilterIds.length) return rehearsals;
+    const filterSet = new Set(listProgramFilterIds);
+    return rehearsals.filter((evt) =>
+      [...getEventProgramIds(evt)].some((id) => filterSet.has(id)),
+    );
+  }, [rehearsals, listProgramFilterIds]);
+
+  const minSelectedRehearsalDate = useMemo(() => {
+    if (!selectedIds.length || !rehearsals.length) return null;
+    const dates = rehearsals
+      .filter((r) => selectedIds.includes(r.id))
+      .map((r) => r.fecha)
+      .filter(Boolean)
+      .sort();
+    return dates[0] || null;
+  }, [selectedIds, rehearsals]);
+
+  useEffect(() => {
+    lastSelectedRehearsalIndexRef.current = null;
+  }, [
+    dateFilter.start,
+    dateFilter.end,
+    activeEnsembles.map((e) => e.id).join(","),
+    listProgramFilterIds.join(","),
+  ]);
+
   // --- QUERY: PROGRAMAS ---
-  const { data: programs = [], isLoading: programsLoading } = useQuery({
-    queryKey: ["programs", activeEnsembles.map((e) => e.id), dateFilter.start],
-    enabled: activeTab === "programas" && activeEnsembles.length > 0,
-    queryFn: async () => {
-      if (activeMemberIdsArray.length === 0) return [];
-      const activeMemberKeys = new Set(
-        activeMemberIdsArray.map((id) => integranteKey(id)).filter(Boolean),
-      );
-
-      const { data: allPrograms } = await supabase
-        .from("programas")
-        .select(
-          "id, nombre_gira, fecha_desde, fecha_hasta, tipo, zona, mes_letra, nomenclador",
-        )
-        .order("fecha_desde", { ascending: true });
-      if (!allPrograms?.length) return [];
-
-      const inclusionChecks = await Promise.all(
-        allPrograms.map(async (program) => {
-          try {
-            const { roster } = await fetchRosterForGira(supabase, program);
-            const hasSharedMember = roster.some((member) =>
-              activeMemberKeys.has(integranteKey(member.id)),
-            );
-            return hasSharedMember ? program : null;
-          } catch (error) {
-            console.warn(
-              "[EnsembleCoordinator] No se pudo evaluar roster del programa",
-              program?.id,
-              error,
-            );
-            return null;
-          }
-        }),
-      );
-
-      return inclusionChecks.filter(Boolean);
-    },
-  });
+  // (programas y programasOptions vienen de useCoordinatorPrograms arriba)
 
   const programTypeOptions = useMemo(() => {
     const tipos = Array.from(new Set(programs.map((p) => p?.tipo).filter(Boolean)));
@@ -2715,7 +2719,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   const refreshData = () => {
     queryClient.invalidateQueries(["rehearsals"]);
-    queryClient.invalidateQueries(["programs"]);
+    queryClient.invalidateQueries(["coordinator-programs"]);
   };
 
   const buildCoordinatorPdfMeta = useCallback(() => {
@@ -2738,18 +2742,18 @@ export default function EnsembleCoordinatorView({ supabase }) {
   ]);
 
   const handleExportListaPdf = useCallback(() => {
-    if (!rehearsals.length) {
+    if (!filteredRehearsals.length) {
       toast.error("No hay eventos para exportar con los filtros actuales.");
       return;
     }
     const { subTitle } = buildCoordinatorPdfMeta();
     exportAgendaToPDF(
-      mapCoordinatorEventsForAgendaPdf(rehearsals),
+      mapCoordinatorEventsForAgendaPdf(filteredRehearsals),
       "Coordinación — Cronograma",
       subTitle,
       false,
     );
-  }, [rehearsals, buildCoordinatorPdfMeta]);
+  }, [filteredRehearsals, buildCoordinatorPdfMeta]);
 
   const handleExportCalendarPdf = useCallback(() => {
     const root = calendarExportRef.current;
@@ -2801,14 +2805,45 @@ export default function EnsembleCoordinatorView({ supabase }) {
     );
   };
 
-  const handleSelect = (id, checked) =>
+  const handleSelect = (id, checked, listIndex, nativeEvent) => {
+    const ne = nativeEvent;
+    const shiftFromEvent =
+      ne &&
+      typeof ne.getModifierState === "function" &&
+      ne.getModifierState("Shift");
+    const shiftHeld = shiftKeyHeldRef.current || shiftFromEvent;
+
+    if (
+      shiftHeld &&
+      lastSelectedRehearsalIndexRef.current !== null &&
+      listIndex != null
+    ) {
+      const start = Math.min(lastSelectedRehearsalIndexRef.current, listIndex);
+      const end = Math.max(lastSelectedRehearsalIndexRef.current, listIndex);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (let i = start; i <= end; i++) {
+          const row = filteredRehearsals[i];
+          if (row?.isMyRehearsal) next.add(row.id);
+        }
+        return [...next];
+      });
+      lastSelectedRehearsalIndexRef.current = listIndex;
+      return;
+    }
+
     setSelectedIds((prev) =>
       checked ? [...prev, id] : prev.filter((x) => x !== id),
     );
+    if (listIndex != null) lastSelectedRehearsalIndexRef.current = listIndex;
+  };
 
   const handleSelectAllVisible = (checked) => {
+    lastSelectedRehearsalIndexRef.current = null;
     if (checked) {
-      const allIds = rehearsals.filter((r) => r.isMyRehearsal).map((r) => r.id);
+      const allIds = filteredRehearsals
+        .filter((r) => r.isMyRehearsal)
+        .map((r) => r.id);
       setSelectedIds(allIds);
     } else {
       setSelectedIds([]);
@@ -2816,8 +2851,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
   };
 
   const isAllSelected =
-    rehearsals.length > 0 &&
-    rehearsals
+    filteredRehearsals.length > 0 &&
+    filteredRehearsals
       .filter((r) => r.isMyRehearsal)
       .every((r) => selectedIds.includes(r.id));
 
@@ -3514,7 +3549,10 @@ export default function EnsembleCoordinatorView({ supabase }) {
               <IconCheck size={12} /> {selectedIds.length}
             </div>
             <button
-              onClick={() => setSelectedIds([])}
+              onClick={() => {
+                lastSelectedRehearsalIndexRef.current = null;
+                setSelectedIds([]);
+              }}
               className="text-xs hover:underline opacity-90"
             >
               Descartar
@@ -3651,10 +3689,31 @@ export default function EnsembleCoordinatorView({ supabase }) {
                     <span className="text-xs font-bold text-slate-500">
                       Seleccionar todo lo visible
                     </span>
+                    <span className="text-[10px] text-slate-400 hidden sm:inline">
+                      · Shift+clic: rango consecutivo
+                    </span>
                   </div>
 
                   {/* FILTRO DE FECHAS EN LÍNEA */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setShowListProgramFilter((v) => !v)}
+                      className={`inline-flex items-center gap-1 px-2 py-1 h-6 text-[10px] font-bold rounded border transition-colors shrink-0 ${
+                        showListProgramFilter || listProgramFilterIds.length > 0
+                          ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50"
+                      }`}
+                      title="Filtrar ensayos por programa"
+                    >
+                      <IconFilter size={12} />
+                      Programa
+                      {listProgramFilterIds.length > 0 && (
+                        <span className="bg-indigo-600 text-white rounded-full px-1 min-w-[14px] text-center text-[9px] leading-4">
+                          {listProgramFilterIds.length}
+                        </span>
+                      )}
+                    </button>
                     <div className="flex items-center gap-1">
                       <span className="text-[10px] font-bold text-slate-400 uppercase">
                         Desde:
@@ -3683,7 +3742,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                     <button
                       type="button"
                       onClick={handleExportListaPdf}
-                      disabled={rehearsalsLoading || rehearsals.length === 0}
+                      disabled={rehearsalsLoading || filteredRehearsals.length === 0}
                       className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 disabled:pointer-events-none transition-colors shrink-0"
                       title="Exportar cronograma (vista agenda) a PDF"
                     >
@@ -3693,12 +3752,26 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   </div>
                 </div>
 
-                {rehearsals.length > 0 ? (
+                {showListProgramFilter && (
+                  <div className="mb-3">
+                    <RepertorioPreparacionSelect
+                      title="Filtrar por Programa"
+                      placeholder="Seleccionar programas..."
+                      helperText="Sin selección: se muestran todos los ensayos."
+                      options={programasOptions}
+                      selectedIds={listProgramFilterIds}
+                      onChange={setListProgramFilterIds}
+                    />
+                  </div>
+                )}
+
+                {filteredRehearsals.length > 0 ? (
                   <div className="grid grid-cols-1 gap-2">
-                    {rehearsals.map((evt) => (
+                    {filteredRehearsals.map((evt, listIndex) => (
                       <RehearsalCardItem
                         key={evt.id}
                         evt={evt}
+                        listIndex={listIndex}
                         activeMembersSet={activeMembersSet}
                         supabase={supabase}
                         onEdit={handleEditRehearsal}
@@ -3711,7 +3784,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   </div>
                 ) : (
                   <div className="text-center py-10 text-slate-400">
-                    No hay eventos visibles.
+                    {rehearsals.length > 0
+                      ? "Ningún ensayo coincide con los programas seleccionados."
+                      : "No hay eventos visibles."}
                   </div>
                 )}
               </>
@@ -4007,19 +4082,17 @@ export default function EnsembleCoordinatorView({ supabase }) {
                       }
                     />
                   </div>
-                  <div className="bg-emerald-50 p-3 rounded border border-emerald-100">
-                    <h3 className="text-xs font-bold text-emerald-800 mb-2 flex items-center gap-2">
-                      <IconLayers size={14} /> Reemplazar Repertorio
-                    </h3>
-                    <MultiSelect
-                      placeholder="Seleccionar..."
-                      options={programasOptions}
-                      selectedIds={bulkFormData.programas}
-                      onChange={(ids) =>
-                        setBulkFormData({ ...bulkFormData, programas: ids })
-                      }
-                    />
-                  </div>
+                  <RepertorioPreparacionSelect
+                    title="Reemplazar Repertorio"
+                    placeholder="Seleccionar..."
+                    options={programasOptions}
+                    selectedIds={bulkFormData.programas}
+                    onChange={(ids) =>
+                      setBulkFormData({ ...bulkFormData, programas: ids })
+                    }
+                    minRehearsalDate={minSelectedRehearsalDate}
+                    helperText=""
+                  />
                 </div>
                 <div className="bg-white p-3 rounded border border-slate-200 shadow-sm flex flex-col h-full">
                   <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-2">
@@ -4112,14 +4185,14 @@ export default function EnsembleCoordinatorView({ supabase }) {
               onCancel={() => {
                 if (editingProgram) {
                   setEditingProgram(null);
-                  queryClient.invalidateQueries(["programs"]);
+                  queryClient.invalidateQueries(["coordinator-programs"]);
                 } else {
                   setIsGiraModalOpen(false);
                   setSelectedSources([]);
                 }
               }}
               onSave={editingProgram ? () => {} : handleSaveGira}
-              onRefresh={editingProgram ? () => queryClient.invalidateQueries(["programs"]) : undefined}
+              onRefresh={editingProgram ? () => queryClient.invalidateQueries(["coordinator-programs"]) : undefined}
               enableAutoSave={!!editingProgram}
               isCoordinator={true}
               coordinatedEnsembles={myEnsembles.map((e) => e.id)}
@@ -4165,6 +4238,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
               supabase={supabase}
               initialData={editingEvent}
               myEnsembles={activeEnsembles}
+              programasOptions={programasOptions}
+              locationsOptions={locationSelectOptions}
+              membersOptions={membersOptions}
+              ensamblesOptions={ensamblesOptions}
+              activeMemberIds={activeMemberIdsArray}
               onSuccess={() => {
                 setIsModalOpen(false);
                 refreshData();

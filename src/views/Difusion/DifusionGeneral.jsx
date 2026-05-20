@@ -33,15 +33,15 @@ export default function DifusionGeneral({ supabase, onViewChange }) {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-slate-50 dark:bg-slate-950">
+    <div className="h-full overflow-y-auto bg-slate-50">
       <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-200">
+            <div className="p-2 rounded-xl bg-indigo-100 text-indigo-700">
               <IconMegaphone size={24} />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">
+              <h1 className="text-xl font-bold text-slate-800">
                 Difusión de conciertos
               </h1>
               <p className="text-sm text-slate-500">
@@ -51,13 +51,13 @@ export default function DifusionGeneral({ supabase, onViewChange }) {
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row flex-wrap gap-3 p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        <div className="flex flex-col lg:flex-row flex-wrap gap-3 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="flex-1 min-w-[200px]">
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
               Tipo de programa
             </label>
             <select
-              className="mt-1 w-full text-sm p-2 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800"
+              className="mt-1 w-full text-sm p-2 border border-slate-200 rounded-lg bg-white"
               value={programTipoFilter}
               onChange={(e) => setProgramTipoFilter(e.target.value)}
             >
@@ -75,7 +75,7 @@ export default function DifusionGeneral({ supabase, onViewChange }) {
             </label>
             <input
               type="date"
-              className="mt-1 w-full text-sm p-2 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800"
+              className="mt-1 w-full text-sm p-2 border border-slate-200 rounded-lg bg-white"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
             />
@@ -86,7 +86,7 @@ export default function DifusionGeneral({ supabase, onViewChange }) {
             </label>
             <input
               type="date"
-              className="mt-1 w-full text-sm p-2 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800"
+              className="mt-1 w-full text-sm p-2 border border-slate-200 rounded-lg bg-white"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
             />

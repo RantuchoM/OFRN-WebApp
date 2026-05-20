@@ -15,12 +15,44 @@ import {
   IconUserX,
   IconTrash,
 } from "../../components/ui/Icons";
-import { format } from "date-fns";
 import { toast } from "sonner";
-import { useAuth } from "../../context/AuthContext"; // Importamos el contexto de autenticación
-import { fetchRosterForGira } from "../../hooks/useGiraRoster";
-import { integranteKey } from "../../utils/integranteIds";
-import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
+import { useAuth } from "../../context/AuthContext";
+import {
+  buildRehearsalFormFromEvent,
+  eventHasEmbeddedRelations,
+} from "../../utils/rehearsalProgramas";
+import { useRehearsalProgramasOptions } from "../../hooks/useRehearsalProgramasOptions";
+import RepertorioPreparacionSelect from "../../components/ensembles/RepertorioPreparacionSelect";
+
+function mapLocationsOptions(data) {
+  return (data || []).map((l) => ({
+    id: l.id,
+    label: `${l.nombre} (${l.localidades?.localidad || "Sin localidad"})`,
+    originalName: l.nombre,
+  }));
+}
+
+function mapEnsamblesOptions(data, myEnsembles) {
+  const myIds = new Set((myEnsembles || []).map((e) => e.id));
+  const sortedEns = [...(data || [])].sort((a, b) => {
+    const aMine = myIds.has(a.id);
+    const bMine = myIds.has(b.id);
+    if (aMine && !bMine) return -1;
+    if (!aMine && bMine) return 1;
+    return a.ensamble.localeCompare(b.ensamble);
+  });
+  return sortedEns.map((e) => ({
+    id: e.id,
+    label: myIds.has(e.id) ? `★ ${e.ensamble}` : e.ensamble,
+  }));
+}
+
+function mapMembersOptions(data) {
+  return (data || []).map((m) => ({
+    id: m.id,
+    label: `${m.apellido}, ${m.nombre}`,
+  }));
+}
 
 export default function IndependentRehearsalForm({
   supabase,
@@ -28,31 +60,53 @@ export default function IndependentRehearsalForm({
   onCancel,
   initialData = null,
   myEnsembles = [],
+  /** Pre-cargados desde Coordinación (caché compartida, evita recalcular rosters). */
+  programasOptions: programasOptionsProp = null,
+  locationsOptions: locationsOptionsProp = null,
+  membersOptions: membersOptionsProp = null,
+  ensamblesOptions: ensamblesOptionsProp = null,
+  activeMemberIds = null,
 }) {
-  const { isEditor, isManagement } = useAuth(); // Obtenemos los roles del usuario
+  const { isEditor, isManagement } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [staticLoading, setStaticLoading] = useState(
+    () =>
+      !locationsOptionsProp || !membersOptionsProp || !ensamblesOptionsProp,
+  );
   const [showExitConfirm, setShowExitConfirm] = useState(false);
 
-  const [programasOptions, setProgramasOptions] = useState([]);
-  const [ensamblesOptions, setEnsamblesOptions] = useState([]);
-  const [locationsOptions, setLocationsOptions] = useState([]);
-  const [membersOptions, setMembersOptions] = useState([]);
+  const [ensamblesOptions, setEnsamblesOptions] = useState(
+    ensamblesOptionsProp || [],
+  );
+  const [locationsOptions, setLocationsOptions] = useState(
+    locationsOptionsProp || [],
+  );
+  const [membersOptions, setMembersOptions] = useState(
+    membersOptionsProp || [],
+  );
 
-  const [formData, setFormData] = useState({
-    fecha: "",
-    hora_inicio: "",
-    hora_fin: "",
-    id_locacion: "",
-    descripcion: "",
-    selectedProgramas: [],
-    selectedEnsambles: [],
-  });
+  const seeded = useMemo(
+    () => buildRehearsalFormFromEvent(initialData, myEnsembles),
+    [initialData, myEnsembles],
+  );
 
-  const [customAttendance, setCustomAttendance] = useState([]);
+  const [formData, setFormData] = useState(seeded.form);
+  const [customAttendance, setCustomAttendance] = useState(
+    seeded.customAttendance,
+  );
+  const [initialSnapshot, setInitialSnapshot] = useState(null);
   const [selectedMemberToAdd, setSelectedMemberToAdd] = useState("");
 
-  const [initialSnapshot, setInitialSnapshot] = useState(null);
+  const { data: programasFromQuery = [], isLoading: programasQueryLoading } =
+    useRehearsalProgramasOptions(supabase, {
+      memberIds: activeMemberIds,
+      myEnsembles,
+      enabled: programasOptionsProp == null,
+    });
+
+  const programasOptions = programasOptionsProp ?? programasFromQuery;
+  const programasLoading =
+    programasOptionsProp == null && programasQueryLoading;
 
   const isDirty = useMemo(() => {
     if (!initialSnapshot) return false;
@@ -76,166 +130,105 @@ export default function IndependentRehearsalForm({
       .from("locaciones")
       .select("id, nombre, localidades(localidad)")
       .order("nombre");
-    setLocationsOptions(
-      (data || []).map((l) => ({
-        id: l.id,
-        label: `${l.nombre} (${l.localidades?.localidad || "Sin localidad"})`,
-        originalName: l.nombre,
-      })),
-    );
+    setLocationsOptions(mapLocationsOptions(data));
   }, [supabase]);
 
   useEffect(() => {
-    const loadData = async () => {
+    setFormData(seeded.form);
+    setCustomAttendance(seeded.customAttendance);
+  }, [seeded]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadStaticAndRelations = async () => {
+      const needsStatic =
+        !locationsOptionsProp || !membersOptionsProp || !ensamblesOptionsProp;
+      const needsRelationFetch =
+        initialData?.id && !eventHasEmbeddedRelations(initialData);
+
+      if (!needsStatic && !needsRelationFetch) {
+        setInitialSnapshot({
+          form: seeded.form,
+          attendance: seeded.customAttendance,
+        });
+        setStaticLoading(false);
+        return;
+      }
+
+      if (needsStatic) setStaticLoading(true);
+
       try {
-        const [ensamblesData, locData, membersData] = await Promise.all([
-          supabase.from("ensambles").select("id, ensamble").order("ensamble"),
+        const staticPromise = needsStatic
+          ? Promise.all([
+              ensamblesOptionsProp
+                ? Promise.resolve(null)
+                : supabase.from("ensambles").select("id, ensamble").order("ensamble"),
+              locationsOptionsProp
+                ? Promise.resolve(null)
+                : supabase
+                    .from("locaciones")
+                    .select("id, nombre, localidades(localidad)")
+                    .order("nombre"),
+              membersOptionsProp
+                ? Promise.resolve(null)
+                : supabase
+                    .from("integrantes")
+                    .select("id, nombre, apellido")
+                    .order("apellido"),
+            ])
+          : Promise.resolve([null, null, null]);
 
-          supabase
-            .from("locaciones")
-            .select("id, nombre, localidades(localidad)")
-            .order("nombre"),
+        const relationPromise = needsRelationFetch
+          ? Promise.all([
+              supabase
+                .from("eventos_ensambles")
+                .select("id_ensamble")
+                .eq("id_evento", initialData.id),
+              supabase
+                .from("eventos_programas_asociados")
+                .select("id_programa")
+                .eq("id_evento", initialData.id),
+              supabase
+                .from("eventos_asistencia_custom")
+                .select(
+                  "id_integrante, tipo, nota, integrantes(nombre, apellido)",
+                )
+                .eq("id_evento", initialData.id),
+            ])
+          : Promise.resolve(null);
 
-          supabase
-            .from("integrantes")
-            .select("id, nombre, apellido")
-            .order("apellido"),
+        const [[ensamblesRes, locRes, memRes], relationRes] = await Promise.all([
+          staticPromise,
+          relationPromise,
         ]);
 
-        // ---- PROGRAMAS RELEVANTES SEGÚN PARTICIPACIÓN REAL DE INTEGRANTES ----
-        const baseEnsembleIds = myEnsembles.map((e) => e.id);
+        if (cancelled) return;
 
-        if (baseEnsembleIds.length > 0) {
-          const { data: rels } = await supabase
-            .from("integrantes_ensambles")
-            .select("id_integrante, id_ensamble, fecha_desde, fecha_hasta")
-            .in("id_ensamble", baseEnsembleIds);
-
-          const hoy = new Date().toISOString().slice(0, 10);
-          const activeMemberIds = [
-            ...new Set(
-              (rels || [])
-                .filter((r) => membershipActiveOnProgramDate(r, hoy))
-                .map((r) => integranteKey(r.id_integrante))
-                .filter(Boolean),
-            ),
-          ];
-          if (activeMemberIds.length === 0) {
-            setProgramasOptions([]);
-          } else {
-            const activeMemberKeys = new Set(activeMemberIds);
-            const { data: allPrograms } = await supabase
-              .from("programas")
-              .select(
-                "id, nombre_gira, fecha_desde, fecha_hasta, mes_letra, nomenclador",
-              )
-              .order("fecha_desde", { ascending: true });
-
-            const inclusionChecks = await Promise.all(
-              (allPrograms || []).map(async (program) => {
-                try {
-                  const { roster } = await fetchRosterForGira(supabase, program);
-                  const hasSharedMember = roster.some((member) =>
-                    activeMemberKeys.has(integranteKey(member.id)),
-                  );
-                  return hasSharedMember ? program : null;
-                } catch (error) {
-                  console.warn(
-                    "[IndependentRehearsalForm] No se pudo evaluar roster del programa",
-                    program?.id,
-                    error,
-                  );
-                  return null;
-                }
-              }),
-            );
-
-            setProgramasOptions(
-              inclusionChecks.filter(Boolean).map((p) => ({
-                id: p.id,
-                label: `${p.mes_letra || "?"} | ${p.nomenclador || ""} - ${p.nombre_gira}`,
-                fecha_desde: p.fecha_desde || null,
-                subLabel: p.fecha_desde
-                  ? `Inicio: ${format(new Date(p.fecha_desde), "dd/MM/yyyy")}`
-                  : "Sin fecha",
-              })),
+        if (needsStatic) {
+          if (ensamblesRes?.data) {
+            setEnsamblesOptions(
+              mapEnsamblesOptions(ensamblesRes.data, myEnsembles),
             );
           }
-        } else {
-          setProgramasOptions([]);
+          if (locRes?.data) setLocationsOptions(mapLocationsOptions(locRes.data));
+          if (memRes?.data) setMembersOptions(mapMembersOptions(memRes.data));
         }
 
-        const myIds = new Set(myEnsembles.map((e) => e.id));
-        const sortedEns = (ensamblesData.data || []).sort((a, b) => {
-          const aMine = myIds.has(a.id);
-          const bMine = myIds.has(b.id);
-          if (aMine && !bMine) return -1;
-          if (!aMine && bMine) return 1;
-          return a.ensamble.localeCompare(b.ensamble);
-        });
+        let finalForm = seeded.form;
+        let finalCustom = seeded.customAttendance;
 
-        setEnsamblesOptions(
-          sortedEns.map((e) => ({
-            id: e.id,
-            label: myIds.has(e.id) ? `★ ${e.ensamble}` : e.ensamble,
-          })),
-        );
-
-        setLocationsOptions(
-          (locData.data || []).map((l) => ({
-            id: l.id,
-            label: `${l.nombre} (${l.localidades?.localidad || "Sin localidad"})`,
-            originalName: l.nombre,
-          })),
-        );
-
-        setMembersOptions(
-          (membersData.data || []).map((m) => ({
-            id: m.id,
-            label: `${m.apellido}, ${m.nombre}`,
-          })),
-        );
-
-        let finalForm = {
-          fecha: "",
-          hora_inicio: "",
-          hora_fin: "",
-          id_locacion: "",
-          descripcion: "",
-          selectedEnsambles:
-            myEnsembles.length === 1 ? [myEnsembles[0].id] : [],
-          selectedProgramas: [],
-        };
-        let finalCustom = [];
-
-        if (initialData) {
-          const [relsEns, relsProg, relsCustom] = await Promise.all([
-            supabase
-              .from("eventos_ensambles")
-              .select("id_ensamble")
-              .eq("id_evento", initialData.id),
-            supabase
-              .from("eventos_programas_asociados")
-              .select("id_programa")
-              .eq("id_evento", initialData.id),
-            supabase
-              .from("eventos_asistencia_custom")
-              .select(
-                "id_integrante, tipo, nota, integrantes(nombre, apellido)",
-              )
-              .eq("id_evento", initialData.id),
-          ]);
-
+        if (relationRes) {
+          const [relsEns, relsProg, relsCustom] = relationRes;
           finalForm = {
-            fecha: initialData.fecha || "",
-            hora_inicio: initialData.hora_inicio || "",
-            hora_fin: initialData.hora_fin || "",
-            id_locacion: initialData.id_locacion || "",
-            descripcion: initialData.descripcion || "",
-            selectedEnsambles: relsEns.data?.map((r) => r.id_ensamble) || [],
-            selectedProgramas: relsProg.data?.map((r) => r.id_programa) || [],
+            ...seeded.form,
+            selectedEnsambles:
+              relsEns.data?.map((r) => r.id_ensamble) ||
+              seeded.form.selectedEnsambles,
+            selectedProgramas:
+              relsProg.data?.map((r) => r.id_programa) ||
+              seeded.form.selectedProgramas,
           };
-
           finalCustom =
             relsCustom.data?.map((c) => ({
               id_integrante: c.id_integrante,
@@ -243,20 +236,37 @@ export default function IndependentRehearsalForm({
               nota: c.nota || "",
               label: `${c.integrantes?.apellido}, ${c.integrantes?.nombre}`,
             })) || [];
+          setFormData(finalForm);
+          setCustomAttendance(finalCustom);
         }
 
-        setFormData(finalForm);
-        setCustomAttendance(finalCustom);
         setInitialSnapshot({ form: finalForm, attendance: finalCustom });
       } catch (error) {
         console.error("Error cargando datos:", error);
+        if (!cancelled) {
+          setInitialSnapshot({
+            form: seeded.form,
+            attendance: seeded.customAttendance,
+          });
+        }
       } finally {
-        setInitialLoading(false);
+        if (!cancelled) setStaticLoading(false);
       }
     };
 
-    loadData();
-  }, [supabase, initialData, myEnsembles]);
+    loadStaticAndRelations();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    supabase,
+    initialData,
+    myEnsembles,
+    seeded,
+    locationsOptionsProp,
+    membersOptionsProp,
+    ensamblesOptionsProp,
+  ]);
 
   const handleAddCustom = (tipo) => {
     if (!selectedMemberToAdd) return;
@@ -308,7 +318,8 @@ export default function IndependentRehearsalForm({
       },
       {
         loading: "Marcando como eliminado...",
-        success: "Ensayo marcado como eliminado. Se eliminará definitivamente en 24 horas.",
+        success:
+          "Ensayo marcado como eliminado. Se eliminará definitivamente en 24 horas.",
         error: (err) => `Error al eliminar: ${err.message}`,
       },
     );
@@ -326,13 +337,11 @@ export default function IndependentRehearsalForm({
       return toast.error("Selecciona al menos un ensamble base.");
     }
 
-    // --- LÓGICA DE PERMISOS ACTUALIZADA ---
     const myIds = myEnsembles.map((e) => e.id);
     const hasMyEnsemble = formData.selectedEnsambles.some((id) =>
       myIds.includes(id),
     );
 
-    // Si NO es editor ni admin, obligatoriamente debe incluir un ensamble propio
     if (!isEditor && !isManagement && !hasMyEnsemble) {
       return toast.error("Debes incluir al menos un ensamble que coordines.");
     }
@@ -436,7 +445,7 @@ export default function IndependentRehearsalForm({
     );
   };
 
-  if (initialLoading)
+  if (staticLoading)
     return (
       <div className="p-10 flex justify-center">
         <IconLoader className="animate-spin text-indigo-600" />
@@ -588,22 +597,21 @@ export default function IndependentRehearsalForm({
             )}
           </div>
 
-          <div className="bg-emerald-50 p-3 rounded border border-emerald-100">
-            <h3 className="text-xs font-bold text-emerald-800 mb-2 flex items-center gap-2">
-              <IconMusic size={14} /> Repertorio / Preparación
-            </h3>
-            <MultiSelect
-              placeholder="Vincular con Programas..."
+          {programasLoading ? (
+            <div className="bg-emerald-50 p-6 rounded border border-emerald-100 flex items-center justify-center gap-2 text-emerald-700 text-xs font-bold">
+              <IconLoader className="animate-spin" size={16} />
+              Cargando programas...
+            </div>
+          ) : (
+            <RepertorioPreparacionSelect
               options={programasOptions}
               selectedIds={formData.selectedProgramas}
               onChange={(ids) =>
                 setFormData({ ...formData, selectedProgramas: ids })
               }
+              minRehearsalDate={formData.fecha || null}
             />
-            <p className="text-[10px] text-emerald-600 mt-2 ml-1">
-              * Se mostrará el repertorio de estos programas en la agenda.
-            </p>
-          </div>
+          )}
 
           <div>
             <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">

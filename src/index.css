@@ -313,6 +313,36 @@ html.dark {
   filter: invert(0.99) hue-rotate(180deg) saturate(0.8) contrast(0.80);
 }
 
+/* Entradas (/entradas): tema propio; sin inversión global de OFRN */
+html.dark.entradas-route {
+  filter: none !important;
+}
+
+html.dark.entradas-route img,
+html.dark.entradas-route video,
+html.dark.entradas-route iframe,
+html.dark.entradas-route .re-invert,
+html.dark.entradas-route [style*="background-image"] {
+  filter: none !important;
+  opacity: 1;
+}
+
+html.dark.entradas-route img:hover {
+  opacity: 1;
+}
+
+html.dark.entradas-route .no-dark-invert {
+  filter: none !important;
+}
+
+html.dark.entradas-route .shadow-sm,
+html.dark.entradas-route .shadow-md,
+html.dark.entradas-route .shadow-lg,
+html.dark.entradas-route .shadow-xl {
+  box-shadow: revert-layer;
+  border: revert;
+}
+
 /* 2. Proteger elementos sensibles (Re-inversión) */
 html.dark img, 
 html.dark video, 

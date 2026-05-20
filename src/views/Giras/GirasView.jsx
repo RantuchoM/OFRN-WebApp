@@ -62,6 +62,8 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const {
     user,
     isEditor,
+    isAdmin,
+    roles,
     isManagement,
     isPersonal,
     isGuest,
@@ -69,6 +71,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
     role,
     isCoordGeneral,
   } = useAuth();
+  const canSyncNomencladores = isAdmin || roles.includes("editor");
   const userRole = role ?? "";
   const [statsRefreshTrigger, setStatsRefreshTrigger] = useState(0);
   const [hospedajeExcluidosIds, setHospedajeExcluidosIds] = useState([]);
@@ -1364,19 +1367,21 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 toggleFilterStatus={toggleFilterStatus}
               />
             </div>
-            <div className="flex items-center gap-3">
-              <div className="hidden sm:block">
-                <button
-                  id="btn-sync-global"
-                  onClick={handleGlobalSync}
-                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-2 rounded-full transition-colors flex items-center justify-center border border-indigo-200"
-                  title="Actualizar nomencladores y carpetas en Drive"
-                >
-                  {" "}
-                  <IconDrive size={20} />{" "}
-                </button>
+            {canSyncNomencladores && (
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:block">
+                  <button
+                    id="btn-sync-global"
+                    onClick={handleGlobalSync}
+                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-2 rounded-full transition-colors flex items-center justify-center border border-indigo-200"
+                    title="Actualizar nomencladores y carpetas en Drive"
+                  >
+                    {" "}
+                    <IconDrive size={20} />{" "}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
