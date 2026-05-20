@@ -180,7 +180,7 @@ const WysiwygEditor = ({ value, onChange, placeholder, className = "", fillHeigh
 };
 
 // --- MODAL NUEVO COMPOSITOR (fuera de WorkForm para no perder estado/foco en re-renders) ---
-export function QuickComposerModal({ isOpen, onClose, onCreated, supabase }) {
+export function QuickComposerModal({ isOpen, onClose, onCreated, supabase, roleType = "compositor" }) {
   const [data, setData] = useState({
     nombre: "",
     apellido: "",
@@ -233,8 +233,8 @@ export function QuickComposerModal({ isOpen, onClose, onCreated, supabase }) {
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-sm rounded-xl shadow-2xl p-6 border border-slate-200">
         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-          <IconUserPlus size={18} className="text-indigo-600" /> Nuevo
-          Compositor
+          <IconUserPlus size={18} className="text-indigo-600" /> Nuevo{" "}
+          {roleType === "arreglador" ? "Arreglador" : "Compositor"}
         </h3>
         <div className="space-y-3">
           <input
@@ -427,7 +427,11 @@ export default function WorkForm({
       setSelectedArrangers(next);
       if (formData.id) updateComposerRelations("arreglador", next);
     }
-    toast.success("Compositor creado y vinculado");
+    toast.success(
+      quickCompType === "arreglador"
+        ? "Arreglador creado y vinculado"
+        : "Compositor creado y vinculado",
+    );
   };
   const fetchIntegrantesArreglador = async () => {
     const { data } = await supabase
@@ -1615,51 +1619,65 @@ export default function WorkForm({
 
       <div className="space-y-4 p-2 sm:p-3">
         {/* Compositores / Arregladores (ancho = resto de filas) */}
-        <div className="w-full min-w-0 max-w-full grid grid-cols-1 md:grid-cols-9 gap-3 md:gap-4 items-end">
-          <div className="md:col-span-4 min-w-0">
+        <div className="w-full min-w-0 max-w-full grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 items-end">
+          <div className="min-w-0">
             <label className="text-[10px] font-bold uppercase text-indigo-600 mb-1 flex items-center gap-1">
               <IconUser size={12} /> Compositores
             </label>
-            <SearchableSelect
-              options={composersOptions}
-              value={selectedComposers}
-              isMulti
-              dropdownMinWidth={350}
-              onChange={(ids) => {
-                setSelectedComposers(ids);
-                updateComposerRelations("compositor", ids);
-              }}
-            />
+            <div className="flex gap-2 items-stretch">
+              <SearchableSelect
+                options={composersOptions}
+                value={selectedComposers}
+                isMulti
+                dropdownMinWidth={350}
+                className="flex-1 min-w-0"
+                onChange={(ids) => {
+                  setSelectedComposers(ids);
+                  updateComposerRelations("compositor", ids);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickCompType("compositor");
+                  setIsQuickCompOpen(true);
+                }}
+                className="shrink-0 h-10 w-10 flex items-center justify-center bg-white/90 text-indigo-600 rounded-lg border border-slate-300 hover:border-indigo-500 hover:bg-indigo-50 transition-all shadow-sm"
+                title="Crear compositor y vincular a la obra"
+              >
+                <IconUserPlus size={18} />
+              </button>
+            </div>
           </div>
 
-          <div className="md:col-span-4 min-w-0">
+          <div className="min-w-0">
             <label className="text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center gap-1">
               <IconUser size={12} /> Arregladores
             </label>
-            <SearchableSelect
-              options={composersOptions}
-              value={selectedArrangers}
-              isMulti
-              dropdownMinWidth={350}
-              onChange={(ids) => {
-                setSelectedArrangers(ids);
-                updateComposerRelations("arreglador", ids);
-              }}
-            />
-          </div>
-
-          <div className="md:col-span-1 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                setQuickCompType("compositor"); // Por defecto vincula a compositor, pero el modal lo crea globalmente
-                setIsQuickCompOpen(true);
-              }}
-              className="w-full h-10 flex items-center justify-center bg-white/90 text-indigo-600 rounded-lg border border-slate-300 hover:border-indigo-500 hover:bg-indigo-50 transition-all shadow-sm"
-              title="Crear nuevo Compositor/Arreglador al vuelo"
-            >
-              <IconUserPlus size={18} />
-            </button>
+            <div className="flex gap-2 items-stretch">
+              <SearchableSelect
+                options={composersOptions}
+                value={selectedArrangers}
+                isMulti
+                dropdownMinWidth={350}
+                className="flex-1 min-w-0"
+                onChange={(ids) => {
+                  setSelectedArrangers(ids);
+                  updateComposerRelations("arreglador", ids);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickCompType("arreglador");
+                  setIsQuickCompOpen(true);
+                }}
+                className="shrink-0 h-10 w-10 flex items-center justify-center bg-white/90 text-slate-600 rounded-lg border border-slate-300 hover:border-slate-500 hover:bg-slate-50 transition-all shadow-sm"
+                title="Crear arreglador y vincular a la obra"
+              >
+                <IconUserPlus size={18} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -2389,11 +2407,12 @@ export default function WorkForm({
           handlePartsChange(updated);
         }}
       />
-      <QuickComposerModal 
+      <QuickComposerModal
         isOpen={isQuickCompOpen}
         onClose={() => setIsQuickCompOpen(false)}
         onCreated={handleQuickCompCreated}
         supabase={supabase}
+        roleType={quickCompType}
       />
     </div>
   );

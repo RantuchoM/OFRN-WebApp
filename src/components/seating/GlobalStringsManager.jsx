@@ -1428,17 +1428,17 @@ export default function GlobalStringsManager({
           </div>
         )}
       </div>
-      <div className="grid grid-cols-12 gap-4 h-[350px]">
+      <div className="grid grid-cols-12 gap-3 h-[350px]">
         {!readOnly && (
-          <div className="col-span-3 bg-white border border-slate-200 rounded-lg flex flex-col overflow-hidden shadow-sm">
-            <div className="p-2 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase flex justify-between"><span>Sin Asignar ({available.length})</span></div>
-            <div className="overflow-y-auto p-1 space-y-0.5 flex-1 select-none">
-              {available.map((m) => (<div key={m.id} draggable={!readOnly} onDragStart={(e) => handleDragStart(e, "NEW", m.id, null)} className="text-[10px] p-1.5 bg-slate-50 border border-slate-100 rounded flex justify-between items-center hover:bg-indigo-50 cursor-grab active:cursor-grabbing"><div className="truncate pointer-events-none"><span className="text-slate-500">{m.nombre}</span> <span className="text-slate-700">{m.apellido} ({m.instrumentos?.instrumento})</span></div></div>))}
+          <div className="col-span-2 bg-white border border-slate-200 rounded-lg flex flex-col overflow-hidden shadow-sm min-w-0">
+            <div className="px-1.5 py-1 bg-slate-100 border-b border-slate-200 text-[9px] font-bold text-slate-500 uppercase flex justify-between"><span className="truncate">Sin asignar ({available.length})</span></div>
+            <div className="overflow-y-auto p-0.5 space-y-0.5 flex-1 select-none">
+              {available.map((m) => (<div key={m.id} draggable={!readOnly} onDragStart={(e) => handleDragStart(e, "NEW", m.id, null)} className="text-[9px] px-1 py-0.5 bg-slate-50 border border-slate-100 rounded flex justify-between items-center hover:bg-indigo-50 cursor-grab active:cursor-grabbing"><div className="truncate pointer-events-none text-slate-700">{m.apellido}, {m.nombre}{m.instrumentos?.instrumento ? ` (${m.instrumentos.instrumento})` : ""}</div></div>))}
               {available.length === 0 && <div className="text-center text-[10px] text-slate-300 italic mt-4">Todos asignados</div>}
             </div>
           </div>
         )}
-        <div className={`${readOnly ? "col-span-12" : "col-span-9"} grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 overflow-y-auto content-start pr-1`}>
+        <div className={`${readOnly ? "col-span-12" : "col-span-10"} grid grid-cols-2 md:grid-cols-3 gap-3 overflow-y-auto content-start pr-1`}>
           {displayContainers.map((c) => (
             <div
               key={c.id}
@@ -1564,7 +1564,7 @@ export default function GlobalStringsManager({
                             <div className="flex-1 min-w-0 pointer-events-none">
                               <span className="truncate block font-medium">
                                 {item
-                                  ? `${item.integrantes?.nombre} ${item.integrantes?.apellido}`
+                                  ? `${item.integrantes?.apellido}, ${item.integrantes?.nombre}`
                                   : "Vacío"}
                               </span>
                               {item?._suggestionType === "provisional" && (
