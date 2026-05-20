@@ -1,4 +1,4 @@
-import { format, parseISO, subDays } from "date-fns";
+import { format, parseISO, subDays, addMonths } from "date-fns";
 
 /**
  * Primer lunes estrictamente posterior a una fecha (yyyy-MM-dd).
@@ -43,6 +43,12 @@ export function getCurrentTimeLocal() {
  */
 export function getTodayDateStringLocal() {
   return format(getNowLocal(), "yyyy-MM-dd");
+}
+
+/** Suma meses a una fecha yyyy-MM-dd (hora local) y devuelve yyyy-MM-dd. */
+export function addMonthsToDateStringLocal(fromDateStr, months) {
+  const base = fromDateStr ? parseISO(fromDateStr) : getNowLocal();
+  return format(addMonths(base, months), "yyyy-MM-dd");
 }
 
 /**

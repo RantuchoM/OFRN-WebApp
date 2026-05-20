@@ -4,7 +4,9 @@ import React, {
   useMemo,
   useRef,
   useLayoutEffect,
+  useCallback,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   IconPlus,
   IconLoader,
@@ -23,7 +25,10 @@ import {
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
-import { useGiraRoster, fetchRosterForGira } from "../../hooks/useGiraRoster";
+import { fetchGiraRosterCached } from "../../hooks/useGiraRosterQuery";
+import { useGirasList } from "../../hooks/useGirasList";
+import { endOfCurrentYearLocal } from "../../utils/giraDateRange";
+import GiraVirtualList from "../../components/giras/GiraVirtualList";
 import { useLogistics } from "../../hooks/useLogistics";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
@@ -44,7 +49,6 @@ import CommentButton from "../../components/comments/CommentButton";
 import GiraDifusion from "./GiraDifusion";
 import SectionStatusControl from "../../components/giras/SectionStatusControl";
 import { deleteGira } from "../../services/giraActions";
-import { membershipActiveOnProgramDate } from "../../utils/ensembleMembership";
 import { toast } from "sonner";
 
 // Componentes Modularizados
@@ -87,8 +91,47 @@ export default function GirasView({ supabase, trigger = 0 }) {
   const giraId = searchParams.get("giraId");
   const currentTab = searchParams.get("subTab");
 
-  const [giras, setGiras] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const today = new Date().toISOString().split("T")[0];
+  const [filterDateStart, setFilterDateStart] = useState(today);
+  const [filterDateEnd, setFilterDateEnd] = useState(() =>
+    endOfCurrentYearLocal(),
+  );
+
+  const coordinatedEnsembleIds = useMemo(
+    () => [...coordinatedEnsembles],
+    [coordinatedEnsembles],
+  );
+
+  const {
+    giras: girasFromQuery,
+    isLoading: loading,
+    isFetching: girasFetching,
+    refetch: refetchGiras,
+  } = useGirasList(supabase, {
+    user,
+    isGuest,
+    userRole,
+    isDifusion,
+    coordinatedEnsembleIds,
+    filterDateStart,
+    filterDateEnd,
+    enabled: Boolean(user),
+    trigger,
+  });
+
+  const giras = useMemo(() => {
+    if (isGuest && user?.active_gira_id) {
+      return girasFromQuery.filter((g) => g.id === user.active_gira_id);
+    }
+    return girasFromQuery;
+  }, [girasFromQuery, isGuest, user?.active_gira_id]);
+
+  const fetchGiras = useCallback(async () => {
+    await refetchGiras();
+  }, [refetchGiras]);
+
+  const queryClient = useQueryClient();
+  const [formSaving, setFormSaving] = useState(false);
   const [actionGira, setActionGira] = useState(null);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showDupModal, setShowDupModal] = useState(false);
@@ -195,9 +238,6 @@ export default function GirasView({ supabase, trigger = 0 }) {
     "Jazz Band",
     "Comisión",
   ];
-  const today = new Date().toISOString().split("T")[0];
-  const [filterDateStart, setFilterDateStart] = useState(today);
-  const [filterDateEnd, setFilterDateEnd] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
@@ -324,185 +364,13 @@ export default function GirasView({ supabase, trigger = 0 }) {
   }, [user, isEditor]);
 
   useEffect(() => {
-    fetchGiras();
     fetchLocationsList();
     fetchEnsemblesList();
     fetchIntegrantesList();
-  }, [user.id, coordinatedEnsembles.size]);
-
-  // --- FUNCIÓN FETCHGIRAS CORREGIDA PARA INVITADOS ---
-  const fetchGiras = async () => {
-    setLoading(true);
-    try {
-      if (isGuest) {
-        // Lógica de Invitado: Usar RPC para saltar bloqueo RLS
-        const tokenToUse = user.token_original;
-
-        if (tokenToUse) {
-          // 1. Llamar al RPC actualizado que busca en giras_accesos
-          const { data: giraBaseData, error } = await supabase.rpc(
-            "get_gira_by_public_token",
-            { token_input: tokenToUse },
-          );
-
-          if (error) throw error;
-
-          if (!giraBaseData || giraBaseData.length === 0) {
-            console.warn("No se encontró gira para el token:", tokenToUse);
-            setGiras([]);
-            return;
-          }
-
-          const targetGira = giraBaseData[0];
-
-          // 2. Traer manualmente los datos relacionales (ya que el RPC devuelve solo la tabla base)
-          // Esto funciona porque habilitamos RLS "public" para estas tablas en el paso SQL anterior
-          const [eventosRes, locsRes, fuentesRes] = await Promise.all([
-            supabase
-              .from("eventos")
-              .select(
-                "id, fecha, hora_inicio, locaciones(nombre, localidades(localidad)), tipos_evento(nombre)",
-              )
-              .eq("id_gira", targetGira.id),
-            supabase
-              .from("giras_localidades")
-              .select("id_localidad, localidades(localidad)")
-              .eq("id_gira", targetGira.id),
-            supabase
-              .from("giras_fuentes")
-              .select("*")
-              .eq("id_gira", targetGira.id),
-          ]);
-
-          // 3. Construir el objeto completo
-          const fullGira = {
-            ...targetGira,
-            eventos: eventosRes.data || [],
-            giras_localidades: locsRes.data || [],
-            giras_fuentes: fuentesRes.data || [],
-            giras_integrantes: [], // Privacidad: Invitado no ve lista completa
-          };
-
-          setGiras([fullGira]);
-        } else {
-          console.error("Usuario invitado sin token original");
-        }
-      } else {
-        // --- LÓGICA NORMAL (Usuarios Autenticados) ---
-        // Con rol difusión ve TODOS los programas (en el detalle solo podrá abrir pestaña Difusión)
-        const isPersonalRoleForDB =
-          (userRole === "consulta_personal" || userRole === "personal") &&
-          user.id !== "guest-general" &&
-          !isDifusion;
-        /** @type {Array<{ id_ensamble: number, fecha_desde?: string, fecha_hasta?: string | null }>} */
-        let myEnsembleMembershipRows = [];
-        let myFamily = null;
-        // Misma regla que MusicianTourManager: FAMILIA solo "levanta" a Estable/Contratado;
-        // Invitados entran solo si están en giras_integrantes o califican por ENSAMBLE.
-        let isFamiliaSourceApplicable = false;
-        if (isPersonalRoleForDB) {
-          const { data: me } = await supabase
-            .from("integrantes")
-            .select(
-              "*, instrumentos(familia), integrantes_ensambles(id_ensamble, fecha_desde, fecha_hasta)",
-            )
-            .eq("id", user.id)
-            .single();
-          if (me) {
-            myFamily = me.instrumentos?.familia;
-            myEnsembleMembershipRows = me.integrantes_ensambles || [];
-            const nc = (me.condicion || "")
-              .toString()
-              .toLowerCase()
-              .trim();
-            isFamiliaSourceApplicable =
-              nc === "estable" || nc === "contratado";
-          }
-        }
-        const { data, error } = await supabase
-          .from("programas")
-          .select(
-            `
-            *,
-            giras_localidades(id_localidad, localidades(localidad)), 
-
-            giras_integrantes(
-              id_integrante, rol, estado, 
-              integrantes(
-                id, nombre, apellido, 
-                id_localidad,        
-                instrumentos(familia)  
-              )
-            ),
-
-            eventos(
-              *, 
-              tipos_evento(*), 
-              locaciones(*, localidades(localidad)),
-              eventos_asistencia(*) 
-            ),
-            giras_fuentes(*)
-          `,
-          )
-          .order("fecha_desde", { ascending: true });
-        if (error) throw error;
-        let result = data || [];
-        if (isPersonalRoleForDB) {
-          result = result.filter((gira) => {
-            const overrides = gira.giras_integrantes || [];
-            const sources = gira.giras_fuentes || [];
-            const myOverride = overrides.find(
-              (o) => o.id_integrante === user.id,
-            );
-            if (myOverride && myOverride.estado === "ausente") return false;
-            if (myOverride) return true;
-            const progRef = gira.fecha_desde;
-            const ensembleActiveOnProgram = (valorId) =>
-              myEnsembleMembershipRows.some(
-                (ie) =>
-                  Number(ie.id_ensamble) === Number(valorId) &&
-                  membershipActiveOnProgramDate(ie, progRef),
-              );
-            const isIncluded = sources.some(
-              (s) =>
-                (s.tipo === "ENSAMBLE" &&
-                  (ensembleActiveOnProgram(s.valor_id) ||
-                    coordinatedEnsembles.has(s.valor_id))) ||
-                (s.tipo === "FAMILIA" &&
-                  s.valor_texto === myFamily &&
-                  isFamiliaSourceApplicable),
-            );
-            if (isIncluded) {
-              const excludedEnsembles = sources
-                .filter((s) => s.tipo === "EXCL_ENSAMBLE")
-                .map((s) => s.valor_id);
-              if (
-                excludedEnsembles.some((exclId) =>
-                  ensembleActiveOnProgram(exclId),
-                )
-              )
-                return false;
-              return true;
-            }
-            return false;
-          });
-        }
-        setGiras(result);
-      }
-    } catch (err) {
-      console.error("Error fetching giras:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [user?.id]);
 
   useEffect(() => {
     if (isGuest && user?.active_gira_id) {
-      const needsFiltering =
-        giras.length > 0 && giras.some((g) => g.id !== user.active_gira_id);
-      if (needsFiltering)
-        setGiras((prev) => prev.filter((g) => g.id === user.active_gira_id));
-
       const GUEST_ALLOWED_VIEWS = [
         "AGENDA",
         "REPERTOIRE",
@@ -623,7 +491,11 @@ export default function GirasView({ supabase, trigger = 0 }) {
       fetchGiras();
       if (notify) {
         try {
-          const { roster } = await fetchRosterForGira(supabase, actionGira);
+          const { roster } = await fetchGiraRosterCached(
+            supabase,
+            queryClient,
+            actionGira,
+          );
           const conMail = roster.filter((m) => m.estado_gira !== "ausente" && m.mail);
           const bcc = conMail.map((m) => m.mail);
           if (bcc.length > 0) {
@@ -755,7 +627,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
       return;
     }
 
-    setLoading(true);
+    setFormSaving(true);
 
     // 1. Limpieza rigurosa del payload para evitar errores de tipo en la DB
     const payload = {
@@ -880,25 +752,27 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
       // Finalización
       await fetchGiras();
+      queryClient.invalidateQueries({ queryKey: ["gira-roster"] });
       closeForm();
       toast.success(editingId ? "Gira actualizada con éxito" : "Gira creada con éxito");
     } catch (err) {
       console.error("Error detallado al guardar gira:", err);
       toast.error(`Error al guardar: ${err.message || "Error desconocido"}`);
     } finally {
-      setLoading(false);
+      setFormSaving(false);
     }
   };
   const handleDelete = async (e, id) => {
     if (e) e.stopPropagation();
     if (!confirm("¿Eliminar?")) return;
-    setLoading(true);
+    setFormSaving(true);
     await supabase.functions.invoke("drive-manager", {
       body: { action: "delete_program", programId: id },
     });
     await supabase.from("programas").delete().eq("id", id);
     await fetchGiras();
-    setLoading(false);
+    queryClient.invalidateQueries({ queryKey: ["gira-roster"] });
+    setFormSaving(false);
   };
   const handleDeleteGira = async (gira) => {
     // Verificar condiciones para mostrar checkbox
@@ -987,7 +861,11 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
             try {
               // 1) Obtener roster de confirmados
-              const { roster } = await fetchRosterForGira(supabase, gira);
+              const { roster } = await fetchGiraRosterCached(
+                supabase,
+                queryClient,
+                gira,
+              );
               const confirmadosConMail = roster.filter(
                 (m) => m.estado_gira === "confirmado" && m.mail,
               );
@@ -1040,6 +918,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                   }.`,
                   { id: loadingToastId },
                 );
+                queryClient.invalidateQueries({ queryKey: ["gira-roster"] });
                 fetchGiras();
               } else {
                 toast.error(`Error al eliminar: ${res.error}`, {
@@ -1170,7 +1049,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
   }, [giras]);
 
   const handleUpdateCalendarEvent = async (eventData) => {
-    setLoading(true);
+    setFormSaving(true);
     try {
       const { error } = await supabase
         .from("eventos")
@@ -1184,7 +1063,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
     } catch (err) {
       toast.error("Error al actualizar: " + err.message);
     } finally {
-      setLoading(false);
+      setFormSaving(false);
     }
   };
 
@@ -1230,6 +1109,75 @@ export default function GirasView({ supabase, trigger = 0 }) {
       return "";
     }
   }, [selectedGira?.fecha_desde, selectedGira?.fecha_hasta]);
+
+  const editingGira = useMemo(
+    () =>
+      editingId != null
+        ? filteredGiras.find((g) => String(g.id) === String(editingId))
+        : null,
+    [editingId, filteredGiras],
+  );
+
+  const virtualListItems = useMemo(
+    () =>
+      filteredGiras
+        .filter((g) => String(g.id) !== String(editingId))
+        .map((g) => ({ ...g, key: g.id })),
+    [filteredGiras, editingId],
+  );
+
+  const listSaving = formSaving || loading;
+
+  const renderGiraCard = useCallback(
+    (gira) => {
+      const userCanEditThis = canEditGira(gira);
+      const isHighlighted =
+        highlightedGiraId && String(gira.id) === String(highlightedGiraId);
+      return (
+        <div id={`gira-card-${gira.id}`}>
+          <GiraCard
+            gira={gira}
+            updateView={updateView}
+            isEditor={userCanEditThis}
+            isPersonal={isPersonal}
+            userRole={userRole}
+            startEdit={startEdit}
+            handleDelete={handleDelete}
+            setGlobalCommentsGiraId={setGlobalCommentsGiraId}
+            setCommentsState={setCommentsState}
+            activeMenuId={activeMenuId}
+            setActiveMenuId={setActiveMenuId}
+            showRepertoireInCards={showRepertoireInCards}
+            ensemblesList={ensemblesList}
+            onMove={handleOpenMove}
+            onDuplicate={handleOpenDup}
+            supabase={supabase}
+            onDelete={() => handleDeleteGira(gira)}
+            isHighlighted={isHighlighted}
+          />
+        </div>
+      );
+    },
+    [
+      canEditGira,
+      highlightedGiraId,
+      updateView,
+      isPersonal,
+      userRole,
+      startEdit,
+      handleDelete,
+      setGlobalCommentsGiraId,
+      setCommentsState,
+      activeMenuId,
+      setActiveMenuId,
+      showRepertoireInCards,
+      ensemblesList,
+      handleOpenMove,
+      handleOpenDup,
+      supabase,
+      handleDeleteGira,
+    ],
+  );
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-slate-50">
@@ -1575,7 +1523,7 @@ export default function GirasView({ supabase, trigger = 0 }) {
                       await fetchGiras();
                       closeForm();
                     }}
-                    loading={loading}
+                    loading={listSaving}
                     isNew={true}
                     locationsList={locationsList}
                     selectedLocations={selectedLocations}
@@ -1593,72 +1541,52 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 )}
               </>
             )}
-            {filteredGiras.length === 0 && !loading && !isAdding && (
-              <div className="text-center py-10 text-slate-400">
-                No se encontraron programas.
+            {girasFetching && giras.length > 0 && (
+              <div className="flex items-center justify-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/90 px-3 py-1.5 text-xs font-bold text-indigo-700">
+                <IconLoader className="animate-spin" size={14} />
+                Actualizando programas…
               </div>
             )}
-            {filteredGiras.map((gira) => {
-              if (editingId === gira.id) {
-                return (
-                  <GiraForm
-                    key={gira.id}
-                    supabase={supabase}
-                    giraId={gira.id}
-                    // ... (props existentes) ...
-                    formData={formData}
-                    setFormData={setFormData}
-                    onCancel={closeForm}
-                    onSave={handleSave}
-                    onRefresh={async () => {
-                      await fetchGiras();
-                    }}
-                    loading={loading}
-                    isNew={false}
-                    enableAutoSave={true}
-                    locationsList={locationsList}
-                    selectedLocations={selectedLocations}
-                    setSelectedLocations={setSelectedLocations}
-                    ensemblesList={ensemblesList}
-                    allIntegrantes={allIntegrantes}
-                    selectedSources={selectedSources}
-                    setSelectedSources={setSelectedSources}
-                    selectedStaff={selectedStaff}
-                    setSelectedStaff={setSelectedStaff}
-                    isCoordinator={isCoordinator}
-                    coordinatedEnsembles={coordinatedEnsembles}
-                  />
-                );
-              }
-              const userCanEditThis = canEditGira(gira);
-              const isHighlighted =
-                highlightedGiraId &&
-                String(gira.id) === String(highlightedGiraId);
-
-              return (
-                <GiraCard
-                  key={gira.id}
-                  gira={gira}
-                  updateView={updateView}
-                  isEditor={userCanEditThis}
-                  isPersonal={isPersonal}
-                  userRole={userRole}
-                  startEdit={startEdit}
-                  handleDelete={handleDelete}
-                  setGlobalCommentsGiraId={setGlobalCommentsGiraId}
-                  setCommentsState={setCommentsState}
-                  activeMenuId={activeMenuId}
-                  setActiveMenuId={setActiveMenuId}
-                  showRepertoireInCards={showRepertoireInCards}
-                  ensemblesList={ensemblesList}
-                  onMove={handleOpenMove}
-                  onDuplicate={handleOpenDup}
-                  supabase={supabase}
-                  onDelete={() => handleDeleteGira(gira)}
-                  isHighlighted={isHighlighted}
-                />
-              );
-            })}
+            {filteredGiras.length === 0 && !loading && !isAdding && (
+              <div className="text-center py-10 text-slate-400">
+                No se encontraron programas en el rango seleccionado.
+              </div>
+            )}
+            {editingGira && (
+              <GiraForm
+                key={editingGira.id}
+                supabase={supabase}
+                giraId={editingGira.id}
+                formData={formData}
+                setFormData={setFormData}
+                onCancel={closeForm}
+                onSave={handleSave}
+                onRefresh={async () => {
+                  await fetchGiras();
+                }}
+                loading={listSaving}
+                isNew={false}
+                enableAutoSave={true}
+                locationsList={locationsList}
+                selectedLocations={selectedLocations}
+                setSelectedLocations={setSelectedLocations}
+                ensemblesList={ensemblesList}
+                allIntegrantes={allIntegrantes}
+                selectedSources={selectedSources}
+                setSelectedSources={setSelectedSources}
+                selectedStaff={selectedStaff}
+                setSelectedStaff={setSelectedStaff}
+                isCoordinator={isCoordinator}
+                coordinatedEnsembles={coordinatedEnsembles}
+              />
+            )}
+            {virtualListItems.length > 0 && (
+              <GiraVirtualList
+                items={virtualListItems}
+                scrollElementRef={scrollContainerRef}
+                renderItem={renderGiraCard}
+              />
+            )}
           </div>
         )}
       </div>

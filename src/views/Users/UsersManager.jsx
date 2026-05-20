@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import {
   IconUsers,
@@ -15,6 +15,8 @@ import {
   IconCopy,
   IconEdit,
   IconMusic,
+  IconChevronLeft,
+  IconChevronRight,
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import SearchableSelect from "../../components/ui/SearchableSelect";
@@ -59,10 +61,18 @@ function normalizeSystemRolesList(roles) {
   return Array.from(new Set(normalized));
 }
 
+const INTEGRANTES_SELECT = `*,
+  instrumentos(instrumento),
+  integrantes_ensambles(ensambles(id, ensamble))`;
+
 export default function UsersManager({ supabase }) {
   const [integrantes, setIntegrantes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [totalCount, setTotalCount] = useState(0);
 
   const [visiblePasswords, setVisiblePasswords] = useState(new Set());
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -84,30 +94,61 @@ export default function UsersManager({ supabase }) {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
-  const fetchData = async () => {
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, pageSize]);
+
+  const totalPages = useMemo(
+    () => Math.ceil(totalCount / pageSize) || 1,
+    [totalCount, pageSize],
+  );
+
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const from = (currentPage - 1) * pageSize;
+      const to = from + pageSize - 1;
+      const term = debouncedSearch.trim();
+
+      let query = supabase
         .from("integrantes")
-        .select(
-          `*,
-           instrumentos(instrumento),
-           integrantes_ensambles(ensambles(id, ensamble))`,
-        )
-        .order("apellido", { ascending: true });
+        .select(INTEGRANTES_SELECT, { count: "exact" })
+        .order("apellido", { ascending: true })
+        .order("nombre", { ascending: true });
+
+      if (term) {
+        const clean = term.replace(/%/g, "");
+        query = query.or(
+          `nombre.ilike.%${clean}%,apellido.ilike.%${clean}%,mail.ilike.%${clean}%`,
+        );
+      }
+
+      const { data, error, count } = await query.range(from, to);
 
       if (error) throw error;
       setIntegrantes(data || []);
+      setTotalCount(count ?? 0);
     } catch (error) {
       console.error("Error fetching integrantes:", error);
       alert("Error cargando usuarios: " + error.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [supabase, currentPage, pageSize, debouncedSearch]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const togglePasswordVisibility = (id) => {
     setVisiblePasswords((prev) => {
@@ -230,8 +271,9 @@ export default function UsersManager({ supabase }) {
       alert("Error al crear: " + error.message);
     } else {
       alert("Integrante creado exitosamente.");
-      setIntegrantes([...integrantes, data]);
       setShowCreateModal(false);
+      setCurrentPage(1);
+      fetchData();
       setNewMember({
         nombre: "",
         apellido: "",
@@ -277,15 +319,12 @@ export default function UsersManager({ supabase }) {
     if (!window.confirm("¿Estás seguro de eliminar este integrante?")) return;
     const { error } = await supabase.from("integrantes").delete().eq("id", id);
     if (error) alert("Error: " + error.message);
-    else setIntegrantes(integrantes.filter((u) => u.id !== id));
+    else if (integrantes.length === 1 && currentPage > 1) {
+      setCurrentPage((p) => p - 1);
+    } else {
+      fetchData();
+    }
   };
-
-  const filteredUsers = integrantes.filter(
-    (u) =>
-      (u.nombre && u.nombre.toLowerCase().includes(search.toLowerCase())) ||
-      (u.apellido && u.apellido.toLowerCase().includes(search.toLowerCase())) ||
-      (u.mail && u.mail.toLowerCase().includes(search.toLowerCase())),
-  );
 
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
@@ -427,7 +466,22 @@ export default function UsersManager({ supabase }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredUsers.map((u) => {
+                {loading && integrantes.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="p-8 text-center text-slate-400">
+                      <IconLoader className="animate-spin inline-block mr-2" size={18} />
+                      Cargando usuarios…
+                    </td>
+                  </tr>
+                )}
+                {!loading && integrantes.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="p-8 text-center text-slate-400 text-sm">
+                      No hay integrantes{debouncedSearch.trim() ? " con ese criterio" : ""}.
+                    </td>
+                  </tr>
+                )}
+                {integrantes.map((u) => {
                   const isPasswordVisible = visiblePasswords.has(u.id);
                   return (
                   <tr
@@ -633,7 +687,13 @@ export default function UsersManager({ supabase }) {
 
         {/* Vista móvil: tarjetas */}
         <div className="md:hidden space-y-4">
-          {filteredUsers.map((u) => {
+          {loading && integrantes.length === 0 && (
+            <p className="text-center text-slate-400 text-sm py-8">
+              <IconLoader className="animate-spin inline-block mr-2" size={18} />
+              Cargando usuarios…
+            </p>
+          )}
+          {integrantes.map((u) => {
             const isPasswordVisible = visiblePasswords.has(u.id);
             const ensembles =
               (u.integrantes_ensambles || [])
@@ -834,6 +894,56 @@ export default function UsersManager({ supabase }) {
               </div>
             );
           })}
+        </div>
+
+        {/* Paginación (mismo patrón que Personas / MusiciansView) */}
+        <div className="mt-4 shrink-0 border border-slate-200 rounded-xl bg-slate-50 px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-6 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase text-slate-400">
+                Ver:
+              </span>
+              <select
+                className="text-xs border rounded p-1 bg-white outline-none focus:ring-1 focus:ring-indigo-500"
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+              >
+                {[25, 50, 100].map((v) => (
+                  <option key={v} value={v}>
+                    {v} usuarios
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2 border-l border-slate-300 pl-4">
+              <button
+                type="button"
+                disabled={currentPage === 1 || loading}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="p-1 rounded border bg-white disabled:opacity-30 hover:bg-indigo-50 text-indigo-600 transition-colors"
+              >
+                <IconChevronLeft size={14} />
+              </button>
+              <div className="text-xs font-medium text-slate-600">
+                Pág.{" "}
+                <span className="font-bold text-indigo-600">{currentPage}</span> /{" "}
+                {totalPages}
+              </div>
+              <button
+                type="button"
+                disabled={currentPage >= totalPages || loading}
+                onClick={() =>
+                  setCurrentPage((p) => Math.min(totalPages, p + 1))
+                }
+                className="p-1 rounded border bg-white disabled:opacity-30 hover:bg-indigo-50 text-indigo-600 transition-colors"
+              >
+                <IconChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+          <div className="text-[10px] font-medium text-slate-400 uppercase">
+            Mostrando {integrantes.length} de {totalCount} usuarios
+          </div>
         </div>
       </div>
 

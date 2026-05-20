@@ -195,8 +195,17 @@ export default function GiraCard({
   };
 
   const mealConfig = getMealStatusConfig();
-  const shouldShowRepertoire =
+  const repertoireSectionEnabled =
     showRepertoireInCards || defaultOpenSection === "repertoire";
+  const [repertoireExpanded, setRepertoireExpanded] = useState(
+    defaultOpenSection === "repertoire",
+  );
+
+  React.useEffect(() => {
+    if (!showRepertoireInCards) {
+      setRepertoireExpanded(defaultOpenSection === "repertoire");
+    }
+  }, [showRepertoireInCards, defaultOpenSection]);
   const baseStyle = getProgramStyle(gira.tipo);
   let cardClasses = baseStyle.color;
   if (gira.estado === "Pausada") {
@@ -1069,17 +1078,28 @@ export default function GiraCard({
           </div>,
           document.body,
         )}
-      {shouldShowRepertoire && (
+      {repertoireSectionEnabled && (
         <div className="relative z-20 border-t border-black/5 bg-white/40 p-2 min-w-0 w-full max-w-none">
-          <div className="min-w-0 w-full max-w-none animate-in slide-in-from-top-2">
-            <RepertoireManager
-              supabase={supabase}
-              programId={gira.id}
-              giraId={gira.id}
-              isCompact={false}
-              readOnly={!isEditor}
-            />
-          </div>
+          {!repertoireExpanded ? (
+            <button
+              type="button"
+              onClick={() => setRepertoireExpanded(true)}
+              className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100 rounded-lg border border-indigo-100 transition-colors"
+            >
+              <IconMusic size={14} />
+              Ver repertorio
+            </button>
+          ) : (
+            <div className="min-w-0 w-full max-w-none animate-in slide-in-from-top-2">
+              <RepertoireManager
+                supabase={supabase}
+                programId={gira.id}
+                giraId={gira.id}
+                isCompact={false}
+                readOnly={!isEditor}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

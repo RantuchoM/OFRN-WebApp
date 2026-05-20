@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
 import { integranteKey } from "../utils/integranteIds";
+import { useGiraRosterQuery } from "./useGiraRosterQuery";
 import { resolveLocalidadEfectivaViaticos } from "../utils/integranteDomicilioViaticos";
 import {
   membershipActiveOnProgramDate,
@@ -272,43 +272,7 @@ export async function fetchRosterForGira(supabase, gira) {
   return { roster: sorted, sources: fuentes || [] };
 }
 
+/** Wrapper con caché React Query (misma API que antes). */
 export function useGiraRoster(supabase, gira) {
-  const [roster, setRoster] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [sources, setSources] = useState([]);
-  const hasDataRef = useRef(false);
-
-  const fetchRoster = useCallback(async () => {
-    if (!gira?.id) {
-      setLoading(false);
-      return;
-    }
-    if (!hasDataRef.current) setLoading(true);
-    setError(null);
-    try {
-      const { roster: nextRoster, sources: nextSources } = await fetchRosterForGira(supabase, gira);
-      setRoster(nextRoster);
-      setSources(nextSources);
-      hasDataRef.current = true;
-      return nextRoster;
-    } catch (err) {
-      console.error("Error fetching roster:", err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [supabase, gira?.id, gira?.fecha_desde, gira?.fecha_hasta]);
-
-  useEffect(() => {
-    fetchRoster();
-  }, [fetchRoster]);
-
-  return {
-    roster,
-    loading,
-    error,
-    sources,
-    refreshRoster: fetchRoster,
-  };
+  return useGiraRosterQuery(supabase, gira);
 }

@@ -56,10 +56,9 @@ import LocationManagerModal from "../../components/locations/LocationManagerModa
 
 import { format, addMonths, getDay, setDay, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import {
   useGiraRosterQuery,
-  giraRosterQueryKey,
+  fetchGiraRosterCached,
 } from "../../hooks/useGiraRosterQuery";
 import RehearsalVirtualList from "../../components/ensembles/RehearsalVirtualList";
 import GiraCard from "../Giras/GiraCard";
@@ -2743,14 +2742,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   useEffect(() => {
     if (!supabase || programsForRosterPrefetch.length === 0) return;
     programsForRosterPrefetch.forEach((gira) => {
-      queryClient.prefetchQuery({
-        queryKey: giraRosterQueryKey(gira),
-        queryFn: async () => {
-          const { roster, sources } = await fetchRosterForGira(supabase, gira);
-          return { roster, sources };
-        },
-        staleTime: 5 * 60 * 1000,
-      });
+      fetchGiraRosterCached(supabase, queryClient, gira);
     });
   }, [programsForRosterPrefetch, supabase, queryClient]);
 

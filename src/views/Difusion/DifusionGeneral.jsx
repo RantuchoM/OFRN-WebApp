@@ -1,8 +1,11 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import ConciertosDifusionPanel from "../../components/difusion/ConciertosDifusionPanel";
-import { IconMegaphone } from "../../components/ui/Icons";
-import { getTodayDateStringLocal } from "../../utils/dates";
+import { IconChevronDown, IconMegaphone } from "../../components/ui/Icons";
+import {
+  addMonthsToDateStringLocal,
+  getTodayDateStringLocal,
+} from "../../utils/dates";
 
 export default function DifusionGeneral({ supabase, onViewChange }) {
   const { user, roles, isAdmin, isDifusion } = useAuth();
@@ -14,7 +17,12 @@ export default function DifusionGeneral({ supabase, onViewChange }) {
 
   const [programTipoFilter, setProgramTipoFilter] = useState("");
   const [dateFrom, setDateFrom] = useState(() => getTodayDateStringLocal());
-  const [dateTo, setDateTo] = useState("");
+  const [monthsLimit, setMonthsLimit] = useState(3);
+
+  const dateTo = useMemo(
+    () => addMonthsToDateStringLocal(dateFrom, monthsLimit),
+    [dateFrom, monthsLimit],
+  );
 
   const PROGRAM_TYPES = [
     "Sinfónico",
@@ -84,12 +92,12 @@ export default function DifusionGeneral({ supabase, onViewChange }) {
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
               Hasta
             </label>
-            <input
-              type="date"
-              className="mt-1 w-full text-sm p-2 border border-slate-200 rounded-lg bg-white"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-            />
+            <div className="mt-1 w-full text-sm p-2 border border-slate-100 rounded-lg bg-slate-50 text-slate-600 tabular-nums">
+              {dateTo}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1">
+              Ventana de {monthsLimit} meses desde «Desde»
+            </p>
           </div>
         </div>
 
@@ -105,6 +113,17 @@ export default function DifusionGeneral({ supabase, onViewChange }) {
             onViewChange("GIRAS", String(giraId), "DIFUSION")
           }
         />
+
+        <div className="flex justify-center pb-8">
+          <button
+            type="button"
+            onClick={() => setMonthsLimit((prev) => prev + 3)}
+            className="flex items-center gap-2 px-6 py-2.5 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-full shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all active:scale-95 text-sm"
+          >
+            <IconChevronDown size={18} />
+            Cargar más meses
+          </button>
+        </div>
       </div>
     </div>
   );

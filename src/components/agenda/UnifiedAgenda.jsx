@@ -31,6 +31,7 @@ import {
   IconPlane,
   IconCalculator,
   IconAlertTriangle,
+  IconAlertCircle,
   IconEyeOff,
   IconUtensils,
   IconFilter,
@@ -71,6 +72,7 @@ import TourDivider from "./TourDivider";
 import AgendaMealActionModal from "./AgendaMealActionModal";
 import EventHistoryModal from "../giras/EventHistoryModal";
 import ConfirmModal from "../ui/ConfirmModal";
+import ConfirmDialog from "../ui/ConfirmDialog";
 import EventTranspositionModal from "./EventTranspositionModal";
 
 /** tipos_evento.id: Traslado interno — "mi transporte" para todo integrante activo (sin reglas de asignación). */
@@ -93,6 +95,20 @@ function isLogisticsTransportEvent(item) {
   return !!item.id_gira_transporte;
 }
 const DELETED_FILTERS_STORAGE_KEY_PREFIX = "unified_agenda_deleted_filters_v1_";
+const RECENT_CHANGES_ACK_STORAGE_KEY_PREFIX =
+  "unified_agenda_recent_changes_ack_v1_";
+
+function getRecentChangesAckAt(storageKey) {
+  try {
+    const saved = localStorage.getItem(storageKey);
+    if (!saved) return null;
+    const parsed = Number(saved);
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch (error) {
+    console.error("Error reading recent changes ack", error);
+    return null;
+  }
+}
 
 function getInitialDeletedFilterState(storageKey, key, defaultValue = false) {
   try {
@@ -258,6 +274,11 @@ export default function UnifiedAgenda({
   const [monthsLimit, setMonthsLimit] = useState(3);
   const [availableCategories, setAvailableCategories] = useState([]);
   const deletedFiltersStorageKey = `${DELETED_FILTERS_STORAGE_KEY_PREFIX}${effectiveUserId}`;
+  const recentChangesAckStorageKey = `${RECENT_CHANGES_ACK_STORAGE_KEY_PREFIX}${effectiveUserId}_${giraId ?? "general"}`;
+  const [recentChangesAckAt, setRecentChangesAckAt] = useState(() =>
+    getRecentChangesAckAt(recentChangesAckStorageKey),
+  );
+  const [isHideRecentChangesOpen, setIsHideRecentChangesOpen] = useState(false);
   const [showDeletedEvents, setShowDeletedEvents] = useState(() =>
     getInitialDeletedFilterState(
       deletedFiltersStorageKey,
@@ -442,6 +463,10 @@ export default function UnifiedAgenda({
       ),
     );
   }, [deletedFiltersStorageKey]);
+
+  useEffect(() => {
+    setRecentChangesAckAt(getRecentChangesAckAt(recentChangesAckStorageKey));
+  }, [recentChangesAckStorageKey]);
 
   const mainProgram = useMemo(
     () => items.find((i) => i.programas)?.programas || null,
@@ -790,6 +815,37 @@ export default function UnifiedAgenda({
     isTechnician,
     isEditor,
   ]);
+
+  const getRecentChangesThreshold = useCallback(() => {
+    if (recentChangesAckAt) return recentChangesAckAt;
+    return Date.now() - 24 * 60 * 60 * 1000;
+  }, [recentChangesAckAt]);
+
+  const isEventRecentlyModified = useCallback(
+    (evt) => {
+      if (!evt?.updated_at) return false;
+      return new Date(evt.updated_at).getTime() > getRecentChangesThreshold();
+    },
+    [getRecentChangesThreshold],
+  );
+
+  const hasUnacknowledgedRecentChanges = useMemo(
+    () =>
+      filteredItems.some(
+        (evt) => !evt.isProgramMarker && isEventRecentlyModified(evt),
+      ),
+    [filteredItems, isEventRecentlyModified],
+  );
+
+  const handleAckRecentChanges = useCallback(() => {
+    const now = Date.now();
+    try {
+      localStorage.setItem(recentChangesAckStorageKey, String(now));
+    } catch (error) {
+      console.error("Error saving recent changes ack", error);
+    }
+    setRecentChangesAckAt(now);
+  }, [recentChangesAckStorageKey]);
 
   const toggleMealAttendance = async (eventId, newStatus) => {
     if (effectiveUserId === "guest-general") return;
@@ -1360,6 +1416,18 @@ export default function UnifiedAgenda({
               isUpdating={isRefreshing || (loading && items.length > 0)}
             />
 
+            {hasUnacknowledgedRecentChanges && (
+              <button
+                type="button"
+                onClick={() => setIsHideRecentChangesOpen(true)}
+                className="inline-flex items-center justify-center p-1.5 rounded-full border border-blue-200 bg-blue-50 text-blue-600 shadow-sm hover:bg-blue-100 animate-pulse"
+                title="Ocultar cambios recientes"
+                aria-label="Ocultar cambios recientes"
+              >
+                <IconAlertCircle size={16} />
+              </button>
+            )}
+
             {canImportEvents && (
               <button
                 type="button"
@@ -1833,10 +1901,7 @@ export default function UnifiedAgenda({
 
                     const feriado = feriados.find((f) => f.fecha === evt.fecha);
 
-                    const isRecentlyModified =
-                      evt.updated_at &&
-                      new Date(evt.updated_at).getTime() >
-                        Date.now() - 24 * 60 * 60 * 1000;
+                    const isRecentlyModified = isEventRecentlyModified(evt);
                     const isDeleted = evt.is_deleted === true;
                     const canAdminEditDeleted = isAdmin && showDeletedEvents;
                     const isReadOnlyDeleted = isDeleted && !canAdminEditDeleted;
@@ -2806,6 +2871,15 @@ export default function UnifiedAgenda({
       </div>
 
       {/* MODALES */}
+      <ConfirmDialog
+        isOpen={isHideRecentChangesOpen}
+        onClose={() => setIsHideRecentChangesOpen(false)}
+        onConfirm={handleAckRecentChanges}
+        title="Ocultar cambios recientes"
+        message="¿Ocultar cambios recientes? (ya no titilarán los cambios previos a este momento)"
+        confirmText="Ocultar"
+        cancelText="Cancelar"
+      />
       <ConfirmModal
         isOpen={deleteConfirm.isOpen}
         onClose={() =>
