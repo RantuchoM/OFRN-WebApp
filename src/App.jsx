@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import {
   Routes,
@@ -12,47 +12,16 @@ import { AuthProvider, useAuth, getRolesDisplay } from "./context/AuthContext";
 import { supabase } from "./services/supabase";
 import ReloadPrompt from "./components/ui/ReloadPrompt";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-// Vistas
-import LoginView from "./views/LoginView/LoginView";
-import GirasView from "./views/Giras/GirasView";
-import EnsemblesView from "./views/Ensembles/EnsemblesView";
-import MusiciansView from "./views/Musicians/MusiciansView";
-import LocationsView from "./views/Locations/LocationsView";
-import RepertoireView from "./views/Repertoire/RepertoireView";
-import CuradoriaView from "./views/Curadoria/CuradoriaView";
-import ArreglosDashboard from "./views/Arreglos/ArreglosDashboard";
-import DataView from "./views/Data/DataView";
-import UsersManager from "./views/Users/UsersManager";
-import AgendaGeneral from "./views/Giras/AgendaGeneral";
-import GlobalCommentsViewer from "./components/comments/GlobalCommentsViewer";
-import EnsembleCoordinatorView from "./views/Ensembles/EnsembleCoordinatorView";
-import MyPartsViewer from "./views/Giras/MyPartsViewer";
-import MealsAttendancePersonal from "./views/Giras/MealsAttendancePersonal";
-import PublicLinkHandler from "./views/Public/PublicLinkHandler";
-import ViaticosManual from "./views/Public/ViaticosManual";
-import RendicionesManual from "./views/Public/RendicionesManual";
-import TransporteSCRNPage from "./views/Public/TransporteSCRN/TransporteSCRNPage";
-import EntradasPage from "./views/Public/Entradas/EntradasPage";
-import EntradasRecordarmePage from "./views/Public/Entradas/EntradasRecordarmePage";
-import DashboardGeneral from "./views/Dashboard/DashboardGeneral";
-import DifusionGeneral from "./views/Difusion/DifusionGeneral";
 import NewsModal from "./components/news/NewsModal";
-import NewsManager from "./components/news/NewsManager";
 import FeedbackWidget from "./components/ui/FeedbackWidget";
-import FeedbackAdmin from "./views/Feedback/FeedbackAdmin";
 import { ManualProvider } from "./context/ManualContext";
-import ManualIndex from "./views/Manual/ManualIndex";
-import ManualAdmin from "./views/Manual/ManualAdmin";
 import ManualTrigger from "./components/manual/ManualTrigger";
 import { useManual } from "./context/ManualContext";
 import NotificationsListener from "./components/ui/NotificationsListener";
 import { Toaster } from "sonner";
 import ThemeController from "./components/ui/ThemeController";
-import AIAssistant from "./components/ui/AIAssistant";
 import { CommandPaletteProvider } from "./context/CommandPaletteContext";
 import CommandBarTrigger from "./components/ui/CommandBarTrigger";
-import ManagementView from "./views/Management/ManagementView";
-import MusicTranslationView from "./views/MusicTranslation/MusicTranslationView";
 import { canAccessMusicTranslation } from "./constants/musicTranslationAccess";
 import {
   IconLayoutDashboard,
@@ -99,6 +68,65 @@ import {
 } from "./components/ui/Icons";
 import ProfileEditModal from "./components/users/ProfileEditModal";
 import SearchableSelect from "./components/ui/SearchableSelect";
+
+const LoginView = lazy(() => import("./views/LoginView/LoginView"));
+const GirasView = lazy(() => import("./views/Giras/GirasView"));
+const EnsemblesView = lazy(() => import("./views/Ensembles/EnsemblesView"));
+const MusiciansView = lazy(() => import("./views/Musicians/MusiciansView"));
+const LocationsView = lazy(() => import("./views/Locations/LocationsView"));
+const RepertoireView = lazy(() => import("./views/Repertoire/RepertoireView"));
+const CuradoriaView = lazy(() => import("./views/Curadoria/CuradoriaView"));
+const ArreglosDashboard = lazy(() => import("./views/Arreglos/ArreglosDashboard"));
+const DataView = lazy(() => import("./views/Data/DataView"));
+const UsersManager = lazy(() => import("./views/Users/UsersManager"));
+const AgendaGeneral = lazy(() => import("./views/Giras/AgendaGeneral"));
+const GlobalCommentsViewer = lazy(
+  () => import("./components/comments/GlobalCommentsViewer"),
+);
+const EnsembleCoordinatorView = lazy(
+  () => import("./views/Ensembles/EnsembleCoordinatorView"),
+);
+const MealsAttendancePersonal = lazy(
+  () => import("./views/Giras/MealsAttendancePersonal"),
+);
+const PublicLinkHandler = lazy(() => import("./views/Public/PublicLinkHandler"));
+const ViaticosManual = lazy(() => import("./views/Public/ViaticosManual"));
+const RendicionesManual = lazy(() => import("./views/Public/RendicionesManual"));
+const TransporteSCRNPage = lazy(
+  () => import("./views/Public/TransporteSCRN/TransporteSCRNPage"),
+);
+const EntradasPage = lazy(() => import("./views/Public/Entradas/EntradasPage"));
+const EntradasRecordarmePage = lazy(
+  () => import("./views/Public/Entradas/EntradasRecordarmePage"),
+);
+const DashboardGeneral = lazy(() => import("./views/Dashboard/DashboardGeneral"));
+const DifusionGeneral = lazy(() => import("./views/Difusion/DifusionGeneral"));
+const NewsManager = lazy(() => import("./components/news/NewsManager"));
+const FeedbackAdmin = lazy(() => import("./views/Feedback/FeedbackAdmin"));
+const ManualIndex = lazy(() => import("./views/Manual/ManualIndex"));
+const ManualAdmin = lazy(() => import("./views/Manual/ManualAdmin"));
+const ManagementView = lazy(() => import("./views/Management/ManagementView"));
+const MusicTranslationView = lazy(
+  () => import("./views/MusicTranslation/MusicTranslationView"),
+);
+
+const ViewFallback = () => (
+  <div className="flex h-full min-h-[200px] items-center justify-center font-bold text-slate-400 animate-pulse">
+    Cargando...
+  </div>
+);
+
+const LazyRoute = ({ children }) => (
+  <Suspense
+    fallback={
+      <div className="flex h-screen items-center justify-center font-bold text-slate-400 animate-pulse">
+        Cargando...
+      </div>
+    }
+  >
+    {children}
+  </Suspense>
+);
 
 // --- HELPER DE NORMALIZACIÓN ---
 const normalizeId = (id) => {
@@ -1195,10 +1223,11 @@ const ProtectedApp = ({ initialTab }) => {
           className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-50 print:static print:overflow-visible"
         >
           {" "}
-          {renderContent()}
+          <Suspense fallback={<ViewFallback />}>{renderContent()}</Suspense>
           {/* MODAL GLOBAL DE COMENTARIOS */}
           {globalCommentsOpen && (
-            <GlobalCommentsViewer
+            <Suspense fallback={<ViewFallback />}>
+              <GlobalCommentsViewer
               supabase={supabase}
               onClose={() => setGlobalCommentsOpen(false)}
               onNavigate={(gid, v) => {
@@ -1207,6 +1236,7 @@ const ProtectedApp = ({ initialTab }) => {
               }}
               onCountsChange={setCommentCounts}
             />
+            </Suspense>
           )}
         </main>
       </div>
@@ -1311,7 +1341,19 @@ const AppContent = ({ initialTab }) => {
         Cargando Sistema...
       </div>
     );
-  return user ? <ProtectedApp initialTab={initialTab} /> : <LoginView />;
+  return user ? (
+    <ProtectedApp initialTab={initialTab} />
+  ) : (
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center font-bold text-slate-400 animate-pulse">
+          Cargando...
+        </div>
+      }
+    >
+      <LoginView />
+    </Suspense>
+  );
 };
 
 export default function App() {
@@ -1322,12 +1364,54 @@ export default function App() {
         <ManualProvider>
           <CommandPaletteProvider>
             <Routes>
-              <Route path="/share/:token" element={<PublicLinkHandler />} />
-              <Route path="/viaticos-manual" element={<ViaticosManual />} />
-              <Route path="/rendiciones-manual" element={<RendicionesManual />} />
-              <Route path="/transporte-scrn" element={<TransporteSCRNPage />} />
-              <Route path="/entradas/recordarme" element={<EntradasRecordarmePage />} />
-              <Route path="/entradas" element={<EntradasPage />} />
+              <Route
+                path="/share/:token"
+                element={
+                  <LazyRoute>
+                    <PublicLinkHandler />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/viaticos-manual"
+                element={
+                  <LazyRoute>
+                    <ViaticosManual />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/rendiciones-manual"
+                element={
+                  <LazyRoute>
+                    <RendicionesManual />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/transporte-scrn"
+                element={
+                  <LazyRoute>
+                    <TransporteSCRNPage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/entradas/recordarme"
+                element={
+                  <LazyRoute>
+                    <EntradasRecordarmePage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/entradas"
+                element={
+                  <LazyRoute>
+                    <EntradasPage />
+                  </LazyRoute>
+                }
+              />
               <Route
                 path="/management/*"
                 element={<AppContent initialTab="management" />}

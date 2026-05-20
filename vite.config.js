@@ -13,9 +13,7 @@ export default defineConfig({
       registerType: "prompt",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
       workbox: {
-        // CORRECCIÓN: Aquí es donde debe estar el aumento de límite
-        // 6 MiB = 6 * 1024 * 1024 bytes (aprox 6.3 millones de bytes)
-        maximumFileSizeToCacheInBytes: 8000000,
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         
         cleanupOutdatedCaches: true,
         clientsClaim: true,
@@ -86,6 +84,22 @@ export default defineConfig({
             id.includes("node_modules/lucide-react/") ||
             id.includes("node_modules/framer-motion/");
           if (vendorUi) return "vendor-ui";
+
+          const vendorEditors =
+            id.includes("node_modules/react-quill/") ||
+            id.includes("node_modules/quill/") ||
+            id.includes("node_modules/konva/") ||
+            id.includes("node_modules/react-konva/");
+          if (vendorEditors) return "vendor-editors";
+
+          const vendorDocs =
+            id.includes("node_modules/exceljs/") ||
+            id.includes("node_modules/xlsx/") ||
+            id.includes("node_modules/jspdf/") ||
+            id.includes("node_modules/html2canvas/") ||
+            id.includes("node_modules/html2pdf") ||
+            id.includes("node_modules/docxtemplater/");
+          if (vendorDocs) return "vendor-docs";
 
           return undefined;
         },
