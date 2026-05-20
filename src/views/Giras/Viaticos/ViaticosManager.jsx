@@ -28,7 +28,21 @@ import { Toaster, toast } from "sonner";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
 import ManualTrigger from "../../../components/manual/ManualTrigger";
 import { useViaticosIndividuales } from "../../../hooks/viaticos/useViaticosIndividuales";
+import {
+  resolveAsientoHabitualViaticos,
+  resolveCiudadOrigenViaticos,
+  resolveLocalidadEfectivaViaticos,
+  resolveLocalidadNombresReferenciaRecorrido,
+  registerLocalidadViaticosEnMap,
+} from "../../../utils/integranteDomicilioViaticos";
 import { useViaticosMasivos } from "../../../hooks/viaticos/useViaticosMasivos";
+import { mergeDestaqueLocationConfig } from "../../../utils/destaquesConfigMerge";
+import {
+  isRecorridosConfig,
+  resolveLugarComisionDestaque,
+  mergeLocalityNameById,
+  localityIdsFromRecorridosStored,
+} from "../../../utils/destaquesLugarComisionRecorridos";
 import DateInput from "../../../components/ui/DateInput";
 import MusicianForm from "../../Musicians/MusicianForm";
 import { firstMondayAfter } from "../../../utils/dates";
@@ -293,9 +307,22 @@ export default function ViaticosManager({ supabase, giraId }) {
   } = useViaticosIndividuales(supabase, giraId, roster, logisticsMap, config);
   const {
     configs: destaquesConfigs,
+    generalConfig: destaquesGeneralConfig,
     updateLocationConfig,
+    fetchConfigs: fetchDestaquesConfigs,
     feedback: feedbackMasivo,
   } = useViaticosMasivos(supabase, giraId);
+
+  /** id de fila giras_viaticos_detalle por id_integrante (export masivo no tiene fila individual). */
+  const viaticoDetalleIdByIntegrante = useMemo(() => {
+    const m = new Map();
+    (viaticosRows || []).forEach((row) => {
+      if (row.id_integrante != null && row.id != null) {
+        m.set(String(row.id_integrante), row.id);
+      }
+    });
+    return m;
+  }, [viaticosRows]);
 
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [selection, setSelection] = useState(new Set());
@@ -428,10 +455,18 @@ export default function ViaticosManager({ supabase, giraId }) {
       const changesToSave = pendingUpdatesRef.current;
       pendingUpdatesRef.current = {};
       try {
-        await supabase
+        const { error } = await supabase
           .from("giras_viaticos_config")
           .update(changesToSave)
           .eq("id_gira", giraId);
+        if (error) {
+          console.error("Error guardando config:", error);
+          toast.error(
+            error.message?.includes("porcentaje_destaques")
+              ? "Falta la columna porcentaje_destaques en la BD. Ejecutá la migración 20260519120000."
+              : "Error al guardar configuración de viáticos",
+          );
+        }
       } catch (err) {
         console.error("Error guardando config:", err);
       }
@@ -812,10 +847,19 @@ export default function ViaticosManager({ supabase, giraId }) {
 
     const pdfExportConfig = { ...config, useHistoricalCalc };
 
+    const resolveViaticoDetalleRowId = (row) => {
+      if (row.id_gira != null && row.id_integrante != null && row.id != null) {
+        return row.id;
+      }
+      const integranteId = row.id_integrante ?? row.id;
+      return viaticoDetalleIdByIntegrante.get(String(integranteId)) ?? null;
+    };
+
     const individualUpdates = dataList
-      .filter((r) => r.id)
-      .map((row) =>
-        supabase
+      .map((row) => {
+        const detalleId = resolveViaticoDetalleRowId(row);
+        if (!detalleId) return null;
+        return supabase
           .from("giras_viaticos_detalle")
           .update({
             fecha_ultima_exportacion: now,
@@ -826,33 +870,64 @@ export default function ViaticosManager({ supabase, giraId }) {
             backup_dias_computables: row.dias_computables,
             backup_viatico: getAnticipoSubtotalForExport(row, useHistoricalCalc),
           })
-          .eq("id", row.id),
-      );
+          .eq("id", detalleId);
+      })
+      .filter(Boolean);
 
     const massUpdates = [];
+    let needsDestaquesConfigRefresh = false;
     if (involvedLocationIds.length > 0) {
       involvedLocationIds.forEach((locConfigId) => {
+        if (locConfigId == null || locConfigId === "unknown") return;
+        const locKey = String(locConfigId);
         const peopleInLoc = dataList.filter(
-          (p) => p._massConfigId === locConfigId,
+          (p) => String(p._massConfigId) === locKey,
         );
-        if (peopleInLoc.length > 0) {
-          const idsToAdd = peopleInLoc.map((p) => p.id);
-          const currentConfig = destaquesConfigs[locConfigId] || {};
-          const currentIds = currentConfig.ids_exportados_viatico || [];
-          const newIds = [...new Set([...currentIds, ...idsToAdd])];
+        if (peopleInLoc.length === 0) return;
+
+        const idsToAdd = peopleInLoc
+          .map((p) => Number(p.id_integrante ?? p.id))
+          .filter((id) => !Number.isNaN(id));
+        const currentConfig =
+          destaquesConfigs[locKey] ?? destaquesConfigs[locConfigId] ?? {};
+        const currentIds = (currentConfig.ids_exportados_viatico || []).map(Number);
+        const newIds = [...new Set([...currentIds, ...idsToAdd])];
+        const payload = {
+          ids_exportados_viatico: newIds,
+          fecha_ultima_exportacion: now,
+        };
+
+        if (currentConfig.id) {
           massUpdates.push(
             supabase
               .from("giras_destaques_config")
-              .update({
-                ids_exportados_viatico: newIds,
-                fecha_ultima_exportacion: now,
-              })
+              .update(payload)
               .eq("id", currentConfig.id),
+          );
+        } else {
+          needsDestaquesConfigRefresh = true;
+          massUpdates.push(
+            supabase.from("giras_destaques_config").insert({
+              id_gira: giraId,
+              id_localidad: Number(locConfigId),
+              ...payload,
+            }),
           );
         }
       });
     }
-    await Promise.all([...individualUpdates, ...massUpdates]);
+
+    const dbResults = await Promise.all([...individualUpdates, ...massUpdates]);
+    const dbErrors = dbResults.map((r) => r?.error).filter(Boolean);
+    if (dbErrors.length > 0) {
+      console.error("[Export viáticos] Errores al actualizar BD:", dbErrors);
+      toast.error(
+        `Exportación: ${dbErrors.length} error(es) al guardar en BD. Revisá consola.`,
+      );
+    }
+    if (needsDestaquesConfigRefresh) {
+      await fetchDestaquesConfigs();
+    }
 
     const total = dataList.length;
     const mode = options.unificationMode || "individual";
@@ -1088,9 +1163,69 @@ export default function ViaticosManager({ supabase, giraId }) {
     setIsExporting(true);
 
     try {
+      const addLocalityName = (map, id, name) => {
+        const label = String(name || "").trim();
+        if (id == null || !label) return;
+        map[id] = label;
+        map[String(id)] = label;
+      };
+      const localityNameByIdForDestaques = mergeLocalityNameById(
+        options?.localityNameById,
+      );
+      const registerPersonLocalities = (person) => {
+        registerLocalidadViaticosEnMap(localityNameByIdForDestaques, person);
+        addLocalityName(
+          localityNameByIdForDestaques,
+          person._massConfigId,
+          person._groupName,
+        );
+      };
+      (massiveRoster || []).forEach(registerPersonLocalities);
+      peopleArray.forEach(registerPersonLocalities);
+      localityIdsFromRecorridosStored(
+        config.lugar_comision_destaques_exportacion,
+      ).forEach((id) => {
+        if (
+          localityNameByIdForDestaques[id] ||
+          localityNameByIdForDestaques[String(id)]
+        ) {
+          return;
+        }
+        const fromPerson = peopleArray.find(
+          (person) =>
+            String(resolveLocalidadEfectivaViaticos(person).id) === String(id) ||
+            String(person._massConfigId) === String(id),
+        );
+        if (fromPerson) registerPersonLocalities(fromPerson);
+      });
+
+      const missingRouteIds = localityIdsFromRecorridosStored(
+        config.lugar_comision_destaques_exportacion,
+      ).filter(
+        (id) =>
+          !localityNameByIdForDestaques[id] &&
+          !localityNameByIdForDestaques[String(id)],
+      );
+      if (missingRouteIds.length > 0) {
+        const { data: locRows, error: locErr } = await supabase
+          .from("localidades")
+          .select("id, localidad")
+          .in("id", missingRouteIds);
+        if (locErr) console.warn("[Destaques] localidades recorrido:", locErr);
+        (locRows || []).forEach((row) =>
+          addLocalityName(localityNameByIdForDestaques, row.id, row.localidad),
+        );
+      }
+
       const richData = peopleArray.map((p) => {
-        const locId = p._massConfigId;
-        const massConfig = destaquesConfigs[locId] || {};
+        const locEfectiva = resolveLocalidadEfectivaViaticos(p);
+        const configLocKey = locEfectiva.id ?? p._massConfigId;
+        const massConfig = mergeDestaqueLocationConfig(
+          destaquesGeneralConfig,
+          destaquesConfigs[configLocKey] ??
+            destaquesConfigs[p._massConfigId] ??
+            {},
+        );
         const rich = { ...p };
         const patenteOficialFromMass = String(
           massConfig.patente_oficial || "",
@@ -1194,23 +1329,24 @@ export default function ViaticosManager({ supabase, giraId }) {
 
         rich.totalFinal = rich.subtotal + totalGastos;
 
-        const ciudadOrigen =
-          p.ciudad_origen ||
-          p._loc_residencia?.localidad ||
-          p.residencia?.localidad ||
-          "";
-        const asientoHabitual =
-          p.asiento_habitual ||
-          p._loc_viaticos?.localidad ||
-          p.viaticos?.localidad ||
-          ciudadOrigen ||
-          "";
+        const ciudadOrigen = resolveCiudadOrigenViaticos(p, p);
+        const asientoHabitual = resolveAsientoHabitualViaticos(p, p);
         rich.ciudad_origen = ciudadOrigen;
-        const lugarDestaques =
-          config.lugar_comision_destaques_exportacion?.trim() ||
-          config.lugar_comision ||
-          "Comisión Gira";
-        rich.lugar_comision = lugarDestaques;
+        const refLocId = locEfectiva.id;
+        const refLocNombres = resolveLocalidadNombresReferenciaRecorrido(p);
+        const lugarStored = config.lugar_comision_destaques_exportacion;
+        if (isRecorridosConfig(lugarStored)) {
+          const fromRoute = resolveLugarComisionDestaque(
+            lugarStored,
+            refLocId,
+            localityNameByIdForDestaques,
+            refLocNombres,
+          );
+          rich.lugar_comision = fromRoute != null ? String(fromRoute) : "";
+        } else {
+          rich.lugar_comision =
+            lugarStored?.trim() || config.lugar_comision?.trim() || "";
+        }
         rich.asiento_habitual = asientoHabitual;
 
         if (options?.destaque) {
@@ -1263,17 +1399,8 @@ export default function ViaticosManager({ supabase, giraId }) {
           {};
         const patenteOficialFromRow = String(row.patente_oficial || "").trim();
         const patenteOficialFromLogistics = String(logData?.patente || "").trim();
-        const ciudadOrigen =
-          row.ciudad_origen ||
-          person?._loc_residencia?.localidad ||
-          person?.residencia?.localidad ||
-          "";
-        const asientoHabitual =
-          row.asiento_habitual ||
-          person?._loc_viaticos?.localidad ||
-          person?.viaticos?.localidad ||
-          ciudadOrigen ||
-          "";
+        const ciudadOrigen = resolveCiudadOrigenViaticos(person, row);
+        const asientoHabitual = resolveAsientoHabitualViaticos(person, row);
         const effectiveSubtotal = getAnticipoSubtotalForExport(row, useHistoricalCalc);
         const totalFinalNorm = effectiveSubtotal + sumGastosViaticoRow(row);
         return {
@@ -1814,6 +1941,7 @@ export default function ViaticosManager({ supabase, giraId }) {
             <DestaquesLocationPanel
               roster={massiveRoster}
               configs={destaquesConfigs}
+              destaquesGeneralConfig={destaquesGeneralConfig}
               globalConfig={config}
               onSaveLocationConfig={updateLocationConfig}
               onUpdateGlobalConfig={updateConfig}

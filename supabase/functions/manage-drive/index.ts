@@ -479,8 +479,25 @@ async function generateDJInternal(m: any, templateRes: ArrayBuffer, firmaRes: Ar
   safeSet("anio", hoy.getFullYear().toString());
   safeSet("nombre_apellido", `${m.nombre} ${m.apellido}`);
   safeSet("cuit", m.cuil || m.dni || "");
-  safeSet("domicilio", m.domicilio || "");
-  safeSet("ciudad", m.residencia?.localidad || "");
+  const usaBaseViaticos = Boolean(m.id_loc_viaticos && m.id_domicilio_laboral);
+  const localidadViaticos = m.viaticos?.localidad
+    || (Array.isArray(m.viaticos) ? m.viaticos[0]?.localidad : null)
+    || "";
+  const domicilioResidencia = (m.domicilio || "").trim();
+  const domicilioLaboralDireccion = (m.laboral?.direccion || "").trim();
+
+  safeSet(
+    "domicilio",
+    usaBaseViaticos && domicilioLaboralDireccion
+      ? domicilioLaboralDireccion
+      : domicilioResidencia,
+  );
+  safeSet(
+    "ciudad",
+    usaBaseViaticos && localidadViaticos
+      ? localidadViaticos
+      : (m.residencia?.localidad || ""),
+  );
   safeSet("provincia", "Río Negro");
   safeSet("email", m.mail || "");
   safeSet("telefono", m.telefono || "");
@@ -932,7 +949,7 @@ serve(async (req) => {
 
     // --- ACCIÓN: COMBO EXPEDIENTE COMPLETO ---
     if (action === "assemble_full_pack") {
-      let { data: m, error: mError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad), laboral:locaciones!id_domicilio_laboral(nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad))`).eq("id", musicianId).single();
+      let { data: m, error: mError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad), viaticos:localidades!id_loc_viaticos(localidad), laboral:locaciones!id_domicilio_laboral(nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad))`).eq("id", musicianId).single();
       if (mError) {
         console.error("[assemble_full_pack] Error consultando integrante:", mError);
         // Intentar sin la relación laboral si falla
@@ -1161,7 +1178,7 @@ serve(async (req) => {
     }
     // --- ACCIÓN: GENERAR DJ INDIVIDUAL ---
     if (action === "generate_dj_bucket") {
-      let { data: m, error: mError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad), laboral:locaciones!id_domicilio_laboral(nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad))`).eq("id", musicianId).single();
+      let { data: m, error: mError } = await supabase.from("integrantes").select(`*, residencia:localidades!id_localidad(localidad), viaticos:localidades!id_loc_viaticos(localidad), laboral:locaciones!id_domicilio_laboral(nombre, direccion, id_localidad, localidades:localidades!id_localidad(localidad))`).eq("id", musicianId).single();
       if (mError) {
         console.error("[generate_dj_bucket] Error consultando integrante:", mError);
         // Intentar sin la relación laboral si falla

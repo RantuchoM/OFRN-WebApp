@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { integranteKey } from "../utils/integranteIds";
+import { resolveLocalidadEfectivaViaticos } from "../utils/integranteDomicilioViaticos";
 import {
   membershipActiveOnProgramDate,
   filterMembershipRowsForProgramDate,
@@ -190,7 +191,8 @@ export async function fetchRosterForGira(supabase, gira) {
     const isExcluded = excludedIds.has(id);
     const isBaseIncluded = baseIncludedIds.has(id);
 
-    const localidadEfectiva = m.viaticos || m.residencia;
+    const locEfectiva = resolveLocalidadEfectivaViaticos(m);
+    const localidadEfectiva = locEfectiva.objeto;
     const ieForProgram = filterMembershipRowsForProgramDate(
       m.integrantes_ensambles,
       programRefDesde,
@@ -233,8 +235,8 @@ export async function fetchRosterForGira(supabase, gira) {
     }
 
     if (keep) {
-      const locationId = localidadEfectiva?.id;
-      const isLocal = locationId ? tourLocSet.has(locationId) : false;
+      const locationId = locEfectiva.id;
+      const isLocal = locationId != null ? tourLocSet.has(locationId) : false;
       const enGirasIntegrantes = manualIds.has(id);
       finalRoster.push({
         ...processedMember,

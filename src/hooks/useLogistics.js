@@ -6,6 +6,7 @@ import {
   matchesRule,
   getCategoriaLogistica,
 } from "../utils/giraUtils";
+import { resolveLocalidadEfectivaViaticos } from "../utils/integranteDomicilioViaticos";
 
 // --- 1. RE-EXPORTS PARA COMPATIBILIDAD ---
 /** Incluye categoría EXTERNOS (ver `getCategoriaLogistica` en `giraUtils.js`). */
@@ -395,19 +396,15 @@ export function useLogistics(supabase, gira, trigger = 0) {
 
   const summary = useMemo(() => {
     const rosterEnriquecido = (baseRoster || []).map((p) => {
-      // 1. Localidad efectiva para logística:
-      //    prioriza viáticos y luego residencia/base.
-      const rawLocId =
-        p.id_loc_viaticos ??
-        p.viaticos?.id ??
-        p._loc_viaticos?.id ??
-        p.localidades?.id ??
-        p.id_localidad ??
-        p.integrante?.id_localidad ??
-        p.integrantes?.id_localidad ??
-        "";
-      const locId = rawLocId != null && rawLocId !== "" ? String(rawLocId) : "";
-      const locObj = db.locs.find((l) => String(l.id) === locId);
+      const locEfectiva = resolveLocalidadEfectivaViaticos(
+        p.integrantes || p.integrante || p,
+      );
+      const locId =
+        locEfectiva.id != null && locEfectiva.id !== ""
+          ? String(locEfectiva.id)
+          : "";
+      const locObj =
+        db.locs.find((l) => String(l.id) === locId) || locEfectiva.objeto;
 
       // 2. Criterio único: local solo si su localidad está en sedes de la gira.
       const isLocal = locId !== "" && db.sedes.some((sid) => String(sid) === locId);

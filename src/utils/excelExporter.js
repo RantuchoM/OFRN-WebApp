@@ -181,13 +181,14 @@ export const exportViaticosToExcel = async (giraData, viaticosData, configData) 
 
     // --- RELLENAR DATOS ---
     const nombreCompleto = `${data.nombre} ${data.apellido}`;
-    const localidad = data.ciudad_origen || 'Viedma';
-    
+    const ciudadOrigen = data.ciudad_origen || 'Viedma';
+    const asientoHabitual = data.asiento_habitual || ciudadOrigen;
+
     setVal(CELL_MAP.nombre, nombreCompleto);
     setVal(CELL_MAP.cargo, data.cargo || DEFAULT_CARGO);
     setVal(CELL_MAP.jornada, data.jornada_laboral);
-    setVal(CELL_MAP.ciudad_origen, localidad);
-    setVal(CELL_MAP.asiento_habitual, localidad);
+    setVal(CELL_MAP.ciudad_origen, ciudadOrigen);
+    setVal(CELL_MAP.asiento_habitual, asientoHabitual);
     
     setVal(CELL_MAP.lugar_comision, configData.lugar_comision);
     // Motivo: primero el valor propio de la fila, si no hay usamos el motivo general

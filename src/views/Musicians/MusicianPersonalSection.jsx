@@ -134,12 +134,12 @@ export default function MusicianPersonalSection() {
           </div>
           <div className="w-full mt-2">
             <label className={labelClass + " text-center"}>
-              Nota Interna
+              Nota interna
             </label>
             <textarea
               className={
                 getInputStatusClass("nota_interna") +
-                " h-24 text-xs resize-none bg-yellow-50 border-yellow-200 text-slate-600 focus:ring-yellow-100"
+                " h-24 w-full text-xs resize-none bg-yellow-50 border-yellow-200 text-slate-600 focus:ring-yellow-100"
               }
               placeholder="Notas..."
               value={formData.nota_interna || ""}
@@ -149,7 +149,7 @@ export default function MusicianPersonalSection() {
         </div>
 
         {/* DATOS PRINCIPALES */}
-        <div className="flex-1 w-full space-y-6">
+        <div className="flex-1 w-full space-y-6 min-w-0">
           <div className="grid grid-cols-2 gap-6">
             <div>
               <label className={labelClass}>Apellido</label>
@@ -224,27 +224,8 @@ export default function MusicianPersonalSection() {
             </div>
           </div>
 
-          {/* Datos complementarios: domicilio, sede, género, alimentación */}
+          {/* Datos complementarios: género, alimentación */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>Domicilio</label>
-              <input
-                type="text"
-                className={getInputStatusClass("domicilio")}
-                value={formData.domicilio || ""}
-                onChange={(e) => updateField("domicilio", e.target.value)}
-              />
-            </div>
-
-            <div className="relative z-30">
-              <label className={labelClass}>Domicilio Laboral (Sede)</label>
-              <SearchableSelect
-                options={locacionesOptions}
-                value={formData.id_domicilio_laboral}
-                onChange={(val) => updateField("id_domicilio_laboral", val)}
-              />
-            </div>
-
             <div className="space-y-1">
               <label className={labelClass}>Sexo (M/F/-)</label>
               <select
@@ -276,6 +257,74 @@ export default function MusicianPersonalSection() {
                 ))}
               </select>
             </div>
+          </div>
+
+          <div className="space-y-4">
+            <section className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 space-y-3">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                Residencia
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Domicilio</label>
+                  <input
+                    type="text"
+                    className={getInputStatusClass("domicilio")}
+                    value={formData.domicilio || ""}
+                    onChange={(e) => updateField("domicilio", e.target.value)}
+                  />
+                </div>
+                <div className="relative z-50">
+                  <label className={labelClass}>Localidad de residencia</label>
+                  <LocalitySelectWithCreate
+                    supabase={supabase}
+                    options={locationsOptions}
+                    value={formData.id_localidad}
+                    onChange={(val) => updateField("id_localidad", val)}
+                    onCreated={(newLoc) => {
+                      setLocationsOptions((prev) => {
+                        const next = [...(prev || []), { id: newLoc.id, label: newLoc.localidad, value: newLoc.id }];
+                        return next.sort((a, b) => String(a.label || "").localeCompare(String(b.label || ""), "es"));
+                      });
+                    }}
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4 space-y-3">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-indigo-500">
+                Viáticos y sede laboral
+              </h4>
+              <p className="text-[11px] text-slate-500 leading-snug -mt-1">
+                Si completás ambos campos, la DJ y los viáticos usan esta base en lugar de la residencia.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="relative z-40">
+                  <label className={labelClass}>Domicilio laboral (sede)</label>
+                  <SearchableSelect
+                    options={locacionesOptions}
+                    value={formData.id_domicilio_laboral}
+                    onChange={(val) => updateField("id_domicilio_laboral", val)}
+                  />
+                </div>
+                <div className="relative z-30">
+                  <label className={labelClass}>Localidad de viáticos</label>
+                  <LocalitySelectWithCreate
+                    supabase={supabase}
+                    options={locationsOptions}
+                    value={formData.id_loc_viaticos}
+                    onChange={(val) => updateField("id_loc_viaticos", val)}
+                    onCreated={(newLoc) => {
+                      setLocationsOptions((prev) => {
+                        const next = [...(prev || []), { id: newLoc.id, label: newLoc.localidad, value: newLoc.id }];
+                        return next.sort((a, b) => String(a.label || "").localeCompare(String(b.label || ""), "es"));
+                      });
+                    }}
+                  />
+                </div>
+              </div>
+            </section>
           </div>
         </div>
       </div>
@@ -379,45 +428,14 @@ export default function MusicianPersonalSection() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
-        <div>
-          <DateInput
-            label="Nacimiento"
-            value={formData.fecha_nac || ""}
-            onChange={(val) => updateField("fecha_nac", val)}
-          />
-        </div>
-        <div className="relative z-50">
-          <label className={labelClass}>Residencia</label>
-          <LocalitySelectWithCreate
-            supabase={supabase}
-            options={locationsOptions}
-            value={formData.id_localidad}
-            onChange={(val) => updateField("id_localidad", val)}
-            onCreated={(newLoc) => {
-              setLocationsOptions((prev) => {
-                const next = [...(prev || []), { id: newLoc.id, label: newLoc.localidad, value: newLoc.id }];
-                return next.sort((a, b) => String(a.label || "").localeCompare(String(b.label || ""), "es"));
-              });
-            }}
-          />
-        </div>
-        <div className="relative z-40">
-          <label className={labelClass}>Viáticos</label>
-          <LocalitySelectWithCreate
-            supabase={supabase}
-            options={locationsOptions}
-            value={formData.id_loc_viaticos}
-            onChange={(val) => updateField("id_loc_viaticos", val)}
-            onCreated={(newLoc) => {
-              setLocationsOptions((prev) => {
-                const next = [...(prev || []), { id: newLoc.id, label: newLoc.localidad, value: newLoc.id }];
-                return next.sort((a, b) => String(a.label || "").localeCompare(String(b.label || ""), "es"));
-              });
-            }}
-          />
-        </div>
+      <div className="mt-6 max-w-xl">
+        <DateInput
+          label="Nacimiento"
+          value={formData.fecha_nac || ""}
+          onChange={(val) => updateField("fecha_nac", val)}
+        />
       </div>
+
     </div>
   );
 }

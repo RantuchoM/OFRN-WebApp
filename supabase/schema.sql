@@ -639,6 +639,7 @@ CREATE TABLE public.giras_viaticos_config (
   motivo_destaques_exportacion text,
   lugar_comision_destaques_exportacion text,
   rendicion_fecha date,
+  porcentaje_destaques numeric DEFAULT 100,
   CONSTRAINT giras_viaticos_config_pkey PRIMARY KEY (id_gira),
   CONSTRAINT giras_viaticos_config_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id)
 );

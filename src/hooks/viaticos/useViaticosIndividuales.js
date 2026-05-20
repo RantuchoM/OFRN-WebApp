@@ -1,6 +1,10 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 import { sumGastosViaticoRow } from "../../utils/viaticosAnticipo";
+import {
+  resolveAsientoHabitualViaticos,
+  resolveCiudadOrigenViaticos,
+} from "../../utils/integranteDomicilioViaticos";
 
 // --- UTILIDADES DE CÁLCULO INTERNAS ---
 export const calculateDaysDiff = (dSal, hSal, dLleg, hLleg) => {
@@ -159,13 +163,8 @@ export function useViaticosIndividuales(
         const gastos = sumGastosViaticoRow(row);
 
         const totalFinal = round2(anticipoParaTotal + gastos);
-        const locViaticos =
-          persona?._loc_viaticos || persona?.viaticos || null;
-        const locOrigen =
-          persona?._loc_residencia || persona?.residencia || null;
-        const ciudadOrigen = locOrigen?.localidad || "";
-        const asientoHabitual =
-          locViaticos?.localidad || ciudadOrigen || "";
+        const ciudadOrigen = resolveCiudadOrigenViaticos(persona, row);
+        const asientoHabitual = resolveAsientoHabitualViaticos(persona, row);
 
         return {
           ...rowWithLogistics,

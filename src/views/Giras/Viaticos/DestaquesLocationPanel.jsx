@@ -2,9 +2,20 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { 
     IconBus, IconClock, IconAlertTriangle, IconChevronDown, IconChevronUp, 
     IconUsers, IconHistory, IconEye, IconEyeOff, IconCheck, IconSettings, 
-    IconX, IconCalculator, IconCar, IconDrive
+    IconX, IconCalculator, IconCar, IconDrive, IconMap
 } from "../../../components/ui/Icons";
-import LocationBulkPanel from "./LocationBulkPanel"; 
+import LocationBulkPanel from "./LocationBulkPanel";
+import DestaquesRecorridosModal from "./DestaquesRecorridosModal";
+import {
+    formatRecorridosSummary,
+    parseLugarComisionStored,
+} from "../../../utils/destaquesLugarComisionRecorridos";
+import {
+    DESTAQUES_GENERAL_CONFIG_KEY,
+    hasOwnDestaqueValue,
+    resolveDestaqueField,
+} from "../../../utils/destaquesConfigMerge";
+import { resolveLocalidadEfectivaViaticos } from "../../../utils/integranteDomicilioViaticos";
 
 // --- UTILIDADES ---
 const formatDateVisual = (dateStr) => {
@@ -102,24 +113,44 @@ const MASSIVE_COLS = [
 ];
 
 // --- COMPONENTE: INPUT MONEDA ---
-const CurrencyInput = ({ value, onCommit, className, placeholder, readOnly = false }) => {
+const CurrencyInput = ({
+    value,
+    onCommit,
+    className,
+    placeholder,
+    readOnly = false,
+    inheritOnClear = false,
+    isFallback = false,
+}) => {
     const [isEditing, setIsEditing] = useState(false);
     const [localValue, setLocalValue] = useState("");
 
     const handleFocus = (e) => {
         if (readOnly) return;
         setIsEditing(true);
-        const rawVal = (value === 0 || value === "0" || value === null) ? "" : String(value);
+        const rawVal =
+            value === 0 || value === "0" || value == null || value === ""
+                ? ""
+                : String(value);
         setLocalValue(rawVal);
         e.target.select();
     };
 
     const handleBlur = () => {
         setIsEditing(false);
-        const finalVal = localValue === "" ? 0 : parseFloat(localValue);
+        if (localValue === "") {
+            if (inheritOnClear) {
+                if (value != null && value !== "") onCommit(null);
+            } else {
+                const prev = parseFloat(value || 0);
+                if (prev !== 0) onCommit(0);
+            }
+            return;
+        }
+        const finalVal = parseFloat(localValue);
         if (isNaN(finalVal)) {
-            onCommit(0);
-        } else if (finalVal !== parseFloat(value || 0)) {
+            onCommit(inheritOnClear ? null : 0);
+        } else if (finalVal !== parseFloat(value ?? 0)) {
             onCommit(finalVal);
         }
     };
@@ -128,14 +159,24 @@ const CurrencyInput = ({ value, onCommit, className, placeholder, readOnly = fal
         if (e.key === 'Enter') e.target.blur();
     };
 
+    const fallbackClass = isFallback
+        ? "bg-cyan-50 text-cyan-900 border-cyan-300 ring-1 ring-cyan-100"
+        : "";
+
     if (readOnly) {
-        return <div className={`${className} cursor-default truncate flex items-center justify-end`}>{formatCurrency(value)}</div>;
+        return (
+            <div
+                className={`${className} ${fallbackClass} cursor-default truncate flex items-center justify-end`}
+            >
+                {formatCurrency(value)}
+            </div>
+        );
     }
 
     return (
         <input
             type={isEditing ? "number" : "text"}
-            className={className}
+            className={`${fallbackClass} ${className}`}
             value={isEditing ? localValue : formatCurrency(value)}
             onChange={(e) => setLocalValue(e.target.value)}
             onFocus={handleFocus}
@@ -155,16 +196,34 @@ const getInputClass = (locationId, field, feedback, baseClass = "") => {
 };
 
 // --- COMPONENTE: CONFIGURACIÓN VIÁT/REND (HORIZONTAL) ---
-const LiveMassiveValuesForm = ({ locationId, config = {}, globalConfig, logisticsInfo, onUpdate, feedback, onClose }) => {
-    
-    const safeConfig = config || {};
+const LiveMassiveValuesForm = ({
+    locationId,
+    config = {},
+    destaquesGeneralConfig = null,
+    globalConfig,
+    logisticsInfo,
+    onUpdate,
+    feedback,
+    onClose,
+    isGeneralMode = false,
+}) => {
+    const localConfig = config || {};
+    const isGeneral = isGeneralMode || locationId === DESTAQUES_GENERAL_CONFIG_KEY;
+
+    const resolve = (field) =>
+        isGeneral
+            ? (localConfig[field] ?? 0)
+            : resolveDestaqueField(localConfig, destaquesGeneralConfig, field);
+
+    const isFallbackField = (field) =>
+        !isGeneral && !hasOwnDestaqueValue(localConfig, field);
 
     const handleCommit = (field, value) => {
         onUpdate(locationId, { [field]: value });
     };
 
     // --- CÁLCULOS DETALLADOS DE VIÁTICO ---
-    const dias = logisticsInfo?.dias || safeConfig.backup_dias_computables || 0;
+    const dias = isGeneral ? 0 : (logisticsInfo?.dias || localConfig.backup_dias_computables || 0);
     const base = parseFloat(globalConfig?.valor_diario_base || 0);
     const factorTempConfig = parseFloat(globalConfig?.factor_temporada || 0);
     const hasSeasonality = factorTempConfig > 0;
@@ -180,17 +239,19 @@ const LiveMassiveValuesForm = ({ locationId, config = {}, globalConfig, logistic
     let totalGastosEst = 0;
     let totalGastosRen = 0;
     MASSIVE_COLS.forEach(col => {
-        totalGastosEst += parseFloat(safeConfig[col.exp] || 0);
-        totalGastosRen += parseFloat(safeConfig[col.ren] || 0);
+        totalGastosEst += parseFloat(resolve(col.exp) || 0);
+        totalGastosRen += parseFloat(resolve(col.ren) || 0);
     });
 
-    const granTotalEst = totalGastosEst + anticipoViaticoTotal;
-    const granTotalRen = totalGastosRen + (safeConfig.rendicion_viatico_monto || 0);
+    const granTotalEst = totalGastosEst + (isGeneral ? 0 : anticipoViaticoTotal);
+    const granTotalRen = totalGastosRen + parseFloat(resolve("rendicion_viatico_monto") || 0);
     const diffFinal = granTotalEst - granTotalRen;
 
     const StackedCell = ({ expKey, renKey, isReadOnlyExp = false, forceExpValue = null }) => {
-        const estVal = forceExpValue !== null ? forceExpValue : safeConfig[expKey];
-        const renVal = safeConfig[renKey];
+        const estVal = forceExpValue !== null ? forceExpValue : resolve(expKey);
+        const renVal = resolve(renKey);
+        const estFallback = !isReadOnlyExp && isFallbackField(expKey);
+        const renFallback = isFallbackField(renKey);
         const diff = (parseFloat(estVal || 0) - parseFloat(renVal || 0));
 
         return (
@@ -198,11 +259,15 @@ const LiveMassiveValuesForm = ({ locationId, config = {}, globalConfig, logistic
                 <CurrencyInput 
                     value={estVal}
                     readOnly={isReadOnlyExp}
+                    inheritOnClear={!isGeneral && !isReadOnlyExp}
+                    isFallback={estFallback}
                     onCommit={(val) => !isReadOnlyExp && handleCommit(expKey, val)}
                     className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 transition-colors ${getInputClass(locationId, expKey, feedback, "bg-orange-50 text-orange-900")}`}
                 />
                 <CurrencyInput 
                     value={renVal}
+                    inheritOnClear={!isGeneral}
+                    isFallback={renFallback}
                     onCommit={(val) => handleCommit(renKey, val)}
                     className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 transition-colors ${getInputClass(locationId, renKey, feedback, "bg-emerald-50 text-emerald-900")}`}
                 />
@@ -221,11 +286,25 @@ const LiveMassiveValuesForm = ({ locationId, config = {}, globalConfig, logistic
 
             {/* HEADER LOGÍSTICO */}
             <div className="flex flex-wrap items-center gap-4 mb-3 text-xs">
-                <div className="flex items-center gap-2 text-indigo-800 mr-2">
+                <div
+                    className={`flex items-center gap-2 mr-2 ${isGeneral ? "text-slate-800" : "text-indigo-800"}`}
+                >
                     <IconSettings size={16} />
-                    <h4 className="text-sm font-bold uppercase tracking-wide">Configuración</h4>
+                    <h4 className="text-sm font-bold uppercase tracking-wide">
+                        {isGeneral ? "Config. general (todas las localidades)" : "Configuración"}
+                    </h4>
                 </div>
-                
+                {!isGeneral && (
+                    <p className="text-[10px] text-cyan-800 bg-cyan-50 border border-cyan-200 rounded px-2 py-1 max-w-lg">
+                        Celeste = heredado del general. Editá para valor propio; vaciá para volver al general.
+                    </p>
+                )}
+                {isGeneral && (
+                    <p className="text-[10px] text-slate-600 max-w-xl">
+                        Valores por defecto de gastos y rendiciones para todas las localidades al exportar.
+                    </p>
+                )}
+                {!isGeneral && (
                 <div className="flex items-center gap-4 bg-white p-2 rounded border border-slate-200 shadow-sm">
                     <div className="flex flex-col border-r border-slate-100 pr-3 mr-1">
                         <span className="text-[9px] text-slate-400 font-bold uppercase">Logística</span>
@@ -268,9 +347,11 @@ const LiveMassiveValuesForm = ({ locationId, config = {}, globalConfig, logistic
                         <span className="font-bold text-slate-800 text-lg leading-none">{formatCurrency(anticipoViaticoTotal)}</span>
                     </div>
                 </div>
+                )}
             </div>
 
             {/* FILA DE LOGÍSTICA FÍSICA */}
+            {!isGeneral && (
             <div className="mb-3 bg-white p-2 rounded border border-slate-200 shadow-sm flex flex-wrap items-center gap-4 text-xs">
                 <div className="font-bold text-indigo-800 uppercase text-[10px] flex items-center gap-1">
                     <IconBus size={12} /> Logística Física:
@@ -278,66 +359,73 @@ const LiveMassiveValuesForm = ({ locationId, config = {}, globalConfig, logistic
                 
                 <div className="flex items-center gap-2 border-r border-slate-100 pr-3">
                     <label className="flex items-center gap-1 cursor-pointer">
-                        <input type="checkbox" checked={safeConfig.check_aereo || false} onChange={e => handleCommit('check_aereo', e.target.checked)} className="rounded text-indigo-600"/>
+                        <input type="checkbox" checked={localConfig.check_aereo || false} onChange={e => handleCommit('check_aereo', e.target.checked)} className="rounded text-indigo-600"/>
                         Aéreo
                     </label>
                     <label className="flex items-center gap-1 cursor-pointer">
-                        <input type="checkbox" checked={safeConfig.check_terrestre || false} onChange={e => handleCommit('check_terrestre', e.target.checked)} className="rounded text-indigo-600"/>
+                        <input type="checkbox" checked={localConfig.check_terrestre || false} onChange={e => handleCommit('check_terrestre', e.target.checked)} className="rounded text-indigo-600"/>
                         Terr.
                     </label>
                 </div>
 
                 <div className="flex items-center gap-2 border-r border-slate-100 pr-3">
                     <label className="flex items-center gap-1 cursor-pointer font-bold text-slate-600">
-                        <input type="checkbox" checked={safeConfig.check_patente_oficial || false} onChange={e => handleCommit('check_patente_oficial', e.target.checked)} className="rounded text-indigo-600"/>
+                        <input type="checkbox" checked={localConfig.check_patente_oficial || false} onChange={e => handleCommit('check_patente_oficial', e.target.checked)} className="rounded text-indigo-600"/>
                         OFICIAL
                     </label>
                     <input 
                         type="text" 
                         placeholder="Patente"
-                        defaultValue={safeConfig.patente_oficial || ''}
-                        onBlur={e => { if(e.target.value !== (safeConfig.patente_oficial || "")) handleCommit('patente_oficial', e.target.value) }}
+                        defaultValue={localConfig.patente_oficial || ''}
+                        onBlur={e => { if(e.target.value !== (localConfig.patente_oficial || "")) handleCommit('patente_oficial', e.target.value) }}
                         className={`bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 w-20 outline-none uppercase text-xs focus:ring-1 focus:ring-indigo-500 ${getInputClass(locationId, 'patente_oficial', feedback)}`}
                     />
                 </div>
 
                 <div className="flex items-center gap-2 border-r border-slate-100 pr-3">
                     <label className="flex items-center gap-1 cursor-pointer text-slate-600">
-                        <input type="checkbox" checked={safeConfig.check_patente_particular || false} onChange={e => handleCommit('check_patente_particular', e.target.checked)} className="rounded text-indigo-600"/>
+                        <input type="checkbox" checked={localConfig.check_patente_particular || false} onChange={e => handleCommit('check_patente_particular', e.target.checked)} className="rounded text-indigo-600"/>
                         Particular
                     </label>
                     <input 
                         type="text" 
                         placeholder="Patente"
-                        defaultValue={safeConfig.patente_particular || ''}
-                        onBlur={e => { if(e.target.value !== (safeConfig.patente_particular || "")) handleCommit('patente_particular', e.target.value) }}
+                        defaultValue={localConfig.patente_particular || ''}
+                        onBlur={e => { if(e.target.value !== (localConfig.patente_particular || "")) handleCommit('patente_particular', e.target.value) }}
                         className={`bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 w-20 outline-none uppercase text-xs focus:ring-1 focus:ring-indigo-500 ${getInputClass(locationId, 'patente_particular', feedback)}`}
                     />
                 </div>
 
                 <div className="flex items-center gap-2 flex-1">
                     <label className="flex items-center gap-1 cursor-pointer text-slate-600">
-                        <input type="checkbox" checked={safeConfig.check_otros || false} onChange={e => handleCommit('check_otros', e.target.checked)} className="rounded text-indigo-600"/>
+                        <input type="checkbox" checked={localConfig.check_otros || false} onChange={e => handleCommit('check_otros', e.target.checked)} className="rounded text-indigo-600"/>
                         Otros
                     </label>
                     <input 
                         type="text" 
-                        defaultValue={safeConfig.transporte_otros || ''}
-                        onBlur={e => { if(e.target.value !== (safeConfig.transporte_otros || "")) handleCommit('transporte_otros', e.target.value) }}
+                        defaultValue={localConfig.transporte_otros || ''}
+                        onBlur={e => { if(e.target.value !== (localConfig.transporte_otros || "")) handleCommit('transporte_otros', e.target.value) }}
                         placeholder="Detalle (Combi, etc)"
                         className={`bg-white border border-slate-200 rounded px-2 py-0.5 text-xs w-full outline-none focus:ring-1 focus:ring-indigo-500 ${getInputClass(locationId, 'transporte_otros', feedback)}`}
                     />
                 </div>
             </div>
+            )}
 
             {/* TABLA HORIZONTAL */}
             <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white">
                 <table className="w-full text-xs border-separate border-spacing-0">
                     <thead>
                         <tr className="bg-slate-100 text-[10px] uppercase text-slate-500">
+                            {!isGeneral ? (
                             <th className="px-2 py-2 text-right font-bold w-28 border-b border-r border-slate-200 bg-indigo-50 text-indigo-800">
                                 Viático Personal
                             </th>
+                            ) : (
+                            <th className="px-2 py-2 text-right font-bold w-28 border-b border-r border-slate-200 bg-indigo-50 text-indigo-800">
+                                Rend. Viático
+                            </th>
+                            )}
                             {MASSIVE_COLS.map((col, i) => (
                                 <th key={i} className="px-2 py-2 text-right font-medium min-w-[100px] border-b border-slate-200">
                                     {col.label}
@@ -351,12 +439,20 @@ const LiveMassiveValuesForm = ({ locationId, config = {}, globalConfig, logistic
                     <tbody>
                         <tr className="bg-white">
                             <td className="px-2 py-1 border-r border-slate-100 bg-indigo-50/10">
+                                {isGeneral ? (
+                                    <CurrencyInput
+                                        value={resolve("rendicion_viatico_monto")}
+                                        onCommit={(val) => handleCommit("rendicion_viatico_monto", val)}
+                                        className={`w-full text-right text-xs font-bold outline-none border-b rounded-sm px-1 py-0.5 transition-colors ${getInputClass(locationId, "rendicion_viatico_monto", feedback, "bg-emerald-50 text-emerald-900")}`}
+                                    />
+                                ) : (
                                 <StackedCell 
                                     expKey="viatico_calculado_dummy" 
                                     renKey="rendicion_viatico_monto"
                                     isReadOnlyExp={true}
                                     forceExpValue={anticipoViaticoTotal}
                                 />
+                                )}
                             </td>
                             {MASSIVE_COLS.map((col, i) => (
                                 <td key={i} className="px-2 py-1 border-r border-slate-100 last:border-r-0">
@@ -385,7 +481,7 @@ const LiveMassiveValuesForm = ({ locationId, config = {}, globalConfig, logistic
 };
 
 // --- COMPONENTE: LOCATION GROUP ITEM ---
-const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, showBackup, onUpdateConfig, feedback, globalConfig }) => {
+const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, destaquesGeneralConfig, showBackup, onUpdateConfig, feedback, globalConfig }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [isConfigOpen, setIsConfigOpen] = useState(false);
 
@@ -507,7 +603,8 @@ const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, 
             {isConfigOpen && (
                 <LiveMassiveValuesForm 
                     locationId={group.id}
-                    config={locationConfig} 
+                    config={locationConfig}
+                    destaquesGeneralConfig={destaquesGeneralConfig}
                     globalConfig={globalConfig}
                     logisticsInfo={logisticsInfo}
                     onUpdate={onUpdateConfig}
@@ -550,7 +647,8 @@ const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, 
 
 export default function DestaquesLocationPanel({ 
     roster, 
-    configs, 
+    configs,
+    destaquesGeneralConfig,
     onSaveLocationConfig, 
     onUpdateGlobalConfig, 
     feedback,
@@ -567,6 +665,10 @@ export default function DestaquesLocationPanel({
 }) {
    const [selectedGroupIds, setSelectedGroupIds] = useState([]); 
     const [showBackup, setShowBackup] = useState(false);
+    const [showGeneralDestaquesConfig, setShowGeneralDestaquesConfig] = useState(false);
+    const [showRecorridosModal, setShowRecorridosModal] = useState(false);
+    /** null = mostrar valor guardado; string = edición manual (reemplaza recorridos al guardar). */
+    const [manualLugarComision, setManualLugarComision] = useState(null);
 
     // Protección de Arrays
     const transportMap = useMemo(() => { 
@@ -585,16 +687,15 @@ export default function DestaquesLocationPanel({
             const role = normalize(person.rol_gira || person.rol);
             if (!role.includes("music") && !role.includes("solista")) return;
 
-            const locNameRaw = person.localidades?.localidad || 'Sin Localidad';
-            const locName = locNameRaw.trim(); 
-            const currentLocId = person.id_localidad || 'unknown';
+            const locEfectiva = resolveLocalidadEfectivaViaticos(person);
+            const locName = (locEfectiva.nombre || "Sin Localidad").trim();
+            const currentLocId = locEfectiva.id ?? "unknown";
 
             // Buscamos reglas por Localidad y, si no hay match directo, también por Región.
             // Prioridad: Localidad > Región > General.
             const currentRegionId =
-              person.id_region ||
-              person.localidades?.id_region ||
-              person.localidades?.regiones?.id ||
+              locEfectiva.regionId ??
+              person.id_region ??
               null;
             const findBestRouteRule = (lid, rid, eventField) => {
                 const rules = Array.isArray(routeRules) ? routeRules : [];
@@ -810,10 +911,67 @@ export default function DestaquesLocationPanel({
         }
         
         // Pasamos el modo de unificación
-        onExportBatch(peopleToExport, null, { ...cleanOptions, unificationMode }, locationIds);
+        onExportBatch(
+            peopleToExport,
+            null,
+            { ...cleanOptions, unificationMode, localityNameById },
+            locationIds,
+        );
     };
 
     const currentGlobalPct = globalConfig?.porcentaje_destaques !== undefined ? parseFloat(globalConfig.porcentaje_destaques) : 100;
+
+    const localitiesForRecorridos = useMemo(() => {
+        const byId = new Map();
+        const add = (id, name) => {
+            if (id == null || id === "unknown") return;
+            const numId = Number(id);
+            if (Number.isNaN(numId)) return;
+            const label = String(name || "").trim() || `#${numId}`;
+            if (!byId.has(numId)) byId.set(numId, { id: numId, name: label });
+        };
+        (groupedData || []).forEach((g) => add(g.id, g.name));
+        (roster || []).forEach((person) => {
+            const loc = resolveLocalidadEfectivaViaticos(person);
+            add(loc.id, loc.nombre);
+        });
+        return [...byId.values()].sort((a, b) =>
+            a.name.localeCompare(b.name, "es"),
+        );
+    }, [groupedData, roster]);
+
+    const localityNameById = useMemo(() => {
+        const m = {};
+        localitiesForRecorridos.forEach((loc) => {
+            m[loc.id] = loc.name;
+            m[String(loc.id)] = loc.name;
+        });
+        return m;
+    }, [localitiesForRecorridos]);
+
+    const lugarComisionStored = globalConfig?.lugar_comision_destaques_exportacion ?? "";
+    const lugarComisionParsed = useMemo(
+        () => parseLugarComisionStored(lugarComisionStored),
+        [lugarComisionStored],
+    );
+    const lugarComisionEsRecorridos = lugarComisionParsed.tipo === "recorridos";
+    const lugarComisionDisplay = lugarComisionEsRecorridos
+        ? formatRecorridosSummary(lugarComisionParsed, localityNameById)
+        : lugarComisionStored;
+
+    const lugarComisionInputValue =
+        manualLugarComision !== null
+            ? manualLugarComision
+            : lugarComisionEsRecorridos
+              ? lugarComisionDisplay
+              : lugarComisionStored;
+
+    const lugarComisionViendoRecorridos =
+        lugarComisionEsRecorridos && manualLugarComision === null;
+
+    useEffect(() => {
+        setManualLugarComision(null);
+    }, [lugarComisionStored]);
 
     return (
         <div className="relative pb-20">
@@ -852,15 +1010,50 @@ export default function DestaquesLocationPanel({
                             onChange={(e) => onUpdateGlobalConfig('motivo_destaques_exportacion', e.target.value)}
                         />
                     </div>
-                    <div className="flex items-center gap-2 min-w-0 flex-1 max-w-md">
+                    <div className="flex items-center gap-2 min-w-0 flex-1 max-w-lg">
                         <span className="text-xs font-bold text-slate-700 uppercase tracking-wide shrink-0">Lugar Comisión:</span>
                         <input
                             type="text"
-                            className="flex-1 min-w-0 bg-white border border-slate-200 rounded px-2 py-1 text-xs"
-                            placeholder="Lugar PDF Destaques (fallback: general)"
-                            value={globalConfig?.lugar_comision_destaques_exportacion || ""}
-                            onChange={(e) => onUpdateGlobalConfig('lugar_comision_destaques_exportacion', e.target.value)}
+                            className={`flex-1 min-w-0 border rounded px-2 py-1 text-xs ${
+                                lugarComisionViendoRecorridos
+                                    ? "bg-cyan-50/80 border-cyan-200 text-cyan-950"
+                                    : "bg-white border-slate-200"
+                            }`}
+                            placeholder={
+                                lugarComisionViendoRecorridos
+                                    ? "Clic para escribir texto fijo (reemplaza recorridos)"
+                                    : "Texto fijo para todos o recorridos (botón mapa)"
+                            }
+                            value={lugarComisionInputValue}
+                            onFocus={() => {
+                                if (lugarComisionViendoRecorridos) {
+                                    setManualLugarComision("");
+                                }
+                            }}
+                            onChange={(e) => {
+                                const v = e.target.value;
+                                setManualLugarComision(v);
+                                onUpdateGlobalConfig(
+                                    "lugar_comision_destaques_exportacion",
+                                    v,
+                                );
+                            }}
+                            onBlur={() => setManualLugarComision(null)}
+                            title={
+                                lugarComisionViendoRecorridos
+                                    ? "Recorridos activos. Escribí aquí para usar el mismo texto en todos los PDF (sin recorridos)."
+                                    : "Texto fijo en el PDF para todos los destaques"
+                            }
                         />
+                        <button
+                            type="button"
+                            onClick={() => setShowRecorridosModal(true)}
+                            className="shrink-0 flex items-center gap-1 px-2 py-1 rounded border border-indigo-200 bg-indigo-50 text-indigo-800 text-[10px] font-bold hover:bg-indigo-100"
+                            title="Configurar recorridos de localidades"
+                        >
+                            <IconMap size={14} />
+                            Recorridos
+                        </button>
                     </div>
                     {globalConfig?.link_drive ? (
                         <a
@@ -932,6 +1125,37 @@ export default function DestaquesLocationPanel({
                 </div>
             )}
 
+            <div className="mb-4 border border-slate-300 rounded-lg overflow-hidden shadow-sm bg-white">
+                <button
+                    type="button"
+                    onClick={() => setShowGeneralDestaquesConfig((v) => !v)}
+                    className="w-full px-4 py-3 flex items-center justify-between gap-2 bg-slate-800 hover:bg-slate-900 transition-colors text-left text-white"
+                >
+                    <span className="text-sm font-bold flex items-center gap-2">
+                        <IconSettings size={16} className="shrink-0 text-white" aria-hidden />
+                        Configuración general de localidades (fallback gastos / rendiciones)
+                    </span>
+                    {showGeneralDestaquesConfig ? (
+                        <IconChevronUp size={18} className="shrink-0 text-white" aria-hidden />
+                    ) : (
+                        <IconChevronDown size={18} className="shrink-0 text-white" aria-hidden />
+                    )}
+                </button>
+                {showGeneralDestaquesConfig && (
+                    <LiveMassiveValuesForm
+                        locationId={DESTAQUES_GENERAL_CONFIG_KEY}
+                        config={destaquesGeneralConfig || {}}
+                        destaquesGeneralConfig={null}
+                        globalConfig={globalConfig}
+                        logisticsInfo={null}
+                        onUpdate={onSaveLocationConfig}
+                        feedback={feedback}
+                        onClose={() => setShowGeneralDestaquesConfig(false)}
+                        isGeneralMode
+                    />
+                )}
+            </div>
+
             {groupedData.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2 mb-2 px-2 py-2 bg-slate-50 border border-slate-200 rounded-lg">
                     <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 select-none">
@@ -955,6 +1179,7 @@ export default function DestaquesLocationPanel({
                         isSelected={selectedGroupIds.includes(group.id)}
                         onToggleSelect={handleToggleSelect}
                         locationConfig={configs[group.id]}
+                        destaquesGeneralConfig={destaquesGeneralConfig}
                         showBackup={showBackup}
                         onUpdateConfig={onSaveLocationConfig}
                         feedback={feedback}
@@ -978,6 +1203,14 @@ export default function DestaquesLocationPanel({
                     </div>
                 </div>
             )}
+
+            <DestaquesRecorridosModal
+                isOpen={showRecorridosModal}
+                onClose={() => setShowRecorridosModal(false)}
+                storedValue={lugarComisionStored}
+                localities={localitiesForRecorridos}
+                onSave={(val) => onUpdateGlobalConfig("lugar_comision_destaques_exportacion", val)}
+            />
         </div>
     );
 }
