@@ -8,7 +8,11 @@ import React, {
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useClickOutside } from "../../hooks/useClickOutside";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import { getProgramStyle, PROGRAM_TYPES, formatProgramSelectLabel } from "../../utils/giraUtils";
 import { toast } from "sonner";
 import {
@@ -52,7 +56,12 @@ import LocationManagerModal from "../../components/locations/LocationManagerModa
 
 import { format, addMonths, getDay, setDay, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
-import { useGiraRoster } from "../../hooks/useGiraRoster";
+import { fetchRosterForGira } from "../../hooks/useGiraRoster";
+import {
+  useGiraRosterQuery,
+  giraRosterQueryKey,
+} from "../../hooks/useGiraRosterQuery";
+import RehearsalVirtualList from "../../components/ensembles/RehearsalVirtualList";
 import GiraCard from "../Giras/GiraCard";
 import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
 import { integranteKey } from "../../utils/integranteIds";
@@ -74,6 +83,20 @@ const toLocalDateString = (d = new Date()) => {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 };
+
+/** IDs de ensamble siempre numéricos (evita fallos en .includes al filtrar). */
+const normalizeEnsembleId = (id) => {
+  const n = Number(id);
+  return Number.isFinite(n) ? n : null;
+};
+
+const normalizeEnsembleIdList = (ids) => [
+  ...new Set(
+    (Array.isArray(ids) ? ids : [])
+      .map(normalizeEnsembleId)
+      .filter((id) => id != null),
+  ),
+];
 /** Parsea YYYY-MM-DD como fecha local (no UTC) para mostrar el día correcto en cualquier huso. */
 const parseLocalDate = (dateStr) => {
   if (!dateStr) return null;
@@ -176,7 +199,7 @@ const FeriadoBadge = ({ feriado }) => {
 };
 
 // --- COMPONENTE TARJETA (LISTA) ---
-const RehearsalCardItem = ({
+const RehearsalCardItem = React.memo(function RehearsalCardItem({
   evt,
   activeMembersSet,
   supabase,
@@ -186,23 +209,23 @@ const RehearsalCardItem = ({
   onSelect,
   listIndex,
   feriados = [],
-}) => {
+}) {
   const { day, num, month } = formatDateBox(evt.fecha);
   const feriado = findFeriado(evt.fecha, feriados);
 
   const isMyEvent = evt.isMyRehearsal;
   const isEditable = isMyEvent;
 
-  let count = 0;
-  let loadingRoster = false;
-  const rosterHook = evt.programas
-    ? useGiraRoster(supabase, evt.programas)
-    : { roster: [], loading: false };
+  const { roster, loading: loadingRoster } = useGiraRosterQuery(
+    supabase,
+    evt.programas,
+    { enabled: Boolean(evt.programas?.id) },
+  );
 
+  let count = 0;
   if (evt.programas) {
-    loadingRoster = rosterHook.loading;
     if (!loadingRoster) {
-      const myInvolvedMembers = rosterHook.roster.filter(
+      const myInvolvedMembers = roster.filter(
         (m) =>
           activeMembersSet.has(integranteKey(m.id)) && m.estado_gira !== "ausente",
       );
@@ -406,11 +429,11 @@ const RehearsalCardItem = ({
       </div>
     </div>
   );
-};
+});
 
 const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
   const navigate = useNavigate();
-  const { roster, loading } = useGiraRoster(supabase, program);
+  const { roster, loading } = useGiraRosterQuery(supabase, program);
   const programStyle = getProgramStyle(program.tipo);
   const [showDetail, setShowDetail] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -2188,6 +2211,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [showMobileTools, setShowMobileTools] = useState(false);
   const mobileToolsRef = useRef(null);
   const calendarExportRef = useRef(null);
+  const listScrollRef = useRef(null);
   useClickOutside(mobileToolsRef, () => setShowMobileTools(false));
 
   // --- ESTADOS PARA PERSISTENCIA DEL CALENDARIO ---
@@ -2352,7 +2376,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
         // Por defecto, mostramos "todos" los ensambles que gestiona el usuario.
         // Así el multiselect colapsado puede renderizar los chips sin confundir con "Elegir...".
         setAdminFilterIds((prev) =>
-          prev?.length > 0 ? prev : ensemblesToManage.map((e) => e.id),
+          prev?.length > 0
+            ? normalizeEnsembleIdList(prev)
+            : normalizeEnsembleIdList(ensemblesToManage.map((e) => e.id)),
         );
         setEnsamblesOptions(
           ensemblesToManage.map((e) => ({ id: e.id, label: e.ensamble })),
@@ -2443,12 +2469,27 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   const canUseEnsembleFilter = canSelectAllEnsembles || myEnsembles.length > 0;
 
+  const adminFilterIdSet = useMemo(
+    () => new Set(normalizeEnsembleIdList(adminFilterIds)),
+    [adminFilterIds],
+  );
+
   const activeEnsembles = useMemo(() => {
-    if (canUseEnsembleFilter && adminFilterIds.length > 0) {
-      return myEnsembles.filter((e) => adminFilterIds.includes(e.id));
+    if (canUseEnsembleFilter) {
+      if (adminFilterIdSet.size === 0) return [];
+      return myEnsembles.filter((e) => adminFilterIdSet.has(Number(e.id)));
     }
     return myEnsembles;
-  }, [canUseEnsembleFilter, adminFilterIds, myEnsembles]);
+  }, [canUseEnsembleFilter, adminFilterIdSet, myEnsembles]);
+
+  const activeEnsembleIdsKey = useMemo(
+    () =>
+      activeEnsembles
+        .map((e) => Number(e.id))
+        .filter((id) => Number.isFinite(id))
+        .sort((a, b) => a - b),
+    [activeEnsembles],
+  );
 
   const activeMembersSet = useMemo(() => {
     const activeEnsembleIds = new Set(activeEnsembles.map((e) => e.id));
@@ -2495,15 +2536,19 @@ export default function EnsembleCoordinatorView({ supabase }) {
   );
 
   // --- QUERY: ENSAYOS + SUPERPOSICIONES ---
-  const { data: rehearsals = [], isLoading: rehearsalsLoading } = useQuery({
+  const {
+    data: rehearsals = [],
+    isPending: rehearsalsPending,
+    isFetching: rehearsalsFetching,
+  } = useQuery({
     queryKey: [
       "rehearsals",
-      activeEnsembles.map((e) => e.id),
-      dateFilter, // Dependencia clave: rango de fechas
+      activeEnsembleIdsKey,
+      dateFilter,
       overlapCategories,
     ],
     enabled: activeEnsembles.length > 0,
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const ensembleIds = activeEnsembles.map((e) => e.id);
 
@@ -2664,6 +2709,16 @@ export default function EnsembleCoordinatorView({ supabase }) {
     },
   });
 
+  const showRehearsalsFullLoading =
+    activeTab === "ensayos" &&
+    activeEnsembles.length > 0 &&
+    rehearsalsPending &&
+    rehearsals.length === 0;
+
+  useEffect(() => {
+    if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
+  }, [activeEnsembleIdsKey.join(",")]);
+
   const filteredRehearsals = useMemo(() => {
     if (!listProgramFilterIds.length) return rehearsals;
     const filterSet = new Set(listProgramFilterIds);
@@ -2671,6 +2726,33 @@ export default function EnsembleCoordinatorView({ supabase }) {
       [...getEventProgramIds(evt)].some((id) => filterSet.has(id)),
     );
   }, [rehearsals, listProgramFilterIds]);
+
+  const selectedIdSet = useMemo(
+    () => new Set(selectedIds.map((id) => String(id))),
+    [selectedIds],
+  );
+
+  const programsForRosterPrefetch = useMemo(() => {
+    const map = new Map();
+    for (const evt of filteredRehearsals) {
+      if (evt.programas?.id) map.set(evt.programas.id, evt.programas);
+    }
+    return Array.from(map.values());
+  }, [filteredRehearsals]);
+
+  useEffect(() => {
+    if (!supabase || programsForRosterPrefetch.length === 0) return;
+    programsForRosterPrefetch.forEach((gira) => {
+      queryClient.prefetchQuery({
+        queryKey: giraRosterQueryKey(gira),
+        queryFn: async () => {
+          const { roster, sources } = await fetchRosterForGira(supabase, gira);
+          return { roster, sources };
+        },
+        staleTime: 5 * 60 * 1000,
+      });
+    });
+  }, [programsForRosterPrefetch, supabase, queryClient]);
 
   const minSelectedRehearsalDate = useMemo(() => {
     if (!selectedIds.length || !rehearsals.length) return null;
@@ -2718,8 +2800,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
   }, [programTypeFilter, programs]);
 
   const refreshData = () => {
-    queryClient.invalidateQueries(["rehearsals"]);
-    queryClient.invalidateQueries(["coordinator-programs"]);
+    queryClient.invalidateQueries({ queryKey: ["rehearsals"] });
+    queryClient.invalidateQueries({ queryKey: ["coordinator-programs"] });
+    queryClient.invalidateQueries({ queryKey: ["gira-roster"] });
   };
 
   const buildCoordinatorPdfMeta = useCallback(() => {
@@ -2854,7 +2937,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
     filteredRehearsals.length > 0 &&
     filteredRehearsals
       .filter((r) => r.isMyRehearsal)
-      .every((r) => selectedIds.includes(r.id));
+      .every((r) => selectedIdSet.has(String(r.id)));
 
   const applySmartSelect = () => {
     const { days, start, end } = smartFilter;
@@ -3142,6 +3225,31 @@ export default function EnsembleCoordinatorView({ supabase }) {
     });
   };
 
+  const renderRehearsalCard = useCallback(
+    (evt, listIndex) => (
+      <RehearsalCardItem
+        evt={evt}
+        listIndex={listIndex}
+        activeMembersSet={activeMembersSet}
+        supabase={supabase}
+        onEdit={handleEditRehearsal}
+        feriados={feriados}
+        onDelete={handleDeleteRehearsal}
+        isSelected={selectedIdSet.has(String(evt.id))}
+        onSelect={handleSelect}
+      />
+    ),
+    [
+      activeMembersSet,
+      supabase,
+      feriados,
+      selectedIdSet,
+      handleSelect,
+      handleEditRehearsal,
+      handleDeleteRehearsal,
+    ],
+  );
+
   if (loading)
     return (
       <div className="h-full flex items-center justify-center">
@@ -3320,7 +3428,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
                     <div className="flex items-center justify-between gap-2 mb-2 px-1">
                       <button
                         type="button"
-                        onClick={() => setAdminFilterIds(headerEnsembleAllIds)}
+                        onClick={() =>
+                          setAdminFilterIds(
+                            normalizeEnsembleIdList(headerEnsembleAllIds),
+                          )
+                        }
                         className="text-[11px] font-bold text-indigo-700 hover:bg-indigo-50 border border-indigo-200 rounded px-2 py-1"
                         disabled={headerEnsembleAllIds.length === 0}
                       >
@@ -3341,10 +3453,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
                         isSuperUser ? adminOptions : manageableEnsembleOptions
                       }
                       selectedIds={adminFilterIds}
-                      onChange={(ids) => {
-                        const next = Array.isArray(ids) ? ids : [];
-                        setAdminFilterIds(next);
-                      }}
+                      onChange={(ids) =>
+                        setAdminFilterIds(normalizeEnsembleIdList(ids))
+                      }
                     />
                   </div>
                 )}
@@ -3395,7 +3506,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
                       <div className="flex items-center justify-between gap-2 mb-2 px-1">
                         <button
                           type="button"
-                          onClick={() => setAdminFilterIds(headerEnsembleAllIds)}
+                          onClick={() =>
+                            setAdminFilterIds(
+                              normalizeEnsembleIdList(headerEnsembleAllIds),
+                            )
+                          }
                           className="text-[11px] font-bold text-indigo-700 hover:bg-indigo-50 border border-indigo-200 rounded px-2 py-1"
                           disabled={headerEnsembleAllIds.length === 0}
                         >
@@ -3416,10 +3531,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
                           isSuperUser ? adminOptions : manageableEnsembleOptions
                         }
                         selectedIds={adminFilterIds}
-                        onChange={(ids) => {
-                          const next = Array.isArray(ids) ? ids : [];
-                          setAdminFilterIds(next);
-                        }}
+                        onChange={(ids) =>
+                          setAdminFilterIds(normalizeEnsembleIdList(ids))
+                        }
                       />
                     </div>
                   )}
@@ -3669,15 +3783,21 @@ export default function EnsembleCoordinatorView({ supabase }) {
       </div>
 
       <div className="flex-1 bg-white rounded-b-lg border border-slate-200 border-t-0 p-0 shadow-sm overflow-hidden relative">
-        {rehearsalsLoading && activeTab === "ensayos" ? (
+        {showRehearsalsFullLoading ? (
           <div className="h-full flex items-center justify-center text-slate-400">
             <IconLoader className="animate-spin mr-2" /> Cargando...
           </div>
         ) : (
-          <div className="h-full overflow-y-auto p-4">
+          <div
+            className={
+              activeTab === "ensayos"
+                ? "h-full flex flex-col overflow-hidden p-4"
+                : "h-full overflow-y-auto p-4"
+            }
+          >
             {activeTab === "ensayos" && (
               <>
-                <div className="flex flex-wrap items-center justify-between gap-4 mb-2 pb-2 border-b border-slate-100 pl-1">
+                <div className="shrink-0 flex flex-wrap items-center justify-between gap-4 mb-2 pb-2 border-b border-slate-100 pl-1">
                   {/* Checkbox "Select All" */}
                   <div className="flex items-center gap-2">
                     <input
@@ -3742,7 +3862,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
                     <button
                       type="button"
                       onClick={handleExportListaPdf}
-                      disabled={rehearsalsLoading || filteredRehearsals.length === 0}
+                      disabled={
+                        rehearsalsFetching || filteredRehearsals.length === 0
+                      }
                       className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 disabled:pointer-events-none transition-colors shrink-0"
                       title="Exportar cronograma (vista agenda) a PDF"
                     >
@@ -3753,7 +3875,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 </div>
 
                 {showListProgramFilter && (
-                  <div className="mb-3">
+                  <div className="shrink-0 mb-3">
                     <RepertorioPreparacionSelect
                       title="Filtrar por Programa"
                       placeholder="Seleccionar programas..."
@@ -3765,30 +3887,37 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   </div>
                 )}
 
-                {filteredRehearsals.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-2">
-                    {filteredRehearsals.map((evt, listIndex) => (
-                      <RehearsalCardItem
-                        key={evt.id}
-                        evt={evt}
-                        listIndex={listIndex}
-                        activeMembersSet={activeMembersSet}
-                        supabase={supabase}
-                        onEdit={handleEditRehearsal}
-                        feriados={feriados}
-                        onDelete={handleDeleteRehearsal}
-                        isSelected={selectedIds.includes(evt.id)}
-                        onSelect={handleSelect}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-10 text-slate-400">
-                    {rehearsals.length > 0
-                      ? "Ningún ensayo coincide con los programas seleccionados."
-                      : "No hay eventos visibles."}
-                  </div>
-                )}
+                <div
+                  ref={listScrollRef}
+                  className="relative flex-1 min-h-0 overflow-y-auto mt-1"
+                >
+                  {rehearsalsFetching && filteredRehearsals.length > 0 && (
+                    <div className="sticky top-0 z-10 mb-2 flex items-center justify-center gap-2 rounded-md border border-indigo-100 bg-indigo-50/90 px-2 py-1 text-[10px] font-bold text-indigo-700">
+                      <IconLoader className="animate-spin" size={12} />
+                      Actualizando ensayos…
+                    </div>
+                  )}
+                  {activeEnsembles.length === 0 ? (
+                    <div className="text-center py-10 text-slate-400">
+                      Elegí al menos un ensamble para ver ensayos.
+                    </div>
+                  ) : filteredRehearsals.length > 0 ? (
+                    <RehearsalVirtualList
+                      key={activeEnsembleIdsKey.join(",")}
+                      items={filteredRehearsals}
+                      scrollElementRef={listScrollRef}
+                      renderItem={renderRehearsalCard}
+                    />
+                  ) : (
+                    <div className="text-center py-10 text-slate-400">
+                      {rehearsalsFetching
+                        ? "Cargando ensayos…"
+                        : rehearsals.length > 0
+                          ? "Ningún ensayo coincide con los programas seleccionados."
+                          : "No hay eventos visibles."}
+                    </div>
+                  )}
+                </div>
               </>
             )}
             {activeTab === "calendario" && (
@@ -3804,7 +3933,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   <button
                     type="button"
                     onClick={handleExportCalendarPdf}
-                    disabled={rehearsalsLoading}
+                    disabled={rehearsalsFetching}
                     className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 disabled:pointer-events-none transition-colors shrink-0"
                     title="Descargar calendario visible como PDF"
                   >
