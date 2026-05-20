@@ -2560,6 +2560,13 @@ export default function RepertoireManager({
           Guardando orden...
         </div>
       )}
+      {loading && repertorios.length === 0 ? (
+        <div className="flex items-center justify-center gap-2 py-8 text-slate-400 text-sm">
+          <IconLoader className="animate-spin" size={18} />
+          Cargando repertorio…
+        </div>
+      ) : (
+        <>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -3673,6 +3680,8 @@ export default function RepertoireManager({
             </button>
           )}
         </div>
+      )}
+        </>
       )}
 
       {/* MODAL BUSCAR */}

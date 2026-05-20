@@ -197,13 +197,17 @@ export default function GiraCard({
   const mealConfig = getMealStatusConfig();
   const repertoireSectionEnabled =
     showRepertoireInCards || defaultOpenSection === "repertoire";
-  const [repertoireExpanded, setRepertoireExpanded] = useState(
+  const [manualRepertoireExpanded, setManualRepertoireExpanded] = useState(
     defaultOpenSection === "repertoire",
   );
+  const repertoireExpanded =
+    showRepertoireInCards ||
+    manualRepertoireExpanded ||
+    defaultOpenSection === "repertoire";
 
   React.useEffect(() => {
     if (!showRepertoireInCards) {
-      setRepertoireExpanded(defaultOpenSection === "repertoire");
+      setManualRepertoireExpanded(defaultOpenSection === "repertoire");
     }
   }, [showRepertoireInCards, defaultOpenSection]);
   const baseStyle = getProgramStyle(gira.tipo);
@@ -1083,14 +1087,14 @@ export default function GiraCard({
           {!repertoireExpanded ? (
             <button
               type="button"
-              onClick={() => setRepertoireExpanded(true)}
+              onClick={() => setManualRepertoireExpanded(true)}
               className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100 rounded-lg border border-indigo-100 transition-colors"
             >
               <IconMusic size={14} />
               Ver repertorio
             </button>
           ) : (
-            <div className="min-w-0 w-full max-w-none animate-in slide-in-from-top-2">
+            <div className="min-w-0 w-full max-w-none">
               <RepertoireManager
                 supabase={supabase}
                 programId={gira.id}

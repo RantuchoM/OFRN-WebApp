@@ -10,6 +10,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import {
   useQuery,
+  useQueries,
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
@@ -54,12 +55,13 @@ import ConfirmModal from "../../components/ui/ConfirmModal";
 import RichTextEditor from "../../components/ui/RichTextEditor";
 import LocationManagerModal from "../../components/locations/LocationManagerModal";
 
-import { format, addMonths, getDay, setDay, parseISO } from "date-fns";
+import { format, getDay, setDay, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   useGiraRosterQuery,
-  fetchGiraRosterCached,
+  giraRosterQueryKey,
 } from "../../hooks/useGiraRosterQuery";
+import { fetchRosterForGira } from "../../hooks/useGiraRoster";
 import RehearsalVirtualList from "../../components/ensembles/RehearsalVirtualList";
 import GiraCard from "../Giras/GiraCard";
 import { getTransportEventAffectedSummary } from "../../utils/transportLogisticsWarning";
@@ -201,13 +203,13 @@ const FeriadoBadge = ({ feriado }) => {
 const RehearsalCardItem = React.memo(function RehearsalCardItem({
   evt,
   activeMembersSet,
-  supabase,
   onEdit,
   onDelete,
   isSelected,
   onSelect,
   listIndex,
   feriados = [],
+  programRoster = null,
 }) {
   const { day, num, month } = formatDateBox(evt.fecha);
   const feriado = findFeriado(evt.fecha, feriados);
@@ -215,16 +217,10 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
   const isMyEvent = evt.isMyRehearsal;
   const isEditable = isMyEvent;
 
-  const { roster, loading: loadingRoster } = useGiraRosterQuery(
-    supabase,
-    evt.programas,
-    { enabled: Boolean(evt.programas?.id) },
-  );
-
   let count = 0;
   if (evt.programas) {
-    if (!loadingRoster) {
-      const myInvolvedMembers = roster.filter(
+    if (programRoster) {
+      const myInvolvedMembers = programRoster.filter(
         (m) =>
           activeMembersSet.has(integranteKey(m.id)) && m.estado_gira !== "ausente",
       );
@@ -373,21 +369,19 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
               }`}
             >
               <IconUsers size={12} />
-              {loadingRoster
-                ? "..."
-                : !evt.programas || activeMembersSet.size === 0
-                  ? isMyEvent
-                    ? isFull
-                      ? "Tutti"
-                      : count
+              {!evt.programas || activeMembersSet.size === 0
+                ? isMyEvent
+                  ? isFull
+                    ? "Tutti"
                     : count
-                  : isMyEvent
-                    ? isFull
-                      ? "Tutti"
-                      : count
-                    : count === activeMembersSet.size
-                      ? "Todos"
-                      : `${count} músicos`}
+                  : count
+                : isMyEvent
+                  ? isFull
+                    ? "Tutti"
+                    : count
+                  : count === activeMembersSet.size
+                    ? "Todos"
+                    : `${count} músicos`}
             </span>
           )}
           {evt.eventos_ensambles?.length > 0 && (
@@ -631,7 +625,6 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
                 onDuplicate={() => {}}
                 onDelete={() => {}}
                 isHighlighted={false}
-                defaultOpenSection="repertoire"
               />
             )}
           </div>
@@ -647,15 +640,16 @@ const LinkedProgramPreview = ({ programId, supabase, showGiraCards = false }) =>
   const [loading, setLoading] = useState(false);
   const [gira, setGira] = useState(null);
 
-  const fetchAndOpen = async () => {
-    setOpen(true);
-    if (gira || loading) return;
+  useEffect(() => {
+    if (!open || gira) return;
+    let cancelled = false;
     setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("programas")
-        .select(
-          `
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("programas")
+          .select(
+            `
           *,
           giras_localidades(id_localidad, localidades(localidad)),
           giras_integrantes(
@@ -674,37 +668,36 @@ const LinkedProgramPreview = ({ programId, supabase, showGiraCards = false }) =>
             eventos_asistencia(id_integrante, estado)
           )
         `,
-        )
-        .eq("id", programId)
-        .single();
-      if (error) throw error;
-      setGira(data);
-    } catch (e) {
-      console.error(e);
-      toast.error("No se pudo cargar el programa asociado");
-      setOpen(false);
-    } finally {
-      setLoading(false);
-    }
+          )
+          .eq("id", programId)
+          .single();
+        if (cancelled) return;
+        if (error) throw error;
+        setGira(data);
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) {
+          toast.error("No se pudo cargar el programa asociado");
+          setOpen(false);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, programId, supabase, gira]);
+
+  const toggle = () => {
+    setOpen((prev) => !prev);
   };
 
-  useEffect(() => {
-    if (showGiraCards) {
-      fetchAndOpen();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showGiraCards, programId]);
-
-  const toggle = async () => {
-    if (open) {
-      setOpen(false);
-      return;
-    }
-    await fetchAndOpen();
-  };
+  const isExpanded = open || showGiraCards;
 
   return (
     <div className="mt-2">
+      {!showGiraCards && (
       <button
         type="button"
         onClick={toggle}
@@ -716,8 +709,19 @@ const LinkedProgramPreview = ({ programId, supabase, showGiraCards = false }) =>
         />
         {open ? "Ocultar programa" : "Ver programa"}
       </button>
-      {open && (
-        <div className="mt-2">
+      )}
+      {isExpanded && (
+        <div className={showGiraCards ? "" : "mt-2"}>
+          {!open && showGiraCards && !gira && !loading && (
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              className="text-[11px] font-bold text-fixed-indigo-600 hover:text-fixed-indigo-800 flex items-center gap-1 mb-2"
+            >
+              <IconChevronDown size={12} />
+              Ver programa
+            </button>
+          )}
           {loading && (
             <div className="text-[11px] text-slate-400 flex items-center gap-1">
               <IconLoader className="animate-spin" size={12} /> Cargando GiraCard...
@@ -751,7 +755,6 @@ const LinkedProgramPreview = ({ programId, supabase, showGiraCards = false }) =>
               onDuplicate={() => {}}
               onDelete={() => {}}
               isHighlighted={false}
-              defaultOpenSection="repertoire"
             />
           )}
         </div>
@@ -2202,8 +2205,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
   };
   // FILTRO DE FECHAS (LISTA PRINCIPAL) — uso de hora local para evitar desfase en UTC-3
   const [dateFilter, setDateFilter] = useState({
-    start: toLocalDateString(), // Default: Hoy (local)
-    end: "", // Default: Indefinido
+    start: toLocalDateString(),
+    end: "",
   });
 
   // Estado para Menú de Herramientas Móvil
@@ -2211,6 +2214,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const mobileToolsRef = useRef(null);
   const calendarExportRef = useRef(null);
   const listScrollRef = useRef(null);
+  const [listScrollElement, setListScrollElement] = useState(null);
+  const attachListScrollRef = useCallback((node) => {
+    listScrollRef.current = node;
+    setListScrollElement(node);
+  }, []);
   useClickOutside(mobileToolsRef, () => setShowMobileTools(false));
 
   // --- ESTADOS PARA PERSISTENCIA DEL CALENDARIO ---
@@ -2543,7 +2551,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
     queryKey: [
       "rehearsals",
       activeEnsembleIdsKey,
-      dateFilter,
+      dateFilter.start,
+      dateFilter.end,
       overlapCategories,
     ],
     enabled: activeEnsembles.length > 0,
@@ -2708,12 +2717,6 @@ export default function EnsembleCoordinatorView({ supabase }) {
     },
   });
 
-  const showRehearsalsFullLoading =
-    activeTab === "ensayos" &&
-    activeEnsembles.length > 0 &&
-    rehearsalsPending &&
-    rehearsals.length === 0;
-
   useEffect(() => {
     if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
   }, [activeEnsembleIdsKey.join(",")]);
@@ -2739,12 +2742,32 @@ export default function EnsembleCoordinatorView({ supabase }) {
     return Array.from(map.values());
   }, [filteredRehearsals]);
 
-  useEffect(() => {
-    if (!supabase || programsForRosterPrefetch.length === 0) return;
-    programsForRosterPrefetch.forEach((gira) => {
-      fetchGiraRosterCached(supabase, queryClient, gira);
+  const rosterQueries = useQueries({
+    queries: programsForRosterPrefetch.map((gira) => ({
+      queryKey: giraRosterQueryKey(gira),
+      queryFn: async () => {
+        const { roster, sources } = await fetchRosterForGira(supabase, gira);
+        return { roster, sources };
+      },
+      enabled: Boolean(supabase && gira?.id),
+      staleTime: 5 * 60 * 1000,
+    })),
+  });
+
+  const rostersByProgramId = useMemo(() => {
+    const map = new Map();
+    programsForRosterPrefetch.forEach((gira, index) => {
+      const roster = rosterQueries[index]?.data?.roster;
+      if (roster) map.set(gira.id, roster);
     });
-  }, [programsForRosterPrefetch, supabase, queryClient]);
+    return map;
+  }, [programsForRosterPrefetch, rosterQueries]);
+
+  const showRehearsalsFullLoading =
+    activeTab === "ensayos" &&
+    activeEnsembles.length > 0 &&
+    rehearsalsPending &&
+    rehearsals.length === 0;
 
   const minSelectedRehearsalDate = useMemo(() => {
     if (!selectedIds.length || !rehearsals.length) return null;
@@ -3223,22 +3246,26 @@ export default function EnsembleCoordinatorView({ supabase }) {
         evt={evt}
         listIndex={listIndex}
         activeMembersSet={activeMembersSet}
-        supabase={supabase}
         onEdit={handleEditRehearsal}
         feriados={feriados}
         onDelete={handleDeleteRehearsal}
         isSelected={selectedIdSet.has(String(evt.id))}
         onSelect={handleSelect}
+        programRoster={
+          evt.programas?.id
+            ? rostersByProgramId.get(evt.programas.id) ?? null
+            : null
+        }
       />
     ),
     [
       activeMembersSet,
-      supabase,
       feriados,
       selectedIdSet,
       handleSelect,
       handleEditRehearsal,
       handleDeleteRehearsal,
+      rostersByProgramId,
     ],
   );
 
@@ -3774,7 +3801,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
         )}
       </div>
 
-      <div className="flex-1 bg-white rounded-b-lg border border-slate-200 border-t-0 p-0 shadow-sm overflow-hidden relative">
+      <div className="flex-1 min-h-0 bg-white rounded-b-lg border border-slate-200 border-t-0 p-0 shadow-sm overflow-hidden relative">
         {showRehearsalsFullLoading ? (
           <div className="h-full flex items-center justify-center text-slate-400">
             <IconLoader className="animate-spin mr-2" /> Cargando...
@@ -3880,7 +3907,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 )}
 
                 <div
-                  ref={listScrollRef}
+                  ref={attachListScrollRef}
                   className="relative flex-1 min-h-0 overflow-y-auto mt-1"
                 >
                   {rehearsalsFetching && filteredRehearsals.length > 0 && (
@@ -3895,8 +3922,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
                     </div>
                   ) : filteredRehearsals.length > 0 ? (
                     <RehearsalVirtualList
-                      key={activeEnsembleIdsKey.join(",")}
                       items={filteredRehearsals}
+                      scrollElement={listScrollElement}
                       scrollElementRef={listScrollRef}
                       renderItem={renderRehearsalCard}
                     />

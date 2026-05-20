@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 const DEFAULT_ROW_HEIGHT = 116;
@@ -9,6 +9,7 @@ const ROW_GAP_PX = 8;
  */
 export default function RehearsalVirtualList({
   items,
+  scrollElement = null,
   scrollElementRef,
   renderItem,
   estimateRowHeight = DEFAULT_ROW_HEIGHT,
@@ -16,14 +17,12 @@ export default function RehearsalVirtualList({
 }) {
   const virtualizer = useVirtualizer({
     count: items.length,
-    getScrollElement: () => scrollElementRef.current,
+    getScrollElement: () =>
+      scrollElement ?? scrollElementRef?.current ?? null,
     estimateSize: () => estimateRowHeight + ROW_GAP_PX,
+    getItemKey: (index) => items[index]?.id ?? index,
     overscan,
   });
-
-  useEffect(() => {
-    virtualizer.measure();
-  }, [items, virtualizer]);
 
   const virtualRows = virtualizer.getVirtualItems();
 
@@ -39,7 +38,7 @@ export default function RehearsalVirtualList({
         if (!item) return null;
         return (
           <div
-            key={item.id ?? virtualRow.key}
+            key={virtualRow.key}
             data-index={virtualRow.index}
             ref={virtualizer.measureElement}
             className="absolute left-0 top-0 w-full pb-2"

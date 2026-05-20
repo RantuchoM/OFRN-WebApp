@@ -28,7 +28,6 @@ import { useSearchParams } from "react-router-dom";
 import { fetchGiraRosterCached } from "../../hooks/useGiraRosterQuery";
 import { useGirasList } from "../../hooks/useGirasList";
 import { endOfCurrentYearLocal } from "../../utils/giraDateRange";
-import GiraVirtualList from "../../components/giras/GiraVirtualList";
 import { useLogistics } from "../../hooks/useLogistics";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
@@ -280,26 +279,33 @@ export default function GirasView({ supabase, trigger = 0 }) {
 
   const scrollContainerRef = useRef(null);
 
-  useEffect(() => {
-    if (!giraId && !loading && scrollContainerRef.current) {
-      const savedPosition = sessionStorage.getItem("giras_list_scroll");
-      if (savedPosition) {
-        requestAnimationFrame(() => {
-          if (scrollContainerRef.current)
-            scrollContainerRef.current.scrollTop = parseInt(savedPosition, 10);
-        });
-      } else if (highlightedGiraId) {
-        setTimeout(() => {
-          const element = document.getElementById(
-            `gira-card-${highlightedGiraId}`,
-          );
-          if (element) {
-            element.scrollIntoView({ behavior: "smooth", block: "center" });
-          }
-        }, 150);
-      }
+  useLayoutEffect(() => {
+    if (mode !== "LIST" || giraId) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const savedPosition = sessionStorage.getItem("giras_list_scroll");
+    if (savedPosition) {
+      el.scrollTop = parseInt(savedPosition, 10);
+    } else {
+      el.scrollTop = 0;
     }
-  }, [loading, giraId, highlightedGiraId]);
+  }, [mode, giraId]);
+
+  useEffect(() => {
+    if (mode !== "LIST" || giraId || loading) return;
+    if (sessionStorage.getItem("giras_list_scroll") || !highlightedGiraId) return;
+
+    const timer = setTimeout(() => {
+      const element = document.getElementById(
+        `gira-card-${highlightedGiraId}`,
+      );
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [mode, giraId, loading, highlightedGiraId]);
 
   useEffect(() => {
     const fetchCoordinations = async () => {
@@ -1580,13 +1586,11 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 coordinatedEnsembles={coordinatedEnsembles}
               />
             )}
-            {virtualListItems.length > 0 && (
-              <GiraVirtualList
-                items={virtualListItems}
-                scrollElementRef={scrollContainerRef}
-                renderItem={renderGiraCard}
-              />
-            )}
+            {virtualListItems.map((gira) => (
+              <React.Fragment key={gira.id}>
+                {renderGiraCard(gira)}
+              </React.Fragment>
+            ))}
           </div>
         )}
       </div>

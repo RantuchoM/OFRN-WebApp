@@ -1,7 +1,7 @@
-import React, { useEffect } from "react";
+import React, { useLayoutEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
-const DEFAULT_ROW_HEIGHT = 300;
+const DEFAULT_ROW_HEIGHT = 220;
 const ROW_GAP_PX = 16;
 
 /**
@@ -18,10 +18,11 @@ export default function GiraVirtualList({
     count: items.length,
     getScrollElement: () => scrollElementRef.current,
     estimateSize: () => estimateRowHeight + ROW_GAP_PX,
+    getItemKey: (index) => items[index]?.key ?? items[index]?.id ?? index,
     overscan,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     virtualizer.measure();
   }, [items, virtualizer]);
 
