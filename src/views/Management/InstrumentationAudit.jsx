@@ -65,6 +65,16 @@ const AUDIT_SUMMARY_TABLE_MIN_PX =
 
 const AUDIT_WORKS_TABLE_MIN_PX = 256 + AUDIT_GRID_COLUMNS.length * 36;
 
+const RichTextPreview = ({ content, className = "" }) => {
+  if (!content) return null;
+  return (
+    <div
+      className={`whitespace-pre-wrap [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:ml-1 leading-tight ${className}`}
+      dangerouslySetInnerHTML={{ __html: content }}
+    />
+  );
+};
+
 function createEmptyInstrumentationMap() {
   return {
     Fl: 0,
@@ -730,7 +740,12 @@ function ProgramWorksTable({
                           {w.composerLabel}
                         </div>
                       )}
-                      <div className="font-semibold truncate">{w.title}</div>
+                      <div className="min-w-0 line-clamp-2 overflow-hidden">
+                        <RichTextPreview
+                          content={w.title}
+                          className="text-[11px] font-semibold text-slate-800 [&_strong]:font-bold [&_em]:italic [&_u]:underline"
+                        />
+                      </div>
                     </div>
                     <span className="flex items-center gap-0.5 shrink-0">
                       <button
