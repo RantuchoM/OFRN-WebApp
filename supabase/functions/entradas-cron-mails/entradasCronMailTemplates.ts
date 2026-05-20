@@ -23,30 +23,30 @@ export function formatFechaHoraEntradasMail(iso: string | null | undefined): str
   }).format(date);
 }
 
+/** Cuerpo genérico para envío masivo por BCC (sin nombre ni código por persona). */
 export function templateRecordatorio(d: {
-  nombre: string;
   conciertoNombre: string;
   fechaTexto: string;
   lugar: string;
-  codigo: string;
   linkConcierto: string;
+  linkMisEntradas: string;
   esPrueba?: boolean;
 }): string {
   const avisoPrueba = d.esPrueba
-    ? `<p style="margin:0 0 12px;padding:8px 12px;background:#fef3c7;border-radius:6px;font-size:12px;color:#92400e;"><strong>Mail de prueba (admin).</strong> Los datos de reserva son ficticios.</p>`
+    ? `<p style="margin:0 0 12px;padding:8px 12px;background:#fef3c7;border-radius:6px;font-size:12px;color:#92400e;"><strong>Mail de prueba (admin).</strong></p>`
     : "";
   return `<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;color:#0f172a;line-height:1.5;">
   <div style="max-width:560px;margin:0 auto;border:2px solid #4f46e5;border-radius:12px;padding:24px;">
     <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#4f46e5;font-weight:700;">Recordatorio · Entradas OFRN</p>
     ${avisoPrueba}
-    <p>Hola ${esc(d.nombre)},</p>
+    <p>¡Hola!</p>
     <p>Te recordamos que tenés reserva para:</p>
     <p style="margin:16px 0;padding:12px;background:#f8fafc;border-radius:8px;">
       <strong>${esc(d.conciertoNombre)}</strong><br/>
       ${esc(d.fechaTexto)}<br/>
       ${d.lugar ? esc(d.lugar) : ""}
     </p>
-    <p>Código de reserva: <strong>${esc(d.codigo)}</strong></p>
+    <p>Tu código de reserva y los QR están en <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a> (iniciá sesión con el mismo mail con el que reservaste).</p>
     <p>Presentate con tu QR o código al menos <strong>10 minutos antes</strong> del inicio.</p>
     <p style="margin-top:20px;"><a href="${esc(d.linkConcierto)}" style="color:#4f46e5;font-weight:700;">Ver detalle del concierto</a></p>
     <p style="margin-top:24px;font-size:12px;color:#64748b;">Orquesta Filarmónica de Río Negro</p>
@@ -54,7 +54,6 @@ export function templateRecordatorio(d: {
 }
 
 export function templateEncuesta(d: {
-  nombre: string;
   conciertoNombre: string;
   encuestaUrl: string;
   esPrueba?: boolean;
@@ -66,7 +65,7 @@ export function templateEncuesta(d: {
   <div style="max-width:560px;margin:0 auto;border:2px solid #059669;border-radius:12px;padding:24px;">
     <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#059669;font-weight:700;">Tu opinión · Encuesta anónima</p>
     ${avisoPrueba}
-    <p>Hola ${esc(d.nombre)},</p>
+    <p>¡Hola!</p>
     <p>Gracias por asistir a <strong>${esc(d.conciertoNombre)}</strong>.</p>
     <p>Nos ayudaría mucho si completás esta encuesta breve y anónima sobre tu experiencia en la sala:</p>
     <p style="margin:20px 0;"><a href="${esc(d.encuestaUrl)}" style="display:inline-block;background:#059669;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:700;">Responder encuesta</a></p>

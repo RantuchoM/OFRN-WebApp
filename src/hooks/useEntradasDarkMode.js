@@ -138,6 +138,21 @@ export function entradasUi(isDark) {
       ? "entradas-font-title bg-slate-900 text-left text-[10px] font-black uppercase tracking-wide text-slate-400 border-b border-slate-700"
       : "entradas-font-title bg-slate-50 text-left text-[10px] font-black uppercase tracking-wide text-slate-500 border-b border-slate-200",
     tableRow: d ? "border-b border-slate-700 last:border-0 align-top" : "border-b border-slate-100 last:border-0 align-top",
+    catalogConciertoCardWrap: (selected) =>
+      d
+        ? `entradas-concierto-card overflow-hidden border-2 bg-slate-800 ${
+            selected
+              ? "border-[#1ebbf0] shadow-md ring-1 ring-[#1ebbf0]/30"
+              : "border-slate-600 hover:border-[#1ebbf0]/60"
+          }`
+        : `entradas-concierto-card overflow-hidden border-2 bg-white ${
+            selected
+              ? "border-[#1ebbf0] shadow-md ring-1 ring-[#1ebbf0]/25"
+              : "border-[#e8eaed] hover:border-[#1ebbf0]/50"
+          }`,
+    catalogConciertoCardBody: d
+      ? "entradas-interactive w-full text-left border-0 bg-transparent px-3 py-2 hover:bg-slate-700/40"
+      : "entradas-interactive w-full text-left border-0 bg-transparent px-3 py-2 hover:bg-slate-50",
     catalogConciertoBtn: (selected) =>
       d
         ? `entradas-concierto-card entradas-interactive w-full text-left border-2 px-3 py-2 bg-slate-800 ${
@@ -152,6 +167,14 @@ export function entradasUi(isDark) {
     badgeReserva: d
       ? "text-[10px] font-bold uppercase tracking-wide text-emerald-300 bg-emerald-950 border border-emerald-800 rounded px-1.5 py-0.5"
       : "text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5",
+    /** Botón “ya tenés entrada” suelto (fuera de tarjeta de concierto). */
+    reservaActivaBox: d
+      ? "rounded-md border border-emerald-800/45 bg-emerald-950/30 px-2.5 py-2 w-full text-left cursor-pointer hover:bg-emerald-950/55"
+      : "rounded-md border border-emerald-200/90 bg-emerald-50/70 px-2.5 py-2 w-full text-left cursor-pointer hover:bg-emerald-50",
+    /** Franja superior dentro de la tarjeta del concierto (mismo borde exterior). */
+    reservaActivaBoxEnTarjeta: d
+      ? "border-0 border-b border-emerald-800/50 bg-emerald-950/35 px-3 py-2 w-full text-left cursor-pointer rounded-none hover:bg-emerald-950/55"
+      : "border-0 border-b border-emerald-200/90 bg-emerald-50/80 px-3 py-2 w-full text-left cursor-pointer rounded-none hover:bg-emerald-100/80",
     badgeRecordatorio: d
       ? "text-[10px] font-bold uppercase tracking-wide text-sky-200 bg-sky-950/80 border border-[#1ebbf0]/50 rounded px-1.5 py-0.5"
       : "text-[10px] font-bold uppercase tracking-wide text-[#0e7490] bg-[#1ebbf0]/10 border border-[#1ebbf0]/40 rounded px-1.5 py-0.5",

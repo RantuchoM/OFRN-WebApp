@@ -1,5 +1,6 @@
 /**
  * Cron: recordatorios pre-concierto y encuesta post-ingreso.
+ * Envío masivo por BCC (un SMTP por concierto, trozos de 450 si hace falta).
  * Invocar con service role (verify_jwt = false + secret header opcional).
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -15,6 +16,7 @@ import {
   templateEncuesta,
   templateRecordatorio,
 } from "./entradasCronMailTemplates.ts";
+import { sendEntradasMailBcc, uniqueRecipientEmails } from "./entradasMailBcc.ts";
 
 const GMAIL_USER = Deno.env.get("GMAIL_USER");
 const GMAIL_PASS = Deno.env.get("GMAIL_PASS");
@@ -60,7 +62,13 @@ serve(async (req) => {
   });
 
   const nowIso = new Date().toISOString();
-  const out = { recordatorios: 0, encuestas: 0, errores: [] as string[] };
+  const out = {
+    recordatorios: 0,
+    encuestas: 0,
+    /** Mensajes SMTP enviados (menos que destinatarios si hay BCC por lotes). */
+    envios_smtp: 0,
+    errores: [] as string[],
+  };
 
   const { data: recordatorioRows, error: recErr } = await supabase
     .from("entrada_concierto")
@@ -77,9 +85,7 @@ serve(async (req) => {
     for (const concierto of recordatorioRows || []) {
       const { data: reservas, error: rErr } = await supabase
         .from("entrada_reserva")
-        .select(
-          "codigo_reserva, usuario:entrada_usuario!entrada_reserva_usuario_id_fkey(nombre, apellido, email)",
-        )
+        .select("usuario:entrada_usuario!entrada_reserva_usuario_id_fkey(email)")
         .eq("concierto_id", concierto.id)
         .eq("estado", "activa");
 
@@ -88,34 +94,40 @@ serve(async (req) => {
         continue;
       }
 
-      const baseUrl = Deno.env.get("ENTRADAS_PUBLIC_URL") ?? "https://entradas.ofrn.gob.ar";
-      const linkConcierto = `${baseUrl.replace(/\/$/, "")}/?concierto=${encodeURIComponent(concierto.slug_publico || "")}`;
+      const baseUrl = (Deno.env.get("ENTRADAS_PUBLIC_URL") ?? "https://entradas.ofrn.gob.ar").replace(
+        /\/$/,
+        "",
+      );
+      const linkConcierto = `${baseUrl}/?concierto=${encodeURIComponent(concierto.slug_publico || "")}`;
+      const linkMisEntradas = `${baseUrl}/?view=mis-reservas`;
       const fechaTexto = formatFechaHoraEntradasMail(fechaHoraDesdeEventoOfrn(concierto.evento));
+      const bcc = uniqueRecipientEmails(
+        (reservas || []).map((row) => String(row?.usuario?.email || "")),
+      );
 
-      for (const row of reservas || []) {
-        const email = String(row?.usuario?.email || "").trim();
-        if (!email) continue;
-        const nombre = [row?.usuario?.nombre, row?.usuario?.apellido]
-          .filter(Boolean)
-          .join(" ")
-          .trim() || "Público";
+      if (bcc.length > 0) {
         try {
-          await transporter.sendMail({
-            from: `"Entradas OFRN" <${GMAIL_USER}>`,
-            to: email,
+          const sent = await sendEntradasMailBcc(transporter, {
+            gmailUser: GMAIL_USER!,
             subject: `Recordatorio · ${concierto.nombre || "Concierto OFRN"}`,
             html: templateRecordatorio({
-              nombre,
               conciertoNombre: String(concierto.nombre || "Concierto"),
               fechaTexto,
               lugar: lugarNombreDesdeEventoOfrn(concierto.evento),
-              codigo: String(row.codigo_reserva || ""),
               linkConcierto,
+              linkMisEntradas,
             }),
+            bcc,
           });
-          out.recordatorios += 1;
+          out.recordatorios += sent.destinatarios;
+          out.envios_smtp += sent.envios;
         } catch (e) {
-          out.errores.push(`mail rec ${email}: ${e instanceof Error ? e.message : String(e)}`);
+          out.errores.push(
+            `mail rec concierto ${concierto.id} (${bcc.length} dest.): ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          );
+          continue;
         }
       }
 
@@ -148,7 +160,7 @@ serve(async (req) => {
       const { data: reservas, error: rErr } = await supabase
         .from("entrada_reserva")
         .select(
-          "id, usuario:entrada_usuario!entrada_reserva_usuario_id_fkey(nombre, apellido, email), entrada_reserva_entrada(estado_ingreso)",
+          "usuario:entrada_usuario!entrada_reserva_usuario_id_fkey(email), entrada_reserva_entrada(estado_ingreso)",
         )
         .eq("concierto_id", concierto.id)
         .eq("estado", "activa");
@@ -158,36 +170,37 @@ serve(async (req) => {
         continue;
       }
 
-      const enviados = new Set<string>();
+      const bccEncuesta: string[] = [];
       for (const row of reservas || []) {
         const entradas = Array.isArray(row.entrada_reserva_entrada)
           ? row.entrada_reserva_entrada
           : [];
         const ingreso = entradas.some((e) => e?.estado_ingreso === "ingresada");
         if (!ingreso) continue;
+        bccEncuesta.push(String(row?.usuario?.email || ""));
+      }
+      const bcc = uniqueRecipientEmails(bccEncuesta);
 
-        const email = String(row?.usuario?.email || "").trim().toLowerCase();
-        if (!email || enviados.has(email)) continue;
-        enviados.add(email);
-
-        const nombre = [row?.usuario?.nombre, row?.usuario?.apellido]
-          .filter(Boolean)
-          .join(" ")
-          .trim() || "Público";
+      if (bcc.length > 0) {
         try {
-          await transporter.sendMail({
-            from: `"Entradas OFRN" <${GMAIL_USER}>`,
-            to: email,
+          const sent = await sendEntradasMailBcc(transporter, {
+            gmailUser: GMAIL_USER!,
             subject: `Encuesta · ${concierto.nombre || "Concierto OFRN"}`,
             html: templateEncuesta({
-              nombre,
               conciertoNombre: String(concierto.nombre || "Concierto"),
               encuestaUrl,
             }),
+            bcc,
           });
-          out.encuestas += 1;
+          out.encuestas += sent.destinatarios;
+          out.envios_smtp += sent.envios;
         } catch (e) {
-          out.errores.push(`mail enc ${email}: ${e instanceof Error ? e.message : String(e)}`);
+          out.errores.push(
+            `mail enc concierto ${concierto.id} (${bcc.length} dest.): ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          );
+          continue;
         }
       }
 

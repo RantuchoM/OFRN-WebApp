@@ -110,8 +110,6 @@ serve(async (req) => {
       throw new Error("No hay email en tu perfil de Entradas para enviar la prueba.");
     }
 
-    const nombreSaludo = [perfil?.nombre, perfil?.apellido].filter(Boolean).join(" ").trim() || "Admin";
-
     const conciertoId = Number(body?.conciertoId || 0);
     let conciertoNombre = String(body?.preview?.nombre || "").trim() || "Concierto (prueba)";
     let slugPublico = String(body?.preview?.slugPublico || "").trim();
@@ -141,8 +139,9 @@ serve(async (req) => {
     const appUrl = String(body?.appUrl || Deno.env.get("ENTRADAS_PUBLIC_URL") || "https://entradas.ofrn.gob.ar")
       .replace(/\/$/, "");
     const linkConcierto = slugPublico
-      ? `${appUrl}/entradas?view=catalogo&concierto=${encodeURIComponent(slugPublico)}`
-      : `${appUrl}/entradas`;
+      ? `${appUrl}/?concierto=${encodeURIComponent(slugPublico)}`
+      : appUrl;
+    const linkMisEntradas = `${appUrl}/?view=mis-reservas`;
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -151,12 +150,11 @@ serve(async (req) => {
 
     if (tipo === "recordatorio") {
       const html = templateRecordatorio({
-        nombre: nombreSaludo,
         conciertoNombre,
         fechaTexto,
         lugar,
-        codigo: "PRUEBA-0000000000",
         linkConcierto,
+        linkMisEntradas,
         esPrueba: true,
       });
 
@@ -181,7 +179,6 @@ serve(async (req) => {
     }
 
     const html = templateEncuesta({
-      nombre: nombreSaludo,
       conciertoNombre,
       encuestaUrl: encuestaFinal,
       esPrueba: true,

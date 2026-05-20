@@ -6,8 +6,10 @@ import EntradasCompartirConciertoBtn from "../../../components/entradas/Entradas
 import EntradasDisponibilidadBar from "../../../components/entradas/EntradasDisponibilidadBar";
 import EntradasDriveCoverImage from "../../../components/entradas/EntradasDriveCoverImage";
 import EntradasMisReservasSection from "../../../components/entradas/EntradasMisReservasSection";
+import MisReservasQrPanel from "../../../components/entradas/MisReservasQrPanel";
 import {
   IconCamera,
+  IconChevronLeft,
   IconCopy,
   IconEdit,
   IconHelpCircle,
@@ -270,6 +272,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [recepcionQrStats, setRecepcionQrStats] = useState({ ingresadas: 0, reservadas: 0, capacidad: 0 });
   /** Móvil recepción: qué tarjeta de stats muestra la explicación (null = ninguna). */
   const [recepcionStatHelp, setRecepcionStatHelp] = useState(null);
+  /** Reserva activa cuyos QRs se muestran en modal desde el catálogo. */
+  const [catalogQrModalReserva, setCatalogQrModalReserva] = useState(null);
   const [cancelReservaTarget, setCancelReservaTarget] = useState(null);
   const [cancelingReserva, setCancelingReserva] = useState(false);
   const [conciertosConReservaActiva, setConciertosConReservaActiva] = useState([]);
@@ -347,11 +351,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const loadBase = async ({ quiet = false } = {}) => {
     if (!quiet) setLoading(true);
     try {
-      const [data, idsReservados] = await Promise.all([
+      const [data, idsReservados, reservas] = await Promise.all([
         listProgramasConConciertos(),
         listConciertoIdsConReservaActiva(),
+        listarMisReservas(),
       ]);
       setConciertosConReservaActiva(idsReservados);
+      setMisReservas(reservas);
       let programasData = data;
       try {
         const dispMap = await fetchConciertosDisponibilidad(todosConciertoIdsEnProgramas(data));
@@ -367,10 +373,6 @@ export default function EntradasMain({ user, profile, onLogout }) {
         } catch {
           /* mantener detalle previo si falla el refresco en segundo plano */
         }
-      }
-      if (section === "mis-reservas") {
-        const reservas = await listarMisReservas();
-        setMisReservas(reservas);
       }
       if (canAdmin && section === "admin") {
         setAdminData(await listAdminData());
@@ -1056,12 +1058,75 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const tieneReservaEnConcierto = (conciertoId) =>
     conciertosConReservaActiva.includes(Number(conciertoId));
 
+  const reservaActivaPorConciertoId = useMemo(() => {
+    const map = new Map();
+    for (const reserva of misReservas) {
+      if (reserva?.estado !== "activa") continue;
+      const cid = Number(reserva?.concierto?.id);
+      if (Number.isFinite(cid) && !map.has(cid)) map.set(cid, reserva);
+    }
+    return map;
+  }, [misReservas]);
+
+  const abrirCatalogQrModal = async (conciertoId) => {
+    const cid = Number(conciertoId);
+    let reserva = reservaActivaPorConciertoId.get(cid);
+    if (!reserva) {
+      try {
+        const reservas = await listarMisReservas();
+        setMisReservas(reservas);
+        reserva = reservas.find(
+          (r) => r?.estado === "activa" && Number(r?.concierto?.id) === cid,
+        );
+      } catch (error) {
+        toast.error(error?.message || "No se pudieron cargar tus reservas.");
+        return;
+      }
+    }
+    if (!reserva) {
+      toast.error("No se encontró la reserva activa para este concierto.");
+      return;
+    }
+    setCatalogQrModalReserva(reserva);
+  };
+
+  const renderCatalogReservaEnRecuadro = (
+    conciertoId,
+    { embedded = false, className = embedded ? "" : "mb-2" } = {},
+  ) => {
+    if (!tieneReservaEnConcierto(conciertoId)) return null;
+    const boxClass = embedded ? ui.reservaActivaBoxEnTarjeta : ui.reservaActivaBox;
+    return (
+      <button
+        type="button"
+        className={`entradas-interactive flex flex-wrap items-center justify-between gap-2 ${boxClass} ${className}`}
+        onClick={() => void abrirCatalogQrModal(conciertoId)}
+        aria-label="Ver QR de tu reserva para este concierto"
+      >
+        <span className={ui.badgeReserva}>Ya tenés entrada/s</span>
+        <span
+          className={`text-xs font-bold underline-offset-2 ${
+            isDark ? "text-emerald-300" : "text-emerald-800"
+          }`}
+        >
+          Ver QR
+        </span>
+      </button>
+    );
+  };
+
   const handlePickConcierto = (slug) => {
     const params = new URLSearchParams(searchParams);
     params.set("view", "catalogo");
-    params.set("concierto", slug);
+    if (slug) params.set("concierto", slug);
+    else params.delete("concierto");
     setSearchParams(params);
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
+
+  const handleClearCatalogoConcierto = () => handlePickConcierto("");
 
   const handleCreateReserva = async () => {
     if (!selectedConcierto?.id) return;
@@ -2129,7 +2194,11 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
         {section === "catalogo" && (
           <div className="entradas-catalogo grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <section className={`lg:col-span-1 entradas-catalog-panel ${ui.section} p-4 space-y-4`}>
+            <section
+              className={`lg:col-span-1 entradas-catalog-panel ${ui.section} p-4 space-y-4 ${
+                conciertoSlug ? "hidden lg:block" : ""
+              }`}
+            >
               <h2 className={ui.sectionTitle}>Programas y conciertos</h2>
               <div className="space-y-3">
                 {programasCatalogo.length === 0 && (
@@ -2156,17 +2225,16 @@ export default function EntradasMain({ user, profile, onLogout }) {
                         );
                         const inscriptoRecordatorio = recordatorioConciertoIds.has(Number(concierto.id));
                         return (
-                          <button
+                          <div
                             key={concierto.id}
+                            className={`${ui.catalogConciertoCardWrap(catalogoSeleccionado)} entradas-interactive`}
+                          >
+                            {renderCatalogReservaEnRecuadro(concierto.id, { embedded: true })}
+                          <button
                             type="button"
-                            className={ui.catalogConciertoBtn(catalogoSeleccionado)}
+                            className={ui.catalogConciertoCardBody}
                             onClick={() => handlePickConcierto(concierto.slug_publico)}
                           >
-                            {tieneReservaEnConcierto(concierto.id) && (
-                              <div className="mb-1.5 flex flex-wrap gap-1">
-                                <span className={ui.badgeReserva}>Ya tenés entrada/s</span>
-                              </div>
-                            )}
                             <div className="flex items-start justify-between gap-2">
                               <p className={`min-w-0 flex-1 text-sm font-semibold ${ui.textBody}`}>{concierto.nombre}</p>
                               <div className="flex shrink-0 flex-wrap justify-end gap-1">
@@ -2183,6 +2251,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             <p className={`text-xs mt-0.5 ${ui.textSoft}`}>{formatConciertoFechaHoraEs(concierto.fecha_hora)}</p>
                             {concierto.lugar_nombre && <p className={`text-xs ${ui.textMuted}`}>{concierto.lugar_nombre}</p>}
                           </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -2284,7 +2353,23 @@ export default function EntradasMain({ user, profile, onLogout }) {
               )}
             </section>
 
-            <section className={`lg:col-span-2 entradas-catalog-panel ${ui.section} p-4 space-y-3 min-h-[12rem]`}>
+            <section
+              className={`lg:col-span-2 entradas-catalog-panel ${ui.section} p-4 space-y-3 min-h-[12rem] ${
+                !conciertoSlug ? "hidden lg:block" : ""
+              }`}
+            >
+              {conciertoSlug && (
+                <button
+                  type="button"
+                  onClick={handleClearCatalogoConcierto}
+                  className={`lg:hidden flex items-center gap-1 text-sm font-bold -mt-1 mb-1 ${
+                    isDark ? "text-[#7dd3fc]" : "text-[#0e7490]"
+                  }`}
+                >
+                  <IconChevronLeft size={18} aria-hidden />
+                  Volver al listado
+                </button>
+              )}
               {selectedConciertoLoading && conciertoSlug && (
                 <div className={`flex flex-col items-center justify-center gap-2 py-10 ${ui.textMuted}`}>
                   <span
@@ -2311,9 +2396,34 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 return (
                 <>
                   <p className={ui.accentEyebrow}>Concierto seleccionado</p>
-                  <h3 className={`text-lg font-bold ${ui.textStrong}`}>{selectedConcierto.nombre}</h3>
-                  <p className={`text-xs ${ui.textSoft}`}>{formatConciertoFechaHoraEs(selectedConcierto.fecha_hora)}</p>
-                  {selectedConcierto.lugar_nombre && <p className={`text-xs ${ui.textMuted}`}>{selectedConcierto.lugar_nombre}</p>}
+                  {tieneReservaEnConcierto(selectedConcierto.id) ? (
+                    <div
+                      className={`entradas-catalog-control overflow-hidden border-2 ${
+                        isDark ? "border-slate-600 bg-slate-800" : "border-[#e8eaed] bg-white"
+                      }`}
+                    >
+                      {renderCatalogReservaEnRecuadro(selectedConcierto.id, { embedded: true })}
+                      <div className="px-3 py-3 space-y-1">
+                        <h3 className={`text-lg font-bold ${ui.textStrong}`}>{selectedConcierto.nombre}</h3>
+                        <p className={`text-xs ${ui.textSoft}`}>
+                          {formatConciertoFechaHoraEs(selectedConcierto.fecha_hora)}
+                        </p>
+                        {selectedConcierto.lugar_nombre && (
+                          <p className={`text-xs ${ui.textMuted}`}>{selectedConcierto.lugar_nombre}</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <h3 className={`text-lg font-bold ${ui.textStrong}`}>{selectedConcierto.nombre}</h3>
+                      <p className={`text-xs ${ui.textSoft}`}>
+                        {formatConciertoFechaHoraEs(selectedConcierto.fecha_hora)}
+                      </p>
+                      {selectedConcierto.lugar_nombre && (
+                        <p className={`text-xs ${ui.textMuted}`}>{selectedConcierto.lugar_nombre}</p>
+                      )}
+                    </>
+                  )}
                   {!reservasAbiertasSel && (
                     <div className={`entradas-catalog-control ${ui.warningBox}`}>
                       <p className="text-sm font-semibold">Reservas aún no abiertas</p>
@@ -2359,9 +2469,6 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     </div>
                   )}
                   <EntradasCompartirConciertoBtn concierto={selectedConcierto} />
-                  {tieneReservaEnConcierto(selectedConcierto.id) && (
-                    <p className={`entradas-catalog-control ${ui.warningBox}`}>Ya tenés una reserva activa para este concierto. Podés verla en &quot;Mis entradas&quot;.</p>
-                  )}
                   {reservasAbiertasSel && (
                     <>
                   <label className={ui.label}>Cantidad</label>
@@ -3372,6 +3479,47 @@ export default function EntradasMain({ user, profile, onLogout }) {
           </section>
         )}
       </main>
+
+      {catalogQrModalReserva && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 backdrop-blur-sm p-3 sm:p-4"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setCatalogQrModalReserva(null);
+          }}
+        >
+          <div
+            className={`w-full max-w-md max-h-[min(90vh,42rem)] overflow-y-auto p-5 shadow-2xl ${ui.cardInner}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="entradas-catalog-qr-titulo"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-2 mb-3">
+              <div className="min-w-0 pr-2">
+                <h3 id="entradas-catalog-qr-titulo" className={`text-sm font-bold ${ui.textStrong}`}>
+                  {catalogQrModalReserva.concierto?.nombre || "Concierto"}
+                </h3>
+                <p className={`text-xs mt-0.5 ${ui.textMuted}`}>
+                  Reserva {catalogQrModalReserva.codigo_reserva}
+                  {catalogQrModalReserva.concierto?.fecha_hora
+                    ? ` · ${formatConciertoFechaHoraEs(catalogQrModalReserva.concierto.fecha_hora)}`
+                    : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                className={`shrink-0 rounded p-1 ${ui.btnIcon}`}
+                aria-label="Cerrar"
+                onClick={() => setCatalogQrModalReserva(null)}
+              >
+                <IconX size={20} />
+              </button>
+            </div>
+            <MisReservasQrPanel reserva={catalogQrModalReserva} isDark={isDark} />
+          </div>
+        </div>
+      )}
 
       {nuevoProgramaModalOpen && (
         <div
