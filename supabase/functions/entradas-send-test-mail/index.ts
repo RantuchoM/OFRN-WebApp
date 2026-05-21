@@ -12,6 +12,9 @@ import {
 } from "./entradasConciertoEvento.ts";
 import {
   formatFechaHoraEntradasMail,
+  linkEntradasCatalogoConcierto,
+  linkEntradasMisReservas,
+  subjectRecordatorio,
   templateEncuesta,
   templateRecordatorio,
 } from "./entradasCronMailTemplates.ts";
@@ -138,10 +141,8 @@ serve(async (req) => {
 
     const appUrl = String(body?.appUrl || Deno.env.get("ENTRADAS_PUBLIC_URL") || "https://entradas.ofrn.gob.ar")
       .replace(/\/$/, "");
-    const linkConcierto = slugPublico
-      ? `${appUrl}/?concierto=${encodeURIComponent(slugPublico)}`
-      : appUrl;
-    const linkMisEntradas = `${appUrl}/?view=mis-reservas`;
+    const linkConcierto = linkEntradasCatalogoConcierto(appUrl, slugPublico);
+    const linkMisEntradas = linkEntradasMisReservas(appUrl);
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -161,7 +162,7 @@ serve(async (req) => {
       const info = await transporter.sendMail({
         from: `"Entradas OFRN" <${GMAIL_USER}>`,
         to: emailTo,
-        subject: `[Prueba] Recordatorio · ${conciertoNombre}`,
+        subject: `[Prueba] ${subjectRecordatorio(conciertoNombre)}`,
         html,
       });
 

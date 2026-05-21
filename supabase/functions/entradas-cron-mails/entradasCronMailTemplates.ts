@@ -8,6 +8,26 @@ export function esc(s: string | null | undefined) {
     .replace(/"/g, "&quot;");
 }
 
+export function normalizeEntradasAppUrl(baseUrl: string): string {
+  return String(baseUrl || "").replace(/\/$/, "");
+}
+
+export function linkEntradasCatalogoConcierto(appUrl: string, slugPublico: string): string {
+  const base = normalizeEntradasAppUrl(appUrl);
+  const slug = String(slugPublico || "").trim();
+  if (!slug) return `${base}/entradas?view=catalogo`;
+  return `${base}/entradas?view=catalogo&concierto=${encodeURIComponent(slug)}`;
+}
+
+export function linkEntradasMisReservas(appUrl: string): string {
+  return `${normalizeEntradasAppUrl(appUrl)}/entradas?view=mis-reservas`;
+}
+
+export function subjectRecordatorio(conciertoNombre: string): string {
+  const nombre = String(conciertoNombre || "Concierto").trim() || "Concierto";
+  return `¡Te esperamos! Filarmónica de Río Negro - ${nombre}`;
+}
+
 export function formatFechaHoraEntradasMail(iso: string | null | undefined): string {
   if (!iso) return "—";
   const date = new Date(iso);
@@ -35,9 +55,10 @@ export function templateRecordatorio(d: {
   const avisoPrueba = d.esPrueba
     ? `<p style="margin:0 0 12px;padding:8px 12px;background:#fef3c7;border-radius:6px;font-size:12px;color:#92400e;"><strong>Mail de prueba (admin).</strong></p>`
     : "";
+  const titulo = subjectRecordatorio(d.conciertoNombre);
   return `<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;color:#0f172a;line-height:1.5;">
   <div style="max-width:560px;margin:0 auto;border:2px solid #4f46e5;border-radius:12px;padding:24px;">
-    <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#4f46e5;font-weight:700;">Recordatorio · Entradas OFRN</p>
+    <p style="margin:0 0 12px;font-size:18px;font-weight:700;color:#4f46e5;line-height:1.35;">${esc(titulo)}</p>
     ${avisoPrueba}
     <p>¡Hola!</p>
     <p>Te recordamos que tenés reserva para:</p>
@@ -47,8 +68,10 @@ export function templateRecordatorio(d: {
       ${d.lugar ? esc(d.lugar) : ""}
     </p>
     <p>Tu código de reserva y los QR están en <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a> (iniciá sesión con el mismo mail con el que reservaste).</p>
+    <p>Si sabés que no vas a poder asistir, cancelá tu reserva desde <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a> para liberar el cupo y que otra persona pueda reservar.</p>
     <p>Presentate con tu QR o código al menos <strong>10 minutos antes</strong> del inicio.</p>
-    <p style="margin-top:20px;"><a href="${esc(d.linkConcierto)}" style="color:#4f46e5;font-weight:700;">Ver detalle del concierto</a></p>
+    <p style="margin-top:20px;"><a href="${esc(d.linkConcierto)}" style="color:#4f46e5;font-weight:700;">Ver detalle del concierto en la web</a></p>
+    <p style="margin-top:8px;font-size:12px;word-break:break-all;"><a href="${esc(d.linkConcierto)}" style="color:#64748b;">${esc(d.linkConcierto)}</a></p>
     <p style="margin-top:24px;font-size:12px;color:#64748b;">Orquesta Filarmónica de Río Negro</p>
   </div></body></html>`;
 }

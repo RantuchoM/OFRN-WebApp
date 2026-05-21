@@ -13,6 +13,9 @@ import {
 } from "./entradasConciertoEvento.ts";
 import {
   formatFechaHoraEntradasMail,
+  linkEntradasCatalogoConcierto,
+  linkEntradasMisReservas,
+  subjectRecordatorio,
   templateEncuesta,
   templateRecordatorio,
 } from "./entradasCronMailTemplates.ts";
@@ -98,8 +101,8 @@ serve(async (req) => {
         /\/$/,
         "",
       );
-      const linkConcierto = `${baseUrl}/?concierto=${encodeURIComponent(concierto.slug_publico || "")}`;
-      const linkMisEntradas = `${baseUrl}/?view=mis-reservas`;
+      const linkConcierto = linkEntradasCatalogoConcierto(baseUrl, String(concierto.slug_publico || ""));
+      const linkMisEntradas = linkEntradasMisReservas(baseUrl);
       const fechaTexto = formatFechaHoraEntradasMail(fechaHoraDesdeEventoOfrn(concierto.evento));
       const bcc = uniqueRecipientEmails(
         (reservas || []).map((row) => String(row?.usuario?.email || "")),
@@ -109,7 +112,7 @@ serve(async (req) => {
         try {
           const sent = await sendEntradasMailBcc(transporter, {
             gmailUser: GMAIL_USER!,
-            subject: `Recordatorio · ${concierto.nombre || "Concierto OFRN"}`,
+            subject: subjectRecordatorio(String(concierto.nombre || "Concierto OFRN")),
             html: templateRecordatorio({
               conciertoNombre: String(concierto.nombre || "Concierto"),
               fechaTexto,
