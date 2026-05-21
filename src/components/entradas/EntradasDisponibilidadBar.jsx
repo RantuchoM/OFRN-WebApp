@@ -70,6 +70,11 @@ export default function EntradasDisponibilidadBar({
           <span className="sr-only">{ocupadoPct}% reservado</span>
         )}
       </div>
+      {tone === "agotado" && (
+        <p className={`text-xs font-semibold ${isDark ? "text-rose-300" : "text-rose-700"}`}>
+          No quedan entradas previas disponibles
+        </p>
+      )}
     </div>
   );
 }

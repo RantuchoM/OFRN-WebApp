@@ -93,6 +93,37 @@ import "../../../styles/entradas-filarmonica.css";
 
 const ADMIN_TABS = ["programas", "usuarios"];
 
+const ADMIN_USUARIO_ROLES_FILTRO = [
+  {
+    id: "personal",
+    label: "Personal",
+    chip: (isDark) =>
+      isDark
+        ? "border-slate-600 bg-slate-800 text-slate-300"
+        : "border-slate-200 bg-white text-slate-600",
+    dot: (isDark) =>
+      isDark ? "bg-slate-600 border-slate-500" : "bg-slate-200 border-slate-300",
+  },
+  {
+    id: "recepcionista",
+    label: "Recepcionista",
+    chip: (isDark) =>
+      isDark
+        ? "border-emerald-800 bg-emerald-950 text-emerald-200"
+        : "border-emerald-200 bg-emerald-50 text-emerald-800",
+    dot: () => "bg-emerald-500",
+  },
+  {
+    id: "admin",
+    label: "Admin",
+    chip: (isDark) =>
+      isDark
+        ? "border-amber-800 bg-amber-950 text-amber-200"
+        : "border-amber-200 bg-amber-50 text-amber-900",
+    dot: () => "bg-amber-500",
+  },
+];
+
 /** Valores de `programas.tipo` en OFRN (alineado con GiraForm). */
 const OFRN_PROGRAMA_TIPO_ENTRADAS_OPTIONS = [
   { value: "Sinfónico", label: "Sinfónico" },
@@ -295,6 +326,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [adminConciertoVista, setAdminConciertoVista] = useState("actuales");
   /** Filtro en pestaña Usuarios: localidades elegidas (vacío = mostrar todos). */
   const [adminUsuarioFiltroLocalidades, setAdminUsuarioFiltroLocalidades] = useState([]);
+  /** Roles activos en el filtro (vacío = todos los roles). */
+  const [adminUsuarioFiltroRoles, setAdminUsuarioFiltroRoles] = useState([]);
   const [adminUsuarioFiltroNombre, setAdminUsuarioFiltroNombre] = useState("");
   const [adminInviteForm, setAdminInviteForm] = useState({
     email: "",
@@ -303,6 +336,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     rol: "recepcionista",
   });
   const [invitingEntradaUsuario, setInvitingEntradaUsuario] = useState(false);
+  const [adminInviteFormOpen, setAdminInviteFormOpen] = useState(false);
   const [copyingAdminMails, setCopyingAdminMails] = useState(false);
   const [copyingProgramaMailsKey, setCopyingProgramaMailsKey] = useState("");
   const [copyingConciertoMailsKey, setCopyingConciertoMailsKey] = useState("");
@@ -856,6 +890,12 @@ export default function EntradasMain({ user, profile, onLogout }) {
         (u.localidades_reserva || []).some((loc) => filtroLoc.has(String(loc || "").trim())),
       );
     }
+    const filtroRoles = new Set(
+      (adminUsuarioFiltroRoles || []).map((r) => String(r || "").toLowerCase()).filter(Boolean),
+    );
+    if (filtroRoles.size > 0) {
+      list = list.filter((u) => filtroRoles.has(String(u.rol || "personal").toLowerCase()));
+    }
     const q = adminUsuarioFiltroNombre.trim().toLowerCase();
     if (!q) return list;
     return list.filter((u) => {
@@ -870,7 +910,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
         email.includes(q)
       );
     });
-  }, [adminData.usuarios, adminUsuarioFiltroLocalidades, adminUsuarioFiltroNombre]);
+  }, [adminData.usuarios, adminUsuarioFiltroLocalidades, adminUsuarioFiltroRoles, adminUsuarioFiltroNombre]);
 
   useEffect(() => {
     const valid = new Set(adminUsuariosLocalidadesOpciones);
@@ -3156,107 +3196,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
             {adminTab === "usuarios" && (
               <div className="space-y-3">
-                <div className={`${ui.cardInner} border p-4 space-y-3`}>
-                  <div>
-                    <h3 className={`text-sm font-bold ${ui.textStrong}`}>Pre-registrar usuario</h3>
-                    <p className={`text-[11px] mt-1 leading-relaxed ${ui.textMuted}`}>
-                      Creá la cuenta antes del primer acceso. La persona entra con su mail (código OTP) y conserva el rol asignado.
-                    </p>
-                  </div>
-                  <form
-                    className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
-                    onSubmit={async (event) => {
-                      event.preventDefault();
-                      const email = adminInviteForm.email.trim().toLowerCase();
-                      const nombre = adminInviteForm.nombre.trim();
-                      const apellido = adminInviteForm.apellido.trim();
-                      const rolInvitado = adminInviteForm.rol;
-                      if (!email || !nombre || !apellido) {
-                        toast.error("Completá mail, nombre y apellido.");
-                        return;
-                      }
-                      setInvitingEntradaUsuario(true);
-                      try {
-                        const result = await adminInviteEntradaUsuario({
-                          email,
-                          nombre,
-                          apellido,
-                          rol: rolInvitado,
-                        });
-                        setAdminData(await listAdminData());
-                        setAdminInviteForm({
-                          email: "",
-                          nombre: "",
-                          apellido: "",
-                          rol: rolInvitado,
-                        });
-                        toast.success(
-                          result?.created
-                            ? `${nombre} ${apellido} quedó pre-registrado como ${rolInvitado}.`
-                            : `Se actualizó el perfil de ${email}.`,
-                        );
-                      } catch (inviteError) {
-                        toast.error(inviteError?.message || "No se pudo pre-registrar el usuario.");
-                      } finally {
-                        setInvitingEntradaUsuario(false);
-                      }
-                    }}
-                  >
-                    <label className={`block space-y-1 sm:col-span-2 lg:col-span-1 ${ui.textBody}`}>
-                      <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Mail</span>
-                      <input
-                        type="email"
-                        required
-                        autoComplete="off"
-                        value={adminInviteForm.email}
-                        onChange={(e) => setAdminInviteForm((f) => ({ ...f, email: e.target.value }))}
-                        className={ui.input}
-                        placeholder="recepcion@ejemplo.com"
-                      />
-                    </label>
-                    <label className={`block space-y-1 ${ui.textBody}`}>
-                      <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Nombre</span>
-                      <input
-                        type="text"
-                        required
-                        value={adminInviteForm.nombre}
-                        onChange={(e) => setAdminInviteForm((f) => ({ ...f, nombre: e.target.value }))}
-                        className={ui.input}
-                      />
-                    </label>
-                    <label className={`block space-y-1 ${ui.textBody}`}>
-                      <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Apellido</span>
-                      <input
-                        type="text"
-                        required
-                        value={adminInviteForm.apellido}
-                        onChange={(e) => setAdminInviteForm((f) => ({ ...f, apellido: e.target.value }))}
-                        className={ui.input}
-                      />
-                    </label>
-                    <label className={`block space-y-1 ${ui.textBody}`}>
-                      <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Rol</span>
-                      <select
-                        value={adminInviteForm.rol}
-                        onChange={(e) => setAdminInviteForm((f) => ({ ...f, rol: e.target.value }))}
-                        className={ui.select}
-                      >
-                        <option value="recepcionista">recepcionista</option>
-                        <option value="personal">personal</option>
-                        <option value="admin">admin</option>
-                      </select>
-                    </label>
-                    <div className="flex items-end sm:col-span-2 lg:col-span-1">
-                      <button
-                        type="submit"
-                        disabled={invitingEntradaUsuario}
-                        className={`${ui.btnPrimary} w-full py-2.5 disabled:opacity-60`}
-                      >
-                        {invitingEntradaUsuario ? "Guardando…" : "Pre-registrar"}
-                      </button>
-                    </div>
-                  </form>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setAdminInviteFormOpen(true)}
+                  className={`${ui.btnPrimary} w-full sm:w-auto`}
+                >
+                  Pre-registrar usuario
+                </button>
 
                 <div className="space-y-1.5">
                   <label htmlFor="admin-usuario-buscar-nombre" className={ui.label}>
@@ -3271,28 +3217,46 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     className={`w-full max-w-md ${ui.input}`}
                   />
                 </div>
-                <div className="flex flex-wrap gap-2 text-[11px]">
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 ${isDark ? "border-slate-600 bg-slate-800 text-slate-300" : "border-slate-200 bg-white text-slate-600"}`}
-                  >
-                    <span
-                      className={`h-2.5 w-2.5 rounded-sm border ${isDark ? "bg-slate-600 border-slate-500" : "bg-slate-200 border-slate-300"}`}
-                      aria-hidden
-                    />
-                    Personal
-                  </span>
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 ${isDark ? "border-emerald-800 bg-emerald-950 text-emerald-200" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}
-                  >
-                    <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" aria-hidden />
-                    Recepcionista
-                  </span>
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 ${isDark ? "border-amber-800 bg-amber-950 text-amber-200" : "border-amber-200 bg-amber-50 text-amber-900"}`}
-                  >
-                    <span className="h-2.5 w-2.5 rounded-sm bg-amber-500" aria-hidden />
-                    Admin
-                  </span>
+                <div className="space-y-1.5">
+                  <span className={ui.label}>Filtrar por rol (sin marcar = todos)</span>
+                  <div className="flex flex-wrap gap-2 text-[11px]">
+                    {ADMIN_USUARIO_ROLES_FILTRO.map(({ id, label, chip, dot }) => {
+                      const selected = adminUsuarioFiltroRoles.includes(id);
+                      const filtroActivo = adminUsuarioFiltroRoles.length > 0;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => {
+                            setAdminUsuarioFiltroRoles((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(id)) next.delete(id);
+                              else next.add(id);
+                              return Array.from(next);
+                            });
+                          }}
+                          className={`entradas-interactive inline-flex items-center gap-1.5 rounded-full border px-2 py-1 font-semibold transition-all ${
+                            chip(isDark)
+                          } ${
+                            selected
+                              ? isDark
+                                ? "ring-2 ring-[#1ebbf0] ring-offset-2 ring-offset-slate-900"
+                                : "ring-2 ring-[#1ebbf0] ring-offset-2 ring-offset-white"
+                              : filtroActivo
+                                ? "opacity-45 hover:opacity-70"
+                                : "hover:opacity-90"
+                          }`}
+                        >
+                          <span
+                            className={`h-2.5 w-2.5 shrink-0 rounded-sm border ${dot(isDark)}`}
+                            aria-hidden
+                          />
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-4 items-start justify-between">
                   <div className="space-y-2 min-w-0 w-full sm:min-w-[12rem] sm:max-w-md sm:flex-1">
@@ -3469,9 +3433,11 @@ export default function EntradasMain({ user, profile, onLogout }) {
                   <p className={`text-sm ${ui.textMuted}`}>
                     {adminUsuarioFiltroNombre.trim()
                       ? "Ningún usuario coincide con la búsqueda."
-                      : adminUsuarioFiltroLocalidades.length > 0
-                        ? "Ningún usuario coincide con la combinación de localidades elegida."
-                        : "No hay usuarios registrados."}
+                      : adminUsuarioFiltroRoles.length > 0
+                        ? "Ningún usuario coincide con los roles elegidos."
+                        : adminUsuarioFiltroLocalidades.length > 0
+                          ? "Ningún usuario coincide con la combinación de localidades elegida."
+                          : "No hay usuarios registrados."}
                   </p>
                 )}
               </div>
@@ -3517,6 +3483,145 @@ export default function EntradasMain({ user, profile, onLogout }) {
               </button>
             </div>
             <MisReservasQrPanel reserva={catalogQrModalReserva} isDark={isDark} />
+          </div>
+        </div>
+      )}
+
+      {adminInviteFormOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 backdrop-blur-sm p-3 sm:p-4"
+          role="presentation"
+          onClick={(e) => {
+            if (invitingEntradaUsuario) return;
+            if (e.target === e.currentTarget) setAdminInviteFormOpen(false);
+          }}
+        >
+          <div
+            className={`w-full max-w-lg p-5 shadow-2xl animate-in zoom-in-95 duration-200 ${ui.cardInner}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="entradas-pre-registrar-titulo"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <h3 id="entradas-pre-registrar-titulo" className={`${ui.sectionTitle} pr-2 text-xs`}>
+                Pre-registrar usuario
+              </h3>
+              <button
+                type="button"
+                className={`shrink-0 rounded p-1 ${ui.btnIcon}`}
+                aria-label="Cerrar"
+                disabled={invitingEntradaUsuario}
+                onClick={() => setAdminInviteFormOpen(false)}
+              >
+                <IconX size={20} />
+              </button>
+            </div>
+            <p className={`text-[11px] mt-2 leading-relaxed ${ui.textMuted}`}>
+              Creá la cuenta antes del primer acceso. La persona entra con su mail (código OTP) y conserva el rol asignado.
+            </p>
+            <form
+              className="mt-4 grid gap-3 sm:grid-cols-2"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const email = adminInviteForm.email.trim().toLowerCase();
+                const nombre = adminInviteForm.nombre.trim();
+                const apellido = adminInviteForm.apellido.trim();
+                const rolInvitado = adminInviteForm.rol;
+                if (!email || !nombre || !apellido) {
+                  toast.error("Completá mail, nombre y apellido.");
+                  return;
+                }
+                setInvitingEntradaUsuario(true);
+                try {
+                  const result = await adminInviteEntradaUsuario({
+                    email,
+                    nombre,
+                    apellido,
+                    rol: rolInvitado,
+                  });
+                  setAdminData(await listAdminData());
+                  setAdminInviteForm({
+                    email: "",
+                    nombre: "",
+                    apellido: "",
+                    rol: rolInvitado,
+                  });
+                  setAdminInviteFormOpen(false);
+                  toast.success(
+                    result?.created
+                      ? `${nombre} ${apellido} quedó pre-registrado como ${rolInvitado}.`
+                      : `Se actualizó el perfil de ${email}.`,
+                  );
+                } catch (inviteError) {
+                  toast.error(inviteError?.message || "No se pudo pre-registrar el usuario.");
+                } finally {
+                  setInvitingEntradaUsuario(false);
+                }
+              }}
+            >
+              <label className={`block space-y-1 sm:col-span-2 ${ui.textBody}`}>
+                <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Mail</span>
+                <input
+                  type="email"
+                  required
+                  autoComplete="off"
+                  value={adminInviteForm.email}
+                  onChange={(e) => setAdminInviteForm((f) => ({ ...f, email: e.target.value }))}
+                  className={ui.input}
+                  placeholder="recepcion@ejemplo.com"
+                />
+              </label>
+              <label className={`block space-y-1 ${ui.textBody}`}>
+                <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Nombre</span>
+                <input
+                  type="text"
+                  required
+                  value={adminInviteForm.nombre}
+                  onChange={(e) => setAdminInviteForm((f) => ({ ...f, nombre: e.target.value }))}
+                  className={ui.input}
+                />
+              </label>
+              <label className={`block space-y-1 ${ui.textBody}`}>
+                <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Apellido</span>
+                <input
+                  type="text"
+                  required
+                  value={adminInviteForm.apellido}
+                  onChange={(e) => setAdminInviteForm((f) => ({ ...f, apellido: e.target.value }))}
+                  className={ui.input}
+                />
+              </label>
+              <label className={`block space-y-1 ${ui.textBody}`}>
+                <span className={`block text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Rol</span>
+                <select
+                  value={adminInviteForm.rol}
+                  onChange={(e) => setAdminInviteForm((f) => ({ ...f, rol: e.target.value }))}
+                  className={ui.select}
+                >
+                  <option value="recepcionista">recepcionista</option>
+                  <option value="personal">personal</option>
+                  <option value="admin">admin</option>
+                </select>
+              </label>
+              <div className="mt-1 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:col-span-2">
+                <button
+                  type="button"
+                  disabled={invitingEntradaUsuario}
+                  onClick={() => setAdminInviteFormOpen(false)}
+                  className={ui.btnGhost}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={invitingEntradaUsuario}
+                  className={`${ui.btnPrimary} w-full sm:w-auto px-4 disabled:opacity-60`}
+                >
+                  {invitingEntradaUsuario ? "Guardando…" : "Pre-registrar"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
