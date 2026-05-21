@@ -2032,7 +2032,7 @@ export default function UnifiedAgenda({
                                 <div
                                   className={`w-10 font-mono shrink-0 flex flex-col items-center pt-1 ${isDeleted ? "text-orange-700" : "text-slate-600"}`}
                                 >
-                                  <span className="text-[15px] font-bold">{evt.hora_inicio?.slice(0, 5)}</span>
+                                  <span className="text-sm font-bold">{evt.hora_inicio?.slice(0, 5)}</span>
                                   {evt.hora_fin &&
                                     evt.hora_fin !== evt.hora_inicio && (
                                       <span
@@ -2445,7 +2445,7 @@ export default function UnifiedAgenda({
                                 {/* COLUMNA 1: HORA */}
                                 <div className="col-span-1">
                                   <div
-                                    className={`font-mono text-[15px] font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
+                                    className={`font-mono text-sm font-bold ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
                                   >
                                     {evt.hora_inicio?.slice(0, 5)}
                                   </div>
