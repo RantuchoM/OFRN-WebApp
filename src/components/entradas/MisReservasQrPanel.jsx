@@ -89,7 +89,9 @@ export default function MisReservasQrPanel({ reserva, isDark = false }) {
           <img
             src={reservaQr}
             alt="QR reserva general"
-            className={`w-36 h-36 mx-auto rounded-lg border ${qrReservaUsado ? "border-rose-300 dark:border-rose-800" : isDark ? "border-slate-600" : "border-slate-200"}`}
+            className={`w-full aspect-square max-w-full object-contain rounded-lg border ${
+              qrReservaUsado ? "border-rose-300 dark:border-rose-800" : isDark ? "border-slate-600" : "border-slate-200"
+            }`}
           />
         )}
       </div>
