@@ -2305,7 +2305,6 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             className={`${ui.catalogConciertoCardWrap(catalogoSeleccionado, entradasAgotadas)} entradas-interactive`}
                           >
                             {renderCatalogReservaEnRecuadro(concierto.id, { embedded: true })}
-                            {renderCatalogAgotadasEnRecuadro(concierto, { embedded: true })}
                           <button
                             type="button"
                             className={ui.catalogConciertoCardBody}
