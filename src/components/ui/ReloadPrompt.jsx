@@ -1,26 +1,68 @@
-import React from 'react';
-import { useRegisterSW } from 'virtual:pwa-register/react';
-import { IconRefresh, IconX, IconAlertCircle } from './Icons';
+import React, { useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
+import { useRegisterSW } from "virtual:pwa-register/react";
+import { IconRefresh, IconAlertCircle } from "./Icons";
+
+/** Rutas públicas de Entradas: actualización silenciosa sin banner de la app orquesta. */
+export function isEntradasPublicRoute(pathname = "") {
+  return String(pathname || "").startsWith("/entradas");
+}
+
+const ENTRADAS_SW_POLL_MS = 5 * 60 * 1000;
 
 function ReloadPrompt() {
+  const { pathname } = useLocation();
+  const entradasAutoUpdate = isEntradasPublicRoute(pathname);
+  const swRegistrationRef = useRef(null);
+
   const {
     offlineReady: [offlineReady, setOfflineReady],
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r) {
-      console.log('SW Registered');
+      swRegistrationRef.current = r ?? null;
     },
     onRegisterError(error) {
-      console.error('SW registration error', error);
+      console.error("SW registration error", error);
     },
   });
+
+  useEffect(() => {
+    if (!entradasAutoUpdate || !needRefresh) return;
+    void updateServiceWorker(true);
+  }, [entradasAutoUpdate, needRefresh, updateServiceWorker]);
+
+  useEffect(() => {
+    if (!entradasAutoUpdate) return;
+    if (offlineReady) setOfflineReady(false);
+  }, [entradasAutoUpdate, offlineReady, setOfflineReady]);
+
+  useEffect(() => {
+    if (!entradasAutoUpdate) return undefined;
+
+    const poll = () => swRegistrationRef.current?.update();
+    const intervalId = window.setInterval(poll, ENTRADAS_SW_POLL_MS);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") poll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", poll);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", poll);
+    };
+  }, [entradasAutoUpdate]);
 
   const close = () => {
     setOfflineReady(false);
     setNeedRefresh(false);
   };
 
+  if (entradasAutoUpdate) return null;
   if (!offlineReady && !needRefresh) return null;
 
   return (
@@ -29,15 +71,15 @@ function ReloadPrompt() {
         <div className="bg-indigo-100 p-2 rounded-full text-indigo-600 shrink-0">
           <IconAlertCircle size={24} />
         </div>
-        
+
         <div className="flex-1">
           <p className="text-sm font-black text-slate-800 uppercase tracking-tight">
-            {needRefresh ? '¡Nueva versión disponible!' : 'App lista para usar offline'}
+            {needRefresh ? "¡Nueva versión disponible!" : "App lista para usar offline"}
           </p>
           <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">
-            {needRefresh 
-              ? 'Hay mejoras importantes. Actualiza ahora.' 
-              : 'Ya puedes acceder sin conexión.'}
+            {needRefresh
+              ? "Hay mejoras importantes. Actualiza ahora."
+              : "Ya puedes acceder sin conexión."}
           </p>
         </div>
 
