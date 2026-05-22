@@ -138,18 +138,26 @@ export function entradasUi(isDark) {
       ? "entradas-font-title bg-slate-900 text-left text-[10px] font-black uppercase tracking-wide text-slate-400 border-b border-slate-700"
       : "entradas-font-title bg-slate-50 text-left text-[10px] font-black uppercase tracking-wide text-slate-500 border-b border-slate-200",
     tableRow: d ? "border-b border-slate-700 last:border-0 align-top" : "border-b border-slate-100 last:border-0 align-top",
-    catalogConciertoCardWrap: (selected) =>
-      d
-        ? `entradas-concierto-card overflow-hidden border-2 bg-slate-800 ${
-            selected
-              ? "border-[#1ebbf0] shadow-md ring-1 ring-[#1ebbf0]/30"
-              : "border-slate-600 hover:border-[#1ebbf0]/60"
-          }`
-        : `entradas-concierto-card overflow-hidden border-2 bg-white ${
-            selected
-              ? "border-[#1ebbf0] shadow-md ring-1 ring-[#1ebbf0]/25"
-              : "border-[#e8eaed] hover:border-[#1ebbf0]/50"
-          }`,
+    catalogConciertoCardWrap: (selected, agotado = false) =>
+      agotado
+        ? d
+          ? `entradas-concierto-card overflow-hidden border-2 bg-slate-800/70 border-slate-600 ${
+              selected ? "ring-1 ring-slate-500/60 shadow-sm" : ""
+            }`
+          : `entradas-concierto-card overflow-hidden border-2 bg-slate-100 border-slate-300 ${
+              selected ? "ring-1 ring-slate-400/50 shadow-sm" : ""
+            }`
+        : d
+          ? `entradas-concierto-card overflow-hidden border-2 bg-slate-800 ${
+              selected
+                ? "border-[#1ebbf0] shadow-md ring-1 ring-[#1ebbf0]/30"
+                : "border-slate-600 hover:border-[#1ebbf0]/60"
+            }`
+          : `entradas-concierto-card overflow-hidden border-2 bg-white ${
+              selected
+                ? "border-[#1ebbf0] shadow-md ring-1 ring-[#1ebbf0]/25"
+                : "border-[#e8eaed] hover:border-[#1ebbf0]/50"
+            }`,
     catalogConciertoCardBody: d
       ? "entradas-interactive w-full text-left border-0 bg-transparent px-3 py-2 hover:bg-slate-700/40"
       : "entradas-interactive w-full text-left border-0 bg-transparent px-3 py-2 hover:bg-slate-50",
@@ -167,6 +175,9 @@ export function entradasUi(isDark) {
     badgeReserva: d
       ? "text-[10px] font-bold uppercase tracking-wide text-emerald-300 bg-emerald-950 border border-emerald-800 rounded px-1.5 py-0.5"
       : "text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5",
+    badgeAgotadas: d
+      ? "text-[10px] font-bold uppercase tracking-wide text-slate-300 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5"
+      : "text-[10px] font-bold uppercase tracking-wide text-slate-600 bg-slate-200 border border-slate-300 rounded px-1.5 py-0.5",
     /** Botón “ya tenés entrada” suelto (fuera de tarjeta de concierto). */
     reservaActivaBox: d
       ? "rounded-md border border-emerald-800/45 bg-emerald-950/30 px-2.5 py-2 w-full text-left cursor-pointer hover:bg-emerald-950/55"
@@ -175,6 +186,9 @@ export function entradasUi(isDark) {
     reservaActivaBoxEnTarjeta: d
       ? "border-0 border-b border-emerald-800/50 bg-emerald-950/35 px-3 py-2 w-full text-left cursor-pointer rounded-none hover:bg-emerald-950/55"
       : "border-0 border-b border-emerald-200/90 bg-emerald-50/80 px-3 py-2 w-full text-left cursor-pointer rounded-none hover:bg-emerald-100/80",
+    agotadasBoxEnTarjeta: d
+      ? "border-0 border-b border-slate-600/80 bg-slate-800/50 px-3 py-2 w-full rounded-none"
+      : "border-0 border-b border-slate-300 bg-slate-200/80 px-3 py-2 w-full rounded-none",
     badgeRecordatorio: d
       ? "text-[10px] font-bold uppercase tracking-wide text-sky-200 bg-sky-950/80 border border-[#1ebbf0]/50 rounded px-1.5 py-0.5"
       : "text-[10px] font-bold uppercase tracking-wide text-[#0e7490] bg-[#1ebbf0]/10 border border-[#1ebbf0]/40 rounded px-1.5 py-0.5",

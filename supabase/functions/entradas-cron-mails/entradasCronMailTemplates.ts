@@ -60,16 +60,15 @@ export function templateRecordatorio(d: {
   <div style="max-width:560px;margin:0 auto;border:2px solid #4f46e5;border-radius:12px;padding:24px;">
     <p style="margin:0 0 12px;font-size:18px;font-weight:700;color:#4f46e5;line-height:1.35;">${esc(titulo)}</p>
     ${avisoPrueba}
-    <p>¡Hola!</p>
-    <p>Te recordamos que tenés reserva para:</p>
+    <p>¡Hola! Te recordamos que tenés tu entrada para:</p>
     <p style="margin:16px 0;padding:12px;background:#f8fafc;border-radius:8px;">
       <strong>${esc(d.conciertoNombre)}</strong><br/>
       ${esc(d.fechaTexto)}<br/>
       ${d.lugar ? esc(d.lugar) : ""}
     </p>
-    <p>Tu código de reserva y los QR están en <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a> (iniciá sesión con el mismo mail con el que reservaste).</p>
-    <p>Si sabés que no vas a poder asistir, cancelá tu reserva desde <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a> para liberar el cupo y que otra persona pueda reservar.</p>
-    <p>Presentate con tu QR o código al menos <strong>10 minutos antes</strong> del inicio.</p>
+    <p>Tu código de la misma y los QR están en <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a> (iniciá sesión con el mismo mail con el que sacaste tu entrada).</p>
+    <p>Si sabés que no vas a poder asistir, cancelá tu entrada desde <a href="${esc(d.linkMisEntradas)}" style="color:#4f46e5;font-weight:700;">Mis entradas</a> para liberar el cupo y que otra persona pueda asistir.</p>
+    <p>Presentate con tu QR o código <strong>10 minutos antes</strong> del concierto. De no ser así, tu entrada será liberada para quienes no cuenten con la misma y se les cederá el lugar.</p>
     <p style="margin-top:20px;"><a href="${esc(d.linkConcierto)}" style="color:#4f46e5;font-weight:700;">Ver detalle del concierto en la web</a></p>
     <p style="margin-top:8px;font-size:12px;word-break:break-all;"><a href="${esc(d.linkConcierto)}" style="color:#64748b;">${esc(d.linkConcierto)}</a></p>
     <p style="margin-top:24px;font-size:12px;color:#64748b;">Orquesta Filarmónica de Río Negro</p>

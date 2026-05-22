@@ -35,6 +35,7 @@ import {
   buildEntradasRecordarmeUrl,
   buildEntradasReservaPdfConDataUrls,
   computeDisponibles,
+  conciertoSinPlazasDisponibles,
   crearReserva,
   fetchConciertosDisponibilidad,
   programasConDisponibilidad,
@@ -822,19 +823,24 @@ export default function EntradasMain({ user, profile, onLogout }) {
       programas
         .map((programa) => ({
           ...programa,
-          entrada_concierto: (programa.entrada_concierto || []).filter((concierto) => {
-            const fhCat = fechaHoraDesdeConciertoEntrada(concierto);
-            if (!fhCat) return false;
-            const t = new Date(fhCat);
-            if (Number.isNaN(t.getTime())) return false;
-            return t >= inicioDiaHoy && t <= finDiaVentanaCatalogo;
-          }),
+          entrada_concierto: (programa.entrada_concierto || [])
+            .filter((concierto) => {
+              const fhCat = fechaHoraDesdeConciertoEntrada(concierto);
+              if (!fhCat) return false;
+              const t = new Date(fhCat);
+              if (Number.isNaN(t.getTime())) return false;
+              return t >= inicioDiaHoy && t <= finDiaVentanaCatalogo;
+            })
+            .sort(compareConciertosPorFechaHora),
         }))
         .filter((p) => (p.entrada_concierto || []).length > 0)
         .map((p) => ({
           ...p,
           localidadLabel: localidadLabelDesdeProgramaEntrada(p),
-        })),
+        }))
+        .sort((a, b) =>
+          compareConciertosPorFechaHora(a.entrada_concierto[0], b.entrada_concierto[0]),
+        ),
     [programas, inicioDiaHoy, finDiaVentanaCatalogo],
   );
 
@@ -1098,6 +1104,11 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const tieneReservaEnConcierto = (conciertoId) =>
     conciertosConReservaActiva.includes(Number(conciertoId));
 
+  const conciertoCatalogoEntradasAgotadas = (concierto) =>
+    entradaConciertoReservasAbiertas(concierto)
+    && !tieneReservaEnConcierto(concierto?.id)
+    && conciertoSinPlazasDisponibles(concierto);
+
   const reservaActivaPorConciertoId = useMemo(() => {
     const map = new Map();
     for (const reserva of misReservas) {
@@ -1152,6 +1163,19 @@ export default function EntradasMain({ user, profile, onLogout }) {
           Ver QR
         </span>
       </button>
+    );
+  };
+
+  const renderCatalogAgotadasEnRecuadro = (
+    concierto,
+    { embedded = false, className = "" } = {},
+  ) => {
+    if (!conciertoCatalogoEntradasAgotadas(concierto)) return null;
+    const boxClass = embedded ? ui.agotadasBoxEnTarjeta : ui.agotadasBoxEnTarjeta;
+    return (
+      <div className={`flex flex-wrap items-center ${boxClass} ${className}`} role="status">
+        <span className={ui.badgeAgotadas}>Entradas agotadas</span>
+      </div>
     );
   };
 
@@ -2259,24 +2283,36 @@ export default function EntradasMain({ user, profile, onLogout }) {
                       {(programa.entrada_concierto || []).map((concierto) => {
                         const catalogoSeleccionado = String(concierto.slug_publico || "") === conciertoSlug;
                         const reservasAbiertas = entradaConciertoReservasAbiertas(concierto);
+                        const entradasAgotadas = conciertoCatalogoEntradasAgotadas(concierto);
                         const aceptaRecordatorio = conciertoAceptaRecordatorioApertura(
                           concierto,
                           finDiaVentanaCatalogo,
                         );
                         const inscriptoRecordatorio = recordatorioConciertoIds.has(Number(concierto.id));
+                        const textoTarjetaAgotada = entradasAgotadas
+                          ? isDark
+                            ? "text-slate-400"
+                            : "text-slate-500"
+                          : ui.textBody;
+                        const textoSecundarioAgotado = entradasAgotadas
+                          ? isDark
+                            ? "text-slate-500"
+                            : "text-slate-400"
+                          : null;
                         return (
                           <div
                             key={concierto.id}
-                            className={`${ui.catalogConciertoCardWrap(catalogoSeleccionado)} entradas-interactive`}
+                            className={`${ui.catalogConciertoCardWrap(catalogoSeleccionado, entradasAgotadas)} entradas-interactive`}
                           >
                             {renderCatalogReservaEnRecuadro(concierto.id, { embedded: true })}
+                            {renderCatalogAgotadasEnRecuadro(concierto, { embedded: true })}
                           <button
                             type="button"
                             className={ui.catalogConciertoCardBody}
                             onClick={() => handlePickConcierto(concierto.slug_publico)}
                           >
                             <div className="flex items-start justify-between gap-2">
-                              <p className={`min-w-0 flex-1 text-sm font-semibold ${ui.textBody}`}>{concierto.nombre}</p>
+                              <p className={`min-w-0 flex-1 text-sm font-semibold ${textoTarjetaAgotada}`}>{concierto.nombre}</p>
                               <div className="flex shrink-0 flex-wrap justify-end gap-1">
                                 {!reservasAbiertas && textoAperturaReservas(concierto) && (
                                   <span className={ui.badgeRecordatorio}>
@@ -2288,8 +2324,12 @@ export default function EntradasMain({ user, profile, onLogout }) {
                                 )}
                               </div>
                             </div>
-                            <p className={`text-xs mt-0.5 ${ui.textSoft}`}>{formatConciertoFechaHoraEs(concierto.fecha_hora)}</p>
-                            {concierto.lugar_nombre && <p className={`text-xs ${ui.textMuted}`}>{concierto.lugar_nombre}</p>}
+                            <p className={`text-xs mt-0.5 ${textoSecundarioAgotado || ui.textSoft}`}>
+                              {formatConciertoFechaHoraEs(concierto.fecha_hora)}
+                            </p>
+                            {concierto.lugar_nombre && (
+                              <p className={`text-xs ${textoSecundarioAgotado || ui.textMuted}`}>{concierto.lugar_nombre}</p>
+                            )}
                           </button>
                           </div>
                         );
@@ -2427,6 +2467,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
               )}
               {!selectedConciertoLoading && selectedConcierto && (() => {
                 const reservasAbiertasSel = entradaConciertoReservasAbiertas(selectedConcierto);
+                const entradasAgotadasSel = conciertoCatalogoEntradasAgotadas(selectedConcierto);
                 const aceptaRecSel = conciertoAceptaRecordatorioApertura(
                   selectedConcierto,
                   finDiaVentanaCatalogo,
@@ -2436,7 +2477,28 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 return (
                 <>
                   <p className={ui.accentEyebrow}>Concierto seleccionado</p>
-                  {tieneReservaEnConcierto(selectedConcierto.id) ? (
+                  {entradasAgotadasSel && !tieneReservaEnConcierto(selectedConcierto.id) ? (
+                    <div
+                      className={`entradas-catalog-control overflow-hidden border-2 ${
+                        isDark ? "border-slate-600 bg-slate-800/70" : "border-slate-300 bg-slate-100"
+                      }`}
+                    >
+                      {renderCatalogAgotadasEnRecuadro(selectedConcierto, { embedded: true })}
+                      <div className="px-3 py-3 space-y-1">
+                        <h3 className={`text-lg font-bold ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                          {selectedConcierto.nombre}
+                        </h3>
+                        <p className={`text-xs ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                          {formatConciertoFechaHoraEs(selectedConcierto.fecha_hora)}
+                        </p>
+                        {selectedConcierto.lugar_nombre && (
+                          <p className={`text-xs ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                            {selectedConcierto.lugar_nombre}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : tieneReservaEnConcierto(selectedConcierto.id) ? (
                     <div
                       className={`entradas-catalog-control overflow-hidden border-2 ${
                         isDark ? "border-slate-600 bg-slate-800" : "border-[#e8eaed] bg-white"
@@ -2509,7 +2571,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     </div>
                   )}
                   <EntradasCompartirConciertoBtn concierto={selectedConcierto} />
-                  {reservasAbiertasSel && (
+                  {reservasAbiertasSel && !entradasAgotadasSel && (
                     <>
                   <label className={ui.label}>Cantidad</label>
                   <select
@@ -2538,6 +2600,11 @@ export default function EntradasMain({ user, profile, onLogout }) {
                     {creatingReserva ? "Obteniendo..." : "Obtener"}
                   </button>
                     </>
+                  )}
+                  {entradasAgotadasSel && reservasAbiertasSel && (
+                    <p className={`text-sm font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                      No quedan entradas disponibles para este concierto.
+                    </p>
                   )}
                   {reservaResult && (
                     <div className={`space-y-2 border-t pt-3 ${ui.divider}`}>

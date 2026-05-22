@@ -181,6 +181,13 @@ export function porcentajeDisponibleConcierto(concierto) {
   return p == null || Number.isNaN(Number(p)) ? null : Math.max(0, Math.min(100, Math.round(Number(p))));
 }
 
+/** Sin plazas libres según RPC de disponibilidad o, en su defecto, capacidad − reservas activas cargadas. */
+export function conciertoSinPlazasDisponibles(concierto) {
+  const pct = porcentajeDisponibleConcierto(concierto);
+  if (pct != null) return pct <= 0;
+  return computeDisponibles(concierto) <= 0;
+}
+
 export function computeDisponibles(concierto) {
   const desdeRpc = concierto?.disponibilidad?.plazas;
   if (desdeRpc != null && !Number.isNaN(Number(desdeRpc))) {
