@@ -1,6 +1,7 @@
 import { format } from "date-fns";
-import { integranteKey } from "./integranteIds";
+import { integranteKey, integranteIdForDb } from "./integranteIds";
 import { getProgramTypeColor, formatProgramSelectLabel } from "./giraUtils";
+import { resolveGiraRosterIds } from "../services/giraService";
 
 /** Tipos excluidos del selector de repertorio/preparación en ensayos */
 export const EXCLUDED_REHEARSAL_PROGRAM_TYPES = new Set(["Comisión"]);
@@ -31,41 +32,102 @@ export function getTypesForActiveFilters(activeTypeKeys) {
   return types;
 }
 
-/**
- * Programas visibles en Coordinación: fuente ensamble activo y/o integrantes en gira.
- * Mucho más rápido que evaluar fetchRosterForGira por cada programa.
- */
-export async function fetchCoordinatorPrograms(
+async function resolveEnsembleMemberKeys(supabase, ensIds, memberKeys) {
+  if (memberKeys.size > 0 || ensIds.length === 0) return memberKeys;
+
+  const { data: rels, error } = await supabase
+    .from("integrantes_ensambles")
+    .select("id_integrante")
+    .in("id_ensamble", ensIds);
+  if (error) throw error;
+
+  const resolved = new Set(memberKeys);
+  (rels || []).forEach((row) => {
+    const key = integranteKey(row.id_integrante);
+    if (key) resolved.add(key);
+  });
+  return resolved;
+}
+
+function memberIdsForDbQuery(memberKeys) {
+  return Array.from(memberKeys)
+    .map((id) => integranteIdForDb(id))
+    .filter((id) => id != null);
+}
+
+async function collectCoordinatorProgramIds(
   supabase,
-  { ensembleIds = [], memberIds = [] } = {},
+  { ensIds, memberKeys },
 ) {
-  const ensIds = [...new Set((ensembleIds || []).map(Number).filter(Boolean))];
-  const memberKeys = new Set(
-    (memberIds || []).map((id) => integranteKey(id)).filter(Boolean),
-  );
+  const memberIdList = memberIdsForDbQuery(memberKeys);
+  const fuenteEnsambleIds = new Set(ensIds);
+  let memberFamilies = [];
 
-  if (ensIds.length === 0 && memberKeys.size === 0) return [];
+  if (memberIdList.length > 0) {
+    const [memberEnsRes, membersRes] = await Promise.all([
+      supabase
+        .from("integrantes_ensambles")
+        .select("id_ensamble")
+        .in("id_integrante", memberIdList),
+      supabase
+        .from("integrantes")
+        .select("id, instrumentos(familia)")
+        .in("id", memberIdList),
+    ]);
+    if (memberEnsRes.error) throw memberEnsRes.error;
+    if (membersRes.error) throw membersRes.error;
 
-  const [fuentesRes, giRes] = await Promise.all([
-    ensIds.length > 0
+    (memberEnsRes.data || []).forEach((row) => {
+      if (row.id_ensamble != null) {
+        fuenteEnsambleIds.add(Number(row.id_ensamble));
+      }
+    });
+    memberFamilies = [
+      ...new Set(
+        (membersRes.data || [])
+          .map((member) => member.instrumentos?.familia)
+          .filter(Boolean),
+      ),
+    ];
+  }
+
+  const fuenteEnsIds = Array.from(fuenteEnsambleIds);
+  const [fuentesEnsRes, fuentesFamRes, giRes] = await Promise.all([
+    fuenteEnsIds.length > 0
       ? supabase
           .from("giras_fuentes")
           .select("id_gira")
           .eq("tipo", "ENSAMBLE")
-          .in("valor_id", ensIds)
+          .in("valor_id", fuenteEnsIds)
       : Promise.resolve({ data: [] }),
-    memberKeys.size > 0
+    memberFamilies.length > 0
+      ? supabase
+          .from("giras_fuentes")
+          .select("id_gira")
+          .eq("tipo", "FAMILIA")
+          .in("valor_texto", memberFamilies)
+      : Promise.resolve({ data: [] }),
+    memberIdList.length > 0
       ? supabase
           .from("giras_integrantes")
           .select("id_gira, id_integrante, estado")
-          .in("id_integrante", Array.from(memberKeys))
+          .in("id_integrante", memberIdList)
       : Promise.resolve({ data: [] }),
   ]);
 
+  if (fuentesEnsRes.error) throw fuentesEnsRes.error;
+  if (fuentesFamRes.error) throw fuentesFamRes.error;
+  if (giRes.error) throw giRes.error;
+
   const programIds = new Set();
-  (fuentesRes.data || []).forEach((f) => {
-    if (f.id_gira != null) programIds.add(f.id_gira);
-  });
+  for (const source of [
+    fuentesEnsRes.data,
+    fuentesFamRes.data,
+  ]) {
+    (source || []).forEach((row) => {
+      if (row.id_gira != null) programIds.add(row.id_gira);
+    });
+  }
   (giRes.data || []).forEach((row) => {
     if (row.estado === "ausente") return;
     if (
@@ -76,6 +138,50 @@ export async function fetchCoordinatorPrograms(
     }
   });
 
+  return programIds;
+}
+
+async function filterProgramsWithMemberParticipation(
+  supabase,
+  programs,
+  memberKeys,
+) {
+  if (!programs?.length || memberKeys.size === 0) return programs || [];
+
+  const participation = await Promise.all(
+    programs.map(async (program) => {
+      const rosterIds = await resolveGiraRosterIds(supabase, program.id);
+      const participates = rosterIds.some((id) =>
+        memberKeys.has(integranteKey(id)),
+      );
+      return participates ? program : null;
+    }),
+  );
+
+  return participation.filter(Boolean);
+}
+
+/**
+ * Programas visibles en Coordinación: todos los que tienen al menos un integrante
+ * del ensamble en el roster resuelto (fuentes, familias, overrides y ausencias).
+ */
+export async function fetchCoordinatorPrograms(
+  supabase,
+  { ensembleIds = [], memberIds = [] } = {},
+) {
+  const ensIds = [...new Set((ensembleIds || []).map(Number).filter(Boolean))];
+  let memberKeys = new Set(
+    (memberIds || []).map((id) => integranteKey(id)).filter(Boolean),
+  );
+
+  if (ensIds.length === 0 && memberKeys.size === 0) return [];
+
+  memberKeys = await resolveEnsembleMemberKeys(supabase, ensIds, memberKeys);
+
+  const programIds = await collectCoordinatorProgramIds(supabase, {
+    ensIds,
+    memberKeys,
+  });
   if (programIds.size === 0) return [];
 
   const { data: programs, error } = await supabase
@@ -87,7 +193,12 @@ export async function fetchCoordinatorPrograms(
     .order("fecha_desde", { ascending: true });
 
   if (error) throw error;
-  return programs || [];
+
+  return filterProgramsWithMemberParticipation(
+    supabase,
+    programs || [],
+    memberKeys,
+  );
 }
 
 /**
