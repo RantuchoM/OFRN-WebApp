@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { IconMusic } from "../ui/Icons";
+import { toast } from "sonner";
+import { IconMusic, IconUsers } from "../ui/Icons";
 import MultiSelect from "../ui/MultiSelect";
 import {
   REHEARSAL_PROGRAM_TYPE_FILTERS,
@@ -7,6 +8,7 @@ import {
   filterRehearsalProgramOptions,
 } from "../../utils/rehearsalProgramas";
 import { getProgramTypeColor } from "../../utils/giraUtils";
+import { useProgramParticipationMap } from "../../hooks/useProgramParticipationMap";
 
 export default function RepertorioPreparacionSelect({
   options = [],
@@ -16,6 +18,8 @@ export default function RepertorioPreparacionSelect({
   title = "Repertorio / Preparación",
   placeholder = "Vincular con Programas...",
   helperText = "* Se mostrará el repertorio de estos programas en la agenda.",
+  supabase = null,
+  activeMembersSet = null,
 }) {
   const [activeTypeKeys, setActiveTypeKeys] = useState(
     () => new Set(REHEARSAL_PROGRAM_TYPE_FILTER_KEYS),
@@ -48,6 +52,50 @@ export default function RepertorioPreparacionSelect({
         selectedIds,
       }),
     [options, activeTypeKeys, nameQuery, minRehearsalDate, selectedIds],
+  );
+
+  const participationMap = useProgramParticipationMap(
+    supabase,
+    options,
+    activeMembersSet,
+  );
+
+  const renderParticipationBadge = useCallback(
+    (opt) => {
+      if (!activeMembersSet?.size) return null;
+      const info = participationMap.get(opt.id);
+      if (!info) return null;
+
+      const { count, members, loading, isFull } = info;
+      const showMembersList = (e) => {
+        e.stopPropagation();
+        if (count === 0) return;
+        const names = members
+          .map((member) => `• ${member.nombre} ${member.apellido}`)
+          .join("\n");
+        toast.success(`Integrantes convocados (${count}): ${names}`);
+      };
+
+      return (
+        <button
+          type="button"
+          onClick={showMembersList}
+          disabled={loading || count === 0}
+          className={`text-[10px] flex items-center gap-1 font-bold hover:underline disabled:opacity-50 disabled:no-underline shrink-0 ${
+            isFull ? "text-green-600" : "text-amber-600"
+          }`}
+          title={
+            count > 0
+              ? `${count} integrante${count === 1 ? "" : "s"} del ensamble`
+              : "Sin integrantes del ensamble"
+          }
+        >
+          <IconUsers size={12} />
+          {loading ? "…" : isFull ? "Todos" : count}
+        </button>
+      );
+    },
+    [activeMembersSet, participationMap],
   );
 
   const filterButtons = [
@@ -104,6 +152,9 @@ export default function RepertorioPreparacionSelect({
         selectedIds={selectedIds}
         onChange={onChange}
         useOptionTypeColors
+        optionTrailingActions={
+          activeMembersSet?.size ? renderParticipationBadge : undefined
+        }
       />
 
       {helperText ? (

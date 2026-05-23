@@ -3902,6 +3902,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
                       options={programasOptions}
                       selectedIds={listProgramFilterIds}
                       onChange={setListProgramFilterIds}
+                      supabase={supabase}
+                      activeMembersSet={activeMembersSet}
                     />
                   </div>
                 )}
@@ -4240,6 +4242,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
                     }
                     minRehearsalDate={minSelectedRehearsalDate}
                     helperText=""
+                    supabase={supabase}
+                    activeMembersSet={activeMembersSet}
                   />
                 </div>
                 <div className="bg-white p-3 rounded border border-slate-200 shadow-sm flex flex-col h-full">

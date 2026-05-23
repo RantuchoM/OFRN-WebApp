@@ -17,6 +17,7 @@ import {
 } from "../../components/ui/Icons";
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
+import { integranteKey } from "../../utils/integranteIds";
 import {
   buildRehearsalFormFromEvent,
   eventHasEmbeddedRelations,
@@ -97,7 +98,7 @@ export default function IndependentRehearsalForm({
   const [initialSnapshot, setInitialSnapshot] = useState(null);
   const [selectedMemberToAdd, setSelectedMemberToAdd] = useState("");
 
-  const { data: programasFromQuery = [], isLoading: programasQueryLoading } =
+  const { data: programasFromQuery = [], isLoading: programasQueryLoading, memberIds: resolvedMemberIds } =
     useRehearsalProgramasOptions(supabase, {
       memberIds: activeMemberIds,
       myEnsembles,
@@ -107,6 +108,11 @@ export default function IndependentRehearsalForm({
   const programasOptions = programasOptionsProp ?? programasFromQuery;
   const programasLoading =
     programasOptionsProp == null && programasQueryLoading;
+
+  const activeMembersSet = useMemo(() => {
+    const ids = activeMemberIds?.length ? activeMemberIds : resolvedMemberIds;
+    return new Set((ids || []).map((id) => integranteKey(id)).filter(Boolean));
+  }, [activeMemberIds, resolvedMemberIds]);
 
   const isDirty = useMemo(() => {
     if (!initialSnapshot) return false;
@@ -610,6 +616,8 @@ export default function IndependentRehearsalForm({
                 setFormData({ ...formData, selectedProgramas: ids })
               }
               minRehearsalDate={formData.fecha || null}
+              supabase={supabase}
+              activeMembersSet={activeMembersSet}
             />
           )}
 
