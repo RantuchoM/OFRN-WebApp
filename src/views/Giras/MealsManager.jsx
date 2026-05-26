@@ -19,6 +19,7 @@ import {
 import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
 import { isUserConvoked } from "../../utils/giraUtils";
+import { isPersonEligibleForMealSlot } from "../../utils/mealLogistics";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner"; 
@@ -91,19 +92,300 @@ const getGroupLabelShort = (id, catalogs) => {
   return id;
 };
 
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const stripHtmlToPlain = (html) => {
+  if (!html) return "";
+  return String(html)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(div|p|li)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+const getKnownGroupLabels = (catalogs) => {
+  const fixed = ["Tutti", "Solo alojados", "Locales", "Prod.", "Sol.", "Dir."];
+  const aliases = ["No Locales", "No locales"];
+  const locs = (catalogs?.localidades || [])
+    .map((l) => l.localidad)
+    .filter(Boolean);
+  const fams = catalogs?.familias || [];
+  return [...fixed, ...aliases, ...locs, ...fams];
+};
+
+const splitFlexiblePlus = (text) =>
+  String(text)
+    .split(/\s*\+\s*/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+const buildConvocadosLabelsOnly = (convocados, catalogs) => {
+  const labels = (convocados || []).map((id) =>
+    getGroupLabelShort(id, catalogs),
+  );
+  if (labels.length === 0) return null;
+  return labels.join(" + ");
+};
+
+/** Bloque vinculado a convocados: "Almuerzo Solo alojados + Prod." (null si no hay grupos). */
+const buildConvocadosAutoPart = (servicio, convocados, catalogs) => {
+  const labelsOnly = buildConvocadosLabelsOnly(convocados, catalogs);
+  if (!labelsOnly) return null;
+  return `${servicio} ${labelsOnly}`;
+};
+
+const buildMealDescription = (servicio, convocados, catalogs) =>
+  buildConvocadosAutoPart(servicio, convocados, catalogs) || `${servicio} Gira`;
+
+const isAllKnownLabelParts = (parts, catalogs) => {
+  if (parts.length === 0) return false;
+  const known = new Set(getKnownGroupLabels(catalogs));
+  return parts.every((p) => known.has(p));
+};
+
+const isAutoConvocadosTail = (tail, catalogs) =>
+  isAllKnownLabelParts(splitFlexiblePlus(tail), catalogs);
+
+const labelSuffixVariants = (labelsPart) => {
+  if (!labelsPart) return [];
+  return [
+    labelsPart,
+    labelsPart.replace(/ \+ /g, "+"),
+    labelsPart.replace(/ \+ /g, " +"),
+  ];
+};
+
+/** ¿El bloque "Servicio …" empieza en un límite real (no dentro de "pausa y merienda")? */
+const isServiceBlockBoundary = (index, text) => {
+  if (index === 0) return true;
+  const prev = text[index - 1];
+  return /[|–—;\-,(]/.test(prev);
+};
+
+/**
+ * Sufijo de grupos al final, leyendo etiquetas enteras de derecha a izquierda
+ * (evita confundir "Locales" dentro de "No Locales").
+ */
+const findConvocadosLabelsSuffix = (plainText, catalogs, convocados) => {
+  if (!plainText) return null;
+
+  const fromConvocados = buildConvocadosLabelsOnly(convocados, catalogs);
+  for (const variant of labelSuffixVariants(fromConvocados)) {
+    if (!variant) continue;
+    if (plainText === variant) {
+      return { start: 0, end: plainText.length, text: plainText, kind: "suffix" };
+    }
+    if (plainText.endsWith(variant)) {
+      const end = plainText.length;
+      const start = end - variant.length;
+      const sep = start > 0 && plainText[start - 1] === " " ? start - 1 : start;
+      return {
+        start: sep,
+        end,
+        text: plainText.slice(sep),
+        kind: "suffix",
+      };
+    }
+  }
+
+  const knownSorted = [...getKnownGroupLabels(catalogs)].sort(
+    (a, b) => b.length - a.length,
+  );
+  let pos = plainText.length;
+  const parts = [];
+
+  while (pos > 0) {
+    while (pos > 0 && /[\s+]/.test(plainText[pos - 1])) pos -= 1;
+    if (pos === 0) break;
+
+    let matched = null;
+    for (const label of knownSorted) {
+      const start = pos - label.length;
+      if (start < 0) continue;
+      if (plainText.slice(start, pos) !== label) continue;
+      const charBefore = start > 0 ? plainText[start - 1] : "";
+      if (start > 0 && !/[\s+]/.test(charBefore)) continue;
+      matched = { label, start };
+      break;
+    }
+    if (!matched) {
+      parts.length = 0;
+      break;
+    }
+    parts.unshift(matched.label);
+    pos = matched.start;
+  }
+
+  if (parts.length === 0) return null;
+
+  const suffixStart = pos;
+  const sep =
+    suffixStart > 0 && plainText[suffixStart - 1] === " "
+      ? suffixStart - 1
+      : suffixStart;
+  return {
+    start: sep,
+    end: plainText.length,
+    text: plainText.slice(sep),
+    kind: "suffix",
+  };
+};
+
+/** Tramo "Servicio + grupos" o legado "Servicio en …". */
+const findConvocadosAutoSegment = (plainText, servicio, catalogs, convocados) => {
+  if (!plainText) return null;
+
+  const withKind = (seg, kind) => (seg ? { ...seg, kind } : null);
+
+  const tryExact = (candidate, kind) => {
+    if (!candidate) return null;
+    const idx = plainText.indexOf(candidate);
+    if (idx === -1) return null;
+    return {
+      start: idx,
+      end: idx + candidate.length,
+      text: candidate,
+      kind,
+    };
+  };
+
+  let found =
+    tryExact(buildConvocadosAutoPart(servicio, convocados, catalogs), "full") ||
+    tryExact(`${servicio} Gira`, "full");
+
+  if (found) return found;
+
+  const servicioRe = escapeRegex(servicio);
+  const re = new RegExp(`\\b${servicioRe}\\s+[^\\n|–—;]+`, "gi");
+  let match;
+  let best = null;
+  while ((match = re.exec(plainText)) !== null) {
+    if (!isServiceBlockBoundary(match.index, plainText)) continue;
+    const candidate = match[0].trim();
+    const tail = candidate.slice(servicio.length).trim();
+    if (isAutoConvocadosTail(tail, catalogs)) {
+      if (!best || candidate.length > best.text.length) {
+        best = {
+          start: match.index,
+          end: match.index + candidate.length,
+          text: candidate,
+          kind: "full",
+        };
+      }
+    }
+  }
+  if (best) return best;
+
+  const legacyRe = new RegExp(
+    `\\b${servicioRe}\\s+en\\s+[^\\n|–—;]+`,
+    "i",
+  );
+  const legacy = plainText.match(legacyRe);
+  if (legacy?.index != null) {
+    return {
+      start: legacy.index,
+      end: legacy.index + legacy[0].length,
+      text: legacy[0],
+      kind: "legacy",
+    };
+  }
+  return null;
+};
+
+const findConvocadosSegment = (plainText, servicio, catalogs, convocados) => {
+  const full = findConvocadosAutoSegment(plainText, servicio, catalogs, convocados);
+  const suffix = findConvocadosLabelsSuffix(plainText, catalogs, convocados);
+  if (full && suffix) {
+    // Preferir el tramo más corto (sufijo de grupos) salvo bloque completo al inicio
+    if (full.start === 0 && suffix.start > 0) return suffix;
+    if (suffix.start > 0 && suffix.text.length <= full.text.length) return suffix;
+    return full;
+  }
+  return full || suffix;
+};
+
+const applySegmentReplacement = (
+  plain,
+  existingHtml,
+  segment,
+  replacement,
+) => {
+  const custom = plain.slice(0, segment.start).replace(/\s+$/, "");
+  const tail = plain.slice(segment.end).replace(/^\s+/, "");
+  const pieces = [custom, replacement, tail].filter((p) => p != null && p !== "");
+  let merged = pieces.join(" ").trim();
+  if (!merged) merged = "";
+
+  if (existingHtml && existingHtml !== plain && segment.text) {
+    if (existingHtml.includes(segment.text)) {
+      return existingHtml.replace(segment.text, replacement);
+    }
+  }
+  return merged;
+};
+
+/**
+ * Reemplaza o agrega el tramo de convocados; conserva aclaraciones de producción.
+ * Ej: "Pausa y merienda" + Tutti → "Pausa y merienda Tutti"
+ * Ej: "Merienda a bordo No Locales+Prod." sin Prod. → "Merienda a bordo Solo alojados"
+ */
+const mergeMealDescriptionWithConvocados = (
+  existingHtml,
+  servicio,
+  convocados,
+  catalogs,
+  convocadosForLookup = convocados,
+) => {
+  const plain = stripHtmlToPlain(existingHtml);
+  const newLabelsOnly = buildConvocadosLabelsOnly(convocados, catalogs);
+  const newAuto = buildConvocadosAutoPart(servicio, convocados, catalogs);
+  const segment = findConvocadosSegment(
+    plain,
+    servicio,
+    catalogs,
+    convocadosForLookup,
+  );
+
+  if (!segment) {
+    if (!plain && newAuto) return newAuto;
+    if (!plain) return `${servicio} Gira`;
+    if (newLabelsOnly) return `${plain} ${newLabelsOnly}`;
+    return existingHtml || plain;
+  }
+
+  const hasCustomPrefix = segment.start > 0;
+  const useLabelsOnly =
+    segment.kind === "suffix" || (segment.kind === "full" && hasCustomPrefix);
+  const replacement = useLabelsOnly
+    ? newLabelsOnly || ""
+    : newAuto || newLabelsOnly || "";
+
+  let merged = applySegmentReplacement(
+    plain,
+    existingHtml,
+    segment,
+    replacement,
+  );
+  if (!merged) merged = `${servicio} Gira`;
+  return merged;
+};
+
 // --- COMPONENTE: INSPECTOR DE GRUPOS SUPERIOR ---
 const GroupInspectorHeader = ({ roster, catalogs, groupDefs }) => {
   const [selectedGroup, setSelectedGroup] = useState(null);
 
   return (
-    <div className="flex items-center gap-2 ml-4 border-l border-slate-200 pl-4 relative">
+    <div className="flex items-center gap-2 ml-4 border-l border-slate-200 pl-4 relative overflow-visible">
       <style>{`.tooltip-bridge::after { content: ""; position: absolute; top: 100%; left: 0; width: 100%; height: 15px; background: transparent; }`}</style>
       {groupDefs.map((g) => {
         const count = roster.filter(g.filter).length;
         return (
           <div
             key={g.id}
-            className="relative tooltip-bridge"
+            className="relative tooltip-bridge z-[1] hover:z-[100]"
             onMouseEnter={() => setSelectedGroup(g.id)}
             onMouseLeave={() => setSelectedGroup(null)}
           >
@@ -114,7 +396,7 @@ const GroupInspectorHeader = ({ roster, catalogs, groupDefs }) => {
             </button>
 
             {selectedGroup === g.id && (
-              <div className="absolute top-[calc(100%+5px)] left-0 w-64 bg-white border border-slate-200 shadow-xl rounded-lg z-50 p-2 animate-in fade-in zoom-in-95 origin-top">
+              <div className="absolute top-[calc(100%+5px)] left-0 w-64 bg-white border border-slate-200 shadow-xl rounded-lg z-[100] p-2 animate-in fade-in zoom-in-95 origin-top">
                 <div className="text-[9px] font-bold text-slate-400 uppercase mb-1 border-b pb-1">
                   Integrantes de {getGroupLabelShort(g.id, catalogs)}
                 </div>
@@ -427,6 +709,7 @@ export default function MealsManager({
   const [serviceFilter, setServiceFilter] = useState(
     new Set(DEFAULT_SERVICE_FILTER),
   );
+  const [resettingNames, setResettingNames] = useState(false);
   const debounceRef = useRef({});
 
   const groupDefsEffective = useMemo(() => {
@@ -578,19 +861,17 @@ export default function MealsManager({
 
   const getEligiblePeople = (row) => {
     if (!row.convocados || row.convocados.length === 0) return [];
-    return roster.filter((p) => {
-      if (p.estado_gira !== "confirmado") return false;
-      if (
-        !isUserConvoked(row.convocados, p, { hospedajeExcluidosIds })
-      )
-        return false;
-      const cFrom = p.logistics?.comida_inicio?.date;
-      const cTo = p.logistics?.comida_fin?.date;
-      if (cFrom && row.fecha < cFrom) return false;
-      if (cTo && row.fecha > cTo) return false;
-      if (!p.is_local && !cFrom && !cTo) return false;
-      return true;
-    });
+    return roster.filter((p) =>
+      isPersonEligibleForMealSlot(
+        p,
+        {
+          fecha: row.fecha,
+          servicio: row.servicio,
+          convocados: row.convocados,
+        },
+        { hospedajeExcluidosIds },
+      ),
+    );
   };
 
   const normalizeTimeHHMM = (value) => {
@@ -614,14 +895,14 @@ export default function MealsManager({
           : val;
       let row = { ...copy[idx], [field]: normalizedVal, dirty: true };
       if (field === "convocados") {
-        const labels = val.map((id) => getGroupLabelShort(id, catalogs));
-        const autoDesc = `${row.servicio} ${labels.join(" + ")}`;
-        if (!row.descripcion || row.descripcion.startsWith(row.servicio) || row.descripcion === "")
-          row.descripcion = autoDesc;
-      }
-      if (field === "id_locacion" && (!row.descripcion || row.descripcion === "" || row.descripcion.startsWith(row.servicio))) {
-        const locName = catalogs.locaciones.find((l) => String(l.id) === String(val))?.label?.split("(")[0].trim();
-        if (locName) row.descripcion = `${row.servicio} en ${locName}`;
+        const prevConvocados = copy[idx].convocados;
+        row.descripcion = mergeMealDescriptionWithConvocados(
+          copy[idx].descripcion,
+          row.servicio,
+          val,
+          catalogs,
+          prevConvocados,
+        );
       }
       copy[idx] = row;
       if (debounceRef.current[row.id]) clearTimeout(debounceRef.current[row.id]);
@@ -650,9 +931,13 @@ export default function MealsManager({
 
         if (Array.isArray(changes.convocados) && changes.convocados.length > 0) {
           newRow.convocados = changes.convocados;
-          newRow.descripcion = `${newRow.servicio} ${changes.convocados
-            .map((id) => getGroupLabelShort(id, catalogs))
-            .join(" + ")}`;
+          newRow.descripcion = mergeMealDescriptionWithConvocados(
+            r.descripcion,
+            newRow.servicio,
+            changes.convocados,
+            catalogs,
+            r.convocados,
+          );
         }
 
         return newRow;
@@ -667,6 +952,44 @@ export default function MealsManager({
     }
 
     refreshGridData();
+  };
+
+  const handleResetAllMealNames = async () => {
+    const rowsToUpdate = grid.filter((r) => !r.isTemp && r.fecha && r.hora_inicio);
+    if (rowsToUpdate.length === 0) {
+      toast.info("No hay comidas guardadas para restablecer.");
+      return;
+    }
+    const ok = window.confirm(
+      `¿Actualizar el tramo de convocados en ${rowsToUpdate.length} comida(s)? Se conservan aclaraciones de producción (ej. "a bordo", "pausa y merienda").`,
+    );
+    if (!ok) return;
+
+    setResettingNames(true);
+    try {
+      await Promise.all(
+        rowsToUpdate.map((row) => {
+          const descripcion = mergeMealDescriptionWithConvocados(
+            row.descripcion,
+            row.servicio,
+            row.convocados,
+            catalogs,
+            row.convocados,
+          );
+          return supabase
+            .from("eventos")
+            .update({ descripcion })
+            .eq("id", row.id);
+        }),
+      );
+      toast.success(`Nombres restablecidos (${rowsToUpdate.length} eventos).`);
+      await refreshGridData();
+    } catch (e) {
+      console.error(e);
+      toast.error("No se pudieron restablecer los nombres.");
+    } finally {
+      setResettingNames(false);
+    }
   };
 
   const saveRow = async (row) => {
@@ -795,13 +1118,13 @@ export default function MealsManager({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
-      <div className="bg-white p-3 md:p-4 border-b border-slate-200 shadow-sm flex justify-between items-center shrink-0 z-10 relative">
-        <div className="flex items-center min-w-0">
-          <div className="flex items-center gap-2">
+      <div className="bg-white p-3 md:p-4 border-b border-slate-200 shadow-sm flex justify-between items-center shrink-0 z-40 relative overflow-visible">
+        <div className="flex items-center min-w-0 overflow-visible">
+          <div className="flex items-center gap-2 shrink-0">
             <IconUtensils className="text-orange-500" />
             <h2 className="text-lg font-bold text-slate-800 whitespace-nowrap">Comidas</h2>
           </div>
-          <div className="hidden md:block">
+          <div className="hidden md:block overflow-visible">
             <GroupInspectorHeader
               roster={roster}
               catalogs={catalogs}
@@ -809,9 +1132,9 @@ export default function MealsManager({
             />
           </div>
         </div>
-        <div className="hidden md:flex items-center gap-4">
+        <div className="hidden md:flex items-center gap-3 flex-wrap justify-end min-w-0">
           {/* Filtros rápidos por tipo de servicio: D/A/M/C */}
-          <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+          <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 shrink-0">
             <span className="mr-1 uppercase">Servicios:</span>
             {SERVICIOS.map((svc) => {
               const isActive = serviceFilter.has(svc);
@@ -840,10 +1163,33 @@ export default function MealsManager({
               );
             })}
           </div>
+          <button
+            type="button"
+            onClick={handleResetAllMealNames}
+            disabled={resettingNames || loading}
+            className="text-[10px] font-bold px-2.5 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50 flex items-center gap-1 shrink-0"
+            title="Actualizar solo el tramo de convocados; conserva aclaraciones de producción"
+          >
+            {resettingNames && (
+              <IconLoader className="animate-spin" size={12} />
+            )}
+            Restablecer nombres
+          </button>
           <FoodMatrix roster={roster} />
           {loading && <IconLoader className="animate-spin text-orange-500" />}
         </div>
-        <div className="md:hidden flex items-center gap-2 relative">
+        <div className="md:hidden flex items-center gap-2 relative flex-wrap justify-end">
+          <button
+            type="button"
+            onClick={handleResetAllMealNames}
+            disabled={resettingNames || loading}
+            className="text-[10px] font-bold px-2 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 disabled:opacity-50 flex items-center gap-1"
+          >
+            {resettingNames && (
+              <IconLoader className="animate-spin" size={12} />
+            )}
+            Restablecer nombres
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -962,7 +1308,7 @@ export default function MealsManager({
         <div className="bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden flex flex-col relative h-full">
           <div className="hidden md:block h-full overflow-auto">
           <table className="w-full text-left text-sm min-w-[1380px] border-separate border-spacing-0">
-            <thead className="bg-slate-100 text-slate-500 uppercase font-bold text-[10px] sticky top-0 z-30 shadow-sm">
+            <thead className="bg-slate-100 text-slate-500 uppercase font-bold text-[10px] sticky top-0 z-20 shadow-sm">
               <tr>
                 <th className="w-1 border-b border-slate-200"></th>
                 <th className="px-2 py-3 w-10 text-center border-b border-slate-200">
@@ -1396,7 +1742,19 @@ function MobileMealEditor({ row, catalogs, onCancel, onSave }) {
           <div className="mt-1">
             <MultiGroupSelect
               value={draft.convocados}
-              onChange={(v) => setDraft((p) => ({ ...p, convocados: v }))}
+              onChange={(v) =>
+                setDraft((p) => ({
+                  ...p,
+                  convocados: v,
+                  descripcion: mergeMealDescriptionWithConvocados(
+                    p.descripcion,
+                    row.servicio,
+                    v,
+                    catalogs,
+                    p.convocados,
+                  ),
+                }))
+              }
               catalogs={catalogs}
             />
           </div>

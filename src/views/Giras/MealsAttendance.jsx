@@ -16,7 +16,10 @@ import MultiSelectDropdown from "../../components/ui/MultiSelectDropdown";
 import { format, parseISO, isAfter, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
-import { isUserConvoked } from "../../utils/giraUtils";
+import {
+  isPersonEligibleForMealSlot,
+  mealServicioFromEvent,
+} from "../../utils/mealLogistics";
 
 // Condiciones estándar (estas pueden seguir fijas si no tienes tabla de condiciones)
 const CONDICIONES_OPTIONS = [
@@ -59,18 +62,15 @@ export default function MealsAttendance({
   const checkEligibility = useCallback(
     (evt, person) => {
       if (!evt || !person) return false;
-      const convocadosList = evt.convocados || [];
-      if (
-        !isUserConvoked(convocadosList, person, { hospedajeExcluidosIds })
-      )
-        return false;
-      const eventDate = evt.fecha;
-      const coverageFrom = person.logistics?.comida_inicio?.date;
-      const coverageTo = person.logistics?.comida_fin?.date;
-      if (coverageFrom && eventDate < coverageFrom) return false;
-      if (coverageTo && eventDate > coverageTo) return false;
-      if (!person.is_local && !coverageFrom && !coverageTo) return false;
-      return true;
+      return isPersonEligibleForMealSlot(
+        person,
+        {
+          fecha: evt.fecha,
+          servicio: mealServicioFromEvent(evt),
+          convocados: evt.convocados || [],
+        },
+        { hospedajeExcluidosIds },
+      );
     },
     [hospedajeExcluidosIds],
   );

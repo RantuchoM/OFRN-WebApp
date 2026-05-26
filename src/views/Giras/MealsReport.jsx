@@ -10,7 +10,10 @@ import {
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { handlePrintExport } from "../../utils/PrintWrapper";
-import { isUserConvoked } from "../../utils/giraUtils";
+import {
+  isPersonEligibleForMealSlot,
+  mealServicioFromEvent,
+} from "../../utils/mealLogistics";
 
 const SERVICE_IDS = {
   7: "Desayuno",
@@ -84,27 +87,27 @@ export default function MealsReport({
         attendanceMap[`${a.id_evento}-${a.id_integrante}`] = a.estado;
       });
 
-      const isConvoked = (convocadosList, person) =>
-        isUserConvoked(convocadosList, person, { hospedajeExcluidosIds });
-
-      // 4. PROCESAMIENTO CRITICAL: Cruzar Fecha de Evento vs Cobertura Logística
+      // 4. PROCESAMIENTO: convocados + cobertura logística (fecha + servicio por persona)
       const processed = events.map((evt) => {
         const counts = { Total: 0 };
         const eventDate = evt.fecha; // 'YYYY-MM-DD'
 
+        const servicio = mealServicioFromEvent(evt);
+
         activeRoster.forEach((person) => {
-          // A. ¿Está convocado técnicamente?
-          if (!isConvoked(evt.convocados, person)) return;
-
-          // B. ¿Tiene cobertura logística para esta fecha?
-          // Usamos las fechas procesadas por useLogistics que ya están en person.logistics
-          const coverageFrom = person.logistics?.comida_inicio?.date;
-          const coverageTo = person.logistics?.comida_fin?.date;
-
-          if (coverageFrom && eventDate < coverageFrom) return;
-          if (coverageTo && eventDate > coverageTo) return;
-          // Si no hay ningún hito de comida y no es local, queda fuera.
-          if (!person.is_local && !coverageFrom && !coverageTo) return;
+          // A. ¿Está convocado y con cobertura logística (fecha + servicio del slot)?
+          if (
+            !isPersonEligibleForMealSlot(
+              person,
+              {
+                fecha: eventDate,
+                servicio,
+                convocados: evt.convocados,
+              },
+              { hospedajeExcluidosIds },
+            )
+          )
+            return;
 
           // C. Validar asistencia manual (Presente / Ausente / Pendiente)
           const status = attendanceMap[`${evt.id}-${person.id}`];
