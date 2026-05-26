@@ -8,6 +8,7 @@ import {
   IconEdit,
 } from "../../../components/ui/Icons";
 import "./ViaticosSheet.css";
+import RenunciaViaticosExportOption from "./RenunciaViaticosExportOption";
 
 // --- HELPERS DE FORMATO ---
 const formatDateShort = (dateStr) => {
@@ -257,6 +258,8 @@ export default function ViaticosTable({
   useHistoricalCalc = false,
   onUseHistoricalCalcChange,
   onEditMusician,
+  exportRenunciaViaticos = true,
+  onExportRenunciaViaticosChange,
 }) {
   const [showBackup, setShowBackup] = useState(false);
   const [useHistoricalLocal, setUseHistoricalLocal] = useState(useHistoricalCalc);
@@ -345,6 +348,14 @@ export default function ViaticosTable({
     return acc + sum;
   }, 0);
   const granTotal = totalAnticipo + totalGastos;
+
+  const selectedAtViaticoCero = rows.some(
+    (r) =>
+      selection.has(r.id_integrante) &&
+      parseFloat(r.porcentaje ?? 100) === 0,
+  );
+  const showRenunciaExportOption =
+    selection.size > 0 && selectedAtViaticoCero;
 
   // --- COMPONENTE DE CELDA APILADA (GASTO / RENDICION / DIFERENCIA) ---
   const StackedFinancialCell = ({
@@ -459,7 +470,15 @@ export default function ViaticosTable({
             Total Est: <b>${granTotal.toLocaleString("es-AR")}</b>
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {showRenunciaExportOption &&
+            typeof onExportRenunciaViaticosChange === "function" && (
+              <RenunciaViaticosExportOption
+                className="max-w-xs py-1 px-2"
+                checked={exportRenunciaViaticos}
+                onChange={onExportRenunciaViaticosChange}
+              />
+            )}
           <label className="flex items-center gap-1.5 cursor-pointer select-none">
             <input
               type="checkbox"

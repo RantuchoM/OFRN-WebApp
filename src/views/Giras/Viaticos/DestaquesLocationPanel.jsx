@@ -14,6 +14,7 @@ import {
     DESTAQUES_GENERAL_CONFIG_KEY,
     hasOwnDestaqueValue,
     resolveDestaqueField,
+    resolveDestaqueLogisticsField,
 } from "../../../utils/destaquesConfigMerge";
 import { resolveLocalidadEfectivaViaticos } from "../../../utils/integranteDomicilioViaticos";
 
@@ -218,9 +219,47 @@ const LiveMassiveValuesForm = ({
     const isFallbackField = (field) =>
         !isGeneral && !hasOwnDestaqueValue(localConfig, field);
 
+    const resolveLogistics = (field) =>
+        isGeneral
+            ? (localConfig[field] ?? (field.startsWith("check_") ? false : ""))
+            : resolveDestaqueLogisticsField(
+                  localConfig,
+                  destaquesGeneralConfig,
+                  field,
+              );
+
+    const isLogisticsFallback = (field) => isFallbackField(field);
+
     const handleCommit = (field, value) => {
         onUpdate(locationId, { [field]: value });
     };
+
+    const handleLogisticsTextBlur = (field, rawValue) => {
+        const v = String(rawValue ?? "").trim();
+        if (!isGeneral && v === "") {
+            if (hasOwnDestaqueValue(localConfig, field)) {
+                handleCommit(field, null);
+            }
+            return;
+        }
+        const displayed = String(resolveLogistics(field) ?? "");
+        if (v !== displayed) handleCommit(field, v);
+    };
+
+    const handleLogisticsCheckChange = (field, checked) => {
+        handleCommit(field, checked);
+    };
+
+    const handleLogisticsCheckReset = (field, e) => {
+        if (isGeneral) return;
+        e.preventDefault();
+        handleCommit(field, null);
+    };
+
+    const logisticsFallbackClass = (field) =>
+        isLogisticsFallback(field)
+            ? "ring-1 ring-cyan-200 bg-cyan-50/80"
+            : "";
 
     // --- CÁLCULOS DETALLADOS DE VIÁTICO ---
     const dias = isGeneral ? 0 : (logisticsInfo?.dias || localConfig.backup_dias_computables || 0);
@@ -301,7 +340,8 @@ const LiveMassiveValuesForm = ({
                 )}
                 {isGeneral && (
                     <p className="text-[10px] text-slate-600 max-w-xl">
-                        Valores por defecto de gastos y rendiciones para todas las localidades al exportar.
+                        Valores por defecto de gastos, rendiciones y logística física para todas las
+                        localidades al exportar.
                     </p>
                 )}
                 {!isGeneral && (
@@ -351,66 +391,144 @@ const LiveMassiveValuesForm = ({
             </div>
 
             {/* FILA DE LOGÍSTICA FÍSICA */}
-            {!isGeneral && (
             <div className="mb-3 bg-white p-2 rounded border border-slate-200 shadow-sm flex flex-wrap items-center gap-4 text-xs">
                 <div className="font-bold text-indigo-800 uppercase text-[10px] flex items-center gap-1">
                     <IconBus size={12} /> Logística Física:
                 </div>
-                
+
                 <div className="flex items-center gap-2 border-r border-slate-100 pr-3">
-                    <label className="flex items-center gap-1 cursor-pointer">
-                        <input type="checkbox" checked={localConfig.check_aereo || false} onChange={e => handleCommit('check_aereo', e.target.checked)} className="rounded text-indigo-600"/>
+                    <label
+                        className={`flex items-center gap-1 cursor-pointer rounded px-1 ${logisticsFallbackClass("check_aereo")}`}
+                        title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={!!resolveLogistics("check_aereo")}
+                            onChange={(e) =>
+                                handleLogisticsCheckChange("check_aereo", e.target.checked)
+                            }
+                            onDoubleClick={(e) =>
+                                handleLogisticsCheckReset("check_aereo", e)
+                            }
+                            className="rounded text-indigo-600"
+                        />
                         Aéreo
                     </label>
-                    <label className="flex items-center gap-1 cursor-pointer">
-                        <input type="checkbox" checked={localConfig.check_terrestre || false} onChange={e => handleCommit('check_terrestre', e.target.checked)} className="rounded text-indigo-600"/>
+                    <label
+                        className={`flex items-center gap-1 cursor-pointer rounded px-1 ${logisticsFallbackClass("check_terrestre")}`}
+                        title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={!!resolveLogistics("check_terrestre")}
+                            onChange={(e) =>
+                                handleLogisticsCheckChange("check_terrestre", e.target.checked)
+                            }
+                            onDoubleClick={(e) =>
+                                handleLogisticsCheckReset("check_terrestre", e)
+                            }
+                            className="rounded text-indigo-600"
+                        />
                         Terr.
                     </label>
                 </div>
 
                 <div className="flex items-center gap-2 border-r border-slate-100 pr-3">
-                    <label className="flex items-center gap-1 cursor-pointer font-bold text-slate-600">
-                        <input type="checkbox" checked={localConfig.check_patente_oficial || false} onChange={e => handleCommit('check_patente_oficial', e.target.checked)} className="rounded text-indigo-600"/>
+                    <label
+                        className={`flex items-center gap-1 cursor-pointer font-bold text-slate-600 rounded px-1 ${logisticsFallbackClass("check_patente_oficial")}`}
+                        title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={!!resolveLogistics("check_patente_oficial")}
+                            onChange={(e) =>
+                                handleLogisticsCheckChange(
+                                    "check_patente_oficial",
+                                    e.target.checked,
+                                )
+                            }
+                            onDoubleClick={(e) =>
+                                handleLogisticsCheckReset("check_patente_oficial", e)
+                            }
+                            className="rounded text-indigo-600"
+                        />
                         OFICIAL
                     </label>
-                    <input 
-                        type="text" 
+                    <input
+                        key={`${locationId}-patente_oficial-${String(resolveLogistics("patente_oficial") || "")}-${hasOwnDestaqueValue(localConfig, "patente_oficial")}`}
+                        type="text"
                         placeholder="Patente"
-                        defaultValue={localConfig.patente_oficial || ''}
-                        onBlur={e => { if(e.target.value !== (localConfig.patente_oficial || "")) handleCommit('patente_oficial', e.target.value) }}
-                        className={`bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 w-20 outline-none uppercase text-xs focus:ring-1 focus:ring-indigo-500 ${getInputClass(locationId, 'patente_oficial', feedback)}`}
+                        defaultValue={String(resolveLogistics("patente_oficial") || "")}
+                        onBlur={(e) =>
+                            handleLogisticsTextBlur("patente_oficial", e.target.value)
+                        }
+                        className={`border border-slate-200 rounded px-1.5 py-0.5 w-20 outline-none uppercase text-xs focus:ring-1 focus:ring-indigo-500 ${logisticsFallbackClass("patente_oficial")} ${getInputClass(locationId, "patente_oficial", feedback, "bg-slate-50")}`}
                     />
                 </div>
 
                 <div className="flex items-center gap-2 border-r border-slate-100 pr-3">
-                    <label className="flex items-center gap-1 cursor-pointer text-slate-600">
-                        <input type="checkbox" checked={localConfig.check_patente_particular || false} onChange={e => handleCommit('check_patente_particular', e.target.checked)} className="rounded text-indigo-600"/>
+                    <label
+                        className={`flex items-center gap-1 cursor-pointer text-slate-600 rounded px-1 ${logisticsFallbackClass("check_patente_particular")}`}
+                        title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={!!resolveLogistics("check_patente_particular")}
+                            onChange={(e) =>
+                                handleLogisticsCheckChange(
+                                    "check_patente_particular",
+                                    e.target.checked,
+                                )
+                            }
+                            onDoubleClick={(e) =>
+                                handleLogisticsCheckReset("check_patente_particular", e)
+                            }
+                            className="rounded text-indigo-600"
+                        />
                         Particular
                     </label>
-                    <input 
-                        type="text" 
+                    <input
+                        key={`${locationId}-patente_particular-${String(resolveLogistics("patente_particular") || "")}-${hasOwnDestaqueValue(localConfig, "patente_particular")}`}
+                        type="text"
                         placeholder="Patente"
-                        defaultValue={localConfig.patente_particular || ''}
-                        onBlur={e => { if(e.target.value !== (localConfig.patente_particular || "")) handleCommit('patente_particular', e.target.value) }}
-                        className={`bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 w-20 outline-none uppercase text-xs focus:ring-1 focus:ring-indigo-500 ${getInputClass(locationId, 'patente_particular', feedback)}`}
+                        defaultValue={String(resolveLogistics("patente_particular") || "")}
+                        onBlur={(e) =>
+                            handleLogisticsTextBlur("patente_particular", e.target.value)
+                        }
+                        className={`border border-slate-200 rounded px-1.5 py-0.5 w-20 outline-none uppercase text-xs focus:ring-1 focus:ring-indigo-500 ${logisticsFallbackClass("patente_particular")} ${getInputClass(locationId, "patente_particular", feedback, "bg-slate-50")}`}
                     />
                 </div>
 
-                <div className="flex items-center gap-2 flex-1">
-                    <label className="flex items-center gap-1 cursor-pointer text-slate-600">
-                        <input type="checkbox" checked={localConfig.check_otros || false} onChange={e => handleCommit('check_otros', e.target.checked)} className="rounded text-indigo-600"/>
+                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                    <label
+                        className={`flex items-center gap-1 cursor-pointer text-slate-600 rounded px-1 shrink-0 ${logisticsFallbackClass("check_otros")}`}
+                        title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={!!resolveLogistics("check_otros")}
+                            onChange={(e) =>
+                                handleLogisticsCheckChange("check_otros", e.target.checked)
+                            }
+                            onDoubleClick={(e) =>
+                                handleLogisticsCheckReset("check_otros", e)
+                            }
+                            className="rounded text-indigo-600"
+                        />
                         Otros
                     </label>
-                    <input 
-                        type="text" 
-                        defaultValue={localConfig.transporte_otros || ''}
-                        onBlur={e => { if(e.target.value !== (localConfig.transporte_otros || "")) handleCommit('transporte_otros', e.target.value) }}
+                    <input
+                        key={`${locationId}-transporte_otros-${String(resolveLogistics("transporte_otros") || "")}-${hasOwnDestaqueValue(localConfig, "transporte_otros")}`}
+                        type="text"
+                        defaultValue={String(resolveLogistics("transporte_otros") || "")}
+                        onBlur={(e) =>
+                            handleLogisticsTextBlur("transporte_otros", e.target.value)
+                        }
                         placeholder="Detalle (Combi, etc)"
-                        className={`bg-white border border-slate-200 rounded px-2 py-0.5 text-xs w-full outline-none focus:ring-1 focus:ring-indigo-500 ${getInputClass(locationId, 'transporte_otros', feedback)}`}
+                        className={`border border-slate-200 rounded px-2 py-0.5 text-xs w-full outline-none focus:ring-1 focus:ring-indigo-500 ${logisticsFallbackClass("transporte_otros")} ${getInputClass(locationId, "transporte_otros", feedback, "bg-white")}`}
                     />
                 </div>
             </div>
-            )}
 
             {/* TABLA HORIZONTAL */}
             <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white">
@@ -1133,7 +1251,7 @@ export default function DestaquesLocationPanel({
                 >
                     <span className="text-sm font-bold flex items-center gap-2">
                         <IconSettings size={16} className="shrink-0 text-white" aria-hidden />
-                        Configuración general de localidades (fallback gastos / rendiciones)
+                        Configuración general de localidades (gastos, rendiciones y logística física)
                     </span>
                     {showGeneralDestaquesConfig ? (
                         <IconChevronUp size={18} className="shrink-0 text-white" aria-hidden />
@@ -1193,7 +1311,8 @@ export default function DestaquesLocationPanel({
                     <button onClick={() => setSelectedGroupIds([])} className="absolute top-2 right-2 z-[70] bg-white/80 hover:bg-slate-100 text-slate-400 hover:text-red-500 rounded-full p-1.5 transition-colors shadow-sm border border-slate-100"><IconX size={16} /></button>
                     <div className="h-full w-full overflow-y-auto">
                         <LocationBulkPanel 
-                            selectionStats={selectionStats} // <--- PASAMOS LAS STATS AQUÍ
+                            selectionStats={selectionStats}
+                            porcentajeDestaques={globalConfig?.porcentaje_destaques}
                             onClose={() => setSelectedGroupIds([])}
                             onExport={handleBulkExport} 
                             loading={isExporting}

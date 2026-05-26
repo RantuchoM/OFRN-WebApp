@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { IconFileText, IconLoader, IconBus, IconMap, IconFiles, IconCopy } from '../../../components/ui/Icons';
+import RenunciaViaticosExportOption from './RenunciaViaticosExportOption';
 
 export default function LocationBulkPanel({ 
     selectionStats = { totalPeople: 0, pendingPeople: 0, groupCount: 0 }, 
+    porcentajeDestaques = 100,
     onClose, 
     onExport, 
     loading, 
@@ -22,7 +24,11 @@ export default function LocationBulkPanel({
         docComun: false,
         docReducida: false,
         addDj: false,
+        renuncia_viaticos: true,
     });
+
+    const pctDestaques = parseFloat(porcentajeDestaques ?? 100);
+    const showRenunciaOption = pctDestaques === 0 && options.viatico;
 
     useEffect(() => {
         if (selectionStats.pendingPeople === 0 && selectionStats.totalPeople > 0) {
@@ -131,6 +137,15 @@ export default function LocationBulkPanel({
                             <input type="checkbox" checked={options.viatico} onChange={() => handleToggle('viatico')} className="w-4 h-4 text-indigo-600 rounded" />
                             <span className="text-sm font-medium text-slate-700">Viáticos (Calculado)</span>
                         </label>
+
+                        {showRenunciaOption && (
+                            <RenunciaViaticosExportOption
+                                checked={options.renuncia_viaticos}
+                                onChange={(v) =>
+                                    setOptions((prev) => ({ ...prev, renuncia_viaticos: v }))
+                                }
+                            />
+                        )}
 
                         <label className="flex items-center gap-3 p-2 bg-white rounded border border-slate-200 cursor-pointer hover:border-indigo-300 transition-colors">
                             <input type="checkbox" checked={options.rendicion} onChange={() => handleToggle('rendicion')} className="w-4 h-4 text-indigo-600 rounded" />

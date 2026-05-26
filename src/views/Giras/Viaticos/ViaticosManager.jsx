@@ -346,8 +346,21 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [exportDetail, setExportDetail] = useState(""); // Segunda línea de detalle
   /** Registro persistente por corrida de export (persona + ítem que falló). */
   const [exportFailureLog, setExportFailureLog] = useState([]);
+  /** Exportación viático 0%: anticipo como «RENUNCIA A VIÁTICOS» en PDF. */
+  const [exportRenunciaViaticos, setExportRenunciaViaticos] = useState(true);
   const [showEmailConfirm, setShowEmailConfirm] = useState(false);
   const [notification, setNotification] = useState(null);
+
+  const selectionHasViaticoCero = useMemo(
+    () =>
+      viaticosRows.some(
+        (r) =>
+          selection.has(r.id_integrante) &&
+          parseFloat(r.porcentaje ?? 100) === 0,
+      ),
+    [viaticosRows, selection],
+  );
+
 
   const refreshViaticosData = async () => {
     await Promise.all([refreshLogistics(), fetchViaticos()]);
@@ -845,7 +858,11 @@ export default function ViaticosManager({ supabase, giraId }) {
     setExportDetail("Actualizando registros en BD...");
     setExportFailureLog([]);
 
-    const pdfExportConfig = { ...config, useHistoricalCalc };
+    const pdfExportConfig = {
+      ...config,
+      useHistoricalCalc,
+      renuncia_viaticos: !!options.renuncia_viaticos,
+    };
 
     const resolveViaticoDetalleRowId = (row) => {
       if (row.id_gira != null && row.id_integrante != null && row.id != null) {
@@ -1248,6 +1265,9 @@ export default function ViaticosManager({ supabase, giraId }) {
         rich.gastos_movil_otros = massConfig.gastos_movil_otros || 0;
         rich.gastos_capacit = massConfig.gastos_capacit || 0;
         rich.transporte_otros = massConfig.transporte_otros || "";
+        rich.check_aereo = massConfig.check_aereo ?? false;
+        rich.check_terrestre = massConfig.check_terrestre ?? false;
+        rich.check_otros = massConfig.check_otros ?? false;
         rich.check_patente_oficial =
           massConfig.check_patente_oficial ?? p.check_patente_oficial ?? false;
         rich.patente_oficial =
@@ -1316,6 +1336,7 @@ export default function ViaticosManager({ supabase, giraId }) {
 
         const computedSub = Math.round(dias * valDiario * 100) / 100;
         rich.valorDiarioCalc = valDiario;
+        rich.porcentaje = pctGlobal;
         rich.subtotal = computedSub;
         rich.subtotal = getAnticipoSubtotalForExport(rich, useHistoricalCalc);
 
@@ -1439,6 +1460,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     //     unifyFiles = false -> "individual" (PDF por persona)
     const normalizedOptions = {
       ...options,
+      renuncia_viaticos: !!(options.renuncia_viaticos || exportRenunciaViaticos),
       unificationMode:
         options.unificationMode ||
         (options.unifyFiles ? "master" : "individual"),
@@ -1897,11 +1919,16 @@ export default function ViaticosManager({ supabase, giraId }) {
                     { id: integranteId };
                   setEditingMusician(musician);
                 }}
+                exportRenunciaViaticos={exportRenunciaViaticos}
+                onExportRenunciaViaticosChange={setExportRenunciaViaticos}
               />
 
               {selection.size > 0 && (
                 <ViaticosBulkEditPanel
                   selectionSize={selection.size}
+                  selectionHasViaticoCero={selectionHasViaticoCero}
+                  exportRenunciaViaticos={exportRenunciaViaticos}
+                  onExportRenunciaViaticosChange={setExportRenunciaViaticos}
                   onClose={() => setSelection(new Set())}
                   values={batchValues}
                   setValues={setBatchValues}

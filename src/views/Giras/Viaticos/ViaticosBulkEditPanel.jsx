@@ -17,6 +17,7 @@ import {
   IconAlertTriangle,
   IconEdit,
 } from "../../../components/ui/Icons";
+import RenunciaViaticosExportOption from "./RenunciaViaticosExportOption";
 
 // --- COMPONENTE AUXILIAR ACCORDION ---
 const AccordionSection = ({
@@ -61,6 +62,9 @@ const AccordionSection = ({
 // --- COMPONENTE PRINCIPAL ---
 export default function ViaticosBulkEditPanel({
   selectionSize,
+  selectionHasViaticoCero = false,
+  exportRenunciaViaticos = true,
+  onExportRenunciaViaticosChange,
   onClose,
   values,
   setValues,
@@ -95,7 +99,11 @@ export default function ViaticosBulkEditPanel({
     docReducida: false,
     addDj: false,
     unifyFiles: false,
+    renuncia_viaticos: true,
   });
+
+  const showRenunciaOption =
+    selectionHasViaticoCero && exportOptions.viatico;
 
   // --- DETECCIÓN DE CAMBIOS ---
   const hasChanges = useMemo(() => {
@@ -129,7 +137,11 @@ export default function ViaticosBulkEditPanel({
     setValues((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleConfirmExport = () => onExport(exportOptions);
+  const handleConfirmExport = () =>
+    onExport({
+      ...exportOptions,
+      renuncia_viaticos: exportRenunciaViaticos || exportOptions.renuncia_viaticos,
+    });
 
   const isAnyOptionSelected =
     exportOptions.viatico ||
@@ -512,6 +524,18 @@ export default function ViaticosBulkEditPanel({
                   />{" "}
                   1. Viático
                 </label>
+                {showRenunciaOption && (
+                  <RenunciaViaticosExportOption
+                    className="mx-1"
+                    checked={exportRenunciaViaticos || exportOptions.renuncia_viaticos}
+                    onChange={(v) => {
+                      if (typeof onExportRenunciaViaticosChange === "function") {
+                        onExportRenunciaViaticosChange(v);
+                      }
+                      setExportOptions((prev) => ({ ...prev, renuncia_viaticos: v }));
+                    }}
+                  />
+                )}
                 <label className="flex items-center gap-2 text-xs text-slate-700 p-1.5 hover:bg-slate-50 rounded cursor-pointer">
                   <input
                     type="checkbox"

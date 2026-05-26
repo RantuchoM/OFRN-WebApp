@@ -3,6 +3,8 @@ import { saveAs } from "file-saver";
 import { firstMondayAfter, formatDdMmYy, formatDdMmYyyy } from "./dates";
 import {
   getAnticipoSubtotalForExport,
+  resolveAnticipoParaPdfViatico,
+  RENUNCIA_VIATICOS_TEXTO,
   sumGastosViaticoRow,
 } from "./viaticosAnticipo";
 import { isRecorridosConfig } from "./destaquesLugarComisionRecorridos";
@@ -225,10 +227,16 @@ export const exportViaticosToPDFForm = async (
       mode === "destaque"
         ? rawData
         : (() => {
-            const sub = getAnticipoSubtotalForExport(rawData, useHistorical);
+            const sub = resolveAnticipoParaPdfViatico(
+              rawData,
+              useHistorical,
+              !!configData?.renuncia_viaticos,
+            );
             const gastos = sumGastosViaticoRow(rawData);
+            const subNum =
+              typeof sub === "string" ? 0 : getAnticipoSubtotalForExport(rawData, useHistorical);
             const totalFinal =
-              Math.round((sub + gastos + Number.EPSILON) * 100) / 100;
+              Math.round((subNum + gastos + Number.EPSILON) * 100) / 100;
             return { ...rawData, subtotal: sub, totalFinal };
           })();
     const srcDoc = await PDFDocument.load(
@@ -253,6 +261,7 @@ export const exportViaticosToPDFForm = async (
     const lugarYFecha = buildLugarYFecha(data, giraData, configData);
 
     const money = (val) => {
+      if (val === RENUNCIA_VIATICOS_TEXTO) return RENUNCIA_VIATICOS_TEXTO;
       if (!keepEditable) return fmtMoney(val);
       const num = Number(val);
       if (!Number.isFinite(num)) return "";

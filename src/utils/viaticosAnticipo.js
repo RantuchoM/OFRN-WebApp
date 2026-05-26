@@ -1,3 +1,14 @@
+/** Texto del PDF/Excel cuando el viático es 0% y se marca renuncia en exportación. */
+export const RENUNCIA_VIATICOS_TEXTO = "RENUNCIA A VIÁTICOS";
+
+/** Viático al 0% (no destaque): porcentaje de liquidación en la fila o global de destaques. */
+export function isViaticoPorcentajeCero(row) {
+  const raw = row?.porcentaje ?? row?.porcentaje_destaques;
+  if (raw === null || raw === undefined || raw === "") return false;
+  const n = parseFloat(String(raw).trim());
+  return Number.isFinite(n) && n === 0;
+}
+
 /** Evita NaN y no confunde 0 con “vacío” (no usar || sobre subtotales). */
 function safeMoney(v) {
   if (v === null || v === undefined || v === "") return 0;
@@ -31,6 +42,21 @@ export function getAnticipoSubtotalForExport(row, useHistoricalCalc) {
   const dias = parseFloat(row.backup_dias_computables ?? 0);
   const val = parseFloat(row.valorDiarioCalc ?? 0);
   return Math.round((dias * val) * 100) / 100;
+}
+
+/**
+ * Anticipo para PDF viático: si renuncia activa y viático 0% con monto 0, devuelve texto legal.
+ */
+export function resolveAnticipoParaPdfViatico(
+  row,
+  useHistoricalCalc,
+  renunciaViaticos,
+) {
+  const sub = getAnticipoSubtotalForExport(row, useHistoricalCalc);
+  if (renunciaViaticos && isViaticoPorcentajeCero(row) && sub === 0) {
+    return RENUNCIA_VIATICOS_TEXTO;
+  }
+  return sub;
 }
 
 const GASTOS_VIATICO_KEYS = [
