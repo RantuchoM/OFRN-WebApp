@@ -81,6 +81,15 @@ const IconCalendarPlus = ({ size = 20, className = "" }) => (
 const sanitizePreviewHtml = (html) => {
   let value = String(html || "");
   if (!value) return "";
+  // El editor puede dejar tags inline vacíos dentro de bloques vacíos
+  // (p.ej. <div><i>\n</i></div>), que igualmente ocupan alto.
+  const EMPTY_INLINE_TAG_RE =
+    /<(?:span|i|em|strong|b|u|small|font)[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/(?:span|i|em|strong|b|u|small|font)>/gi;
+  let prev = "";
+  while (prev !== value) {
+    prev = value;
+    value = value.replace(EMPTY_INLINE_TAG_RE, "");
+  }
   // El editor deja bloques vacíos al final (<div><br></div>, <p>&nbsp;</p>, etc. con o sin atributos)
   value = value.replace(
     /(?:\s*<(?:div|p)[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/(?:div|p)>)+\s*$/gi,

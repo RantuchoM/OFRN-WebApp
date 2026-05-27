@@ -87,8 +87,17 @@ const normalizeSearchText = (value) =>
 const sanitizePreviewHtml = (content) => {
   let html = String(content || "");
   if (!html) return "";
-  // El editor suele dejar bloques vacíos al final (<div><br></div>, <p>&nbsp;</p>, etc.),
-  // incluso con atributos (<div style="...">). Los removemos sólo al final.
+  // El editor suele dejar tags inline vacíos dentro de bloques vacíos
+  // (p.ej. <div><i>\n</i></div>), que también agregan altura.
+  const EMPTY_INLINE_TAG_RE =
+    /<(?:span|i|em|strong|b|u|small|font)[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/(?:span|i|em|strong|b|u|small|font)>/gi;
+  let prev = "";
+  while (prev !== html) {
+    prev = html;
+    html = html.replace(EMPTY_INLINE_TAG_RE, "");
+  }
+  // Luego removemos bloques vacíos al final (<div><br></div>, <p>&nbsp;</p>, etc.),
+  // incluso con atributos (<div style="...">).
   html = html.replace(
     /(?:\s*<(?:div|p)[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/(?:div|p)>)+\s*$/gi,
     "",
