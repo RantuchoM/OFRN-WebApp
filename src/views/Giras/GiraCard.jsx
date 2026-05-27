@@ -211,17 +211,19 @@ export default function GiraCard({
     }
   }, [showRepertoireInCards, defaultOpenSection]);
   const baseStyle = getProgramStyle(gira.tipo);
+  const getStyleToken = (regex, fallback) =>
+    baseStyle.color.match(regex)?.[0] || fallback;
+  const borderColorClass = getStyleToken(/border-[\w-]+-\d+/, "border-slate-300");
+  const typeColorClass = getStyleToken(/text-[\w-]+-\d+/, "text-slate-700");
   let cardClasses = baseStyle.color;
   if (gira.estado === "Pausada") {
     cardClasses = "bg-amber-50 border-amber-300 text-amber-900 opacity-75";
   } else if (gira.estado === "Borrador") {
-    cardClasses = "bg-slate-50 border-slate-300 text-slate-600";
+    cardClasses = `bg-slate-50 text-slate-600 ${borderColorClass}`;
   }
 
   const titleColorClass =
-    gira.estado === "Vigente"
-      ? baseStyle.color.match(/text-[\w]+-\d+/)?.[0] || "text-slate-800"
-      : "text-current";
+    gira.estado === "Pausada" ? "text-amber-900" : typeColorClass;
   const dateInfo = formatDateRangeBig(gira.fecha_desde, gira.fecha_hasta);
   const desktopBtnClass =
     "w-7 h-7 flex items-center justify-center bg-white/80 backdrop-blur rounded-full shadow-sm border border-black/5 transition-all hover:scale-105 active:scale-95 cursor-pointer";
@@ -658,20 +660,20 @@ export default function GiraCard({
             className={`flex w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth ${showQuickAccessSidebar ? "pr-[5.25rem]" : ""}`}
           >
             <div className="min-w-full w-full h-full snap-center p-3 flex flex-col justify-between relative">
-              <div className="flex items-center gap-2 text-[14px] font-bold uppercase tracking-wide opacity-60 truncate pr-4">
-                <span>{gira.tipo}</span>
+              <div className="flex items-center gap-2 text-[14px] font-bold uppercase tracking-wide truncate pr-4">
+                <span className={typeColorClass}>{gira.tipo}</span>
                 {gira.zona && (
                   <>
                     <span className="opacity-30">|</span>
-                    <span>{gira.zona}</span>
+                    <span className="opacity-60">{gira.zona}</span>
                   </>
                 )}
                 <span className="opacity-30">|</span>
               </div>
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide opacity-60 truncate pr-4">
-                <span className="truncate">{gira.nomenclador}</span>
+                <span className={`truncate ${typeColorClass}`}>{gira.nomenclador}</span>
                 <span className="opacity-30">|</span>
-                <span>{gira.mes_letra}</span>
+                <span className={typeColorClass}>{gira.mes_letra}</span>
               </div>
               <div className="flex flex-col items-center justify-center flex-1">
                 {dateInfo ? (
@@ -769,18 +771,22 @@ export default function GiraCard({
               updateView(isDifusion ? "DIFUSION" : "AGENDA", gira.id)
             }
           >
-            <div className="flex flex-wrap items-center gap-2 text-xs opacity-70 mb-1">
-              <span className="font-black uppercase tracking-wide text-[10px]">
+            <div className="flex flex-wrap items-center gap-2 text-xs mb-1">
+              <span
+                className={`font-black uppercase tracking-wide text-[10px] ${typeColorClass}`}
+              >
                 {gira.tipo}
               </span>
               {gira.zona && (
                 <>
                   <span className="opacity-30">|</span>
-                  <span className="font-bold">{gira.zona}</span>
+                  <span className="font-bold opacity-70">{gira.zona}</span>
                 </>
               )}
               <span className="opacity-30">|</span>
-              <span className="font-medium bg-white/50 px-1.5 rounded border border-black/5 text-[10px]">
+              <span
+                className={`font-medium px-1.5 rounded border text-[10px] bg-white/60 ${borderColorClass} ${typeColorClass}`}
+              >
                 {gira.mes_letra} {gira.nomenclador}
               </span>
               {gira.estado !== "Vigente" && (

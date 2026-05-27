@@ -321,10 +321,15 @@ const getEstadoHeaderClass = (estado) => {
 
 /** Fondo/borde del bloque formulario según estado (p. ej. Oficial) */
 const getEstadoShellClass = (estado) => {
-  if (estado === "Oficial") {
-    return "bg-emerald-50/90 border-emerald-200/80";
-  }
-  return "bg-white border-slate-200";
+  const map = {
+    Solicitud: "bg-amber-50/85 border-amber-200/80",
+    Pendiente: "bg-slate-50/90 border-slate-200/80",
+    "Para arreglar": "bg-orange-50/85 border-orange-200/80",
+    Entregado: "bg-sky-50/85 border-sky-200/80",
+    Informativo: "bg-blue-50/85 border-blue-200/80",
+    Oficial: "bg-emerald-50/90 border-emerald-200/80",
+  };
+  return map[estado] || "bg-white border-slate-200";
 };
 
 // --- COMPONENTE PRINCIPAL ---

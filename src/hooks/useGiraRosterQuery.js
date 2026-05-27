@@ -20,6 +20,7 @@ export function useGiraRosterQuery(supabase, gira, { enabled = true } = {}) {
     },
     enabled: Boolean(enabled && id),
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: true,
   });
 
   const refreshRoster = async () => {

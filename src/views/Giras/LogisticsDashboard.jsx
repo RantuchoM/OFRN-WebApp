@@ -228,7 +228,7 @@ export default function LogisticsDashboard({
 
                 {/* Dropdown pegado al botón: solo escritorio */}
                 {isMealsMenuOpen && (
-                  <div className="hidden lg:flex lg:flex-col absolute top-full right-0 mt-[-2px] bg-white border border-slate-200 rounded-b-lg shadow-xl z-50 min-w-[160px] py-1 animate-in fade-in zoom-in-95">
+                  <div className="hidden lg:flex lg:flex-col absolute top-full right-0 mt-[-2px] bg-white border border-slate-200 rounded-b-lg shadow-xl z-[120] min-w-[160px] py-1 animate-in fade-in zoom-in-95">
                     <DropdownItem
                       active={activeTab === "meals"}
                       onClick={() => handleTabChange("meals")}

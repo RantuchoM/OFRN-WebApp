@@ -84,6 +84,20 @@ const normalizeSearchText = (value) =>
     .trim()
     .toLowerCase();
 
+const sanitizePreviewHtml = (content) => {
+  let html = String(content || "");
+  if (!html) return "";
+  // El editor suele dejar bloques vacíos al final (<div><br></div>, <p>&nbsp;</p>, etc.),
+  // incluso con atributos (<div style="...">). Los removemos sólo al final.
+  html = html.replace(
+    /(?:\s*<(?:div|p)[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/(?:div|p)>)+\s*$/gi,
+    "",
+  );
+  // También cortamos <br> sueltos al final.
+  html = html.replace(/(?:\s|&nbsp;|<br\s*\/?>)+$/gi, "");
+  return html.trim();
+};
+
 function secondsToMmSsDurationInput(totalSeconds) {
   if (totalSeconds == null || !Number.isFinite(Number(totalSeconds))) return "";
   const n = Math.max(0, Math.floor(Number(totalSeconds)));
@@ -256,11 +270,12 @@ function RepertorioProgramDurationCell({ item, isEditor, updateWorkDetail, compa
 
 // --- RENDERER DE TEXTO RICO ---
 const RichTextPreview = ({ content, className = "" }) => {
-  if (!content) return null;
+  const sanitized = sanitizePreviewHtml(content);
+  if (!sanitized) return null;
   return (
     <div
       className={`whitespace-pre-wrap [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:ml-1 leading-tight ${className}`}
-      dangerouslySetInnerHTML={{ __html: content }}
+      dangerouslySetInnerHTML={{ __html: sanitized }}
     />
   );
 };
@@ -1569,6 +1584,7 @@ export default function RepertoireManager({
   readOnly = undefined,
   onSyncArco,
 }) {
+  const LIBRARY_PAGE_SIZE = 80;
   const { user, isEditor: isGlobalEditor, isAdmin } = useAuth();
 
   const isEditor = readOnly !== undefined ? !readOnly : isGlobalEditor;
@@ -1589,6 +1605,11 @@ export default function RepertoireManager({
   const [activeWorkItem, setActiveWorkItem] = useState(null);
   const [worksLibrary, setWorksLibrary] = useState([]);
   const [loadingLibrary, setLoadingLibrary] = useState(false);
+  const [libraryPage, setLibraryPage] = useState(0);
+  const [libraryHasMore, setLibraryHasMore] = useState(false);
+  const [hasSearchedLibrary, setHasSearchedLibrary] = useState(false);
+  const [libraryError, setLibraryError] = useState(null);
+  const [observacionesPreviewWork, setObservacionesPreviewWork] = useState(null);
   const [instrumentList, setInstrumentList] = useState([]);
   const [commentsState, setCommentsState] = useState(null);
   const [filters, setFilters] = useState({
@@ -1653,7 +1674,6 @@ export default function RepertoireManager({
   }, [programId, user?.id]);
   useEffect(() => {
     if (isAddModalOpen || isEditWorkModalOpen) {
-      if (worksLibrary.length === 0) fetchLibrary();
       if (instrumentList.length === 0) fetchInstruments();
     }
   }, [isAddModalOpen, isEditWorkModalOpen]);
@@ -1664,6 +1684,15 @@ export default function RepertoireManager({
     }, 180);
     return () => clearTimeout(timer);
   }, [filters]);
+
+  useEffect(() => {
+    if (!isAddModalOpen) return;
+    setWorksLibrary([]);
+    setLibraryPage(0);
+    setLibraryHasMore(false);
+    setHasSearchedLibrary(false);
+    setLibraryError(null);
+  }, [isAddModalOpen]);
 
   const fetchMusicians = async () => {
     const { data } = await supabase
@@ -1860,25 +1889,51 @@ export default function RepertoireManager({
     setLoading(false);
   };
 
-  const fetchLibrary = async () => {
+  const fetchLibrary = async ({ page = 0, append = false } = {}) => {
     setLoadingLibrary(true);
-    const { data, error } = await supabase
+    setLibraryError(null);
+    const composerFilter = normalizeSearchText(debouncedFilters.compositor);
+    const arrangerFilter = normalizeSearchText(debouncedFilters.arreglador);
+    const useBroadFetch = composerFilter.length >= 2 || arrangerFilter.length >= 2;
+    const from = page * LIBRARY_PAGE_SIZE;
+    const to = from + LIBRARY_PAGE_SIZE - 1;
+    let query = supabase
       .from("obras")
       .select(
         `*, obras_compositores (rol, compositores (apellido, nombre)), obras_palabras_clave (palabras_clave (tag)), obras_particellas (nombre_archivo, nota_organico, es_solista, instrumentos (instrumento, abreviatura))`,
       )
       .order("titulo");
-    if (!error && data)
-      setWorksLibrary(
-        data.map((w) => ({
-          ...w,
-          compositor_full: getComposers(w),
-          arreglador_full: getArranger(w),
-          titulo_plain: normalizeSearchText(w.titulo),
-          compositor_plain: normalizeSearchText(getComposers(w)),
-          arreglador_plain: normalizeSearchText(getArranger(w)),
-        })),
-      );
+
+    if (useBroadFetch) {
+      // Para compositor/arreglador, necesitamos una base amplia para que el filtro local funcione correctamente.
+      query = query.range(0, 1999);
+    } else {
+      query = query.range(from, to);
+    }
+
+    const tituloFilter = normalizeSearchText(debouncedFilters.titulo);
+    if (tituloFilter.length >= 2) {
+      query = query.ilike("titulo", `%${debouncedFilters.titulo.trim()}%`);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      setLibraryError(error.message || "No se pudo cargar la biblioteca de obras.");
+      setLoadingLibrary(false);
+      return;
+    }
+    const mapped = (data || []).map((w) => ({
+      ...w,
+      compositor_full: getComposers(w),
+      arreglador_full: getArranger(w),
+      titulo_plain: normalizeSearchText(w.titulo),
+      compositor_plain: normalizeSearchText(getComposers(w)),
+      arreglador_plain: normalizeSearchText(getArranger(w)),
+    }));
+    setWorksLibrary((prev) => (append ? [...prev, ...mapped] : mapped));
+    setLibraryPage(page);
+    setLibraryHasMore(!useBroadFetch && mapped.length === LIBRARY_PAGE_SIZE);
+    setHasSearchedLibrary(true);
     setLoadingLibrary(false);
   };
 
@@ -2304,6 +2359,60 @@ export default function RepertoireManager({
       </a>
     );
   };
+  const getEstadoRowBgClass = (estado) => {
+    const e = estado || "Oficial";
+    switch (e) {
+      case "Informativo":
+        return "bg-blue-50/40 hover:bg-blue-50/70";
+      case "Solicitud":
+        return "bg-amber-50/45 hover:bg-amber-50/70";
+      case "Para arreglar":
+        return "bg-orange-50/40 hover:bg-orange-50/65";
+      case "Entregado":
+        return "bg-sky-50/45 hover:bg-sky-50/75 border-l-[3px] border-sky-300/60";
+      case "Oficial":
+        return "bg-emerald-50/40 hover:bg-emerald-50/65";
+      case "Pendiente":
+        return "bg-slate-50/50 hover:bg-slate-100/75";
+      default:
+        return "bg-slate-50/40 hover:bg-slate-50/70";
+    }
+  };
+
+  const splitNamesLabel = (value) =>
+    String(value || "")
+      .split("/")
+      .map((part) => {
+        const [apellido, ...resto] = part.split(",");
+        return {
+          apellido: (apellido || "").trim(),
+          nombre: resto.join(",").trim(),
+        };
+      })
+      .filter((p) => p.apellido || p.nombre);
+
+  const shouldFetchLibrary = useMemo(() => {
+    const composerFilter = normalizeSearchText(debouncedFilters.compositor);
+    const titleFilter = normalizeSearchText(debouncedFilters.titulo);
+    const arrangerFilter = normalizeSearchText(debouncedFilters.arreglador);
+    return (
+      composerFilter.length >= 2 ||
+      titleFilter.length >= 2 ||
+      arrangerFilter.length >= 2
+    );
+  }, [debouncedFilters]);
+
+  useEffect(() => {
+    if (!isAddModalOpen) return;
+    if (!shouldFetchLibrary) {
+      setWorksLibrary([]);
+      setLibraryPage(0);
+      setLibraryHasMore(false);
+      return;
+    }
+    fetchLibrary({ page: 0, append: false });
+  }, [isAddModalOpen, shouldFetchLibrary, debouncedFilters]);
+
   const filteredLibrary = useMemo(() => worksLibrary.filter((w) => {
     const tituloFilter = normalizeSearchText(debouncedFilters.titulo);
     const compositorFilter = normalizeSearchText(debouncedFilters.compositor);
@@ -3699,7 +3808,7 @@ export default function RepertoireManager({
                 <IconX size={20} />
               </button>
             </div>
-            <div className="p-2 border-b grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,9rem)_minmax(0,1fr)_minmax(14rem,2.75fr)_auto] gap-4 bg-white items-end">
+            <div className="p-2 border-b grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,9rem)_minmax(14rem,2.75fr)_auto] gap-4 bg-white items-end">
               <div className="space-y-2 min-w-0">
                 <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Compositor</div>
                 <input
@@ -3714,18 +3823,6 @@ export default function RepertoireManager({
                 />
               </div>
               <div className="space-y-2 min-w-0">
-                <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Arreglador</div>
-                <input
-                  type="text"
-                  placeholder="Buscar..."
-                  className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500"
-                  value={filters.arreglador}
-                  onChange={(e) =>
-                    setFilters({ ...filters, arreglador: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2 min-w-0">
                 <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Obra</div>
                 <input
                   type="text"
@@ -3734,6 +3831,18 @@ export default function RepertoireManager({
                   value={filters.titulo}
                   onChange={(e) =>
                     setFilters({ ...filters, titulo: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2 min-w-0">
+                <div className="flex items-center text-xs font-bold text-slate-500 uppercase">Arreglador</div>
+                <input
+                  type="text"
+                  placeholder="Buscar..."
+                  className="w-full p-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500"
+                  value={filters.arreglador}
+                  onChange={(e) =>
+                    setFilters({ ...filters, arreglador: e.target.value })
                   }
                 />
               </div>
@@ -3784,6 +3893,21 @@ export default function RepertoireManager({
                 <div className="p-8 text-center text-fixed-indigo-600">
                   <IconLoader className="animate-spin inline" />
                 </div>
+              ) : !shouldFetchLibrary ? (
+                <div className="p-8 text-center">
+                  <div className="text-sm font-semibold text-slate-600">
+                    Empieza escribiendo compositor, obra o arreglador.
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Cargamos resultados bajo demanda para reducir consumo de datos.
+                  </div>
+                </div>
+              ) : libraryError ? (
+                <div className="p-8 text-center">
+                  <div className="text-sm font-semibold text-red-600">
+                    {libraryError}
+                  </div>
+                </div>
               ) : filteredLibrary.length === 0 ? (
                 <div className="p-8 text-center">
                   <div className="text-sm font-semibold text-slate-600">
@@ -3797,16 +3921,26 @@ export default function RepertoireManager({
                 <>
                   <div className="md:hidden p-2 space-y-2">
                     {filteredLibrary.map((w) => (
-                      <div key={w.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                        <div className="text-[11px] font-semibold text-slate-600 truncate text-center">
-                          {w.compositor_full}
+                      <div key={w.id} className={`rounded-lg border border-slate-200 p-3 shadow-sm ${getEstadoRowBgClass(w.estado)}`}>
+                        <div className="text-[11px] text-slate-600 text-center">
+                          {splitNamesLabel(w.compositor_full).map((c, idx) => (
+                            <div key={idx} className="leading-tight">
+                              <div className="font-semibold">{c.apellido}</div>
+                              {c.nombre ? <div className="text-[10px] text-slate-500">{c.nombre}</div> : null}
+                            </div>
+                          ))}
                         </div>
                         {w.arreglador_full !== "-" && (
-                          <div className="text-[10px] text-slate-500 truncate mt-0.5">
-                            Arr.: {w.arreglador_full}
+                          <div className="text-[10px] text-slate-500 truncate mt-0.5 text-center">
+                            {splitNamesLabel(w.arreglador_full).map((a, idx) => (
+                              <div key={idx} className="leading-tight">
+                                <span className="font-semibold">{a.apellido}</span>
+                                {a.nombre ? <span>{`, ${a.nombre}`}</span> : null}
+                              </div>
+                            ))}
                           </div>
                         )}
-                        <div className="text-xs text-slate-800 font-bold mt-1 line-clamp-2">
+                        <div className="text-xs text-slate-800 mt-1 line-clamp-2">
                           <RichTextPreview content={w.titulo} />
                         </div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-slate-500">
@@ -3834,39 +3968,53 @@ export default function RepertoireManager({
                   <table className="hidden md:table w-full table-fixed text-left text-xs">
                     <colgroup>
                       <col style={{ width: "18%" }} />
-                      <col style={{ width: "9%" }} />
                       <col style={{ width: "26%" }} />
+                      <col style={{ width: "10%" }} />
                       <col style={{ width: "4.25rem" }} />
                       <col style={{ width: "22%" }} />
                       <col style={{ width: "3rem" }} />
+                      <col style={{ width: "2.75rem" }} />
                       <col style={{ width: "2.75rem" }} />
                       <col style={{ width: "5.5rem" }} />
                     </colgroup>
                     <thead className="bg-slate-50 text-slate-500 uppercase sticky top-0 font-bold shadow-sm">
                       <tr>
                         <th className="p-2 text-center align-middle">Compositor</th>
-                        <th className="p-2">Arreglador</th>
                         <th className="p-2">Obra</th>
+                        <th className="p-2">Arreglador</th>
                         <th className="p-2 text-center">Duración</th>
                         <th className="p-2 text-center">Instr.</th>
                         <th className="p-2 text-center">Año</th>
                         <th className="p-2 text-center">Drive</th>
+                        <th className="p-2 text-center">Notas</th>
                         <th className="p-2 text-right"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {filteredLibrary.map((w) => (
-                        <tr key={w.id} className="hover:bg-fixed-indigo-50 group">
-                          <td className="p-2 text-center align-middle text-slate-600 font-medium">
+                        <tr key={w.id} className={`group ${getEstadoRowBgClass(w.estado)}`}>
+                          <td className="p-2 text-center align-middle text-slate-600">
                             <div className="truncate" title={w.compositor_full}>
-                              {w.compositor_full}
+                              {splitNamesLabel(w.compositor_full).slice(0, 2).map((c, idx) => (
+                                <div key={idx} className="leading-tight">
+                                  <div className="truncate text-[11px] font-semibold text-slate-700">{c.apellido}</div>
+                                  {c.nombre ? <div className="truncate text-[10px] text-slate-500">{c.nombre}</div> : null}
+                                </div>
+                              ))}
                             </div>
                           </td>
-                          <td className="p-2 text-slate-500 truncate max-w-0">
-                            {w.arreglador_full !== "-" ? w.arreglador_full : ""}
-                          </td>
-                          <td className="p-2 text-slate-800 font-bold truncate">
+                          <td className="p-2 text-slate-800 truncate">
                             <RichTextPreview content={w.titulo} />
+                          </td>
+                          <td className="p-2 text-slate-500 truncate max-w-0">
+                            {w.arreglador_full !== "-"
+                              ? splitNamesLabel(w.arreglador_full).map((a, idx) => (
+                                  <div key={idx} className="leading-tight">
+                                    <span className="font-semibold text-[11px] text-slate-600">{a.apellido}</span>
+                                    {a.nombre ? <span className="text-[10px] text-slate-500">{`, ${a.nombre}`}</span> : null}
+                                  </div>
+                                ))
+                              : ""}
                           </td>
                           <td className="p-2 text-center font-mono text-[10px] text-slate-400 whitespace-nowrap">
                             {formatSecondsToTime(w.duracion_segundos)}
@@ -3897,6 +4045,20 @@ export default function RepertoireManager({
                               <span className="text-slate-200">-</span>
                             )}
                           </td>
+                          <td className="p-2 text-center">
+                            {normalizeSearchText(w.observaciones) ? (
+                              <button
+                                type="button"
+                                onClick={() => setObservacionesPreviewWork(w)}
+                                className="inline-flex items-center justify-center rounded border border-yellow-200 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 p-1"
+                                title="Ver observaciones generales"
+                              >
+                                <IconAlertCircle size={12} />
+                              </button>
+                            ) : (
+                              <span className="text-slate-200">-</span>
+                            )}
+                          </td>
                           <td className="p-2 text-right">
                             <button
                               onClick={() => addWorkToBlock(w.id)}
@@ -3909,8 +4071,48 @@ export default function RepertoireManager({
                       ))}
                     </tbody>
                   </table>
+                  {libraryHasMore && (
+                    <div className="p-2 border-t border-slate-100 flex justify-center bg-white">
+                      <button
+                        type="button"
+                        disabled={loadingLibrary}
+                        onClick={() =>
+                          fetchLibrary({ page: libraryPage + 1, append: true })
+                        }
+                        className="px-3 py-1.5 text-xs font-bold rounded border border-fixed-indigo-200 text-fixed-indigo-600 hover:bg-fixed-indigo-50 disabled:opacity-60"
+                      >
+                        {loadingLibrary ? "Cargando..." : "Cargar más"}
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
+      {observacionesPreviewWork && (
+        <ModalPortal onClose={() => setObservacionesPreviewWork(null)}>
+          <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-700">
+                Observaciones generales
+              </h3>
+              <button
+                onClick={() => setObservacionesPreviewWork(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            <div className="p-4 space-y-2">
+              <div className="text-xs text-slate-500">
+                <RichTextPreview content={observacionesPreviewWork.titulo} />
+              </div>
+              <div className="rounded border border-yellow-200 bg-yellow-50 p-3 text-sm text-slate-700 max-h-[55vh] overflow-auto">
+                <RichTextPreview content={observacionesPreviewWork.observaciones} />
+              </div>
             </div>
           </div>
         </ModalPortal>

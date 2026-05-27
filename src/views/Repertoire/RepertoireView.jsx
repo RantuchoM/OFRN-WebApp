@@ -78,12 +78,26 @@ const IconCalendarPlus = ({ size = 20, className = "" }) => (
 
 // --- 1. HELPERS & UTILIDADES ---
 
+const sanitizePreviewHtml = (html) => {
+  let value = String(html || "");
+  if (!value) return "";
+  // El editor deja bloques vacíos al final (<div><br></div>, <p>&nbsp;</p>, etc. con o sin atributos)
+  value = value.replace(
+    /(?:\s*<(?:div|p)[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/(?:div|p)>)+\s*$/gi,
+    "",
+  );
+  // También recortamos <br> sueltos y espacios al final
+  value = value.replace(/(?:\s|&nbsp;|<br\s*\/?>)+$/gi, "");
+  return value.trim();
+};
+
 const RichTextPreview = ({ content, className = "" }) => {
-  if (!content) return null;
+  const sanitized = sanitizePreviewHtml(content);
+  if (!sanitized) return null;
   return (
     <div
       className={`whitespace-pre-wrap [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:pl-1 ${className}`}
-      dangerouslySetInnerHTML={{ __html: content }}
+      dangerouslySetInnerHTML={{ __html: sanitized }}
     />
   );
 };
@@ -532,6 +546,34 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [editingId, setEditingId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({});
+  const WORK_SELECT = `
+    *,
+    obras_compositores (
+      rol,
+      compositores (
+        apellido,
+        nombre,
+        paises (nombre)
+      )
+    ),
+    obras_palabras_clave (
+      palabras_clave (id, tag)
+    ),
+    usuario_carga:integrantes!id_usuario_carga (
+      apellido,
+      nombre
+    ),
+    repertorio_obras (
+      programas_repertorios (
+        programas (
+          id,
+          nombre_gira,
+          fecha_desde,
+          fecha_hasta
+        )
+      )
+    )
+  `;
 
   useEffect(() => { fetchWorks(); fetchTags(); }, []);
 
@@ -580,114 +622,105 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     if (data) setAvailableTags(data);
   };
 
+  const processWork = (w) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const listComposers = w.obras_compositores?.filter(
+      (oc) => oc.rol === "compositor" || !oc.rol,
+    );
+    const listArrangers = w.obras_compositores?.filter(
+      (oc) => oc.rol === "arreglador",
+    );
+    const instValues = {};
+    ["fl", "ob", "cl", "bn", "hn", "tpt", "tbn", "tba", "timp", "perc", "harp", "key"].forEach(
+      (k) => {
+        instValues[k] = getInstrumentValue(w.instrumentacion, k);
+      },
+    );
+    let nextProgram = null;
+    let nextProgramStart = null;
+    (w.repertorio_obras || []).forEach((rel) => {
+      const prog = rel.programas_repertorios?.programas;
+      if (!prog || !prog.fecha_desde) return;
+      const startDate = parseISO(prog.fecha_desde);
+      if (isBefore(startDate, today)) return;
+      if (!nextProgramStart || isBefore(startDate, nextProgramStart)) {
+        nextProgram = prog;
+        nextProgramStart = startDate;
+      }
+    });
+    return {
+      ...w,
+      instValues,
+      compositor_full:
+        listComposers
+          ?.map(
+            (oc) =>
+              `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`,
+          )
+          .join(" / ") || "",
+      arreglador_full:
+        listArrangers
+          ?.map(
+            (oc) =>
+              `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`,
+          )
+          .join(" / ") || "",
+      pais_nombre:
+        listComposers
+          ?.map((oc) => oc.compositores?.paises?.nombre)
+          .filter(Boolean)
+          .join(" / ") || "",
+      tags_objects:
+        w.obras_palabras_clave?.map((opc) => opc.palabras_clave) || [],
+      tags_ids:
+        w.obras_palabras_clave?.map(
+          (opc) => opc.palabras_clave?.id,
+        ) || [],
+      proxima_gira_nombre: nextProgram?.nombre_gira || null,
+      proxima_gira_fecha_desde: nextProgram?.fecha_desde || null,
+      proxima_gira_fecha_hasta: nextProgram?.fecha_hasta || null,
+    };
+  };
+
+  const upsertWorkLocally = (rawWork) => {
+    const processedWork = processWork(rawWork);
+    setWorks((prev) => {
+      const existingIndex = prev.findIndex((w) => w.id === processedWork.id);
+      const next =
+        existingIndex >= 0
+          ? prev.map((w) => (w.id === processedWork.id ? processedWork : w))
+          : [...prev, processedWork];
+      return next.sort((a, b) =>
+        (a.titulo || "").localeCompare(b.titulo || "", "es", { sensitivity: "base" }),
+      );
+    });
+  };
+
+  const fetchWorkById = async (id) => {
+    if (!id) return;
+    const { data, error: dbError } = await supabase
+      .from("obras")
+      .select(WORK_SELECT)
+      .eq("id", id)
+      .single();
+    if (dbError) throw dbError;
+    if (data) upsertWorkLocally(data);
+  };
+
   const fetchWorks = async () => {
     setLoading(true);
     setError(null);
     try {
       const { data, error: dbError } = await supabase
         .from("obras")
-        .select(`
-          *,
-          obras_compositores (
-            rol,
-            compositores (
-              apellido,
-              nombre,
-              paises (nombre)
-            )
-          ),
-          obras_palabras_clave (
-            palabras_clave (id, tag)
-          ),
-          usuario_carga:integrantes!id_usuario_carga (
-            apellido,
-            nombre
-          ),
-          repertorio_obras (
-            programas_repertorios (
-              programas (
-                id,
-                nombre_gira,
-                fecha_desde,
-                fecha_hasta
-              )
-            )
-          )
-        `)
+        .select(WORK_SELECT)
         .order("titulo");
 
       if (dbError) throw dbError;
 
       if (data) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const processed = data.map((w) => {
-          const listComposers = w.obras_compositores?.filter(
-            (oc) => oc.rol === "compositor" || !oc.rol,
-          );
-          const listArrangers = w.obras_compositores?.filter(
-            (oc) => oc.rol === "arreglador",
-          );
-
-          // Pre-cálculo de valores para el filtro orgánico/estricto
-          const instValues = {};
-          ["fl", "ob", "cl", "bn", "hn", "tpt", "tbn", "tba", "timp", "perc", "harp", "key"].forEach(
-            (k) => {
-              instValues[k] = getInstrumentValue(w.instrumentacion, k);
-            },
-          );
-
-          // Cálculo de próxima gira (a partir de hoy)
-          let nextProgram = null;
-          let nextProgramStart = null;
-
-          (w.repertorio_obras || []).forEach((rel) => {
-            const prog = rel.programas_repertorios?.programas;
-            if (!prog || !prog.fecha_desde) return;
-
-            const startDate = parseISO(prog.fecha_desde);
-            if (isBefore(startDate, today)) return;
-
-            if (!nextProgramStart || isBefore(startDate, nextProgramStart)) {
-              nextProgram = prog;
-              nextProgramStart = startDate;
-            }
-          });
-
-          return {
-            ...w,
-            instValues,
-            compositor_full:
-              listComposers
-                ?.map(
-                  (oc) =>
-                    `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`,
-                )
-                .join(" / ") || "",
-            arreglador_full:
-              listArrangers
-                ?.map(
-                  (oc) =>
-                    `${oc.compositores?.apellido}, ${oc.compositores?.nombre}`,
-                )
-                .join(" / ") || "",
-            pais_nombre:
-              listComposers
-                ?.map((oc) => oc.compositores?.paises?.nombre)
-                .filter(Boolean)
-                .join(" / ") || "",
-            tags_objects:
-              w.obras_palabras_clave?.map((opc) => opc.palabras_clave) || [],
-            tags_ids:
-              w.obras_palabras_clave?.map(
-                (opc) => opc.palabras_clave?.id,
-              ) || [],
-            proxima_gira_nombre: nextProgram?.nombre_gira || null,
-            proxima_gira_fecha_desde: nextProgram?.fecha_desde || null,
-            proxima_gira_fecha_hasta: nextProgram?.fecha_hasta || null,
-          };
-        });
+        const processed = data.map(processWork);
         setWorks(processed);
       }
     } catch (err) {
@@ -825,12 +858,33 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
 
   const handleSave = async (savedId = null, shouldClose = true) => {
     if (shouldClose) setLoading(true);
-    try { await fetchWorks(); if (shouldClose) { setIsAdding(false); setEditingId(null); setFormData({}); } return savedId; }
-    catch (err) { alert("Error: " + err.message); return null; } finally { setLoading(false); }
+    try {
+      if (savedId) {
+        await fetchWorkById(savedId);
+      }
+      if (shouldClose) {
+        setIsAdding(false);
+        setEditingId(null);
+        setFormData({});
+      }
+      return savedId;
+    }
+    catch (err) {
+      await fetchWorks();
+      alert("Error: " + err.message);
+      return null;
+    } finally { setLoading(false); }
   };
   const handleDelete = async (id) => {
     if (!confirm("¿Eliminar obra?")) return;
-    setLoading(true); await supabase.from("obras").delete().eq("id", id); await fetchWorks(); setLoading(false);
+    setLoading(true);
+    const { error: deleteError } = await supabase.from("obras").delete().eq("id", id);
+    if (deleteError) {
+      alert("Error: " + deleteError.message);
+    } else {
+      setWorks((prev) => prev.filter((w) => w.id !== id));
+    }
+    setLoading(false);
   };
   const startEdit = (work) => {
     setEditingId(work.id);
