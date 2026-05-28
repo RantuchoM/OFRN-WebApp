@@ -945,22 +945,46 @@ const collectTransportSupportDocs = (personData) => {
       return viaticoDetalleIdByIntegrante.get(String(integranteId)) ?? null;
     };
 
+    const updateViaticoExportAudit = async (detalleId, row) => {
+      const basePayload = {
+        fecha_ultima_exportacion: now,
+        backup_fecha_salida: row.fecha_salida,
+        backup_hora_salida: row.hora_salida,
+        backup_fecha_llegada: row.fecha_llegada,
+        backup_hora_llegada: row.hora_llegada,
+        backup_dias_computables: row.dias_computables,
+      };
+      const payloadWithBackupViatico = {
+        ...basePayload,
+        backup_viatico: getAnticipoSubtotalForExport(row, useHistoricalCalc),
+      };
+
+      let res = await supabase
+        .from("giras_viaticos_detalle")
+        .update(payloadWithBackupViatico)
+        .eq("id", detalleId);
+
+      const missingBackupColumn =
+        res?.error &&
+        (String(res.error?.message || "").toLowerCase().includes("backup_viatico") ||
+          String(res.error?.details || "").toLowerCase().includes("backup_viatico") ||
+          String(res.error?.hint || "").toLowerCase().includes("backup_viatico"));
+
+      if (missingBackupColumn) {
+        // Compatibilidad con esquemas antiguos que aún no tienen backup_viatico.
+        res = await supabase
+          .from("giras_viaticos_detalle")
+          .update(basePayload)
+          .eq("id", detalleId);
+      }
+      return res;
+    };
+
     const individualUpdates = dataList
       .map((row) => {
         const detalleId = resolveViaticoDetalleRowId(row);
         if (!detalleId) return null;
-        return supabase
-          .from("giras_viaticos_detalle")
-          .update({
-            fecha_ultima_exportacion: now,
-            backup_fecha_salida: row.fecha_salida,
-            backup_hora_salida: row.hora_salida,
-            backup_fecha_llegada: row.fecha_llegada,
-            backup_hora_llegada: row.hora_llegada,
-            backup_dias_computables: row.dias_computables,
-            backup_viatico: getAnticipoSubtotalForExport(row, useHistoricalCalc),
-          })
-          .eq("id", detalleId);
+        return updateViaticoExportAudit(detalleId, row);
       })
       .filter(Boolean);
 

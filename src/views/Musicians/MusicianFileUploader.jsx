@@ -6,6 +6,7 @@ import {
   IconLoader,
   IconClipboard,
   IconEye,
+  IconFileText,
 } from "../../components/ui/Icons";
 import { useMusicianFormContext } from "./MusicianFormContext";
 import { parseSupabasePublicStorageUrl } from "../../utils/supabaseStorage";
@@ -31,7 +32,20 @@ export default function MusicianFileUploader({ label, field, value }) {
   const [previewSrc, setPreviewSrc] = useState(null);
   const status = fieldStatuses[field];
   const cleanValue = value ? String(value).split("#")[0] : "";
-  const isPdf = value && /\.pdf(\?|$)/i.test(cleanValue);
+  const forcePdfFields = new Set(["documentacion", "docred", "link_declaracion"]);
+  const parsedOriginal = cleanValue
+    ? parseSupabasePublicStorageUrl(cleanValue)
+    : null;
+  const originalPath = parsedOriginal?.path ? parsedOriginal.path.split("?")[0] : "";
+  const isPdf =
+    !!value &&
+    (forcePdfFields.has(field) ||
+      /\.pdf(\?|$)/i.test(cleanValue) ||
+      /\.pdf$/i.test(originalPath));
+  const isImage =
+    !!value &&
+    (/\.(png|jpe?g|webp|gif|bmp|svg)(\?|$)/i.test(cleanValue) ||
+      /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(originalPath));
   const bucket = field === "firma" ? "firmas" : "musician-docs";
 
   useEffect(() => {
@@ -135,12 +149,20 @@ export default function MusicianFileUploader({ label, field, value }) {
                   PDF
                 </div>
               </div>
-            ) : (
+            ) : isImage ? (
               <img
                 src={displaySrc || value}
                 className="w-full h-full object-contain p-2"
                 alt={label}
               />
+            ) : (
+              <div className="w-full h-full bg-slate-100 overflow-hidden relative min-h-[120px] flex items-center justify-center">
+                <div className="text-center text-slate-500 px-3">
+                  <IconFileText size={24} className="mx-auto mb-2 text-slate-400" />
+                  <p className="text-[10px] font-bold uppercase">Archivo cargado</p>
+                  <p className="text-[10px]">Usa Ver para abrirlo.</p>
+                </div>
+              </div>
             )}
             <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3 z-20">
               <button

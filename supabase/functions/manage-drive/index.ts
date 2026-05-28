@@ -538,19 +538,63 @@ async function generateDJInternal(m: any, templateRes: ArrayBuffer, firmaRes: Ar
 
 async function assemblePDFInternal(sources: string[], layout: "full" | "mosaic") {
   const pdfDoc = await PDFDocument.create();
+  const isPdfBytes = (bytes: Uint8Array) =>
+    bytes?.length >= 4 &&
+    bytes[0] === 0x25 && // %
+    bytes[1] === 0x50 && // P
+    bytes[2] === 0x44 && // D
+    bytes[3] === 0x46; // F
+  const isJpegBytes = (bytes: Uint8Array) =>
+    bytes?.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff;
+  const isPngBytes = (bytes: Uint8Array) =>
+    bytes?.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a;
+  const isLikelyHtml = (bytes: Uint8Array) => {
+    try {
+      const sample = new TextDecoder().decode(bytes.slice(0, 200)).toLowerCase();
+      return sample.includes("<!doctype html") || sample.includes("<html");
+    } catch {
+      return false;
+    }
+  };
+
   if (layout === "full") {
     for (const url of sources) {
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      if (url.toLowerCase().includes('.pdf')) {
-        const extDoc = await PDFDocument.load(bytes);
-        const pages = await pdfDoc.copyPages(extDoc, extDoc.getPageIndices());
-        pages.forEach(p => pdfDoc.addPage(p));
-      } else {
-        const img = await pdfDoc.embedJpg(bytes).catch(() => pdfDoc.embedPng(bytes));
-        const page = pdfDoc.addPage([img.width, img.height]);
-        page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+      try {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        if (isLikelyHtml(bytes)) {
+          console.warn("[assemblePDFInternal] Fuente no descargable (HTML):", url);
+          continue;
+        }
+        if (isPdfBytes(bytes)) {
+          const extDoc = await PDFDocument.load(bytes);
+          const pages = await pdfDoc.copyPages(extDoc, extDoc.getPageIndices());
+          pages.forEach(p => pdfDoc.addPage(p));
+          continue;
+        }
+        if (isJpegBytes(bytes) || isPngBytes(bytes)) {
+          const img = isJpegBytes(bytes)
+            ? await pdfDoc.embedJpg(bytes)
+            : await pdfDoc.embedPng(bytes);
+          const page = pdfDoc.addPage([img.width, img.height]);
+          page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+          continue;
+        }
+        console.warn("[assemblePDFInternal] Tipo de archivo no soportado, se omite:", url);
+      } catch (e) {
+        console.error("[assemblePDFInternal] Error procesando fuente:", url, e);
       }
     }
   } else {
@@ -562,11 +606,15 @@ async function assemblePDFInternal(sources: string[], layout: "full" | "mosaic")
 
     for (const [i, url] of sources.entries()) {
       if (i >= 4) break;
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const bytes = new Uint8Array(await res.arrayBuffer());
       try {
-        if (url.toLowerCase().includes('.pdf')) {
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        if (isLikelyHtml(bytes)) {
+          console.warn("[assemblePDFInternal/mosaic] Fuente no descargable (HTML):", url);
+          continue;
+        }
+        if (isPdfBytes(bytes)) {
           const extDoc = await PDFDocument.load(bytes);
           const [embeddedPage] = await pdfDoc.embedPdf(extDoc, [0]);
           const { width: pW, height: pH } = embeddedPage.size();
@@ -583,8 +631,10 @@ async function assemblePDFInternal(sources: string[], layout: "full" | "mosaic")
             width: dW,
             height: dH
           });
-        } else {
-          const img = await pdfDoc.embedJpg(bytes).catch(() => pdfDoc.embedPng(bytes));
+        } else if (isJpegBytes(bytes) || isPngBytes(bytes)) {
+          const img = isJpegBytes(bytes)
+            ? await pdfDoc.embedJpg(bytes)
+            : await pdfDoc.embedPng(bytes);
           const { width: iW, height: iH } = img;
 
           const scale = Math.min(boxW / iW, boxH / iH);
@@ -599,6 +649,8 @@ async function assemblePDFInternal(sources: string[], layout: "full" | "mosaic")
             width: dW,
             height: dH
           });
+        } else {
+          console.warn("[assemblePDFInternal/mosaic] Tipo no soportado, se omite:", url);
         }
       } catch (e) { console.error("Mosaico err", e); }
     }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { IconLoader, IconCheck, IconFileText, IconFilePlus, IconLayoutGrid } from "../../components/ui/Icons";
 import MusicianFileUploader from "./MusicianFileUploader";
 import { useMusicianFormContext } from "./MusicianFormContext";
@@ -10,6 +10,12 @@ export default function MusicianDocsUploadSection() {
   const isDj = assemblingType === "dj";
   const isFull = assemblingType === "full";
   const isMosaic = assemblingType === "mosaic";
+
+  useEffect(() => {
+    if (formData?.link_carnet) {
+      setShowCarnetUploader(true);
+    }
+  }, [formData?.link_carnet]);
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4">

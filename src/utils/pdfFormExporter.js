@@ -470,7 +470,9 @@ chk("check_temporada", configData.factor_temporada > 0);
         f("patente", data.patente_oficial);
         chk("check_particular", data.check_patente_particular);
         f("patente_particular", data.patente_particular);
+        // Compatibilidad de plantillas: algunas usan check_otro, otras check_otros.
         chk("check_otro", data.check_otros);
+        chk("check_otros", data.check_otros);
         // Detalle de transporte \"Otros\":
         // - En ViáticosManual se llama transporte_otros_detalle
         // - En Viáticos de Giras (tabla) usamos transporte_otros como texto
