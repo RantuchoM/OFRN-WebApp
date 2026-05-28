@@ -8,6 +8,7 @@ import { IconLayers, IconPlus, IconTrash, IconEdit, IconSearch, IconLoader, Icon
 import WhatsAppLink from '../../components/ui/WhatsAppLink';
 import DateInput from '../../components/ui/DateInput';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import EnsembleProgramManager from './EnsembleProgramManager';
 
 const createEmptyEnsembleInstrumentation = () => ({
     fl: 0,
@@ -88,6 +89,7 @@ export default function EnsemblesView({ supabase }) {
     const [historicMemberRows, setHistoricMemberRows] = useState([]);
     const [savingMembershipId, setSavingMembershipId] = useState(null);
     const [membershipDeleteConfirm, setMembershipDeleteConfirm] = useState(null);
+    const [activeView, setActiveView] = useState('members');
 
     useEffect(() => { fetchEnsembles(); }, []);
 
@@ -109,6 +111,7 @@ export default function EnsemblesView({ supabase }) {
             setHeaderForm({ ensamble: selectedEnsemble.ensamble, descripcion: selectedEnsemble.descripcion || '' });
             setShowMusicianPicker(false);
             setSearchText('');
+            setActiveView('members');
         } else {
             setMemberIds(new Set());
             setCoordinatorIds(new Set());
@@ -116,6 +119,7 @@ export default function EnsemblesView({ supabase }) {
             setHistoricMemberRows([]);
             setShowMusicianPicker(false);
             setSearchText('');
+            setActiveView('members');
         }
     }, [selectedEnsemble]); // Dependencia simplificada para evitar bucles, controlamos manual
 
@@ -490,42 +494,69 @@ export default function EnsemblesView({ supabase }) {
                                         )}
                                     </div>
                                     <div className="mt-2 flex items-center justify-between gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={handleOpenMusicianPicker}
-                                            disabled={loadingAllMusicians}
-                                            className="text-xs bg-indigo-600 text-white px-2.5 py-1.5 rounded-md hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1"
-                                        >
-                                            {loadingAllMusicians ? <IconLoader size={12} /> : <IconPlus size={12} />}
-                                            Agregar músico
-                                        </button>
-                                        {showMusicianPicker && (
+                                        <div className="flex items-center gap-2">
                                             <button
                                                 type="button"
-                                                onClick={() => setShowMusicianPicker(false)}
-                                                className="text-xs border border-slate-300 text-slate-600 px-2.5 py-1.5 rounded-md hover:bg-slate-100"
+                                                onClick={() => setActiveView('members')}
+                                                className={`text-xs px-2.5 py-1.5 rounded-md border transition-colors ${activeView === 'members' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`}
                                             >
-                                                Ocultar lista
+                                                Integrantes
                                             </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setActiveView('programs')}
+                                                className={`text-xs px-2.5 py-1.5 rounded-md border transition-colors flex items-center gap-1 ${activeView === 'programs' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`}
+                                            >
+                                                <IconLayers size={12} />
+                                                Programas
+                                            </button>
+                                        </div>
+                                        {activeView === 'members' && (
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleOpenMusicianPicker}
+                                                    disabled={loadingAllMusicians}
+                                                    className="text-xs bg-indigo-600 text-white px-2.5 py-1.5 rounded-md hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1"
+                                                >
+                                                    {loadingAllMusicians ? <IconLoader size={12} /> : <IconPlus size={12} />}
+                                                    Agregar músico
+                                                </button>
+                                                {showMusicianPicker && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowMusicianPicker(false)}
+                                                        className="text-xs border border-slate-300 text-slate-600 px-2.5 py-1.5 rounded-md hover:bg-slate-100"
+                                                    >
+                                                        Ocultar lista
+                                                    </button>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
-                                    <div className="mt-2 flex justify-end">
-                                        <select value={musicianSortMode} onChange={(e) => setMusicianSortMode(e.target.value)} className="text-xs border border-slate-300 rounded-md px-2 py-1 bg-white text-slate-600">
-                                            <option value="surname">Orden: Apellido</option>
-                                            <option value="instrument">Orden: Instrumento</option>
-                                        </select>
-                                    </div>
-                                    {showMusicianPicker && (
+                                    {activeView === 'members' && (
+                                        <div className="mt-2 flex justify-end">
+                                            <select value={musicianSortMode} onChange={(e) => setMusicianSortMode(e.target.value)} className="text-xs border border-slate-300 rounded-md px-2 py-1 bg-white text-slate-600">
+                                                <option value="surname">Orden: Apellido</option>
+                                                <option value="instrument">Orden: Instrumento</option>
+                                            </select>
+                                        </div>
+                                    )}
+                                    {activeView === 'members' && showMusicianPicker && (
                                         <>
                                             <div className="relative mt-2"><div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><IconSearch size={18} /></div><input type="text" className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="Buscar músico para agregar/quitar..." value={searchText} onChange={(e) => setSearchText(e.target.value)}/></div>
                                         </>
                                     )}
-                                    <div className="flex justify-between items-center mt-2 text-xs text-slate-400"><span>Total músicos encontrados: {visibleMusicians.length}</span><span>Miembros actuales: {memberIds.size}</span></div>
+                                    {activeView === 'members' && (
+                                        <div className="flex justify-between items-center mt-2 text-xs text-slate-400"><span>Total músicos encontrados: {visibleMusicians.length}</span><span>Miembros actuales: {memberIds.size}</span></div>
+                                    )}
                                 </div>
                             )}
                         </div>
                         <div className="flex-1 overflow-y-auto p-2 lg:p-2.5 bg-slate-50/50">
-                            {loadingMembers ? (<div className="flex items-center justify-center h-full text-indigo-600 gap-2"><IconLoader size={24}/> Cargando miembros...</div>) : !showMusicianPicker ? (
+                            {activeView === 'programs' ? (
+                                <EnsembleProgramManager supabase={supabase} ensemble={selectedEnsemble} />
+                            ) : loadingMembers ? (<div className="flex items-center justify-center h-full text-indigo-600 gap-2"><IconLoader size={24}/> Cargando miembros...</div>) : !showMusicianPicker ? (
                                 <div className="space-y-2">
                                     {visibleMusicians.map((musician) => {
                                         const isMember = memberIds.has(musician.id) || memberIds.has(Number(musician.id));

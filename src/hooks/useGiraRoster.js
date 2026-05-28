@@ -13,15 +13,46 @@ const normalizeText = (value) =>
     .toLowerCase()
     .trim();
 
+const getInstrumentFamily = (member) => {
+  const rel = member?.instrumentos;
+  if (Array.isArray(rel)) {
+    return rel[0]?.familia ?? "";
+  }
+  return rel?.familia ?? "";
+};
+
+const getInstrumentName = (member) => {
+  const rel = member?.instrumentos;
+  if (Array.isArray(rel)) {
+    return rel[0]?.instrumento ?? "";
+  }
+  return rel?.instrumento ?? "";
+};
+
+const hasProductionEnsemble = (member) => {
+  const rows = Array.isArray(member?.integrantes_ensambles)
+    ? member.integrantes_ensambles
+    : [];
+  return rows.some((row) => {
+    const ensRel = Array.isArray(row?.ensambles) ? row.ensambles[0] : row?.ensambles;
+    const ensName = normalizeText(ensRel?.ensamble);
+    return ensName === "produccion";
+  });
+};
+
 const inferDefaultTourRole = (member) => {
-  const family = normalizeText(member?.instrumentos?.familia);
-  const instrument = normalizeText(member?.instrumentos?.instrumento);
+  const instrument = normalizeText(getInstrumentName(member));
   const cargo = normalizeText(member?.cargo);
-  const haystack = `${family} ${instrument} ${cargo}`;
+  const haystack = `${instrument} ${cargo}`;
+
+  // Regla explícita: ensamble "Producción" => rol de producción por defecto.
+  // Si existe override en giras_integrantes, ese valor prevalece (ver uso de manualData?.rol más abajo).
+  if (hasProductionEnsemble(member)) {
+    return "produccion";
+  }
 
   if (
     /\b(chofer|conductor)\b/.test(haystack) ||
-    family === "chofer" ||
     instrument === "chofer"
   ) {
     return "chofer";
@@ -37,6 +68,22 @@ const inferDefaultTourRole = (member) => {
   }
 
   return "musico";
+};
+
+const resolveOverrideRole = (manualRole, member, fallbackRole) => {
+  const normalizedManualRole = normalizeText(manualRole);
+  const fallback = fallbackRole || inferDefaultTourRole(member);
+
+  // Si no hay rol explícito, usamos fallback.
+  if (!normalizedManualRole) return fallback;
+
+  // Compatibilidad con datos antiguos:
+  // para ensamble Producción, "musico" se interpreta como "sin rol específico cargado".
+  if (hasProductionEnsemble(member) && normalizedManualRole === "musico") {
+    return "produccion";
+  }
+
+  return manualRole;
 };
 
 /**
@@ -209,7 +256,10 @@ export async function fetchRosterForGira(supabase, gira) {
 
     let keep = false;
     let estadoReal = "confirmado";
-    let rolReal = inferDefaultTourRole(m);
+    let rolReal = inferDefaultTourRole({
+      ...m,
+      integrantes_ensambles: ieForProgram,
+    });
     let esAdicional = false;
 
     let isBaseValid = false;
@@ -222,7 +272,7 @@ export async function fetchRosterForGira(supabase, gira) {
     // ocultaba filas aunque el INSERT ya hubiera creado el vínculo (409 "duplicado").
     if (isManual) {
       estadoReal = manualData?.estado ?? "confirmado";
-      rolReal = manualData?.rol || rolReal;
+      rolReal = resolveOverrideRole(manualData?.rol, m, rolReal);
       keep = true;
       esAdicional = isBaseValid ? false : estadoReal === "confirmado";
     } else if (isExcluded) {

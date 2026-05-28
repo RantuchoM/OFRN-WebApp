@@ -54,6 +54,23 @@ const CONDICIONES = [
   "Becario",
 ];
 
+const normalizeRoleHint = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+const inferDefaultRoleForMusician = (musicianData) => {
+  const family = normalizeRoleHint(
+    musicianData?.instrumentos?.familia ||
+      (Array.isArray(musicianData?.instrumentos)
+        ? musicianData.instrumentos[0]?.familia
+        : ""),
+  );
+  return family === "produccion" ? "produccion" : DEFAULT_ROL_ID;
+};
+
 // Helper para convertir Hex a RGBA (para fondos suaves)
 const hexToRgba = (hex, alpha = 0.1) => {
   if (!hex) return "transparent";
@@ -696,7 +713,7 @@ export default function GiraRoster({
     if (!newMusician?.id) return;
     setIsCreatingDetailed(false);
     setPendingDetailedLink(newMusician);
-    setDetailedCreateRoleId(DEFAULT_ROL_ID);
+    setDetailedCreateRoleId(inferDefaultRoleForMusician(newMusician));
     toast.success(
       "Ficha creada. Elegí el rol abajo y confirmá para sumarlo a esta gira.",
     );
@@ -989,7 +1006,7 @@ export default function GiraRoster({
       toast.error("ID de integrante inválido.");
       return false;
     }
-    const rolEfectivo = rol || DEFAULT_ROL_ID;
+    const rolEfectivo = rol || inferDefaultRoleForMusician(musicianData);
     const { error } = await supabase.from("giras_integrantes").insert({
       id_gira: gira.id,
       id_integrante: idLink,
@@ -1502,7 +1519,7 @@ export default function GiraRoster({
     try {
       const { data, error } = await supabase
         .from("integrantes")
-        .select("*")
+        .select("*, instrumentos(familia)")
         .eq("id", idForQuery)
         .maybeSingle();
 
@@ -1512,6 +1529,7 @@ export default function GiraRoster({
           apellido: data.apellido || "",
           nombre: data.nombre || "",
           mail: data.mail || null,
+          instrumentos: data.instrumentos || null,
           nombre_completo:
             data.nombre_completo ||
             `${data.apellido || ""}, ${data.nombre || ""}`.trim(),
@@ -1542,7 +1560,7 @@ export default function GiraRoster({
     const label =
       musicianData.nombre_completo ||
       `${musicianData.apellido || ""}, ${musicianData.nombre || ""}`.trim();
-    setIndividualAddRoleId(DEFAULT_ROL_ID);
+    setIndividualAddRoleId(inferDefaultRoleForMusician(musicianData));
     setPendingIndividualAdd({ idForQuery, musicianData, label });
   };
 

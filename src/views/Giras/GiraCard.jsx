@@ -21,6 +21,16 @@ import GiraActionMenu from "./GiraActionMenu";
 import { getProgramStyle, checkIsConvoked } from "../../utils/giraUtils";
 import { getMyRoomingStatus } from "../../services/giraService";
 import { createPortal } from "react-dom";
+
+const normalizeFamily = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+const isProductionFamily = (value) => normalizeFamily(value) === "produccion";
+
 const formatDateRangeBig = (start, end) => {
   if (!start) return null;
   try {
@@ -274,7 +284,14 @@ export default function GiraCard({
               Org.
             </span>
             <div className="flex flex-wrap gap-1 text-[15px]">
-              {sources.map((s) => {
+              {sources
+                .filter(
+                  (s) =>
+                    !(
+                      s.tipo === "FAMILIA" && isProductionFamily(s.valor_texto)
+                    ),
+                )
+                .map((s) => {
                 let lbl =
                   s.tipo === "FAMILIA"
                     ? s.valor_texto
@@ -400,6 +417,7 @@ export default function GiraCard({
     const inclusions = [];
     const exclusions = [];
     sources.forEach((s) => {
+      if (s.tipo === "FAMILIA" && isProductionFamily(s.valor_texto)) return;
       const isEnsembleRef =
         s.tipo === "ENSAMBLE" || s.tipo === "EXCL_ENSAMBLE";
       let label = isEnsembleRef
