@@ -3037,7 +3037,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           setItineraryModal({ isOpen: true, transportId: t.id })
                         }
                         className="p-1.5 bg-white text-fuchsia-600 rounded-lg hover:bg-fuchsia-600 hover:text-white transition-all"
-                        title="Paradas"
+                        title="Itinerario"
                       >
                         <IconMapPin size={16} />
                       </button>
