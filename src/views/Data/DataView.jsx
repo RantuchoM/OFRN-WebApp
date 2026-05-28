@@ -297,6 +297,7 @@ export default function DataView({ supabase }) {
         { key: "id", label: "ID", type: "number" },
         { key: "nombre", label: "Nombre", type: "text" },
         { key: "patente", label: "Patente", type: "text" },
+        { key: "documentacion", label: "Documentación", type: "text" },
         {
           key: "icon",
           label: "Icono",

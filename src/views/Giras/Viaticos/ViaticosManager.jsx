@@ -295,6 +295,15 @@ export default function ViaticosManager({ supabase, giraId }) {
     return map;
   }, [summary]);
 
+  const logisticsTransportsByPerson = useMemo(() => {
+    const map = {};
+    (summary || []).forEach((person) => {
+      const key = String(person.id);
+      map[key] = person.logistics?.transports || [];
+    });
+    return map;
+  }, [summary]);
+
   const {
     rows: viaticosRows,
     loading: rowsLoading,
@@ -719,6 +728,33 @@ export default function ViaticosManager({ supabase, giraId }) {
     personData?.dj ||
     "";
 
+const isPdfUrl = (url) => /\.pdf(\?|$)/i.test(String(url || "").trim());
+
+const collectTransportSupportDocs = (personData) => {
+  const transports = Array.isArray(personData?.logistics_transports)
+    ? personData.logistics_transports
+    : [];
+  const docs = [];
+  const seen = new Set();
+  const addDoc = (url, label) => {
+    const clean = String(url || "").trim();
+    if (!clean || seen.has(`${label}:${clean}`)) return;
+    seen.add(`${label}:${clean}`);
+    docs.push({ url: clean, label });
+  };
+  transports.forEach((t, idx) => {
+    const suffix = transports.length > 1 ? ` (${idx + 1})` : "";
+    if (t?.vehicleDocumentation) {
+      addDoc(t.vehicleDocumentation, `Doc. Vehículo${suffix}`);
+    }
+    if (t?.id_chofer) {
+      addDoc(t?.chofer?.link_carnet, `Carnet Chofer${suffix}`);
+      addDoc(t?.chofer?.link_dni_img, `DNI Chofer${suffix}`);
+    }
+  });
+  return docs;
+};
+
   const appendPersonToDoc = async (
     targetDoc,
     personData,
@@ -841,6 +877,27 @@ export default function ViaticosManager({ supabase, giraId }) {
           "Doc. Reducida",
           "No se pudo descargar el PDF de documentación reducida.",
         );
+    }
+
+    if (options.docComun || options.docReducida) {
+      const supportDocs = collectTransportSupportDocs(personData);
+      for (const doc of supportDocs) {
+        if (!isPdfUrl(doc.url)) {
+          pushExportFailure(
+            doc.label,
+            "No se adjuntó porque el archivo no es PDF.",
+          );
+          continue;
+        }
+        if (setDetail) setDetail(`Descargando ${doc.label} (${shortName})...`);
+        const bytes = await fetchPdfFromDrive(doc.url);
+        if (bytes) await mergeBytes(bytes, doc.label);
+        else
+          pushExportFailure(
+            doc.label,
+            "No se pudo descargar el archivo del vehículo/chofer.",
+          );
+      }
     }
   };
 
@@ -1128,6 +1185,26 @@ export default function ViaticosManager({ supabase, giraId }) {
               folderId,
               `${nameSafe} - Doc. Reducida`,
             );
+          }
+          if (options.docComun || options.docReducida) {
+            const supportDocs = collectTransportSupportDocs(personData);
+            for (const doc of supportDocs) {
+              if (!isPdfUrl(doc.url)) {
+                setExportFailureLog((prev) => [
+                  ...prev,
+                  {
+                    ts: new Date().toISOString(),
+                    personId: personData.id,
+                    personLabel: nameSafe,
+                    item: doc.label,
+                    message: "No se adjuntó porque el archivo no es PDF.",
+                  },
+                ]);
+                continue;
+              }
+              setExportDetail(`Duplicando ${doc.label} en Drive...`);
+              await copyDriveFile(doc.url, folderId, `${nameSafe} - ${doc.label}`);
+            }
           }
           successCount++;
         } catch (err) {
@@ -1444,6 +1521,8 @@ export default function ViaticosManager({ supabase, giraId }) {
             "",
           ciudad_origen: ciudadOrigen,
           asiento_habitual: asientoHabitual,
+          logistics_transports:
+            logisticsTransportsByPerson[String(row.id_integrante)] || [],
         };
       });
 

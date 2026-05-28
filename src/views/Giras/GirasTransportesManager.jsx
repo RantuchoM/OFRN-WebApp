@@ -40,7 +40,9 @@ import {
   IconList,
   IconEye,
   IconEyeOff,
+  IconUser,
 } from "../../components/ui/Icons";
+import { parseSupabasePublicStorageUrl } from "../../utils/supabaseStorage";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
@@ -135,6 +137,13 @@ const htmlToPlainText = (input) => {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+};
+
+const extractStoragePathFromUrl = (url) => {
+  if (!url) return null;
+  const parsed = parseSupabasePublicStorageUrl(url);
+  if (!parsed?.path) return null;
+  return { bucket: parsed.bucket, path: parsed.path.split("?")[0] };
 };
 
 const generateStopsOnlyPdf = async (transportName, events, startId, endId) => {
@@ -1227,6 +1236,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
     detalle: "",
     costo: "",
     capacidad: "",
+    id_chofer: "",
   });
   const [showAddTransportForm, setShowAddTransportForm] = useState(false);
   const [transportTypeFilter, setTransportTypeFilter] = useState(
@@ -1241,11 +1251,27 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const [editingTransportId, setEditingTransportId] = useState(null);
 
   const [editFormData, setEditFormData] = useState({
+    id_transporte: "",
     detalle: "",
     capacidad: "",
     costo: "",
     categoria_logistica: "PASAJEROS",
+    id_chofer: "",
   });
+  const [vehicleDocsModal, setVehicleDocsModal] = useState({
+    isOpen: false,
+    transportId: null,
+    vehicleId: null,
+    transportLabel: "",
+    currentUrl: "",
+  });
+  const [vehicleDocUploading, setVehicleDocUploading] = useState(false);
+  const [vehicleDocDragging, setVehicleDocDragging] = useState(false);
+  const [choferPicker, setChoferPicker] = useState({
+    transportId: null,
+    search: "",
+  });
+  const choferPickerRef = useRef(null);
   const [editingEventId, setEditingEventId] = useState(null);
   const [newEvent, setNewEvent] = useState({
     fecha: "",
@@ -1304,6 +1330,35 @@ export default function GirasTransportesManager({ supabase, gira }) {
       }),
     [locationsList],
   );
+  const choferOptions = useMemo(() => {
+    const byId = new Map();
+    [...(musiciansList || []), ...(roster || [])].forEach((m) => {
+      if (!m?.id) return;
+      if (byId.has(String(m.id))) return;
+      byId.set(String(m.id), {
+        value: String(m.id),
+        label: `${m.apellido || ""}, ${m.nombre || ""}`.trim() || `Integrante #${m.id}`,
+        dni: m.dni || "",
+      });
+    });
+    return Array.from(byId.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "es"),
+    );
+  }, [musiciansList, roster]);
+
+  useEffect(() => {
+    const onClickOutside = (event) => {
+      if (!choferPicker.transportId) return;
+      if (
+        choferPickerRef.current &&
+        !choferPickerRef.current.contains(event.target)
+      ) {
+        setChoferPicker({ transportId: null, search: "" });
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [choferPicker.transportId]);
 
   const coverageStats = useMemo(() => {
     if (!passengerList || passengerList.length === 0)
@@ -1389,7 +1444,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           supabase
             .from("integrantes")
             .select(
-              "id, nombre, apellido, dni, genero, fecha_nac, nacionalidad, id_localidad, localidades(localidad)",
+              "id, nombre, apellido, dni, link_carnet, link_dni_img, genero, fecha_nac, nacionalidad, id_localidad, localidades(localidad)",
             ),
         ]);
 
@@ -1415,7 +1470,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
       const { data: list } = await supabase
         .from("giras_transportes")
         .select(
-          `id, detalle, costo, capacidad_maxima, id_transporte, categoria_logistica, transportes ( nombre, patente, icon )`,
+          `id, detalle, costo, capacidad_maxima, id_transporte, id_chofer, categoria_logistica, transportes ( id, nombre, patente, icon, documentacion ), chofer:integrantes!giras_transportes_id_chofer_fkey ( id, nombre, apellido, dni, link_carnet, link_dni_img )`,
         )
         .eq("id_gira", giraId)
         .order("id");
@@ -1722,9 +1777,16 @@ export default function GirasTransportesManager({ supabase, gira }) {
         capacidad_maxima: newTransp.capacidad
           ? parseInt(newTransp.capacidad)
           : null,
+        id_chofer: newTransp.id_chofer ? parseInt(newTransp.id_chofer, 10) : null,
       },
     ]);
-    setNewTransp({ id_transporte: "", detalle: "", costo: "", capacidad: "" });
+    setNewTransp({
+      id_transporte: "",
+      detalle: "",
+      costo: "",
+      capacidad: "",
+      id_chofer: "",
+    });
     setShowAddTransportForm(false);
     fetchData();
   };
@@ -2410,10 +2472,12 @@ export default function GirasTransportesManager({ supabase, gira }) {
       ? catRaw
       : "PASAJEROS";
     setEditFormData({
+      id_transporte: t.id_transporte ? String(t.id_transporte) : "",
       detalle: t.detalle || "",
       capacidad: t.capacidad_maxima || "",
       costo: t.costo || "",
       categoria_logistica,
+      id_chofer: t.id_chofer ? String(t.id_chofer) : "",
     });
   };
 
@@ -2443,12 +2507,18 @@ export default function GirasTransportesManager({ supabase, gira }) {
       const { error: transportError } = await supabase
         .from("giras_transportes")
         .update({
+          id_transporte: editFormData.id_transporte
+            ? parseInt(editFormData.id_transporte, 10)
+            : null,
           detalle: editFormData.detalle,
           capacidad_maxima: editFormData.capacidad
             ? parseInt(editFormData.capacidad, 10)
             : null,
           costo: parseFloat(editFormData.costo) || 0,
           categoria_logistica: editFormData.categoria_logistica,
+          id_chofer: editFormData.id_chofer
+            ? parseInt(editFormData.id_chofer, 10)
+            : null,
         })
         .eq("id", editingTransportId);
 
@@ -2478,6 +2548,219 @@ export default function GirasTransportesManager({ supabase, gira }) {
     } catch (error) {
       setLoading(false);
       toast.error("Error al actualizar transporte", { id: toastId });
+    }
+  };
+
+  const openVehicleDocsModal = (transport) => {
+    setVehicleDocsModal({
+      isOpen: true,
+      transportId: transport.id,
+      vehicleId: transport.transportes?.id || transport.id_transporte || null,
+      transportLabel: transport.detalle || transport.transportes?.nombre || "Transporte",
+      currentUrl: transport.transportes?.documentacion || "",
+    });
+  };
+
+  const closeVehicleDocsModal = () => {
+    if (vehicleDocUploading) return;
+    setVehicleDocsModal({
+      isOpen: false,
+      transportId: null,
+      vehicleId: null,
+      transportLabel: "",
+      currentUrl: "",
+    });
+  };
+
+  const updateVehicleDocumentationUrl = async (vehicleId, nextUrl) => {
+    if (!vehicleId) return;
+    const { error } = await supabase
+      .from("transportes")
+      .update({ documentacion: nextUrl || null })
+      .eq("id", vehicleId);
+    if (error) throw error;
+  };
+
+  const deleteVehicleDocFile = async (url) => {
+    const parsed = extractStoragePathFromUrl(url);
+    if (!parsed) return;
+    await supabase.storage.from(parsed.bucket).remove([parsed.path]);
+  };
+
+  const uploadVehicleDocumentation = async (file) => {
+    if (!file || !vehicleDocsModal.vehicleId) return;
+    setVehicleDocUploading(true);
+    const oldUrl = vehicleDocsModal.currentUrl || "";
+    try {
+      if (oldUrl) {
+        await deleteVehicleDocFile(oldUrl);
+      }
+      const ext = /\.([a-zA-Z0-9]{1,10})$/.exec(file.name || "")?.[1] || "pdf";
+      const fileName = `transport_${vehicleDocsModal.vehicleId}_doc_${Date.now()}.${ext.toLowerCase()}`;
+      const filePath = `docs/${fileName}`;
+      const { error: uploadError } = await supabase.storage
+        .from("musician-docs")
+        .upload(filePath, file, { upsert: false, contentType: file.type || "application/pdf" });
+      if (uploadError) throw uploadError;
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("musician-docs").getPublicUrl(filePath);
+      await updateVehicleDocumentationUrl(vehicleDocsModal.vehicleId, publicUrl);
+      setVehicleDocsModal((prev) => ({ ...prev, currentUrl: publicUrl }));
+      await fetchData();
+      toast.success("Documentación del vehículo guardada");
+    } catch (error) {
+      console.error(error);
+      toast.error("No se pudo guardar la documentación del vehículo");
+    } finally {
+      setVehicleDocUploading(false);
+    }
+  };
+
+  const pasteVehicleDocumentation = async () => {
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const item of clipboardItems) {
+        for (const type of item.types) {
+          if (type.startsWith("image/") || type === "application/pdf") {
+            const blob = await item.getType(type);
+            const ext = type === "application/pdf" ? "pdf" : "png";
+            const file = new File([blob], `vehiculo_doc.${ext}`, { type });
+            await uploadVehicleDocumentation(file);
+            return;
+          }
+        }
+      }
+      toast.error("No hay imagen ni PDF en el portapapeles");
+    } catch (error) {
+      console.error(error);
+      toast.error("No se pudo leer el portapapeles");
+    }
+  };
+
+  const clearVehicleDocumentation = async () => {
+    if (!vehicleDocsModal.vehicleId) return;
+    setVehicleDocUploading(true);
+    try {
+      if (vehicleDocsModal.currentUrl) {
+        await deleteVehicleDocFile(vehicleDocsModal.currentUrl);
+      }
+      await updateVehicleDocumentationUrl(vehicleDocsModal.vehicleId, "");
+      setVehicleDocsModal((prev) => ({ ...prev, currentUrl: "" }));
+      await fetchData();
+      toast.success("Documentación eliminada");
+    } catch (error) {
+      console.error(error);
+      toast.error("No se pudo eliminar la documentación");
+    } finally {
+      setVehicleDocUploading(false);
+    }
+  };
+
+  const handleVehicleDocDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setVehicleDocDragging(true);
+    } else if (e.type === "dragleave") {
+      setVehicleDocDragging(false);
+    }
+  };
+
+  const handleVehicleDocDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setVehicleDocDragging(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) uploadVehicleDocumentation(file);
+  };
+
+  const handleAssignChofer = async (transport, choferIdRaw) => {
+    const choferId = choferIdRaw ? parseInt(choferIdRaw, 10) : null;
+    try {
+      const { error } = await supabase
+        .from("giras_transportes")
+        .update({ id_chofer: choferId })
+        .eq("id", transport.id);
+      if (error) throw error;
+
+      if (choferId) {
+        const { data: existingAdmission, error: admFetchError } = await supabase
+          .from("giras_logistica_admision")
+          .select("id, tipo")
+          .eq("id_gira", giraId)
+          .eq("id_transporte_fisico", transport.id)
+          .eq("alcance", "Persona")
+          .eq("id_integrante", choferId);
+        if (admFetchError) throw admFetchError;
+
+        const rows = existingAdmission || [];
+        if (rows.length === 0) {
+          const { error: admInsertError } = await supabase
+            .from("giras_logistica_admision")
+            .insert([
+              {
+                id_gira: giraId,
+                id_transporte_fisico: transport.id,
+                alcance: "Persona",
+                tipo: "INCLUSION",
+                prioridad: 5,
+                id_integrante: choferId,
+                id_region: null,
+                id_localidad: null,
+                target_ids: [],
+              },
+            ]);
+          if (admInsertError) throw admInsertError;
+        } else {
+          const hasOnlyInclusions = rows.every(
+            (r) => !r.tipo || String(r.tipo).toUpperCase() === "INCLUSION",
+          );
+          if (!hasOnlyInclusions) {
+            const ids = rows.map((r) => r.id).filter(Boolean);
+            if (ids.length > 0) {
+              const { error: admUpdateError } = await supabase
+                .from("giras_logistica_admision")
+                .update({ tipo: "INCLUSION", prioridad: 5 })
+                .in("id", ids);
+              if (admUpdateError) throw admUpdateError;
+            }
+          }
+        }
+      }
+
+      const choferObj =
+        choferId == null
+          ? null
+          : (musiciansList || []).find((m) => Number(m.id) === Number(choferId)) ||
+            null;
+
+      setTransports((prev) =>
+        prev.map((row) =>
+          row.id === transport.id
+            ? {
+                ...row,
+                id_chofer: choferId,
+                chofer: choferObj
+                  ? {
+                      id: choferObj.id,
+                      nombre: choferObj.nombre,
+                      apellido: choferObj.apellido,
+                      dni: choferObj.dni,
+                      link_carnet: choferObj.link_carnet || "",
+                      link_dni_img: choferObj.link_dni_img || "",
+                    }
+                  : null,
+              }
+            : row,
+        ),
+      );
+      setChoferPicker({ transportId: null, search: "" });
+      toast.success(choferId ? "Chofer asignado" : "Chofer removido");
+      await refresh();
+    } catch (err) {
+      console.error(err);
+      toast.error("No se pudo guardar el chofer");
     }
   };
 
@@ -2702,6 +2985,23 @@ export default function GirasTransportesManager({ supabase, gira }) {
             }
           />
         </div>
+        <div className="min-w-[220px]">
+          <label className="text-[10px] font-bold text-slate-500">CHOFER</label>
+          <select
+            className="w-full text-xs border p-2 rounded"
+            value={newTransp.id_chofer}
+            onChange={(e) =>
+              setNewTransp({ ...newTransp, id_chofer: e.target.value })
+            }
+          >
+            <option value="">Sin chofer</option>
+            {choferOptions.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label} {c.dni ? `(${c.dni})` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
         <button
           onClick={handleAddTransport}
           className="bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700"
@@ -2919,6 +3219,23 @@ export default function GirasTransportesManager({ supabase, gira }) {
                             );
                           })}
                         </div>
+                        <select
+                          className="border border-indigo-300 rounded px-2 py-1 text-xs bg-white min-w-[180px]"
+                          value={editFormData.id_chofer || ""}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              id_chofer: e.target.value,
+                            })
+                          }
+                        >
+                          <option value="">Sin chofer</option>
+                          {choferOptions.map((c) => (
+                            <option key={c.value} value={c.value}>
+                              {c.label} {c.dni ? `(${c.dni})` : ""}
+                            </option>
+                          ))}
+                        </select>
                         <div className="flex gap-1">
                           <button
                             onClick={saveTransportChanges}
@@ -2936,7 +3253,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
                       </div>
                     ) : (
                       <>
-                        <div className="flex items-center gap-1.5 flex-nowrap overflow-hidden">
+                        <div className="flex items-center gap-1.5 flex-nowrap min-w-0">
                           <h4 className="font-black text-slate-800 uppercase tracking-tighter text-sm truncate shrink">
                             {t.detalle || "Sin detalle"}
                           </h4>
@@ -2951,6 +3268,105 @@ export default function GirasTransportesManager({ supabase, gira }) {
                           >
                             <IconEdit size={12} />
                           </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openVehicleDocsModal(t);
+                            }}
+                            className={`p-1 rounded-full ${
+                              t.transportes?.documentacion
+                                ? "text-emerald-500 hover:text-emerald-600"
+                                : "text-amber-500 hover:text-amber-600 animate-pulse"
+                            }`}
+                            title={
+                              t.transportes?.documentacion
+                                ? "Editar documentación de vehículo"
+                                : "Cargar documentación de vehículo"
+                            }
+                          >
+                            <IconFileText size={12} />
+                          </button>
+                          <div
+                            className="relative"
+                            ref={choferPicker.transportId === t.id ? choferPickerRef : null}
+                          >
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setChoferPicker((prev) =>
+                                  prev.transportId === t.id
+                                    ? { transportId: null, search: "" }
+                                    : { transportId: t.id, search: "" },
+                                );
+                              }}
+                              className={`p-1 rounded-full ${
+                                t.id_chofer
+                                  ? "text-emerald-500 hover:text-emerald-600"
+                                  : "text-slate-400 hover:text-slate-600"
+                              }`}
+                              title={
+                                t.id_chofer
+                                  ? "Editar chofer del recorrido"
+                                  : "Asignar chofer al recorrido"
+                              }
+                            >
+                              <IconUser size={12} />
+                            </button>
+                            {choferPicker.transportId === t.id && (
+                              <div
+                                className="absolute right-0 top-[110%] z-[140] w-72 rounded-xl border border-slate-200 bg-white shadow-2xl p-2"
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                              >
+                                <input
+                                  type="text"
+                                  value={choferPicker.search}
+                                  onChange={(e) =>
+                                    setChoferPicker((prev) => ({
+                                      ...prev,
+                                      search: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Buscar chofer..."
+                                  className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-indigo-400"
+                                />
+                                <div className="mt-2 max-h-56 overflow-y-auto space-y-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAssignChofer(t, "")}
+                                    className={`w-full text-left rounded-md px-2 py-1.5 text-xs ${
+                                      !t.id_chofer
+                                        ? "bg-slate-100 text-slate-700 font-bold"
+                                        : "text-slate-600 hover:bg-slate-50"
+                                    }`}
+                                  >
+                                    Sin chofer
+                                  </button>
+                                  {choferOptions
+                                    .filter((c) => {
+                                      const haystack = `${c.label} ${c.dni || ""}`.toLowerCase();
+                                      return haystack.includes(
+                                        String(choferPicker.search || "").toLowerCase(),
+                                      );
+                                    })
+                                    .map((c) => (
+                                      <button
+                                        key={c.value}
+                                        type="button"
+                                        onClick={() => handleAssignChofer(t, c.value)}
+                                        className={`w-full text-left rounded-md px-2 py-1.5 text-xs ${
+                                          String(t.id_chofer || "") === String(c.value)
+                                            ? "bg-emerald-50 text-emerald-700 font-bold"
+                                            : "text-slate-700 hover:bg-indigo-50"
+                                        }`}
+                                      >
+                                        {c.label} {c.dni ? `(${c.dni})` : ""}
+                                      </button>
+                                    ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">
@@ -2983,6 +3399,14 @@ export default function GirasTransportesManager({ supabase, gira }) {
                               }}
                             >
                               <IconBus size={10} /> Trasl. interno
+                            </span>
+                          )}
+                          {t.id_chofer && (
+                            <span className="ml-1 text-[9px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded font-bold border border-cyan-200">
+                              Chofer:{" "}
+                              {t.chofer
+                                ? `${t.chofer.apellido || ""}, ${t.chofer.nombre || ""}`.trim()
+                                : `#${t.id_chofer}`}
                             </span>
                           )}
                         </div>
@@ -3597,6 +4021,142 @@ export default function GirasTransportesManager({ supabase, gira }) {
       </div>
 
       <InfoListModal />
+
+      {vehicleDocsModal.isOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">
+                  Documentación de vehículo
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  {vehicleDocsModal.transportLabel}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeVehicleDocsModal}
+                disabled={vehicleDocUploading}
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+              >
+                <IconX size={16} />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div
+                onDragEnter={handleVehicleDocDrag}
+                onDragOver={handleVehicleDocDrag}
+                onDragLeave={handleVehicleDocDrag}
+                onDrop={handleVehicleDocDrop}
+                className={`relative h-44 rounded-3xl border-2 transition-all overflow-hidden group ${
+                  vehicleDocDragging
+                    ? "border-indigo-500 bg-indigo-50/60 scale-[1.01] shadow-lg"
+                    : ""
+                } ${
+                  vehicleDocUploading
+                    ? "border-orange-400 ring-4 ring-orange-50"
+                    : vehicleDocsModal.currentUrl
+                      ? "border-emerald-100 bg-white"
+                      : "border-dashed border-slate-200 bg-slate-50 hover:border-indigo-300"
+                }`}
+              >
+                {vehicleDocsModal.currentUrl ? (
+                  <>
+                    {/\.pdf(\?|$)/i.test(vehicleDocsModal.currentUrl) ? (
+                      <object
+                        data={`${vehicleDocsModal.currentUrl}#toolbar=0&navpanes=0`}
+                        type="application/pdf"
+                        className="w-full h-full pointer-events-none absolute inset-0"
+                      >
+                        <div className="w-full h-full flex items-center justify-center text-xs text-slate-500 px-3 text-center">
+                          Vista previa limitada. Usa "Ver archivo" para abrirlo.
+                        </div>
+                      </object>
+                    ) : (
+                      <img
+                        src={vehicleDocsModal.currentUrl}
+                        alt="Documento vehículo"
+                        className="w-full h-full object-contain p-2"
+                      />
+                    )}
+                    <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-2">
+                      <a
+                        href={vehicleDocsModal.currentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-2 rounded-xl bg-white text-indigo-600 text-xs font-black"
+                      >
+                        Ver archivo
+                      </a>
+                      <label className="px-3 py-2 rounded-xl bg-white text-slate-700 text-xs font-black cursor-pointer">
+                        Reemplazar
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept="application/pdf,image/*"
+                          disabled={vehicleDocUploading}
+                          onChange={(e) =>
+                            uploadVehicleDocumentation(e.target.files?.[0])
+                          }
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={clearVehicleDocumentation}
+                        disabled={vehicleDocUploading}
+                        className="px-3 py-2 rounded-xl bg-white text-rose-600 text-xs font-black disabled:opacity-50"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="w-full h-full flex flex-col p-4 justify-center">
+                    <div className="flex-1 flex flex-col items-center justify-center text-slate-300 mb-2 pointer-events-none">
+                      {vehicleDocUploading ? (
+                        <IconLoader className="animate-spin" size={24} />
+                      ) : (
+                        <IconUpload size={24} className={vehicleDocDragging ? "text-indigo-500 animate-bounce" : ""} />
+                      )}
+                      {vehicleDocDragging && (
+                        <span className="text-[9px] font-black mt-2 text-indigo-500 uppercase">
+                          Soltar aquí
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={pasteVehicleDocumentation}
+                        disabled={vehicleDocUploading}
+                        className="bg-indigo-600 text-white py-2 rounded-xl text-[10px] font-black uppercase disabled:opacity-50"
+                      >
+                        Pegar
+                      </button>
+                      <label className="bg-white border border-slate-200 text-slate-600 py-2 rounded-xl text-[10px] font-black text-center cursor-pointer uppercase hover:bg-slate-50">
+                        Subir
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept="application/pdf,image/*"
+                          disabled={vehicleDocUploading}
+                          onChange={(e) =>
+                            uploadVehicleDocumentation(e.target.files?.[0])
+                          }
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Arrastrá un archivo o usá pegar/subir. Formatos recomendados: PDF o imagen.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {admissionModal.isOpen && (
         <TransportAdmissionModal

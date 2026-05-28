@@ -203,7 +203,7 @@ export async function fetchRosterForGira(supabase, gira) {
           `id, nombre, apellido, fecha_alta, fecha_baja, condicion, telefono, mail, alimentacion, es_simulacion, id_instr,
            id_localidad, id_loc_viaticos, id_domicilio_laboral, documentacion, docred, firma, nota_interna, cargo, jornada, motivo,
            dni, fecha_nac, genero, cuil,
-           link_dni_img, link_cuil, link_cbu_img, link_declaracion,
+           link_dni_img, link_cuil, link_cbu_img, link_declaracion, link_carnet,
            instrumentos(instrumento, familia, plaza_extra),
            residencia:localidades!id_localidad(id, localidad, id_region, regiones(region)),
            viaticos:localidades!id_loc_viaticos(id, localidad, id_region, regiones(region)),

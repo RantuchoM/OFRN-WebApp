@@ -1,10 +1,11 @@
-import React from "react";
+import React, { useState } from "react";
 import { IconLoader, IconCheck, IconFileText, IconFilePlus, IconLayoutGrid } from "../../components/ui/Icons";
 import MusicianFileUploader from "./MusicianFileUploader";
 import { useMusicianFormContext } from "./MusicianFormContext";
 
 export default function MusicianDocsUploadSection() {
   const { formData, assemblingType, handleFullPack, handleGenerateDJ, handleAssemble } = useMusicianFormContext();
+  const [showCarnetUploader, setShowCarnetUploader] = useState(false);
   const isAll = assemblingType === "all";
   const isDj = assemblingType === "dj";
   const isFull = assemblingType === "full";
@@ -42,42 +43,62 @@ export default function MusicianDocsUploadSection() {
           <MusicianFileUploader label="PDF Mosaico (Red)" field="docred" value={formData.docred} />
         </div>
       </div>
-      <div className="bg-slate-900 p-6 rounded-[2.5rem] text-white flex flex-col lg:flex-row items-center gap-6 shadow-2xl border border-slate-800">
-        <div className="flex-1">
-          <h4 className="text-sm font-black text-indigo-400 uppercase tracking-widest">Motor de Expedientes</h4>
-          <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-tighter">
-            Generación automática mediante last_modified_at.
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 w-full lg:w-auto">
-          <button
-            type="button"
-            disabled={assemblingType !== null}
-            onClick={handleFullPack}
-            className={
-              isAll
-                ? "py-3.5 px-10 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-3 shadow-2xl bg-orange-500 text-white animate-pulse"
-                : "py-3.5 px-10 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-3 shadow-2xl bg-indigo-600 text-white hover:bg-white hover:text-indigo-600 active:scale-95"
-            }
-          >
-            {isAll ? <IconLoader className="animate-spin" size={18} /> : <IconCheck size={20} />}
-            {" "}GENERAR EXPEDIENTE COMPLETO
-          </button>
-          <div className="grid grid-cols-3 gap-2">
-            <button type="button" disabled={assemblingType !== null} onClick={handleGenerateDJ} className="py-2 px-3 rounded-xl text-[8px] font-black border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center justify-center gap-1 uppercase">
-              {isDj ? <IconLoader className="animate-spin" size={10} /> : <IconFileText size={12} />}
-              {" "}SÓLO DJ
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="bg-slate-900 p-6 rounded-[2.5rem] text-white flex flex-col lg:flex-row items-center gap-6 shadow-2xl border border-slate-800 flex-1">
+          <div className="flex-1">
+            <h4 className="text-sm font-black text-indigo-400 uppercase tracking-widest">Motor de Expedientes</h4>
+            <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-tighter">
+              Generación automática mediante last_modified_at.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 w-full lg:w-auto lg:mr-12">
+            <button
+              type="button"
+              disabled={assemblingType !== null}
+              onClick={handleFullPack}
+              className={
+                isAll
+                  ? "py-3.5 px-10 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-3 shadow-2xl bg-orange-500 text-white animate-pulse"
+                  : "py-3.5 px-10 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-3 shadow-2xl bg-indigo-600 text-white hover:bg-white hover:text-indigo-600 active:scale-95"
+              }
+            >
+              {isAll ? <IconLoader className="animate-spin" size={18} /> : <IconCheck size={20} />}
+              {" "}GENERAR EXPEDIENTE COMPLETO
             </button>
-            <button type="button" disabled={assemblingType !== null} onClick={() => handleAssemble("full")} className="py-2 px-3 rounded-xl text-[8px] font-black border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center justify-center gap-1 uppercase">
-              {isFull ? <IconLoader className="animate-spin" size={10} /> : <IconFilePlus size={12} />}
-              {" "}SÓLO FULL
-            </button>
-            <button type="button" disabled={assemblingType !== null} onClick={() => handleAssemble("mosaic")} className="py-2 px-3 rounded-xl text-[8px] font-black border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center justify-center gap-1 uppercase">
-              {isMosaic ? <IconLoader className="animate-spin" size={10} /> : <IconLayoutGrid size={12} />}
-              {" "}SÓLO MOS.
-            </button>
+            <div className="grid grid-cols-3 gap-2">
+              <button type="button" disabled={assemblingType !== null} onClick={handleGenerateDJ} className="py-2 px-3 rounded-xl text-[8px] font-black border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center justify-center gap-1 uppercase">
+                {isDj ? <IconLoader className="animate-spin" size={10} /> : <IconFileText size={12} />}
+                {" "}SÓLO DJ
+              </button>
+              <button type="button" disabled={assemblingType !== null} onClick={() => handleAssemble("full")} className="py-2 px-3 rounded-xl text-[8px] font-black border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center justify-center gap-1 uppercase">
+                {isFull ? <IconLoader className="animate-spin" size={10} /> : <IconFilePlus size={12} />}
+                {" "}SÓLO FULL
+              </button>
+              <button type="button" disabled={assemblingType !== null} onClick={() => handleAssemble("mosaic")} className="py-2 px-3 rounded-xl text-[8px] font-black border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center justify-center gap-1 uppercase">
+                {isMosaic ? <IconLoader className="animate-spin" size={10} /> : <IconLayoutGrid size={12} />}
+                {" "}SÓLO MOS.
+              </button>
+            </div>
           </div>
         </div>
+        <div className="w-full max-w-sm lg:w-72">
+        <button
+          type="button"
+          onClick={() => setShowCarnetUploader((prev) => !prev)}
+          className="w-full py-2 px-3 rounded-xl text-[10px] font-black border border-slate-300 text-slate-700 hover:bg-slate-50 uppercase"
+        >
+          {showCarnetUploader ? "Ocultar carnet" : "Agregar carnet"}
+        </button>
+        {showCarnetUploader && (
+          <div className="mt-3">
+            <MusicianFileUploader
+              label="Carnet"
+              field="link_carnet"
+              value={formData.link_carnet}
+            />
+          </div>
+        )}
+      </div>
       </div>
     </div>
   );

@@ -47,6 +47,7 @@ function getDefaultValues(musician = {}) {
     link_cbu_img: "",
     link_declaracion: "",
     link_cuil: "",
+    link_carnet: "",
     nota_interna: "",
     avatar_url: "",
     avatar_color: "#4f46e5",

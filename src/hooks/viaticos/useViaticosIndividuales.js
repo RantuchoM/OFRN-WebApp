@@ -88,7 +88,7 @@ export function useViaticosIndividuales(
                     *, 
                     integrantes:id_integrante(
                         id, nombre, apellido, mail, dni, firma, id_instr, 
-                        documentacion, docred, link_declaracion,
+                        documentacion, docred, link_declaracion, link_carnet, link_dni_img,
                         motivo, cargo, jornada
                     )
                 `,
