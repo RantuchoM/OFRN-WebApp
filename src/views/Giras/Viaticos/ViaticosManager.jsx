@@ -50,6 +50,7 @@ import {
   getAnticipoSubtotalForExport,
   sumGastosViaticoRow,
 } from "../../../utils/viaticosAnticipo";
+import { parseSupabasePublicStorageUrl } from "../../../utils/supabaseStorage";
 
 const uint8ArrayToBase64 = (uint8Array) => {
   let binary = "";
@@ -651,10 +652,24 @@ export default function ViaticosManager({ supabase, giraId }) {
     return data;
   };
 
+  const resolveSupabaseSignedUrl = async (rawUrl, expiresIn = 60 * 10) => {
+    const parsed = parseSupabasePublicStorageUrl(rawUrl);
+    if (!parsed?.bucket || !parsed?.path) return null;
+    const cleanPath = parsed.path.split("?")[0];
+    const { data, error } = await supabase.storage
+      .from(parsed.bucket)
+      .createSignedUrl(cleanPath, expiresIn);
+    if (error || !data?.signedUrl) return null;
+    return data.signedUrl;
+  };
+
   const fetchPdfFromDrive = async (driveUrl) => {
     try {
       if (driveUrl.includes("supabase.co")) {
-        const res = await fetch(driveUrl);
+        const signedUrl = await resolveSupabaseSignedUrl(driveUrl);
+        const sourceUrl = signedUrl || driveUrl;
+        const res = await fetch(sourceUrl);
+        if (!res.ok) throw new Error(`Error descargando bucket (${res.status})`);
         const arrayBuffer = await res.arrayBuffer();
         return new Uint8Array(arrayBuffer);
       }
@@ -694,10 +709,11 @@ export default function ViaticosManager({ supabase, giraId }) {
   const copyDriveFile = async (url, targetFolder, newName) => {
     const isBucket = url.includes("supabase.co");
     if (isBucket) {
+      const signedUrl = await resolveSupabaseSignedUrl(url, 60 * 30);
       await supabase.functions.invoke("manage-drive", {
         body: {
           action: "upload_from_url",
-          sourceUrl: url,
+          sourceUrl: signedUrl || url,
           targetParentId: targetFolder,
           newName,
         },
@@ -1112,6 +1128,29 @@ const collectTransportSupportDocs = (personData) => {
         setExportStatus(`${prefix} ${nameSafe}`);
 
         try {
+          const shouldBuildMergedPacket = options.docComun || options.docReducida;
+          if (shouldBuildMergedPacket) {
+            setExportDetail("Generando PDF integrado...");
+            const personDoc = await PDFDocument.create();
+            await appendPersonToDoc(
+              personDoc,
+              personData,
+              options,
+              giraData,
+              pdfExportConfig,
+              setExportDetail,
+            );
+            const mergedBytes = await personDoc.save();
+            setExportDetail("Subiendo PDF integrado...");
+            await uploadPdfToDrive(
+              mergedBytes,
+              `${nameSafe} - Documentación.pdf`,
+              folderId,
+            );
+            successCount++;
+            continue;
+          }
+
           if (options.viatico) {
             setExportDetail("Generando PDF Viático...");
             const pdfBytes = await exportViaticosToPDFForm(
