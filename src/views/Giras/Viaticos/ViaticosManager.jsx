@@ -15,6 +15,7 @@ import {
   IconCloudUpload,
   IconLoader,
   IconRefresh,
+  IconHistory,
 } from "../../../components/ui/Icons";
 import { useLogistics } from "../../../hooks/useLogistics";
 import ViaticosForm from "./ViaticosForm";
@@ -347,6 +348,12 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [useHistoricalCalc, setUseHistoricalCalc] = useState(false);
   const [showIndividualPanel, setShowIndividualPanel] = useState(true);
   const [showMassivePanel, setShowMassivePanel] = useState(true);
+  const [destaquesShowBackup, setDestaquesShowBackup] = useState(false);
+  const [destaquesSelToolbar, setDestaquesSelToolbar] = useState({
+    canSelect: false,
+    label: "Sel. pendientes",
+  });
+  const destaquesPanelRef = useRef(null);
   const [editingMusician, setEditingMusician] = useState(null);
 
   // ESTADOS DE EXPORTACIÓN
@@ -2094,10 +2101,54 @@ const collectTransportSupportDocs = (personData) => {
           className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"
           onClick={() => setShowMassivePanel(!showMassivePanel)}
         >
-          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <IconBus className="text-indigo-600" /> Destaques Masivos
-          </h2>
-          <button className="text-slate-400">
+          <div className="flex items-center gap-3 flex-wrap min-w-0">
+            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 shrink-0">
+              <IconBus className="text-indigo-600" /> Destaques Masivos
+            </h2>
+            <div
+              className="flex items-center gap-2 flex-wrap"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {config?.link_drive ? (
+                <a
+                  href={`https://drive.google.com/drive/folders/${config.link_drive}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-100 shrink-0"
+                >
+                  <IconDrive size={14} /> Carpeta Viáticos
+                </a>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setDestaquesShowBackup((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border shrink-0 ${
+                  destaquesShowBackup
+                    ? "bg-cyan-100 text-cyan-800 border-cyan-200 shadow-inner"
+                    : "bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600 shadow-sm"
+                }`}
+              >
+                <IconHistory size={14} /> Historial{" "}
+                {destaquesShowBackup ? (
+                  <IconEye size={14} />
+                ) : (
+                  <IconEyeOff size={14} />
+                )}
+              </button>
+              {showMassivePanel && destaquesSelToolbar.canSelect ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    destaquesPanelRef.current?.togglePendingSelection?.()
+                  }
+                  className="text-xs text-indigo-600 font-medium hover:underline shrink-0"
+                >
+                  {destaquesSelToolbar.label}
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <button type="button" className="text-slate-400 shrink-0">
             {showMassivePanel ? (
               <IconChevronDown size={20} />
             ) : (
@@ -2108,10 +2159,19 @@ const collectTransportSupportDocs = (personData) => {
         {showMassivePanel && (
           <div className="px-6 pb-8 animate-in slide-in-from-top-2 duration-200">
             <DestaquesLocationPanel
+              ref={destaquesPanelRef}
+              supabase={supabase}
+              showBackup={destaquesShowBackup}
+              onSelectionToolbarChange={setDestaquesSelToolbar}
               roster={massiveRoster}
               configs={destaquesConfigs}
               destaquesGeneralConfig={destaquesGeneralConfig}
               globalConfig={config}
+              giraLabel={
+                [giraData?.mes_letra, giraData?.nomenclador, giraData?.nombre_gira]
+                  .filter(Boolean)
+                  .join(" — ") || "Gira"
+              }
               onSaveLocationConfig={updateLocationConfig}
               onUpdateGlobalConfig={updateConfig}
               feedback={feedbackMasivo}

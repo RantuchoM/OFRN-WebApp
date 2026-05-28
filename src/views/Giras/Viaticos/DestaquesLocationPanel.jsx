@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from "react";
 import { 
     IconBus, IconClock, IconAlertTriangle, IconChevronDown, IconChevronUp, 
-    IconUsers, IconHistory, IconEye, IconEyeOff, IconCheck, IconSettings, 
-    IconX, IconCalculator, IconCar, IconDrive, IconMap
+    IconUsers, IconCheck, IconSettings, 
+    IconX, IconCalculator, IconCar, IconMap
 } from "../../../components/ui/Icons";
 import LocationBulkPanel from "./LocationBulkPanel";
 import DestaquesRecorridosModal from "./DestaquesRecorridosModal";
@@ -17,6 +17,12 @@ import {
     resolveDestaqueLogisticsField,
 } from "../../../utils/destaquesConfigMerge";
 import { resolveLocalidadEfectivaViaticos } from "../../../utils/integranteDomicilioViaticos";
+import {
+    CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
+    exportDestaquesCuadroFirmasPdf,
+    fetchEncargadoCuadroFirmas,
+    toCuadroFirmasPerson,
+} from "../../../utils/destaquesCuadroFirmasPdf";
 
 // --- UTILIDADES ---
 const formatDateVisual = (dateStr) => {
@@ -763,7 +769,8 @@ const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, 
     );
 };
 
-export default function DestaquesLocationPanel({ 
+const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({ 
+    supabase,
     roster, 
     configs,
     destaquesGeneralConfig,
@@ -778,11 +785,14 @@ export default function DestaquesLocationPanel({
     isExporting, 
     exportStatus,
     globalConfig,
+    giraLabel = "",
+    showBackup = false,
+    onSelectionToolbarChange,
     exportFailureLog = [],
     onClearExportFailureLog,
-}) {
-   const [selectedGroupIds, setSelectedGroupIds] = useState([]); 
-    const [showBackup, setShowBackup] = useState(false);
+}, ref) {
+   const [selectedGroupIds, setSelectedGroupIds] = useState([]);
+    const [isExportingFirmas, setIsExportingFirmas] = useState(false);
     const [showGeneralDestaquesConfig, setShowGeneralDestaquesConfig] = useState(false);
     const [showRecorridosModal, setShowRecorridosModal] = useState(false);
     /** null = mostrar valor guardado; string = edición manual (reemplaza recorridos al guardar). */
@@ -958,6 +968,25 @@ export default function DestaquesLocationPanel({
         setSelectedGroupIds(pendingIds);
     };
 
+    useImperativeHandle(ref, () => ({
+        togglePendingSelection: handleSelectPendingClick,
+    }));
+
+    useEffect(() => {
+        if (typeof onSelectionToolbarChange !== "function") return;
+        onSelectionToolbarChange({
+            canSelect: groupedData.length > 0,
+            label:
+                selectedGroupIds.length > 0
+                    ? "Deseleccionar todo"
+                    : "Sel. pendientes",
+        });
+    }, [
+        groupedData.length,
+        selectedGroupIds.length,
+        onSelectionToolbarChange,
+    ]);
+
     // --- CÁLCULO DE ESTADÍSTICAS PARA EL PANEL BULK (CORREGIDO) ---
     const selectionStats = useMemo(() => {
         let totalPeople = 0;
@@ -978,63 +1007,101 @@ export default function DestaquesLocationPanel({
         return { totalPeople, pendingPeople, groupCount: selectedGroupIds.length };
     }, [selectedGroupIds, groupedData, configs]);
 
-    const handleBulkExport = (optionsFromChild) => {
-        const { unificationMode, exportScope, ...cleanOptions } = optionsFromChild;
+    const collectPeopleForExport = (exportScope) => {
         const peopleToExport = [];
         const locationIds = [];
 
-        selectedGroupIds.forEach(groupId => {
-            const group = groupedData.find(g => g.id === groupId);
-            if (group) {
-                const exportedIds = configs[groupId]?.ids_exportados_viatico || [];
-                
-                // LÓGICA DE FILTRADO SEGÚN ALCANCE
-                let validPeople = group.people.filter(p => !p.hasIndividual); // Base: no individuales
-                
-                if (exportScope === 'pending') {
-                    validPeople = validPeople.filter(p => !exportedIds.includes(Number(p.id)));
-                }
-                // Si es 'all', usamos todos los validPeople (re-exportar)
-                
-                if (validPeople.length > 0) {
-                    validPeople.forEach(p => {
-                        const travelFromHeader = group.headerInfo
-                            ? {
-                                fecha_salida: group.headerInfo.fecha
-                                    ? parseVisualDateToIso(group.headerInfo.fecha)
-                                    : null,
-                                hora_salida: group.headerInfo.hora || null,
-                                fecha_llegada: group.headerInfo.fecha_llegada
-                                    ? parseVisualDateToIso(group.headerInfo.fecha_llegada)
-                                    : null,
-                                hora_llegada: group.headerInfo.hora_llegada || null,
-                              }
-                            : {};
+        selectedGroupIds.forEach((groupId) => {
+            const group = groupedData.find((g) => g.id === groupId);
+            if (!group) return;
 
-                        peopleToExport.push(withStableExportFallbacks({ 
-                            ...p,
-                            _massConfigId: groupId,
-                            _groupName: group.name,
-                            travelData: { ...travelFromHeader, ...(p.travelData || {}) },
-                        }));
-                    });
-                    locationIds.push(groupId);
-                }
+            const exportedIds = configs[groupId]?.ids_exportados_viatico || [];
+            let validPeople = group.people.filter((p) => !p.hasIndividual);
+
+            if (exportScope === "pending") {
+                validPeople = validPeople.filter(
+                    (p) => !exportedIds.includes(Number(p.id)),
+                );
             }
+
+            if (validPeople.length === 0) return;
+
+            validPeople.forEach((p) => {
+                const travelFromHeader = group.headerInfo
+                    ? {
+                          fecha_salida: group.headerInfo.fecha
+                              ? parseVisualDateToIso(group.headerInfo.fecha)
+                              : null,
+                          hora_salida: group.headerInfo.hora || null,
+                          fecha_llegada: group.headerInfo.fecha_llegada
+                              ? parseVisualDateToIso(group.headerInfo.fecha_llegada)
+                              : null,
+                          hora_llegada: group.headerInfo.hora_llegada || null,
+                      }
+                    : {};
+
+                peopleToExport.push(
+                    withStableExportFallbacks({
+                        ...p,
+                        _massConfigId: groupId,
+                        _groupName: group.name,
+                        travelData: { ...travelFromHeader, ...(p.travelData || {}) },
+                    }),
+                );
+            });
+            locationIds.push(groupId);
         });
+
+        return { peopleToExport, locationIds };
+    };
+
+    const handleBulkExport = (optionsFromChild) => {
+        const { unificationMode, exportScope, ...cleanOptions } = optionsFromChild;
+        const { peopleToExport, locationIds } = collectPeopleForExport(exportScope);
 
         if (peopleToExport.length === 0) {
             alert("No hay personas para exportar con el criterio seleccionado.");
             return;
         }
-        
-        // Pasamos el modo de unificación
+
         onExportBatch(
             peopleToExport,
             null,
             { ...cleanOptions, unificationMode, localityNameById },
             locationIds,
         );
+    };
+
+    const resolveEncargadoCuadroFirmas = async () => {
+        const fromRoster = (roster || []).find(
+            (p) => Number(p.id) === CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
+        );
+        if (fromRoster) return toCuadroFirmasPerson(fromRoster);
+        return fetchEncargadoCuadroFirmas(supabase);
+    };
+
+    const handleExportCuadroFirmas = async (exportScope) => {
+        const { peopleToExport } = collectPeopleForExport(exportScope);
+        const encargado = await resolveEncargadoCuadroFirmas();
+
+        if (peopleToExport.length === 0 && !encargado) {
+            alert("No hay personas para el cuadro de firmas con el criterio seleccionado.");
+            return;
+        }
+
+        setIsExportingFirmas(true);
+        try {
+            await exportDestaquesCuadroFirmasPdf({
+                people: peopleToExport,
+                encargado,
+                giraLabel,
+            });
+        } catch (err) {
+            console.error("Cuadro de firmas:", err);
+            alert(err?.message || "No se pudo generar el cuadro de firmas.");
+        } finally {
+            setIsExportingFirmas(false);
+        }
     };
 
     const currentGlobalPct = globalConfig?.porcentaje_destaques !== undefined ? parseFloat(globalConfig.porcentaje_destaques) : 100;
@@ -1173,31 +1240,6 @@ export default function DestaquesLocationPanel({
                             Recorridos
                         </button>
                     </div>
-                    {globalConfig?.link_drive ? (
-                        <a
-                            href={`https://drive.google.com/drive/folders/${globalConfig.link_drive}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-100 shrink-0"
-                        >
-                            <IconDrive size={14} /> Carpeta Viáticos
-                        </a>
-                    ) : null}
-                </div>
-
-                <div className="flex items-center gap-3">
-                    <button onClick={() => setShowBackup(!showBackup)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${showBackup ? 'bg-cyan-100 text-cyan-800 border-cyan-200 shadow-inner' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600 shadow-sm'}`}>
-                        <IconHistory size={14} /> Historial {showBackup ? <IconEye size={14}/> : <IconEyeOff size={14}/>}
-                    </button>
-                    {groupedData.length > 0 && (
-                        <button
-                            type="button"
-                            onClick={handleSelectPendingClick}
-                            className="text-xs text-indigo-600 font-medium hover:underline ml-2"
-                        >
-                            {selectedGroupIds.length > 0 ? "Deseleccionar todo" : "Sel. pendientes"}
-                        </button>
-                    )}
                 </div>
             </div>
 
@@ -1314,9 +1356,11 @@ export default function DestaquesLocationPanel({
                             selectionStats={selectionStats}
                             porcentajeDestaques={globalConfig?.porcentaje_destaques}
                             onClose={() => setSelectedGroupIds([])}
-                            onExport={handleBulkExport} 
+                            onExport={handleBulkExport}
+                            onExportCuadroFirmas={handleExportCuadroFirmas}
                             loading={isExporting}
                             isExporting={isExporting}
+                            isExportingFirmas={isExportingFirmas}
                             exportStatus={exportStatus}
                         />
                     </div>
@@ -1332,4 +1376,6 @@ export default function DestaquesLocationPanel({
             />
         </div>
     );
-}
+});
+
+export default DestaquesLocationPanel;

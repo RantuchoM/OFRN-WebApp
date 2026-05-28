@@ -30,6 +30,7 @@ export default function MusicianFileUploader({ label, field, value }) {
 
   const [isDragging, setIsDragging] = useState(false);
   const [previewSrc, setPreviewSrc] = useState(null);
+  const [imageLoadError, setImageLoadError] = useState(false);
   const status = fieldStatuses[field];
   const cleanValue = value ? String(value).split("#")[0] : "";
   const forcePdfFields = new Set(["documentacion", "docred", "link_declaracion"]);
@@ -50,6 +51,7 @@ export default function MusicianFileUploader({ label, field, value }) {
 
   useEffect(() => {
     let cancelled = false;
+    setImageLoadError(false);
     if (!value) {
       setPreviewSrc(null);
       return;
@@ -149,11 +151,21 @@ export default function MusicianFileUploader({ label, field, value }) {
                   PDF
                 </div>
               </div>
-            ) : isImage ? (
+            ) : isImage && !imageLoadError ? (
               <img
                 src={displaySrc || value}
                 className="w-full h-full object-contain p-2"
                 alt={label}
+                onError={(e) => {
+                  const current = e.currentTarget.src || "";
+                  const fallback = value || "";
+                  // Reintento una vez con URL original por si la firmada venció/no renderiza.
+                  if (fallback && current !== fallback) {
+                    e.currentTarget.src = fallback;
+                    return;
+                  }
+                  setImageLoadError(true);
+                }}
               />
             ) : (
               <div className="w-full h-full bg-slate-100 overflow-hidden relative min-h-[120px] flex items-center justify-center">

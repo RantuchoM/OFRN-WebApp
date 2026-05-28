@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { IconFileText, IconLoader, IconBus, IconMap, IconFiles, IconCopy } from '../../../components/ui/Icons';
+import { IconFileText, IconLoader, IconBus, IconMap, IconFiles, IconCopy, IconPencil } from '../../../components/ui/Icons';
 import RenunciaViaticosExportOption from './RenunciaViaticosExportOption';
 
 export default function LocationBulkPanel({ 
     selectionStats = { totalPeople: 0, pendingPeople: 0, groupCount: 0 }, 
     porcentajeDestaques = 100,
     onClose, 
-    onExport, 
+    onExport,
+    onExportCuadroFirmas,
     loading, 
-    isExporting, 
+    isExporting,
+    isExportingFirmas = false,
     exportStatus 
 }) {
     // ... resto del código igual a mi respuesta anterior (con los botones de modo) ...
@@ -56,7 +58,14 @@ export default function LocationBulkPanel({
         });
     };
 
+    const handleCuadroFirmasClick = () => {
+        if (typeof onExportCuadroFirmas === "function") {
+            onExportCuadroFirmas(scope);
+        }
+    };
+
     const countToExport = scope === 'pending' ? selectionStats.pendingPeople : selectionStats.totalPeople;
+    const busy = loading || isExporting || isExportingFirmas;
 
     return (
         <div className="p-6 h-full flex flex-col font-sans">
@@ -177,24 +186,47 @@ export default function LocationBulkPanel({
             </div>
 
             <div className="mt-auto pt-4">
-                {isExporting && (
+                {(isExporting || isExportingFirmas) && (
                     <div className="mb-4 bg-indigo-50 border border-indigo-100 p-3 rounded text-xs text-indigo-700 animate-pulse">
-                        <p className="font-bold flex items-center gap-2"><IconLoader className="animate-spin" size={12}/> Procesando {countToExport} personas...</p>
-                        <p className="mt-1 opacity-80">{exportStatus}</p>
+                        <p className="font-bold flex items-center gap-2">
+                            <IconLoader className="animate-spin" size={12}/>
+                            {isExportingFirmas
+                                ? `Generando cuadro de firmas (${countToExport})...`
+                                : `Procesando ${countToExport} personas...`}
+                        </p>
+                        {isExporting && exportStatus ? (
+                            <p className="mt-1 opacity-80">{exportStatus}</p>
+                        ) : null}
                     </div>
                 )}
+
+                <button
+                    type="button"
+                    onClick={handleCuadroFirmasClick}
+                    disabled={busy || !onExportCuadroFirmas}
+                    className="w-full mb-2 py-2.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-50 hover:border-indigo-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                    title="PDF A4: encargado (id 1458710) primero, luego firmas del lote según alcance"
+                >
+                    {isExportingFirmas ? (
+                        <>Generando...</>
+                    ) : (
+                        <>
+                            Cuadro de firmas <IconPencil size={16} />
+                        </>
+                    )}
+                </button>
 
                 <div className="flex gap-2">
                     <button 
                         onClick={onClose} 
-                        disabled={isExporting}
+                        disabled={busy}
                         className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-600 font-bold rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
                     >
                         Cancelar
                     </button>
                     <button 
                         onClick={handleExportClick} 
-                        disabled={loading || isExporting || countToExport === 0 || (!options.viatico && !options.destaque && !options.rendicion && !options.docComun && !options.docReducida)}
+                        disabled={busy || countToExport === 0 || (!options.viatico && !options.destaque && !options.rendicion && !options.docComun && !options.docReducida)}
                         className="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-lg disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
                     >
                         {isExporting ? 'Exportando...' : `Exportar (${countToExport})`} <IconFileText size={18} />
