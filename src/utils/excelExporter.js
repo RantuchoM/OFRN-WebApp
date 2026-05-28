@@ -190,7 +190,12 @@ export const exportViaticosToExcel = async (giraData, viaticosData, configData) 
     setVal(CELL_MAP.ciudad_origen, ciudadOrigen);
     setVal(CELL_MAP.asiento_habitual, asientoHabitual);
     
-    setVal(CELL_MAP.lugar_comision, configData.lugar_comision);
+    setVal(
+      CELL_MAP.lugar_comision,
+      data.lugar_comision?.trim()
+        ? data.lugar_comision
+        : configData.lugar_comision,
+    );
     // Motivo: primero el valor propio de la fila, si no hay usamos el motivo general
     setVal(CELL_MAP.motivo, data.motivo || configData.motivo);
 

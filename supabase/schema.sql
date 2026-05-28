@@ -682,6 +682,7 @@ CREATE TABLE public.giras_viaticos_detalle (
   backup_dias_computables numeric,
   fecha_ultima_exportacion timestamp with time zone,
   motivo text,
+  lugar_comision text,
   anticipo_custom numeric,
   CONSTRAINT giras_viaticos_detalle_pkey PRIMARY KEY (id),
   CONSTRAINT giras_viaticos_detalle_id_gira_fkey FOREIGN KEY (id_gira) REFERENCES public.programas(id),

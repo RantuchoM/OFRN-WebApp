@@ -264,6 +264,7 @@ export default function ViaticosTable({
   const [showBackup, setShowBackup] = useState(false);
   const [useHistoricalLocal, setUseHistoricalLocal] = useState(useHistoricalCalc);
   const [expandedMotivoRowId, setExpandedMotivoRowId] = useState(null);
+  const [expandedLugarRowId, setExpandedLugarRowId] = useState(null);
   const isHistorical = onUseHistoricalCalcChange ? useHistoricalCalc : useHistoricalLocal;
 
   const setHistorical = (value) => {
@@ -529,6 +530,9 @@ export default function ViaticosTable({
                     <th className="px-2 py-3 min-w-[120px] sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
                       Motivo
                     </th>
+                    <th className="px-2 py-3 min-w-[120px] sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
+                      Lugar comisión
+                    </th>
                     <th className="px-2 py-3 min-w-[140px] sticky top-0 z-30 bg-slate-50 border-b border-slate-200">
                       Asiento habitual
                     </th>
@@ -770,6 +774,36 @@ export default function ViaticosTable({
                                 onBlur={() => setExpandedMotivoRowId(null)}
                                 onChange={(e) =>
                                   onUpdateRow(row.id, "motivo", e.target.value)
+                                }
+                              />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-2 border-r border-slate-100">
+                          <div className="flex flex-col">
+                            <div className="relative min-h-[28px]">
+                              <textarea
+                                className={`text-xs border rounded px-1 py-1 w-full outline-none transition-all resize-y ${
+                                  expandedLugarRowId === row.id
+                                    ? "absolute left-0 top-0 z-30 min-h-[110px] w-[420px] bg-white shadow-xl border-indigo-400"
+                                    : "h-[28px] max-h-[28px] overflow-hidden focus:border-indigo-400"
+                                } ${
+                                  row.lugar_comision
+                                    ? "bg-white border-indigo-200 text-indigo-700 font-medium"
+                                    : "bg-slate-50 border-slate-200 text-slate-500 italic"
+                                } ${getInputClass(row.id, "lugar_comision")}`}
+                                placeholder={
+                                  config?.lugar_comision || "Lugar general"
+                                }
+                                value={row.lugar_comision || ""}
+                                onFocus={() => setExpandedLugarRowId(row.id)}
+                                onBlur={() => setExpandedLugarRowId(null)}
+                                onChange={(e) =>
+                                  onUpdateRow(
+                                    row.id,
+                                    "lugar_comision",
+                                    e.target.value,
+                                  )
                                 }
                               />
                             </div>

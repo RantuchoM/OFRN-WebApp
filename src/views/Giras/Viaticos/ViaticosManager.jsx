@@ -1574,8 +1574,17 @@ const collectTransportSupportDocs = (personData) => {
         return {
           // Datos base de la persona (nombre, apellido, etc.)
           ...person,
-          // Datos editados de la fila (incluye row.motivo, que debe prevalecer)
+          // Datos editados de la fila (motivo / lugar_comision personalizados prevalecen en PDF)
           ...row,
+          motivo:
+            row.motivo && String(row.motivo).trim() !== ""
+              ? row.motivo
+              : config.motivo || "",
+          lugar_comision:
+            row.lugar_comision != null &&
+            String(row.lugar_comision).trim() !== ""
+              ? row.lugar_comision
+              : config.lugar_comision || "",
           subtotal: effectiveSubtotal,
           totalFinal: totalFinalNorm,
           // En tabla la patente oficial visible viene de logística; si no hubo edición manual en el detalle, usamos ese valor al exportar.
