@@ -34,9 +34,15 @@ function getResidenciaNombre(person) {
   return getResidenciaObjeto(person)?.localidad || "";
 }
 
-function getViaticosId(person) {
+export function getViaticosId(person) {
   const obj = getViaticosObjeto(person);
   return person?.id_loc_viaticos ?? obj?.id ?? null;
+}
+
+/** Integrante con localidad de viáticos explícita (no solo residencia). */
+export function hasLocalidadViaticosAsignada(person) {
+  const id = getViaticosId(person);
+  return id != null && id !== "";
 }
 
 function getViaticosNombre(person) {

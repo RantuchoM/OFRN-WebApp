@@ -18,6 +18,10 @@ import {
 } from "../../../utils/destaquesConfigMerge";
 import { resolveLocalidadEfectivaViaticos } from "../../../utils/integranteDomicilioViaticos";
 import {
+    headerInfoToTravelSchedule,
+    mergeTravelDataForViaticosPapeles,
+} from "../../../utils/viaticosLogisticsSchedule";
+import {
     CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
     exportDestaquesCuadroFirmasPdf,
     fetchEncargadoCuadroFirmas,
@@ -903,19 +907,18 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
             const grp = groups[locName];
             if (!grp) return;
 
-            let travelData = { ...baseTravel };
+            const localityTravel = grp.headerInfo
+                ? headerInfoToTravelSchedule(grp.headerInfo)
+                : null;
+            let travelData = mergeTravelDataForViaticosPapeles(
+                baseTravel,
+                localityTravel,
+                person,
+            );
 
-            if (grp.headerInfo) {
-                const h = grp.headerInfo;
-                travelData.fecha_salida = travelData.fecha_salida || h.fecha_iso || null;
-                travelData.hora_salida = travelData.hora_salida || h.hora || null;
-                travelData.fecha_llegada = travelData.fecha_llegada || h.fecha_llegada_iso || null;
-                travelData.hora_llegada = travelData.hora_llegada || h.hora_llegada || null;
-
-                if (!h.hora_llegada && travelData.fecha_llegada) {
-                    grp.headerInfo.fecha_llegada = formatDateVisual(travelData.fecha_llegada);
-                    grp.headerInfo.hora_llegada = travelData.hora_llegada?.slice(0,5);
-                }
+            if (grp.headerInfo && !grp.headerInfo.hora_llegada && travelData.fecha_llegada) {
+                grp.headerInfo.fecha_llegada = formatDateVisual(travelData.fecha_llegada);
+                grp.headerInfo.hora_llegada = travelData.hora_llegada?.slice(0, 5);
             }
 
             if (travelData.fecha_salida || travelData.fecha_llegada) {
@@ -1028,24 +1031,19 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
 
             validPeople.forEach((p) => {
                 const travelFromHeader = group.headerInfo
-                    ? {
-                          fecha_salida: group.headerInfo.fecha
-                              ? parseVisualDateToIso(group.headerInfo.fecha)
-                              : null,
-                          hora_salida: group.headerInfo.hora || null,
-                          fecha_llegada: group.headerInfo.fecha_llegada
-                              ? parseVisualDateToIso(group.headerInfo.fecha_llegada)
-                              : null,
-                          hora_llegada: group.headerInfo.hora_llegada || null,
-                      }
-                    : {};
+                    ? headerInfoToTravelSchedule(group.headerInfo)
+                    : null;
 
                 peopleToExport.push(
                     withStableExportFallbacks({
                         ...p,
                         _massConfigId: groupId,
                         _groupName: group.name,
-                        travelData: { ...travelFromHeader, ...(p.travelData || {}) },
+                        travelData: mergeTravelDataForViaticosPapeles(
+                            p.travelData,
+                            travelFromHeader,
+                            p,
+                        ),
                     }),
                 );
             });

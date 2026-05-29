@@ -52,6 +52,7 @@ import {
   sumGastosViaticoRow,
 } from "../../../utils/viaticosAnticipo";
 import { parseSupabasePublicStorageUrl } from "../../../utils/supabaseStorage";
+import { buildViaticosLogisticsMap } from "../../../utils/viaticosLogisticsSchedule";
 
 const uint8ArrayToBase64 = (uint8Array) => {
   let binary = "";
@@ -240,62 +241,16 @@ export default function ViaticosManager({ supabase, giraId }) {
     refresh: refreshLogistics,
   } = useLogistics(supabase, giraObj);
 
-  const logisticsMap = useMemo(() => {
-    if (!summary) return {};
-    const map = {};
-    summary.forEach((person) => {
-      const transports = person.logistics?.transports || [];
-      if (transports.length === 0) return;
-      let minSalida = null,
-        maxLlegada = null;
-      transports.forEach((t) => {
-        let nombreFinal = t.nombre || "Transporte";
-        if (t.detalle && t.detalle.trim() !== "")
-          nombreFinal = `${nombreFinal} - ${t.detalle}`;
-        if (t.subidaData) {
-          const dateTimeStr = `${t.subidaData.fecha}T${t.subidaData.hora || "00:00"}`;
-          const dateObj = new Date(dateTimeStr);
-          if (!minSalida || dateObj < minSalida.dt) {
-            minSalida = {
-              dt: dateObj,
-              fecha: t.subidaData.fecha,
-              hora: t.subidaData.hora ? t.subidaData.hora.slice(0, 5) : "00:00",
-              lugar: t.subidaData.nombre_localidad || "Origen",
-              transporte: nombreFinal,
-              patente: t.patente || t.transporteData?.patente || "",
-            };
-          }
-        }
-        if (t.bajadaData) {
-          const dateTimeStr = `${t.bajadaData.fecha}T${t.bajadaData.hora || "00:00"}`;
-          const dateObj = new Date(dateTimeStr);
-          if (!maxLlegada || dateObj > maxLlegada.dt) {
-            maxLlegada = {
-              dt: dateObj,
-              fecha: t.bajadaData.fecha,
-              hora: t.bajadaData.hora ? t.bajadaData.hora.slice(0, 5) : "00:00",
-              lugar: t.bajadaData.nombre_localidad || "Destino",
-              transporte: nombreFinal,
-            };
-          }
-        }
-      });
-      if (minSalida || maxLlegada) {
-        map[person.id] = {
-          fecha_salida: minSalida?.fecha,
-          hora_salida: minSalida?.hora,
-          transporte_salida: minSalida?.transporte,
-          lugar_salida: minSalida?.lugar,
-          patente: minSalida?.patente,
-          fecha_llegada: maxLlegada?.fecha,
-          hora_llegada: maxLlegada?.hora,
-          transporte_llegada: maxLlegada?.transporte,
-          lugar_llegada: maxLlegada?.lugar,
-        };
-      }
-    });
-    return map;
-  }, [summary]);
+  const logisticsMap = useMemo(
+    () =>
+      buildViaticosLogisticsMap({
+        summary,
+        roster,
+        routeRules,
+        transportes,
+      }),
+    [summary, roster, routeRules, transportes],
+  );
 
   const logisticsTransportsByPerson = useMemo(() => {
     const map = {};
