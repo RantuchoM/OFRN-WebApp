@@ -22,8 +22,7 @@ const SCOPES = [
 const CATEGORIA_OPTIONS = [
   { val: "SOLISTAS", label: "Solistas" },
   { val: "DIRECTORES", label: "Directores" },
-  { val: "PRODUCCION", label: "Producción / Staff" },
-  { val: "CHOFER", label: "Choferes" },
+  { val: "PRODUCCION", label: "Producción (incl. choferes)" },
   { val: "LOCALES", label: "Locales (Residentes)" },
   { val: "NO_LOCALES", label: "No Locales" },
 ];

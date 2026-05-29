@@ -18,7 +18,7 @@ import {
 } from "../../components/ui/Icons";
 import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
-import { isUserConvoked } from "../../utils/giraUtils";
+import { isUserConvoked, ROLES_PRODUCCION } from "../../utils/giraUtils";
 import { isPersonEligibleForMealSlot } from "../../utils/mealLogistics";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -58,7 +58,8 @@ const GROUP_DEFS = [
     id: "GRP:PRODUCCION",
     label: "Prod.",
     color: "bg-slate-100 text-slate-700",
-    filter: (p) => p.rol_gira === "produccion" && p.estado_gira === "confirmado",
+    filter: (p) =>
+      ROLES_PRODUCCION.includes(p.rol_gira) && p.estado_gira === "confirmado",
   },
   {
     id: "GRP:SOLISTAS",

@@ -32,6 +32,87 @@ export const DEFAULT_ROL_ID = "musico";
 /** Cargo por defecto para exportaciones (label de visualización). */
 export const DEFAULT_CARGO = "Músico";
 
+const getInstrumentRel = (member) => {
+  const rel = member?.instrumentos;
+  if (Array.isArray(rel)) return rel[0] ?? null;
+  return rel ?? null;
+};
+
+/** Nombre de instrumento del integrante (tabla `instrumentos`). */
+export const getInstrumentNameFromMember = (member) =>
+  getInstrumentRel(member)?.instrumento ?? "";
+
+/** Familia de instrumento del integrante. */
+export const getInstrumentFamilyFromMember = (member) =>
+  getInstrumentRel(member)?.familia ?? "";
+
+/** Perfil con instrumento/cargo/familia Chofer o conductor. */
+export const isChoferInstrumentMember = (member) => {
+  const instrument = normalize(getInstrumentNameFromMember(member));
+  const family = normalize(getInstrumentFamilyFromMember(member));
+  const cargo = normalize(member?.cargo);
+  const haystack = `${instrument} ${family} ${cargo}`;
+  return (
+    instrument === "chofer" ||
+    family === "chofer" ||
+    /\b(chofer|conductor)\b/.test(haystack)
+  );
+};
+
+const hasProductionEnsemble = (member) => {
+  const rows = Array.isArray(member?.integrantes_ensambles)
+    ? member.integrantes_ensambles
+    : [];
+  return rows.some((row) => {
+    const ensRel = Array.isArray(row?.ensambles)
+      ? row.ensambles[0]
+      : row?.ensambles;
+    return normalize(ensRel?.ensamble) === "produccion";
+  });
+};
+
+/**
+ * Rol de gira por defecto según instrumento, cargo y ensambles (sin override manual).
+ */
+export const inferDefaultTourRole = (member) => {
+  if (isChoferInstrumentMember(member)) return "chofer";
+
+  if (hasProductionEnsemble(member)) return "produccion";
+
+  const instrument = normalize(getInstrumentNameFromMember(member));
+  const cargo = normalize(member?.cargo);
+  const haystack = `${instrument} ${cargo}`;
+
+  if (
+    /\b(produccion|staff|iluminacion|fotografia|fotografo|foto|escenario|tecnico|tecnica|sonido|backline|roadie|asistente|asistencia|coordinacion|logistica|stage|montaje|audiovisual|prensa)\b/.test(
+      haystack,
+    )
+  ) {
+    return "produccion";
+  }
+
+  return DEFAULT_ROL_ID;
+};
+
+/**
+ * Rol efectivo en gira: override de `giras_integrantes.rol` o inferencia por perfil.
+ */
+export const resolveTourRoleOverride = (manualRole, member, fallbackRole) => {
+  const normalizedManualRole = normalize(manualRole);
+  const fallback = fallbackRole || inferDefaultTourRole(member);
+
+  if (!normalizedManualRole) return fallback;
+
+  if (hasProductionEnsemble(member) && normalizedManualRole === DEFAULT_ROL_ID) {
+    return "produccion";
+  }
+  if (isChoferInstrumentMember(member) && normalizedManualRole === DEFAULT_ROL_ID) {
+    return "chofer";
+  }
+
+  return manualRole;
+};
+
 /**
  * Determines if a member is convoked to an event based on tags.
  * @param {Array<string>} convocadosList - Array of event tags (e.g., ["GRP:TUTTI", "LOC:1"])
@@ -136,9 +217,8 @@ export const getCategoriaLogistica = (person) => {
 
   if (rol === "solista") return "SOLISTAS";
   if (rol === "director") return "DIRECTORES";
-  if (rol === "produccion") return "PRODUCCION";
+  if (rol === "produccion" || rol === "chofer") return "PRODUCCION";
   if (rol === "staff") return "STAFF";
-  if (rol === "chofer") return "CHOFER";
 
   const isPlantaEstable = condicion === "estable";
   const isLocal = Boolean(person?.is_local);
@@ -163,6 +243,11 @@ const categoryMatches = (ruleCategory, personCategory, person = null) => {
   // "Locales / No Locales" deben regirse SIEMPRE por localidad sede, no por rol.
   if (ruleCategory === "LOCALES") return Boolean(person?.is_local);
   if (ruleCategory === "NO_LOCALES") return !Boolean(person?.is_local);
+  // Reglas antiguas con categoría CHOFER (choferes ahora son PRODUCCION).
+  if (ruleCategory === "CHOFER") {
+    const rol = normalize(person?.rol ?? person?.rol_gira ?? "");
+    return rol === "chofer";
+  }
   if (ruleCategory === personCategory) return true;
   if (ruleCategory === "NO_LOCALES" && personCategory === "EXTERNOS")
     return true;
@@ -431,7 +516,8 @@ export const checkIsConvoked = (convocadosList, userProfile, tourRole) => {
 
     if (tag === ROSTER_CATEGORIES.PRODUCCION)
       return (
-        normalizedRole === "produccion" || normalizedRole === "coordinacion"
+        ROLES_PRODUCCION.includes(normalizedRole) ||
+        normalizedRole === "coordinacion"
       );
     if (tag === ROSTER_CATEGORIES.STAFF) return normalizedRole === "staff";
     if (tag === ROSTER_CATEGORIES.SOLISTAS) return normalizedRole === "solista";

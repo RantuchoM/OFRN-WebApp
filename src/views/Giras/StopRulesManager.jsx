@@ -17,8 +17,7 @@ import SearchableSelect from "../../components/ui/SearchableSelect";
 const CATEGORIA_LOGISTICA_OPTIONS = [
   { id: "SOLISTAS", label: "Solistas" },
   { id: "DIRECTORES", label: "Directores" },
-  { id: "PRODUCCION", label: "Producción" },
-  { id: "CHOFER", label: "Choferes" },
+  { id: "PRODUCCION", label: "Producción (incl. choferes)" },
   { id: "EXTERNOS", label: "Externos (No estables)" },
   { id: "LOCALES", label: "Locales" },
   { id: "NO_LOCALES", label: "No Locales" },

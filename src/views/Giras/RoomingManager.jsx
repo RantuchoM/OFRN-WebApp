@@ -1898,7 +1898,10 @@ export default function RoomingManager({
         const role = person.rol_gira || "musico";
         if (targets.includes("SOLISTAS") && role === "solista") return true;
         if (targets.includes("DIRECTORES") && role === "director") return true;
-        if (targets.includes("PRODUCCION") && role === "produccion")
+        if (
+          targets.includes("PRODUCCION") &&
+          (role === "produccion" || role === "chofer")
+        )
           return true;
         if (targets.includes("LOCALES") && person.is_local) return true;
         if (targets.includes("NO_LOCALES") && !person.is_local) return true;
