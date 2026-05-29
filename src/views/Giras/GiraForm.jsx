@@ -1277,7 +1277,15 @@ export default function GiraForm({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {concerts.map((c) => (
+              {concerts.map((c) => {
+                const concertDate = new Date(c.fecha + "T00:00:00");
+                const weekday = concertDate
+                  .toLocaleDateString("es-AR", { weekday: "short" })
+                  .replace(/\./g, "");
+                const month = concertDate
+                  .toLocaleDateString("es-AR", { month: "short" })
+                  .replace(/\./g, "");
+                return (
                 <div
                   key={c.id}
                   onClick={() => {
@@ -1287,15 +1295,15 @@ export default function GiraForm({
                   className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg hover:border-pink-300 hover:shadow-sm cursor-pointer transition-all group"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="bg-pink-50 text-pink-700 w-10 h-10 rounded flex flex-col items-center justify-center border border-pink-100 shrink-0">
-                      <span className="text-[10px] font-bold uppercase leading-none">
-                        {new Date(c.fecha + "T00:00:00").toLocaleDateString(
-                          "es-AR",
-                          { weekday: "short" },
-                        )}
+                    <div className="bg-pink-50 text-pink-700 w-10 h-11 rounded flex flex-col items-center justify-center border border-pink-100 shrink-0">
+                      <span className="text-[9px] font-bold uppercase leading-none">
+                        {weekday}
                       </span>
                       <span className="text-lg font-bold leading-none">
-                        {new Date(c.fecha + "T00:00:00").getDate()}
+                        {concertDate.getDate()}
+                      </span>
+                      <span className="text-[8px] font-bold uppercase leading-none opacity-80">
+                        {month}
                       </span>
                     </div>
                     <div>
@@ -1320,7 +1328,8 @@ export default function GiraForm({
                     <IconEdit size={14} />
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

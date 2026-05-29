@@ -27,7 +27,12 @@ import { useAuth } from "../../context/AuthContext";
 import { useSearchParams } from "react-router-dom";
 import { fetchGiraRosterCached } from "../../hooks/useGiraRosterQuery";
 import { useGirasList } from "../../hooks/useGirasList";
-import { endOfCurrentYearLocal } from "../../utils/giraDateRange";
+import {
+  compareProgramsForList,
+  endOfCurrentYearLocal,
+  programOverlapsDateRange,
+  toLocalDateString,
+} from "../../utils/giraDateRange";
 import { useLogistics } from "../../hooks/useLogistics";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
@@ -998,16 +1003,35 @@ export default function GirasView({ supabase, trigger = 0 }) {
       return newSet;
     });
 
+  const listReferenceDate = toLocalDateString();
+
   const filteredGiras = useMemo(() => {
-    return giras.filter((g) => {
-      if (filterType.size > 0 && !filterType.has(g.tipo)) return false;
-      if (filterDateStart && g.fecha_hasta < filterDateStart) return false;
-      if (filterDateEnd && g.fecha_desde > filterDateEnd) return false;
-      const estadoGira = g.estado || "Borrador";
-      if (filterStatus.size > 0 && !filterStatus.has(estadoGira)) return false;
-      return true;
-    });
-  }, [giras, filterType, filterDateStart, filterDateEnd, filterStatus]);
+    return giras
+      .filter((g) => {
+        if (filterType.size > 0 && !filterType.has(g.tipo)) return false;
+        if (
+          !programOverlapsDateRange(
+            g,
+            filterDateStart,
+            filterDateEnd,
+            listReferenceDate,
+          )
+        ) {
+          return false;
+        }
+        const estadoGira = g.estado || "Borrador";
+        if (filterStatus.size > 0 && !filterStatus.has(estadoGira)) return false;
+        return true;
+      })
+      .sort((a, b) => compareProgramsForList(a, b, listReferenceDate));
+  }, [
+    giras,
+    filterType,
+    filterDateStart,
+    filterDateEnd,
+    filterStatus,
+    listReferenceDate,
+  ]);
 
   const toggleFilterType = (type) =>
     setFilterType((prev) => {

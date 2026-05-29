@@ -73,6 +73,8 @@ import {
 } from "../../utils/eventDisplayUtils";
 import { exportAgendaToPDF } from "../../utils/agendaPdfExporter";
 import { useCoordinatorPrograms } from "../../hooks/useCoordinatorPrograms";
+import { GIRAS_LIST_SELECT } from "../../hooks/useGirasList";
+import { programOverlapsDateRange } from "../../utils/giraDateRange";
 import { getEventProgramIds } from "../../utils/rehearsalProgramas";
 import RepertorioPreparacionSelect from "../../components/ensembles/RepertorioPreparacionSelect";
 
@@ -424,20 +426,17 @@ const RehearsalCardItem = React.memo(function RehearsalCardItem({
   );
 });
 
-const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
-  const navigate = useNavigate();
-  const { roster, loading } = useGiraRosterQuery(supabase, program);
-  const programStyle = getProgramStyle(program.tipo);
-  const [showDetail, setShowDetail] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailGira, setDetailGira] = useState(null);
-
-  const myInvolvedMembers = roster.filter(
+const ConvokedMembersBadge = ({
+  roster,
+  loading,
+  activeMembersSet,
+  className = "",
+}) => {
+  const myInvolvedMembers = (roster || []).filter(
     (m) =>
       activeMembersSet.has(integranteKey(m.id)) && m.estado_gira !== "ausente",
   );
   const count = myInvolvedMembers.length;
-
   const isFull =
     !loading &&
     activeMembersSet.size > 0 &&
@@ -449,187 +448,64 @@ const ProgramCardItem = ({ program, activeMembersSet, supabase, onEdit }) => {
     const names = myInvolvedMembers
       .map((m) => `• ${m.nombre} ${m.apellido}`)
       .join("\n");
-    toast.success(`Integrantes convocados (${count}): ${names}`);
-  };
-
-  const handleToggleDetail = async (e) => {
-    e.stopPropagation();
-    if (showDetail) {
-      setShowDetail(false);
-      return;
-    }
-    setShowDetail(true);
-    if (detailGira) return;
-    setDetailLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("programas")
-        .select(
-          `
-          *,
-          giras_localidades(id_localidad, localidades(localidad)),
-          giras_integrantes(
-            id_integrante, rol, estado,
-            integrantes(
-              id, nombre, apellido,
-              id_localidad,
-              instrumentos(familia)
-            )
-          ),
-          giras_fuentes(*),
-          eventos(
-            id, fecha, hora_inicio, hora_fin, descripcion, id_estado_venue,
-            locaciones(nombre, localidades(localidad)),
-            tipos_evento(nombre, id_categoria),
-            eventos_asistencia(id_integrante, estado)
-          )
-        `,
-        )
-        .eq("id", program.id)
-        .single();
-      if (error) throw error;
-      setDetailGira(data);
-    } catch (err) {
-      console.error(err);
-      toast.error("No se pudo cargar el detalle del programa");
-      setShowDetail(false);
-    } finally {
-      setDetailLoading(false);
-    }
+    toast.success(`Integrantes convocados (${count}):\n${names}`, {
+      duration: 8000,
+    });
   };
 
   return (
-    <div
-      className={`rounded-lg border p-3 shadow-sm hover:shadow-md transition-all flex flex-col h-full group bg-white`}
+    <button
+      type="button"
+      onClick={showMembersList}
+      disabled={loading || count === 0}
+      className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold shadow-md border bg-white/95 backdrop-blur-sm disabled:opacity-50 pointer-events-auto ${isFull ? "text-green-700 border-green-200" : "text-amber-700 border-amber-200"} ${className}`}
+      title="Integrantes del ensamble convocados en esta gira"
     >
-      <div
-        className={`flex flex-col gap-1 cursor-pointer ${programStyle.color}`}
-        onClick={() => onEdit && onEdit(program)}
-      >
-        <div className="flex justify-between items-start mb-1">
-          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider border border-inherit opacity-90">
-            {program.tipo}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate({
-                  pathname: "/",
-                  search: `?tab=giras&view=AGENDA&giraId=${program.id}`,
-                });
-              }}
-              className="p-1 rounded opacity-70 hover:opacity-100 transition-opacity"
-              title="Ver Agenda"
-            >
-              <IconCalendar size={14} />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate({
-                  pathname: "/",
-                  search: `?tab=giras&view=REPERTOIRE&giraId=${program.id}`,
-                });
-              }}
-              className="p-1 rounded opacity-70 hover:opacity-100 transition-opacity"
-              title="Ver Repertorio"
-            >
-              <IconMusic size={14} />
-            </button>
-            {program.tipo === "Ensamble" && onEdit && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEdit(program);
-                }}
-                className="p-1 rounded opacity-70 hover:opacity-100 transition-opacity"
-                title="Editar"
-              >
-                <IconEdit size={14} />
-              </button>
-            )}
-            <button
-              onClick={showMembersList}
-              disabled={loading || count === 0}
-              className={`text-[10px] flex items-center gap-1 font-bold hover:underline disabled:opacity-50 disabled:no-underline ${isFull ? "text-green-600" : "text-amber-600"}`}
-            >
-              <IconUsers size={12} />
-              {loading ? "…" : isFull ? "Todos" : count}
-            </button>
-          </div>
-        </div>
-        <h3 className="font-bold text-sm leading-tight group-hover:opacity-90 transition-opacity">
-          {formatProgramSelectLabel(program)}
-        </h3>
-        <div className="text-[10px] opacity-80 flex items-center gap-1 pt-2 border-t border-current/20 mt-2">
-          <IconCalendar size={10} />{" "}
-          {parseLocalDate(program.fecha_desde)
-            ? format(parseLocalDate(program.fecha_desde), "d MMM", { locale: es })
-            : "—"}{" "}
-          -{" "}
-          {parseLocalDate(program.fecha_hasta)
-            ? format(parseLocalDate(program.fecha_hasta), "d MMM", { locale: es })
-            : "—"}
-        </div>
-      </div>
-      {/* Reduce espacio vertical para que entren más tarjetas */}
-      <div className="mt-1 pt-1 border-t border-slate-100">
-        <button
-          type="button"
-          onClick={handleToggleDetail}
-          className="text-[11px] font-bold text-fixed-indigo-600 hover:text-fixed-indigo-800 flex items-center gap-1"
-        >
-          <IconChevronDown
-            size={12}
-            className={`transition-transform ${showDetail ? "rotate-180" : ""}`}
-          />
-          {showDetail ? "Ocultar programa" : "Ver programa"}
-        </button>
-        {showDetail && (
-          <div className="mt-2">
-            {detailLoading && (
-              <div className="text-[11px] text-slate-400 flex items-center gap-1">
-                <IconLoader className="animate-spin" size={12} /> Cargando
-                GiraCard...
-              </div>
-            )}
-            {!detailLoading && detailGira && (
-              <GiraCard
-                gira={detailGira}
-                updateView={(mode, giraId, subTab) => {
-                  const params = new URLSearchParams();
-                  params.set("tab", "giras");
-                  if (mode && mode !== "LIST") {
-                    params.set("view", mode);
-                    if (giraId) params.set("giraId", giraId);
-                    if (subTab) params.set("subTab", subTab);
-                  }
-                  navigate({ pathname: "/", search: params.toString() });
-                }}
-                isEditor={true}
-                isPersonal={false}
-                userRole={null}
-                startEdit={() => {}}
-                setGlobalCommentsGiraId={() => {}}
-                setCommentsState={() => {}}
-                activeMenuId={null}
-                setActiveMenuId={() => {}}
-                showRepertoireInCards={false}
-                ensemblesList={[]}
-                supabase={supabase}
-                onMove={() => {}}
-                onDuplicate={() => {}}
-                onDelete={() => {}}
-                isHighlighted={false}
-              />
-            )}
-          </div>
-        )}
-      </div>
+      <IconUsers size={12} />
+      {loading ? "…" : isFull ? "Todos" : count}
+    </button>
+  );
+};
+
+const CoordinatorProgramGiraCard = ({
+  gira,
+  activeMembersSet,
+  supabase,
+  onEdit,
+  ensemblesList,
+  updateView,
+  showRepertoireInCards,
+}) => {
+  const { roster, loading } = useGiraRosterQuery(supabase, gira);
+  const canEdit = gira.tipo === "Ensamble" && Boolean(onEdit);
+
+  return (
+    <div className="relative">
+      <ConvokedMembersBadge
+        roster={roster}
+        loading={loading}
+        activeMembersSet={activeMembersSet}
+        className="absolute top-3 right-14 z-[55]"
+      />
+      <GiraCard
+        gira={gira}
+        updateView={updateView}
+        isEditor={canEdit}
+        isPersonal={false}
+        userRole={null}
+        startEdit={canEdit ? () => onEdit(gira) : () => {}}
+        setGlobalCommentsGiraId={() => {}}
+        setCommentsState={() => {}}
+        activeMenuId={null}
+        setActiveMenuId={() => {}}
+        showRepertoireInCards={showRepertoireInCards}
+        ensemblesList={ensemblesList}
+        supabase={supabase}
+        onMove={() => {}}
+        onDuplicate={() => {}}
+        onDelete={() => {}}
+        isHighlighted={false}
+      />
     </div>
   );
 };
@@ -1986,6 +1862,7 @@ export const RepertoireCyclesTab = ({
 export default function EnsembleCoordinatorView({ supabase }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   // Estados de Contexto
   const [loading, setLoading] = useState(true);
@@ -2193,6 +2070,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
   // UI States
   const [activeTab, setActiveTab] = useState("ensayos");
   const [programTypeFilter, setProgramTypeFilter] = useState("ALL");
+  const [programDateFilter, setProgramDateFilter] = useState({
+    start: toLocalDateString(),
+    end: "",
+  });
+  const [showRepertoireInCards, setShowRepertoireInCards] = useState(false);
   const [showOverlapOptions, setShowOverlapOptions] = useState(false);
   const [overlapCategories, setOverlapCategories] = useState([]);
   const [categoryOptions, setCategoryOptions] = useState([]);
@@ -2804,9 +2686,70 @@ export default function EnsembleCoordinatorView({ supabase }) {
   }, [programs]);
 
   const filteredPrograms = useMemo(() => {
-    if (programTypeFilter === "ALL") return programs;
-    return programs.filter((p) => p?.tipo === programTypeFilter);
-  }, [programs, programTypeFilter]);
+    let list = programs;
+    if (programTypeFilter !== "ALL") {
+      list = list.filter((p) => p?.tipo === programTypeFilter);
+    }
+    if (programDateFilter.start || programDateFilter.end) {
+      list = list.filter((p) =>
+        programOverlapsDateRange(
+          p,
+          programDateFilter.start || null,
+          programDateFilter.end || null,
+        ),
+      );
+    }
+    return list;
+  }, [
+    programs,
+    programTypeFilter,
+    programDateFilter.start,
+    programDateFilter.end,
+  ]);
+
+  const filteredProgramIds = useMemo(
+    () => filteredPrograms.map((p) => p.id),
+    [filteredPrograms],
+  );
+
+  const ensemblesListForCards = useMemo(
+    () =>
+      allEnsembles.map((e) => ({
+        value: e.id,
+        label: e.ensamble,
+      })),
+    [allEnsembles],
+  );
+
+  const updateGiraView = useCallback(
+    (mode, giraId, subTab) => {
+      const params = new URLSearchParams();
+      params.set("tab", "giras");
+      if (mode && mode !== "LIST") {
+        params.set("view", mode);
+        if (giraId) params.set("giraId", giraId);
+        if (subTab) params.set("subTab", subTab);
+      }
+      navigate({ pathname: "/", search: params.toString() });
+    },
+    [navigate],
+  );
+
+  const { data: programGiras = [], isLoading: programGirasLoading } = useQuery({
+    queryKey: ["coordinator-program-giras", filteredProgramIds.join(",")],
+    enabled: activeTab === "programas" && filteredProgramIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("programas")
+        .select(GIRAS_LIST_SELECT)
+        .in("id", filteredProgramIds)
+        .order("fecha_desde", { ascending: true });
+      if (error) throw error;
+      const byId = new Map((data || []).map((g) => [g.id, g]));
+      return filteredProgramIds.map((id) => byId.get(id)).filter(Boolean);
+    },
+  });
 
   useEffect(() => {
     if (programTypeFilter === "ALL") return;
@@ -2817,6 +2760,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const refreshData = () => {
     queryClient.invalidateQueries({ queryKey: ["rehearsals"] });
     queryClient.invalidateQueries({ queryKey: ["coordinator-programs"] });
+    queryClient.invalidateQueries({ queryKey: ["coordinator-program-giras"] });
     queryClient.invalidateQueries({ queryKey: ["gira-roster"] });
   };
 
@@ -3978,24 +3922,69 @@ export default function EnsembleCoordinatorView({ supabase }) {
             )}
             {activeTab === "programas" && (
               <div className="flex flex-col gap-3">
-                {/* Filtro por tipo de programa */}
-                <div className="flex items-center justify-between gap-3 pb-1 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase">
-                      Tipo
-                    </label>
-                    <select
-                      value={programTypeFilter}
-                      onChange={(e) => setProgramTypeFilter(e.target.value)}
-                      className="border border-slate-300 rounded px-2 py-1 text-xs bg-white outline-none"
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-100">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase">
+                        Tipo
+                      </label>
+                      <select
+                        value={programTypeFilter}
+                        onChange={(e) => setProgramTypeFilter(e.target.value)}
+                        className="border border-slate-300 rounded px-2 py-1 text-xs bg-white outline-none"
+                      >
+                        <option value="ALL">Todos</option>
+                        {programTypeOptions.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">
+                        Desde:
+                      </span>
+                      <DateInput
+                        value={programDateFilter.start}
+                        onChange={(v) =>
+                          setProgramDateFilter((prev) => ({ ...prev, start: v }))
+                        }
+                        className="h-7 text-xs w-28 bg-slate-50 border-slate-200"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">
+                        Hasta:
+                      </span>
+                      <DateInput
+                        value={programDateFilter.end}
+                        onChange={(v) =>
+                          setProgramDateFilter((prev) => ({ ...prev, end: v }))
+                        }
+                        className="h-7 text-xs w-28 bg-slate-50 border-slate-200"
+                        placeholder="Indefinido"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowRepertoireInCards((prev) => !prev)
+                      }
+                      className={`px-2 py-1 rounded-md border transition-all flex items-center gap-1.5 ${
+                        showRepertoireInCards
+                          ? "bg-indigo-600 border-indigo-600"
+                          : "bg-white border-slate-200 text-slate-400 hover:text-slate-600"
+                      }`}
+                      title="Ver repertorio en tarjetas"
                     >
-                      <option value="ALL">Todos</option>
-                      {programTypeOptions.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </select>
+                      <IconMusic
+                        size={16}
+                        className={
+                          showRepertoireInCards ? "text-slate-300" : ""
+                        }
+                      />
+                    </button>
                   </div>
 
                   <div className="text-[10px] font-bold text-slate-500">
@@ -4004,23 +3993,30 @@ export default function EnsembleCoordinatorView({ supabase }) {
                   </div>
                 </div>
 
-                {programsLoading ? (
-                  <div className="text-center py-6 text-slate-400 text-xs font-bold">
+                {programsLoading ||
+                (programGirasLoading && filteredProgramIds.length > 0) ? (
+                  <div className="text-center py-6 text-slate-400 text-xs font-bold flex items-center justify-center gap-2">
+                    <IconLoader className="animate-spin" size={14} />
                     Cargando programas...
                   </div>
-                ) : filteredPrograms.length > 0 ? (
-                  filteredPrograms.map((prog) => (
-                    <ProgramCardItem
-                      key={prog.id}
-                      program={prog}
-                      activeMembersSet={activeMembersSet}
-                      supabase={supabase}
-                      onEdit={handleEditProgram}
-                    />
-                  ))
+                ) : programGiras.length > 0 ? (
+                  <div className="flex flex-col gap-4">
+                    {programGiras.map((gira) => (
+                      <CoordinatorProgramGiraCard
+                        key={gira.id}
+                        gira={gira}
+                        activeMembersSet={activeMembersSet}
+                        supabase={supabase}
+                        onEdit={handleEditProgram}
+                        ensemblesList={ensemblesListForCards}
+                        updateView={updateGiraView}
+                        showRepertoireInCards={showRepertoireInCards}
+                      />
+                    ))}
+                  </div>
                 ) : (
                   <div className="text-center py-10 text-slate-400 text-xs font-bold">
-                    No hay programas con ese tipo.
+                    No hay programas en el rango seleccionado.
                   </div>
                 )}
               </div>

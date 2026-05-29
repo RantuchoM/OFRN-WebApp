@@ -14,6 +14,7 @@ import ReloadPrompt from "./components/ui/ReloadPrompt";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import NewsModal from "./components/news/NewsModal";
 import FeedbackWidget from "./components/ui/FeedbackWidget";
+import DesktopDestroyerEasterEgg from "./components/easter-egg/DesktopDestroyerEasterEgg";
 import { ManualProvider } from "./context/ManualContext";
 import ManualTrigger from "./components/manual/ManualTrigger";
 import { useManual } from "./context/ManualContext";
@@ -1327,6 +1328,7 @@ const ProtectedApp = ({ initialTab }) => {
           document.body
         )}
       <FeedbackWidget supabase={supabase} userEmail={user?.email} />
+      <DesktopDestroyerEasterEgg enabled={isActuallyAdmin} />
     </div>
   );
 };

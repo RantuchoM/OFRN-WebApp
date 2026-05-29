@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
+    "glass-cracks:transparent": "node scripts/transparent-crack-pngs.mjs",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },
@@ -67,6 +68,7 @@
     "eslint-plugin-react-refresh": "^0.4.4",
     "gh-pages": "^6.1.1",
     "postcss": "^8.5.6",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.19",
     "vite": "^5.0.0",
     "vite-plugin-pwa": "^1.2.0"

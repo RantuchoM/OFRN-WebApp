@@ -1,6 +1,13 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
-import { applyProgramOverlapDateFilter } from "../utils/giraDateRange";
+import {
+  applyConcertDateOverlapFilter,
+  applyProgramOverlapDateFilter,
+  compareProgramsForList,
+  mergeProgramsById,
+  programOverlapsDateRange,
+  toLocalDateString,
+} from "../utils/giraDateRange";
 
 /** Select liviano para tarjetas en LIST (sin joins redundantes). */
 export const GIRAS_LIST_SELECT = `
@@ -18,6 +25,52 @@ export const GIRAS_LIST_SELECT = `
     eventos_asistencia(id, id_integrante, estado)
   )
 `;
+
+async function fetchProgramsByProgramDates(
+  supabase,
+  filterDateStart,
+  filterDateEnd,
+) {
+  let query = supabase.from("programas").select(GIRAS_LIST_SELECT);
+  query = applyProgramOverlapDateFilter(
+    query,
+    filterDateStart,
+    filterDateEnd,
+  );
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+/** Ids de programas con concierto en el rango (aunque fecha_hasta esté desactualizada). */
+async function fetchProgramIdsWithConcertsInRange(
+  supabase,
+  filterDateStart,
+  filterDateEnd,
+) {
+  let query = supabase
+    .from("programas")
+    .select("id, eventos!inner(id)");
+  query = applyConcertDateOverlapFilter(
+    query,
+    filterDateStart,
+    filterDateEnd,
+  );
+  const { data, error } = await query;
+  if (error) throw error;
+  return [...new Set((data || []).map((p) => p.id).filter((id) => id != null))];
+}
+
+/** Programa completo para ids que solo entraron por fecha de concierto. */
+async function fetchProgramsByIds(supabase, ids) {
+  if (!ids?.length) return [];
+  const { data, error } = await supabase
+    .from("programas")
+    .select(GIRAS_LIST_SELECT)
+    .in("id", ids);
+  if (error) throw error;
+  return data || [];
+}
 
 async function fetchGuestGira(supabase, user) {
   const tokenToUse = user.token_original;
@@ -96,17 +149,37 @@ async function fetchAuthenticatedGiras(
     }
   }
 
-  let query = supabase
-    .from("programas")
-    .select(GIRAS_LIST_SELECT)
-    .order("fecha_desde", { ascending: true });
+  const [byProgramDates, concertProgramIds] = await Promise.all([
+    fetchProgramsByProgramDates(
+      supabase,
+      filterDateStart,
+      filterDateEnd,
+    ),
+    fetchProgramIdsWithConcertsInRange(
+      supabase,
+      filterDateStart,
+      filterDateEnd,
+    ),
+  ]);
 
-  query = applyProgramOverlapDateFilter(query, filterDateStart, filterDateEnd);
+  const programIdsFromDates = new Set(byProgramDates.map((p) => p.id));
+  const extraIds = concertProgramIds.filter((id) => !programIdsFromDates.has(id));
+  const extraByConcerts = await fetchProgramsByIds(supabase, extraIds);
 
-  const { data, error } = await query;
-  if (error) throw error;
+  let merged = mergeProgramsById([byProgramDates, extraByConcerts]);
 
-  let result = data || [];
+  const listReferenceDate = toLocalDateString();
+  let result = merged.filter((g) =>
+    programOverlapsDateRange(
+      g,
+      filterDateStart,
+      filterDateEnd,
+      listReferenceDate,
+    ),
+  );
+  result.sort((a, b) =>
+    compareProgramsForList(a, b, listReferenceDate),
+  );
   if (isPersonalRoleForDB) {
     result = result.filter((gira) => {
       const overrides = gira.giras_integrantes || [];
