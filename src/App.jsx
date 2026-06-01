@@ -807,6 +807,7 @@ const ProtectedApp = ({ initialTab }) => {
               "seating",
               "instrumentation",
               "convocatorias",
+              "ensayos",
               "conciertos",
               "audiencia",
             ]}

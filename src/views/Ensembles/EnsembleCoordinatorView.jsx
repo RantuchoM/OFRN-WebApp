@@ -40,7 +40,9 @@ import {
   IconMenu,
   IconEyeOff,
   IconPrinter,
+  IconDownload,
 } from "../../components/ui/Icons";
+import EnsayosPorProgramaReportModal from "./EnsayosPorProgramaReportModal";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 import GiraForm from "../Giras/GiraForm";
 import IndependentRehearsalForm from "./IndependentRehearsalForm";
@@ -76,6 +78,7 @@ import { useCoordinatorPrograms } from "../../hooks/useCoordinatorPrograms";
 import { GIRAS_LIST_SELECT } from "../../hooks/useGirasList";
 import { programOverlapsDateRange } from "../../utils/giraDateRange";
 import { getEventProgramIds } from "../../utils/rehearsalProgramas";
+import { getDefaultSelectedEnsembleIds } from "../../utils/ensayosPorProgramaReport";
 import RepertorioPreparacionSelect from "../../components/ensembles/RepertorioPreparacionSelect";
 
 // --- UTILIDADES ---
@@ -2113,6 +2116,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
   // Modales
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMassiveModalOpen, setIsMassiveModalOpen] = useState(false);
+  const [isEnsayosReportModalOpen, setIsEnsayosReportModalOpen] =
+    useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
 
   // Selección
@@ -2267,7 +2272,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
         setAdminFilterIds((prev) =>
           prev?.length > 0
             ? normalizeEnsembleIdList(prev)
-            : normalizeEnsembleIdList(ensemblesToManage.map((e) => e.id)),
+            : normalizeEnsembleIdList(
+                getDefaultSelectedEnsembleIds(ensemblesToManage),
+              ),
         );
         setEnsamblesOptions(
           ensemblesToManage.map((e) => ({ id: e.id, label: e.ensamble })),
@@ -3684,7 +3691,18 @@ export default function EnsembleCoordinatorView({ supabase }) {
         </div>
 
         {(activeTab === "ensayos" || activeTab === "calendario") && (
-          <div className="relative mb-1">
+          <div className="mb-1 flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setIsEnsayosReportModalOpen(true)}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+              title="Matriz de ensayos por programa y ensamble"
+            >
+              <IconDownload size={14} />
+              <span className="hidden sm:inline">Reporte ensayos</span>
+              <span className="sm:hidden">Reporte</span>
+            </button>
+            <div className="relative">
             <button
               onClick={() => setShowOverlapOptions(!showOverlapOptions)}
               className={`flex items-center gap-2 px-3 py-1 text-xs font-bold border rounded-lg ${overlapCategories.length > 0 ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-white text-slate-500 hover:bg-slate-50"}`}
@@ -3741,6 +3759,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
                 )}
               </div>
             )}
+            </div>
           </div>
         )}
       </div>
@@ -4420,6 +4439,12 @@ export default function EnsembleCoordinatorView({ supabase }) {
           />
         </div>
       )}
+      <EnsayosPorProgramaReportModal
+        isOpen={isEnsayosReportModalOpen}
+        onClose={() => setIsEnsayosReportModalOpen(false)}
+        supabase={supabase}
+        activeEnsembles={activeEnsembles}
+      />
     </div>
   );
 }

@@ -7,11 +7,13 @@ import {
   IconCalendar,
   IconUsers,
   IconArrowLeft,
+  IconMusic,
 } from "../../components/ui/Icons";
 import { VenuesManager } from "../../components/management/VenuesManager";
 import SeatingReports from "./SeatingReports";
 import InstrumentationAudit from "./InstrumentationAudit";
 import AsistenciaMatrixReport from "../Giras/AsistenciaMatrixReport";
+import EnsayosPorProgramaReport from "../Giras/EnsayosPorProgramaReport";
 import ConciertosView from "../Giras/ConciertosView";
 import AudienceView from "./AudienceView";
 import ManagementSectionCard from "./ManagementSectionCard";
@@ -21,6 +23,7 @@ const DEFAULT_SECTIONS = [
   "seating",
   "instrumentation",
   "convocatorias",
+  "ensayos",
   "conciertos",
   "audiencia",
 ];
@@ -32,6 +35,7 @@ const SECTION_ORDER = [
   "seating",
   "instrumentation",
   "convocatorias",
+  "ensayos",
   "conciertos",
   "audiencia",
 ];
@@ -85,6 +89,18 @@ const SECTION_CONFIG = {
       "bg-amber-50 text-amber-600 group-hover:bg-amber-600 group-hover:text-white",
     titleClasses: "text-amber-900 group-hover:text-amber-700",
   },
+  ensayos: {
+    title: "Ensayos por programa",
+    subtitle: "Matriz de ensayos de ensamble",
+    description:
+      "Cruza programas y ensambles con cantidad de ensayos; exportá a Excel o PDF.",
+    icon: IconMusic,
+    cardClasses:
+      "border-cyan-100 hover:border-cyan-300 hover:shadow-md focus-visible:ring-cyan-300",
+    iconClasses:
+      "bg-cyan-50 text-cyan-600 group-hover:bg-cyan-600 group-hover:text-white",
+    titleClasses: "text-cyan-900 group-hover:text-cyan-700",
+  },
   conciertos: {
     title: "Conciertos",
     subtitle: "Programación y exportación consolidada",
@@ -129,6 +145,7 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
 
   const isFullscreenSection =
     activeTab === "convocatorias" ||
+    activeTab === "ensayos" ||
     activeTab === "conciertos" ||
     activeTab === "audiencia";
 
@@ -255,6 +272,20 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
                     <span>Convocatorias</span>
                   </button>
                 )}
+                {enabledSections.has("ensayos") && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("ensayos")}
+                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
+                      activeTab === "ensayos"
+                        ? "bg-white text-indigo-700 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <IconMusic size={14} />
+                    <span>Ensayos</span>
+                  </button>
+                )}
                 {enabledSections.has("conciertos") && (
                   <button
                     type="button"
@@ -342,6 +373,11 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
         {activeTab === "convocatorias" && enabledSections.has("convocatorias") && (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
             <AsistenciaMatrixReport supabase={supabase} />
+          </div>
+        )}
+        {activeTab === "ensayos" && enabledSections.has("ensayos") && (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950">
+            <EnsayosPorProgramaReport supabase={supabase} variant="management" />
           </div>
         )}
         {activeTab === "conciertos" && enabledSections.has("conciertos") && (
