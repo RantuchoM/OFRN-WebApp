@@ -11,18 +11,13 @@ import { membershipActiveOnProgramDate } from "./ensembleMembership";
 import { getEventProgramIds } from "./rehearsalProgramas";
 
 /** Tipos de programa disponibles en el reporte (sin Comisión). */
-const TIPOS_PROGRAMA_ENSAYOS_BASE =
+export const TIPOS_PROGRAMA_ENSAYOS_REPORTE =
   TIPOS_PROGRAMA_ASISTENCIA_MATRIZ.filter((t) => t !== "Comisión");
-
-export const TIPOS_PROGRAMA_ENSAYOS_REPORTE = [
-  ...TIPOS_PROGRAMA_ENSAYOS_BASE,
-  ...["Producción"].filter((t) => !TIPOS_PROGRAMA_ENSAYOS_BASE.includes(t)),
-];
 
 /** Tipos que arrancan desmarcados en el informe. */
 export const TIPOS_PROGRAMA_OFF_BY_DEFAULT = new Set([
-  "Producción",
   "Jazz Band",
+  "Ensamble",
 ]);
 
 export const DEFAULT_TIPOS_PROGRAMA_ENSAYOS = new Set(
@@ -218,7 +213,7 @@ export function buildEnsayosPorProgramaCounts(
       if (!programSet.has(pid)) continue;
       for (const eid of ensIds) {
         if (!ensembleSet.has(eid)) continue;
-        const key = `${pid}-${eid}`;
+        const key = ensayoCellKey(pid, eid);
         counts.set(key, (counts.get(key) || 0) + 1);
       }
     }
@@ -227,8 +222,38 @@ export function buildEnsayosPorProgramaCounts(
   return counts;
 }
 
+export function ensayoCellKey(programId, ensembleId) {
+  return `${programId}-${Number(ensembleId)}`;
+}
+
 export function getEnsayoCellCount(counts, programId, ensembleId) {
-  return counts.get(`${programId}-${Number(ensembleId)}`) || 0;
+  return counts.get(ensayoCellKey(programId, ensembleId)) || 0;
+}
+
+/** Ensayos que cuentan en la celda (programa × ensamble), ordenados por fecha y hora. */
+export function getEnsayosForCell(events, programId, ensembleId) {
+  const pid = Number(programId);
+  const eid = Number(ensembleId);
+  const list = [];
+
+  for (const evt of events || []) {
+    if (evt.is_deleted) continue;
+    const progIds = getRehearsalEventProgramIds(evt);
+    if (!progIds.has(pid)) continue;
+    const ensIds = (evt.eventos_ensambles || [])
+      .map((row) => Number(row.id_ensamble))
+      .filter(Number.isFinite);
+    if (!ensIds.includes(eid)) continue;
+    list.push(evt);
+  }
+
+  return list.sort((a, b) => {
+    const byDate = String(a.fecha || "").localeCompare(String(b.fecha || ""));
+    if (byDate !== 0) return byDate;
+    return String(a.hora_inicio || "").localeCompare(
+      String(b.hora_inicio || ""),
+    );
+  });
 }
 
 export function computeEnsayoRowTotal(counts, programId, visibleEnsembleIds) {
@@ -266,10 +291,27 @@ export async function fetchRehearsalEventsForEnsayosReport(supabase) {
       `
       id,
       fecha,
+      hora_inicio,
+      hora_fin,
+      descripcion,
       id_gira,
       is_deleted,
-      eventos_ensambles ( id_ensamble ),
-      eventos_programas_asociados ( id_programa )
+      programas ( id, nomenclador, mes_letra, nombre_gira ),
+      tipos_evento ( nombre, color ),
+      locaciones ( nombre, localidades ( localidad ) ),
+      eventos_asistencia_custom (
+        tipo,
+        id_integrante,
+        integrantes ( nombre, apellido )
+      ),
+      eventos_ensambles (
+        id_ensamble,
+        ensambles ( id, ensamble )
+      ),
+      eventos_programas_asociados (
+        id_programa,
+        programas ( id, nomenclador, mes_letra, nombre_gira )
+      )
     `,
     )
     .eq("id_tipo_evento", 13)

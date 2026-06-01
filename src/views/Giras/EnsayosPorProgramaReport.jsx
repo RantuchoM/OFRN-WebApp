@@ -21,12 +21,14 @@ import {
   downloadEnsayosPorProgramaExcel,
   downloadEnsayosPorProgramaPdf,
   getDefaultSelectedEnsembleIds,
+  getEnsayosForCell,
 } from "../../utils/ensayosPorProgramaReport";
 import { IconDownload } from "../../components/ui/Icons";
 import {
   getProgramTypeColor,
   PROGRAM_TYPES,
 } from "../../utils/giraUtils";
+import EnsayoCellDetailModal from "./EnsayoCellDetailModal";
 
 /**
  * Matriz ensayos: filas = programas, columnas = ensambles.
@@ -59,6 +61,16 @@ export default function EnsayosPorProgramaReport({
   const [selectedEnsembleIds, setSelectedEnsembleIds] = useState(() => new Set());
   const ensambleCheckboxRefs = useRef({});
   const tableScrollRef = useRef(null);
+  const [cellDetail, setCellDetail] = useState(null);
+
+  const openCellDetail = useCallback(
+    (program, ensemble) => {
+      const cellEvents = getEnsayosForCell(events, program.id, ensemble.id);
+      if (cellEvents.length === 0) return;
+      setCellDetail({ program, ensemble, events: cellEvents });
+    },
+    [events],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -526,7 +538,18 @@ export default function EnsayosPorProgramaReport({
                                   : "text-slate-300"
                               }`}
                             >
-                              {n > 0 ? n : "—"}
+                              {n > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openCellDetail(p, en)}
+                                  className="min-w-[1.75rem] rounded px-1 py-0.5 underline decoration-indigo-300 decoration-dotted underline-offset-2 hover:bg-indigo-50 hover:decoration-solid dark:hover:bg-indigo-950/40"
+                                  title="Ver detalle de ensayos"
+                                >
+                                  {n}
+                                </button>
+                              ) : (
+                                "—"
+                              )}
                             </td>
                           );
                         })}
@@ -568,6 +591,14 @@ export default function EnsayosPorProgramaReport({
           </div>
         </section>
       </div>
+
+      <EnsayoCellDetailModal
+        isOpen={Boolean(cellDetail)}
+        onClose={() => setCellDetail(null)}
+        program={cellDetail?.program}
+        ensemble={cellDetail?.ensemble}
+        events={cellDetail?.events ?? []}
+      />
     </div>
   );
 }
