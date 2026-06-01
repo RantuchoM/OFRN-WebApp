@@ -743,8 +743,10 @@ CREATE TABLE public.instrumentos (
   id text NOT NULL,
   plaza_extra boolean,
   abreviatura text,
+  rol_gira_default text,
   CONSTRAINT instrumentos_pkey PRIMARY KEY (id),
-  CONSTRAINT Instrumentos_Familia_fkey FOREIGN KEY (familia) REFERENCES public.familia(familia)
+  CONSTRAINT Instrumentos_Familia_fkey FOREIGN KEY (familia) REFERENCES public.familia(familia),
+  CONSTRAINT instrumentos_rol_gira_default_fkey FOREIGN KEY (rol_gira_default) REFERENCES public.roles(id)
 );
 CREATE TABLE public.integrantes (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,

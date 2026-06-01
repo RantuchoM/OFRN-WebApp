@@ -27,6 +27,9 @@ Lista de IDs de rol (tabla `roles`) que pertenecen al grupo Producción: producc
 ### DEFAULT_ROL_ID, DEFAULT_CARGO
 Valores por defecto para rol no asignado y cargo en exportaciones.
 
+### instrumentos.rol_gira_default
+FK a `roles.id`. Prioridad en `inferDefaultTourRole` (antes que ensamble Producción). Se edita en Datos → Instrumentos. Si `giras_integrantes.rol` quedó en `musico` sin override real, `resolveTourRoleOverride` aplica el default del instrumento.
+
 ## Reglas de Implementación
 1. Prohibido usar strings literales como `'solista'` o `'GRP:TUTTI'` fuera de `giraUtils.js`.
 2. Las comparaciones deben realizarse contra `ROSTER_CATEGORIES` o constantes exportadas.

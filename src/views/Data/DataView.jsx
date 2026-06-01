@@ -39,6 +39,7 @@ export default function DataView({ supabase }) {
     ensambles: [],
     integrantes: [],
     provincias: [],
+    roles: [],
   });
 
   const fetchCatalogos = async () => {
@@ -67,6 +68,10 @@ export default function DataView({ supabase }) {
         .from("provincias")
         .select("id, nombre")
         .order("nombre");
+      const { data: rolesRows } = await supabase
+        .from("roles")
+        .select("id, orden")
+        .order("orden", { ascending: true, nullsFirst: false });
 
       const { data: inte, error: inteError } = await supabase
         .from("integrantes")
@@ -84,6 +89,8 @@ export default function DataView({ supabase }) {
           categoria?.map((p) => ({ value: p.id, label: p.nombre })) || [],
         ensambles: ens?.map((e) => ({ value: e.id, label: e.ensamble })) || [],
         provincias: prov?.map((p) => ({ value: p.id, label: p.nombre })) || [],
+        roles:
+          rolesRows?.map((r) => ({ value: r.id, label: r.id })) || [],
         integrantes:
           inte?.map((i) => ({
             value: i.id,
@@ -278,7 +285,15 @@ export default function DataView({ supabase }) {
         },
         { key: "abreviatura", label: "Abrev.", type: "text" },
         { key: "plaza_extra", label: "Plaza Extra", type: "checkbox" },
+        {
+          key: "rol_gira_default",
+          label: "Rol gira (defecto)",
+          type: "select",
+          options: catalogos.roles,
+        },
       ],
+      warning:
+        "🎭 El rol gira por defecto se usa al convocar integrantes (roster y reglas logísticas). Vacío = músico, salvo ensamble Producción.",
     },
     paises: {
       label: "Países",

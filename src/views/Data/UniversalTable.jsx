@@ -28,6 +28,25 @@ const normalizeIconValue = (v) => {
   return raw.toLowerCase().replace(/^icon/, "");
 };
 
+const resolveSelectOption = (value, options) => {
+  if (value === null || value === undefined || value === "") return null;
+  const raw = String(value);
+  return (
+    options?.find((o) => String(o.value) === raw) ||
+    options?.find(
+      (o) =>
+        normalizeIconValue(o.value) === normalizeIconValue(raw),
+    ) ||
+    null
+  );
+};
+
+const labelForSelectValue = (value, options) => {
+  const opt = resolveSelectOption(value, options);
+  if (opt) return opt.label;
+  return value == null || value === "" ? "" : String(value);
+};
+
 function RowEditModal({
   isOpen,
   onClose,
@@ -900,21 +919,43 @@ export default function UniversalTable({
 
         const valA = a[sortConfig.key] ?? "";
         const valB = b[sortConfig.key] ?? "";
-        
+        const sortCol = columns.find((c) => c.key === sortConfig.key);
+
         const numA = parseFloat(valA);
         const numB = parseFloat(valB);
         let comparison = 0;
-        
-        if (!isNaN(numA) && !isNaN(numB) && String(numA) === String(valA) && String(numB) === String(valB)) {
-            comparison = numA - numB;
+
+        if (sortCol?.type === "select") {
+          comparison = labelForSelectValue(valA, sortCol.options).localeCompare(
+            labelForSelectValue(valB, sortCol.options),
+          );
+        } else if (
+          !isNaN(numA) &&
+          !isNaN(numB) &&
+          String(numA) === String(valA) &&
+          String(numB) === String(valB)
+        ) {
+          comparison = numA - numB;
         } else {
-            comparison = String(valA).localeCompare(String(valB));
+          comparison = String(valA).localeCompare(String(valB));
         }
         return sortConfig.direction === "asc" ? comparison : -comparison;
       });
     }
     return result;
   }, [data, filters, sortConfig, columns]);
+
+  const exportData = useMemo(() => {
+    return processedData.map((row) => {
+      const out = { ...row };
+      columns.forEach((col) => {
+        if (col.type === "select") {
+          out[col.key] = labelForSelectValue(row[col.key], col.options);
+        }
+      });
+      return out;
+    });
+  }, [processedData, columns]);
 
   const exportColumns = useMemo(
     () =>
@@ -972,7 +1013,7 @@ export default function UniversalTable({
         </div>
         <div className="flex items-center justify-end gap-2 shrink-0 w-full sm:w-auto">
           <UniversalExporter
-            data={processedData}
+            data={exportData}
             columns={exportColumns}
             fileName={tableName}
             orientation="l"

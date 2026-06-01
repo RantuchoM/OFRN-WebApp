@@ -46,17 +46,11 @@ export const getInstrumentNameFromMember = (member) =>
 export const getInstrumentFamilyFromMember = (member) =>
   getInstrumentRel(member)?.familia ?? "";
 
-/** Perfil con instrumento/cargo/familia Chofer o conductor. */
-export const isChoferInstrumentMember = (member) => {
-  const instrument = normalize(getInstrumentNameFromMember(member));
-  const family = normalize(getInstrumentFamilyFromMember(member));
-  const cargo = normalize(member?.cargo);
-  const haystack = `${instrument} ${family} ${cargo}`;
-  return (
-    instrument === "chofer" ||
-    family === "chofer" ||
-    /\b(chofer|conductor)\b/.test(haystack)
-  );
+/** Rol de gira por defecto configurado en `instrumentos.rol_gira_default`. */
+export const getInstrumentDefaultTourRoleFromMember = (member) => {
+  const roleId = getInstrumentRel(member)?.rol_gira_default;
+  if (roleId == null || String(roleId).trim() === "") return null;
+  return String(roleId).trim();
 };
 
 const hasProductionEnsemble = (member) => {
@@ -72,24 +66,13 @@ const hasProductionEnsemble = (member) => {
 };
 
 /**
- * Rol de gira por defecto según instrumento, cargo y ensambles (sin override manual).
+ * Rol de gira por defecto: `instrumentos.rol_gira_default`, luego ensamble producción, sino músico.
  */
 export const inferDefaultTourRole = (member) => {
-  if (isChoferInstrumentMember(member)) return "chofer";
+  const fromInstrument = getInstrumentDefaultTourRoleFromMember(member);
+  if (fromInstrument) return fromInstrument;
 
   if (hasProductionEnsemble(member)) return "produccion";
-
-  const instrument = normalize(getInstrumentNameFromMember(member));
-  const cargo = normalize(member?.cargo);
-  const haystack = `${instrument} ${cargo}`;
-
-  if (
-    /\b(produccion|staff|iluminacion|fotografia|fotografo|foto|escenario|tecnico|tecnica|sonido|backline|roadie|asistente|asistencia|coordinacion|logistica|stage|montaje|audiovisual|prensa)\b/.test(
-      haystack,
-    )
-  ) {
-    return "produccion";
-  }
 
   return DEFAULT_ROL_ID;
 };
@@ -103,11 +86,13 @@ export const resolveTourRoleOverride = (manualRole, member, fallbackRole) => {
 
   if (!normalizedManualRole) return fallback;
 
+  const instrumentDefault = getInstrumentDefaultTourRoleFromMember(member);
+  if (instrumentDefault && normalizedManualRole === DEFAULT_ROL_ID) {
+    return instrumentDefault;
+  }
+
   if (hasProductionEnsemble(member) && normalizedManualRole === DEFAULT_ROL_ID) {
     return "produccion";
-  }
-  if (isChoferInstrumentMember(member) && normalizedManualRole === DEFAULT_ROL_ID) {
-    return "chofer";
   }
 
   return manualRole;

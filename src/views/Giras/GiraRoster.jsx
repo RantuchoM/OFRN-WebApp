@@ -1506,7 +1506,7 @@ export default function GiraRoster({
     try {
       const { data, error } = await supabase
         .from("integrantes")
-        .select("*, instrumentos(instrumento, familia)")
+        .select("*, instrumentos(instrumento, familia, rol_gira_default)")
         .eq("id", idForQuery)
         .maybeSingle();
 
