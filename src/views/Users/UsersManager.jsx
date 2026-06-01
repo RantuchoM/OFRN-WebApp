@@ -20,6 +20,7 @@ import {
 } from "../../components/ui/Icons";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import SearchableSelect from "../../components/ui/SearchableSelect";
+import { isProtectedIntegrante } from "../../utils/protectedIntegrantes";
 
 // Roles asignables en Gestión de Usuarios (multi-selección, alineado con AuthContext y docs de permisos)
 const ROLES_OPTIONS = [
@@ -59,6 +60,33 @@ function normalizeSystemRolesList(roles) {
   const list = Array.isArray(roles) ? roles : [roles];
   const normalized = list.map(normalizeSystemRoleValue).filter(Boolean);
   return Array.from(new Set(normalized));
+}
+
+function renderProtectedRoles(rolSistema) {
+  const ids = normalizeRolSistema(rolSistema);
+  return (
+    <div
+      className="flex flex-wrap gap-1 items-center text-xs text-slate-600 bg-slate-50 border border-amber-200 rounded-lg px-2 py-1.5 min-h-[36px]"
+      title="Cuenta protegida: los roles no se pueden modificar"
+    >
+      <IconLock size={12} className="text-amber-500 shrink-0" />
+      {ids.length > 0 ? (
+        ids.map((id) => {
+          const label = ROLES_OPTIONS.find((o) => o.id === id)?.label || id;
+          return (
+            <span
+              key={id}
+              className="bg-white text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded"
+            >
+              {label}
+            </span>
+          );
+        })
+      ) : (
+        <span className="text-slate-400">Sin roles</span>
+      )}
+    </div>
+  );
 }
 
 const INTEGRANTES_SELECT = `*,
@@ -202,6 +230,14 @@ export default function UsersManager({ supabase }) {
     editingField?.userId === userId && editingField?.field === field;
 
   const performSave = async (userId, field, value) => {
+    const user = integrantes.find((u) => u.id === userId);
+    if (user && isProtectedIntegrante(user) && field === "mail") {
+      toast.error("No se puede modificar el email de una cuenta protegida.");
+      setEditingField(null);
+      setEditOriginal(null);
+      return;
+    }
+
     const payload = field === "mail" ? { mail: (value || "").trim() } : { clave_acceso: value || "" };
     const { error } = await supabase
       .from("integrantes")
@@ -285,6 +321,12 @@ export default function UsersManager({ supabase }) {
   };
 
   const handleUpdateUser = async (userId, field, value) => {
+    const user = integrantes.find((u) => u.id === userId);
+    if (user && isProtectedIntegrante(user) && field === "rol_sistema") {
+      toast.error("No se pueden modificar los roles de una cuenta protegida.");
+      return;
+    }
+
     const normalizedValue =
       field === "rol_sistema"
         ? (() => {
@@ -316,6 +358,11 @@ export default function UsersManager({ supabase }) {
   };
 
   const handleDelete = async (id) => {
+    const user = integrantes.find((u) => u.id === id);
+    if (user && isProtectedIntegrante(user)) {
+      toast.error("No se puede eliminar una cuenta protegida.");
+      return;
+    }
     if (!window.confirm("¿Estás seguro de eliminar este integrante?")) return;
     const { error } = await supabase.from("integrantes").delete().eq("id", id);
     if (error) alert("Error: " + error.message);
@@ -483,6 +530,7 @@ export default function UsersManager({ supabase }) {
                 )}
                 {integrantes.map((u) => {
                   const isPasswordVisible = visiblePasswords.has(u.id);
+                  const isProtected = isProtectedIntegrante(u);
                   return (
                   <tr
                     key={u.id}
@@ -516,6 +564,7 @@ export default function UsersManager({ supabase }) {
                               >
                                 <IconCopy size={14} />
                               </button>
+                              {!isProtected && (
                               <button
                                 type="button"
                                 onClick={() => startEdit(u, "mail")}
@@ -524,6 +573,12 @@ export default function UsersManager({ supabase }) {
                               >
                                 <IconEdit size={14} />
                               </button>
+                              )}
+                              {isProtected && (
+                                <span title="Cuenta protegida">
+                                  <IconLock size={14} className="text-amber-500" />
+                                </span>
+                              )}
                             </>
                           ) : (
                             <>
@@ -575,6 +630,9 @@ export default function UsersManager({ supabase }) {
                       </td>
 
                       <td className="p-4 min-w-[200px]">
+                        {isProtected ? (
+                          renderProtectedRoles(u.rol_sistema)
+                        ) : (
                         <SearchableSelect
                           options={ROLES_OPTIONS}
                           value={normalizeRolSistema(u.rol_sistema)}
@@ -586,6 +644,7 @@ export default function UsersManager({ supabase }) {
                           className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white min-h-[36px] w-full outline-none focus:ring-2 focus:ring-indigo-500"
                           dropdownMinWidth={280}
                         />
+                        )}
                       </td>
 
                       <td className="p-4">
@@ -670,12 +729,18 @@ export default function UsersManager({ supabase }) {
                       </td>
 
                       <td className="p-4 text-center">
+                        {isProtected ? (
+                          <span className="inline-flex p-2 text-amber-500" title="Cuenta protegida">
+                            <IconLock size={16} />
+                          </span>
+                        ) : (
                         <button
                           onClick={() => handleDelete(u.id)}
                           className="text-slate-400 hover:text-red-600 p-2"
                         >
                           <IconTrash size={16} />
                         </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -695,6 +760,7 @@ export default function UsersManager({ supabase }) {
           )}
           {integrantes.map((u) => {
             const isPasswordVisible = visiblePasswords.has(u.id);
+            const isProtected = isProtectedIntegrante(u);
             const ensembles =
               (u.integrantes_ensambles || [])
                 .map((ie) => ie.ensambles?.ensamble)
@@ -753,6 +819,7 @@ export default function UsersManager({ supabase }) {
                         >
                           <IconCopy size={14} />
                         </button>
+                        {!isProtected && (
                         <button
                           type="button"
                           onClick={() => startEdit(u, "mail")}
@@ -761,6 +828,12 @@ export default function UsersManager({ supabase }) {
                         >
                           <IconEdit size={14} />
                         </button>
+                        )}
+                        {isProtected && (
+                          <span title="Cuenta protegida">
+                            <IconLock size={14} className="text-amber-500" />
+                          </span>
+                        )}
                       </>
                     ) : (
                       <>
@@ -787,6 +860,9 @@ export default function UsersManager({ supabase }) {
 
                 <div>
                   <div className="label-text mb-1">Roles de sistema</div>
+                  {isProtected ? (
+                    renderProtectedRoles(u.rol_sistema)
+                  ) : (
                   <SearchableSelect
                     options={ROLES_OPTIONS}
                     value={normalizeRolSistema(u.rol_sistema)}
@@ -798,6 +874,7 @@ export default function UsersManager({ supabase }) {
                     className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white min-h-[36px] w-full outline-none focus:ring-2 focus:ring-indigo-500"
                     dropdownMinWidth={260}
                   />
+                  )}
                 </div>
 
                 <div>
@@ -883,6 +960,12 @@ export default function UsersManager({ supabase }) {
                 </div>
 
                 <div className="flex justify-end pt-1">
+                  {isProtected ? (
+                    <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
+                      <IconLock size={14} />
+                      Cuenta protegida
+                    </span>
+                  ) : (
                   <button
                     onClick={() => handleDelete(u.id)}
                     className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600 font-medium"
@@ -890,6 +973,7 @@ export default function UsersManager({ supabase }) {
                     <IconTrash size={14} />
                     Eliminar
                   </button>
+                  )}
                 </div>
               </div>
             );

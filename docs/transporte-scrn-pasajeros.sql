@@ -105,3 +105,4 @@ CREATE POLICY "Admins eliminan acompañantes"
   USING (
     EXISTS (SELECT 1 FROM public.scrn_perfiles p WHERE p.id = auth.uid() AND p.es_admin = true)
   );
+ni

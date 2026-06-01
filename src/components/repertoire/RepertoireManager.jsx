@@ -26,6 +26,7 @@ import {
   IconEdit,
   IconYoutube,
   IconDrive,
+  IconEye,
   IconEyeOff,
   IconSettings,
   IconFilter,
@@ -2068,7 +2069,7 @@ export default function RepertoireManager({
 
   // --- ELIMINAR OBRA (CON LIMPIEZA DE SHORTCUTS ROBUSTA) ---
   const removeWork = async (itemId) => {
-    if (!confirm("¿Quitar obra?")) return;
+    if (!confirm("¿Eliminar esta obra del bloque de repertorio?")) return;
 
     // Buscar la obra para obtener su título (necesario para borrar el shortcut por nombre)
     let workTitle = null;
@@ -2896,15 +2897,53 @@ export default function RepertoireManager({
                         {/* Fila 1: Orden, Compositor, Duración */}
                         <div className="flex justify-between items-center mb-1">
                           <div className="flex items-center gap-2">
-                            <span className="bg-slate-100 text-slate-500 text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full relative">
-                              {idx + 1}
-                              {/* ICONO OJO TACHADO SI ESTÁ EXCLUIDA (Solo visual) */}
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <span className="bg-slate-100 text-slate-500 text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full">
+                                {idx + 1}
+                              </span>
+                              {isEditor ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateWorkDetail(
+                                      item.id,
+                                      "excluir",
+                                      !item.excluir,
+                                    )
+                                  }
+                                  className="rounded-full p-0.5 border border-slate-200 bg-white hover:border-red-200 shadow-sm"
+                                  title={
+                                    item.excluir
+                                      ? "Incluir en la programación"
+                                      : "Excluir de la programación"
+                                  }
+                                >
+                                  {item.excluir ? (
+                                    <IconEyeOff
+                                      size={8}
+                                      className="text-red-500"
+                                    />
+                                  ) : (
+                                    <IconEye
+                                      size={8}
+                                      className="text-slate-400"
+                                    />
+                                  )}
+                                </button>
+                              ) : item.excluir ? (
+                                <span className="rounded-full p-0.5 border border-red-100 bg-white">
+                                  <IconEyeOff
+                                    size={8}
+                                    className="text-red-500"
+                                  />
+                                </span>
+                              ) : null}
                               {item.excluir && (
-                                <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 border border-red-100">
-                                  <IconEyeOff size={8} className="text-red-500" />
-                                </div>
+                                <span className="text-[8px] bg-slate-200 text-slate-600 px-1 rounded border border-slate-300 font-semibold leading-none py-0.5">
+                                  Excl
+                                </span>
                               )}
-                            </span>
+                            </div>
                             <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide truncate max-w-[150px]">
                               {getComposers(item.obras)}
                             </span>
