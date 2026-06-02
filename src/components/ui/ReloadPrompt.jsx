@@ -9,7 +9,7 @@ export function isEntradasPublicRoute(pathname = "") {
 }
 
 const ENTRADAS_SW_POLL_MS = 5 * 60 * 1000;
-const RESTART_MESSAGE_MS = 1600;
+const RESTART_MESSAGE_MS = 400;
 
 function ReloadPrompt() {
   const { pathname } = useLocation();
