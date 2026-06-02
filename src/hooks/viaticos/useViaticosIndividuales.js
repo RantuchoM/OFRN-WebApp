@@ -490,6 +490,123 @@ export function useViaticosIndividuales(
 
   const splitBackupKey = `viatico_split_backup_${giraId}`;
 
+  const MERGE_SUM_FIELDS = [
+    "gasto_combustible",
+    "gasto_otros",
+    "gasto_alojamiento",
+    "gastos_movilidad",
+    "gastos_movil_otros",
+    "gastos_capacit",
+    "rendicion_viaticos",
+    "rendicion_gasto_alojamiento",
+    "rendicion_gasto_otros",
+    "rendicion_gasto_combustible",
+    "rendicion_gastos_movil_otros",
+    "rendicion_gastos_capacit",
+    "rendicion_transporte_otros",
+  ];
+
+  const MERGE_BOOL_OR_FIELDS = [
+    "check_aereo",
+    "check_terrestre",
+    "check_patente_oficial",
+    "check_patente_particular",
+    "check_otros",
+  ];
+
+  const sumFieldAcrossRows = (tramoRows, field) =>
+    round2(
+      tramoRows.reduce((acc, r) => {
+        const n = parseFloat(r[field]);
+        return acc + (Number.isFinite(n) ? n : 0);
+      }, 0),
+    );
+
+  /** Une varias filas de tramo en una sola (recorrido completo + gastos sumados). */
+  const mergeViaticoTramos = async (tramoRows) => {
+    const sorted = [...(tramoRows || [])].sort(
+      (a, b) => (a.tramo_orden || 1) - (b.tramo_orden || 1),
+    );
+    if (sorted.length < 2) return;
+
+    setLoading(true);
+    let insertedId = null;
+    const idsToDelete = sorted.map((r) => r.id).filter(Boolean);
+
+    try {
+      const first = sorted[0];
+      const sums = {};
+      MERGE_SUM_FIELDS.forEach((f) => {
+        sums[f] = sumFieldAcrossRows(sorted, f);
+      });
+      MERGE_BOOL_OR_FIELDS.forEach((f) => {
+        sums[f] = sorted.some((r) => Boolean(r[f]));
+      });
+
+      const customParts = sorted
+        .map((r) => r.anticipo_custom)
+        .filter((v) => v != null && String(v).trim() !== "");
+      let anticipoMerged = null;
+      if (customParts.length > 0) {
+        anticipoMerged = round2(
+          customParts.reduce((acc, v) => {
+            const n = parseFloat(v);
+            return acc + (Number.isFinite(n) ? n : 0);
+          }, 0),
+        );
+      }
+
+      const mergedPayload = stripTramoFields(
+        pickDetalleForDb(first, {
+          id_gira: giraId,
+          id_integrante: first.id_integrante,
+          id_evento_parada_inicio: null,
+          id_evento_parada_fin: null,
+          tramo_orden: null,
+          etiqueta_tramo: null,
+          ...sums,
+          anticipo_custom: anticipoMerged,
+        }),
+      );
+
+      const { data: inserted, error: insErr } = await supabase
+        .from("giras_viaticos_detalle")
+        .insert(mergedPayload)
+        .select("id");
+      if (insErr) throw insErr;
+      insertedId = inserted?.[0]?.id;
+      if (!insertedId) throw new Error("No se pudo crear la fila fusionada.");
+
+      const { error: delErr } = await supabase
+        .from("giras_viaticos_detalle")
+        .delete()
+        .in("id", idsToDelete);
+      if (delErr) throw delErr;
+
+      await fetchRows();
+      toast.success(
+        `${sorted.length} tramos fusionados en una sola fila de viático`,
+      );
+    } catch (err) {
+      console.error(err);
+      if (insertedId) {
+        await supabase
+          .from("giras_viaticos_detalle")
+          .delete()
+          .eq("id", insertedId);
+      }
+      const raw =
+        err?.message ||
+        err?.details ||
+        err?.hint ||
+        "Error al fusionar tramos.";
+      toast.error(raw, { duration: 8000 });
+      await fetchRows();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const splitViaticoRow = async (originalRow, tramosPreview) => {
     if (!originalRow?.id || !tramosPreview?.length) return;
     setLoading(true);
@@ -625,6 +742,7 @@ export function useViaticosIndividuales(
     addPerson,
     addBatch,
     splitViaticoRow,
+    mergeViaticoTramos,
     restoreViaticoRow,
     feedback: { updatingFields, successFields, errorFields, deletingRows },
   };

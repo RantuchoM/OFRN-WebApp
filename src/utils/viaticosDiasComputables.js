@@ -13,6 +13,14 @@ export const REFERENCIA_DIAS_LLEGADA = [
   { desde: "15:00", hasta: "23:59", dias: 1 },
 ];
 
+/** Ida y vuelta el mismo día: según horas entre salida y llegada. */
+export const REFERENCIA_DIAS_MISMO_DIA = [
+  { condicion: "6 horas o más entre salida y llegada", dias: 1 },
+  { condicion: "Menos de 6 horas", dias: 0.75 },
+];
+
+const MISMO_DIA_HORAS_COMPLETO = 6;
+
 const sliceTime = (timeStr) => {
   if (!timeStr) return null;
   return String(timeStr).slice(0, 5);
@@ -69,6 +77,63 @@ export function getArrivalFactor(timeStr) {
   };
 }
 
+function parseTimeToMinutes(timeStr) {
+  if (!timeStr) return null;
+  const [h, m] = String(timeStr).split(":").map(Number);
+  if (!Number.isFinite(h)) return null;
+  return h * 60 + (Number.isFinite(m) ? m : 0);
+}
+
+function formatHorasMinutos(totalMinutes) {
+  const mins = Math.max(0, Math.round(totalMinutes));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} h`;
+  return `${h} h ${m} min`;
+}
+
+/** Va y viene el mismo día: ≥6 h → 1 día; si no → 0,75 día. */
+export function getSameDayRoundTripFactor(horaSal, horaLleg) {
+  const startMin = parseTimeToMinutes(horaSal);
+  const endMin = parseTimeToMinutes(horaLleg);
+
+  if (startMin == null || endMin == null) {
+    return {
+      value: 0.75,
+      durationMinutes: null,
+      rule:
+        "Sin hora de salida o llegada → se asignan 0,75 día (ida y vuelta el mismo día).",
+    };
+  }
+
+  let durationMinutes = endMin - startMin;
+  if (durationMinutes < 0) {
+    return {
+      value: 0.75,
+      durationMinutes: 0,
+      rule: `La hora de llegada (${sliceTime(horaLleg)}) es anterior a la de salida (${sliceTime(horaSal)}) en el mismo día → 0,75 día.`,
+    };
+  }
+
+  const durationHours = durationMinutes / 60;
+  const duracionLabel = formatHorasMinutos(durationMinutes);
+
+  if (durationHours >= MISMO_DIA_HORAS_COMPLETO) {
+    return {
+      value: 1,
+      durationMinutes,
+      rule: `Entre ${sliceTime(horaSal)} y ${sliceTime(horaLleg)} hay ${duracionLabel} (6 h o más) → 1 día.`,
+    };
+  }
+
+  return {
+    value: 0.75,
+    durationMinutes,
+    rule: `Entre ${sliceTime(horaSal)} y ${sliceTime(horaLleg)} hay ${duracionLabel} (menos de 6 h) → 0,75 día.`,
+  };
+}
+
 export function calculateDaysDiff(dSal, hSal, dLleg, hLleg) {
   const explained = explainViaticosDiasCalculation(dSal, hSal, dLleg, hLleg);
   return explained.total;
@@ -113,10 +178,15 @@ export function explainViaticosDiasCalculation(dSal, hSal, dLleg, hLleg) {
   }
 
   if (diffDays === 0) {
+    const sameDay = getSameDayRoundTripFactor(horaSal, horaLleg);
+    const fmtN = (n) =>
+      Number.isInteger(n) ? String(n) : String(n).replace(".", ",");
+
     return {
-      total: 0.5,
+      total: sameDay.value,
       incomplete: false,
       sameDay: true,
+      sameDayDurationMinutes: sameDay.durationMinutes,
       fechaSalida: dSal,
       fechaLlegada: dLleg,
       horaSalida: horaSal,
@@ -124,11 +194,11 @@ export function explainViaticosDiasCalculation(dSal, hSal, dLleg, hLleg) {
       message: null,
       steps: [
         {
-          label: "Mismo día calendario",
-          detail: `Salida y llegada el ${formatFechaViaticos(dSal)} → se asignan 0,5 días computables.`,
+          label: "Ida y vuelta el mismo día",
+          detail: sameDay.rule,
         },
       ],
-      formulaSummary: "0,5 días (mismo día)",
+      formulaSummary: `${fmtN(sameDay.value)} día(s) (mismo día)`,
     };
   }
 

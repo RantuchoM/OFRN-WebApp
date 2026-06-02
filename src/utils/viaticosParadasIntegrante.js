@@ -159,6 +159,22 @@ export function buildTramosFromParadas(paradas, splitAfterIndices) {
   return tramos;
 }
 
+/** Filas de tramo del mismo integrante en la gira (ordenadas por tramo_orden). */
+export function getTramoGroupRows(allRows, row) {
+  if (!row?.id_integrante || !Array.isArray(allRows)) return [];
+  return allRows
+    .filter(
+      (r) =>
+        String(r.id_integrante) === String(row.id_integrante) &&
+        isTramoViaticoRow(r),
+    )
+    .sort((a, b) => (a.tramo_orden || 1) - (b.tramo_orden || 1));
+}
+
+export function canMergeTramoGroup(allRows, row) {
+  return getTramoGroupRows(allRows, row).length >= 2;
+}
+
 /** Índices válidos para cortar (entre paradas, no al final). */
 export function isTramoViaticoRow(row) {
   return (

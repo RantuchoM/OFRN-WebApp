@@ -7,10 +7,13 @@ import {
   IconRefresh,
   IconEdit,
   IconScissors,
+  IconLayers,
 } from "../../../components/ui/Icons";
 import "./ViaticosSheet.css";
 import RenunciaViaticosExportOption from "./RenunciaViaticosExportOption";
 import {
+  canMergeTramoGroup,
+  getTramoGroupRows,
   isTramoViaticoRow,
   parseEtiquetaTramo,
 } from "../../../utils/viaticosParadasIntegrante";
@@ -320,6 +323,7 @@ export default function ViaticosTable({
   onUseHistoricalCalcChange,
   onEditMusician,
   onDesdoblarViatico,
+  onFusionarTramos,
   exportRenunciaViaticos = true,
   onExportRenunciaViaticosChange,
 }) {
@@ -737,6 +741,13 @@ export default function ViaticosTable({
                   String(row.anticipo_custom).trim() !== "";
 
                 const esTramo = isTramoViaticoRow(row);
+                const tramoGroup = esTramo ? getTramoGroupRows(rows, row) : [];
+                const puedeFusionar =
+                  onFusionarTramos && canMergeTramoGroup(rows, row);
+                const esPrimerTramoDelGrupo =
+                  puedeFusionar &&
+                  tramoGroup.length > 0 &&
+                  String(row.id) === String(tramoGroup[0].id);
 
                 let rowBgClass = "bg-white group-hover:bg-slate-50";
                 if (row.noEstaEnRoster)
@@ -802,7 +813,17 @@ export default function ViaticosTable({
                         </div>
 
                         <div className="flex shrink-0 flex-col items-center gap-0.5 pt-0.5">
-                          {onDesdoblarViatico && (
+                          {esPrimerTramoDelGrupo && (
+                            <button
+                              type="button"
+                              title={`Fusionar ${tramoGroup.length} tramos en una fila`}
+                              onClick={() => onFusionarTramos(row, tramoGroup)}
+                              className="inline-flex items-center justify-center rounded-md border border-violet-200/90 bg-violet-50/80 p-1 text-violet-600 shadow-sm hover:border-violet-400 hover:bg-violet-100"
+                            >
+                              <IconLayers size={12} />
+                            </button>
+                          )}
+                          {onDesdoblarViatico && !esTramo && (
                             <button
                               type="button"
                               title="Desdoblar viáticos por paradas"

@@ -6,6 +6,7 @@ import {
   getArrivalFactor,
   getDepartureFactor,
   REFERENCIA_DIAS_LLEGADA,
+  REFERENCIA_DIAS_MISMO_DIA,
   REFERENCIA_DIAS_SALIDA,
 } from "../../../utils/viaticosDiasComputables";
 
@@ -54,6 +55,45 @@ function ReferenciaHorariosTable({ titulo, filas, diasActivo }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function ReferenciaMismoDiaTable({ filas, diasActivo }) {
+  const fmtDias = (n) =>
+    Number.isInteger(n) ? String(n) : String(n).replace(".", ",");
+
+  return (
+    <table className="w-full border-collapse text-[10px] border border-slate-300">
+      <thead>
+        <tr className="bg-violet-100">
+          <th className="border border-slate-300 px-1.5 py-1 font-bold text-left">
+            Criterio
+          </th>
+          <th className="border border-slate-300 px-1.5 py-1 font-bold text-center w-14">
+            Días comp.
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {filas.map((row) => {
+          const activa =
+            diasActivo != null && Math.abs(row.dias - diasActivo) < 0.001;
+          return (
+            <tr
+              key={row.condicion}
+              className={activa ? "bg-indigo-100 font-semibold" : "bg-white"}
+            >
+              <td className="border border-slate-300 px-1.5 py-0.5">
+                {row.condicion}
+              </td>
+              <td className="border border-slate-300 px-1.5 py-0.5 text-center">
+                {fmtDias(row.dias)}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
@@ -109,28 +149,39 @@ function DiasComputablesExplainModal({ breakdown, onClose }) {
 
           <div className="rounded-lg border border-slate-200 bg-white p-2 space-y-2">
             <p className="text-[10px] font-bold uppercase text-slate-500 tracking-wide">
-              Referencia por horario
+              {breakdown.sameDay
+                ? "Ida y vuelta el mismo día"
+                : "Referencia por horario"}
             </p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <ReferenciaHorariosTable
-                titulo="Salida"
-                filas={REFERENCIA_DIAS_SALIDA}
+            {breakdown.sameDay ? (
+              <ReferenciaMismoDiaTable
+                filas={REFERENCIA_DIAS_MISMO_DIA}
                 diasActivo={
-                  !breakdown.incomplete && !breakdown.sameDay
-                    ? getDepartureFactor(breakdown.horaSalida).value
-                    : null
+                  !breakdown.incomplete ? breakdown.total : null
                 }
               />
-              <ReferenciaHorariosTable
-                titulo="Llegada / Regreso"
-                filas={REFERENCIA_DIAS_LLEGADA}
-                diasActivo={
-                  !breakdown.incomplete && !breakdown.sameDay
-                    ? getArrivalFactor(breakdown.horaLlegada).value
-                    : null
-                }
-              />
-            </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row gap-3">
+                <ReferenciaHorariosTable
+                  titulo="Salida"
+                  filas={REFERENCIA_DIAS_SALIDA}
+                  diasActivo={
+                    !breakdown.incomplete
+                      ? getDepartureFactor(breakdown.horaSalida).value
+                      : null
+                  }
+                />
+                <ReferenciaHorariosTable
+                  titulo="Llegada / Regreso"
+                  filas={REFERENCIA_DIAS_LLEGADA}
+                  diasActivo={
+                    !breakdown.incomplete
+                      ? getArrivalFactor(breakdown.horaLlegada).value
+                      : null
+                  }
+                />
+              </div>
+            )}
           </div>
 
           {breakdown.incomplete ? (
@@ -140,10 +191,21 @@ function DiasComputablesExplainModal({ breakdown, onClose }) {
           ) : (
             <>
               <p className="text-xs text-slate-600">
-                Los días se arman con{" "}
-                <strong>días intermedios</strong> (noches entre salida y llegada) más
-                fracciones según el <strong>horario de salida</strong> y el{" "}
-                <strong>horario de llegada</strong>.
+                {breakdown.sameDay ? (
+                  <>
+                    Si <strong>salida y llegada</strong> son el mismo día, se
+                    cuentan según el tiempo entre ambos horarios (6 h o más = 1
+                    día; menos = 0,75).
+                  </>
+                ) : (
+                  <>
+                    Los días se arman con{" "}
+                    <strong>días intermedios</strong> (noches entre salida y
+                    llegada) más fracciones según el{" "}
+                    <strong>horario de salida</strong> y el{" "}
+                    <strong>horario de llegada</strong>.
+                  </>
+                )}
               </p>
               <ol className="list-decimal list-inside space-y-2 text-xs">
                 {breakdown.steps.map((step, i) => (

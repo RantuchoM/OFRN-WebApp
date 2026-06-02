@@ -27,7 +27,7 @@ import ViaticosTable from "./ViaticosTable";
 import DesdoblarViaticosModal from "./DesdoblarViaticosModal";
 import { PDFDocument } from "pdf-lib";
 import { Toaster, toast } from "sonner";
-import ConfirmModal from "../../../components/ui/ConfirmModal";
+import ConfirmDialog from "../../../components/ui/ConfirmDialog";
 import ManualTrigger from "../../../components/manual/ManualTrigger";
 import { useViaticosIndividuales } from "../../../hooks/viaticos/useViaticosIndividuales";
 import {
@@ -272,6 +272,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     addPerson,
     addBatch,
     splitViaticoRow,
+    mergeViaticoTramos,
     restoreViaticoRow,
     feedback: feedbackIndividual,
   } = useViaticosIndividuales(
@@ -335,7 +336,7 @@ export default function ViaticosManager({ supabase, giraId }) {
   const [editingMusician, setEditingMusician] = useState(null);
 
   // ESTADOS DE EXPORTACIÓN
-  const [confirmPromise, setConfirmPromise] = useState(null);
+  const [fusionarConfirm, setFusionarConfirm] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState("");
   const [exportDetail, setExportDetail] = useState(""); // Segunda línea de detalle
@@ -1737,26 +1738,35 @@ const collectTransportSupportDocs = (personData) => {
     }
   };
 
+  const handleFusionarTramos = (row, tramoGroup) => {
+    if ((tramoGroup?.length || 0) < 2) return;
+    setFusionarConfirm({ row, tramoGroup });
+  };
+
+  const handleConfirmFusionarTramos = async () => {
+    const pending = fusionarConfirm;
+    if (!pending?.tramoGroup?.length) return;
+    setFusionarConfirm(null);
+    await mergeViaticoTramos(pending.tramoGroup);
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-50 relative overflow-y-auto">
       {/* ELIMINADO EL TOASTER DUPLICADO, USAMOS EL DE APP.JSX */}
 
-      <ConfirmModal
-        isOpen={confirmPromise?.isOpen}
-        onClose={() => {
-          confirmPromise?.resolve(false);
-          setConfirmPromise(null);
-        }}
-        title={confirmPromise?.title}
-        message={confirmPromise?.message}
-        confirmText={confirmPromise?.confirmText}
-        cancelText={confirmPromise?.cancelText}
-        onConfirm={() => {
-          confirmPromise?.resolve(true);
-          setConfirmPromise(null);
-        }}
+      <ConfirmDialog
+        isOpen={!!fusionarConfirm}
+        onClose={() => setFusionarConfirm(null)}
+        onConfirm={handleConfirmFusionarTramos}
+        title="Fusionar tramos"
+        message={
+          fusionarConfirm
+            ? `¿Fusionar ${fusionarConfirm.tramoGroup.length} tramos de ${fusionarConfirm.row.apellido}, ${fusionarConfirm.row.nombre} en una sola fila?\n\nSe sumarán gastos y rendiciones. Las fechas volverán al recorrido completo de logística.`
+            : ""
+        }
+        confirmText="Fusionar"
       />
-      <ConfirmModal
+      <ConfirmDialog
         isOpen={showEmailConfirm}
         onClose={() => setShowEmailConfirm(false)}
         onConfirm={() => handleSendMassiveEmails(true)}
@@ -2090,6 +2100,7 @@ const collectTransportSupportDocs = (personData) => {
                   setEditingMusician(musician);
                 }}
                 onDesdoblarViatico={setDesdoblarRow}
+                onFusionarTramos={handleFusionarTramos}
                 exportRenunciaViaticos={exportRenunciaViaticos}
                 onExportRenunciaViaticosChange={setExportRenunciaViaticos}
               />
