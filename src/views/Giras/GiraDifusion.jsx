@@ -10,6 +10,7 @@ import {
   IconTrash,
   IconPhoto,
   IconFileText, // Icono para el reporte
+  IconUsers,
 } from "../../components/ui/Icons";
 import { useAuth } from "../../context/AuthContext";
 // --- IMPORTACIONES PARA PDF ---
@@ -18,6 +19,7 @@ import autoTable from "jspdf-autotable";
 import { useGiraRoster } from "../../hooks/useGiraRoster";
 import { generateSeatingPdf } from "../../utils/seatingPdfExporter"; // <--- IMPORTAR AQUÍ
 import ConciertosDifusionPanel from "../../components/difusion/ConciertosDifusionPanel";
+import MusiciansListModal from "../../components/difusion/MusiciansListModal";
 
 // --- UTILIDAD: RENDERER DE TEXTO RICO ---
 const RichTextPreview = ({ content, className = "" }) => {
@@ -469,6 +471,7 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false); // Estado para el PDF
   const [artistsDetails, setArtistsDetails] = useState({});
+  const [showMusiciansList, setShowMusiciansList] = useState(false);
   const { roster: fullRoster, loading: rosterLoading } = useGiraRoster(
     supabase,
     gira,
@@ -827,9 +830,27 @@ export default function GiraDifusion({ supabase, gira, onBack }) {
 
         {/* --- SECCIÓN ARTISTAS --- */}
         <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-bold text-indigo-700 uppercase mb-4 border-b border-indigo-100 pb-2">
-            Sección Artistas
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-indigo-100 pb-2">
+            <h3 className="text-sm font-bold text-indigo-700 uppercase">
+              Sección Artistas
+            </h3>
+            <button
+              type="button"
+              onClick={() => setShowMusiciansList(true)}
+              disabled={rosterLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+            >
+              <IconUsers size={14} />
+              Ver listado de músicos
+            </button>
+          </div>
+          <MusiciansListModal
+            isOpen={showMusiciansList}
+            onClose={() => setShowMusiciansList(false)}
+            supabase={supabase}
+            programId={gira.id}
+            roster={fullRoster}
+          />
           <div className="space-y-6">
             {staff.map((person) => {
               const details = artistsDetails[person.id_integrante] || {};

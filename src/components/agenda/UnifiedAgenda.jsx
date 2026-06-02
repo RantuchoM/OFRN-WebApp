@@ -146,6 +146,8 @@ export default function UnifiedAgenda({
   title = "Agenda General",
   onOpenRepertoire = null,
   onViewChange = null,
+  /** Agenda de un programa Ensamble: incluir ensayos de ensamble asociados por eventos_programas_asociados */
+  includeAssociatedEnsembleRehearsals = false,
 }) {
   const {
     user,
@@ -426,6 +428,7 @@ export default function UnifiedAgenda({
     isManagement,
     user,
     includeDeletedBeyond24h: isAdmin && showDeletedEvents,
+    includeAssociatedEnsembleRehearsals,
   });
 
   useEffect(() => {
@@ -891,7 +894,11 @@ export default function UnifiedAgenda({
       );
       setItems(newItems);
       localStorage.setItem(
-        getAgendaCacheKey(effectiveUserId, giraId),
+        getAgendaCacheKey(
+          effectiveUserId,
+          giraId,
+          includeAssociatedEnsembleRehearsals,
+        ),
         JSON.stringify(newItems),
       );
 

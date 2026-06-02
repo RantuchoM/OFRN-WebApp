@@ -27,6 +27,14 @@ const PROGRAM_TYPES = [
   { value: "Otros", label: "Otros" },
 ];
 
+const BASE_STRING_CONTAINERS = [
+  { nombre: "Violín 1", id_instrumento: null },
+  { nombre: "Violín 2", id_instrumento: null },
+  { nombre: "Viola", id_instrumento: "02" },
+  { nombre: "Cello", id_instrumento: "03" },
+  { nombre: "Contrabajo", id_instrumento: "04" },
+];
+
 const ImportSeatingModal = ({
   isOpen,
   onClose,
@@ -475,6 +483,7 @@ export default function GlobalStringsManager({
   const [dragOverItemId, setDragOverItemId] = useState(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isCreatingBase, setIsCreatingBase] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [editCap, setEditCap] = useState("");
@@ -552,6 +561,88 @@ export default function GlobalStringsManager({
     if (!name) return;
     await supabase.from("seating_contenedores").insert({ id_programa: programId, nombre: name, orden: containers.length, id_instrumento: "00" });
     onUpdate();
+  };
+
+  const createBaseContainers = async () => {
+    if (readOnly || isCreatingBase) return;
+    if (containers.length > 0) {
+      const ok = window.confirm(
+        "Se agregarán Violín 1, Violín 2, Viola, Cello y Contrabajo al final de los grupos existentes. ¿Continuar?",
+      );
+      if (!ok) return;
+    }
+    setIsCreatingBase(true);
+    try {
+      const startOrder =
+        containers.length > 0
+          ? Math.max(...containers.map((c) => c.orden ?? 0)) + 1
+          : 0;
+      const rows = BASE_STRING_CONTAINERS.map((def, index) => ({
+        id_programa: programId,
+        nombre: def.nombre,
+        orden: startOrder + index,
+        id_instrumento: def.id_instrumento,
+      }));
+      const { data: created, error } = await supabase
+        .from("seating_contenedores")
+        .insert(rows)
+        .select("id, id_instrumento");
+      if (error || !created?.length) {
+        alert("Error al crear las cuerdas base.");
+        return;
+      }
+
+      const assignedIds = new Set();
+      containers.forEach((c) =>
+        c.items?.forEach((i) => assignedIds.add(i.id_musico)),
+      );
+
+      const instrKey = (id) => String(id ?? "").trim().padStart(2, "0");
+      const sortByName = (a, b) =>
+        (a.apellido || "").localeCompare(b.apellido || "", "es") ||
+        (a.nombre || "").localeCompare(b.nombre || "", "es");
+
+      const itemsToInsert = [];
+      for (const cont of created) {
+        const instrId = cont.id_instrumento
+          ? instrKey(cont.id_instrumento)
+          : null;
+        if (!instrId || !["02", "03", "04"].includes(instrId)) continue;
+
+        const musicians = roster
+          .filter(
+            (m) =>
+              instrKey(m.id_instr) === instrId && !assignedIds.has(m.id),
+          )
+          .sort(sortByName);
+
+        musicians.forEach((m, idx) => {
+          assignedIds.add(m.id);
+          const atril_num = Math.floor(idx / 2) + 1;
+          const lado = idx % 2;
+          itemsToInsert.push({
+            id_contenedor: cont.id,
+            id_musico: m.id,
+            atril_num,
+            lado,
+            orden: seatingMatrixToOrder(atril_num, lado),
+          });
+        });
+      }
+
+      if (itemsToInsert.length > 0) {
+        const { error: itemsError } = await supabase
+          .from("seating_contenedores_items")
+          .insert(itemsToInsert);
+        if (itemsError) {
+          alert("Grupos creados, pero hubo un error al asignar músicos.");
+        }
+      }
+
+      onUpdate();
+    } finally {
+      setIsCreatingBase(false);
+    }
   };
   const deleteContainer = async (id) => {
     if (readOnly) return;
@@ -1418,6 +1509,19 @@ export default function GlobalStringsManager({
                 <IconDownload size={12} />
               )}{" "}
               Importar
+            </button>
+            <button
+              onClick={createBaseContainers}
+              disabled={isCreatingBase}
+              className="bg-white border border-indigo-300 text-indigo-700 px-2 py-1 rounded text-[10px] font-bold hover:bg-indigo-50 flex items-center gap-1 transition-colors disabled:opacity-50"
+              title="Crea Violín 1, Violín 2, Viola, Cello y Contrabajo"
+            >
+              {isCreatingBase ? (
+                <IconLoader className="animate-spin" size={12} />
+              ) : (
+                <IconLayers size={12} />
+              )}{" "}
+              Crear cuerdas base
             </button>
             <button
               onClick={createContainer}

@@ -677,6 +677,8 @@ export default function ProgramSeating({
   const [showParticellaModal, setShowParticellaModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isAcceptingAllSuggestions, setIsAcceptingAllSuggestions] =
+    useState(false);
   const [instrumentList, setInstrumentList] = useState([]);
   const [createModalInfo, setCreateModalInfo] = useState(null);
   const [fetchedBlocks, setFetchedBlocks] = useState([]);
@@ -999,6 +1001,36 @@ export default function ProgramSeating({
     },
     [availablePartsByWork, particellaCounts],
   );
+
+  const pendingParticellaSuggestionsCount = useMemo(() => {
+    if (!isEditor) return 0;
+    let count = 0;
+    containers.forEach((c) => {
+      if (!c.items?.length) return;
+      obras.forEach((obra) => {
+        const obraId = obra.obra_id;
+        if (assignments[`C-${c.id}-${obraId}`]) return;
+        if (getContainerSuggestedPart(c, obraId)) count += 1;
+      });
+    });
+    otherMusicians.forEach((m) => {
+      const suggestions = derivedMusicianSuggestions[m.id] || {};
+      obras.forEach((obra) => {
+        const obraId = obra.obra_id;
+        if (assignments[`M-${m.id}-${obraId}`]) return;
+        if (suggestions[obraId]) count += 1;
+      });
+    });
+    return count;
+  }, [
+    isEditor,
+    containers,
+    obras,
+    assignments,
+    getContainerSuggestedPart,
+    derivedMusicianSuggestions,
+    otherMusicians,
+  ]);
 
   useEffect(() => {
     if (program?.id && !rosterLoading) fetchInitialData();
@@ -1583,6 +1615,39 @@ export default function ProgramSeating({
     setCreateModalInfo(null);
   };
 
+  const handleAcceptAllParticellaSuggestions = async () => {
+    if (!isEditor || pendingParticellaSuggestionsCount === 0) return;
+    setIsAcceptingAllSuggestions(true);
+    try {
+      for (const c of containers) {
+        if (!c.items?.length) continue;
+        for (const obra of obras) {
+          const obraId = obra.obra_id;
+          if (assignments[`C-${c.id}-${obraId}`]) continue;
+          const suggested = getContainerSuggestedPart(c, obraId);
+          if (suggested) {
+            // eslint-disable-next-line no-await-in-loop
+            await handleAssign("C", c.id, obraId, suggested.id);
+          }
+        }
+      }
+      for (const m of otherMusicians) {
+        const suggestions = derivedMusicianSuggestions[m.id] || {};
+        for (const obra of obras) {
+          const obraId = obra.obra_id;
+          if (assignments[`M-${m.id}-${obraId}`]) continue;
+          const partId = suggestions[obraId];
+          if (partId) {
+            // eslint-disable-next-line no-await-in-loop
+            await handleAssign("M", m.id, obraId, partId);
+          }
+        }
+      }
+    } finally {
+      setIsAcceptingAllSuggestions(false);
+    }
+  };
+
   const handleAssign = async (targetType, targetId, obraId, particellaId) => {
     if (!isEditor) return;
     const key = `${targetType}-${targetId}-${obraId}`;
@@ -1729,12 +1794,17 @@ export default function ProgramSeating({
         defaultInstrumentId={createModalInfo?.defaultInstrId}
       />
 
-      {(loading || rosterLoading || isExporting) && (
+      {(loading || rosterLoading || isExporting || isAcceptingAllSuggestions) && (
         <div className="absolute inset-0 bg-white/80 z-[60] flex flex-col items-center justify-center gap-2">
           <IconLoader className="animate-spin text-indigo-600" size={32} />
           {isExporting && (
             <span className="text-xs font-bold text-slate-600 uppercase tracking-widest animate-pulse">
               Generando Reporte...
+            </span>
+          )}
+          {isAcceptingAllSuggestions && (
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-widest animate-pulse">
+              Aplicando sugerencias...
             </span>
           )}
         </div>
@@ -1844,6 +1914,27 @@ export default function ProgramSeating({
           })()}
         </h2>
         <div className="flex gap-2">
+          {isEditor && pendingParticellaSuggestionsCount > 0 && (
+            <button
+              type="button"
+              onClick={handleAcceptAllParticellaSuggestions}
+              disabled={
+                isAcceptingAllSuggestions || loading || isExporting
+              }
+              className="px-3 py-1.5 text-xs font-bold rounded flex items-center gap-2 transition-colors bg-amber-50 border border-amber-300 text-amber-900 hover:bg-amber-100 shadow-sm disabled:opacity-50"
+              title={`${pendingParticellaSuggestionsCount} sugerencia${pendingParticellaSuggestionsCount === 1 ? "" : "s"} pendiente${pendingParticellaSuggestionsCount === 1 ? "" : "s"}`}
+            >
+              {isAcceptingAllSuggestions ? (
+                <IconLoader className="animate-spin" size={16} />
+              ) : (
+                <IconBulb size={16} className="text-amber-500" />
+              )}
+              <span className="hidden sm:inline">
+                Aceptar todas las sugerencias
+              </span>
+              <span className="sm:hidden">Sugerencias</span>
+            </button>
+          )}
           {canDownloadSeatingReports && (
             <>
               <button

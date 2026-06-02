@@ -4,6 +4,10 @@ import { toast } from "sonner";
 import { getTodayDateStringLocal } from "../utils/dates";
 import { calculateLogisticsSummary } from "./useLogistics";
 import { membershipActiveOnProgramDate } from "../utils/ensembleMembership";
+import { getEventProgramIds } from "../utils/rehearsalProgramas";
+
+/** tipos_evento.id — Ensayo de ensamble (independiente o en programa). */
+const ID_TIPO_ENSAYO_ENSAMBLE = 13;
 
 const EVENT_SELECT = `
     id, fecha, hora_inicio, hora_fin, tecnica, descripcion, convocados, id_tipo_evento, id_locacion, id_gira, id_gira_transporte, updated_at, is_deleted, deleted_at, id_estado_venue,
@@ -37,8 +41,70 @@ function saveToCache(key, data) {
   }
 }
 
-export function getAgendaCacheKey(effectiveUserId, giraId) {
-  return `agenda_cache_${effectiveUserId}_${giraId || "general"}_v5`;
+export function getAgendaCacheKey(
+  effectiveUserId,
+  giraId,
+  includeAssociatedEnsembleRehearsals = false,
+) {
+  const scope = giraId
+    ? `${giraId}${includeAssociatedEnsembleRehearsals ? "_ensReh" : ""}`
+    : "general";
+  return `agenda_cache_${effectiveUserId}_${scope}_v6`;
+}
+
+function eventBelongsToProgramAgenda(evt, giraId, includeAssociatedEnsembleRehearsals) {
+  if (!evt || giraId == null) return true;
+  if (String(evt.id_gira) === String(giraId)) return true;
+  if (
+    includeAssociatedEnsembleRehearsals &&
+    Number(evt.id_tipo_evento) === ID_TIPO_ENSAYO_ENSAMBLE &&
+    getEventProgramIds(evt).has(Number(giraId))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+async function fetchAssociatedEnsembleRehearsals(
+  supabase,
+  giraId,
+  existingEventIds,
+  { signal, includeDeletedBeyond24h },
+) {
+  const { data: links, error: linksError } = await supabase
+    .from("eventos_programas_asociados")
+    .select("id_evento")
+    .eq("id_programa", giraId)
+    .abortSignal(signal);
+
+  if (linksError) throw linksError;
+
+  const candidateIds = [
+    ...new Set((links || []).map((row) => row.id_evento).filter(Boolean)),
+  ].filter((id) => !existingEventIds.has(id));
+
+  if (candidateIds.length === 0) return [];
+
+  const timestamp24hAgo = new Date(
+    Date.now() - 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  let query = supabase
+    .from("eventos")
+    .select(EVENT_SELECT)
+    .in("id", candidateIds)
+    .eq("id_tipo_evento", ID_TIPO_ENSAYO_ENSAMBLE)
+    .abortSignal(signal);
+
+  if (!includeDeletedBeyond24h) {
+    query = query.or(
+      `is_deleted.eq.false,is_deleted.is.null,and(is_deleted.eq.true,deleted_at.gt.${timestamp24hAgo})`,
+    );
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
 }
 
 /**
@@ -61,6 +127,7 @@ export function getAgendaCacheKey(effectiveUserId, giraId) {
  * @param {boolean} opts.isManagement
  * @param {object | null} opts.user - para suscripción realtime
  * @param {boolean} [opts.includeDeletedBeyond24h=false] - si true, incluye todos los eventos con is_deleted, incluso más antiguos de 24h
+ * @param {boolean} [opts.includeAssociatedEnsembleRehearsals=false] - agenda de programa Ensamble: incluye ensayos de ensamble vinculados por eventos_programas_asociados
  */
 export function useAgendaData({
   supabase,
@@ -78,6 +145,7 @@ export function useAgendaData({
   isManagement,
   user,
   includeDeletedBeyond24h = false,
+  includeAssociatedEnsembleRehearsals = false,
 }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -142,7 +210,11 @@ export function useAgendaData({
       if (!isBackground) setLoading(true);
       else setIsRefreshing(true);
 
-      const CACHE_KEY = getAgendaCacheKey(effectiveUserId, giraId);
+      const CACHE_KEY = getAgendaCacheKey(
+        effectiveUserId,
+        giraId,
+        includeAssociatedEnsembleRehearsals,
+      );
 
       try {
         if (!isBackground && itemsRef.current.length === 0) {
@@ -234,7 +306,7 @@ export function useAgendaData({
         if (giraId) query = query.eq("id_gira", giraId);
         else query = query.gte("fecha", start).lte("fecha", end);
 
-        const { data: eventsData, error } = await query;
+        const { data: eventsDataRaw, error } = await query;
         if (error) {
           if (
             error.code === "AbortError" ||
@@ -243,6 +315,21 @@ export function useAgendaData({
           )
             return;
           throw error;
+        }
+
+        let eventsData = eventsDataRaw || [];
+        if (giraId && includeAssociatedEnsembleRehearsals) {
+          const existingIds = new Set(eventsData.map((e) => e.id));
+          const associatedRehearsals = await fetchAssociatedEnsembleRehearsals(
+            supabase,
+            giraId,
+            existingIds,
+            { signal, includeDeletedBeyond24h },
+          );
+          if (signal.aborted) return;
+          if (associatedRehearsals.length > 0) {
+            eventsData = [...eventsData, ...associatedRehearsals];
+          }
         }
 
         const activeTourIds = new Set();
@@ -556,6 +643,8 @@ export function useAgendaData({
       filterDateTo,
       checkIsConvoked,
       processCategories,
+      includeDeletedBeyond24h,
+      includeAssociatedEnsembleRehearsals,
     ],
   );
 
@@ -576,14 +665,23 @@ export function useAgendaData({
       }
 
       try {
-        let query = supabase
+        const { data: evt, error } = await supabase
           .from("eventos")
           .select(EVENT_SELECT)
           .eq("id", id)
           .single();
-        if (giraId) query = query.eq("id_gira", giraId);
-        const { data: evt, error } = await query;
         if (error || !evt) return;
+        if (
+          giraId &&
+          !eventBelongsToProgramAgenda(
+            evt,
+            giraId,
+            includeAssociatedEnsembleRehearsals,
+          )
+        ) {
+          setItems((prev) => prev.filter((item) => item.id !== id));
+          return;
+        }
 
         const [customRes, attendanceRes] = await Promise.all([
           supabase
@@ -651,7 +749,13 @@ export function useAgendaData({
         toast.error("Error al actualizar evento");
       }
     },
-    [supabase, giraId, effectiveUserId, checkIsConvoked],
+    [
+      supabase,
+      giraId,
+      effectiveUserId,
+      checkIsConvoked,
+      includeAssociatedEnsembleRehearsals,
+    ],
   );
 
   mergeSingleEventFromRealtimeRef.current = mergeSingleEventFromRealtime;
