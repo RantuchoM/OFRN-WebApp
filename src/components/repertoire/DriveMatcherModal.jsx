@@ -239,9 +239,13 @@ const attachDriveLinksByFilename = (partsList, driveFilesSorted) => {
     return !up.startsWith("PORTADA") && !up.startsWith("AUDIO");
   });
   const usedIds = new Set();
+  const scoreLikeToken = "__score__";
+  const isScoreLike = (text) =>
+    /\b(director|conductor|score|partitura)\b/i.test(String(text || ""));
 
   const filePrimaryNorm = (f) => {
     const base = (f.name || "").split(".")[0].split("-")[0].trim();
+    if (isScoreLike(base)) return scoreLikeToken;
     let n = normalizeInstrumentString(base);
     const low = base.toLowerCase();
     if (/picc|piccolo|^fp\b/.test(low) || n.includes("piccolo")) n = "flauta";
@@ -250,6 +254,9 @@ const attachDriveLinksByFilename = (partsList, driveFilesSorted) => {
 
   const partPrimaryNorm = (p) => {
     const base = (p.nombre_archivo || "").split("-")[0].trim();
+    if (isScoreLike(base) || String(p.instrumento_nombre || "").toLowerCase().includes("director")) {
+      return scoreLikeToken;
+    }
     let n = normalizeInstrumentString(base);
     const low = base.toLowerCase();
     if (/picc|piccolo|^fp\b/.test(low) || n.includes("piccolo")) n = "flauta";

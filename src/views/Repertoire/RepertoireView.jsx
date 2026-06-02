@@ -534,8 +534,16 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [instrFilters, setInstrFilters] = useState([]);
   const [stringsFilter, setStringsFilter] = useState("all");
   const [strictMode, setStrictMode] = useState(false);
+  const [showLegacyOficialSinDrive, setShowLegacyOficialSinDrive] = useState(false);
 
   const [sortConfig, setSortConfig] = useState({ key: "titulo", direction: "asc" });
+  const legacyOficialSinDriveCount = useMemo(
+    () =>
+      works.filter(
+        (w) => w.estado === "Oficial" && !(w.link_drive || "").trim(),
+      ).length,
+    [works],
+  );
 
   // Lista de solicitantes que tienen al menos una obra en Solicitud o Pendiente (para el filtro)
   const solicitantesOptions = useMemo(() => {
@@ -754,6 +762,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const clearAllFilters = () => {
     setFilters({ titulo: "", compositor: "", arreglador: "", estado: "Todos", solicitante: "", duracionMin: "", duracionMax: "", fechaDesde: "", fechaHasta: "", observaciones: "" });
     setSelectedTags(new Set()); setInstrFilters([]); setStringsFilter("all"); setStrictMode(false);
+    setShowLegacyOficialSinDrive(false);
   };
 
   // --- FILTRADO Y ORDENAMIENTO ---
@@ -779,6 +788,12 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       )
         return false;
       if (filters.estado !== "Todos" && work.estado !== filters.estado) return false;
+      if (
+        showLegacyOficialSinDrive &&
+        !(work.estado === "Oficial" && !(work.link_drive || "").trim())
+      ) {
+        return false;
+      }
       if (filters.solicitante && String(work.id_usuario_carga) !== String(filters.solicitante)) return false;
 
       const duration = work.duracion_segundos || 0;
@@ -840,7 +855,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
       if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
       return 0;
     });
-  }, [works, filters, selectedTags, instrFilters, stringsFilter, sortConfig, strictMode]);
+  }, [works, filters, selectedTags, instrFilters, stringsFilter, sortConfig, strictMode, showLegacyOficialSinDrive]);
 
   // --- SUB-LISTA PAGINADA ---
   const totalPages = Math.ceil(allFilteredWorks.length / pageSize);
@@ -952,6 +967,20 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
             )}
           </div>
           <button onClick={clearAllFilters} className="text-xs text-slate-400 hover:text-red-500 font-bold underline px-2">Limpiar Filtros</button>
+          {legacyOficialSinDriveCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowLegacyOficialSinDrive((v) => !v)}
+              className={`text-xs font-bold px-3 py-1.5 rounded border transition-colors ${
+                showLegacyOficialSinDrive
+                  ? "bg-rose-50 border-rose-300 text-rose-700"
+                  : "bg-white border-rose-200 text-rose-700 hover:bg-rose-50"
+              }`}
+              title='Mostrar obras "Oficial" sin link de Drive'
+            >
+              Legacy: Oficial sin Drive ({legacyOficialSinDriveCount})
+            </button>
+          )}
           <div className="flex gap-1 border-r border-slate-200 pr-3">
             <button onClick={() => setShowComposersManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full" title="Compositores"><IconUsers size={20} /></button>
             <button onClick={() => setShowTagsManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full" title="Tags"><IconTag size={20} /></button>

@@ -342,7 +342,7 @@ const ComposerDetail = ({
 };
 
 // --- 4. COMPONENTE PRINCIPAL ---
-export default function ComposersManager({ supabase, onClose }) {
+export default function ComposersManager({ supabase, onClose, initialSelectedId = null, formOnly = false }) {
     const [composers, setComposers] = useState([]);
     const [paises, setPaises] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -362,6 +362,14 @@ export default function ComposersManager({ supabase, onClose }) {
         fetchComposers();
         fetchPaises();
     }, []);
+
+    useEffect(() => {
+        if (!initialSelectedId || composers.length === 0) return;
+        const target = composers.find(
+            (c) => String(c.id) === String(initialSelectedId),
+        );
+        if (target) selectComposer(target);
+    }, [initialSelectedId, composers]);
 
     // Cargar obras cuando se selecciona un compositor
     useEffect(() => {
@@ -421,6 +429,9 @@ export default function ComposersManager({ supabase, onClose }) {
                 resetForm(); // Limpiar solo si es nuevo
             }
             await fetchComposers(); // Recargar lista
+            if (formOnly) {
+                onClose();
+            }
         } catch (error) {
             alert("Error: " + error.message);
         } finally {
@@ -468,9 +479,10 @@ export default function ComposersManager({ supabase, onClose }) {
 
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-            <div className="bg-white w-full max-w-6xl h-[85vh] rounded-2xl shadow-2xl flex overflow-hidden border border-slate-200">
+            <div className={`bg-white w-full ${formOnly ? "max-w-3xl h-auto max-h-[85vh]" : "max-w-6xl h-[85vh]"} rounded-2xl shadow-2xl flex overflow-hidden border border-slate-200`}>
                 
                 {/* --- PANEL IZQUIERDO: LISTA --- */}
+                {!formOnly && (
                 <div className={`w-full md:w-1/3 border-r border-slate-200 flex flex-col bg-slate-50 ${selectedId ? 'hidden md:flex' : 'flex'}`}>
                     {/* Header Lista */}
                     <div className="p-4 border-b border-slate-200 bg-white shrink-0">
@@ -537,16 +549,19 @@ export default function ComposersManager({ supabase, onClose }) {
                         </button>
                     </div>
                 </div>
+                )}
 
                 {/* --- PANEL DERECHO: DETALLE --- */}
-                <div className={`w-full md:w-2/3 bg-white flex flex-col h-full ${!selectedId && 'hidden md:flex'}`}>
+                <div className={`bg-white flex flex-col h-full ${formOnly ? "w-full" : "w-full md:w-2/3"} ${!formOnly && !selectedId && 'hidden md:flex'}`}>
                     {/* Header Móvil para volver */}
+                    {!formOnly && (
                     <div className="md:hidden p-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
                         <button onClick={() => setSelectedId(null)} className="p-2 text-slate-500"><IconArrowLeft/></button>
                         <span className="font-bold text-slate-700">{selectedId ? 'Editar' : 'Nuevo'}</span>
                     </div>
+                    )}
 
-                    <div className="flex justify-end p-2 absolute top-2 right-2 z-10 md:block hidden">
+                    <div className={`flex justify-end p-2 absolute top-2 right-2 z-10 ${formOnly ? "block" : "md:block hidden"}`}>
                         <button onClick={onClose} className="p-2 bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors">
                             <IconX size={20}/>
                         </button>
@@ -568,16 +583,18 @@ export default function ComposersManager({ supabase, onClose }) {
             </div>
 
             {/* Modal de Fusión */}
-            <MergeComposersModal 
-                isOpen={showMergeModal}
-                onClose={() => setShowMergeModal(false)}
-                composers={composers}
-                supabase={supabase}
-                onMergeSuccess={() => {
-                    fetchComposers();
-                    resetForm();
-                }}
-            />
+            {!formOnly && (
+                <MergeComposersModal 
+                    isOpen={showMergeModal}
+                    onClose={() => setShowMergeModal(false)}
+                    composers={composers}
+                    supabase={supabase}
+                    onMergeSuccess={() => {
+                        fetchComposers();
+                        resetForm();
+                    }}
+                />
+            )}
         </div>
     );
 }

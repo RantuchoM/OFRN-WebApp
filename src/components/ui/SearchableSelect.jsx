@@ -11,6 +11,7 @@ export default function SearchableSelect({
     isMulti = false,
     className = "",
     dropdownMinWidth = 250,
+    renderMultiItemActions = null,
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -153,6 +154,15 @@ export default function SearchableSelect({
                         {selectedItems.length > 0 ? selectedItems.map(item => (
                             <span key={item.id} className="bg-indigo-50 text-indigo-700 border border-indigo-100 px-1.5 rounded flex items-center gap-1">
                                 {item.label}
+                                {typeof renderMultiItemActions === "function" && (
+                                    <span
+                                        className="flex items-center"
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        {renderMultiItemActions(item)}
+                                    </span>
+                                )}
                                 <button onClick={(e) => removeMultiItem(e, item.id)} className="hover:text-indigo-900"><IconX size={10}/></button>
                             </span>
                         )) : <span className="text-slate-400">{placeholder}</span>}

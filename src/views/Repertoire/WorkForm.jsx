@@ -29,6 +29,7 @@ import { calculateInstrumentation } from "../../utils/instrumentation";
 import DriveMatcherModal from "../../components/repertoire/DriveMatcherModal";
 import LinksManagerModal from "../../components/repertoire/LinksManagerModal";
 import BowingSetManager from "../../components/repertoire/BowingSetManager";
+import ComposersManager from "./ComposersManager";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
 import { toast } from "sonner";
@@ -362,6 +363,8 @@ export default function WorkForm({
     observaciones: "",
   });
   const [isQuickCompOpen, setIsQuickCompOpen] = useState(false);
+  const [showComposersManager, setShowComposersManager] = useState(false);
+  const [composerToEditId, setComposerToEditId] = useState(null);
   const [quickCompType, setQuickCompType] = useState("compositor"); // o "arreglador"
   const [selectedComposers, setSelectedComposers] = useState([]);
   const [selectedArrangers, setSelectedArrangers] = useState([]);
@@ -1646,6 +1649,20 @@ export default function WorkForm({
                 isMulti
                 dropdownMinWidth={350}
                 className="flex-1 min-w-0"
+                renderMultiItemActions={(item) => (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setComposerToEditId(item.id);
+                      setShowComposersManager(true);
+                    }}
+                    className="p-0.5 rounded hover:bg-indigo-100 text-indigo-600"
+                    title="Editar compositor"
+                  >
+                    <IconEdit size={10} />
+                  </button>
+                )}
                 onChange={(ids) => {
                   setSelectedComposers(ids);
                   updateComposerRelations("compositor", ids);
@@ -1676,6 +1693,20 @@ export default function WorkForm({
                 isMulti
                 dropdownMinWidth={350}
                 className="flex-1 min-w-0"
+                renderMultiItemActions={(item) => (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setComposerToEditId(item.id);
+                      setShowComposersManager(true);
+                    }}
+                    className="p-0.5 rounded hover:bg-slate-200 text-slate-600"
+                    title="Editar arreglador"
+                  >
+                    <IconEdit size={10} />
+                  </button>
+                )}
                 onChange={(ids) => {
                   setSelectedArrangers(ids);
                   updateComposerRelations("arreglador", ids);
@@ -2429,6 +2460,18 @@ export default function WorkForm({
         supabase={supabase}
         roleType={quickCompType}
       />
+      {showComposersManager && (
+        <ComposersManager
+          supabase={supabase}
+          initialSelectedId={composerToEditId}
+          formOnly
+          onClose={() => {
+            setShowComposersManager(false);
+            setComposerToEditId(null);
+            fetchComposers();
+          }}
+        />
+      )}
     </div>
   );
 }
