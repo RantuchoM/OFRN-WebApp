@@ -476,10 +476,14 @@ chk("check_temporada", configData.factor_temporada > 0);
         // Detalle de transporte \"Otros\":
         // - En ViáticosManual se llama transporte_otros_detalle
         // - En Viáticos de Giras (tabla) usamos transporte_otros como texto
-        const detalleOtro =
-          (data.transporte_otros && String(data.transporte_otros).trim()) ||
-          data.transporte_otros_detalle ||
-          "";
+        const hasExplicitTransporteOtros = Object.prototype.hasOwnProperty.call(
+          data || {},
+          "transporte_otros",
+        );
+        const transporteOtrosText = String(data?.transporte_otros ?? "").trim();
+        const detalleOtro = hasExplicitTransporteOtros
+          ? transporteOtrosText
+          : String(data?.transporte_otros_detalle ?? "").trim();
         // Campo de texto principal en la plantilla
         f("transporte_otros", detalleOtro);
         // Campo auxiliar de descripción (usado en versiones anteriores)
