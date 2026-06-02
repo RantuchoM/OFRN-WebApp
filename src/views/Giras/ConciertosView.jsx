@@ -3,17 +3,48 @@ import { getConciertosFullData } from "../../services/giraService";
 import { exportConciertosToExcel } from "../../utils/excelExporter";
 import { exportConciertosToPDF } from "../../utils/agendaPdfExporter";
 import { getTodayDateStringLocal, formatDisplayDate } from "../../utils/dates";
-import { IconDownload, IconFileExcel } from "../../components/ui/Icons";
+import {
+  IconCalendar,
+  IconChevronDown,
+  IconChevronUp,
+  IconDownload,
+  IconFileExcel,
+  IconMusic,
+} from "../../components/ui/Icons";
 
 const normalize = (val) => String(val || "").trim().toLowerCase();
 
 const formatHora = (raw) => (raw ? String(raw).slice(0, 5) : "-");
 
 const formatRepertorioLine = (item) => {
-  const composer = String(item?.compositor || "").trim();
-  const titulo = (item?.titulo || "Obra sin título").trim();
-  return composer ? `${composer} - ${titulo}` : titulo;
+  const compositor = String(item?.compositor || "Autor Desconocido").trim();
+  const titulo = String(item?.titulo || "Obra sin título").trim();
+  return { compositor, titulo };
 };
+
+function DetailModal({ open, title, subtitle, children, onClose }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-4 py-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">{title}</h3>
+            {subtitle ? <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p> : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-2 py-1 text-xs font-bold text-slate-500 hover:bg-slate-100"
+          >
+            Cerrar
+          </button>
+        </div>
+        <div className="max-h-[65vh] overflow-auto px-4 py-3">{children}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function ConciertosView({ supabase }) {
   const [loading, setLoading] = useState(false);
@@ -23,6 +54,9 @@ export default function ConciertosView({ supabase }) {
   const [selectedProgramTypes, setSelectedProgramTypes] = useState(new Set());
   const [selectedEnsembles, setSelectedEnsembles] = useState(new Set());
   const [selectedFamilies, setSelectedFamilies] = useState(new Set());
+  const [repertorioModalRow, setRepertorioModalRow] = useState(null);
+  const [observacionesModalRow, setObservacionesModalRow] = useState(null);
+  const [headerExpanded, setHeaderExpanded] = useState(false);
 
   const loadConciertos = async () => {
     setLoading(true);
@@ -148,6 +182,7 @@ export default function ConciertosView({ supabase }) {
         const repertorioLines = (row.repertorio || []).map(formatRepertorioLine);
         return {
           id: row.id,
+          programId: row.id_gira || null,
           fecha: formatDisplayDate(row.fecha) || row.fecha || "-",
           hora: formatHora(row.hora_inicio),
           programa: programaLabel || "-",
@@ -157,8 +192,12 @@ export default function ConciertosView({ supabase }) {
           locacionLocalidad,
           estadoVenue: row.venue_estado || "-",
           estadoVenueColor: row.venue_estado_color || "",
-          repertorio: repertorioLines.join("\n") || "-",
+          repertorio:
+            repertorioLines
+              .map((line) => `${line.compositor} | ${line.titulo}`)
+              .join("\n") || "-",
           repertorioLines,
+          difusionObservaciones: String(row.difusion_observaciones || "").trim(),
         };
       }),
     [filteredRows],
@@ -202,10 +241,16 @@ export default function ConciertosView({ supabase }) {
     exportConciertosToPDF(tableRows, "Gestión de Conciertos", subtitle);
   };
 
+  const handleOpenProgramAgenda = (programId) => {
+    if (!programId) return;
+    const url = `${window.location.pathname}?tab=giras&view=AGENDA&giraId=${programId}`;
+    window.location.assign(url);
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="rounded-lg border border-slate-200 bg-white p-4">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500">
               Rango de fechas
@@ -225,100 +270,114 @@ export default function ConciertosView({ supabase }) {
               />
             </div>
           </div>
-
-          <div>
-            <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500">
-              Tipo de programa
-            </p>
-            <div className="max-h-28 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
-              {programTypes.length === 0 && (
-                <p className="text-xs text-slate-400">Sin tipos disponibles</p>
-              )}
-              {programTypes.map((type) => (
-                <label
-                  key={type}
-                  className="flex cursor-pointer items-center gap-2 text-xs text-slate-700"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedProgramTypes.has(type)}
-                    onChange={() => handleToggleProgramType(type)}
-                  />
-                  <span>{type}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500">
-              Ensambles y Familias
-            </p>
-            <div className="max-h-28 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-2">
-              <div>
-                <p className="text-[10px] font-bold uppercase text-slate-400">Ensambles</p>
-                {ensembles.map((ens) => (
-                  <label
-                    key={ens.id}
-                    className="flex cursor-pointer items-center gap-2 text-xs text-slate-700"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedEnsembles.has(String(ens.id))}
-                      onChange={() => handleToggleEnsamble(ens.id)}
-                    />
-                    <span>{ens.nombre}</span>
-                  </label>
-                ))}
-              </div>
-              <div>
-                <p className="text-[10px] font-bold uppercase text-slate-400">Familias</p>
-                {families.map((fam) => (
-                  <label
-                    key={fam}
-                    className="flex cursor-pointer items-center gap-2 text-xs text-slate-700"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedFamilies.has(normalize(fam))}
-                      onChange={() => handleToggleFamily(fam)}
-                    />
-                    <span>{fam}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={loadConciertos}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
-            disabled={loading}
+            onClick={() => setHeaderExpanded((prev) => !prev)}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
           >
-            {loading ? "Actualizando..." : "Actualizar"}
-          </button>
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
-            disabled={tableRows.length === 0}
-          >
-            <IconFileExcel size={14} />
-            Exportar Excel
-          </button>
-          <button
-            type="button"
-            onClick={handleExportPdf}
-            className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
-            disabled={tableRows.length === 0}
-          >
-            <IconDownload size={14} />
-            Exportar PDF
+            {headerExpanded ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+            Filtros
           </button>
         </div>
+
+        {headerExpanded && (
+          <>
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div>
+                <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500">
+                  Tipo de programa
+                </p>
+                <div className="max-h-28 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
+                  {programTypes.length === 0 && (
+                    <p className="text-xs text-slate-400">Sin tipos disponibles</p>
+                  )}
+                  {programTypes.map((type) => (
+                    <label
+                      key={type}
+                      className="flex cursor-pointer items-center gap-2 text-xs text-slate-700"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedProgramTypes.has(type)}
+                        onChange={() => handleToggleProgramType(type)}
+                      />
+                      <span>{type}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500">
+                  Ensambles y Familias
+                </p>
+                <div className="max-h-28 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-2">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase text-slate-400">Ensambles</p>
+                    {ensembles.map((ens) => (
+                      <label
+                        key={ens.id}
+                        className="flex cursor-pointer items-center gap-2 text-xs text-slate-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedEnsembles.has(String(ens.id))}
+                          onChange={() => handleToggleEnsamble(ens.id)}
+                        />
+                        <span>{ens.nombre}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase text-slate-400">Familias</p>
+                    {families.map((fam) => (
+                      <label
+                        key={fam}
+                        className="flex cursor-pointer items-center gap-2 text-xs text-slate-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedFamilies.has(normalize(fam))}
+                          onChange={() => handleToggleFamily(fam)}
+                        />
+                        <span>{fam}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={loadConciertos}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
+                disabled={loading}
+              >
+                {loading ? "Actualizando..." : "Actualizar"}
+              </button>
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+                disabled={tableRows.length === 0}
+              >
+                <IconFileExcel size={14} />
+                Exportar Excel
+              </button>
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
+                disabled={tableRows.length === 0}
+              >
+                <IconDownload size={14} />
+                Exportar PDF
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 bg-white">
@@ -338,19 +397,22 @@ export default function ConciertosView({ supabase }) {
                 Estado del Venue
               </th>
               <th className="border-b border-slate-200 px-3 py-2 text-left">Repertorio</th>
+              <th className="border-b border-slate-200 px-3 py-2 text-left">
+                Redes / Difusión
+              </th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-sm text-slate-500">
+                <td colSpan={8} className="px-3 py-6 text-center text-sm text-slate-500">
                   Cargando conciertos...
                 </td>
               </tr>
             )}
             {!loading && tableRows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-sm text-slate-500">
+                <td colSpan={8} className="px-3 py-6 text-center text-sm text-slate-500">
                   No hay conciertos para los filtros seleccionados.
                 </td>
               </tr>
@@ -360,8 +422,19 @@ export default function ConciertosView({ supabase }) {
                 <tr key={row.id} className="align-top text-slate-700 odd:bg-white even:bg-slate-50">
                   <td className="border-b border-slate-100 px-3 py-2">{row.fecha}</td>
                   <td className="border-b border-slate-100 px-3 py-2">{row.hora}</td>
-                  <td className="whitespace-pre-wrap border-b border-slate-100 px-3 py-2">
-                    {row.programa}
+                  <td className="border-b border-slate-100 px-3 py-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="whitespace-pre-wrap">{row.programa}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenProgramAgenda(row.programId)}
+                        disabled={!row.programId}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                        title="Ir a agenda del programa"
+                      >
+                        <IconCalendar size={13} />
+                      </button>
+                    </div>
                   </td>
                   <td className="whitespace-pre-wrap border-b border-slate-100 px-3 py-2">
                     {row.participantesEnsamble.length === 0 &&
@@ -412,24 +485,85 @@ export default function ConciertosView({ supabase }) {
                       </span>
                     )}
                   </td>
-                  <td className="whitespace-pre-wrap border-b border-slate-100 px-3 py-2">
-                    {row.repertorioLines.length > 0 ? (
-                      <ul className="space-y-1">
-                        {row.repertorioLines.map((line, idx) => (
-                          <li key={`rep-${row.id}-${idx}`} className="leading-tight">
-                            • {line}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      "-"
-                    )}
+                  <td className="border-b border-slate-100 px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => setRepertorioModalRow(row)}
+                      className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+                        row.repertorioLines.length > 0
+                          ? "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                          : "border-slate-200 bg-slate-100 text-slate-400 hover:bg-slate-200"
+                      }`}
+                      title={
+                        row.repertorioLines.length > 0
+                          ? "Ver repertorio"
+                          : "Sin repertorio cargado"
+                      }
+                    >
+                      <IconMusic size={14} />
+                    </button>
+                  </td>
+                  <td className="border-b border-slate-100 px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!row.difusionObservaciones) return;
+                        setObservacionesModalRow(row);
+                      }}
+                      className={`h-4 w-4 rounded-[2px] border rotate-[-8deg] transition-transform hover:rotate-0 ${
+                        row.difusionObservaciones
+                          ? "border-amber-500/90 bg-amber-300 hover:bg-amber-200"
+                          : "cursor-default border-dashed border-amber-400/80 bg-amber-50"
+                      }`}
+                      title={
+                        row.difusionObservaciones
+                          ? "Ver observaciones de Redes/Difusión"
+                          : "Sin observaciones de Redes/Difusión"
+                      }
+                    />
                   </td>
                 </tr>
               ))}
           </tbody>
         </table>
       </div>
+
+      <DetailModal
+        open={Boolean(repertorioModalRow)}
+        title="Repertorio del concierto"
+        subtitle={repertorioModalRow?.programa || ""}
+        onClose={() => setRepertorioModalRow(null)}
+      >
+        {repertorioModalRow?.repertorioLines?.length ? (
+          <ul className="space-y-2">
+            {repertorioModalRow.repertorioLines.map((line, idx) => (
+              <li
+                key={`rep-modal-${repertorioModalRow.id}-${idx}`}
+                className="flex flex-wrap gap-x-2 border-b border-slate-100 pb-2 text-sm last:border-b-0"
+              >
+                <span className="whitespace-pre-line font-bold text-slate-700">
+                  {line.compositor}
+                </span>
+                <span className="hidden text-slate-300 sm:inline">|</span>
+                <span className="italic text-slate-600">{line.titulo}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-slate-500">Este concierto no tiene repertorio cargado.</p>
+        )}
+      </DetailModal>
+
+      <DetailModal
+        open={Boolean(observacionesModalRow)}
+        title="Observaciones de Redes y Difusión"
+        subtitle={observacionesModalRow?.programa || ""}
+        onClose={() => setObservacionesModalRow(null)}
+      >
+        <p className="whitespace-pre-wrap text-sm text-slate-700">
+          {observacionesModalRow?.difusionObservaciones || "Sin observaciones."}
+        </p>
+      </DetailModal>
     </div>
   );
 }

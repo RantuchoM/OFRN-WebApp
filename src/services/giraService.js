@@ -778,6 +778,10 @@ export const getConciertosFullData = async (
           nomenclador,
           mes_letra,
           tipo,
+          gira_difusion (
+            otros_comentarios,
+            timestamp_otros_comentarios
+          ),
           giras_fuentes ( tipo, valor_id, valor_texto ),
           programas_repertorios (
             id,
@@ -785,6 +789,7 @@ export const getConciertosFullData = async (
             repertorio_obras (
               id,
               orden,
+              excluir,
               obras (
                 id,
                 titulo,
@@ -915,6 +920,7 @@ export const getConciertosFullData = async (
         })
         .flatMap((bloque) =>
           (bloque?.repertorio_obras || [])
+            .filter((row) => !row?.excluir)
             .sort((a, b) => {
               const ao = Number(a?.orden ?? 999999);
               const bo = Number(b?.orden ?? 999999);
@@ -923,21 +929,28 @@ export const getConciertosFullData = async (
             .map((row) => {
               const obra = row?.obras || {};
               const comps = (obra?.obras_compositores || [])
-                .filter((oc) => !oc?.rol || oc.rol === "compositor")
+                .filter((oc) => oc?.rol === "compositor" && oc?.compositores)
                 .map((oc) => oc?.compositores)
                 .filter(Boolean);
               const composerNames = comps
-                .map((c) => [c?.apellido, c?.nombre].filter(Boolean).join(", ").trim())
+                .map((c) => [c?.nombre, c?.apellido].filter(Boolean).join(" ").trim())
                 .filter(Boolean);
               return {
-                compositor: composerNames.join(" / "),
-                titulo: toFirstLine(obra?.titulo),
+                compositor: composerNames.length
+                  ? composerNames.join("\n")
+                  : "Autor Desconocido",
+                titulo: toFirstLine(String(obra?.titulo || "").replace(/\[.*?\]/g, "").trim()),
               };
             }),
         );
 
+      const difusionData = Array.isArray(evt.programas?.gira_difusion)
+        ? evt.programas.gira_difusion[0] || null
+        : evt.programas?.gira_difusion || null;
+
       return {
         id: evt.id,
+        id_gira: evt.id_gira,
         fecha: evt.fecha,
         hora_inicio: evt.hora_inicio,
         audiencia: evt.audiencia,
@@ -952,6 +965,9 @@ export const getConciertosFullData = async (
         ensambles,
         familias,
         repertorio,
+        difusion_observaciones: String(difusionData?.otros_comentarios || "").trim(),
+        difusion_observaciones_updated_at:
+          difusionData?.timestamp_otros_comentarios || null,
       };
     });
   } catch (err) {
