@@ -454,6 +454,25 @@ export const IconEdit = ({ size = 24, className = "" }) => (
     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
   </svg>
 );
+/** Cuadro de firmas: documento con trazo de firma */
+export const IconFirma = ({ size = 24, className = "" }) => (
+  <svg
+    className={className}
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M6 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+    <path d="M8 10h6" />
+    <path d="M7.5 15.5c1.2-1.2 2.3-1.2 3.5 0s2.3 1.2 3.5 0 2.3-1.2 3.5 0" />
+    <path d="M17 5l2-2 2 2-2 2" />
+  </svg>
+);
 export const IconCheck = ({ size = 24, className = "" }) => (
   <svg
     className={className}

@@ -223,12 +223,13 @@ async function loadSignatureJpegBytes(url) {
 
 /**
  * Genera y descarga un PDF A4 aplanado con grilla de firmas (pdf-lib, imágenes comprimidas).
- * @param {{ people: Array<{ id, nombre, apellido, firma?, dni? }>, encargado?: object|null, giraLabel?: string }} params
+ * @param {{ people: Array<{ id, nombre, apellido, firma?, dni? }>, encargado?: object|null, giraLabel?: string, filePrefix?: string }} params
  */
 export async function exportDestaquesCuadroFirmasPdf({
   people,
   encargado = null,
   giraLabel = "",
+  filePrefix = "Destaques",
 }) {
   const sorted = buildCuadroFirmasPeopleList(people, encargado);
 
@@ -367,12 +368,15 @@ export async function exportDestaquesCuadroFirmasPdf({
     addDefaultPage: false,
   });
 
-  const safeGira = String(giraLabel || "Destaques")
+  const safeLabel = String(giraLabel || filePrefix || "Gira")
     .replace(/[^a-z0-9]/gi, "_")
     .slice(0, 40);
+  const safePrefix = String(filePrefix || "Destaques")
+    .replace(/[^a-z0-9]/gi, "_")
+    .slice(0, 24);
   const dateStr = new Date().toISOString().slice(0, 10);
   saveAs(
     new Blob([pdfBytes], { type: "application/pdf" }),
-    `Cuadro_Firmas_Destaques_${safeGira}_${dateStr}.pdf`,
+    `Cuadro_Firmas_${safePrefix}_${safeLabel}_${dateStr}.pdf`,
   );
 }

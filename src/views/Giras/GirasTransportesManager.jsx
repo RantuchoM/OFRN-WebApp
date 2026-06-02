@@ -27,6 +27,8 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconEdit,
+  IconFirma,
+  IconLoader,
   IconSave,
   IconCheck,
   IconUpload,
@@ -60,6 +62,12 @@ import {
 } from "../../services/giraService";
 
 import { toast } from "sonner";
+import {
+  CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
+  exportDestaquesCuadroFirmasPdf,
+  fetchEncargadoCuadroFirmas,
+  toCuadroFirmasPerson,
+} from "../../utils/destaquesCuadroFirmasPdf";
 
 /** Categoría de uso del transporte → id_tipo_evento de las paradas en `eventos`. */
 const CATEGORIAS_TRANSPORTE = {
@@ -1299,6 +1307,8 @@ export default function GirasTransportesManager({ supabase, gira }) {
     isOpen: false,
     transportId: null,
   });
+  const [exportingFirmasTransportId, setExportingFirmasTransportId] =
+    useState(null);
   const [activeDetailEventId, setActiveDetailEventId] = useState(null);
   const [itineraryModal, setItineraryModal] = useState({
     isOpen: false,
@@ -2415,6 +2425,71 @@ export default function GirasTransportesManager({ supabase, gira }) {
     setCnrtModal({ isOpen: false, transportId: null });
   };
 
+  const getTransportPassengers = useCallback(
+    (transport) => {
+      if (!transport) return [];
+      const transportPassengerIds = Array.isArray(transport.pasajeros_ids)
+        ? transport.pasajeros_ids.map((id) => Number(id))
+        : [];
+      if (transportPassengerIds.length > 0) {
+        return passengerList.filter((p) =>
+          transportPassengerIds.includes(Number(p.id)),
+        );
+      }
+      return passengerList.filter((p) =>
+        p.logistics?.transports?.some(
+          (tr) => String(tr.id) === String(transport.id),
+        ),
+      );
+    },
+    [passengerList],
+  );
+
+  const resolveEncargadoCuadroFirmas = useCallback(async () => {
+    const fromRoster = (roster || []).find(
+      (p) => Number(p.id) === CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
+    );
+    if (fromRoster) return toCuadroFirmasPerson(fromRoster);
+    return fetchEncargadoCuadroFirmas(supabase);
+  }, [roster, supabase]);
+
+  const handleExportCuadroFirmasTransport = async (e, transport) => {
+    e?.stopPropagation();
+    if (!transport?.id || exportingFirmasTransportId) return;
+
+    const people = getTransportPassengers(transport)
+      .map(toCuadroFirmasPerson)
+      .filter(Boolean);
+    const encargado = await resolveEncargadoCuadroFirmas();
+
+    if (people.length === 0 && !encargado) {
+      toast.error("No hay personas para el cuadro de firmas en este recorrido.");
+      return;
+    }
+
+    setExportingFirmasTransportId(transport.id);
+    try {
+      const giraLabel = [
+        gira?.nombre_gira || gira?.nomenclador,
+        transport.detalle || transport.transportes?.nombre,
+      ]
+        .filter(Boolean)
+        .join("_");
+      await exportDestaquesCuadroFirmasPdf({
+        people,
+        encargado,
+        giraLabel,
+        filePrefix: "Transporte",
+      });
+      toast.success("Cuadro de firmas descargado.");
+    } catch (err) {
+      console.error("Cuadro de firmas (transporte):", err);
+      toast.error(err?.message || "No se pudo generar el cuadro de firmas.");
+    } finally {
+      setExportingFirmasTransportId(null);
+    }
+  };
+
   const handleExportRoadmap = (startId, endId) => {
     const tId = roadmapModal.transportId;
     const tInfo = transports.find((t) => t.id === tId);
@@ -3510,6 +3585,19 @@ export default function GirasTransportesManager({ supabase, gira }) {
                         className="px-2 py-1.5 bg-white text-indigo-700 text-[9px] font-black rounded-lg hover:bg-indigo-700 hover:text-white transition-all"
                       >
                         CNRT
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleExportCuadroFirmasTransport(e, t)}
+                        disabled={exportingFirmasTransportId === t.id}
+                        className="p-1.5 bg-white text-violet-600 rounded-lg hover:bg-violet-600 hover:text-white transition-all border border-violet-100 shadow-sm disabled:opacity-60"
+                        title="Cuadro de firmas (pasajeros del recorrido)"
+                      >
+                        {exportingFirmasTransportId === t.id ? (
+                          <IconLoader size={16} className="animate-spin" />
+                        ) : (
+                          <IconFirma size={16} />
+                        )}
                       </button>
                     </div>
 

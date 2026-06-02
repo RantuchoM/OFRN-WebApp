@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { IconFileText, IconLoader, IconBus, IconMap, IconFiles, IconCopy, IconPencil } from '../../../components/ui/Icons';
+import { IconFileText, IconLoader, IconBus, IconMap, IconFiles, IconCopy, IconFirma } from '../../../components/ui/Icons';
 import RenunciaViaticosExportOption from './RenunciaViaticosExportOption';
 
 export default function LocationBulkPanel({ 
@@ -211,7 +211,7 @@ export default function LocationBulkPanel({
                         <>Generando...</>
                     ) : (
                         <>
-                            Cuadro de firmas <IconPencil size={16} />
+                            Cuadro de firmas <IconFirma size={16} />
                         </>
                     )}
                 </button>
