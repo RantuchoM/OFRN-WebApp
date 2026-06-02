@@ -24,6 +24,7 @@ import { exportViaticosToPDFForm } from "../../../utils/pdfFormExporter";
 import RendicionForm from "./RendicionForm";
 import DestaquesLocationPanel from "./DestaquesLocationPanel";
 import ViaticosTable from "./ViaticosTable";
+import DesdoblarViaticosModal from "./DesdoblarViaticosModal";
 import { PDFDocument } from "pdf-lib";
 import { Toaster, toast } from "sonner";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
@@ -239,6 +240,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     transportes,
     loading: rosterLoading,
     refresh: refreshLogistics,
+    allEvents,
   } = useLogistics(supabase, giraObj);
 
   const logisticsMap = useMemo(
@@ -269,8 +271,17 @@ export default function ViaticosManager({ supabase, giraId }) {
     deleteRow,
     addPerson,
     addBatch,
+    splitViaticoRow,
+    restoreViaticoRow,
     feedback: feedbackIndividual,
-  } = useViaticosIndividuales(supabase, giraId, roster, logisticsMap, config);
+  } = useViaticosIndividuales(
+    supabase,
+    giraId,
+    roster,
+    logisticsMap,
+    config,
+    allEvents,
+  );
   const {
     configs: destaquesConfigs,
     generalConfig: destaquesGeneralConfig,
@@ -279,16 +290,28 @@ export default function ViaticosManager({ supabase, giraId }) {
     feedback: feedbackMasivo,
   } = useViaticosMasivos(supabase, giraId);
 
-  /** id de fila giras_viaticos_detalle por id_integrante (export masivo no tiene fila individual). */
-  const viaticoDetalleIdByIntegrante = useMemo(() => {
-    const m = new Map();
-    (viaticosRows || []).forEach((row) => {
-      if (row.id_integrante != null && row.id != null) {
-        m.set(String(row.id_integrante), row.id);
-      }
-    });
-    return m;
-  }, [viaticosRows]);
+  const [desdoblarRow, setDesdoblarRow] = useState(null);
+  const [desdoblarSaving, setDesdoblarSaving] = useState(false);
+  const [recoverSnapshot, setRecoverSnapshot] = useState(null);
+
+  useEffect(() => {
+    if (!giraId) return;
+    const key = `viatico_split_backup_${giraId}`;
+    const raw = sessionStorage.getItem(key);
+    if (!raw) {
+      setRecoverSnapshot(null);
+      return;
+    }
+    try {
+      const snap = JSON.parse(raw);
+      const hasRow = (viaticosRows || []).some(
+        (r) => String(r.id_integrante) === String(snap.id_integrante),
+      );
+      setRecoverSnapshot(hasRow ? null : snap);
+    } catch {
+      setRecoverSnapshot(null);
+    }
+  }, [giraId, viaticosRows]);
 
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [selection, setSelection] = useState(new Set());
@@ -326,9 +349,7 @@ export default function ViaticosManager({ supabase, giraId }) {
   const selectionHasViaticoCero = useMemo(
     () =>
       viaticosRows.some(
-        (r) =>
-          selection.has(r.id_integrante) &&
-          parseFloat(r.porcentaje ?? 100) === 0,
+        (r) => selection.has(r.id) && parseFloat(r.porcentaje ?? 100) === 0,
       ),
     [viaticosRows, selection],
   );
@@ -899,14 +920,6 @@ const collectTransportSupportDocs = (personData) => {
       renuncia_viaticos: !!options.renuncia_viaticos,
     };
 
-    const resolveViaticoDetalleRowId = (row) => {
-      if (row.id_gira != null && row.id_integrante != null && row.id != null) {
-        return row.id;
-      }
-      const integranteId = row.id_integrante ?? row.id;
-      return viaticoDetalleIdByIntegrante.get(String(integranteId)) ?? null;
-    };
-
     const updateViaticoExportAudit = async (detalleId, row) => {
       const basePayload = {
         fecha_ultima_exportacion: now,
@@ -944,9 +957,8 @@ const collectTransportSupportDocs = (personData) => {
 
     const individualUpdates = dataList
       .map((row) => {
-        const detalleId = resolveViaticoDetalleRowId(row);
-        if (!detalleId) return null;
-        return updateViaticoExportAudit(detalleId, row);
+        if (!row.id) return null;
+        return updateViaticoExportAudit(row.id, row);
       })
       .filter(Boolean);
 
@@ -1109,7 +1121,12 @@ const collectTransportSupportDocs = (personData) => {
       let attempt = 0;
       for (const personData of dataList) {
         attempt++;
-        const nameSafe = `${personData.apellido}, ${personData.nombre}`;
+        const tramoSuffix = personData.etiqueta_tramo
+          ? ` (${personData.etiqueta_tramo})`
+          : personData.tramo_orden > 1
+            ? ` (Tramo ${personData.tramo_orden})`
+            : "";
+        const nameSafe = `${personData.apellido}, ${personData.nombre}${tramoSuffix}`;
         const prefix = `[${attempt}/${total}]`;
         setExportStatus(`${prefix} ${nameSafe}`);
 
@@ -1519,13 +1536,21 @@ const collectTransportSupportDocs = (personData) => {
 
     // --- NORMALIZACIÓN DE DATOS (anticipo custom > histórico > calculado) ---
     const selectedData = viaticosRows
-      .filter((r) => selection.has(r.id_integrante))
+      .filter((r) => selection.has(r.id))
       .map((row) => {
         const person = row.integrantes || {};
-        const logData =
-          logisticsMap?.[String(row.id_integrante)] ||
-          logisticsMap?.[row.id_integrante] ||
-          {};
+        const useTramoSchedule =
+          row.id_evento_parada_inicio && row.id_evento_parada_fin;
+        const logData = useTramoSchedule
+          ? {
+              fecha_salida: row.fecha_salida,
+              hora_salida: row.hora_salida,
+              fecha_llegada: row.fecha_llegada,
+              hora_llegada: row.hora_llegada,
+            }
+          : logisticsMap?.[String(row.id_integrante)] ||
+            logisticsMap?.[row.id_integrante] ||
+            {};
         const patenteOficialFromRow = String(row.patente_oficial || "").trim();
         const patenteOficialFromLogistics = String(logData?.patente || "").trim();
         const ciudadOrigen = resolveCiudadOrigenViaticos(person, row);
@@ -1533,10 +1558,9 @@ const collectTransportSupportDocs = (personData) => {
         const effectiveSubtotal = getAnticipoSubtotalForExport(row, useHistoricalCalc);
         const totalFinalNorm = effectiveSubtotal + sumGastosViaticoRow(row);
         return {
-          // Datos base de la persona (nombre, apellido, etc.)
           ...person,
-          // Datos editados de la fila (motivo / lugar_comision personalizados prevalecen en PDF)
           ...row,
+          id: row.id,
           motivo:
             row.motivo && String(row.motivo).trim() !== ""
               ? row.motivo
@@ -1616,9 +1640,7 @@ const collectTransportSupportDocs = (personData) => {
     let errorsCount = 0;
 
     try {
-      const selectedData = viaticosRows.filter((r) =>
-        selection.has(r.id_integrante),
-      );
+      const selectedData = viaticosRows.filter((r) => selection.has(r.id));
 
       for (const [index, row] of selectedData.entries()) {
         const person = row.integrantes || row;
@@ -1694,15 +1716,25 @@ const collectTransportSupportDocs = (personData) => {
     }
   };
 
-  const toggleSelection = (id) => {
+  const toggleSelection = (rowId) => {
     const newSet = new Set(selection);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
+    if (newSet.has(rowId)) newSet.delete(rowId);
+    else newSet.add(rowId);
     setSelection(newSet);
   };
   const selectAll = () => {
     if (selection.size === viaticosRows.length) setSelection(new Set());
-    else setSelection(new Set(viaticosRows.map((r) => r.id_integrante)));
+    else setSelection(new Set(viaticosRows.map((r) => r.id)));
+  };
+
+  const handleConfirmDesdoblar = async (row, tramosPreview) => {
+    setDesdoblarSaving(true);
+    try {
+      await splitViaticoRow(row, tramosPreview);
+      setDesdoblarRow(null);
+    } finally {
+      setDesdoblarSaving(false);
+    }
   };
 
   return (
@@ -1755,6 +1787,25 @@ const collectTransportSupportDocs = (personData) => {
           <div className="animate-in slide-in-from-top-2 duration-200">
             <ManualTrigger section="vi_ticos_intro_mkd1at12" />
             <div className="px-6 pb-4 flex flex-col gap-4">
+              {recoverSnapshot && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  <span>
+                    Hay un respaldo de viático sin fila en la tabla (posible fallo al
+                    desdoblar).
+                  </span>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-800"
+                    onClick={async () => {
+                      await restoreViaticoRow(recoverSnapshot);
+                      sessionStorage.removeItem(`viatico_split_backup_${giraId}`);
+                      setRecoverSnapshot(null);
+                    }}
+                  >
+                    Restaurar fila
+                  </button>
+                </div>
+              )}
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex gap-2 flex-wrap">
                   <button
@@ -2038,6 +2089,7 @@ const collectTransportSupportDocs = (personData) => {
                     { id: integranteId };
                   setEditingMusician(musician);
                 }}
+                onDesdoblarViatico={setDesdoblarRow}
                 exportRenunciaViaticos={exportRenunciaViaticos}
                 onExportRenunciaViaticosChange={setExportRenunciaViaticos}
               />
@@ -2170,6 +2222,15 @@ const collectTransportSupportDocs = (personData) => {
           </div>
         </div>
       )}
+      <DesdoblarViaticosModal
+        isOpen={!!desdoblarRow}
+        onClose={() => setDesdoblarRow(null)}
+        row={desdoblarRow}
+        summary={summary}
+        allEvents={allEvents}
+        saving={desdoblarSaving}
+        onConfirm={handleConfirmDesdoblar}
+      />
       {editingMusician && (
         <MusicianForm
           supabase={supabase}

@@ -21,6 +21,8 @@ import {
     headerInfoToTravelSchedule,
     mergeTravelDataForViaticosPapeles,
 } from "../../../utils/viaticosLogisticsSchedule";
+import { calculateDaysDiff } from "../../../utils/viaticosDiasComputables";
+import DiasComputablesHelp from "./DiasComputablesHelp";
 import {
     CUADRO_FIRMAS_ENCARGADO_INTEGRANTE_ID,
     exportDestaquesCuadroFirmasPdf,
@@ -38,33 +40,6 @@ const formatDateVisual = (dateStr) => {
 const formatCurrency = (val) => {
     if (val === null || val === undefined || val === "") return "$ 0";
     return "$ " + Number(val).toLocaleString("es-AR");
-};
-
-const calculateDaysDiff = (dSal, hSal, dLleg, hLleg) => {
-    if (!dSal || !dLleg) return 0;
-    const start = new Date(dSal + "T00:00:00");
-    const end = new Date(dLleg + "T00:00:00");
-    const diffTime = end.getTime() - start.getTime();
-    const diffDays = Math.round(diffTime / (1000 * 3600 * 24));
-    if (diffDays < 0) return 0;
-    if (diffDays === 0) return 0.5;
-    const getDepartureFactor = (timeStr) => {
-      if (!timeStr) return 0;
-      const [h, m] = timeStr.split(":").map(Number);
-      const minutes = h * 60 + m;
-      if (minutes <= 900) return 1.0;
-      if (minutes <= 1260) return 0.75;
-      return 0.0;
-    };
-    const getArrivalFactor = (timeStr) => {
-      if (!timeStr) return 0;
-      const [h, m] = timeStr.split(":").map(Number);
-      const minutes = h * 60 + m;
-      if (minutes <= 180) return 0.0;
-      if (minutes <= 899) return 0.75;
-      return 1.0;
-    };
-    return (Math.max(0, diffDays - 1) + getDepartureFactor(hSal || "12:00") + getArrivalFactor(hLleg || "12:00"));
 };
 
 const parseVisualDateToIso = (visual) => {
@@ -369,7 +344,21 @@ const LiveMassiveValuesForm = ({
                     
                     <div className="flex flex-col border-r border-slate-100 pr-3 mr-1">
                         <span className="text-[9px] text-slate-400 font-bold uppercase">Días</span>
-                        <span className="font-bold text-indigo-600 text-lg leading-none">{dias}</span>
+                        {!isGeneral ? (
+                            <DiasComputablesHelp
+                                dias={dias}
+                                fechaSalida={logisticsInfo?.fechaSalidaIso}
+                                horaSalida={logisticsInfo?.horaSalidaIso}
+                                fechaLlegada={logisticsInfo?.fechaLlegadaIso}
+                                horaLlegada={logisticsInfo?.horaLlegadaIso}
+                                valueClassName="font-bold text-indigo-600 text-lg leading-none"
+                                iconSize={14}
+                            />
+                        ) : (
+                            <span className="font-bold text-indigo-600 text-lg leading-none">
+                                {dias}
+                            </span>
+                        )}
                     </div>
 
                     <div className="flex gap-4 items-center border-r border-slate-100 pr-3 mr-1">
@@ -664,7 +653,11 @@ const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, 
         horaSalida: group.headerInfo?.hora,
         fechaLlegada: group.headerInfo?.fecha_llegada,
         horaLlegada: group.headerInfo?.hora_llegada,
-        dias: calculatedDays || locationConfig?.backup_dias_computables || 0
+        fechaSalidaIso: salidaIso,
+        horaSalidaIso: hInfo?.hora,
+        fechaLlegadaIso: llegadaIso,
+        horaLlegadaIso: hInfo?.hora_llegada,
+        dias: calculatedDays || locationConfig?.backup_dias_computables || 0,
     };
 
     const countIndividuals = group.people.filter(p => p.hasIndividual).length;
@@ -733,9 +726,18 @@ const LocationGroupItem = ({ group, isSelected, onToggleSelect, locationConfig, 
                                 </div>
                             )}
 
-                            <div className="flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded text-slate-700 border border-slate-200 font-bold">
+                            <div className="flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded text-slate-700 border border-slate-200 font-bold text-[10px]">
                                 <IconClock size={10} />
-                                <span>{logisticsInfo.dias} Días</span>
+                                <DiasComputablesHelp
+                                    dias={logisticsInfo.dias}
+                                    fechaSalida={salidaIso}
+                                    horaSalida={hInfo?.hora}
+                                    fechaLlegada={llegadaIso}
+                                    horaLlegada={hInfo?.hora_llegada}
+                                    valueClassName="text-slate-700"
+                                    iconSize={12}
+                                />
+                                <span>días</span>
                             </div>
 
                             <div className="text-slate-400 flex items-center gap-1 truncate max-w-[150px]">

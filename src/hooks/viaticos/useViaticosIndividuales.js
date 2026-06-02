@@ -5,42 +5,67 @@ import {
   resolveAsientoHabitualViaticos,
   resolveCiudadOrigenViaticos,
 } from "../../utils/integranteDomicilioViaticos";
+import { scheduleFromParadaRange } from "../../utils/viaticosParadasIntegrante";
+import { calculateDaysDiff } from "../../utils/viaticosDiasComputables";
 
-// --- UTILIDADES DE CÁLCULO INTERNAS ---
-export const calculateDaysDiff = (dSal, hSal, dLleg, hLleg) => {
-  if (!dSal || !dLleg) return 0;
-  const start = new Date(dSal + "T00:00:00");
-  const end = new Date(dLleg + "T00:00:00");
-  const diffTime = end.getTime() - start.getTime();
-  const diffDays = Math.round(diffTime / (1000 * 3600 * 24));
-
-  if (diffDays < 0) return 0;
-  if (diffDays === 0) return 0.5;
-
-  const getDepartureFactor = (timeStr) => {
-    if (!timeStr) return 0;
-    const [h, m] = timeStr.split(":").map(Number);
-    const minutes = h * 60 + m;
-    if (minutes <= 900) return 1.0;
-    if (minutes <= 1260) return 0.75;
-    return 0.0;
-  };
-  const getArrivalFactor = (timeStr) => {
-    if (!timeStr) return 0;
-    const [h, m] = timeStr.split(":").map(Number);
-    const minutes = h * 60 + m;
-    if (minutes <= 180) return 0.0;
-    if (minutes <= 899) return 0.75;
-    return 1.0;
-  };
-  return (
-    Math.max(0, diffDays - 1) +
-    getDepartureFactor(hSal || "12:00") +
-    getArrivalFactor(hLleg || "12:00")
-  );
-};
+export { calculateDaysDiff, explainViaticosDiasCalculation } from "../../utils/viaticosDiasComputables";
 
 const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
+
+const DETALLE_DB_FIELD_KEYS = [
+  "id_gira",
+  "id_integrante",
+  "dias_computables",
+  "porcentaje",
+  "patente_oficial",
+  "tipo_movilidad",
+  "gasto_combustible",
+  "gasto_otros",
+  "gasto_alojamiento",
+  "gastos_movilidad",
+  "gastos_movil_otros",
+  "gastos_capacit",
+  "patente_particular",
+  "check_aereo",
+  "check_terrestre",
+  "check_patente_oficial",
+  "check_patente_particular",
+  "check_otros",
+  "transporte_otros",
+  "cargo",
+  "jornada_laboral",
+  "rendicion_viaticos",
+  "rendicion_gasto_alojamiento",
+  "rendicion_gasto_otros",
+  "rendicion_gasto_combustible",
+  "rendicion_gastos_movil_otros",
+  "rendicion_gastos_capacit",
+  "rendicion_transporte_otros",
+  "backup_fecha_salida",
+  "backup_hora_salida",
+  "backup_fecha_llegada",
+  "backup_hora_llegada",
+  "backup_dias_computables",
+  "backup_viatico",
+  "fecha_ultima_exportacion",
+  "motivo",
+  "lugar_comision",
+  "anticipo_custom",
+  "id_evento_parada_inicio",
+  "id_evento_parada_fin",
+  "tramo_orden",
+  "etiqueta_tramo",
+];
+
+function pickDetalleForDb(row, overrides = {}) {
+  const out = { ...overrides };
+  DETALLE_DB_FIELD_KEYS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(row, key) && row[key] !== undefined) {
+      out[key] = row[key];
+    }
+  });
+  return out;
+}
 
 const getAutoDatosLaborales = (persona) => {
   if (!persona) return { cargo: "", jornada: "" };
@@ -66,6 +91,7 @@ export function useViaticosIndividuales(
   roster,
   logisticsMap,
   config,
+  allEvents = [],
 ) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -124,10 +150,24 @@ export function useViaticosIndividuales(
         if (!persona && rawIntegrantes) persona = joinedPersona;
 
         const logData = logisticsMap[row.id_integrante];
-        const fechaSal = logData?.fecha_salida || null;
-        const horaSal = logData?.hora_salida || null;
-        const fechaLleg = logData?.fecha_llegada || null;
-        const horaLleg = logData?.hora_llegada || null;
+        let fechaSal = logData?.fecha_salida || null;
+        let horaSal = logData?.hora_salida || null;
+        let fechaLleg = logData?.fecha_llegada || null;
+        let horaLleg = logData?.hora_llegada || null;
+
+        if (row.id_evento_parada_inicio && row.id_evento_parada_fin) {
+          const tramoSched = scheduleFromParadaRange(
+            allEvents,
+            row.id_evento_parada_inicio,
+            row.id_evento_parada_fin,
+          );
+          if (tramoSched) {
+            fechaSal = tramoSched.fecha_salida;
+            horaSal = tramoSched.hora_salida;
+            fechaLleg = tramoSched.fecha_llegada;
+            horaLleg = tramoSched.hora_llegada;
+          }
+        }
 
         const diasAuto = calculateDaysDiff(
           fechaSal,
@@ -189,8 +229,12 @@ export function useViaticosIndividuales(
           totalFinal,
         };
       })
-      .sort((a, b) => (a.apellido || "").localeCompare(b.apellido || ""));
-  }, [rows, roster, config, logisticsMap]);
+      .sort((a, b) => {
+        const byName = (a.apellido || "").localeCompare(b.apellido || "");
+        if (byName !== 0) return byName;
+        return (a.tramo_orden || 1) - (b.tramo_orden || 1);
+      });
+  }, [rows, roster, config, logisticsMap, allEvents]);
 
   // --- ACCIONES ---
 
@@ -350,9 +394,8 @@ export function useViaticosIndividuales(
       }
 
       const selectedIds = Array.from(selectionSet);
-      // Ejecutar promesas en paralelo
-      const promises = selectedIds.map(async (integranteId) => {
-        const row = rows.find((r) => r.id_integrante === integranteId);
+      const promises = selectedIds.map(async (rowId) => {
+        const row = rows.find((r) => String(r.id) === String(rowId));
         if (!row) return;
         await supabase
           .from("giras_viaticos_detalle")
@@ -372,15 +415,217 @@ export function useViaticosIndividuales(
     }
   };
 
+  const isMissingTramoColumnError = (err) => {
+    const text = `${err?.message || ""} ${err?.details || ""} ${err?.hint || ""}`.toLowerCase();
+    if (!text.includes("column")) return false;
+    return (
+      text.includes("does not exist") ||
+      text.includes("no existe") ||
+      text.includes("schema cache") ||
+      text.includes("parada") ||
+      text.includes("tramo_orden") ||
+      text.includes("etiqueta_tramo")
+    );
+  };
+
+  const stripTramoFields = (payload) => {
+    const {
+      id_evento_parada_inicio: _a,
+      id_evento_parada_fin: _b,
+      tramo_orden: _c,
+      etiqueta_tramo: _d,
+      ...rest
+    } = payload;
+    return rest;
+  };
+
+  const insertViaticoDetalleRows = async (payloads) => {
+    let res = await supabase
+      .from("giras_viaticos_detalle")
+      .insert(payloads)
+      .select("id");
+    if (res.error && isMissingTramoColumnError(res.error)) {
+      res = await supabase
+        .from("giras_viaticos_detalle")
+        .insert(payloads.map(stripTramoFields))
+        .select("id");
+      if (!res.error) {
+        toast.warning(
+          "Filas creadas sin tramos/paradas: aplicá la migración 20260602120000 en Supabase.",
+        );
+      }
+    }
+    return res;
+  };
+
+  const reinsertViaticoDetalle = async (row) => {
+    const payload = stripTramoFields(
+      pickDetalleForDb(row, {
+        id_gira: giraId,
+        id_integrante: row.id_integrante,
+      }),
+    );
+    return supabase.from("giras_viaticos_detalle").insert(payload).select("id");
+  };
+
+  /** Recuperar fila perdida (p. ej. tras fallo de desdoble anterior). */
+  const restoreViaticoRow = async (rowSnapshot) => {
+    if (!rowSnapshot?.id_integrante) return;
+    setLoading(true);
+    try {
+      const { error } = await reinsertViaticoDetalle(rowSnapshot);
+      if (error) throw error;
+      await fetchRows();
+      toast.success("Fila de viático restaurada");
+    } catch (err) {
+      console.error(err);
+      toast.error(
+        err?.message ||
+          "No se pudo restaurar. Usá «Agregar…» para volver a cargar a la persona.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const splitBackupKey = `viatico_split_backup_${giraId}`;
+
+  const splitViaticoRow = async (originalRow, tramosPreview) => {
+    if (!originalRow?.id || !tramosPreview?.length) return;
+    setLoading(true);
+    let insertedIds = [];
+    let originalDeleted = false;
+
+    try {
+      sessionStorage.setItem(
+        splitBackupKey,
+        JSON.stringify(pickDetalleForDb(originalRow)),
+      );
+      const baseFields = {
+        id_gira: giraId,
+        id_integrante: originalRow.id_integrante,
+        cargo: originalRow.cargo,
+        jornada_laboral: originalRow.jornada_laboral,
+        motivo: originalRow.motivo,
+        lugar_comision: originalRow.lugar_comision,
+        porcentaje: originalRow.porcentaje ?? 100,
+        gastos_movilidad: originalRow.gastos_movilidad,
+        gasto_combustible: originalRow.gasto_combustible,
+        gasto_alojamiento: originalRow.gasto_alojamiento,
+        gasto_otros: originalRow.gasto_otros,
+        gastos_movil_otros: originalRow.gastos_movil_otros,
+        gastos_capacit: originalRow.gastos_capacit,
+        check_aereo: originalRow.check_aereo,
+        check_terrestre: originalRow.check_terrestre,
+        check_patente_oficial: originalRow.check_patente_oficial,
+        check_patente_particular: originalRow.check_patente_particular,
+        transporte_otros: originalRow.transporte_otros,
+        anticipo_custom: null,
+      };
+
+      const zeroGastos = {
+        gastos_movilidad: 0,
+        gasto_combustible: 0,
+        gasto_alojamiento: 0,
+        gasto_otros: 0,
+        gastos_movil_otros: 0,
+        gastos_capacit: 0,
+        rendicion_viaticos: 0,
+        rendicion_gasto_alojamiento: 0,
+        rendicion_gasto_otros: 0,
+        rendicion_gasto_combustible: 0,
+        rendicion_gastos_movil_otros: 0,
+        rendicion_gastos_capacit: 0,
+        rendicion_transporte_otros: 0,
+      };
+
+      const payloads = tramosPreview.map((t, idx) => ({
+        ...baseFields,
+        ...(idx > 0 ? zeroGastos : {}),
+        tramo_orden: t.tramo_orden ?? idx + 1,
+        etiqueta_tramo: t.etiqueta_tramo || `Tramo ${idx + 1}`,
+        id_evento_parada_inicio: t.id_evento_parada_inicio ?? null,
+        id_evento_parada_fin: t.id_evento_parada_fin ?? null,
+        anticipo_custom:
+          idx === 0 && originalRow.anticipo_custom != null
+            ? originalRow.anticipo_custom
+            : null,
+      }));
+
+      const { data: inserted, error: insErr } =
+        await insertViaticoDetalleRows(payloads);
+      if (insErr) throw insErr;
+      insertedIds = (inserted || []).map((r) => r.id).filter(Boolean);
+      if (insertedIds.length !== payloads.length) {
+        throw new Error("No se pudieron crear todas las filas del desdoble.");
+      }
+
+      const { error: delErr } = await supabase
+        .from("giras_viaticos_detalle")
+        .delete()
+        .eq("id", originalRow.id);
+      if (delErr) throw delErr;
+      originalDeleted = true;
+
+      sessionStorage.removeItem(splitBackupKey);
+      await fetchRows();
+      toast.success(`Viático desdoblado en ${payloads.length} filas`);
+    } catch (err) {
+      console.error(err);
+
+      if (insertedIds.length > 0) {
+        await supabase
+          .from("giras_viaticos_detalle")
+          .delete()
+          .in("id", insertedIds);
+        insertedIds = [];
+      }
+
+      if (originalDeleted) {
+        const { error: restoreErr } = await reinsertViaticoDetalle(originalRow);
+        if (restoreErr) {
+          toast.error(
+            "Se perdió la fila de viático. Volvé a agregar a la persona con «Agregar…».",
+            { duration: 8000 },
+          );
+        } else {
+          toast.warning(
+            "No se pudo desdoblar; se restauró la fila original.",
+            { duration: 6000 },
+          );
+        }
+      } else {
+        const raw =
+          err?.message ||
+          err?.details ||
+          err?.hint ||
+          "Error al desdoblar.";
+        const isDuplicatePersona =
+          String(raw).includes("giras_viaticos_detalle_id_gira_id_integrante") ||
+          String(raw).includes("duplicate key");
+        const msg = isDuplicatePersona
+          ? "La base de datos solo permite un viático por persona. Ejecutá la migración 20260602130000_viaticos_detalle_allow_multi_tramo en Supabase."
+          : raw;
+        toast.error(msg, { duration: 10000 });
+      }
+
+      await fetchRows();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
-    rows: activeRows, // Devolvemos las filas ya procesadas y listas para usar
-    rawRows: rows, // Devolvemos las crudas por si acaso
+    rows: activeRows,
+    rawRows: rows,
     loading,
     fetchRows,
     updateRow,
     deleteRow,
     addPerson,
     addBatch,
+    splitViaticoRow,
+    restoreViaticoRow,
     feedback: { updatingFields, successFields, errorFields, deletingRows },
   };
 }

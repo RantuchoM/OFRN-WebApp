@@ -6,9 +6,15 @@ import {
   IconHistory,
   IconRefresh,
   IconEdit,
+  IconScissors,
 } from "../../../components/ui/Icons";
 import "./ViaticosSheet.css";
 import RenunciaViaticosExportOption from "./RenunciaViaticosExportOption";
+import {
+  isTramoViaticoRow,
+  parseEtiquetaTramo,
+} from "../../../utils/viaticosParadasIntegrante";
+import DiasComputablesHelp from "./DiasComputablesHelp";
 
 // --- HELPERS DE FORMATO ---
 const formatDateShort = (dateStr) => {
@@ -43,6 +49,61 @@ const isDiff = (valA, valB) => {
 };
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
+
+/** Nombre del tramo (columna etiqueta_tramo en BD). */
+function TramoEtiquetaEditor({ row, onUpdateRow, getInputClass }) {
+  const [editing, setEditing] = useState(false);
+  const stored = String(row.etiqueta_tramo || "").trim();
+  const parsed = parseEtiquetaTramo(row);
+  const display =
+    parsed.tramoLabel ||
+    (row.tramo_orden ? `Tramo ${row.tramo_orden}` : "Tramo");
+
+  if (editing) {
+    return (
+      <input
+        type="text"
+        autoFocus
+        defaultValue={display}
+        onBlur={(e) => {
+          setEditing(false);
+          const next = e.target.value.trim() || `Tramo ${row.tramo_orden || 1}`;
+          if (next !== stored) {
+            onUpdateRow(row.id, "etiqueta_tramo", next);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        className={`mt-1 w-full min-w-0 rounded border px-1 py-0.5 text-[10px] font-semibold uppercase ${getInputClass(
+          row.id,
+          "etiqueta_tramo",
+          "border-violet-300 bg-white text-violet-900",
+        )}`}
+      />
+    );
+  }
+
+  return (
+    <div className="mt-1.5 flex items-center gap-1 min-w-0 max-w-full">
+      <span
+        className="inline-flex max-w-full items-center rounded-md bg-violet-600/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-800 ring-1 ring-violet-200/80 truncate"
+        title={display}
+      >
+        {display}
+      </span>
+      <button
+        type="button"
+        title="Editar nombre del tramo"
+        onClick={() => setEditing(true)}
+        className="inline-flex shrink-0 items-center justify-center rounded border border-slate-200/90 bg-white p-0.5 text-slate-400 hover:border-violet-300 hover:text-violet-600"
+      >
+        <IconEdit size={11} />
+      </button>
+    </div>
+  );
+}
 
 /** Anticipo manual o calculado: mismo bloque con ojo de rendiciones on/off. */
 function AnticipoEditableBlock({
@@ -258,6 +319,7 @@ export default function ViaticosTable({
   useHistoricalCalc = false,
   onUseHistoricalCalcChange,
   onEditMusician,
+  onDesdoblarViatico,
   exportRenunciaViaticos = true,
   onExportRenunciaViaticosChange,
 }) {
@@ -351,9 +413,7 @@ export default function ViaticosTable({
   const granTotal = totalAnticipo + totalGastos;
 
   const selectedAtViaticoCero = rows.some(
-    (r) =>
-      selection.has(r.id_integrante) &&
-      parseFloat(r.porcentaje ?? 100) === 0,
+    (r) => selection.has(r.id) && parseFloat(r.porcentaje ?? 100) === 0,
   );
   const showRenunciaExportOption =
     selection.size > 0 && selectedAtViaticoCero;
@@ -515,7 +575,7 @@ export default function ViaticosTable({
                     className="rounded text-indigo-600"
                   />
                 </th>
-                <th className="px-3 py-3 w-48 sticky top-0 left-[40px] z-40 bg-slate-50 border-b border-r border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)]">
+                <th className="px-3 py-3 min-w-[13rem] w-52 max-w-[13rem] sticky top-0 left-[40px] z-40 bg-slate-50 border-b border-r border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)]">
                   Integrante
                 </th>
 
@@ -632,9 +692,19 @@ export default function ViaticosTable({
 
             <tbody className="text-xs">
               {rows.map((row) => {
-                const isSelected = selection.has(row.id_integrante);
+                const isSelected = selection.has(row.id);
                 const isDeleting = deletingRows.has(row.id);
-                const logData = logisticsMap?.[String(row.id_integrante)] || {};
+                const logData =
+                  row.id_evento_parada_inicio && row.id_evento_parada_fin
+                    ? {
+                        fecha_salida: row.fecha_salida,
+                        hora_salida: row.hora_salida,
+                        fecha_llegada: row.fecha_llegada,
+                        hora_llegada: row.hora_llegada,
+                        transporte_salida: null,
+                        transporte_llegada: null,
+                      }
+                    : logisticsMap?.[String(row.id_integrante)] || {};
 
                 // --- LÓGICA DE ALERTAS LOGÍSTICAS (RESTAURADA) ---
                 const currentFechaSalida = row.fecha_salida;
@@ -666,21 +736,27 @@ export default function ViaticosTable({
                   row.anticipo_custom != null &&
                   String(row.anticipo_custom).trim() !== "";
 
+                const esTramo = isTramoViaticoRow(row);
+
                 let rowBgClass = "bg-white group-hover:bg-slate-50";
                 if (row.noEstaEnRoster)
                   rowBgClass = "bg-orange-100 hover:bg-orange-200";
                 else if (isSelected) rowBgClass = "bg-indigo-50";
+                else if (esTramo)
+                  rowBgClass = "bg-violet-50/30 group-hover:bg-violet-50/50";
                 if (isDeleting)
                   rowBgClass += " opacity-50 pointer-events-none grayscale";
                 const stickyBgClass = row.noEstaEnRoster
                   ? "bg-orange-100"
                   : isSelected
                     ? "bg-indigo-50"
-                    : "bg-white";
+                    : esTramo
+                      ? "bg-violet-50/40"
+                      : "bg-white";
 
                 return (
                   <tr
-                    key={row.id_integrante}
+                    key={row.id}
                     className={`transition-colors group ${rowBgClass}`}
                   >
                     {/* CHECKBOX */}
@@ -690,27 +766,58 @@ export default function ViaticosTable({
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        onChange={() => onToggleSelection(row.id_integrante)}
+                        onChange={() => onToggleSelection(row.id)}
                         className="rounded text-indigo-600"
                       />
                     </td>
 
                     {/* NOMBRE */}
                     <td
-                      className={`px-3 py-2 font-medium text-slate-700 border-b border-r border-slate-200 sticky left-[40px] z-20 shadow-sm ${stickyBgClass}`}
+                      className={`px-3 py-2 font-medium text-slate-700 border-b border-r border-slate-200 sticky left-[40px] z-20 shadow-sm min-w-[13rem] w-52 max-w-[13rem] ${stickyBgClass} ${
+                        esTramo ? "border-l-[3px] border-l-violet-400" : ""
+                      }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="truncate max-w-[150px]">
-                          {row.apellido}, {row.nombre}
-                        </span>
-                        {row.noEstaEnRoster && (
-                          <span className="text-orange-600">
-                            <IconAlertTriangle size={10} />
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[9px] text-slate-400 truncate">
-                        {row.rol_roster}
+                      <div className="flex items-start gap-1.5 min-w-0">
+                        <div className="min-w-0 flex-1">
+                          <div
+                            className={`truncate text-sm font-semibold leading-tight ${
+                              esTramo ? "text-slate-800" : "text-slate-700"
+                            }`}
+                            title={`${row.apellido}, ${row.nombre}`}
+                          >
+                            {row.apellido}, {row.nombre}
+                          </div>
+
+                          {esTramo && (
+                            <TramoEtiquetaEditor
+                              row={row}
+                              onUpdateRow={onUpdateRow}
+                              getInputClass={getInputClass}
+                            />
+                          )}
+
+                          <div className="mt-0.5 text-[9px] text-slate-400 truncate">
+                            {row.rol_roster}
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 flex-col items-center gap-0.5 pt-0.5">
+                          {onDesdoblarViatico && (
+                            <button
+                              type="button"
+                              title="Desdoblar viáticos por paradas"
+                              onClick={() => onDesdoblarViatico(row)}
+                              className="inline-flex items-center justify-center rounded-md border border-slate-200/90 bg-white p-1 text-slate-400 shadow-sm hover:border-violet-300 hover:text-violet-600 hover:bg-violet-50"
+                            >
+                              <IconScissors size={12} />
+                            </button>
+                          )}
+                          {row.noEstaEnRoster && (
+                            <span className="text-orange-600">
+                              <IconAlertTriangle size={10} />
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
 
@@ -880,7 +987,13 @@ export default function ViaticosTable({
                     <td
                       className={`px-1 py-2 text-center font-bold border-b border-r border-slate-200 ${highlightDias ? "text-amber-700 bg-amber-100" : "text-slate-700 bg-indigo-50/5"}`}
                     >
-                      {currentDias}
+                      <DiasComputablesHelp
+                        dias={currentDias}
+                        fechaSalida={currentFechaSalida}
+                        horaSalida={currentHoraSalida}
+                        fechaLlegada={currentFechaLlegada}
+                        horaLlegada={currentHoraLlegada}
+                      />
                     </td>
 
                     {/* BACKUP */}
