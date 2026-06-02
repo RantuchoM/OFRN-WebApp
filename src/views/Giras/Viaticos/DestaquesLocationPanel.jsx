@@ -246,13 +246,14 @@ const LiveMassiveValuesForm = ({
 
     const handleLogisticsTextBlur = (field, rawValue) => {
         const v = String(rawValue ?? "").trim();
+        const displayed = String(resolveLogistics(field) ?? "");
         if (!isGeneral && v === "") {
-            if (hasOwnDestaqueValue(localConfig, field)) {
-                handleCommit(field, null);
+            // En localidad: vacío explícito (override), no herencia.
+            if (displayed !== "" || hasOwnDestaqueValue(localConfig, field)) {
+                handleCommit(field, "");
             }
             return;
         }
-        const displayed = String(resolveLogistics(field) ?? "");
         if (v !== displayed) handleCommit(field, v);
     };
 
@@ -345,7 +346,8 @@ const LiveMassiveValuesForm = ({
                 </div>
                 {!isGeneral && (
                     <p className="text-[10px] text-cyan-800 bg-cyan-50 border border-cyan-200 rounded px-2 py-1 max-w-lg">
-                        Celeste = heredado del general. Editá para valor propio; vaciá para volver al general.
+                        Celeste = heredado del general. Editá para valor propio; borrá para dejar vacío;
+                        doble clic para volver al general.
                     </p>
                 )}
                 {isGeneral && (
@@ -472,6 +474,12 @@ const LiveMassiveValuesForm = ({
                         onBlur={(e) =>
                             handleLogisticsTextBlur("patente_oficial", e.target.value)
                         }
+                        onDoubleClick={(e) => {
+                            if (isGeneral) return;
+                            e.preventDefault();
+                            handleCommit("patente_oficial", null);
+                        }}
+                        title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
                         className={`border border-slate-200 rounded px-1.5 py-0.5 w-20 outline-none uppercase text-xs focus:ring-1 focus:ring-indigo-500 ${logisticsFallbackClass("patente_oficial")} ${getInputClass(locationId, "patente_oficial", feedback, "bg-slate-50")}`}
                     />
                 </div>
@@ -505,6 +513,12 @@ const LiveMassiveValuesForm = ({
                         onBlur={(e) =>
                             handleLogisticsTextBlur("patente_particular", e.target.value)
                         }
+                        onDoubleClick={(e) => {
+                            if (isGeneral) return;
+                            e.preventDefault();
+                            handleCommit("patente_particular", null);
+                        }}
+                        title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
                         className={`border border-slate-200 rounded px-1.5 py-0.5 w-20 outline-none uppercase text-xs focus:ring-1 focus:ring-indigo-500 ${logisticsFallbackClass("patente_particular")} ${getInputClass(locationId, "patente_particular", feedback, "bg-slate-50")}`}
                     />
                 </div>
@@ -534,7 +548,13 @@ const LiveMassiveValuesForm = ({
                         onBlur={(e) =>
                             handleLogisticsTextBlur("transporte_otros", e.target.value)
                         }
+                        onDoubleClick={(e) => {
+                            if (isGeneral) return;
+                            e.preventDefault();
+                            handleCommit("transporte_otros", null);
+                        }}
                         placeholder="Detalle (Combi, etc)"
+                        title={!isGeneral ? "Doble clic para volver al valor general" : undefined}
                         className={`border border-slate-200 rounded px-2 py-0.5 text-xs w-full outline-none focus:ring-1 focus:ring-indigo-500 ${logisticsFallbackClass("transporte_otros")} ${getInputClass(locationId, "transporte_otros", feedback, "bg-white")}`}
                     />
                 </div>
@@ -1017,6 +1037,23 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
         selectedGroupIds.forEach((groupId) => {
             const group = groupedData.find((g) => g.id === groupId);
             if (!group) return;
+            const massConfig = configs[groupId] || {};
+            const salidaIso = group.headerInfo?.fecha
+                ? parseVisualDateToIso(group.headerInfo.fecha)
+                : null;
+            const llegadaIso = group.headerInfo?.fecha_llegada
+                ? parseVisualDateToIso(group.headerInfo.fecha_llegada)
+                : null;
+            const localityDaysFromHeader = group.headerInfo
+                ? calculateDaysDiff(
+                      salidaIso,
+                      group.headerInfo.hora,
+                      llegadaIso,
+                      group.headerInfo.hora_llegada,
+                  )
+                : 0;
+            const localityDays =
+                localityDaysFromHeader || massConfig.backup_dias_computables || 0;
 
             const exportedIds = configs[groupId]?.ids_exportados_viatico || [];
             let validPeople = group.people.filter((p) => !p.hasIndividual);
@@ -1039,6 +1076,7 @@ const DestaquesLocationPanel = forwardRef(function DestaquesLocationPanel({
                         ...p,
                         _massConfigId: groupId,
                         _groupName: group.name,
+                        _diasComputablesLocalidad: localityDays,
                         travelData: mergeTravelDataForViaticosPapeles(
                             p.travelData,
                             travelFromHeader,

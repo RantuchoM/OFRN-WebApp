@@ -1413,6 +1413,9 @@ const collectTransportSupportDocs = (personData) => {
         rich.jornada_laboral = rich.jornada;
 
         let dias = 0;
+        const hasLocalityDaysOverride = Number.isFinite(
+          Number(p._diasComputablesLocalidad),
+        );
         if (p.travelData) {
           const start = new Date(p.travelData.fecha_salida + "T00:00:00");
           const end = new Date(p.travelData.fecha_llegada + "T00:00:00");
@@ -1425,6 +1428,9 @@ const collectTransportSupportDocs = (personData) => {
           rich.hora_llegada = p.travelData.hora_llegada;
         } else {
           dias = massConfig.backup_dias_computables || 0;
+        }
+        if (hasLocalityDaysOverride) {
+          dias = Number(p._diasComputablesLocalidad);
         }
         rich.dias_computables = dias;
 
