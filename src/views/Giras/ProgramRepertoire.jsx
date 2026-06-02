@@ -1014,6 +1014,7 @@ export default function ProgramRepertoire({ supabase, program, onBack, onRefresh
               supabase={supabase}
               program={program}
               repertoireBlocks={repertorios}
+              canAccessStringsConfig={canEdit}
               onBack={() => handleTabChange("repertoire")}
             />
           </div>

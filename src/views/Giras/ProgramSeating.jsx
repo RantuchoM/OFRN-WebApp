@@ -642,6 +642,7 @@ export default function ProgramSeating({
   program,
   onBack,
   repertoireBlocks = [],
+  canAccessStringsConfig = false,
   onRefreshGira = null,
 }) {
   const { isAdmin, isEditor, user } = useAuth();
@@ -664,6 +665,8 @@ export default function ProgramSeating({
   const canManageSeating = hasSystemRole(["admin", "editor", "coord_general"]);
   const canDownloadSeatingReports = hasSystemRole(["admin", "editor"]);
   const canSeeInstrumentationBadges = isAdmin || isEditor;
+  const canViewStringsConfig = canManageSeating || canAccessStringsConfig;
+  const canEditStringsConfig = isEditor || canAccessStringsConfig;
 
   const [filteredRoster, setFilteredRoster] = useState([]);
   const [particellas, setParticellas] = useState([]);
@@ -1964,7 +1967,7 @@ export default function ProgramSeating({
               </button>
             </>
           )}
-          {(isEditor || canManageSeating) && (
+          {canViewStringsConfig && (
             <>
               <button
                 onClick={() => setShowRotationModal(true)}
@@ -2003,14 +2006,14 @@ export default function ProgramSeating({
             <div className="p-4 text-center text-slate-400">Cargando...</div>
           }
         >
-          {showConfig && (isEditor || canManageSeating) && (
+          {showConfig && canViewStringsConfig && (
             <GlobalStringsManager
               programId={program.id}
               roster={filteredRoster}
               containers={containers}
               onUpdate={fetchContainers}
               supabase={supabase}
-              readOnly={!isEditor}
+              readOnly={!canEditStringsConfig}
             />
           )}
         </Suspense>
