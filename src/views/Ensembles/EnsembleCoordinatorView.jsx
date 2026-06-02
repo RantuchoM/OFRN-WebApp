@@ -144,6 +144,30 @@ const formatProgramDateRange = (fromStr, toStr) => {
 
 const formatTime = (timeStr) => (timeStr ? timeStr.slice(0, 5) : "--:--");
 
+// Persistencia por pestaña con sessionStorage (se mantiene en navegación y refresh de la misma pestaña).
+const coordinatorUiStorageKey = (userId) =>
+  `coordinator_ui_state_${String(userId ?? "anon")}`;
+const getCoordinatorUiState = (userId) => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(coordinatorUiStorageKey(userId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+const setCoordinatorUiState = (userId, nextState) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      coordinatorUiStorageKey(userId),
+      JSON.stringify(nextState),
+    );
+  } catch {
+    // No-op: si storage no está disponible, la vista sigue funcionando sin persistencia.
+  }
+};
+
 // --- HELPER: Buscar feriado por fecha ---
 const findFeriado = (fechaStr, feriadosList) => {
   if (!fechaStr || !feriadosList?.length) return null;
@@ -1866,13 +1890,18 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const persistedUiState = getCoordinatorUiState(user?.id);
+  const hydratedUiUserRef = useRef(null);
+  const suppressNextUiPersistRef = useRef(false);
 
   // Estados de Contexto
   const [loading, setLoading] = useState(true);
   const [allEnsembles, setAllEnsembles] = useState([]);
   const [myEnsembles, setMyEnsembles] = useState([]);
   const [rawRelationships, setRawRelationships] = useState([]);
-  const [adminFilterIds, setAdminFilterIds] = useState([]);
+  const [adminFilterIds, setAdminFilterIds] = useState(
+    () => persistedUiState?.adminFilterIds || [],
+  );
   const [ensembleTooltipMap, setEnsembleTooltipMap] = useState({});
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [feriados, setFeriados] = useState([]);
@@ -1883,7 +1912,7 @@ export default function EnsembleCoordinatorView({ supabase }) {
   const [membersOptions, setMembersOptions] = useState([]);
   const [isGiraModalOpen, setIsGiraModalOpen] = useState(false);
   const [repertoireYear, setRepertoireYear] = useState(
-    () => new Date().getFullYear(),
+    () => persistedUiState?.repertoireYear || new Date().getFullYear(),
   );
   const [deleteConfirm, setDeleteConfirm] = useState({
     isOpen: false,
@@ -2071,13 +2100,19 @@ export default function EnsembleCoordinatorView({ supabase }) {
   );
 
   // UI States
-  const [activeTab, setActiveTab] = useState("ensayos");
-  const [programTypeFilter, setProgramTypeFilter] = useState("ALL");
+  const [activeTab, setActiveTab] = useState(
+    () => persistedUiState?.activeTab || "ensayos",
+  );
+  const [programTypeFilter, setProgramTypeFilter] = useState(
+    () => persistedUiState?.programTypeFilter || "ALL",
+  );
   const [programDateFilter, setProgramDateFilter] = useState({
-    start: toLocalDateString(),
-    end: "",
+    start: persistedUiState?.programDateFilter?.start || toLocalDateString(),
+    end: persistedUiState?.programDateFilter?.end || "",
   });
-  const [showRepertoireInCards, setShowRepertoireInCards] = useState(false);
+  const [showRepertoireInCards, setShowRepertoireInCards] = useState(
+    () => persistedUiState?.showRepertoireInCards || false,
+  );
   const [showOverlapOptions, setShowOverlapOptions] = useState(false);
   const [overlapCategories, setOverlapCategories] = useState([]);
   const [categoryOptions, setCategoryOptions] = useState([]);
@@ -2090,8 +2125,8 @@ export default function EnsembleCoordinatorView({ supabase }) {
   };
   // FILTRO DE FECHAS (LISTA PRINCIPAL) — uso de hora local para evitar desfase en UTC-3
   const [dateFilter, setDateFilter] = useState({
-    start: toLocalDateString(),
-    end: "",
+    start: persistedUiState?.dateFilter?.start || toLocalDateString(),
+    end: persistedUiState?.dateFilter?.end || "",
   });
 
   // Estado para Menú de Herramientas Móvil
@@ -2107,8 +2142,15 @@ export default function EnsembleCoordinatorView({ supabase }) {
   useClickOutside(mobileToolsRef, () => setShowMobileTools(false));
 
   // --- ESTADOS PARA PERSISTENCIA DEL CALENDARIO ---
-  const [viewDate, setViewDate] = useState(new Date());
-  const [currentView, setCurrentView] = useState("week");
+  const [viewDate, setViewDate] = useState(() => {
+    const persistedDate = persistedUiState?.viewDate;
+    if (!persistedDate) return new Date();
+    const parsed = new Date(persistedDate);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  });
+  const [currentView, setCurrentView] = useState(
+    () => persistedUiState?.currentView || "week",
+  );
 
   // ESTADO PARA MODAL RÁPIDO
   const [viewingEvent, setViewingEvent] = useState(null);
@@ -2122,7 +2164,9 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   // Selección
   const [selectedIds, setSelectedIds] = useState([]);
-  const [listProgramFilterIds, setListProgramFilterIds] = useState([]);
+  const [listProgramFilterIds, setListProgramFilterIds] = useState(
+    () => persistedUiState?.listProgramFilterIds || [],
+  );
   const [showListProgramFilter, setShowListProgramFilter] = useState(false);
   /** Índice en la lista visible para Shift+clic (rango consecutivo). */
   const lastSelectedRehearsalIndexRef = useRef(null);
@@ -2152,6 +2196,71 @@ export default function EnsembleCoordinatorView({ supabase }) {
     customAttendance: [],
   });
   const [selectedMemberToAdd, setSelectedMemberToAdd] = useState("");
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (hydratedUiUserRef.current === user.id) return;
+
+    const saved = getCoordinatorUiState(user.id);
+    if (saved) {
+      suppressNextUiPersistRef.current = true;
+      setAdminFilterIds(saved.adminFilterIds || []);
+      setRepertoireYear(saved.repertoireYear || new Date().getFullYear());
+      setActiveTab(saved.activeTab || "ensayos");
+      setProgramTypeFilter(saved.programTypeFilter || "ALL");
+      setProgramDateFilter({
+        start: saved.programDateFilter?.start || toLocalDateString(),
+        end: saved.programDateFilter?.end || "",
+      });
+      setShowRepertoireInCards(Boolean(saved.showRepertoireInCards));
+      setDateFilter({
+        start: saved.dateFilter?.start || toLocalDateString(),
+        end: saved.dateFilter?.end || "",
+      });
+      if (saved.viewDate) {
+        const parsed = new Date(saved.viewDate);
+        if (!Number.isNaN(parsed.getTime())) setViewDate(parsed);
+      }
+      setCurrentView(saved.currentView || "week");
+      setListProgramFilterIds(saved.listProgramFilterIds || []);
+    }
+
+    hydratedUiUserRef.current = user.id;
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (hydratedUiUserRef.current !== user.id) return;
+    if (suppressNextUiPersistRef.current) {
+      suppressNextUiPersistRef.current = false;
+      return;
+    }
+
+    setCoordinatorUiState(user?.id, {
+      adminFilterIds,
+      repertoireYear,
+      activeTab,
+      programTypeFilter,
+      programDateFilter,
+      showRepertoireInCards,
+      dateFilter,
+      viewDate: viewDate?.toISOString?.() || null,
+      currentView,
+      listProgramFilterIds,
+    });
+  }, [
+    user?.id,
+    adminFilterIds,
+    repertoireYear,
+    activeTab,
+    programTypeFilter,
+    programDateFilter,
+    showRepertoireInCards,
+    dateFilter,
+    viewDate,
+    currentView,
+    listProgramFilterIds,
+  ]);
 
   // Roles con acceso global de edición de ciclos y programación de repertorio
   // Incluye rol específico "curador" para curaduría de repertorio en todos los ensambles
@@ -2760,9 +2869,11 @@ export default function EnsembleCoordinatorView({ supabase }) {
 
   useEffect(() => {
     if (programTypeFilter === "ALL") return;
+    if (programsLoading) return;
+    if (programs.length === 0) return;
     const stillExists = programs.some((p) => p?.tipo === programTypeFilter);
     if (!stillExists) setProgramTypeFilter("ALL");
-  }, [programTypeFilter, programs]);
+  }, [programTypeFilter, programs, programsLoading]);
 
   const refreshData = () => {
     queryClient.invalidateQueries({ queryKey: ["rehearsals"] });

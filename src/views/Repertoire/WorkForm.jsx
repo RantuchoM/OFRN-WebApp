@@ -342,7 +342,7 @@ export default function WorkForm({
   context = "archive", // "archive" (RepertoireView) | "program" (RepertoireManager)
   onInsertExistingWork, // opcional: insertar obra ya existente en bloque de repertorio
 }) {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const isProgramContext = context === "program";
   const DEFAULT_ARREGLADOR_INTEGRANTE_ID = 4340365;
 
@@ -954,6 +954,10 @@ export default function WorkForm({
 
   const saveFieldToDb = async (field, value) => {
     if (!formData.id) return;
+    if (field === "estado" && value === "Oficial" && !isAdmin) {
+      toast.error("Solo un admin puede pasar una obra a estado Oficial.");
+      return;
+    }
     if (field === "estado" && value === "Para arreglar" && !formData.id_integrante_arreglador) {
       toast.error("Al marcar 'Para arreglar' debes asignar un Arreglador (integrante a notificar).");
       return;
@@ -1024,6 +1028,10 @@ export default function WorkForm({
   const debouncedSave = useDebouncedCallback(saveFieldToDb, 1000);
 
   const updateField = (field, val) => {
+    if (field === "estado" && val === "Oficial" && !isAdmin) {
+      toast.error("Solo un admin puede pasar una obra a estado Oficial.");
+      return;
+    }
     if (field === "estado" && val === "Para arreglar") {
       setFormData((prev) => {
         const hasIntegrante = prev.id_integrante_arreglador != null && prev.id_integrante_arreglador !== "";
@@ -1548,7 +1556,9 @@ export default function WorkForm({
               <option value="Pendiente">Pendiente</option>
               <option value="Para arreglar">Para arreglar</option>
               <option value="Entregado">Entregado (Revisión Archivista)</option>
-              <option value="Oficial">Oficial (Disponible)</option>
+              <option value="Oficial" disabled={!isAdmin}>
+                Oficial (Disponible){!isAdmin ? " - solo admin" : ""}
+              </option>
               <option value="Solicitud">Solicitud</option>
               <option value="Informativo">Informativo</option>
             </select>
