@@ -68,6 +68,7 @@ export function computeSignatureGridLayout(count, opts = {}) {
     nameBandMm = 6,
     nameOverlapMm = 5,
     minSigHeightMm = 6,
+    minCols = 4,
   } = opts;
 
   const empty = {
@@ -91,8 +92,10 @@ export function computeSignatureGridLayout(count, opts = {}) {
   const usableH = pageHeightMm - marginMm * 2 - headerHeightMm;
 
   let best = null;
+  const colMin = Math.max(1, minCols);
+  const colMax = Math.max(count, colMin);
 
-  for (let cols = 1; cols <= count; cols++) {
+  for (let cols = colMin; cols <= colMax; cols++) {
     const rows = Math.ceil(count / cols);
     const cellW = (usableW - gapMm * (cols - 1)) / cols;
     const cellH = (usableH - gapMm * (rows - 1)) / rows;
@@ -116,7 +119,7 @@ export function computeSignatureGridLayout(count, opts = {}) {
   }
 
   if (!best) {
-    const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+    const cols = Math.max(colMin, Math.ceil(Math.sqrt(count)));
     const rows = Math.ceil(count / cols);
     const cellW = (usableW - gapMm * (cols - 1)) / cols;
     const cellH = (usableH - gapMm * (rows - 1)) / rows;
