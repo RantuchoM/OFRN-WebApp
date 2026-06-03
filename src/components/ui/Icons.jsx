@@ -209,6 +209,76 @@ export const IconCamera = ({ size = 24, className = "" }) => (
   </svg>
 );
 
+/** Reloj de pulsera — check-in / hora de llegada */
+export const IconWatch = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M8 4h8l1 3H7l1-3z" />
+    <path d="M8 20h8l1-3H7l1 3z" />
+    <rect x="7" y="7" width="10" height="10" rx="2" />
+    <path d="M12 10v3l2 1" />
+  </svg>
+);
+
+/** Código QR — mostrar QR a otro */
+export const IconQr = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <rect x="3" y="3" width="7" height="7" />
+    <path d="M5 5h3v3H5z" fill="currentColor" stroke="none" />
+    <rect x="14" y="3" width="7" height="7" />
+    <path d="M16 5h3v3h-3z" fill="currentColor" stroke="none" />
+    <rect x="3" y="14" width="7" height="7" />
+    <path d="M5 16h3v3H5z" fill="currentColor" stroke="none" />
+    <path d="M13 13h2v2h-2z M17 13h2v2h-2z M13 17h2v2h-2z M17 17h4v4h-4z M21 13h2v2h-2z M13 21h2v2h-2z" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+/** Cámara con QR pequeño — escanear QR de compañero */
+export const IconCameraScanQr = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M20 17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-2h5L17 7h1a2 2 0 0 1 2 2v8z" />
+    <circle cx="12" cy="12" r="2.5" />
+    <rect x="14.5" y="14.5" width="7" height="7" strokeWidth="1.5" />
+    <path
+      d="M15.75 15.75h2v2h-2z M19 15.75h2v2h-2z M15.75 19h2v2h-2z M19.25 19.25h1.75v1.75h-1.75z M18 17.5h1v1h-1z M20.25 17.5h1v1h-1z"
+      fill="currentColor"
+      stroke="none"
+    />
+  </svg>
+);
+
 // Extra: IconImage (por si lo necesitas para el botón de "Subir imagen")
 export const IconImage = ({ size = 24, className = "" }) => (
   <svg

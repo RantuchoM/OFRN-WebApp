@@ -73,6 +73,8 @@ import AgendaMealActionModal from "./AgendaMealActionModal";
 import EventHistoryModal from "../giras/EventHistoryModal";
 import ConfirmModal from "../ui/ConfirmModal";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import RehearsalCheckInBlock from "./RehearsalCheckInBlock";
+import { useEnsayoCheckin } from "../../hooks/useEnsayoCheckin";
 import EventTranspositionModal from "./EventTranspositionModal";
 
 /** tipos_evento.id: Traslado interno — "mi transporte" para todo integrante activo (sin reglas de asignación). */
@@ -489,6 +491,18 @@ export default function UnifiedAgenda({
   }, [giraId, items]);
 
   const todayStr = getTodayDateStringLocal();
+  // Solo admin mientras se prueba check-in en producción (deploy oculto al resto).
+  const canEnsayoCheckIn =
+    isAdmin &&
+    effectiveUserId &&
+    effectiveUserId !== "guest-general" &&
+    !Number.isNaN(Number(effectiveUserId));
+  const { getEstado: getEnsayoCheckinEstado, refresh: refreshEnsayoCheckin } =
+    useEnsayoCheckin({
+      integranteId: canEnsayoCheckIn ? effectiveUserId : null,
+      events: items,
+      todayStr,
+    });
   const isGiraFinishedTour = Boolean(
     giraId && giraLastDate && todayStr > giraLastDate,
   );
@@ -2048,6 +2062,15 @@ export default function UnifiedAgenda({
                                         {evt.hora_fin.slice(0, 5)}
                                       </span>
                                     )}
+                                  {evt.id_tipo_evento === 13 && canEnsayoCheckIn && (
+                                    <RehearsalCheckInBlock
+                                      evt={evt}
+                                      integranteId={effectiveUserId}
+                                      isToday={evt.fecha === todayStr}
+                                      estado={getEnsayoCheckinEstado(evt.id)}
+                                      onSuccess={refreshEnsayoCheckin}
+                                    />
+                                  )}
                                 </div>
 
                                 <div className="flex-1 min-w-0 flex flex-col gap-1 py-1">
@@ -2464,6 +2487,15 @@ export default function UnifiedAgenda({
                                         {evt.hora_fin.slice(0, 5)}
                                       </div>
                                     )}
+                                  {evt.id_tipo_evento === 13 && canEnsayoCheckIn && (
+                                    <RehearsalCheckInBlock
+                                      evt={evt}
+                                      integranteId={effectiveUserId}
+                                      isToday={evt.fecha === todayStr}
+                                      estado={getEnsayoCheckinEstado(evt.id)}
+                                      onSuccess={refreshEnsayoCheckin}
+                                    />
+                                  )}
                                 </div>
 
                                 {/* COLUMNA 2: TIPO */}

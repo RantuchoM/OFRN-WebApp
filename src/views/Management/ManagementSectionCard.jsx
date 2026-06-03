@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 
 export default function ManagementSectionCard({
   title,
@@ -9,14 +10,12 @@ export default function ManagementSectionCard({
   iconClasses,
   titleClasses,
   onClick,
+  to,
   badge = null,
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`group rounded-xl border bg-white p-5 text-left shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 ${cardClasses}`}
-    >
+  const className = `group block w-full rounded-xl border bg-white p-5 text-left shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 ${cardClasses}`;
+
+  const inner = (
       <div className="flex items-start gap-4">
         <div className={`rounded-lg p-3 transition-colors ${iconClasses}`}>
           <Icon size={24} />
@@ -46,6 +45,19 @@ export default function ManagementSectionCard({
           ) : null}
         </div>
       </div>
+  );
+
+  if (to) {
+    return (
+      <Link to={to} className={className}>
+        {inner}
+      </Link>
+    );
+  }
+
+  return (
+    <button type="button" onClick={onClick} className={className}>
+      {inner}
     </button>
   );
 }

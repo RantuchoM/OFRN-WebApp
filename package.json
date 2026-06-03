@@ -9,6 +9,7 @@
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "glass-cracks:transparent": "node scripts/transparent-crack-pngs.mjs",
+    "locaciones:backfill-coords": "node scripts/backfill-locaciones-coords.mjs",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },

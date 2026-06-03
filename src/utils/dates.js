@@ -1,4 +1,15 @@
-import { format, parseISO, subDays, addMonths } from "date-fns";
+import {
+  format,
+  parseISO,
+  subDays,
+  addMonths,
+  subMonths,
+  subWeeks,
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+} from "date-fns";
 
 /**
  * Primer lunes estrictamente posterior a una fecha (yyyy-MM-dd).
@@ -77,6 +88,53 @@ export function getLastFifteenDaysDateRangeLocal() {
   const from = format(subDays(parseISO(today), 14), "yyyy-MM-dd");
   return { dateFrom: from, dateTo: today };
 }
+
+/** Semana calendario (lunes a domingo), hora local. */
+const WEEK_OPTS = { weekStartsOn: 1 };
+
+/**
+ * Rangos predefinidos para filtros de reportes (hora local del navegador).
+ * @param {"this_month"|"last_month"|"this_week"|"last_week"} presetId
+ * @returns {{ dateFrom: string, dateTo: string } | null}
+ */
+export function getDateRangePresetLocal(presetId) {
+  const now = getNowLocal();
+  switch (presetId) {
+    case "this_month":
+      return {
+        dateFrom: format(startOfMonth(now), "yyyy-MM-dd"),
+        dateTo: format(endOfMonth(now), "yyyy-MM-dd"),
+      };
+    case "last_month": {
+      const prev = subMonths(now, 1);
+      return {
+        dateFrom: format(startOfMonth(prev), "yyyy-MM-dd"),
+        dateTo: format(endOfMonth(prev), "yyyy-MM-dd"),
+      };
+    }
+    case "this_week":
+      return {
+        dateFrom: format(startOfWeek(now, WEEK_OPTS), "yyyy-MM-dd"),
+        dateTo: format(endOfWeek(now, WEEK_OPTS), "yyyy-MM-dd"),
+      };
+    case "last_week": {
+      const anchor = subWeeks(now, 1);
+      return {
+        dateFrom: format(startOfWeek(anchor, WEEK_OPTS), "yyyy-MM-dd"),
+        dateTo: format(endOfWeek(anchor, WEEK_OPTS), "yyyy-MM-dd"),
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+export const ENSAYO_CHECKIN_DATE_PRESETS = [
+  { id: "this_month", label: "Este mes" },
+  { id: "last_month", label: "El mes pasado" },
+  { id: "this_week", label: "Esta semana" },
+  { id: "last_week", label: "La semana pasada" },
+];
 
 /**
  * Convierte una cadena "HH:mm" o "HH:mm:ss" a minutos desde medianoche.

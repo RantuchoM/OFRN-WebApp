@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   IconMapPin,
   IconX,
@@ -9,12 +9,16 @@ import {
   IconCheck,
 } from "../ui/Icons";
 import { toast } from "sonner";
+import { getGoogleMapsUrl } from "../../utils/agendaHelpers";
+import { parseGoogleMapsCoords, isShortGoogleMapsLink, resolveGoogleMapsLinkCoords } from "../../utils/mapsCoords";
 
 const EMPTY_FORM = {
   id: null,
   nombre: "",
   direccion: "",
   link_mapa: "",
+  latitud: "",
+  longitud: "",
   id_localidad: "",
   telefono: "",
   mail: "",
@@ -43,6 +47,7 @@ export default function LocationManagerModal({
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [formData, setFormData] = useState(EMPTY_FORM);
+  const [resolvingCoords, setResolvingCoords] = useState(false);
 
   const applyLocationToForm = useCallback((loc) => {
     setFormData({
@@ -50,6 +55,8 @@ export default function LocationManagerModal({
       nombre: loc.nombre || "",
       direccion: loc.direccion || "",
       link_mapa: loc.link_mapa || "",
+      latitud: loc.latitud != null ? String(loc.latitud) : "",
+      longitud: loc.longitud != null ? String(loc.longitud) : "",
       id_localidad: loc.id_localidad || "",
       telefono: loc.telefono ?? "",
       mail: loc.mail || "",
@@ -128,6 +135,34 @@ export default function LocationManagerModal({
     setView("form");
   };
 
+  const handleCalcCoordsFromLink = async () => {
+    const link = formData.link_mapa?.trim();
+    if (!link) {
+      toast.error("Pegá un link de Google Maps primero");
+      return;
+    }
+    setResolvingCoords(true);
+    try {
+      const direct = parseGoogleMapsCoords(link);
+      const coords =
+        direct || (await resolveGoogleMapsLinkCoords(link, { supabase }));
+      if (!coords) {
+        toast.error("No se pudieron obtener coordenadas de ese link");
+        return;
+      }
+      setFormData((prev) => ({
+        ...prev,
+        latitud: String(coords.lat),
+        longitud: String(coords.lng),
+      }));
+      toast.success("Coordenadas calculadas desde el link");
+    } catch (err) {
+      toast.error(err?.message || "Error al resolver el link");
+    } finally {
+      setResolvingCoords(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!formData.nombre.trim()) {
       toast.error("El nombre es obligatorio");
@@ -140,6 +175,8 @@ export default function LocationManagerModal({
         nombre: formData.nombre.trim(),
         direccion: formData.direccion?.trim() || null,
         link_mapa: formData.link_mapa?.trim() || null,
+        latitud: formData.latitud !== "" ? Number(formData.latitud) : null,
+        longitud: formData.longitud !== "" ? Number(formData.longitud) : null,
         id_localidad: formData.id_localidad || null,
         telefono: formData.telefono ? formData.telefono : null,
         mail: formData.mail?.trim() || null,
@@ -178,6 +215,26 @@ export default function LocationManagerModal({
       l.nombre.toLowerCase().includes(search.toLowerCase()) ||
       l.localidades?.localidad?.toLowerCase().includes(search.toLowerCase()),
   );
+
+  const previewGoogleMapsUrl = useMemo(() => {
+    const localidad = cities.find(
+      (c) => String(c.id) === String(formData.id_localidad),
+    )?.localidad;
+    if (
+      !formData.nombre?.trim() &&
+      !formData.direccion?.trim() &&
+      !formData.link_mapa?.trim() &&
+      !localidad
+    ) {
+      return null;
+    }
+    return getGoogleMapsUrl({
+      nombre: formData.nombre,
+      direccion: formData.direccion,
+      link_mapa: formData.link_mapa,
+      localidades: localidad ? { localidad } : null,
+    });
+  }, [formData.nombre, formData.direccion, formData.link_mapa, formData.id_localidad, cities]);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
@@ -327,6 +384,17 @@ export default function LocationManagerModal({
                       placeholder="Calle y número"
                     />
                   </div>
+                  {previewGoogleMapsUrl && (
+                    <a
+                      href={previewGoogleMapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 text-xs font-bold hover:bg-slate-100 hover:text-indigo-700"
+                    >
+                      <IconMapPin size={14} className="text-indigo-600 shrink-0" />
+                      Abrir en Google Maps
+                    </a>
+                  )}
                   <div>
                     <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
                       Link Google Maps (opcional)
@@ -339,7 +407,73 @@ export default function LocationManagerModal({
                         setFormData({ ...formData, link_mapa: e.target.value })
                       }
                       placeholder="https://maps.google.com/..."
+                      onBlur={() => {
+                        if (formData.latitud !== "" && formData.longitud !== "")
+                          return;
+                        const c = parseGoogleMapsCoords(formData.link_mapa);
+                        if (c) {
+                          setFormData((prev) => ({
+                            ...prev,
+                            latitud: String(c.lat),
+                            longitud: String(c.lng),
+                          }));
+                        }
+                      }}
                     />
+                    <button
+                      type="button"
+                      disabled={resolvingCoords || !formData.link_mapa?.trim()}
+                      onClick={handleCalcCoordsFromLink}
+                      className="mt-1.5 w-full py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    >
+                      {resolvingCoords ? (
+                        <>
+                          <IconLoader size={14} className="animate-spin" />
+                          Calculando…
+                        </>
+                      ) : (
+                        "Calcular coordenadas desde link"
+                      )}
+                    </button>
+                    {isShortGoogleMapsLink(formData.link_mapa) &&
+                      (formData.latitud === "" || formData.longitud === "") && (
+                        <p className="mt-1 text-[10px] text-slate-500 leading-snug">
+                          Link corto detectado: usá el botón de arriba para resolver
+                          latitud y longitud.
+                        </p>
+                      )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                        Latitud (RRHH / distancia)
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        className="w-full p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                        value={formData.latitud}
+                        onChange={(e) =>
+                          setFormData({ ...formData, latitud: e.target.value })
+                        }
+                        placeholder="-40.81"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                        Longitud
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        className="w-full p-2 border rounded text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                        value={formData.longitud}
+                        onChange={(e) =>
+                          setFormData({ ...formData, longitud: e.target.value })
+                        }
+                        placeholder="-63.00"
+                      />
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>

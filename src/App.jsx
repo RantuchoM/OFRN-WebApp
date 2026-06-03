@@ -613,12 +613,27 @@ const ProtectedApp = ({ initialTab }) => {
     }
   }, [currentTabParam, currentGiraIdParam, defaultMode]);
 
+  useEffect(() => {
+    if (
+      currentTabParam === "management" &&
+      !location.pathname.startsWith("/management")
+    ) {
+      navigate("/management", { replace: true });
+    }
+  }, [currentTabParam, location.pathname, navigate]);
+
   const updateView = (
     newMode,
     giraId = null,
     viewParam = null,
     subTabParam = null,
   ) => {
+    if (newMode === "MANAGEMENT") {
+      navigate("/management");
+      setIsMobileMenuOpen(false);
+      return;
+    }
+
     const newParams = new URLSearchParams(searchParams);
     const targetTab = modeToTab[newMode];
     if (targetTab) newParams.set("tab", targetTab);
@@ -631,7 +646,9 @@ const ProtectedApp = ({ initialTab }) => {
     } else {
       ["giraId", "view", "subTab"].forEach((p) => newParams.delete(p));
     }
-    setSearchParams(newParams);
+
+    const search = newParams.toString();
+    navigate({ pathname: "/", search: search ? `?${search}` : "" });
     setIsMobileMenuOpen(false);
   };
 
@@ -808,6 +825,7 @@ const ProtectedApp = ({ initialTab }) => {
               "instrumentation",
               "convocatorias",
               "ensayos",
+              "asistencia_ensayos",
               "conciertos",
               "audiencia",
             ]}

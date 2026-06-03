@@ -11,6 +11,7 @@ export default function ConfirmModal({
   confirmText = "Confirmar",
   cancelText = "Cancelar",
   confirmClassName = "px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]",
+  overlayClassName = "z-[100]",
 }) {
   if (!isOpen) return null;
 
@@ -24,7 +25,7 @@ export default function ConfirmModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 p-3 sm:p-4">
+    <div className={`fixed inset-0 ${overlayClassName} flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 p-3 sm:p-4`}>
       <div
         className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[min(90vh,36rem)] overflow-y-auto p-5 sm:p-6 transform transition-all scale-100 animate-in zoom-in-95 duration-200 border border-slate-100"
         role="dialog"

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import {
   IconSettingsWheel,
   IconHistory,
@@ -14,6 +15,7 @@ import SeatingReports from "./SeatingReports";
 import InstrumentationAudit from "./InstrumentationAudit";
 import AsistenciaMatrixReport from "../Giras/AsistenciaMatrixReport";
 import EnsayosPorProgramaReport from "../Giras/EnsayosPorProgramaReport";
+import EnsayoCheckinAttendanceReport from "./EnsayoCheckinAttendanceReport";
 import ConciertosView from "../Giras/ConciertosView";
 import AudienceView from "./AudienceView";
 import ManagementSectionCard from "./ManagementSectionCard";
@@ -24,11 +26,22 @@ const DEFAULT_SECTIONS = [
   "instrumentation",
   "convocatorias",
   "ensayos",
+  "asistencia_ensayos",
   "conciertos",
   "audiencia",
 ];
 
 const HOME_VIEW = "home";
+
+function parseManagementSection(pathname) {
+  const match = pathname.match(/^\/management\/?(.*)$/);
+  const segment = (match?.[1] || "").replace(/\/$/, "");
+  return segment || HOME_VIEW;
+}
+
+function managementSectionPath(section) {
+  return section === HOME_VIEW ? "/management" : `/management/${section}`;
+}
 
 const SECTION_ORDER = [
   "venues",
@@ -36,6 +49,7 @@ const SECTION_ORDER = [
   "instrumentation",
   "convocatorias",
   "ensayos",
+  "asistencia_ensayos",
   "conciertos",
   "audiencia",
 ];
@@ -43,6 +57,7 @@ const SECTION_ORDER = [
 const SECTION_CONFIG = {
   venues: {
     title: "Espacios",
+    tabLabel: "Espacios",
     subtitle: "Gestión de venues y estado operativo",
     description:
       "Administra estados de venue, seguimiento y control de espacios para conciertos.",
@@ -55,6 +70,7 @@ const SECTION_CONFIG = {
   },
   seating: {
     title: "Informes Seating",
+    tabLabel: "Informes Seating",
     subtitle: "Historial y reportes por distribución",
     description:
       "Consulta comparativas de seating y reportes para analizar cambios entre versiones.",
@@ -67,6 +83,7 @@ const SECTION_CONFIG = {
   },
   instrumentation: {
     title: "Instrumentación",
+    tabLabel: "Instrumentación",
     subtitle: "Auditoría técnica por programa",
     description:
       "Cruza instrumentación requerida vs convocados para detectar brechas rápidamente.",
@@ -79,6 +96,7 @@ const SECTION_CONFIG = {
   },
   convocatorias: {
     title: "Convocatorias",
+    tabLabel: "Convocatorias",
     subtitle: "Matriz de asistencia por programa",
     description:
       "Visualiza y exporta el estado de convocatorias con foco en seguimiento de asistencia.",
@@ -91,6 +109,7 @@ const SECTION_CONFIG = {
   },
   ensayos: {
     title: "Ensayos por programa",
+    tabLabel: "Ensayos",
     subtitle: "Matriz de ensayos de ensamble",
     description:
       "Cruza programas y ensambles con cantidad de ensayos; exportá a Excel o PDF.",
@@ -101,8 +120,22 @@ const SECTION_CONFIG = {
       "bg-cyan-50 text-cyan-600 group-hover:bg-cyan-600 group-hover:text-white",
     titleClasses: "text-cyan-900 group-hover:text-cyan-700",
   },
+  asistencia_ensayos: {
+    title: "Asistencia a ensayos",
+    tabLabel: "Asist. ensayos",
+    subtitle: "Check-in y reportes por ensamble",
+    description:
+      "Consultá llegadas, cargá asistencias justificadas o correcciones admin y exportá informes.",
+    icon: IconUsers,
+    cardClasses:
+      "border-teal-100 hover:border-teal-300 hover:shadow-md focus-visible:ring-teal-300",
+    iconClasses:
+      "bg-teal-50 text-teal-600 group-hover:bg-teal-600 group-hover:text-white",
+    titleClasses: "text-teal-900 group-hover:text-teal-700",
+  },
   conciertos: {
     title: "Conciertos",
+    tabLabel: "Conciertos",
     subtitle: "Programación y exportación consolidada",
     description:
       "Revisa calendario de conciertos con filtros dinámicos y herramientas de exportación.",
@@ -115,6 +148,7 @@ const SECTION_CONFIG = {
   },
   audiencia: {
     title: "Audiencia",
+    tabLabel: "Audiencia",
     subtitle: "Carga y reporte de asistentes por concierto",
     description:
       "Registra audiencia por concierto y exporta reportes PDF con desglose y total filtrado.",
@@ -128,24 +162,41 @@ const SECTION_CONFIG = {
 };
 
 export default function ManagementView({ supabase, managementSections = DEFAULT_SECTIONS }) {
-  const [activeTab, setActiveTab] = useState(HOME_VIEW);
+  const navigate = useNavigate();
+  const location = useLocation();
   const enabledSections = useMemo(() => new Set(managementSections), [managementSections]);
   const availableSections = useMemo(
     () => SECTION_ORDER.filter((section) => enabledSections.has(section)),
     [enabledSections],
   );
+
+  const activeTab = useMemo(() => {
+    const section = parseManagementSection(location.pathname);
+    if (section === HOME_VIEW) return HOME_VIEW;
+    return enabledSections.has(section) ? section : HOME_VIEW;
+  }, [location.pathname, enabledSections]);
+
+  const setActiveTab = useCallback(
+    (tab) => {
+      navigate(managementSectionPath(tab));
+    },
+    [navigate],
+  );
+
   const activeConfig = SECTION_CONFIG[activeTab];
   const isHomeView = activeTab === HOME_VIEW;
 
   useEffect(() => {
-    if (activeTab !== HOME_VIEW && !enabledSections.has(activeTab)) {
-      setActiveTab(HOME_VIEW);
+    const section = parseManagementSection(location.pathname);
+    if (section !== HOME_VIEW && !enabledSections.has(section)) {
+      navigate("/management", { replace: true });
     }
-  }, [activeTab, enabledSections]);
+  }, [location.pathname, enabledSections, navigate]);
 
   const isFullscreenSection =
     activeTab === "convocatorias" ||
     activeTab === "ensayos" ||
+    activeTab === "asistencia_ensayos" ||
     activeTab === "conciertos" ||
     activeTab === "audiencia";
 
@@ -216,104 +267,23 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
                 <span>Menú de informes</span>
               </button>
               <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-bold">
-                {enabledSections.has("venues") && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("venues")}
-                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
-                      activeTab === "venues"
-                        ? "bg-white text-indigo-700 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    <IconSettingsWheel size={14} />
-                    <span>Espacios</span>
-                  </button>
-                )}
-                {enabledSections.has("seating") && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("seating")}
-                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
-                      activeTab === "seating"
-                        ? "bg-white text-indigo-700 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    <IconHistory size={14} />
-                    <span>Informes Seating</span>
-                  </button>
-                )}
-                {enabledSections.has("instrumentation") && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("instrumentation")}
-                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
-                      activeTab === "instrumentation"
-                        ? "bg-white text-indigo-700 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    <IconMusicNote size={14} />
-                    <span>Instrumentación</span>
-                  </button>
-                )}
-                {enabledSections.has("convocatorias") && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("convocatorias")}
-                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
-                      activeTab === "convocatorias"
-                        ? "bg-white text-indigo-700 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    <IconGrid size={14} />
-                    <span>Convocatorias</span>
-                  </button>
-                )}
-                {enabledSections.has("ensayos") && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("ensayos")}
-                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
-                      activeTab === "ensayos"
-                        ? "bg-white text-indigo-700 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    <IconMusic size={14} />
-                    <span>Ensayos</span>
-                  </button>
-                )}
-                {enabledSections.has("conciertos") && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("conciertos")}
-                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
-                      activeTab === "conciertos"
-                        ? "bg-white text-indigo-700 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    <IconCalendar size={14} />
-                    <span>Conciertos</span>
-                  </button>
-                )}
-                {enabledSections.has("audiencia") && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("audiencia")}
-                    className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
-                      activeTab === "audiencia"
-                        ? "bg-white text-indigo-700 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    <IconUsers size={14} />
-                    <span>Audiencia</span>
-                  </button>
-                )}
+                {availableSections.map((sectionKey) => {
+                  const { tabLabel, icon: SectionIcon } = SECTION_CONFIG[sectionKey];
+                  return (
+                    <Link
+                      key={sectionKey}
+                      to={managementSectionPath(sectionKey)}
+                      className={`flex items-center gap-1 rounded-md px-3 py-1.5 transition-colors ${
+                        activeTab === sectionKey
+                          ? "bg-white text-indigo-700 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      <SectionIcon size={14} />
+                      <span>{tabLabel}</span>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -342,6 +312,7 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
                   return (
                     <ManagementSectionCard
                       key={sectionKey}
+                      to={managementSectionPath(sectionKey)}
                       title={sectionConfig.title}
                       subtitle={sectionConfig.subtitle}
                       description={sectionConfig.description}
@@ -349,7 +320,6 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
                       cardClasses={sectionConfig.cardClasses}
                       iconClasses={sectionConfig.iconClasses}
                       titleClasses={sectionConfig.titleClasses}
-                      onClick={() => setActiveTab(sectionKey)}
                     />
                   );
                 })}
@@ -380,6 +350,12 @@ export default function ManagementView({ supabase, managementSections = DEFAULT_
             <EnsayosPorProgramaReport supabase={supabase} variant="management" />
           </div>
         )}
+        {activeTab === "asistencia_ensayos" &&
+          enabledSections.has("asistencia_ensayos") && (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+              <EnsayoCheckinAttendanceReport supabase={supabase} />
+            </div>
+          )}
         {activeTab === "conciertos" && enabledSections.has("conciertos") && (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <ConciertosView supabase={supabase} />
