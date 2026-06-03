@@ -10,7 +10,14 @@ import {
   IconChevronUp,
   IconCheck,
 } from "../../components/ui/Icons";
-import { normalize, getCategoriaLogistica } from "../../hooks/useLogistics";
+import {
+  normalize,
+  getCategoriaLogistica,
+  matchesRule,
+  isPersonVetoedFromTransport,
+  isPersonAdmittedToTransport,
+  isAdmissionExclusionRule,
+} from "../../hooks/useLogistics";
 import { toast } from "sonner";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 
@@ -95,6 +102,7 @@ export default function StopRulesManager({
   regions,
   localities,
   passengers, // summary/logistics completo
+  admissionRules = [],
   onRefresh,
 }) {
   const [existingRules, setExistingRules] = useState([]);
@@ -145,6 +153,109 @@ export default function StopRulesManager({
     (transportAdmissionRules || []).some((adm) =>
       admissionCoversRouteRule(adm, routeRule),
     );
+
+  /** Regla de admisión (inclusión) que efectivamente incluye a la persona en este bus. */
+  const getEffectiveInclusionAdmissionForPerson = (person) => {
+    if (!person) return null;
+    const rules = transportAdmissionRules || admissionRules || [];
+    const applicable = rules.filter(
+      (r) =>
+        String(r.id_transporte_fisico) === String(transportId) &&
+        matchesRule(r, person, localities) &&
+        !isAdmissionExclusionRule(r),
+    );
+    if (!applicable.length) return null;
+    applicable.sort((a, b) => (b.prioridad || 0) - (a.prioridad || 0));
+    return applicable[0];
+  };
+
+  /** Admisión de mayor alcance que ya cubre una parada territorial (loc ← región ← general). */
+  const getBroaderTerritoryAdmissionCover = (routeRule) => {
+    const rules = (transportAdmissionRules || admissionRules || []).filter(
+      (r) =>
+        String(r.id_transporte_fisico) === String(transportId) &&
+        !isAdmissionExclusionRule(r),
+    );
+
+    if (routeRule.alcance === "Localidad" && routeRule.id_localidad != null) {
+      const loc = localities.find(
+        (l) => String(l.id) === String(routeRule.id_localidad),
+      );
+      const regionId = loc?.id_region;
+      if (regionId != null && String(regionId) !== "") {
+        const regionRule = rules.find(
+          (r) =>
+            r.alcance === "Region" &&
+            String(r.id_region) === String(regionId),
+        );
+        if (regionRule) return { rule: regionRule, sameScope: false };
+      }
+    }
+
+    if (
+      routeRule.alcance === "Localidad" ||
+      routeRule.alcance === "Region"
+    ) {
+      const generalRule = rules.find((r) => r.alcance === "General");
+      if (generalRule) return { rule: generalRule, sameScope: false };
+    }
+
+    return null;
+  };
+
+  /**
+   * ¿La parada ya tiene admisión cubierta? (regla espejo o incluido por alcance más amplio)
+   */
+  const getRouteRuleAdmissionCoverage = (routeRule) => {
+    if (hasAdmissionForRouteRule(routeRule)) {
+      const mirror = (transportAdmissionRules || []).find((adm) =>
+        admissionCoversRouteRule(adm, routeRule),
+      );
+      return {
+        satisfied: true,
+        viaLabel: mirror
+          ? `${mirror.alcance} — ${resolveTargetName(mirror)}`
+          : null,
+        sameScope: true,
+      };
+    }
+
+    const territoryCover = getBroaderTerritoryAdmissionCover(routeRule);
+    if (territoryCover) {
+      return {
+        satisfied: true,
+        viaLabel: `${territoryCover.rule.alcance} — ${resolveTargetName(territoryCover.rule)}`,
+        sameScope: false,
+      };
+    }
+
+    if (routeRule.alcance === "Persona" && routeRule.id_integrante) {
+      const person = (passengers || []).find(
+        (p) => String(p.id) === String(routeRule.id_integrante),
+      );
+      if (
+        person &&
+        isPersonAdmittedToTransport(
+          person,
+          transportId,
+          transportAdmissionRules,
+          localities,
+        )
+      ) {
+        const viaRule = getEffectiveInclusionAdmissionForPerson(person);
+        const viaLabel = viaRule
+          ? `${viaRule.alcance} — ${resolveTargetName(viaRule)}`
+          : "otra regla de admisión";
+        return {
+          satisfied: true,
+          viaLabel,
+          sameScope: viaRule?.alcance === "Persona",
+        };
+      }
+    }
+
+    return { satisfied: false, viaLabel: null, sameScope: false };
+  };
 
   const fetchAdmissions = async () => {
     // Centralizamos: si useLogistics ya resolvió que un pasajero "viaja en este transporte",
@@ -264,7 +375,19 @@ export default function StopRulesManager({
         // --- LÓGICA DE AUTO-INCLUSIÓN (por persona) ---
         if (newScope === "Persona" && currentId) {
           const idStr = String(currentId);
-          if (!admittedIds.has(idStr)) {
+          const personRow = (passengers || []).find(
+            (p) => String(p.id) === idStr,
+          );
+          const alreadyOnBus =
+            admittedIds.has(idStr) ||
+            (personRow &&
+              isPersonAdmittedToTransport(
+                personRow,
+                transportId,
+                transportAdmissionRules,
+                localities,
+              ));
+          if (!alreadyOnBus) {
             const { error: admError } = await supabase
               .from("giras_logistica_admision") // <--- NOMBRE CORRECTO
               .insert([
@@ -345,13 +468,16 @@ export default function StopRulesManager({
 
   const handleAutoCreateMissingAdmissionRule = async () => {
     try {
-      const pending = (existingRules || []).filter(
-        (r) =>
-          (r.alcance === "Localidad" ||
-            r.alcance === "Region" ||
-            (r.alcance === "Persona" && r.id_integrante)) &&
-          !hasAdmissionForRouteRule(r),
-      );
+      const pending = (existingRules || []).filter((r) => {
+        if (
+          r.alcance !== "Localidad" &&
+          r.alcance !== "Region" &&
+          !(r.alcance === "Persona" && r.id_integrante)
+        ) {
+          return false;
+        }
+        return !getRouteRuleAdmissionCoverage(r).satisfied;
+      });
 
       if (pending.length === 0) {
         toast.info("No hay admisiones pendientes para esta parada.");
@@ -472,6 +598,17 @@ export default function StopRulesManager({
     const scopeKey = type === "up" ? "subidaScope" : "bajadaScope";
 
     return passengers.filter((p) => {
+      if (
+        isPersonVetoedFromTransport(
+          p,
+          transportId,
+          admissionRules,
+          localities,
+        )
+      ) {
+        return false;
+      }
+
       const tr = p.logistics?.transports?.find(
         (t) => String(t.id) === String(transportId),
       );
@@ -534,9 +671,16 @@ export default function StopRulesManager({
       ) {
         return false;
       }
-      return !hasAdmissionForRouteRule(r);
+      return !getRouteRuleAdmissionCoverage(r).satisfied;
     });
-  }, [existingRules, transportAdmissionRules]);
+  }, [
+    existingRules,
+    transportAdmissionRules,
+    admissionRules,
+    passengers,
+    transportId,
+    localities,
+  ]);
 
   const groupedRules = useMemo(() => {
     if (!existingRules || existingRules.length === 0) return [];
@@ -624,7 +768,14 @@ export default function StopRulesManager({
 
     return list.map((p) => {
       const idStr = String(p.id);
-      const inBus = admittedIds.has(idStr);
+      const inBus =
+        admittedIds.has(idStr) ||
+        isPersonAdmittedToTransport(
+          p,
+          transportId,
+          transportAdmissionRules,
+          localities,
+        );
       const tr = p.logistics?.transports?.find(
         (t) => String(t.id) === String(transportId),
       );
@@ -766,7 +917,9 @@ export default function StopRulesManager({
                         const affectedPeople = getAffectedPeople(rule);
                         const isExpanded = expandedRuleId === rule.id;
                         const displayCount = affectedPeople.length;
-                        const admissionReady = hasAdmissionForRouteRule(rule);
+                        const admissionCoverage =
+                          getRouteRuleAdmissionCoverage(rule);
+                        const admissionReady = admissionCoverage.satisfied;
                         const admissionJustCreated = recentlyCreatedAdmissionKeys.has(
                           routeRuleAdmissionKey(rule),
                         );
@@ -782,18 +935,32 @@ export default function StopRulesManager({
                                 setExpandedRuleId(isExpanded ? null : rule.id);
                               }}
                             >
-                              <div className="flex items-center gap-3 min-w-0">
+                              <div className="flex flex-col min-w-0">
                                 <span className="text-xs font-semibold text-slate-700 truncate">
                                   {resolveTargetName(rule)}
                                 </span>
+                                {admissionReady &&
+                                  admissionCoverage.viaLabel &&
+                                  !admissionCoverage.sameScope && (
+                                    <span className="text-[10px] text-emerald-600 truncate">
+                                      {admissionCoverage.viaLabel}
+                                    </span>
+                                  )}
                               </div>
                               <div className="flex items-center gap-2">
                                 {admissionReady && displayCount === 0 && (
                                   <span
                                     className="text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-full text-emerald-700 bg-emerald-100"
-                                    title="Admisión creada; los pasajeros aparecerán al actualizar la logística"
+                                    title={
+                                      admissionCoverage.viaLabel
+                                        ? `Ya incluido: ${admissionCoverage.viaLabel}`
+                                        : "Admisión creada; los pasajeros aparecerán al actualizar la logística"
+                                    }
                                   >
-                                    <IconCheck size={12} /> Admisión
+                                    <IconCheck size={12} />{" "}
+                                    {admissionCoverage.sameScope
+                                      ? "Admisión"
+                                      : "Incluido"}
                                   </span>
                                 )}
                                 <span
@@ -846,14 +1013,25 @@ export default function StopRulesManager({
                                 ) : (
                                   <div className="text-xs text-slate-500 text-center py-1.5 space-y-1">
                                     {admissionReady ? (
-                                      <div className="flex items-center justify-center gap-1 text-emerald-700 font-semibold not-italic">
-                                        <IconCheck size={14} />
-                                        Regla de admisión creada
-                                        {admissionJustCreated
-                                          ? " (recién)"
-                                          : ""}
-                                        . Los pasajeros se listarán al
-                                        actualizar la logística.
+                                      <div className="flex flex-col items-center justify-center gap-0.5 text-emerald-700 font-semibold not-italic text-center">
+                                        <div className="flex items-center gap-1">
+                                          <IconCheck size={14} />
+                                          {admissionCoverage.sameScope
+                                            ? "Regla de admisión creada"
+                                            : "Ya incluido en el bus"}
+                                          {admissionJustCreated
+                                            ? " (recién)"
+                                            : ""}
+                                        </div>
+                                        {admissionCoverage.viaLabel && (
+                                          <span className="text-[10px] font-normal text-emerald-600">
+                                            {admissionCoverage.viaLabel}
+                                          </span>
+                                        )}
+                                        <span className="text-[10px] font-normal text-emerald-600">
+                                          Los pasajeros se listarán al
+                                          actualizar la logística.
+                                        </span>
                                       </div>
                                     ) : (
                                       <>

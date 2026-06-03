@@ -405,6 +405,68 @@ export const matchesRule = (rule, person, allLocalities = []) => {
   return false;
 };
 
+export const isAdmissionExclusionRule = (rule) =>
+  Boolean(rule && (rule.tipo === "EXCLUSION" || rule.es_exclusion));
+
+/**
+ * Admisión efectiva a un transporte (giras_logistica_admision).
+ * Gana la regla aplicable con mayor `prioridad`; un veto Persona anula una inclusión Localidad.
+ *
+ * @returns {"admitted"|"excluded"|"none"}
+ */
+export const resolveTransportAdmissionStatus = (
+  person,
+  transportId,
+  admissionRules = [],
+  allLocalities = [],
+  { isInternalTransport = false } = {},
+) => {
+  const tid = String(transportId);
+  const applicable = (admissionRules || []).filter(
+    (r) =>
+      String(r.id_transporte_fisico) === tid &&
+      matchesRule(r, person, allLocalities),
+  );
+
+  if (applicable.length === 0) {
+    return isInternalTransport ? "admitted" : "none";
+  }
+
+  applicable.sort((a, b) => (b.prioridad || 0) - (a.prioridad || 0));
+  const top = applicable[0];
+  return isAdmissionExclusionRule(top) ? "excluded" : "admitted";
+};
+
+export const isPersonAdmittedToTransport = (
+  person,
+  transportId,
+  admissionRules,
+  allLocalities,
+  options,
+) =>
+  resolveTransportAdmissionStatus(
+    person,
+    transportId,
+    admissionRules,
+    allLocalities,
+    options,
+  ) === "admitted";
+
+export const isPersonVetoedFromTransport = (
+  person,
+  transportId,
+  admissionRules,
+  allLocalities,
+  options,
+) =>
+  resolveTransportAdmissionStatus(
+    person,
+    transportId,
+    admissionRules,
+    allLocalities,
+    options,
+  ) === "excluded";
+
 /* --- CONFIGURACIÓN DE TIPOS DE PROGRAMA --- */
 export const PROGRAM_TYPES = {
   Sinfónico: {

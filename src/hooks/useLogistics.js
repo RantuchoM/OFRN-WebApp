@@ -5,6 +5,7 @@ import {
   getMatchStrength,
   matchesRule,
   getCategoriaLogistica,
+  resolveTransportAdmissionStatus,
 } from "../utils/giraUtils";
 import {
   resolveLocalidadEfectivaViaticos,
@@ -13,7 +14,16 @@ import {
 
 // --- 1. RE-EXPORTS PARA COMPATIBILIDAD ---
 /** Incluye categoría EXTERNOS (ver `getCategoriaLogistica` en `giraUtils.js`). */
-export { normalize, getMatchStrength, matchesRule, getCategoriaLogistica };
+export {
+  normalize,
+  getMatchStrength,
+  matchesRule,
+  getCategoriaLogistica,
+  resolveTransportAdmissionStatus,
+  isPersonAdmittedToTransport,
+  isPersonVetoedFromTransport,
+  isAdmissionExclusionRule,
+} from "../utils/giraUtils";
 
 export const getPriorityValue = (scope) => {
   const s = normalize(scope);
@@ -173,26 +183,22 @@ export const calculateLogisticsSummary = (
         .filter((id) => !Number.isNaN(id)),
     );
     const allowedTids = new Set();
-    const excludedInternalTids = new Set();
-    (admissionRules || []).forEach((r) => {
-      if (!matchesRule(r, person, allLocalities)) return;
-      const tid = Number(r.id_transporte_fisico);
-      if (Number.isNaN(tid)) return;
+    const transportIdsForAdmission = new Set([
+      ...internalTids,
+      ...(admissionRules || [])
+        .map((r) => Number(r.id_transporte_fisico))
+        .filter((id) => !Number.isNaN(id)),
+    ]);
 
-      const isExclusion = r.tipo === "EXCLUSION" || r.es_exclusion;
-      if (internalTids.has(tid)) {
-        // INTERNO: base "todos", pero respetando vetos/exclusiones.
-        if (isExclusion) excludedInternalTids.add(tid);
-        return;
-      }
-
-      if (isExclusion) allowedTids.delete(tid);
-      else allowedTids.add(tid);
-    });
-
-    // INTERNO aplica a todo el roster activo salvo que exista veto/exclusión.
-    internalTids.forEach((tid) => {
-      if (!excludedInternalTids.has(tid)) allowedTids.add(tid);
+    transportIdsForAdmission.forEach((tid) => {
+      const status = resolveTransportAdmissionStatus(
+        person,
+        tid,
+        admissionRules,
+        allLocalities,
+        { isInternalTransport: internalTids.has(tid) },
+      );
+      if (status === "admitted") allowedTids.add(tid);
     });
 
     // Reglas de trayecto único:

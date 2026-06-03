@@ -55,7 +55,12 @@ import StopRulesManager from "./StopRulesManager";
 import TransportAdmissionModal from "./TransportAdmissionModal";
 import DataIntegrityIndicator from "../../components/DataIntegrityIndicator";
 import ConfirmModal from "../../components/ui/ConfirmModal";
-import { useLogistics, matchesRule, normalize } from "../../hooks/useLogistics";
+import {
+  useLogistics,
+  matchesRule,
+  normalize,
+  isPersonVetoedFromTransport,
+} from "../../hooks/useLogistics";
 import {
   countEventosByGiraTransporte,
   deleteGiraTransporteCascade,
@@ -926,6 +931,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
   const {
     summary: rawSummary,
     routeRules,
+    admissionRules,
     transportes: transportsList,
     loading: rosterLoading,
     refresh,
@@ -3136,6 +3142,17 @@ export default function GirasTransportesManager({ supabase, gira }) {
           // pero que ESPECÍFICAMENTE tienen reglas de subida+bajada para este transporte
           // (localidad / persona / región / etc. según alcance de las reglas).
           const missingAdmissionPax = passengerList.filter((p) => {
+            if (
+              isPersonVetoedFromTransport(
+                p,
+                t.id,
+                admissionRules,
+                localitiesList,
+              )
+            ) {
+              return false;
+            }
+
             const tr = p.logistics?.transports?.find(
               (x) => String(x.id) === String(t.id),
             );
@@ -4453,6 +4470,7 @@ export default function GirasTransportesManager({ supabase, gira }) {
           regions={regionsList}
           localities={localitiesList}
           passengers={passengerList}
+          admissionRules={admissionRules}
           onRefresh={refresh}
         />
       )}
