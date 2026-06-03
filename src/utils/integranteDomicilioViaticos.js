@@ -55,9 +55,30 @@ function regionIdFromObj(obj) {
 }
 
 /**
- * Fuente única: id, nombre y objeto de localidad (viáticos → residencia).
+ * Localidad de residencia (id_localidad del integrante), sin viáticos.
  * @returns {{ id: number|null, nombre: string, objeto: object|null, regionId: number|null }}
  */
+export function resolveLocalidadResidencia(person) {
+  if (!person) {
+    return { id: null, nombre: "", objeto: null, regionId: null };
+  }
+
+  const residenciaId = getResidenciaId(person);
+  const objeto = getResidenciaObjeto(person);
+  const nombre = getResidenciaNombre(person);
+
+  return {
+    id: residenciaId != null ? Number(residenciaId) : null,
+    nombre,
+    objeto:
+      objeto ||
+      (residenciaId != null
+        ? { id: residenciaId, localidad: nombre || undefined }
+        : null),
+    regionId: regionIdFromObj(objeto),
+  };
+}
+
 export function resolveLocalidadEfectivaViaticos(person) {
   if (!person) {
     return { id: null, nombre: "", objeto: null, regionId: null };

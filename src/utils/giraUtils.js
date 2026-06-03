@@ -1,6 +1,54 @@
 // src/utils/giraUtils.js
 
+import { resolveLocalidadResidencia } from "./integranteDomicilioViaticos";
+
 export const normalize = (str) => (str || "").toLowerCase().trim();
+
+/** Subidas/bajadas y admisión por territorio usan residencia, no viáticos. */
+export const isTransportTerritoryRule = (rule) =>
+  Boolean(
+    rule &&
+      ("id_transporte_fisico" in rule ||
+        rule.id_evento_subida != null ||
+        rule.id_evento_bajada != null),
+  );
+
+/** Id de localidad y región para matchear una regla (residencia vs viáticos). */
+export const resolvePersonTerritoryIds = (person, rule, allLocalities = []) => {
+  if (!person) return { pLoc: "", pReg: "" };
+
+  if (isTransportTerritoryRule(rule)) {
+    const locRes = resolveLocalidadResidencia(person);
+    const rawLoc = person.id_localidad_residencia ?? locRes.id;
+    const pLoc =
+      rawLoc != null && rawLoc !== "" ? String(rawLoc) : "";
+    const resObj =
+      person.localidades_residencia ||
+      locRes.objeto ||
+      person._loc_residencia ||
+      person.residencia ||
+      null;
+    const locFromCatalog = allLocalities.find((l) => String(l.id) === pLoc);
+    const pReg = String(
+      person.id_region_residencia ??
+        resObj?.id_region ??
+        resObj?.regiones?.id ??
+        locFromCatalog?.id_region ??
+        "",
+    );
+    return { pLoc, pReg };
+  }
+
+  const pLoc = person.id_localidad ? String(person.id_localidad) : "";
+  const locInfo = allLocalities.find((l) => String(l.id) === pLoc);
+  const pReg = String(
+    person.id_region ??
+      person.localidades?.id_region ??
+      locInfo?.id_region ??
+      "",
+  );
+  return { pLoc, pReg };
+};
 
 /* --- ÚNICA FUENTE DE VERDAD: CATEGORÍAS Y ROLES (GRP) --- */
 
@@ -245,16 +293,8 @@ export const getMatchStrength = (rule, person, allLocalities = []) => {
   if (normalize(person.estado_gira) === "ausente") return 0;
 
   const pId = String(person.id ?? person.id_integrante);
-  const pLoc = person.id_localidad ? String(person.id_localidad) : "";
+  const { pLoc, pReg } = resolvePersonTerritoryIds(person, rule, allLocalities);
   const pCat = getCategoriaLogistica(person);
-
-  const locInfo = allLocalities.find((l) => String(l.id) === pLoc);
-  const pReg = String(
-    person.id_region ??
-      person.localidades?.id_region ??
-      locInfo?.id_region ??
-      "",
-  );
 
   if ((rule.target_ids || []).map(String).includes(pId)) return 5;
   if (
@@ -308,16 +348,8 @@ export const matchesRule = (rule, person, allLocalities = []) => {
 
   const scope = normalize(rule.alcance);
   const pId = String(person.id ?? person.id_integrante);
-  const pLoc = person.id_localidad ? String(person.id_localidad) : "";
+  const { pLoc, pReg } = resolvePersonTerritoryIds(person, rule, allLocalities);
   const pRole = normalize(person.rol ?? person.rol_gira ?? "musico");
-
-  const locInfo = allLocalities.find((l) => String(l.id) === pLoc);
-  const pReg = String(
-    person.id_region ??
-      person.localidades?.id_region ??
-      locInfo?.id_region ??
-      "",
-  );
 
   const isTransportRule = "id_transporte_fisico" in rule;
   if (isTransportRule && ["general", "region", "localidad"].includes(scope)) {
