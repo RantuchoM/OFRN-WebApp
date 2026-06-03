@@ -6,7 +6,10 @@ import {
   matchesRule,
   getCategoriaLogistica,
 } from "../utils/giraUtils";
-import { resolveLocalidadEfectivaViaticos } from "../utils/integranteDomicilioViaticos";
+import {
+  resolveLocalidadEfectivaViaticos,
+  resolveLocalidadResidencia,
+} from "../utils/integranteDomicilioViaticos";
 
 // --- 1. RE-EXPORTS PARA COMPATIBILIDAD ---
 /** Incluye categoría EXTERNOS (ver `getCategoriaLogistica` en `giraUtils.js`). */
@@ -401,23 +404,36 @@ export function useLogistics(supabase, gira, trigger = 0) {
 
   const summary = useMemo(() => {
     const rosterEnriquecido = (baseRoster || []).map((p) => {
-      const locEfectiva = resolveLocalidadEfectivaViaticos(
-        p.integrantes || p.integrante || p,
-      );
+      const integrante = p.integrantes || p.integrante || p;
+      const locViaticos = resolveLocalidadEfectivaViaticos(integrante);
+      const locResidencia = resolveLocalidadResidencia(integrante);
+
       const locId =
-        locEfectiva.id != null && locEfectiva.id !== ""
-          ? String(locEfectiva.id)
+        locViaticos.id != null && locViaticos.id !== ""
+          ? String(locViaticos.id)
           : "";
       const locObj =
-        db.locs.find((l) => String(l.id) === locId) || locEfectiva.objeto;
+        db.locs.find((l) => String(l.id) === locId) || locViaticos.objeto;
 
-      // 2. Criterio único: local solo si su localidad está en sedes de la gira.
-      const isLocal = locId !== "" && db.sedes.some((sid) => String(sid) === locId);
+      const residenciaId =
+        locResidencia.id != null && locResidencia.id !== ""
+          ? String(locResidencia.id)
+          : "";
+      const residenciaObj =
+        db.locs.find((l) => String(l.id) === residenciaId) ||
+        locResidencia.objeto;
+
+      // Local de gira: sedes vs localidad de viáticos (comidas, rooming, etc.).
+      const isLocal =
+        locId !== "" && db.sedes.some((sid) => String(sid) === locId);
 
       return {
         ...p,
         id_localidad: locId,
         localidades: locObj || p.localidades || null,
+        id_localidad_residencia: residenciaId,
+        localidades_residencia: residenciaObj || p._loc_residencia || null,
+        id_region_residencia: locResidencia.regionId,
         is_local: isLocal,
       };
     });

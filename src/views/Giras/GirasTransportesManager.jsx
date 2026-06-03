@@ -690,7 +690,11 @@ const generateRoadmapExcel = async (
       };
 
       ups.forEach((p) => {
-        const loc = p.localidades?.localidad || paxLocalities[p.id] || "";
+        const loc =
+          p.localidades_residencia?.localidad ||
+          p._loc_residencia?.localidad ||
+          paxLocalities[p.id] ||
+          "";
         const nombreYResidencia = loc ? `${p.nombre} (${loc})` : p.nombre;
         worksheet.addRow([
           p.apellido?.toUpperCase(),
@@ -714,7 +718,11 @@ const generateRoadmapExcel = async (
       };
 
       downs.forEach((p) => {
-        const loc = p.localidades?.localidad || paxLocalities[p.id] || "";
+        const loc =
+          p.localidades_residencia?.localidad ||
+          p._loc_residencia?.localidad ||
+          paxLocalities[p.id] ||
+          "";
         const nombreYResidencia = loc ? `${p.nombre} (${loc})` : p.nombre;
         worksheet.addRow([
           p.apellido?.toUpperCase(),
@@ -1074,7 +1082,10 @@ export default function GirasTransportesManager({ supabase, gira }) {
       const grouped = {};
       infoListModal.list.forEach((p) => {
         const locName =
-          paxLocalities[p.id] || p.localidades?.localidad || "Sin registro de localidad";
+          p.localidades_residencia?.localidad ||
+          p._loc_residencia?.localidad ||
+          paxLocalities[p.id] ||
+          "Sin registro de localidad";
         if (!grouped[locName]) grouped[locName] = [];
         grouped[locName].push(p);
       });

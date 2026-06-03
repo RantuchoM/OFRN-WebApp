@@ -77,7 +77,11 @@ export default function TransportAdmissionModal({
 
   const relevantLocalities = useMemo(() => {
     const rosterLocIds = new Set(
-      roster.map((p) => String(p.id_localidad)).filter((id) => id !== "null"),
+      roster
+        .map((p) =>
+          String(p.id_localidad_residencia || p.id_localidad || ""),
+        )
+        .filter((id) => id && id !== "null"),
     );
     return localities.filter((l) => rosterLocIds.has(String(l.id)));
   }, [localities, roster]);

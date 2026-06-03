@@ -8,6 +8,7 @@ import {
   IconUsers,
   IconChevronDown,
   IconChevronUp,
+  IconCheck,
 } from "../../components/ui/Icons";
 import { normalize, getCategoriaLogistica } from "../../hooks/useLogistics";
 import { toast } from "sonner";
@@ -49,6 +50,40 @@ const getPriorityColor = (prio) => {
   return "bg-slate-100 text-slate-600 border-slate-200"; // General
 };
 
+const routeRuleAdmissionKey = (rule) => {
+  if (!rule) return "";
+  if (rule.alcance === "Localidad")
+    return `Localidad:${rule.id_localidad}`;
+  if (rule.alcance === "Region") return `Region:${rule.id_region}`;
+  if (rule.alcance === "Persona")
+    return `Persona:${rule.id_integrante}`;
+  return "";
+};
+
+const admissionCoversRouteRule = (admission, routeRule) => {
+  if (!admission || !routeRule) return false;
+  if (admission.tipo === "EXCLUSION" || admission.es_exclusion) return false;
+  if (routeRule.alcance === "Localidad") {
+    return (
+      admission.alcance === "Localidad" &&
+      String(admission.id_localidad) === String(routeRule.id_localidad)
+    );
+  }
+  if (routeRule.alcance === "Region") {
+    return (
+      admission.alcance === "Region" &&
+      String(admission.id_region) === String(routeRule.id_region)
+    );
+  }
+  if (routeRule.alcance === "Persona") {
+    return (
+      admission.alcance === "Persona" &&
+      String(admission.id_integrante) === String(routeRule.id_integrante)
+    );
+  }
+  return false;
+};
+
 export default function StopRulesManager({
   isOpen,
   onClose,
@@ -63,9 +98,12 @@ export default function StopRulesManager({
   onRefresh,
 }) {
   const [existingRules, setExistingRules] = useState([]);
+  const [transportAdmissionRules, setTransportAdmissionRules] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expandedRuleId, setExpandedRuleId] = useState(null); // Estado para el acordeón
   const [admittedIds, setAdmittedIds] = useState(new Set());
+  const [recentlyCreatedAdmissionKeys, setRecentlyCreatedAdmissionKeys] =
+    useState(() => new Set());
   // Formulario nueva regla
   const [newScope, setNewScope] = useState("General");
   const [targetIds, setTargetIds] = useState([]);
@@ -77,9 +115,37 @@ export default function StopRulesManager({
   useEffect(() => {
     if (isOpen && transportId) {
       fetchRules();
-      fetchAdmissions(); // <--- Agregar esta llamada
+      fetchTransportAdmissionRules();
+      fetchAdmissions();
+    } else if (!isOpen) {
+      setRecentlyCreatedAdmissionKeys(new Set());
     }
-  }, [isOpen, transportId, event]);
+  }, [isOpen, transportId, event?.id]);
+
+  useEffect(() => {
+    if (isOpen && transportId) fetchAdmissions();
+  }, [passengers, isOpen, transportId]);
+
+  const fetchTransportAdmissionRules = async () => {
+    if (!transportId || !giraId) return;
+    try {
+      const { data, error } = await supabase
+        .from("giras_logistica_admision")
+        .select("*")
+        .eq("id_gira", giraId)
+        .eq("id_transporte_fisico", transportId);
+      if (error) throw error;
+      setTransportAdmissionRules(data || []);
+    } catch (err) {
+      console.error("Error cargando admisiones del transporte:", err);
+    }
+  };
+
+  const hasAdmissionForRouteRule = (routeRule) =>
+    (transportAdmissionRules || []).some((adm) =>
+      admissionCoversRouteRule(adm, routeRule),
+    );
+
   const fetchAdmissions = async () => {
     // Centralizamos: si useLogistics ya resolvió que un pasajero "viaja en este transporte",
     // entonces ya respetó la lógica de roles y alcance (matchesRule). Usamos eso como fuente de verdad.
@@ -220,6 +286,7 @@ export default function StopRulesManager({
                 next.add(idStr);
                 return next;
               });
+              await fetchTransportAdmissionRules();
             }
           }
         }
@@ -278,76 +345,64 @@ export default function StopRulesManager({
 
   const handleAutoCreateMissingAdmissionRule = async () => {
     try {
-      // Priorizamos el primer caso detectado (Localidad -> Región -> Persona)
-      const problematicLocalidad = existingRules.find(
+      const pending = (existingRules || []).filter(
         (r) =>
-          r.alcance === "Localidad" && getAffectedPeople(r).length === 0,
-      );
-      const problematicRegion = existingRules.find(
-        (r) =>
-          r.alcance === "Region" && getAffectedPeople(r).length === 0,
-      );
-      const problematicPersona = existingRules.find(
-        (r) =>
-          r.alcance === "Persona" &&
-          r.id_integrante &&
-          !admittedIds.has(String(r.id_integrante)),
+          (r.alcance === "Localidad" ||
+            r.alcance === "Region" ||
+            (r.alcance === "Persona" && r.id_integrante)) &&
+          !hasAdmissionForRouteRule(r),
       );
 
-      const problematic =
-        problematicLocalidad || problematicRegion || problematicPersona;
-
-      if (!problematic) {
-        toast.info("No se encontró ninguna admisión faltante para este caso.");
+      if (pending.length === 0) {
+        toast.info("No hay admisiones pendientes para esta parada.");
         return;
       }
 
-      const scope = problematic.alcance;
-      const idValue =
-        scope === "Localidad"
-          ? problematic.id_localidad
-          : scope === "Region"
-            ? problematic.id_region
-            : scope === "Persona"
-              ? problematic.id_integrante
-              : null;
-
-      if (!scope || !idValue) {
-        toast.info("No se pudo determinar el alcance/ID de la regla faltante.");
-        return;
-      }
+      const lines = pending
+        .map((r) => `• ${r.alcance} — ${resolveTargetName(r)}`)
+        .join("\n");
 
       const confirmed = window.confirm(
-        `Se creará una REGLA DE ADMISIÓN (${scope}) para este transporte,\n` +
-          "incluyendo automáticamente a las personas alcanzadas por esa regla en este bus.\n\n" +
+        `Se crearán ${pending.length} regla(s) de ADMISIÓN para este transporte:\n\n${lines}\n\n` +
           "¿Deseás continuar?",
       );
       if (!confirmed) return;
 
       setLoading(true);
 
-      const { error } = await supabase
+      const payloads = pending.map((r) => {
+        const scope = r.alcance;
+        return {
+          id_gira: giraId,
+          id_transporte_fisico: transportId,
+          alcance: scope,
+          prioridad: scope === "Persona" ? 5 : scope === "Region" ? 2 : 3,
+          tipo: "INCLUSION",
+          id_localidad: scope === "Localidad" ? r.id_localidad : null,
+          id_region: scope === "Region" ? r.id_region : null,
+          id_integrante: scope === "Persona" ? r.id_integrante : null,
+        };
+      });
+
+      const { data: created, error } = await supabase
         .from("giras_logistica_admision")
-        .insert([
-          {
-            id_gira: giraId,
-            id_transporte_fisico: transportId,
-            alcance: scope,
-            prioridad:
-              scope === "Persona" ? 5 : scope === "Region" ? 2 : 3,
-            tipo: "INCLUSION",
-            id_localidad: scope === "Localidad" ? idValue : null,
-            id_region: scope === "Region" ? idValue : null,
-            id_integrante: scope === "Persona" ? idValue : null,
-          },
-        ]);
+        .insert(payloads)
+        .select();
 
       if (error) throw error;
 
-      await fetchAdmissions();
+      setTransportAdmissionRules((prev) => [...prev, ...(created || [])]);
+      setRecentlyCreatedAdmissionKeys(
+        new Set(pending.map((r) => routeRuleAdmissionKey(r)).filter(Boolean)),
+      );
+
       onRefresh && onRefresh();
 
-      toast.success(`Se creó la regla de admisión por ${scope.toLowerCase()}.`);
+      toast.success(
+        created?.length === 1
+          ? "Se creó 1 regla de admisión."
+          : `Se crearon ${created?.length || pending.length} reglas de admisión.`,
+      );
     } catch (e) {
       console.error("Error en creación automática de regla de admisión:", e);
       toast.error(
@@ -434,16 +489,21 @@ export default function StopRulesManager({
       // validamos que pertenezca al objetivo específico de la regla.
       if (rule.alcance === "Localidad" && rule.id_localidad) {
         const pLocId =
-          p.id_localidad ||
-          p.localidades?.id ||
-          p.localidades?.id_localidad ||
+          p.id_localidad_residencia ||
+          p.localidades_residencia?.id ||
+          p._loc_residencia?.id ||
           "";
         return String(pLocId) === String(rule.id_localidad);
       }
 
       if (rule.alcance === "Region" && rule.id_region) {
         const pRegId =
-          p.localidades?.id_region || p.localidades?.region?.id || "";
+          p.id_region_residencia ||
+          p.localidades_residencia?.id_region ||
+          p.localidades_residencia?.regiones?.id ||
+          p._loc_residencia?.id_region ||
+          p._loc_residencia?.regiones?.id ||
+          "";
         return String(pRegId) === String(rule.id_region);
       }
 
@@ -466,25 +526,17 @@ export default function StopRulesManager({
   const missingAdmissionRules = useMemo(() => {
     if (!existingRules || existingRules.length === 0) return [];
 
-    const list = [];
-
-    (existingRules || []).forEach((r) => {
-      // Para Localidad/Región, si no hay afectados para esta regla en el evento,
-      // interpretamos que falta la admisión para ese alcance/objetivo.
-      if (r.alcance === "Localidad" || r.alcance === "Region") {
-        const affected = getAffectedPeople(r);
-        if (affected.length === 0) list.push(r);
-        return;
+    return (existingRules || []).filter((r) => {
+      if (
+        r.alcance !== "Localidad" &&
+        r.alcance !== "Region" &&
+        !(r.alcance === "Persona" && r.id_integrante)
+      ) {
+        return false;
       }
-
-      // Para Persona: está faltando admisión si no está en admittedIds.
-      if (r.alcance === "Persona" && r.id_integrante) {
-        if (!admittedIds.has(String(r.id_integrante))) list.push(r);
-      }
+      return !hasAdmissionForRouteRule(r);
     });
-
-    return list;
-  }, [existingRules, passengers, admittedIds, type, transportId, event, localities]);
+  }, [existingRules, transportAdmissionRules]);
 
   const groupedRules = useMemo(() => {
     if (!existingRules || existingRules.length === 0) return [];
@@ -714,13 +766,17 @@ export default function StopRulesManager({
                         const affectedPeople = getAffectedPeople(rule);
                         const isExpanded = expandedRuleId === rule.id;
                         const displayCount = affectedPeople.length;
+                        const admissionReady = hasAdmissionForRouteRule(rule);
+                        const admissionJustCreated = recentlyCreatedAdmissionKeys.has(
+                          routeRuleAdmissionKey(rule),
+                        );
 
                         return (
                           <div key={rule.id} className="flex flex-col">
                             <div
                               className={`px-3 py-2 flex justify-between items-center hover:bg-slate-50 ${
                                 isPersonaRule ? "" : "cursor-pointer"
-                              }`}
+                              } ${admissionJustCreated ? "bg-emerald-50/80" : ""}`}
                               onClick={() => {
                                 if (isPersonaRule) return;
                                 setExpandedRuleId(isExpanded ? null : rule.id);
@@ -732,9 +788,17 @@ export default function StopRulesManager({
                                 </span>
                               </div>
                               <div className="flex items-center gap-2">
+                                {admissionReady && displayCount === 0 && (
+                                  <span
+                                    className="text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-full text-emerald-700 bg-emerald-100"
+                                    title="Admisión creada; los pasajeros aparecerán al actualizar la logística"
+                                  >
+                                    <IconCheck size={12} /> Admisión
+                                  </span>
+                                )}
                                 <span
                                   className={`text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-full ${
-                                    displayCount === 0
+                                    displayCount === 0 && !admissionReady
                                       ? "text-amber-700 bg-amber-100"
                                       : "text-slate-400 bg-slate-100"
                                   }`}
@@ -781,43 +845,61 @@ export default function StopRulesManager({
                                   </ul>
                                 ) : (
                                   <div className="text-xs text-slate-500 text-center py-1.5 space-y-1">
-                                    <div className="italic">
-                                      Ninguna persona coincide con esta regla
-                                      actualmente.
-                                    </div>
-                                    {rule.alcance === "Localidad" && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setNewScope("Localidad");
-                                          setTargetIds(
-                                            rule.id_localidad
-                                              ? [String(rule.id_localidad)]
-                                              : [],
-                                          );
-                                        }}
-                                        className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-full border border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
-                                      >
-                                        Sugerir regla de admisión para esta
-                                        localidad
-                                      </button>
-                                    )}
-                                    {rule.alcance === "Region" && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setNewScope("Region");
-                                          setTargetIds(
-                                            rule.id_region
-                                              ? [String(rule.id_region)]
-                                              : [],
-                                          );
-                                        }}
-                                        className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-full border border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
-                                      >
-                                        Sugerir regla de admisión para esta
-                                        región
-                                      </button>
+                                    {admissionReady ? (
+                                      <div className="flex items-center justify-center gap-1 text-emerald-700 font-semibold not-italic">
+                                        <IconCheck size={14} />
+                                        Regla de admisión creada
+                                        {admissionJustCreated
+                                          ? " (recién)"
+                                          : ""}
+                                        . Los pasajeros se listarán al
+                                        actualizar la logística.
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div className="italic">
+                                          Ninguna persona coincide con esta
+                                          regla actualmente.
+                                        </div>
+                                        {rule.alcance === "Localidad" && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setNewScope("Localidad");
+                                              setTargetIds(
+                                                rule.id_localidad
+                                                  ? [
+                                                      String(
+                                                        rule.id_localidad,
+                                                      ),
+                                                    ]
+                                                  : [],
+                                              );
+                                            }}
+                                            className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-full border border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
+                                          >
+                                            Sugerir regla de admisión para esta
+                                            localidad
+                                          </button>
+                                        )}
+                                        {rule.alcance === "Region" && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setNewScope("Region");
+                                              setTargetIds(
+                                                rule.id_region
+                                                  ? [String(rule.id_region)]
+                                                  : [],
+                                              );
+                                            }}
+                                            className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-full border border-amber-300 bg-amber-50 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
+                                          >
+                                            Sugerir regla de admisión para esta
+                                            región
+                                          </button>
+                                        )}
+                                      </>
                                     )}
                                   </div>
                                 )}
@@ -838,11 +920,10 @@ export default function StopRulesManager({
             <h4 className="text-xs font-bold text-indigo-900 uppercase tracking-wider mb-3">
               Agregar Nueva Regla
             </h4>
-            {/* Hint cuando hay reglas de localidad sin nadie admitido */}
             {missingAdmissionRules.length > 0 && (
               <div className="mb-3 flex items-center justify-between gap-3 text-[10px] bg-amber-50 border border-amber-200 px-2 py-1.5 rounded">
                 <div className="text-amber-700">
-                  Faltan las siguientes reglas:{" "}
+                  Faltan admisiones para:{" "}
                   <div className="mt-1">
                     <ul className="space-y-1">
                       {missingAdmissionRules.map((r) => (
@@ -859,10 +940,62 @@ export default function StopRulesManager({
                 <button
                   type="button"
                   onClick={handleAutoCreateMissingAdmissionRule}
-                  className="shrink-0 px-2 py-1 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+                  disabled={loading}
+                  className="shrink-0 px-2 py-1 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-semibold disabled:opacity-60"
                 >
-                  Crear regla automáticamente
+                  Crear{" "}
+                  {missingAdmissionRules.length > 1
+                    ? `${missingAdmissionRules.length} reglas`
+                    : "regla"}{" "}
+                  automáticamente
                 </button>
+              </div>
+            )}
+            {missingAdmissionRules.length === 0 &&
+              recentlyCreatedAdmissionKeys.size > 0 && (
+                <div className="mb-3 text-[10px] bg-emerald-50 border border-emerald-200 text-emerald-800 px-2 py-2 rounded flex items-start gap-2">
+                  <IconCheck size={14} className="shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold">
+                      Admisiones creadas para esta parada.
+                    </span>{" "}
+                    El listado de pasajeros por regla se actualiza en cuanto
+                    termina el recálculo de logística.
+                  </div>
+                </div>
+              )}
+            {transportAdmissionRules.length > 0 && (
+              <div className="mb-3 text-[10px] bg-slate-50 border border-slate-200 px-2 py-1.5 rounded">
+                <span className="font-bold text-slate-500 uppercase tracking-wide">
+                  Admisiones en este bus
+                </span>
+                <ul className="mt-1 space-y-0.5 text-slate-600">
+                  {transportAdmissionRules.map((adm) => (
+                    <li key={adm.id} className="flex items-center gap-1.5">
+                      {recentlyCreatedAdmissionKeys.has(
+                        routeRuleAdmissionKey(adm),
+                      ) ? (
+                        <IconCheck
+                          size={12}
+                          className="text-emerald-600 shrink-0"
+                        />
+                      ) : (
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
+                      )}
+                      <span>
+                        {adm.alcance}
+                        {adm.alcance !== "General"
+                          ? ` — ${resolveTargetName(adm)}`
+                          : ""}
+                        {recentlyCreatedAdmissionKeys.has(
+                          routeRuleAdmissionKey(adm),
+                        )
+                          ? " (nueva)"
+                          : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
             <div className="flex gap-2 mb-3">
