@@ -1652,6 +1652,7 @@ export default function GiraRoster({
       { header: "CUIL", key: "cuil", width: 22, type: "text", defaultSelected: true },
       { header: "Legajo", key: "legajo", width: 18, type: "text", defaultSelected: false },
       { header: "Instrumento", key: "instrumento", width: 22, type: "text", defaultSelected: true },
+      { header: "Ensambles", key: "ensambles", width: 30, type: "text", defaultSelected: false },
       { header: "Teléfono", key: "telefono", width: 20, type: "text", defaultSelected: true },
       { header: "Email", key: "mail", width: 26, type: "text", defaultSelected: true },
       { header: "Fecha Nac.", key: "fecha_nac", width: 20, type: "date", defaultSelected: false },
@@ -1680,6 +1681,10 @@ export default function GiraRoster({
           cuil: m.cuil || "",
           legajo: m.legajo || "",
           instrumento: m.instrumentos?.instrumento || "",
+          ensambles: (m.integrantes_ensambles || [])
+            .map((ie) => ie.ensambles?.ensamble)
+            .filter(Boolean)
+            .join(", "),
           telefono: m.telefono || "",
           mail: m.mail || "",
           fecha_nac: m.fecha_nac || "",
