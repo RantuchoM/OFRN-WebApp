@@ -5,7 +5,13 @@ import {
   resolveAsientoHabitualViaticos,
   resolveCiudadOrigenViaticos,
 } from "../../utils/integranteDomicilioViaticos";
-import { scheduleFromParadaRange } from "../../utils/viaticosParadasIntegrante";
+import {
+  getParadasParticipacionIntegrante,
+  getTramoGroupRows,
+  isTramoViaticoRow,
+  resolveTramoParadaIdsForSchedule,
+  scheduleFromParadaRange,
+} from "../../utils/viaticosParadasIntegrante";
 import { calculateDaysDiff } from "../../utils/viaticosDiasComputables";
 
 export { calculateDaysDiff, explainViaticosDiasCalculation } from "../../utils/viaticosDiasComputables";
@@ -92,6 +98,7 @@ export function useViaticosIndividuales(
   logisticsMap,
   config,
   allEvents = [],
+  logisticsSummary = [],
 ) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -135,6 +142,21 @@ export function useViaticosIndividuales(
   // --- CÁLCULO DE FILAS ACTIVAS (MERGE CON ROSTER Y LOGISTICA) ---
   // Esta es la "magia" que antes hacía el Manager. Ahora el hook te devuelve la data lista para pintar.
   const activeRows = useMemo(() => {
+    const tramoPrevByRowId = new Map();
+    const tramoGroupsByIntegrante = new Map();
+    rows.forEach((row) => {
+      if (!isTramoViaticoRow(row)) return;
+      const key = String(row.id_integrante);
+      if (!tramoGroupsByIntegrante.has(key)) {
+        tramoGroupsByIntegrante.set(key, getTramoGroupRows(rows, row));
+      }
+    });
+    tramoGroupsByIntegrante.forEach((group) => {
+      group.forEach((row, idx) => {
+        if (idx > 0) tramoPrevByRowId.set(String(row.id), group[idx - 1]);
+      });
+    });
+
     return rows
       .map((row) => {
         const enRoster = (roster || []).find(
@@ -156,10 +178,22 @@ export function useViaticosIndividuales(
         let horaLleg = logData?.hora_llegada || null;
 
         if (row.id_evento_parada_inicio && row.id_evento_parada_fin) {
+          const paradasIntegrante = getParadasParticipacionIntegrante(
+            row.id_integrante,
+            logisticsSummary,
+            allEvents,
+          );
+          const prevTramo = tramoPrevByRowId.get(String(row.id));
+          const { inicioId, finId } = resolveTramoParadaIdsForSchedule(
+            row,
+            paradasIntegrante,
+            prevTramo,
+          );
           const tramoSched = scheduleFromParadaRange(
             allEvents,
-            row.id_evento_parada_inicio,
-            row.id_evento_parada_fin,
+            inicioId,
+            finId,
+            { paradasContext: paradasIntegrante },
           );
           if (tramoSched) {
             fechaSal = tramoSched.fecha_salida;
@@ -234,7 +268,7 @@ export function useViaticosIndividuales(
         if (byName !== 0) return byName;
         return (a.tramo_orden || 1) - (b.tramo_orden || 1);
       });
-  }, [rows, roster, config, logisticsMap, allEvents]);
+  }, [rows, roster, config, logisticsMap, allEvents, logisticsSummary]);
 
   // --- ACCIONES ---
 
@@ -656,18 +690,32 @@ export function useViaticosIndividuales(
         rendicion_transporte_otros: 0,
       };
 
-      const payloads = tramosPreview.map((t, idx) => ({
-        ...baseFields,
-        ...(idx > 0 ? zeroGastos : {}),
-        tramo_orden: t.tramo_orden ?? idx + 1,
-        etiqueta_tramo: t.etiqueta_tramo || `Tramo ${idx + 1}`,
-        id_evento_parada_inicio: t.id_evento_parada_inicio ?? null,
-        id_evento_parada_fin: t.id_evento_parada_fin ?? null,
-        anticipo_custom:
-          idx === 0 && originalRow.anticipo_custom != null
-            ? originalRow.anticipo_custom
-            : null,
-      }));
+      const paradasIntegrante = getParadasParticipacionIntegrante(
+        originalRow.id_integrante,
+        logisticsSummary,
+        allEvents,
+      );
+
+      const payloads = tramosPreview.map((t, idx) => {
+        const prevTramo = idx > 0 ? tramosPreview[idx - 1] : null;
+        const { inicioId, finId } = resolveTramoParadaIdsForSchedule(
+          t,
+          paradasIntegrante,
+          prevTramo,
+        );
+        return {
+          ...baseFields,
+          ...(idx > 0 ? zeroGastos : {}),
+          tramo_orden: t.tramo_orden ?? idx + 1,
+          etiqueta_tramo: t.etiqueta_tramo || `Tramo ${idx + 1}`,
+          id_evento_parada_inicio: inicioId ?? null,
+          id_evento_parada_fin: finId ?? null,
+          anticipo_custom:
+            idx === 0 && originalRow.anticipo_custom != null
+              ? originalRow.anticipo_custom
+              : null,
+        };
+      });
 
       const { data: inserted, error: insErr } =
         await insertViaticoDetalleRows(payloads);

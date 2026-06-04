@@ -282,6 +282,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     logisticsMap,
     config,
     allEvents,
+    summary,
   );
   const {
     configs: destaquesConfigs,

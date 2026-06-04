@@ -7,6 +7,7 @@ import {
   formatParadaLabel,
   getParadasParticipacionIntegrante,
   groupParadasByRecorrido,
+  resolveTramoParadaIdsForSchedule,
   scheduleFromParadaRange,
 } from "../../../utils/viaticosParadasIntegrante";
 
@@ -51,12 +52,17 @@ export default function DesdoblarViaticosModal({
 
   const tramosPreview = useMemo(() => {
     if (paradas.length < 2 || splitAfter.length === 0) return [];
-    return buildTramosFromParadas(paradas, splitAfter).map((t) => {
-      const sched = scheduleFromParadaRange(
-        allEvents,
-        t.id_evento_parada_inicio,
-        t.id_evento_parada_fin,
+    const built = buildTramosFromParadas(paradas, splitAfter);
+    return built.map((t, idx) => {
+      const prevTramo = idx > 0 ? built[idx - 1] : null;
+      const { inicioId, finId } = resolveTramoParadaIdsForSchedule(
+        t,
+        paradas,
+        prevTramo,
       );
+      const sched = scheduleFromParadaRange(allEvents, inicioId, finId, {
+        paradasContext: paradas,
+      });
       const dias = sched
         ? calculateDaysDiff(
             sched.fecha_salida,
@@ -65,7 +71,13 @@ export default function DesdoblarViaticosModal({
             sched.hora_llegada,
           )
         : 0;
-      return { ...t, sched, dias };
+      return {
+        ...t,
+        id_evento_parada_inicio: inicioId,
+        id_evento_parada_fin: finId,
+        sched,
+        dias,
+      };
     });
   }, [paradas, splitAfter, allEvents]);
 
