@@ -34,6 +34,7 @@ import SearchableSelect from "../../components/ui/SearchableSelect";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
 import { toast } from "sonner";
 import DateInput from "../../components/ui/DateInput";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import { normalizeForSearch } from "../../utils/sanitize";
 
@@ -307,6 +308,50 @@ const getYoutubeVideoId = (url) => {
   return m ? m[1] : null;
 };
 
+/** Carpeta Drive «Para acomodar» (staging). */
+const PARA_ACOMODAR_DRIVE_FOLDER_ID = "10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI";
+
+const stripHtmlPlain = (html) =>
+  (html || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>\s*<p>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .trim();
+
+const getTituloPrimeraLinea = (htmlTitulo) =>
+  stripHtmlPlain(htmlTitulo).split(/\r?\n/)[0]?.trim() || "";
+
+const parseComposerFromOption = (opt) => {
+  if (!opt?.label) return { apellido: "", nombre: "" };
+  const idx = opt.label.indexOf(",");
+  if (idx === -1) return { apellido: opt.label.trim(), nombre: "" };
+  return {
+    apellido: opt.label.slice(0, idx).trim(),
+    nombre: opt.label.slice(idx + 1).trim(),
+  };
+};
+
+const buildParaAcomodarFolderName = (tituloHtml, composerIds, arrangerIds, composersOptions) => {
+  const titulo = getTituloPrimeraLinea(tituloHtml);
+  if (!titulo || !composerIds?.length) return null;
+
+  const compOpt = composersOptions.find((c) => c.id === composerIds[0]);
+  const { apellido: compApellido, nombre: compNombre } = parseComposerFromOption(compOpt);
+  if (!compApellido) return null;
+
+  if (arrangerIds?.length > 0) {
+    const arrOpt = composersOptions.find((c) => c.id === arrangerIds[0]);
+    const arrApellido = parseComposerFromOption(arrOpt).apellido;
+    if (!arrApellido) return null;
+    return `${compApellido}-${arrApellido} - ${titulo}`;
+  }
+
+  const inicial = compNombre ? `${compNombre.charAt(0).toUpperCase()}.` : "";
+  const prefijo = inicial ? `${compApellido}, ${inicial}` : compApellido;
+  return `${prefijo} - ${titulo}`;
+};
+
 /** Barra superior del formulario, estilo MusicianForm (condición) */
 const getEstadoHeaderClass = (estado) => {
   const m = {
@@ -387,6 +432,8 @@ export default function WorkForm({
   const [showInstrumentOptions, setShowInstrumentOptions] = useState(false);
   const [showDriveMatcher, setShowDriveMatcher] = useState(false);
   const [showDriveField, setShowDriveField] = useState(false);
+  const [copyingToParaAcomodar, setCopyingToParaAcomodar] = useState(false);
+  const [paraAcomodarConfirm, setParaAcomodarConfirm] = useState(null);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [editingLinksId, setEditingLinksId] = useState(null);
   const instrumentInputRef = useRef(null);
@@ -1530,6 +1577,74 @@ export default function WorkForm({
     window.open(url, "_blank", "noopener,noreferrer");
   }, [formData.link_drive]);
 
+  const paraAcomodarFolderName = buildParaAcomodarFolderName(
+    formData.titulo,
+    selectedComposers,
+    selectedArrangers,
+    composersOptions,
+  );
+
+  const requestCopyToParaAcomodar = useCallback(() => {
+    const link = (formData.link_drive || "").trim();
+    if (!link) {
+      toast.error("No hay enlace de Drive");
+      return;
+    }
+    const nombreCarpeta = buildParaAcomodarFolderName(
+      formData.titulo,
+      selectedComposers,
+      selectedArrangers,
+      composersOptions,
+    );
+    if (!nombreCarpeta) {
+      toast.error("Indica título y al menos un compositor para nombrar la carpeta.");
+      return;
+    }
+    setParaAcomodarConfirm({ link, nombreCarpeta });
+  }, [
+    formData.link_drive,
+    formData.titulo,
+    selectedComposers,
+    selectedArrangers,
+    composersOptions,
+  ]);
+
+  const handleConfirmCopyToParaAcomodar = useCallback(async () => {
+    const pending = paraAcomodarConfirm;
+    if (!pending?.link || !pending?.nombreCarpeta) return;
+    setCopyingToParaAcomodar(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("manage-drive", {
+        body: {
+          action: "copiar_link_a_carpeta",
+          link_origen: pending.link,
+          nombre_carpeta: pending.nombreCarpeta,
+          id_carpeta_destino: PARA_ACOMODAR_DRIVE_FOLDER_ID,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      const destLink = (data?.link_drive || "").trim();
+      if (!destLink) throw new Error("No se obtuvo el enlace de la carpeta copiada.");
+
+      setFormData((prev) => ({ ...prev, link_drive: destLink }));
+      if (formData.id) {
+        await supabase.from("obras").update({ link_drive: destLink }).eq("id", formData.id);
+        setFieldStatusWithReset("link_drive", "success");
+        if (onSave) onSave(formData.id, false);
+      }
+
+      toast.success(`Copia creada y enlace actualizado: ${pending.nombreCarpeta}`);
+      window.open(destLink, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      console.error("copiar_link_a_carpeta:", e);
+      toast.error(e?.message || "Error al copiar en Drive");
+      throw e;
+    } finally {
+      setCopyingToParaAcomodar(false);
+    }
+  }, [supabase, formData.id, paraAcomodarConfirm, onSave]);
+
   const estadoHeaderClass = getEstadoHeaderClass(formData.estado);
   const estadoShellClass = getEstadoShellClass(formData.estado);
   const isOficial = formData.estado === "Oficial";
@@ -2047,6 +2162,30 @@ export default function WorkForm({
                 >
                   <IconLink size={16} className="text-blue-600" />
                 </button>
+                {!isOficial && (
+                  <button
+                    type="button"
+                    disabled={
+                      copyingToParaAcomodar ||
+                      !paraAcomodarFolderName ||
+                      !selectedComposers?.length
+                    }
+                    onClick={requestCopyToParaAcomodar}
+                    className="col-span-2 flex items-center justify-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-[10px] font-bold uppercase text-amber-900 shadow-sm transition hover:border-amber-400 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    title={
+                      paraAcomodarFolderName
+                        ? `Copiar a Para acomodar como: ${paraAcomodarFolderName}`
+                        : "Requiere título y compositor"
+                    }
+                  >
+                    {copyingToParaAcomodar ? (
+                      <IconLoader size={14} className="animate-spin shrink-0" />
+                    ) : (
+                      <IconFolder size={14} className="text-amber-700 shrink-0" />
+                    )}
+                    Para acomodar
+                  </button>
+                )}
               </div>
             ) : (
               !showDriveField && (
@@ -2420,6 +2559,21 @@ export default function WorkForm({
       </div>
 
       {/* MODALES */}
+      <ConfirmDialog
+        isOpen={!!paraAcomodarConfirm}
+        onClose={() => setParaAcomodarConfirm(null)}
+        onConfirm={handleConfirmCopyToParaAcomodar}
+        title="Copiar a Para acomodar"
+        message={
+          paraAcomodarConfirm
+            ? `Se creará una copia en la carpeta compartida «Para acomodar» con el nombre:\n\n${paraAcomodarConfirm.nombreCarpeta}\n\nEl enlace de Drive de la obra se reemplazará por el de la carpeta copiada.`
+            : ""
+        }
+        confirmText="Copiar"
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]"
+        overlayClassName="z-[110]"
+      />
+
       <DriveMatcherModal
         isOpen={showDriveMatcher}
         onClose={async () => {

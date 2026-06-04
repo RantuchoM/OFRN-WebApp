@@ -16,6 +16,8 @@ const PARTICELLA_SETS_ROOT_ID = "1BK8yhY1dvAZRrDwEDXg3VR3QlnmdOH4u";
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const GIRAS_ROOT_ID = "1PRWEbGKUBxfhF9HIf2DgpOWKDRwslsCc";
 const ARCHIVO_OBRAS_FOLDER_ID = "10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi";
+/** Carpeta compartida «Para acomodar» (staging antes de archivo oficial). */
+const PARA_ACOMODAR_FOLDER_ID = "10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI";
 // =================================================================================
 // HELPERS GENERALES
 // =================================================================================
@@ -707,6 +709,7 @@ serve(async (req) => {
       giraId,
       id_obra,
       link_origen,
+      id_carpeta_destino,
       titulo: tituloObra,
       nombre_carpeta,
       // Nuevos parámetros para operaciones de copia simples (server-side bypass)
@@ -795,6 +798,65 @@ serve(async (req) => {
         console.error("[entregar_obra_archivo]:", e?.message);
         throw new Error(e?.message || "Error al copiar o actualizar");
       }
+    }
+
+    // --- ACCIÓN: COPIAR LINK (archivo o carpeta) DENTRO DE UNA CARPETA DESTINO CON NOMBRE NUEVO ---
+    if (action === "copiar_link_a_carpeta") {
+      if (!link_origen || !nombre_carpeta) {
+        throw new Error("Faltan link_origen o nombre_carpeta");
+      }
+      const sourceId = extractFileId(link_origen);
+      if (!sourceId) throw new Error("Link de Drive inválido");
+
+      const parentFolderId =
+        (id_carpeta_destino as string) ||
+        (body.parentId as string) ||
+        PARA_ACOMODAR_FOLDER_ID;
+      const driveOpts = { supportsAllDrives: true, includeItemsFromAllDrives: true };
+      const nombreCarpeta = String(nombre_carpeta).slice(0, 200).replace(/[/\\?*:\[\]]/g, "_");
+
+      const sourceMeta = await drive.files.get({
+        fileId: sourceId,
+        fields: "mimeType, name",
+        ...driveOpts,
+      });
+      const sourceMime = sourceMeta.data?.mimeType || "";
+      const sourceName = (sourceMeta.data?.name || "archivo").slice(0, 255);
+
+      const nuevaCarpeta = await drive.files.create({
+        requestBody: {
+          name: nombreCarpeta,
+          mimeType: FOLDER_MIME,
+          parents: [parentFolderId],
+        },
+        fields: "id, webViewLink",
+        ...driveOpts,
+      });
+      const destFolderId = nuevaCarpeta.data.id!;
+
+      if (sourceMime === FOLDER_MIME) {
+        await copyFolderContentsRecursive(drive, sourceId, destFolderId, driveOpts);
+      } else {
+        await drive.files.copy({
+          fileId: sourceId,
+          requestBody: { name: sourceName, parents: [destFolderId] },
+          fields: "id",
+          ...driveOpts,
+        });
+      }
+
+      const meta = await drive.files.get({
+        fileId: destFolderId,
+        fields: "webViewLink",
+        ...driveOpts,
+      });
+      const linkDrive =
+        meta.data.webViewLink || `https://drive.google.com/drive/folders/${destFolderId}`;
+
+      return new Response(
+        JSON.stringify({ success: true, link_drive: linkDrive, folder_name: nombreCarpeta }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     // --- ACCIÓN: COPIAR CARPETA AL ARCHIVO (solo copia; para "Nuevo arreglo" clon) ---
