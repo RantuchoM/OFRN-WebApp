@@ -461,7 +461,7 @@ begin
       'pendientes_consumidas', v_pendientes
     );
   end if;
-
+ 
   return jsonb_build_object('ok', false, 'reason', 'modo_invalido');
 end;
 $$;
