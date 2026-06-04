@@ -136,6 +136,81 @@ const getAuthClient = () => {
   return oauth2Client;
 };
 
+/** Cuenta OAuth del Archivo (G_REFRESH_TOKEN); no es la cuenta personal del navegador del usuario. */
+const DRIVE_SERVICE_EMAIL = Deno.env.get("G_DRIVE_ACCOUNT_EMAIL") || "ofrn.archivo@gmail.com";
+
+function isDriveAccessDeniedError(e: unknown): boolean {
+  const err = e as { code?: number; message?: string; response?: { status?: number; data?: { error?: { message?: string } } } };
+  const status = err?.code ?? err?.response?.status;
+  if (status === 403 || status === 404) return true;
+  const msg = String(
+    err?.message || err?.response?.data?.error?.message || "",
+  ).toLowerCase();
+  return (
+    msg.includes("not found") ||
+    msg.includes("file not found") ||
+    msg.includes("insufficient") ||
+    msg.includes("forbidden") ||
+    msg.includes("permission") ||
+    msg.includes("caller does not have")
+  );
+}
+
+async function requestDriveAccessForServiceAccount(
+  drive: ReturnType<typeof google.drive>,
+  fileId: string,
+  opts: { supportsAllDrives?: boolean; includeItemsFromAllDrives?: boolean } = {},
+): Promise<{ ok: boolean; detail?: string }> {
+  try {
+    await drive.permissions.create({
+      fileId,
+      requestBody: {
+        type: "user",
+        role: "writer",
+        emailAddress: DRIVE_SERVICE_EMAIL,
+      },
+      sendNotificationEmail: true,
+      emailMessage:
+        "El Archivo de la OFRN necesita acceso a este archivo o carpeta para copiarlo a «Para acomodar».",
+      supportsAllDrives: true,
+      ...opts,
+    });
+    return { ok: true };
+  } catch (pe: unknown) {
+    const detail = (pe as { message?: string })?.message;
+    return { ok: false, detail };
+  }
+}
+
+function driveAccessDeniedPayload(opts: {
+  permissionRequested: boolean;
+  sourceFileId: string;
+  linkOrigen?: string;
+  requestDetail?: string;
+}) {
+  const email = DRIVE_SERVICE_EMAIL;
+  let msg =
+    `La cuenta de Google Drive del Archivo (${email}) no puede acceder al archivo o carpeta de origen.`;
+  if (opts.permissionRequested) {
+    msg +=
+      "\n\nSe envió una solicitud de acceso por correo a esa cuenta. Cuando la aceptes (o compartas manualmente), pulsa «Reintentar copia».";
+  } else {
+    msg +=
+      `\n\nCompartí el enlace con ${email} (lector o editor) desde Google Drive, o pulsa «Solicitar acceso al Archivo» si tenés permiso para invitar a esa cuenta.`;
+    if (opts.requestDetail) {
+      msg += `\n\nDetalle: ${opts.requestDetail}`;
+    }
+  }
+  return {
+    error: msg,
+    code: "DRIVE_ACCESS_DENIED",
+    service_account_email: email,
+    permission_requested: opts.permissionRequested,
+    source_file_id: opts.sourceFileId,
+    link_origen: opts.linkOrigen ?? null,
+  };
+}
+
 async function downloadDriveFile(fileId: string, token: string) {
   const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
     headers: { Authorization: `Bearer ${token}` }
@@ -800,6 +875,36 @@ serve(async (req) => {
       }
     }
 
+    // --- ACCIÓN: SOLICITAR ACCESO DEL ARCHIVO A UN LINK DE ORIGEN ---
+    if (action === "solicitar_acceso_drive_origen") {
+      if (!link_origen) throw new Error("Falta link_origen");
+      const sourceId = extractFileId(link_origen);
+      if (!sourceId) throw new Error("Link de Drive inválido");
+      const driveOpts = { supportsAllDrives: true, includeItemsFromAllDrives: true };
+      const perm = await requestDriveAccessForServiceAccount(drive, sourceId, driveOpts);
+      if (!perm.ok) {
+        const payload = driveAccessDeniedPayload({
+          permissionRequested: false,
+          sourceFileId: sourceId,
+          linkOrigen: link_origen,
+          requestDetail: perm.detail,
+        });
+        return new Response(JSON.stringify(payload), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 400,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          permission_requested: true,
+          service_account_email: DRIVE_SERVICE_EMAIL,
+          message: `Solicitud enviada a ${DRIVE_SERVICE_EMAIL}. Aceptala en Drive y reintenta la copia.`,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // --- ACCIÓN: COPIAR LINK (archivo o carpeta) DENTRO DE UNA CARPETA DESTINO CON NOMBRE NUEVO ---
     if (action === "copiar_link_a_carpeta") {
       if (!link_origen || !nombre_carpeta) {
@@ -815,48 +920,84 @@ serve(async (req) => {
       const driveOpts = { supportsAllDrives: true, includeItemsFromAllDrives: true };
       const nombreCarpeta = String(nombre_carpeta).slice(0, 200).replace(/[/\\?*:\[\]]/g, "_");
 
-      const sourceMeta = await drive.files.get({
-        fileId: sourceId,
-        fields: "mimeType, name",
-        ...driveOpts,
-      });
-      const sourceMime = sourceMeta.data?.mimeType || "";
-      const sourceName = (sourceMeta.data?.name || "archivo").slice(0, 255);
-
-      const nuevaCarpeta = await drive.files.create({
-        requestBody: {
-          name: nombreCarpeta,
-          mimeType: FOLDER_MIME,
-          parents: [parentFolderId],
-        },
-        fields: "id, webViewLink",
-        ...driveOpts,
-      });
-      const destFolderId = nuevaCarpeta.data.id!;
-
-      if (sourceMime === FOLDER_MIME) {
-        await copyFolderContentsRecursive(drive, sourceId, destFolderId, driveOpts);
-      } else {
-        await drive.files.copy({
+      let sourceMime = "";
+      let sourceName = "archivo";
+      try {
+        const sourceMeta = await drive.files.get({
           fileId: sourceId,
-          requestBody: { name: sourceName, parents: [destFolderId] },
-          fields: "id",
+          fields: "mimeType, name",
           ...driveOpts,
         });
+        sourceMime = sourceMeta.data?.mimeType || "";
+        sourceName = (sourceMeta.data?.name || "archivo").slice(0, 255);
+      } catch (e) {
+        if (isDriveAccessDeniedError(e)) {
+          const perm = await requestDriveAccessForServiceAccount(drive, sourceId, driveOpts);
+          const payload = driveAccessDeniedPayload({
+            permissionRequested: perm.ok,
+            sourceFileId: sourceId,
+            linkOrigen: link_origen,
+            requestDetail: perm.ok ? undefined : perm.detail,
+          });
+          return new Response(JSON.stringify(payload), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 400,
+          });
+        }
+        throw e;
       }
 
-      const meta = await drive.files.get({
-        fileId: destFolderId,
-        fields: "webViewLink",
-        ...driveOpts,
-      });
-      const linkDrive =
-        meta.data.webViewLink || `https://drive.google.com/drive/folders/${destFolderId}`;
+      try {
+        const nuevaCarpeta = await drive.files.create({
+          requestBody: {
+            name: nombreCarpeta,
+            mimeType: FOLDER_MIME,
+            parents: [parentFolderId],
+          },
+          fields: "id, webViewLink",
+          ...driveOpts,
+        });
+        const destFolderId = nuevaCarpeta.data.id!;
 
-      return new Response(
-        JSON.stringify({ success: true, link_drive: linkDrive, folder_name: nombreCarpeta }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+        if (sourceMime === FOLDER_MIME) {
+          await copyFolderContentsRecursive(drive, sourceId, destFolderId, driveOpts);
+        } else {
+          await drive.files.copy({
+            fileId: sourceId,
+            requestBody: { name: sourceName, parents: [destFolderId] },
+            fields: "id",
+            ...driveOpts,
+          });
+        }
+
+        const meta = await drive.files.get({
+          fileId: destFolderId,
+          fields: "webViewLink",
+          ...driveOpts,
+        });
+        const linkDrive =
+          meta.data.webViewLink || `https://drive.google.com/drive/folders/${destFolderId}`;
+
+        return new Response(
+          JSON.stringify({ success: true, link_drive: linkDrive, folder_name: nombreCarpeta }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      } catch (e) {
+        if (isDriveAccessDeniedError(e)) {
+          const perm = await requestDriveAccessForServiceAccount(drive, sourceId, driveOpts);
+          const payload = driveAccessDeniedPayload({
+            permissionRequested: perm.ok,
+            sourceFileId: sourceId,
+            linkOrigen: link_origen,
+            requestDetail: perm.ok ? undefined : perm.detail,
+          });
+          return new Response(JSON.stringify(payload), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 400,
+          });
+        }
+        throw e;
+      }
     }
 
     // --- ACCIÓN: COPIAR CARPETA AL ARCHIVO (solo copia; para "Nuevo arreglo" clon) ---

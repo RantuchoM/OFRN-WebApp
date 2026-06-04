@@ -33,6 +33,7 @@ import ComposersManager from "./ComposersManager";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { INSTRUMENT_GROUPS } from "../../utils/instrumentGroups";
 import { toast } from "sonner";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import DateInput from "../../components/ui/DateInput";
 import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
@@ -311,6 +312,18 @@ const getYoutubeVideoId = (url) => {
 /** Carpeta Drive «Para acomodar» (staging). */
 const PARA_ACOMODAR_DRIVE_FOLDER_ID = "10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI";
 
+async function readManageDriveResponseBody(fnError, fnData) {
+  if (fnData && (fnData.code || fnData.error || fnData.success)) return fnData;
+  if (fnError instanceof FunctionsHttpError && fnError.context?.json) {
+    try {
+      return await fnError.context.json();
+    } catch {
+      /* ignore */
+    }
+  }
+  return fnData ?? null;
+}
+
 const stripHtmlPlain = (html) =>
   (html || "")
     .replace(/<br\s*\/?>/gi, "\n")
@@ -434,6 +447,7 @@ export default function WorkForm({
   const [showDriveField, setShowDriveField] = useState(false);
   const [copyingToParaAcomodar, setCopyingToParaAcomodar] = useState(false);
   const [paraAcomodarConfirm, setParaAcomodarConfirm] = useState(null);
+  const [paraAcomodarAccessError, setParaAcomodarAccessError] = useState(null);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [editingLinksId, setEditingLinksId] = useState(null);
   const instrumentInputRef = useRef(null);
@@ -1600,6 +1614,7 @@ export default function WorkForm({
       toast.error("Indica título y al menos un compositor para nombrar la carpeta.");
       return;
     }
+    setParaAcomodarAccessError(null);
     setParaAcomodarConfirm({ link, nombreCarpeta });
   }, [
     formData.link_drive,
@@ -1612,6 +1627,7 @@ export default function WorkForm({
   const handleConfirmCopyToParaAcomodar = useCallback(async () => {
     const pending = paraAcomodarConfirm;
     if (!pending?.link || !pending?.nombreCarpeta) return;
+    setParaAcomodarAccessError(null);
     setCopyingToParaAcomodar(true);
     try {
       const { data, error } = await supabase.functions.invoke("manage-drive", {
@@ -1622,9 +1638,19 @@ export default function WorkForm({
           id_carpeta_destino: PARA_ACOMODAR_DRIVE_FOLDER_ID,
         },
       });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      const destLink = (data?.link_drive || "").trim();
+      const body = await readManageDriveResponseBody(error, data);
+      if (error || body?.error) {
+        if (body?.code === "DRIVE_ACCESS_DENIED") {
+          setParaAcomodarAccessError({
+            message: body.error,
+            permissionRequested: !!body.permission_requested,
+            serviceEmail: body.service_account_email,
+          });
+          throw new Error("DRIVE_ACCESS_DENIED");
+        }
+        throw new Error(body?.error || error?.message || "Error al copiar en Drive");
+      }
+      const destLink = (body?.link_drive || "").trim();
       if (!destLink) throw new Error("No se obtuvo el enlace de la carpeta copiada.");
 
       setFormData((prev) => ({ ...prev, link_drive: destLink }));
@@ -1637,6 +1663,7 @@ export default function WorkForm({
       toast.success(`Copia creada y enlace actualizado: ${pending.nombreCarpeta}`);
       window.open(destLink, "_blank", "noopener,noreferrer");
     } catch (e) {
+      if (e?.message === "DRIVE_ACCESS_DENIED") return;
       console.error("copiar_link_a_carpeta:", e);
       toast.error(e?.message || "Error al copiar en Drive");
       throw e;
@@ -1644,6 +1671,42 @@ export default function WorkForm({
       setCopyingToParaAcomodar(false);
     }
   }, [supabase, formData.id, paraAcomodarConfirm, onSave]);
+
+  const handleRequestDriveAccessForParaAcomodar = useCallback(async () => {
+    const link = paraAcomodarConfirm?.link;
+    if (!link) return;
+    setCopyingToParaAcomodar(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("manage-drive", {
+        body: { action: "solicitar_acceso_drive_origen", link_origen: link },
+      });
+      const body = await readManageDriveResponseBody(error, data);
+      if (error || body?.error) {
+        if (body?.code === "DRIVE_ACCESS_DENIED") {
+          setParaAcomodarAccessError({
+            message: body.error,
+            permissionRequested: !!body.permission_requested,
+            serviceEmail: body.service_account_email,
+          });
+          return;
+        }
+        throw new Error(body?.error || error?.message || "No se pudo solicitar acceso");
+      }
+      setParaAcomodarAccessError({
+        message:
+          body?.message ||
+          `Solicitud enviada a ${body?.service_account_email || "la cuenta del Archivo"}. Aceptala en Drive y pulsa «Reintentar copia».`,
+        permissionRequested: true,
+        serviceEmail: body?.service_account_email,
+      });
+      toast.success("Solicitud de acceso enviada al Archivo");
+    } catch (e) {
+      console.error("solicitar_acceso_drive_origen:", e);
+      toast.error(e?.message || "No se pudo solicitar acceso");
+    } finally {
+      setCopyingToParaAcomodar(false);
+    }
+  }, [supabase, paraAcomodarConfirm]);
 
   const estadoHeaderClass = getEstadoHeaderClass(formData.estado);
   const estadoShellClass = getEstadoShellClass(formData.estado);
@@ -2561,17 +2624,33 @@ export default function WorkForm({
       {/* MODALES */}
       <ConfirmDialog
         isOpen={!!paraAcomodarConfirm}
-        onClose={() => setParaAcomodarConfirm(null)}
+        onClose={() => {
+          if (copyingToParaAcomodar) return;
+          setParaAcomodarConfirm(null);
+          setParaAcomodarAccessError(null);
+        }}
         onConfirm={handleConfirmCopyToParaAcomodar}
         title="Copiar a Para acomodar"
         message={
           paraAcomodarConfirm
-            ? `Se creará una copia en la carpeta compartida «Para acomodar» con el nombre:\n\n${paraAcomodarConfirm.nombreCarpeta}\n\nEl enlace de Drive de la obra se reemplazará por el de la carpeta copiada.`
+            ? `Se creará una copia en la carpeta compartida «Para acomodar» con el nombre:\n\n${paraAcomodarConfirm.nombreCarpeta}\n\nEl enlace de Drive de la obra se reemplazará por el de la carpeta copiada.\n\n(La copia usa la cuenta del Archivo en Google Drive, no tu sesión personal del navegador.)`
             : ""
         }
-        confirmText="Copiar"
-        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98]"
+        errorMessage={paraAcomodarAccessError?.message ?? null}
+        confirmLoading={copyingToParaAcomodar}
+        loadingText="Copiando en Google Drive…"
+        confirmText={paraAcomodarAccessError ? "Reintentar copia" : "Copiar"}
+        confirmClassName="px-4 py-2.5 sm:py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-md hover:shadow-lg transition-all active:scale-[0.98] disabled:opacity-70"
         overlayClassName="z-[110]"
+        secondaryAction={
+          paraAcomodarAccessError && !paraAcomodarAccessError.permissionRequested
+            ? {
+                label: "Solicitar acceso al Archivo",
+                onClick: handleRequestDriveAccessForParaAcomodar,
+                disabled: copyingToParaAcomodar,
+              }
+            : null
+        }
       />
 
       <DriveMatcherModal

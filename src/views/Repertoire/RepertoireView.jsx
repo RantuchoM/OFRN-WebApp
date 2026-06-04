@@ -729,17 +729,25 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: dbError } = await supabase
-        .from("obras")
-        .select(WORK_SELECT)
-        .order("titulo");
+      const CHUNK = 1000;
+      let offset = 0;
+      const allData = [];
 
-      if (dbError) throw dbError;
+      for (;;) {
+        const { data, error: dbError } = await supabase
+          .from("obras")
+          .select(WORK_SELECT)
+          .order("titulo")
+          .range(offset, offset + CHUNK - 1);
 
-      if (data) {
-        const processed = data.map(processWork);
-        setWorks(processed);
+        if (dbError) throw dbError;
+        if (!data?.length) break;
+        allData.push(...data);
+        if (data.length < CHUNK) break;
+        offset += CHUNK;
       }
+
+      setWorks(allData.map(processWork));
     } catch (err) {
       console.error("Error fetching works:", err);
       setError("Error al cargar los datos.");
