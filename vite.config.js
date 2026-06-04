@@ -6,9 +6,40 @@ import path from "path";
 // Solución para __dirname en módulos ES
 const __dirname = path.resolve();
 
+/** Identificador de build embebido en el cliente y servido en /version.json para detectar despliegues nuevos. */
+const APP_BUILD_ID =
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.CF_PAGES_COMMIT_SHA ||
+  process.env.VITE_APP_BUILD_ID ||
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+function appVersionPlugin(buildId) {
+  const versionPayload = JSON.stringify({ buildId });
+  return {
+    name: "app-version",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url?.split("?")[0];
+        if (url !== "/version.json") return next();
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(versionPayload);
+      });
+    },
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "version.json",
+        source: versionPayload,
+      });
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
+    appVersionPlugin(APP_BUILD_ID),
     VitePWA({
       registerType: "prompt",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
@@ -60,6 +91,7 @@ export default defineConfig({
   },
   define: {
     global: "window",
+    "import.meta.env.VITE_APP_BUILD_ID": JSON.stringify(APP_BUILD_ID),
   },
   build: {
     // Reduce ruido en consola durante builds grandes

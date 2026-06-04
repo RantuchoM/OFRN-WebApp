@@ -3,6 +3,48 @@ import { supabase } from "../services/supabase";
 
 const AuthContext = createContext();
 
+function normalizeRoles(rolSistema) {
+  if (rolSistema == null) return [];
+  if (Array.isArray(rolSistema))
+    return rolSistema
+      .map((r) => String(r).toLowerCase().trim())
+      .filter(Boolean);
+  return [String(rolSistema).toLowerCase().trim()].filter(Boolean);
+}
+
+function loadRoleFilterFromStorage(realId) {
+  const storedPref = localStorage.getItem(`pref_roles_${realId}`);
+  if (!storedPref) return null;
+  try {
+    const parsedPref = JSON.parse(storedPref);
+    if (Array.isArray(parsedPref)) {
+      return parsedPref
+        .map((r) => String(r).toLowerCase().trim())
+        .filter(Boolean);
+    }
+    if (typeof parsedPref === "string") {
+      const v = parsedPref.toLowerCase().trim();
+      return v ? [v] : null;
+    }
+  } catch {
+    const v = String(storedPref).toLowerCase().trim();
+    return v ? [v] : null;
+  }
+  return null;
+}
+
+function reconcileRoleFilter(realId, freshRoles, currentFilter) {
+  if (!currentFilter || currentFilter.length === 0) return currentFilter;
+  const next = currentFilter.filter((r) => freshRoles.includes(r));
+  if (next.length === currentFilter.length) return currentFilter;
+  if (next.length === 0) {
+    localStorage.removeItem(`pref_roles_${realId}`);
+    return null;
+  }
+  localStorage.setItem(`pref_roles_${realId}`, JSON.stringify(next));
+  return next;
+}
+
 export function AuthProvider({ children }) {
   const [realUser, setRealUser] = useState(null);
   const [impersonatedUser, setImpersonatedUser] = useState(null);
@@ -11,53 +53,80 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("app_user");
-    if (storedUser) {
-      try {
-        const parsed = JSON.parse(storedUser);
-        setRealUser(parsed);
-        const realId = parsed?.id;
-        if (realId) {
-          const storedPref = localStorage.getItem(`pref_roles_${realId}`);
-          if (storedPref) {
-            try {
-              const parsedPref = JSON.parse(storedPref);
-              if (Array.isArray(parsedPref)) {
-                setRoleFilter(
-                  parsedPref
-                    .map((r) => String(r).toLowerCase().trim())
-                    .filter(Boolean),
-                );
-              } else if (typeof parsedPref === "string") {
-                const v = parsedPref.toLowerCase().trim();
-                setRoleFilter(v ? [v] : null);
-              }
-            } catch {
-              // Backwards compat (valor simple)
-              const v = String(storedPref).toLowerCase().trim();
-              setRoleFilter(v ? [v] : null);
-            }
-          }
-        }
-      } catch (e) {
-        localStorage.removeItem("app_user");
+    let cancelled = false;
+
+    const initSession = async () => {
+      const storedUser = localStorage.getItem("app_user");
+      if (!storedUser) {
+        if (!cancelled) setLoading(false);
+        return;
       }
-    }
-    setLoading(false);
+
+      let parsed;
+      try {
+        parsed = JSON.parse(storedUser);
+      } catch {
+        localStorage.removeItem("app_user");
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      const realId = parsed?.id;
+      const isGuestSession =
+        realId === "guest-general" || realId == null || Number.isNaN(Number(realId));
+
+      if (realId) {
+        setRoleFilter(loadRoleFilterFromStorage(realId));
+      }
+
+      if (isGuestSession) {
+        if (!cancelled) {
+          setRealUser(parsed);
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (!cancelled) setRealUser(parsed);
+
+      try {
+        const { data, error } = await supabase
+          .from("integrantes")
+          .select("*")
+          .eq("id", realId)
+          .maybeSingle();
+
+        if (cancelled) return;
+        if (error) throw error;
+
+        if (data) {
+          setRealUser(data);
+          localStorage.setItem("app_user", JSON.stringify(data));
+          const freshRoles = normalizeRoles(data.rol_sistema);
+          setRoleFilter((prev) =>
+            reconcileRoleFilter(realId, freshRoles, prev),
+          );
+        } else {
+          localStorage.removeItem("app_user");
+          setRealUser(null);
+          setRoleFilter(null);
+        }
+      } catch {
+        // Sin red o error puntual: mantener sesión en caché
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    initSession();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const activeUser = impersonatedUser || realUser;
 
-  // Normalizar rol_sistema REAL del usuario: puede ser string (legacy) o array (multi-rol)
-  const rawRoles = activeUser?.rol_sistema;
-  const realRoles = (() => {
-    if (rawRoles == null) return [];
-    if (Array.isArray(rawRoles))
-      return rawRoles
-        .map((r) => String(r).toLowerCase().trim())
-        .filter(Boolean);
-    return [String(rawRoles).toLowerCase().trim()].filter(Boolean);
-  })();
+  const realRoles = normalizeRoles(activeUser?.rol_sistema);
 
   // Aplicar filtro de roles: si hay uno o más seleccionados, solo esos cuentan para la app.
   const roles = (() => {
@@ -182,12 +251,7 @@ export function AuthProvider({ children }) {
     isGuest: roles.includes("invitado") || activeUser?.id === "guest-general",
     isArreglador: roles.includes("arreglador"),
     isArchivista: roles.includes("archivista"),
-    isActuallyAdmin: (() => {
-      const raw = realUser?.rol_sistema;
-      if (raw == null) return false;
-      const realRoles = Array.isArray(raw) ? raw.map((r) => String(r).toLowerCase().trim()) : [String(raw).toLowerCase().trim()];
-      return realRoles.includes("admin");
-    })(),
+    isActuallyAdmin: normalizeRoles(realUser?.rol_sistema).includes("admin"),
     role, // Legacy: rol efectivo actual
     roles, // Array de roles EFECTIVOS (tras aplicar filtro)
     availableRoles: realRoles, // Lista de roles REALES disponibles para seleccionar
