@@ -27,29 +27,33 @@ async function fetchRemoteBuildId() {
 function UpdateAvailableBanner({ onUpdate, onDismiss }) {
   return (
     <div
-      className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-3 px-4 py-2.5 bg-indigo-700 text-white shadow-lg border-b border-indigo-800"
+      className="fixed top-3 right-3 z-[9999] w-[min(220px,calc(100vw-1.5rem))] rounded-lg border border-slate-200/90 bg-white/95 backdrop-blur-sm shadow-md animate-in fade-in slide-in-from-top-2 duration-200"
       role="status"
       aria-live="polite"
     >
-      <p className="text-sm font-semibold text-center">
-        Hay una versión nueva de la aplicación.
-      </p>
-      <button
-        type="button"
-        onClick={onUpdate}
-        className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-indigo-800 hover:bg-indigo-50"
-      >
-        <IconRefresh size={14} />
-        Actualizar
-      </button>
-      <button
-        type="button"
-        onClick={onDismiss}
-        className="shrink-0 rounded-lg p-1.5 text-indigo-100 hover:bg-indigo-600 hover:text-white"
-        aria-label="Ocultar aviso por ahora"
-      >
-        <IconX size={16} />
-      </button>
+      <div className="flex items-start gap-1 pl-2.5 pr-1 pt-2 pb-1.5">
+        <p className="flex-1 text-[11px] leading-snug text-slate-600 pt-0.5">
+          Nueva versión disponible
+        </p>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          aria-label="Ocultar aviso por ahora"
+        >
+          <IconX size={12} />
+        </button>
+      </div>
+      <div className="px-2 pb-2">
+        <button
+          type="button"
+          onClick={onUpdate}
+          className="w-full inline-flex items-center justify-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white hover:bg-indigo-700"
+        >
+          <IconRefresh size={11} />
+          Actualizar
+        </button>
+      </div>
     </div>
   );
 }
