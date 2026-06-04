@@ -10,6 +10,22 @@ const normalizeScope = (value) =>
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
+/** Alcance de regla de ruta que cuenta como asignación individual (misma lógica que useLogistics). */
+const PERSONAL_ROUTE_SCOPES = new Set(["persona", "integrante"]);
+
+function isPersonalRouteScope(scope) {
+  return PERSONAL_ROUTE_SCOPES.has(normalizeScope(scope));
+}
+
+/** ¿Tiene subida/bajada por regla de alcance Persona/Integrante en algún transporte? */
+export function personHasPersonalRouteAssignment(person) {
+  const transports = person?.logistics?.transports || [];
+  return transports.some(
+    (t) =>
+      isPersonalRouteScope(t.subidaScope) || isPersonalRouteScope(t.bajadaScope),
+  );
+}
+
 export const normalizeLocalidadName = (value) =>
   String(value || "")
     .trim()
@@ -147,6 +163,13 @@ export function buildPersonalLogisticsFromSummary(summary) {
     const transports = person.logistics?.transports || [];
     if (transports.length === 0) return;
 
+    const onlyPersonalSubida = transports.some((t) =>
+      isPersonalRouteScope(t.subidaScope),
+    );
+    const onlyPersonalBajada = transports.some((t) =>
+      isPersonalRouteScope(t.bajadaScope),
+    );
+
     let minSalida = null;
     let maxLlegada = null;
 
@@ -157,6 +180,8 @@ export function buildPersonalLogisticsFromSummary(summary) {
       }
 
       if (t.subidaData) {
+        if (onlyPersonalSubida && !isPersonalRouteScope(t.subidaScope)) return;
+
         const dateTimeStr = `${t.subidaData.fecha}T${t.subidaData.hora || "00:00"}`;
         const dateObj = new Date(dateTimeStr);
         if (!Number.isNaN(dateObj.getTime()) && (!minSalida || dateObj < minSalida.dt)) {
@@ -172,6 +197,8 @@ export function buildPersonalLogisticsFromSummary(summary) {
       }
 
       if (t.bajadaData) {
+        if (onlyPersonalBajada && !isPersonalRouteScope(t.bajadaScope)) return;
+
         const dateTimeStr = `${t.bajadaData.fecha}T${t.bajadaData.hora || "00:00"}`;
         const dateObj = new Date(dateTimeStr);
         if (!Number.isNaN(dateObj.getTime()) && (!maxLlegada || dateObj > maxLlegada.dt)) {
@@ -323,40 +350,12 @@ function getLocalityScheduleForPerson(person, routeSchedules, peerSchedules) {
   );
 }
 
-/** Aplica horario de la localidad de viáticos sobre el personal (solo campos de planilla). */
-export function applyLocalidadViaticosScheduleToLogistics(personalTravel, localityTravel) {
-  const personal = personalTravel || {};
-  const locality = localityTravel || {};
-  return {
-    ...personal,
-    fecha_salida: locality.fecha_salida ?? personal.fecha_salida,
-    hora_salida: locality.hora_salida ?? personal.hora_salida,
-    fecha_llegada: locality.fecha_llegada ?? personal.fecha_llegada,
-    hora_llegada: locality.hora_llegada ?? personal.hora_llegada,
-    transporte_salida: locality.transporte_salida ?? personal.transporte_salida,
-    transporte_llegada: locality.transporte_llegada ?? personal.transporte_llegada,
-    lugar_salida: locality.lugar_salida ?? personal.lugar_salida,
-    lugar_llegada: locality.lugar_llegada ?? personal.lugar_llegada,
-    patente: locality.patente ?? personal.patente,
-  };
-}
-
 /**
- * Combina logística personal y de localidad para viáticos/destaques.
- * Con localidad de viáticos asignada, prevalece el horario grupal de esa localidad.
+ * Combina horarios: asignación en transporte (personal) gana; localidad/grupo completa huecos.
  */
-export function mergeTravelDataForViaticosPapeles(
-  personalTravel,
-  localityTravel,
-  person,
-) {
+export function mergeTravelPreferringPersonal(personalTravel, localityTravel) {
   const personal = personalTravel || {};
   const locality = localityTravel || {};
-
-  if (hasLocalidadViaticosAsignada(person)) {
-    return applyLocalidadViaticosScheduleToLogistics(personal, locality);
-  }
-
   return {
     ...locality,
     ...personal,
@@ -370,6 +369,23 @@ export function mergeTravelDataForViaticosPapeles(
     lugar_llegada: personal.lugar_llegada || locality.lugar_llegada,
     patente: personal.patente || locality.patente,
   };
+}
+
+/** @deprecated alias — usar mergeTravelPreferringPersonal */
+export function applyLocalidadViaticosScheduleToLogistics(personalTravel, localityTravel) {
+  return mergeTravelPreferringPersonal(personalTravel, localityTravel);
+}
+
+/**
+ * Combina logística personal y de localidad para viáticos/destaques.
+ * Subida/bajada individual en transporte prevalece; horario grupal de localidad solo rellena vacíos.
+ */
+export function mergeTravelDataForViaticosPapeles(
+  personalTravel,
+  localityTravel,
+  _person,
+) {
+  return mergeTravelPreferringPersonal(personalTravel, localityTravel);
 }
 
 export function headerInfoToTravelSchedule(headerInfo) {
@@ -399,7 +415,7 @@ export function headerInfoToTravelSchedule(headerInfo) {
 
 /**
  * Mapa id_integrante → horarios para viáticos.
- * Si tiene localidad de viáticos, usa el horario de esa localidad (reglas de ruta o pares del grupo).
+ * Prioridad: transporte (subida/bajada por persona) → reglas de ruta / pares de la localidad de viáticos.
  */
 export function buildViaticosLogisticsMap({
   summary,
@@ -453,7 +469,7 @@ export function buildViaticosLogisticsMap({
     if (!localitySchedule) return;
 
     const personal = personalMap[person.id] || personalMap[String(person.id)] || {};
-    const merged = applyLocalidadViaticosScheduleToLogistics(personal, localitySchedule);
+    const merged = mergeTravelPreferringPersonal(personal, localitySchedule);
     result[person.id] = merged;
     result[String(person.id)] = merged;
   });

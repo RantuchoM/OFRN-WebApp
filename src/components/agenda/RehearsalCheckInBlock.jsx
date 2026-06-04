@@ -14,7 +14,7 @@ import {
   ensayoGenerarPaseUbicacion,
   ensayoCheckinPase,
 } from "../../services/ensayoCheckinService";
-import { requestPosition, geolocationErrorMessage } from "../../utils/geolocation";
+import { requestPosition, geolocationErrorMessage, geolocationAndroidOverlayHint, isAndroidDevice } from "../../utils/geolocation";
 import { decodeQrFromImageFile } from "../../utils/qrDecodeFromImage";
 
 function formatHoraLlegada(iso) {
@@ -144,7 +144,9 @@ export default function RehearsalCheckInBlock({
         });
         if (err.code === "denied") {
           toast.info(
-            "Si ya negaste el permiso, activá la ubicación para este sitio en Ajustes del navegador y volvé a intentar.",
+            isAndroidDevice()
+              ? "Si Android bloqueó el permiso, cerrá burbujas flotantes de otras apps e intentá de nuevo."
+              : "Si ya negaste el permiso, activá la ubicación para este sitio en Ajustes del navegador y volvé a intentar.",
           );
         }
       } else {
@@ -321,10 +323,19 @@ export default function RehearsalCheckInBlock({
               {geoAssist.message}
             </p>
             {geoAssist.code === "denied" && (
-              <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-                En iPhone/Android: Ajustes del navegador → este sitio → permitir
-                ubicación. Luego tocá &quot;Reintentar&quot;.
-              </p>
+              <div className="space-y-1.5">
+                {isAndroidDevice() ? (
+                  <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-snug">
+                    <span className="font-bold block mb-0.5">Android</span>
+                    {geolocationAndroidOverlayHint()}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                    En iPhone: Ajustes → Safari/Chrome → este sitio → Ubicación.
+                    Luego tocá &quot;Reintentar&quot;.
+                  </p>
+                )}
+              </div>
             )}
             <button
               type="button"

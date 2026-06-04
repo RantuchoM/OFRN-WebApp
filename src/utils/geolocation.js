@@ -47,10 +47,30 @@ export function requestPosition(opts = {}) {
   });
 }
 
+export function isAndroidDevice() {
+  if (typeof navigator === "undefined") return false;
+  return /android/i.test(navigator.userAgent);
+}
+
+/** Ayuda cuando Android bloquea el popup de permisos por superposiciones de otras apps. */
+export function geolocationAndroidOverlayHint() {
+  return (
+    "Si aparece «Este sitio no puede solicitarte permiso»: cerrá burbujas flotantes " +
+    "(WhatsApp, Messenger, etc.), filtros de pantalla o grabadores, y en Ajustes → " +
+    "Apps → [app] desactivá «Mostrar sobre otras apps». Volvé a la PWA e intentá de nuevo."
+  );
+}
+
 /** @param {Error & { code?: string }} err */
 export function geolocationErrorMessage(err) {
   switch (err?.code) {
     case "denied":
+      if (isAndroidDevice()) {
+        return (
+          "Android no mostró el permiso de ubicación (denegado o bloqueado). " +
+          "Revisá Ajustes → Ubicación y permisos del navegador para este sitio."
+        );
+      }
       return "Permiso de ubicación denegado. Activá la ubicación para este sitio en Ajustes del celular.";
     case "timeout":
       return "Tiempo agotado al obtener GPS. Probá de nuevo o pedí QR a un compañero.";
