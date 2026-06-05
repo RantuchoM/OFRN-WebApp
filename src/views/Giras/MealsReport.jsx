@@ -14,6 +14,7 @@ import {
   isPersonEligibleForMealSlot,
   mealServicioFromEvent,
 } from "../../utils/mealLogistics";
+import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 
 const SERVICE_IDS = {
   7: "Desayuno",
@@ -38,12 +39,15 @@ export default function MealsReport({
     new Set(["Desayuno", "Almuerzo", "Merienda", "Cena"]),
   );
   const [includePending, setIncludePending] = useState(false);
+  const { segments } = useGiraSegmentos(supabase, gira, {
+    enabled: Boolean(gira?.id),
+  });
 
   useEffect(() => {
     if (gira?.id && enrichedRoster?.length > 0) {
       fetchReportData();
     }
-  }, [gira?.id, enrichedRoster, includePending, hospedajeExcluidosIds]);
+  }, [gira?.id, enrichedRoster, includePending, hospedajeExcluidosIds, segments]);
 
   const fetchReportData = async () => {
     setLoading(true);
@@ -103,8 +107,9 @@ export default function MealsReport({
                 fecha: eventDate,
                 servicio,
                 convocados: evt.convocados,
+                hora: evt.hora_inicio,
               },
-              { hospedajeExcluidosIds },
+              { hospedajeExcluidosIds, segments },
             )
           )
             return;

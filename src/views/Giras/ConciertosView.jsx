@@ -1,8 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { getConciertosFullData } from "../../services/giraService";
+import {
+  getConciertosFullData,
+  getProgramasSinConciertos,
+} from "../../services/giraService";
+import { ProgramaSinConciertosGestionRow } from "../../components/giras/ProgramasSinConciertosBanner";
+import { buildMergedConciertosTimeline } from "../../utils/conciertosTimeline";
 import { exportConciertosToExcel } from "../../utils/excelExporter";
 import { exportConciertosToPDF } from "../../utils/agendaPdfExporter";
 import { getTodayDateStringLocal, formatDisplayDate } from "../../utils/dates";
+import ProgramTypeTag from "../../components/giras/ProgramTypeTag";
 import {
   IconCalendar,
   IconChevronDown,
@@ -21,6 +27,56 @@ const formatRepertorioLine = (item) => {
   const titulo = String(item?.titulo || "Obra sin título").trim();
   return { compositor, titulo };
 };
+
+function buildGestionTableRow({
+  id,
+  programId,
+  fecha,
+  hora,
+  nomenclador,
+  mes_letra,
+  nombre_gira,
+  ensambles = [],
+  familias = [],
+  locacion = "-",
+  localidad = "-",
+  venue_estado = "-",
+  venue_estado_color = "",
+  repertorio = [],
+  difusion_observaciones = "",
+  tipo_programa = "",
+}) {
+  const ensambleLines = ensambles.map((ens) => ens.nombre).filter(Boolean);
+  const familiaLines = familias.filter(Boolean);
+  const participantesParts = [...ensambleLines, ...familiaLines];
+  const primeraLineaPrograma = [nomenclador, mes_letra].filter(Boolean).join(" - ");
+  const segundaLineaPrograma = nombre_gira || "";
+  const programaLabel = [primeraLineaPrograma, segundaLineaPrograma]
+    .filter(Boolean)
+    .join("\n");
+  const locacionLocalidad = [locacion || "-", localidad || "-"].join("\n");
+  const repertorioLines = repertorio.map(formatRepertorioLine);
+
+  return {
+    id,
+    programId,
+    fecha,
+    hora,
+    programa: programaLabel || "-",
+    participantes: participantesParts.join("\n") || "-",
+    participantesEnsamble: ensambleLines,
+    participantesFamilia: familiaLines,
+    locacionLocalidad,
+    estadoVenue: venue_estado || "-",
+    estadoVenueColor: venue_estado_color || "",
+    repertorio:
+      repertorioLines.map((line) => `${line.compositor} | ${line.titulo}`).join("\n") ||
+      "-",
+    repertorioLines,
+    difusionObservaciones: String(difusion_observaciones || "").trim(),
+    tipoPrograma: String(tipo_programa || "").trim(),
+  };
+}
 
 function DetailModal({ open, title, subtitle, children, onClose }) {
   if (!open) return null;
@@ -49,6 +105,7 @@ function DetailModal({ open, title, subtitle, children, onClose }) {
 export default function ConciertosView({ supabase }) {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
+  const [programasSinConciertos, setProgramasSinConciertos] = useState([]);
   const [dateFrom, setDateFrom] = useState(getTodayDateStringLocal());
   const [dateTo, setDateTo] = useState("");
   const [selectedProgramTypes, setSelectedProgramTypes] = useState(new Set());
@@ -61,11 +118,18 @@ export default function ConciertosView({ supabase }) {
   const loadConciertos = async () => {
     setLoading(true);
     try {
-      const data = await getConciertosFullData(supabase, {
-        dateFrom: dateFrom || null,
-        dateTo: dateTo || null,
-      });
+      const [data, sinConciertos] = await Promise.all([
+        getConciertosFullData(supabase, {
+          dateFrom: dateFrom || null,
+          dateTo: dateTo || null,
+        }),
+        getProgramasSinConciertos(supabase, {
+          dateFrom: dateFrom || null,
+          dateTo: dateTo || null,
+        }),
+      ]);
       setRows(data || []);
+      setProgramasSinConciertos(sinConciertos || []);
     } finally {
       setLoading(false);
     }
@@ -159,48 +223,80 @@ export default function ConciertosView({ supabase }) {
     });
   }, [rows, selectedProgramTypes, selectedEnsembles, selectedFamilies, dateFrom, dateTo]);
 
-  const tableRows = useMemo(
-    () =>
-      filteredRows.map((row) => {
-        const ensambleLines = (row.ensambles || [])
-          .map((ens) => ens.nombre)
-          .filter(Boolean);
-        const familiaLines = (row.familias || [])
-          .filter(Boolean);
-        const participantesParts = [...ensambleLines, ...familiaLines];
+  const filteredProgramasSinConciertos = useMemo(() => {
+    return programasSinConciertos.filter((p) => {
+      if (selectedProgramTypes.size > 0 && !selectedProgramTypes.has(p.tipo)) {
+        return false;
+      }
+      return true;
+    });
+  }, [programasSinConciertos, selectedProgramTypes]);
 
-        const primeraLineaPrograma = [row.nomenclador, row.mes_letra]
-          .filter(Boolean)
-          .join(" - ");
-        const segundaLineaPrograma = row.nombre_gira || "";
-        const programaLabel = [primeraLineaPrograma, segundaLineaPrograma]
-          .filter(Boolean)
-          .join("\n");
-
-        const locacionLocalidad = [row.locacion || "-", row.localidad || "-"].join("\n");
-
-        const repertorioLines = (row.repertorio || []).map(formatRepertorioLine);
-        return {
+  const tableRowsById = useMemo(() => {
+    const map = new Map();
+    filteredRows.forEach((row) => {
+      map.set(
+        row.id,
+        buildGestionTableRow({
           id: row.id,
           programId: row.id_gira || null,
           fecha: formatDisplayDate(row.fecha) || row.fecha || "-",
           hora: formatHora(row.hora_inicio),
-          programa: programaLabel || "-",
-          participantes: participantesParts.join("\n") || "-",
-          participantesEnsamble: ensambleLines,
-          participantesFamilia: familiaLines,
-          locacionLocalidad,
-          estadoVenue: row.venue_estado || "-",
-          estadoVenueColor: row.venue_estado_color || "",
-          repertorio:
-            repertorioLines
-              .map((line) => `${line.compositor} | ${line.titulo}`)
-              .join("\n") || "-",
-          repertorioLines,
-          difusionObservaciones: String(row.difusion_observaciones || "").trim(),
-        };
-      }),
-    [filteredRows],
+          nomenclador: row.nomenclador,
+          mes_letra: row.mes_letra,
+          nombre_gira: row.nombre_gira,
+          ensambles: row.ensambles,
+          familias: row.familias,
+          locacion: row.locacion,
+          localidad: row.localidad,
+          venue_estado: row.venue_estado,
+          venue_estado_color: row.venue_estado_color,
+          repertorio: row.repertorio,
+          difusion_observaciones: row.difusion_observaciones,
+          tipo_programa: row.tipo_programa,
+        }),
+      );
+    });
+    return map;
+  }, [filteredRows]);
+
+  const programasSinConciertosRowsById = useMemo(() => {
+    const map = new Map();
+    filteredProgramasSinConciertos.forEach((programa) => {
+      const fechaDesde =
+        formatDisplayDate(programa.fecha_desde) || programa.fecha_desde || "-";
+      const fechaHasta =
+        formatDisplayDate(programa.fecha_hasta) || programa.fecha_hasta || "-";
+      map.set(
+        programa.id,
+        buildGestionTableRow({
+          id: `sin-conc-${programa.id}`,
+          programId: programa.id,
+          fecha: `${fechaDesde} → ${fechaHasta}`,
+          hora: "—",
+          nomenclador: programa.nomenclador,
+          mes_letra: programa.mes_letra,
+          nombre_gira: programa.nombre_gira,
+          ensambles: programa.ensambles,
+          familias: programa.familias,
+          repertorio: programa.repertorio,
+          difusion_observaciones: programa.difusion_observaciones,
+          tipo_programa: programa.tipo,
+        }),
+      );
+    });
+    return map;
+  }, [filteredProgramasSinConciertos]);
+
+  const tableRows = useMemo(
+    () => Array.from(tableRowsById.values()),
+    [tableRowsById],
+  );
+
+  const mergedTimeline = useMemo(
+    () =>
+      buildMergedConciertosTimeline(filteredRows, filteredProgramasSinConciertos),
+    [filteredRows, filteredProgramasSinConciertos],
   );
 
   const handleToggleProgramType = (type) => {
@@ -410,7 +506,7 @@ export default function ConciertosView({ supabase }) {
                 </td>
               </tr>
             )}
-            {!loading && tableRows.length === 0 && (
+            {!loading && mergedTimeline.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-3 py-6 text-center text-sm text-slate-500">
                   No hay conciertos para los filtros seleccionados.
@@ -418,13 +514,35 @@ export default function ConciertosView({ supabase }) {
               </tr>
             )}
             {!loading &&
-              tableRows.map((row) => (
+              mergedTimeline.map((entry) => {
+                if (entry.kind === "sin_conciertos") {
+                  const sinRow = programasSinConciertosRowsById.get(entry.item.id);
+                  return (
+                    <ProgramaSinConciertosGestionRow
+                      key={`sin-conc-${entry.item.id}`}
+                      row={sinRow}
+                      onOpenProgram={handleOpenProgramAgenda}
+                      onOpenRepertorio={setRepertorioModalRow}
+                      onOpenObservaciones={setObservacionesModalRow}
+                    />
+                  );
+                }
+
+                const row = tableRowsById.get(entry.item.id);
+                if (!row) return null;
+
+                return (
                 <tr key={row.id} className="align-top text-slate-700 odd:bg-white even:bg-slate-50">
                   <td className="border-b border-slate-100 px-3 py-2">{row.fecha}</td>
                   <td className="border-b border-slate-100 px-3 py-2">{row.hora}</td>
                   <td className="border-b border-slate-100 px-3 py-2">
                     <div className="flex items-start justify-between gap-2">
-                      <span className="whitespace-pre-wrap">{row.programa}</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        {row.tipoPrograma ? (
+                          <ProgramTypeTag tipo={row.tipoPrograma} />
+                        ) : null}
+                        <span className="whitespace-pre-wrap">{row.programa}</span>
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleOpenProgramAgenda(row.programId)}
@@ -523,14 +641,19 @@ export default function ConciertosView({ supabase }) {
                     />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
           </tbody>
         </table>
       </div>
 
       <DetailModal
         open={Boolean(repertorioModalRow)}
-        title="Repertorio del concierto"
+        title={
+          String(repertorioModalRow?.id || "").startsWith("sin-conc-")
+            ? "Repertorio del programa"
+            : "Repertorio del concierto"
+        }
         subtitle={repertorioModalRow?.programa || ""}
         onClose={() => setRepertorioModalRow(null)}
       >
@@ -550,7 +673,11 @@ export default function ConciertosView({ supabase }) {
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-slate-500">Este concierto no tiene repertorio cargado.</p>
+          <p className="text-sm text-slate-500">
+            {String(repertorioModalRow?.id || "").startsWith("sin-conc-")
+              ? "Este programa no tiene repertorio cargado."
+              : "Este concierto no tiene repertorio cargado."}
+          </p>
         )}
       </DetailModal>
 

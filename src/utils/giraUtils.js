@@ -1,6 +1,7 @@
 // src/utils/giraUtils.js
 
 import { resolveLocalidadResidencia } from "./integranteDomicilioViaticos";
+import { isLocalAt, isLocalAtMealSlot } from "./giraTramos";
 
 export const normalize = (str) => (str || "").toLowerCase().trim();
 
@@ -152,6 +153,20 @@ export const resolveTourRoleOverride = (manualRole, member, fallbackRole) => {
  * @param {Object} person - Member object processed by useGiraRoster (must have is_local, rol_gira)
  * @param {{ hospedajeExcluidosIds?: Array<number|string> }} [opts] - Si viene `hospedajeExcluidosIds`, "GRP:NO_LOCALES" (Solo alojados en comidas) excluye quienes están en Hotelería como "No alojados".
  */
+function personIsLocalForConvocado(person, opts) {
+  const { fecha, servicio, segments, hora } = opts;
+  if (segments?.length > 0 && fecha) {
+    return isLocalAtMealSlot(
+      person,
+      fecha,
+      servicio || "Almuerzo",
+      segments,
+      hora,
+    );
+  }
+  return Boolean(person.is_local);
+}
+
 export const isUserConvoked = (convocadosList, person, opts = {}) => {
   if (!convocadosList || convocadosList.length === 0) return false;
 
@@ -164,9 +179,10 @@ export const isUserConvoked = (convocadosList, person, opts = {}) => {
   return convocadosList.some((tag) => {
     if (tag === ROSTER_CATEGORIES.TUTTI) return true;
 
-    if (tag === ROSTER_CATEGORIES.LOCALES) return person.is_local;
+    if (tag === ROSTER_CATEGORIES.LOCALES)
+      return personIsLocalForConvocado(person, opts);
     if (tag === ROSTER_CATEGORIES.NO_LOCALES) {
-      if (person.is_local) return false;
+      if (personIsLocalForConvocado(person, opts)) return false;
       if (excluidosHotel?.has(Number(person.id))) return false;
       return true;
     }
@@ -267,15 +283,100 @@ export const getCategoriaLogistica = (person) => {
   return isLocal ? "LOCALES" : "NO_LOCALES";
 };
 
+const RULE_FIELD_INSTANT = {
+  checkin: {
+    event: "id_evento_checkin",
+    date: "fecha_checkin",
+    time: "hora_checkin",
+  },
+  checkout: {
+    event: "id_evento_checkout",
+    date: "fecha_checkout",
+    time: "hora_checkout",
+  },
+  comida_inicio: {
+    event: "id_evento_comida_inicio",
+    date: "comida_inicio_fecha",
+    time: null,
+  },
+  comida_fin: {
+    event: "id_evento_comida_fin",
+    date: "comida_fin_fecha",
+    time: null,
+  },
+};
+
+/** Fecha/hora del hito asociado a un campo de regla logística (check-in, check-out, comidas). */
+export const resolveRuleFieldInstant = (rule, field, allEvents = []) => {
+  if (!rule || !field) return null;
+  const cfg = RULE_FIELD_INSTANT[field];
+  if (!cfg) return null;
+
+  if (rule[cfg.event]) {
+    const linked = (allEvents || []).find(
+      (e) => String(e.id) === String(rule[cfg.event]),
+    );
+    if (linked?.fecha) {
+      return {
+        fecha: linked.fecha,
+        hora: linked.hora_inicio || linked.hora || "12:00",
+      };
+    }
+  }
+
+  if (rule[cfg.date]) {
+    const rawTime = cfg.time ? rule[cfg.time] : null;
+    const hora =
+      rawTime && String(rawTime).includes(":")
+        ? String(rawTime).slice(0, 5)
+        : "12:00";
+    return { fecha: rule[cfg.date], hora };
+  }
+
+  return null;
+};
+
+/** Mejor instante disponible en la regla (check-in → check-out → comidas). */
+export const resolveRulePrimaryInstant = (rule, allEvents = []) => {
+  for (const field of [
+    "checkin",
+    "checkout",
+    "comida_inicio",
+    "comida_fin",
+  ]) {
+    const instant = resolveRuleFieldInstant(rule, field, allEvents);
+    if (instant?.fecha) return instant;
+  }
+  return null;
+};
+
+/** ¿Es local en el instante del hito? Con segmentos usa tramo activo; si no, flag del roster. */
+export const personIsLocalAtHit = (person, segments, instant) => {
+  if (segments?.length && instant?.fecha) {
+    return isLocalAt(person, instant, segments);
+  }
+  return Boolean(person?.is_local);
+};
+
 /**
  * Compatibilidad de categorías para reglas logísticas.
  * "NO_LOCALES" debe abarcar también perfiles clasificados como "EXTERNOS".
+ * Locales / No locales se evalúan en el instante del hito cuando hay segmentos.
  */
-const categoryMatches = (ruleCategory, personCategory, person = null) => {
+const categoryMatches = (
+  ruleCategory,
+  personCategory,
+  person = null,
+  context = {},
+) => {
   if (!ruleCategory || !personCategory) return false;
-  // "Locales / No Locales" deben regirse SIEMPRE por localidad sede, no por rol.
-  if (ruleCategory === "LOCALES") return Boolean(person?.is_local);
-  if (ruleCategory === "NO_LOCALES") return !Boolean(person?.is_local);
+  const { segments, instant } = context;
+  if (ruleCategory === "LOCALES" || ruleCategory === "NO_LOCALES") {
+    const isLocal = personIsLocalAtHit(person, segments, instant);
+    if (ruleCategory === "LOCALES") return isLocal;
+    if (personCategory === "EXTERNOS") return true;
+    return !isLocal;
+  }
   // Reglas antiguas con categoría CHOFER (choferes ahora son PRODUCCION).
   if (ruleCategory === "CHOFER") {
     const rol = normalize(person?.rol ?? person?.rol_gira ?? "");
@@ -288,9 +389,17 @@ const categoryMatches = (ruleCategory, personCategory, person = null) => {
 };
 
 /** Fuerza del match para ordenar reglas. Si estado_gira === 'ausente', siempre 0. */
-export const getMatchStrength = (rule, person, allLocalities = []) => {
+export const getMatchStrength = (
+  rule,
+  person,
+  allLocalities = [],
+  options = {},
+) => {
   if (!rule || !person) return 0;
   if (normalize(person.estado_gira) === "ausente") return 0;
+
+  const { segments, instant } = options;
+  const categoryContext = { segments, instant };
 
   const pId = String(person.id ?? person.id_integrante);
   const { pLoc, pReg } = resolvePersonTerritoryIds(person, rule, allLocalities);
@@ -305,7 +414,7 @@ export const getMatchStrength = (rule, person, allLocalities = []) => {
 
   if (
     (rule.target_categories || []).some((cat) =>
-      categoryMatches(cat, pCat, person),
+      categoryMatches(cat, pCat, person, categoryContext),
     )
   )
     return 4;
@@ -342,9 +451,17 @@ export const getMatchStrength = (rule, person, allLocalities = []) => {
  * aplican a solistas y directores con residencia en alguna localidad objetivo
  * de la regla (`id_localidad` o `target_localities`).
  */
-export const matchesRule = (rule, person, allLocalities = []) => {
+export const matchesRule = (
+  rule,
+  person,
+  allLocalities = [],
+  options = {},
+) => {
   if (!rule || !person) return false;
   if (normalize(person.estado_gira) === "ausente") return false;
+
+  const { segments, instant } = options;
+  const categoryContext = { segments, instant };
 
   const scope = normalize(rule.alcance);
   const pId = String(person.id ?? person.id_integrante);
@@ -389,7 +506,12 @@ export const matchesRule = (rule, person, allLocalities = []) => {
   if ((rule.target_localities || []).map(String).includes(pLoc)) return true;
   if (
     (rule.target_categories || []).some((cat) =>
-      categoryMatches(cat, getCategoriaLogistica(person), person),
+      categoryMatches(
+        cat,
+        getCategoriaLogistica(person),
+        person,
+        categoryContext,
+      ),
     )
   )
     return true;

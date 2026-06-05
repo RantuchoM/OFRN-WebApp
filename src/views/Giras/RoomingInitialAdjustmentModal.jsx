@@ -1,129 +1,216 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { IconFileText, IconX } from "../../components/ui/Icons";
-import { differenceInCalendarDays } from "date-fns";
+import {
+  buildInitialDateGroups,
+  computeSuggestedRooms,
+  getAdjustmentForRange,
+  getSuggestedRoomsLabel,
+  INITIAL_ORDER_BEDS_PER_ROOM_OPTIONS,
+  makeAdjustmentKey,
+  resolveSegmentBookingIds,
+  showSuggestedRooms,
+} from "../../utils/roomingInitialOrder";
+import {
+  formatTramoTitle,
+  getTramoLocalidadIds,
+  isLocalInPedidoTramo,
+} from "../../utils/giraTramos";
+import { normalize } from "../../utils/giraUtils";
 
-// Mismo helper que en RoomingInitialOrderReport: soporta eventos y strings
-const getLogisticsDates = (log) => {
-  let dateIn = null;
-  let dateOut = null;
+function computeSectionTotals(section, adjustments, bedsPerRoom) {
+  let basePax = 0;
+  let totalPax = 0;
+  let totalBeds = 0;
+  let suggestedRooms = 0;
 
-  if (log?.checkin) {
-    let dStr;
-    let tStr;
-    if (typeof log.checkin === "object") {
-      dStr = log.checkin.fecha || log.checkin.date;
-      tStr =
-        log.checkin.hora_inicio ||
-        log.checkin.hora ||
-        log.checkin.time ||
-        log.checkin_time ||
-        "14:00";
-    } else {
-      dStr = log.checkin;
-      tStr = log.checkin_time || "14:00";
-    }
-    if (dStr) {
-      const safeTime = (tStr || "14:00").slice(0, 5);
-      dateIn = new Date(`${dStr}T${safeTime}`);
-    }
-  }
+  section.sortedKeys.forEach((rangeKey) => {
+    const g = section.groups[rangeKey];
+    const adj = getAdjustmentForRange(
+      adjustments,
+      section.segmentId,
+      rangeKey,
+    );
+    const totalF = g.baseF + (adj.std_f || 0) + (adj.plus_f || 0);
+    const totalM = g.baseM + (adj.std_m || 0) + (adj.plus_m || 0);
+    const pax = totalF + totalM;
+    basePax += g.baseCount;
+    totalPax += pax;
+    totalBeds += pax * g.nights;
+    suggestedRooms += computeSuggestedRooms(totalF, totalM, bedsPerRoom);
+  });
 
-  if (log?.checkout) {
-    let dStr;
-    let tStr;
-    if (typeof log.checkout === "object") {
-      dStr = log.checkout.fecha || log.checkout.date;
-      tStr =
-        log.checkout.hora_inicio ||
-        log.checkout.hora ||
-        log.checkout.time ||
-        log.checkout_time ||
-        "10:00";
-    } else {
-      dStr = log.checkout;
-      tStr = log.checkout_time || "10:00";
-    }
-    if (dStr) {
-      const safeTime = (tStr || "10:00").slice(0, 5);
-      dateOut = new Date(`${dStr}T${safeTime}`);
-    }
-  }
+  return { basePax, totalPax, totalBeds, suggestedRooms };
+}
 
-  return { dateIn, dateOut };
-};
-
-const DEFAULT_ADJ = { std_m: 0, std_f: 0, plus_m: 0, plus_f: 0 };
+function SectionSummaryBox({ title, totals, bedsPerRoom }) {
+  const roomsLabel = getSuggestedRoomsLabel(bedsPerRoom);
+  return (
+    <div className="flex flex-wrap gap-4 text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
+      {title && (
+        <div className="w-full text-[10px] font-bold uppercase text-indigo-800 tracking-wide">
+          {title}
+        </div>
+      )}
+      <div>
+        <div className="text-slate-500 font-semibold uppercase text-[10px]">
+          Pax Base
+        </div>
+        <div className="text-lg font-bold text-slate-800">{totals.basePax}</div>
+      </div>
+      <div>
+        <div className="text-slate-500 font-semibold uppercase text-[10px]">
+          Pax Totales
+        </div>
+        <div className="text-lg font-bold text-indigo-700">{totals.totalPax}</div>
+      </div>
+      {roomsLabel && (
+        <div>
+          <div className="text-slate-500 font-semibold uppercase text-[10px]">
+            {roomsLabel}
+          </div>
+          <div className="text-lg font-bold text-emerald-700">
+            {totals.suggestedRooms}
+          </div>
+        </div>
+      )}
+      <div>
+        <div className="text-slate-500 font-semibold uppercase text-[10px]">
+          Total Camas Noche
+        </div>
+        <div className="text-lg font-bold text-amber-700">{totals.totalBeds}</div>
+      </div>
+    </div>
+  );
+}
 
 const RoomingInitialAdjustmentModal = ({
   roster,
   logisticsMap,
+  rooms = [],
+  bookings = [],
+  segmentRows = [],
+  segments = [],
+  cortesCount = 0,
+  locationsList = [],
+  excludedPersonIds = [],
   onClose,
   onConfirm,
 }) => {
   const [adjustments, setAdjustments] = useState({});
+  const [bedsPerRoom, setBedsPerRoom] = useState(2);
+  const defaultSegmentId = segmentRows[0]?.id ?? null;
 
-  const { groups, sortedKeys } = useMemo(() => {
-    const byKey = {};
+  const sections = useMemo(() => {
+    const hasTramos = cortesCount > 0 && segmentRows.length > 0;
+    const buildOne = (segRow, idx) => {
+      const tramoIndice = Number(
+        segRow?.indice != null && !Number.isNaN(Number(segRow.indice))
+          ? segRow.indice
+          : idx,
+      );
+      const bookingIds = segRow
+        ? resolveSegmentBookingIds(
+            bookings,
+            segRow,
+            segmentRows,
+            defaultSegmentId,
+          )
+        : null;
+      const segmentSpec = segments.find(
+        (s) => Number(s.indice) === tramoIndice,
+      );
+      const tramoLocalidadIds = getTramoLocalidadIds(
+        segRow,
+        segmentSpec,
+        segmentRows,
+        tramoIndice,
+      );
+      const locNames = tramoLocalidadIds
+        .map(
+          (id) =>
+            locationsList.find((l) => Number(l.id) === Number(id))?.localidad,
+        )
+        .filter(Boolean);
+      const excludedSet =
+        excludedPersonIds instanceof Set
+          ? excludedPersonIds
+          : excludedPersonIds?.length
+            ? new Set(excludedPersonIds.map(Number))
+            : null;
+      const localsCount = roster.filter((p) => {
+        const est = normalize(p.estado_gira || p.estado);
+        if (est === "ausente" || est === "baja") return false;
+        if (excludedSet?.has(Number(p.id))) return false;
+        return isLocalInPedidoTramo(
+          p,
+          segmentSpec,
+          tramoLocalidadIds,
+          segRow,
+          segments,
+          segmentRows,
+          tramoIndice,
+        );
+      }).length;
+      const { groups, sortedKeys } = buildInitialDateGroups({
+        roster,
+        logisticsMap,
+        segments,
+        segmentRow: segRow,
+        segmentRows,
+        rooms,
+        bookings,
+        segmentBookingIds: bookingIds,
+        defaultSegmentId,
+        tramoIndice,
+        excludedPersonIds: excludedSet,
+      });
+      const baseTitle =
+        segRow && hasTramos
+          ? formatTramoTitle(idx, segRow.fecha_desde, segRow.fecha_hasta)
+          : null;
+      const locLabel =
+        locNames.length > 0
+          ? locNames.join(", ")
+          : "sin localidades definidas";
+      const localsNote =
+        localsCount > 0
+          ? ` · ${localsCount} local${localsCount !== 1 ? "es" : ""}`
+          : "";
+      return {
+        segmentId: segRow?.id ?? null,
+        title: baseTitle
+          ? `${baseTitle} · ${locLabel}${localsNote}`
+          : null,
+        groups,
+        sortedKeys,
+        localsCount,
+      };
+    };
 
-    roster.forEach((person) => {
-      const log = logisticsMap[person.id];
-      if (!log) return;
+    if (!hasTramos) return [buildOne(null, 0)];
+    return segmentRows.map((segRow, idx) => buildOne(segRow, idx));
+  }, [
+    roster,
+    logisticsMap,
+    rooms,
+    bookings,
+    segmentRows,
+    segments,
+    cortesCount,
+    defaultSegmentId,
+    locationsList,
+    excludedPersonIds,
+  ]);
 
-      const { dateIn, dateOut } = getLogisticsDates(log);
-      if (!dateIn || !dateOut) return;
-      if (isNaN(dateIn.getTime()) || isNaN(dateOut.getTime())) return;
-
-      const nights = differenceInCalendarDays(dateOut, dateIn);
-      if (nights <= 0) return;
-
-      const formatD = (d) =>
-        d.toLocaleDateString("es-AR", {
-          day: "2-digit",
-          month: "2-digit",
-        });
-      const formatT = (d) =>
-        d.toLocaleTimeString("es-AR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-
-      const key = `${formatD(dateIn)} ${formatT(dateIn)} - ${formatD(
-        dateOut,
-      )} ${formatT(dateOut)}`;
-
-      if (!byKey[key]) {
-        byKey[key] = {
-          rangeLabel: key,
-          checkIn: dateIn,
-          checkOut: dateOut,
-          nights,
-          baseCount: 0,
-          baseM: 0,
-          baseF: 0,
-        };
-      }
-
-      const isFemale = person.genero === "F";
-      byKey[key].baseCount += 1;
-      if (isFemale) byKey[key].baseF += 1;
-      else byKey[key].baseM += 1;
-    });
-
-    const keys = Object.keys(byKey).sort(
-      (a, b) => byKey[a].checkIn - byKey[b].checkIn,
-    );
-
-    return { groups: byKey, sortedKeys: keys };
-  }, [roster, logisticsMap]);
-
-  const handleChange = (rangeKey, field, rawValue) => {
+  const handleChange = (segmentId, rangeKey, field, rawValue) => {
     const num = Number(rawValue);
     const safe = Number.isNaN(num) || num < 0 ? 0 : Math.floor(num);
+    const key = makeAdjustmentKey(segmentId, rangeKey);
     setAdjustments((prev) => {
-      const prevRange = prev[rangeKey] || DEFAULT_ADJ;
+      const prevRange = getAdjustmentForRange(prev, segmentId, rangeKey);
       return {
         ...prev,
-        [rangeKey]: {
+        [key]: {
           ...prevRange,
           [field]: safe,
         },
@@ -131,37 +218,249 @@ const RoomingInitialAdjustmentModal = ({
     });
   };
 
-  const totals = useMemo(() => {
-    let basePax = 0;
-    let totalPax = 0;
-    let totalBeds = 0;
-    let suggestedRooms = 0;
+  const sectionTotalsList = useMemo(
+    () =>
+      sections.map((section) =>
+        computeSectionTotals(section, adjustments, bedsPerRoom),
+      ),
+    [sections, adjustments, bedsPerRoom],
+  );
 
-    sortedKeys.forEach((key) => {
-      const g = groups[key];
-      const adj = adjustments[key] || DEFAULT_ADJ;
+  const hasTramoPicker = sections.length > 1;
 
-      const totalF = g.baseF + (adj.std_f || 0) + (adj.plus_f || 0);
-      const totalM = g.baseM + (adj.std_m || 0) + (adj.plus_m || 0);
-      const pax = totalF + totalM;
-      const roomsF = Math.ceil(totalF / 2);
-      const roomsM = Math.ceil(totalM / 2);
-      const rooms = roomsF + roomsM;
+  const [selectedTramoIndices, setSelectedTramoIndices] = useState(
+    () => new Set(sections.map((_, idx) => idx)),
+  );
 
-      basePax += g.baseCount;
-      totalPax += pax;
-      // Camas noche = pax * noches
-      totalBeds += pax * g.nights;
-      suggestedRooms += rooms;
+  const sectionKey = sections
+    .map((s) => s.segmentId ?? s.title ?? "")
+    .join("|");
+
+  useEffect(() => {
+    setSelectedTramoIndices(new Set(sections.map((_, idx) => idx)));
+  }, [sectionKey, sections.length]);
+
+  const toggleTramo = useCallback((idx) => {
+    setSelectedTramoIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        if (next.size <= 1) return prev;
+        next.delete(idx);
+      } else {
+        next.add(idx);
+      }
+      return next;
     });
+  }, []);
 
-    return {
-      basePax,
-      totalPax,
-      totalBeds,
-      suggestedRooms,
-    };
-  }, [sortedKeys, groups, adjustments]);
+  const selectAllTramos = useCallback(() => {
+    setSelectedTramoIndices(new Set(sections.map((_, idx) => idx)));
+  }, [sections]);
+
+  const visibleSectionEntries = useMemo(
+    () =>
+      sections
+        .map((section, idx) => ({
+          section,
+          idx,
+          totals: sectionTotalsList[idx],
+        }))
+        .filter(({ idx }) => selectedTramoIndices.has(idx)),
+    [sections, sectionTotalsList, selectedTramoIndices],
+  );
+
+  const showMultiLayout = visibleSectionEntries.length > 1;
+
+  const visibleGrandTotals = useMemo(
+    () =>
+      visibleSectionEntries.reduce(
+        (acc, { totals }) => ({
+          basePax: acc.basePax + totals.basePax,
+          totalPax: acc.totalPax + totals.totalPax,
+          totalBeds: acc.totalBeds + totals.totalBeds,
+          suggestedRooms: acc.suggestedRooms + totals.suggestedRooms,
+        }),
+        { basePax: 0, totalPax: 0, totalBeds: 0, suggestedRooms: 0 },
+      ),
+    [visibleSectionEntries],
+  );
+
+  const hasAnyRange = visibleSectionEntries.some(
+    ({ section }) => section.sortedKeys.length > 0,
+  );
+
+  const showRoomsColumn = showSuggestedRooms(bedsPerRoom);
+
+  const renderTable = (section) => {
+    if (section.sortedKeys.length === 0) {
+      return (
+        <p className="text-xs text-slate-400 italic py-3">
+          No hay rangos de alojamiento en este tramo.
+        </p>
+      );
+    }
+
+    return (
+      <table className="w-full border-collapse text-xs mb-4">
+        <thead>
+          <tr>
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1 text-left">
+              Fecha In / Out
+            </th>
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1">
+              Noches
+            </th>
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1">
+              Base F
+            </th>
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1">
+              Base M
+            </th>
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1">
+              Base Total
+            </th>
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1 bg-slate-100">
+              + STD F
+            </th>
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1 bg-slate-100">
+              + STD M
+            </th>
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1 bg-amber-50">
+              + PLUS F
+            </th>
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1 bg-amber-50">
+              + PLUS M
+            </th>
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1">
+              Total Pax
+            </th>
+            {showRoomsColumn && (
+              <th className="border border-slate-200 bg-slate-50 px-2 py-1">
+                Habs Sugeridas
+              </th>
+            )}
+            <th className="border border-slate-200 bg-slate-50 px-2 py-1">
+              Total Camas
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {section.sortedKeys.map((rangeKey) => {
+            const g = section.groups[rangeKey];
+            const adj = getAdjustmentForRange(
+              adjustments,
+              section.segmentId,
+              rangeKey,
+            );
+            const totalF = g.baseF + (adj.std_f || 0) + (adj.plus_f || 0);
+            const totalM = g.baseM + (adj.std_m || 0) + (adj.plus_m || 0);
+            const totalPaxRow = totalF + totalM;
+            const suggestedRoomsRow = computeSuggestedRooms(
+              totalF,
+              totalM,
+              bedsPerRoom,
+            );
+            const totalBedsRow = totalPaxRow * g.nights;
+
+            return (
+              <tr key={`${section.segmentId}-${rangeKey}`}>
+                <td className="border border-slate-200 px-2 py-1 font-mono text-[11px]">
+                  {g.rangeLabel}
+                </td>
+                <td className="border border-slate-200 px-2 py-1 text-center font-semibold text-slate-700">
+                  {g.nights}
+                </td>
+                <td className="border border-slate-200 px-2 py-1 text-center">
+                  {g.baseF}
+                </td>
+                <td className="border border-slate-200 px-2 py-1 text-center">
+                  {g.baseM}
+                </td>
+                <td className="border border-slate-200 px-2 py-1 text-center font-semibold">
+                  {g.baseCount}
+                </td>
+                <td className="border border-slate-200 px-2 py-1 bg-slate-50">
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-14 border border-slate-300 rounded px-1 py-0.5 text-right text-[11px]"
+                    value={adj.std_f || 0}
+                    onChange={(e) =>
+                      handleChange(
+                        section.segmentId,
+                        rangeKey,
+                        "std_f",
+                        e.target.value,
+                      )
+                    }
+                  />
+                </td>
+                <td className="border border-slate-200 px-2 py-1 bg-slate-50">
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-14 border border-slate-300 rounded px-1 py-0.5 text-right text-[11px]"
+                    value={adj.std_m || 0}
+                    onChange={(e) =>
+                      handleChange(
+                        section.segmentId,
+                        rangeKey,
+                        "std_m",
+                        e.target.value,
+                      )
+                    }
+                  />
+                </td>
+                <td className="border border-slate-200 px-2 py-1 bg-amber-50">
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-14 border border-amber-300 rounded px-1 py-0.5 text-right text-[11px]"
+                    value={adj.plus_f || 0}
+                    onChange={(e) =>
+                      handleChange(
+                        section.segmentId,
+                        rangeKey,
+                        "plus_f",
+                        e.target.value,
+                      )
+                    }
+                  />
+                </td>
+                <td className="border border-slate-200 px-2 py-1 bg-amber-50">
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-14 border border-amber-300 rounded px-1 py-0.5 text-right text-[11px]"
+                    value={adj.plus_m || 0}
+                    onChange={(e) =>
+                      handleChange(
+                        section.segmentId,
+                        rangeKey,
+                        "plus_m",
+                        e.target.value,
+                      )
+                    }
+                  />
+                </td>
+                <td className="border border-slate-200 px-2 py-1 text-center font-semibold text-slate-800">
+                  {totalPaxRow}
+                </td>
+                {showRoomsColumn && (
+                  <td className="border border-slate-200 px-2 py-1 text-center">
+                    {suggestedRoomsRow}
+                  </td>
+                )}
+                <td className="border border-slate-200 px-2 py-1 text-center">
+                  {totalBedsRow}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
@@ -170,6 +469,11 @@ const RoomingInitialAdjustmentModal = ({
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
             <IconFileText size={20} className="text-indigo-600" />
             Ajuste de Pedido de Plazas
+            {cortesCount > 0 && segmentRows.length > 1 && (
+              <span className="text-[10px] font-normal text-slate-500">
+                · {segmentRows.length} tramos
+              </span>
+            )}
           </h3>
           <button
             onClick={onClose}
@@ -179,183 +483,126 @@ const RoomingInitialAdjustmentModal = ({
           </button>
         </div>
 
+        {hasTramoPicker && (
+          <div className="px-4 py-2 border-b border-slate-100 bg-white shrink-0 flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-bold uppercase text-slate-400">
+              Tramos
+            </span>
+            {sections.map((section, idx) => {
+              const active = selectedTramoIndices.has(idx);
+              const label =
+                section.title?.match(/^Tramo \d+/i)?.[0] || `T${idx + 1}`;
+              return (
+                <button
+                  key={section.segmentId ?? idx}
+                  type="button"
+                  onClick={() => toggleTramo(idx)}
+                  title={section.title || `Tramo ${idx + 1}`}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
+                    active
+                      ? "bg-indigo-600 text-white border-indigo-600"
+                      : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            {selectedTramoIndices.size < sections.length && (
+              <button
+                type="button"
+                onClick={selectAllTramos}
+                className="text-[10px] font-bold text-indigo-600 hover:underline ml-1"
+              >
+                Todos
+              </button>
+            )}
+            <span className="text-[10px] text-slate-400 ml-auto">
+              {visibleSectionEntries.length === 1
+                ? "Vista de tramo único"
+                : `${visibleSectionEntries.length} tramos en el pedido`}
+            </span>
+          </div>
+        )}
+
+        <div className="px-4 py-2 border-b border-slate-100 bg-white shrink-0 flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-bold uppercase text-slate-400">
+            Base habitación
+          </span>
+          {INITIAL_ORDER_BEDS_PER_ROOM_OPTIONS.map((opt) => {
+            const active = bedsPerRoom === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setBedsPerRoom(opt.value)}
+                title={opt.title}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
+                  active
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+          <span className="text-[10px] text-slate-400 ml-auto">
+            {showRoomsColumn
+              ? "F con F, M con M · ceil(pax ÷ base)"
+              : "Solo pax y camas noche"}
+          </span>
+        </div>
+
         <div className="flex-1 overflow-auto p-6 bg-white text-sm">
           <p className="text-[11px] text-slate-500 mb-3">
-            Aquí puedes agregar pax adicionales (STD / PLUS, Mujeres / Varones)
-            por cada rango de Check-In / Check-Out. No se modifican los
-            integrantes de la gira, solo el pedido final.
+            Agregá pax adicionales (STD / PLUS, Mujeres / Varones) por rango de
+            Check-In / Check-Out
+            {cortesCount > 0 ? ", en cada tramo de la gira" : ""}. No se
+            modifican los integrantes, solo el pedido final.
           </p>
 
-          {sortedKeys.length === 0 ? (
+          {!hasAnyRange ? (
             <div className="text-center text-slate-400 py-10 text-sm italic">
               No hay rangos de alojamiento detectados para esta gira.
             </div>
           ) : (
             <>
-              <table className="w-full border-collapse text-xs mb-4">
-                <thead>
-                  <tr>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1 text-left">
-                      Fecha In / Out
-                    </th>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1">
-                      Noches
-                    </th>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1">
-                      Base F
-                    </th>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1">
-                      Base M
-                    </th>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1">
-                      Base Total
-                    </th>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1 bg-slate-100">
-                      + STD F
-                    </th>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1 bg-slate-100">
-                      + STD M
-                    </th>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1 bg-amber-50">
-                      + PLUS F
-                    </th>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1 bg-amber-50">
-                      + PLUS M
-                    </th>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1">
-                      Total Pax
-                    </th>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1">
-                      Habs Sugeridas
-                    </th>
-                    <th className="border border-slate-200 bg-slate-50 px-2 py-1">
-                      Total Camas
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedKeys.map((key) => {
-                    const g = groups[key];
-                    const adj = adjustments[key] || DEFAULT_ADJ;
+              {!showMultiLayout && visibleSectionEntries[0] && (
+                <SectionSummaryBox
+                  totals={visibleSectionEntries[0].totals}
+                  bedsPerRoom={bedsPerRoom}
+                />
+              )}
 
-                    const totalF = g.baseF + (adj.std_f || 0) + (adj.plus_f || 0);
-                    const totalM = g.baseM + (adj.std_m || 0) + (adj.plus_m || 0);
-                    const totalPax = totalF + totalM;
-                    const roomsF = Math.ceil(totalF / 2);
-                    const roomsM = Math.ceil(totalM / 2);
-                    const suggestedRooms = roomsF + roomsM;
-                    const totalBeds = totalPax * g.nights;
+              {visibleSectionEntries.map(({ section, totals }, visIdx) => (
+                <div
+                  key={section.segmentId ?? `vis-${visIdx}`}
+                  className={visIdx > 0 ? "mt-8 pt-6 border-t border-slate-200" : ""}
+                >
+                  {showMultiLayout && section.title && (
+                    <h4 className="text-sm font-bold text-indigo-900 mb-3">
+                      {section.title}
+                    </h4>
+                  )}
+                  {renderTable(section)}
+                  {showMultiLayout && section.sortedKeys.length > 0 && (
+                    <SectionSummaryBox
+                      title={`Resumen · ${section.title ?? "Gira"}`}
+                      totals={totals}
+                      bedsPerRoom={bedsPerRoom}
+                    />
+                  )}
+                </div>
+              ))}
 
-                    return (
-                      <tr key={key}>
-                        <td className="border border-slate-200 px-2 py-1 font-mono text-[11px]">
-                          {g.rangeLabel}
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 text-center font-semibold text-slate-700">
-                          {g.nights}
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 text-center">
-                          {g.baseF}
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 text-center">
-                          {g.baseM}
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 text-center font-semibold">
-                          {g.baseCount}
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 bg-slate-50">
-                          <input
-                            type="number"
-                            min="0"
-                            className="w-14 border border-slate-300 rounded px-1 py-0.5 text-right text-[11px]"
-                            value={adj.std_f || 0}
-                            onChange={(e) =>
-                              handleChange(key, "std_f", e.target.value)
-                            }
-                          />
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 bg-slate-50">
-                          <input
-                            type="number"
-                            min="0"
-                            className="w-14 border border-slate-300 rounded px-1 py-0.5 text-right text-[11px]"
-                            value={adj.std_m || 0}
-                            onChange={(e) =>
-                              handleChange(key, "std_m", e.target.value)
-                            }
-                          />
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 bg-amber-50">
-                          <input
-                            type="number"
-                            min="0"
-                            className="w-14 border border-amber-300 rounded px-1 py-0.5 text-right text-[11px]"
-                            value={adj.plus_f || 0}
-                            onChange={(e) =>
-                              handleChange(key, "plus_f", e.target.value)
-                            }
-                          />
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 bg-amber-50">
-                          <input
-                            type="number"
-                            min="0"
-                            className="w-14 border border-amber-300 rounded px-1 py-0.5 text-right text-[11px]"
-                            value={adj.plus_m || 0}
-                            onChange={(e) =>
-                              handleChange(key, "plus_m", e.target.value)
-                            }
-                          />
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 text-center font-semibold text-slate-800">
-                          {totalPax}
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 text-center">
-                          {suggestedRooms}
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 text-center">
-                          {totalBeds}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              <div className="flex flex-wrap gap-4 text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
-                <div>
-                  <div className="text-slate-500 font-semibold uppercase text-[10px]">
-                    Pax Base (Roster)
-                  </div>
-                  <div className="text-lg font-bold text-slate-800">
-                    {totals.basePax}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-slate-500 font-semibold uppercase text-[10px]">
-                    Pax Totales (con Adicionales)
-                  </div>
-                  <div className="text-lg font-bold text-indigo-700">
-                    {totals.totalPax}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-slate-500 font-semibold uppercase text-[10px]">
-                    Habitaciones Sugeridas (DOBLE)
-                  </div>
-                  <div className="text-lg font-bold text-emerald-700">
-                    {totals.suggestedRooms}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-slate-500 font-semibold uppercase text-[10px]">
-                    Total Camas Noche (Pax × Noches)
-                  </div>
-                  <div className="text-lg font-bold text-amber-700">
-                    {totals.totalBeds}
-                  </div>
-                </div>
-              </div>
+              {showMultiLayout && (
+                <SectionSummaryBox
+                  title={`Total general (${visibleSectionEntries.length} tramos)`}
+                  totals={visibleGrandTotals}
+                  bedsPerRoom={bedsPerRoom}
+                />
+              )}
             </>
           )}
         </div>
@@ -368,9 +615,15 @@ const RoomingInitialAdjustmentModal = ({
             Cancelar
           </button>
           <button
-            onClick={() => onConfirm(adjustments)}
+            onClick={() =>
+              onConfirm({
+                adjustments,
+                selectedTramoIndices: [...selectedTramoIndices],
+                bedsPerRoom,
+              })
+            }
             className="px-4 py-1.5 text-xs font-bold rounded bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
-            disabled={sortedKeys.length === 0}
+            disabled={!hasAnyRange}
           >
             Continuar al Pedido
           </button>
@@ -381,4 +634,3 @@ const RoomingInitialAdjustmentModal = ({
 };
 
 export default RoomingInitialAdjustmentModal;
-

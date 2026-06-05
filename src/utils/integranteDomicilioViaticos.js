@@ -27,7 +27,15 @@ function getViaticosObjeto(person) {
 
 function getResidenciaId(person) {
   const res = getResidenciaObjeto(person);
-  return res?.id ?? person?.id_localidad ?? null;
+  if (res?.id != null) return res.id;
+  const explicit = person?.id_localidad_residencia;
+  if (explicit != null && explicit !== "") return explicit;
+  // id_localidad suele ser la residencia en integrantes crudos; en logística
+  // puede haberse reemplazado por la localidad de viáticos.
+  if (person?.id_localidad_residencia === undefined) {
+    return person?.id_localidad ?? null;
+  }
+  return null;
 }
 
 function getResidenciaNombre(person) {

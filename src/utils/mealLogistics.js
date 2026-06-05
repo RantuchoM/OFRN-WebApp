@@ -1,4 +1,5 @@
 import { isUserConvoked } from "./giraUtils";
+import { isLocalAtMealSlot } from "./giraTramos";
 
 /** Orden del día para comparar inicio/fin de cobertura de comidas. */
 export const MEAL_SERVICE_ORDER = {
@@ -59,13 +60,21 @@ export function getMealCoverageBounds(logistics) {
  */
 export function isPersonEligibleForMealSlot(
   person,
-  { fecha, servicio, convocados },
+  { fecha, servicio, convocados, hora },
   options = {},
 ) {
   if (!person || person.estado_gira !== "confirmado") return false;
 
   if (convocados?.length) {
-    if (!isUserConvoked(convocados, person, options)) return false;
+    if (
+      !isUserConvoked(convocados, person, {
+        ...options,
+        fecha,
+        servicio,
+      })
+    ) {
+      return false;
+    }
   }
 
   const mealKey = mealSlotKey(fecha, servicio);
@@ -73,7 +82,12 @@ export function isPersonEligibleForMealSlot(
 
   const { startKey, endKey, hasAny } = getMealCoverageBounds(person.logistics);
 
-  if (!person.is_local && !hasAny) return false;
+  const isLocalNow =
+    options.segments?.length > 0
+      ? isLocalAtMealSlot(person, fecha, servicio, options.segments, hora)
+      : person.is_local;
+
+  if (!isLocalNow && !hasAny) return false;
   if (startKey != null && mealKey < startKey) return false;
   if (endKey != null && mealKey > endKey) return false;
 

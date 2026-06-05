@@ -12,6 +12,12 @@ import MassiveEditModal from "./MassiveEditModal";
 import LocationManagerModal from "../locations/LocationManagerModal";
 import { toast } from "sonner";
 import { getProgramTypeColor } from "../../utils/giraUtils";
+import { getProgramasSinConciertos } from "../../services/giraService";
+import {
+  ProgramaSinConciertosDifusionCard,
+  ProgramaSinConciertosDifusionTableRow,
+} from "../giras/ProgramasSinConciertosBanner";
+import { buildMergedConciertosTimeline } from "../../utils/conciertosTimeline";
 
 export const DIFUSION_ESTADOS = [
   { value: "en_proceso", label: "En proceso" },
@@ -343,6 +349,7 @@ export default function ConciertosDifusionPanel({
   onNavigateToGiraDifusion,
 }) {
   const [events, setEvents] = useState([]);
+  const [programasSinConciertos, setProgramasSinConciertos] = useState([]);
   const [logsByEvent, setLogsByEvent] = useState({});
   const [allLogsByEvent, setAllLogsByEvent] = useState({});
   const [editorMap, setEditorMap] = useState({});
@@ -382,6 +389,7 @@ export default function ConciertosDifusionPanel({
           setEvents([]);
           setLogsByEvent({});
           setAllLogsByEvent({});
+          setProgramasSinConciertos([]);
           setLoading(false);
           return;
         }
@@ -407,6 +415,16 @@ export default function ConciertosDifusionPanel({
       if (evErr) throw evErr;
       const list = evs || [];
       setEvents(list);
+
+      const sinConciertos =
+        idGiraFilter != null && idGiraFilter !== ""
+          ? []
+          : await getProgramasSinConciertos(supabase, {
+              dateFrom,
+              dateTo,
+              programTipoFilter,
+            });
+      setProgramasSinConciertos(sinConciertos || []);
 
       const ids = list.map((e) => e.id);
       if (ids.length === 0) {
@@ -469,6 +487,19 @@ export default function ConciertosDifusionPanel({
   }, [load]);
 
   const visibleIds = useMemo(() => events.map((e) => e.id), [events]);
+
+  const mergedTimeline = useMemo(() => {
+    const programas =
+      idGiraFilter != null && idGiraFilter !== "" ? [] : programasSinConciertos;
+    return buildMergedConciertosTimeline(events, programas);
+  }, [events, programasSinConciertos, idGiraFilter]);
+
+  const openProgramHandler =
+    showGiraShortcut && onNavigateToGiraDifusion
+      ? onNavigateToGiraDifusion
+      : undefined;
+
+  const difusionTableColSpan = canEdit ? 8 : 7;
 
   const toggleSelectAll = () => {
     if (selected.size === visibleIds.length && visibleIds.length > 0) {
@@ -650,12 +681,23 @@ export default function ConciertosDifusionPanel({
             <IconLoader className="animate-spin" size={18} />
             Cargando…
           </div>
-        ) : events.length === 0 ? (
+        ) : mergedTimeline.length === 0 ? (
           <div className="py-10 text-center text-slate-500 text-sm rounded-xl border border-slate-200 bg-white px-3">
             No hay conciertos con los filtros actuales.
           </div>
         ) : (
-          events.map((ev) => {
+          mergedTimeline.map((entry) => {
+            if (entry.kind === "sin_conciertos") {
+              return (
+                <ProgramaSinConciertosDifusionCard
+                  key={`sin-conc-${entry.item.id}`}
+                  programa={entry.item}
+                  onOpenProgram={openProgramHandler}
+                />
+              );
+            }
+
+            const ev = entry.item;
             const r = buildRow(ev);
             const estadoFondo = r.isEditing
               ? draft.estado || null
@@ -885,17 +927,29 @@ export default function ConciertosDifusionPanel({
                   Cargando…
                 </td>
               </tr>
-            ) : events.length === 0 ? (
+            ) : mergedTimeline.length === 0 ? (
               <tr>
                 <td
-                  colSpan={canEdit ? 8 : 7}
+                  colSpan={difusionTableColSpan}
                   className="p-10 text-center text-slate-500"
                 >
                   No hay conciertos con los filtros actuales.
                 </td>
               </tr>
             ) : (
-              events.map((ev) => {
+              mergedTimeline.map((entry) => {
+                if (entry.kind === "sin_conciertos") {
+                  return (
+                    <ProgramaSinConciertosDifusionTableRow
+                      key={`sin-conc-${entry.item.id}`}
+                      programa={entry.item}
+                      onOpenProgram={openProgramHandler}
+                      colSpan={difusionTableColSpan}
+                    />
+                  );
+                }
+
+                const ev = entry.item;
                 const r = buildRow(ev);
                 const estadoFondo = r.isEditing
                   ? draft.estado || null

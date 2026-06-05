@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   IconUtensils,
   IconLoader,
@@ -11,10 +11,17 @@ import {
   IconClipboardCheck,
   IconCalculator,
   IconArrowLeft,
+  IconPencil,
 } from "../../components/ui/Icons";
 import { useSearchParams } from "react-router-dom";
 // Hooks
 import { useLogistics } from "../../hooks/useLogistics";
+import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
+import {
+  buildSegmentSpecs,
+  formatTramoTitle,
+  isLocalForTramoIndex,
+} from "../../utils/giraTramos";
 
 // Sub-vistas
 import LogisticsManager from "./LogisticsManager";
@@ -24,6 +31,7 @@ import MealsReport from "./MealsReport";
 import GirasTransportesManager from "./GirasTransportesManager";
 import RoomingManager from "./RoomingManager";
 import ViaticosManager from "./Viaticos/ViaticosManager";
+import GiraTramosEditModal from "./GiraTramosEditModal";
 
 export default function LogisticsDashboard({
   supabase,
@@ -34,14 +42,50 @@ export default function LogisticsDashboard({
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isMealsMenuOpen, setIsMealsMenuOpen] = useState(false);
+  const [activeTramoIdx, setActiveTramoIdx] = useState(0);
+  const [showTramosModal, setShowTramosModal] = useState(false);
 
   // Pestaña activa desde URL
   const activeTab = searchParams.get("subTab") || "coverage";
 
   // Hook de Logística
-  const { summary, loading } = useLogistics(supabase, gira);
+  const { summary, loading, segments, cortesCount, refresh: refreshLogistics } =
+    useLogistics(supabase, gira);
+  const {
+    segmentRows,
+    cortes,
+    invalidateSegmentos,
+    refreshSegmentos,
+  } = useGiraSegmentos(supabase, gira, {
+    enabled: Boolean(gira?.id),
+  });
+  const segmentSpecs = useMemo(
+    () => buildSegmentSpecs(gira, cortes),
+    [gira, cortes],
+  );
+  const showTramoSelector = cortesCount > 0 && segmentSpecs.length > 1;
+  const canEditTramos = Boolean(gira?.id && gira?.fecha_desde && gira?.fecha_hasta);
+
+  const handleTramosSaved = useCallback(() => {
+    invalidateSegmentos();
+    refreshSegmentos();
+    refreshLogistics();
+    onDataChange?.();
+  }, [
+    invalidateSegmentos,
+    refreshSegmentos,
+    refreshLogistics,
+    onDataChange,
+  ]);
+
+  useEffect(() => {
+    if (activeTramoIdx >= segmentSpecs.length && segmentSpecs.length > 0) {
+      setActiveTramoIdx(Math.max(0, segmentSpecs.length - 1));
+    }
+  }, [segmentSpecs.length, activeTramoIdx]);
+
   const [showMealsPrint, setShowMealsPrint] = useState(false);
-  // --- ESTADÍSTICAS MATRIZ DOBLE ENTRADA ---
+  // --- ESTADÍSTICAS MATRIZ DOBLE ENTRADA (por tramo activo) ---
   const stats = useMemo(() => {
     const data = {
       m_local: 0,
@@ -66,11 +110,15 @@ export default function LogisticsDashboard({
       const isMale = g.startsWith("M");
       const isFemale = g.startsWith("F");
 
-      // Si no es M/F, no se incluye en la matriz, pero sí cuenta en el total
-
-      // Localía: usamos el flag ya calculado por useLogistics.
-      // Cualquier persona sin localidad o con localidad fuera de las sedes queda como viajera.
-      const isLocal = Boolean(curr.is_local);
+      const isLocal =
+        showTramoSelector && segments?.length
+          ? isLocalForTramoIndex(
+              curr,
+              segments,
+              activeTramoIdx,
+              segmentRows,
+            )
+          : Boolean(curr.is_local);
 
       if (isMale) {
         if (isLocal) data.m_local++;
@@ -82,7 +130,7 @@ export default function LogisticsDashboard({
     });
 
     return data;
-  }, [summary]);
+  }, [summary, showTramoSelector, segments, activeTramoIdx, segmentRows]);
 
   const handleTabChange = (newTab) => {
     setSearchParams((prev) => {
@@ -113,24 +161,101 @@ export default function LogisticsDashboard({
               <IconLoader className="animate-spin" size={12} /> Actualizando...
             </div>
           )}
+
+          {showTramoSelector && (
+            <div className="flex lg:hidden items-center gap-0.5 overflow-x-auto max-w-[140px] sm:max-w-none">
+              {segmentSpecs.map((spec, idx) => (
+                <button
+                  key={spec?.id ?? idx}
+                  type="button"
+                  onClick={() => setActiveTramoIdx(idx)}
+                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold border shrink-0 ${
+                    activeTramoIdx === idx
+                      ? "bg-indigo-600 text-white border-indigo-600"
+                      : "bg-white text-slate-600 border-slate-200"
+                  }`}
+                >
+                  T{idx + 1}
+                </button>
+              ))}
+              {canEditTramos && (
+                <button
+                  type="button"
+                  onClick={() => setShowTramosModal(true)}
+                  title="Editar tramos, localías y cortes"
+                  className="p-1 rounded border border-slate-200 bg-white text-slate-500 hover:text-indigo-600 hover:border-indigo-300 shrink-0"
+                >
+                  <IconPencil size={11} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* DERECHA: Cuadro Resumen + Pestañas */}
         <div className="flex items-end justify-end gap-1.5 sm:gap-4 h-full min-w-0 flex-1 ml-2 sm:ml-8">
-          {/* CUADRO RESUMEN (DOBLE ENTRADA) */}
+          {/* Selector de tramo + CUADRO RESUMEN */}
           {!loading && (
-            <div className="hidden lg:grid grid-cols-4 gap-x-2 gap-y-0.5 bg-slate-50 border border-slate-200 rounded-md p-1.5 mb-2 shadow-sm select-none text-[9px] leading-none">
+            <div className="hidden lg:flex flex-col items-end gap-1 mb-2 shrink-0">
+              {showTramoSelector && (
+                <div className="flex items-center gap-1 overflow-x-auto max-w-[320px]">
+                  {segmentSpecs.map((spec, idx) => {
+                    const label =
+                      spec?.fecha_desde && spec?.fecha_hasta
+                        ? formatTramoTitle(
+                            idx,
+                            spec.fecha_desde,
+                            spec.fecha_hasta,
+                          )
+                        : `Tramo ${idx + 1}`;
+                    return (
+                      <button
+                        key={spec?.id ?? idx}
+                        type="button"
+                        onClick={() => setActiveTramoIdx(idx)}
+                        title={label}
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap border transition-colors ${
+                          activeTramoIdx === idx
+                            ? "bg-indigo-600 text-white border-indigo-600"
+                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        T{idx + 1}
+                      </button>
+                    );
+                  })}
+                  {canEditTramos && (
+                    <button
+                      type="button"
+                      onClick={() => setShowTramosModal(true)}
+                      title="Editar tramos, localías y cortes"
+                      className="p-1 rounded border border-slate-200 bg-white text-slate-500 hover:text-indigo-600 hover:border-indigo-300 shrink-0"
+                    >
+                      <IconPencil size={11} />
+                    </button>
+                  )}
+                </div>
+              )}
+              <div className="grid grid-cols-4 gap-x-2 gap-y-0.5 bg-slate-50 border border-slate-200 rounded-md p-1.5 shadow-sm select-none text-[9px] leading-none">
               {/* Headers Columnas */}
               <div className="text-transparent">.</div>
               <div
                 className="font-bold text-slate-400 text-center"
-                title="Locales (Sede)"
+                title={
+                  showTramoSelector
+                    ? "Locales en el tramo seleccionado"
+                    : "Locales (Sede)"
+                }
               >
                 Loc
               </div>
               <div
                 className="font-bold text-slate-400 text-center"
-                title="Viajeros (No Sede)"
+                title={
+                  showTramoSelector
+                    ? "Viajeros en el tramo seleccionado"
+                    : "Viajeros (No Sede)"
+                }
               >
                 Viaj
               </div>
@@ -173,6 +298,7 @@ export default function LogisticsDashboard({
               <div className="font-bold text-indigo-600 text-center pt-1 border-t border-slate-200">
                 {stats.total}
               </div>
+            </div>
             </div>
           )}
 
@@ -288,9 +414,14 @@ export default function LogisticsDashboard({
       )}
 
       {/* CONTENIDO PRINCIPAL */}
-      <div className="flex-1 overflow-hidden relative">
+      <div className="flex-1 min-h-0 overflow-hidden relative">
           {activeTab === "coverage" && (
-            <LogisticsManager supabase={supabase} gira={gira} onBack={null} />
+            <LogisticsManager
+              supabase={supabase}
+              gira={gira}
+              onBack={null}
+              activeTramoIdx={activeTramoIdx}
+            />
           )}
 
           {activeTab === "meals" && (
@@ -346,6 +477,14 @@ export default function LogisticsDashboard({
             />
           )}
         </div>
+
+      <GiraTramosEditModal
+        supabase={supabase}
+        gira={gira}
+        isOpen={showTramosModal}
+        onClose={() => setShowTramosModal(false)}
+        onSaved={handleTramosSaved}
+      />
       </div>
     
   );

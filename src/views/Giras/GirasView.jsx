@@ -297,6 +297,24 @@ export default function GirasView({ supabase, trigger = 0 }) {
     }
   }, [mode, giraId]);
 
+  useLayoutEffect(() => {
+    if (mode !== "LIST" || !editingId) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const savedPosition = sessionStorage.getItem("giras_edit_scroll");
+    if (savedPosition) {
+      el.scrollTop = parseInt(savedPosition, 10);
+      sessionStorage.removeItem("giras_edit_scroll");
+      return;
+    }
+
+    const formEl = document.getElementById(`gira-form-${editingId}`);
+    if (formEl) {
+      formEl.scrollIntoView({ block: "nearest" });
+    }
+  }, [mode, editingId]);
+
   useEffect(() => {
     if (mode !== "LIST" || giraId || loading) return;
     if (sessionStorage.getItem("giras_list_scroll") || !highlightedGiraId) return;
@@ -955,7 +973,13 @@ export default function GirasView({ supabase, trigger = 0 }) {
     );
   };
   const startEdit = async (gira) => {
-    loadGiraIntoForm(gira);
+    if (scrollContainerRef.current) {
+      sessionStorage.setItem(
+        "giras_edit_scroll",
+        scrollContainerRef.current.scrollTop,
+      );
+    }
+    await loadGiraIntoForm(gira);
     setIsAdding(false);
   };
   const closeForm = () => {
@@ -1140,23 +1164,60 @@ export default function GirasView({ supabase, trigger = 0 }) {
     }
   }, [selectedGira?.fecha_desde, selectedGira?.fecha_hasta]);
 
-  const editingGira = useMemo(
-    () =>
-      editingId != null
-        ? filteredGiras.find((g) => String(g.id) === String(editingId))
-        : null,
-    [editingId, filteredGiras],
-  );
-
-  const virtualListItems = useMemo(
-    () =>
-      filteredGiras
-        .filter((g) => String(g.id) !== String(editingId))
-        .map((g) => ({ ...g, key: g.id })),
-    [filteredGiras, editingId],
-  );
-
   const listSaving = formSaving || loading;
+
+  const renderInlineGiraForm = useCallback(
+    (gira) => (
+      <div id={`gira-form-${gira.id}`}>
+        <GiraForm
+          key={gira.id}
+          supabase={supabase}
+          giraId={gira.id}
+          formData={formData}
+          setFormData={setFormData}
+          onCancel={closeForm}
+          onSave={handleSave}
+          onRefresh={async () => {
+            await fetchGiras();
+          }}
+          loading={listSaving}
+          isNew={false}
+          enableAutoSave={true}
+          locationsList={locationsList}
+          selectedLocations={selectedLocations}
+          setSelectedLocations={setSelectedLocations}
+          ensemblesList={ensemblesList}
+          allIntegrantes={allIntegrantes}
+          selectedSources={selectedSources}
+          setSelectedSources={setSelectedSources}
+          selectedStaff={selectedStaff}
+          setSelectedStaff={setSelectedStaff}
+          isCoordinator={isCoordinator}
+          coordinatedEnsembles={coordinatedEnsembles}
+        />
+      </div>
+    ),
+    [
+      supabase,
+      formData,
+      setFormData,
+      closeForm,
+      handleSave,
+      fetchGiras,
+      listSaving,
+      locationsList,
+      selectedLocations,
+      setSelectedLocations,
+      ensemblesList,
+      allIntegrantes,
+      selectedSources,
+      setSelectedSources,
+      selectedStaff,
+      setSelectedStaff,
+      isCoordinator,
+      coordinatedEnsembles,
+    ],
+  );
 
   const renderGiraCard = useCallback(
     (gira) => {
@@ -1582,39 +1643,17 @@ export default function GirasView({ supabase, trigger = 0 }) {
                 No se encontraron programas en el rango seleccionado.
               </div>
             )}
-            {editingGira && (
-              <GiraForm
-                key={editingGira.id}
-                supabase={supabase}
-                giraId={editingGira.id}
-                formData={formData}
-                setFormData={setFormData}
-                onCancel={closeForm}
-                onSave={handleSave}
-                onRefresh={async () => {
-                  await fetchGiras();
-                }}
-                loading={listSaving}
-                isNew={false}
-                enableAutoSave={true}
-                locationsList={locationsList}
-                selectedLocations={selectedLocations}
-                setSelectedLocations={setSelectedLocations}
-                ensemblesList={ensemblesList}
-                allIntegrantes={allIntegrantes}
-                selectedSources={selectedSources}
-                setSelectedSources={setSelectedSources}
-                selectedStaff={selectedStaff}
-                setSelectedStaff={setSelectedStaff}
-                isCoordinator={isCoordinator}
-                coordinatedEnsembles={coordinatedEnsembles}
-              />
+            {filteredGiras.map((gira) =>
+              String(gira.id) === String(editingId) ? (
+                <React.Fragment key={gira.id}>
+                  {renderInlineGiraForm(gira)}
+                </React.Fragment>
+              ) : (
+                <React.Fragment key={gira.id}>
+                  {renderGiraCard(gira)}
+                </React.Fragment>
+              ),
             )}
-            {virtualListItems.map((gira) => (
-              <React.Fragment key={gira.id}>
-                {renderGiraCard(gira)}
-              </React.Fragment>
-            ))}
           </div>
         )}
       </div>

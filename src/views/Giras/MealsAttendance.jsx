@@ -20,6 +20,7 @@ import {
   isPersonEligibleForMealSlot,
   mealServicioFromEvent,
 } from "../../utils/mealLogistics";
+import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 
 // Condiciones estándar (estas pueden seguir fijas si no tienes tabla de condiciones)
 const CONDICIONES_OPTIONS = [
@@ -58,6 +59,9 @@ export default function MealsAttendance({
   const [selectedRoles, setSelectedRoles] = useState([]);
   const [selectedConditions, setSelectedConditions] = useState([]);
   const [sendingMails, setSendingMails] = useState(false);
+  const { segments } = useGiraSegmentos(supabase, gira, {
+    enabled: Boolean(gira?.id),
+  });
 
   const checkEligibility = useCallback(
     (evt, person) => {
@@ -68,11 +72,12 @@ export default function MealsAttendance({
           fecha: evt.fecha,
           servicio: mealServicioFromEvent(evt),
           convocados: evt.convocados || [],
+          hora: evt.hora_inicio,
         },
-        { hospedajeExcluidosIds },
+        { hospedajeExcluidosIds, segments },
       );
     },
-    [hospedajeExcluidosIds],
+    [hospedajeExcluidosIds, segments],
   );
 
   useEffect(() => {

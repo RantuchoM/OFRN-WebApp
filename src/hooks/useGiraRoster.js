@@ -9,6 +9,8 @@ import {
   inferDefaultTourRole,
   resolveTourRoleOverride,
 } from "../utils/giraUtils";
+import { fetchGiraSegmentosBundle } from "../services/giraSegmentosService";
+import { resolvePersonIsLocal } from "../utils/giraTramos";
 
 /**
  * Obtiene el roster completo de una gira (fuentes + overrides + lógica de negocio).
@@ -147,8 +149,18 @@ export async function fetchRosterForGira(supabase, gira) {
     if (res.data) musicians = [...musicians, ...res.data];
   }
 
-  const { data: tourLocs } = await supabase.from("giras_localidades").select("id_localidad").eq("id_gira", gira.id);
+  const { data: tourLocs } = await supabase
+    .from("giras_localidades")
+    .select("id_localidad")
+    .eq("id_gira", gira.id);
   const tourLocSet = new Set(tourLocs?.map((l) => l.id_localidad));
+
+  let segmentBundle = { segments: [], cortesCount: 0 };
+  try {
+    segmentBundle = await fetchGiraSegmentosBundle(supabase, gira.id, gira);
+  } catch (segmentErr) {
+    console.warn("fetchGiraSegmentosBundle:", segmentErr?.message);
+  }
 
   const giraInicio = gira.fecha_desde ? new Date(gira.fecha_desde) : new Date();
   const giraFin = gira.fecha_hasta ? new Date(gira.fecha_hasta) : new Date();
@@ -209,8 +221,11 @@ export async function fetchRosterForGira(supabase, gira) {
     }
 
     if (keep) {
-      const locationId = locEfectiva.id;
-      const isLocal = locationId != null ? tourLocSet.has(locationId) : false;
+      const isLocal = resolvePersonIsLocal(processedMember, {
+        segments: segmentBundle.segments,
+        tourLocSet,
+        cortesCount: segmentBundle.cortesCount,
+      });
       const enGirasIntegrantes = manualIds.has(id);
       finalRoster.push({
         ...processedMember,

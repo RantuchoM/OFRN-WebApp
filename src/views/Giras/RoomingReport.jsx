@@ -1,10 +1,49 @@
 // src/views/Giras/RoomingReport.jsx
-import React, { useRef } from "react";
+import React, { useRef, useMemo } from "react";
 import { IconFileText, IconPrinter, IconX } from "../../components/ui/Icons";
 import { differenceInCalendarDays } from "date-fns";
+import { formatTramoTitle } from "../../utils/giraTramos";
 
-const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
+const RoomingReportModal = ({
+  bookings,
+  rooms,
+  onClose,
+  logisticsMap,
+  segmentRows = [],
+  segments = [],
+  cortesCount = 0,
+}) => {
   const componentRef = useRef();
+  const defaultSegmentId = segmentRows[0]?.id ?? null;
+
+  const segmentSections = useMemo(() => {
+    const hasTramos = cortesCount > 0 && segmentRows.length > 0;
+    if (!hasTramos) {
+      return [
+        {
+          segmentRow: null,
+          segmentSpec: null,
+          indice: 0,
+          bookings,
+        },
+      ];
+    }
+    return segmentRows
+      .map((segRow, idx) => ({
+        segmentRow: segRow,
+        segmentSpec: segments[idx] ?? null,
+        indice: idx,
+        bookings: bookings.filter((b) => {
+          const segId = b.id_segmento ?? defaultSegmentId;
+          return Number(segId) === Number(segRow.id);
+        }),
+      }))
+      .filter((section) =>
+        section.bookings.some((bk) =>
+          rooms.some((r) => r.id_hospedaje === bk.id),
+        ),
+      );
+  }, [bookings, rooms, segmentRows, segments, cortesCount, defaultSegmentId]);
 
   const handlePrint = () => {
     const printContent = componentRef.current;
@@ -94,7 +133,6 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
     if (log?.checkin) {
       let dStr, tStr;
       if (typeof log.checkin === "object") {
-        // Prioridad: Campos BD (fecha, hora_inicio) -> Alias (date, time, hora)
         dStr = log.checkin.fecha || log.checkin.date;
         tStr =
           log.checkin.hora_inicio ||
@@ -102,11 +140,9 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
           log.checkin.time ||
           "14:00";
       } else {
-        // Fallback string simple
         dStr = log.checkin;
         tStr = log.checkin_time || "14:00";
       }
-      // Slice(0,5) asegura formato HH:MM si viene HH:MM:SS
       if (dStr) dateIn = new Date(`${dStr}T${tStr.slice(0, 5)}`);
     }
 
@@ -128,6 +164,42 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
     }
 
     return { dateIn, dateOut };
+  };
+
+  const getBookingSegmentBounds = (bk, segmentRow) => {
+    let segIn = null;
+    let segOut = null;
+    if (bk?.fecha_checkin) {
+      const t = (bk.hora_checkin || "14:00").slice(0, 5);
+      segIn = new Date(`${bk.fecha_checkin}T${t}`);
+    } else if (segmentRow?.fecha_desde) {
+      segIn = new Date(`${segmentRow.fecha_desde}T14:00`);
+    }
+    if (bk?.fecha_checkout) {
+      const t = (bk.hora_checkout || "10:00").slice(0, 5);
+      segOut = new Date(`${bk.fecha_checkout}T${t}`);
+    } else if (segmentRow?.fecha_hasta) {
+      segOut = new Date(`${segmentRow.fecha_hasta}T10:00`);
+    }
+    return { segIn, segOut };
+  };
+
+  const formatSegmentTitle = (section) => {
+    const row = section.segmentRow;
+    if (!row) return null;
+    return formatTramoTitle(section.indice, row.fecha_desde, row.fecha_hasta);
+  };
+
+  const clipDatesToSegment = (dateIn, dateOut, bk, segmentRow) => {
+    const { segIn, segOut } = getBookingSegmentBounds(bk, segmentRow);
+    if (!segIn && !segOut) return { dateIn, dateOut };
+    let inClipped = dateIn;
+    let outClipped = dateOut;
+    if (segIn && dateIn && dateIn < segIn) inClipped = segIn;
+    if (segOut && dateOut && dateOut > segOut) outClipped = segOut;
+    if (segIn && !dateIn) inClipped = segIn;
+    if (segOut && !dateOut) outClipped = segOut;
+    return { dateIn: inClipped, dateOut: outClipped };
   };
 
   return (
@@ -156,7 +228,20 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
 
         <div className="flex-1 overflow-auto p-8 bg-white" ref={componentRef}>
           <h1 className="mb-4">Listado de Distribución de Habitaciones</h1>
-          {bookings.map((bk) => {
+          {segmentSections.map((section, sectionIdx) => (
+            <div
+              key={section.segmentRow?.id ?? `all-${sectionIdx}`}
+              className={sectionIdx > 0 ? "page-break mt-8" : ""}
+            >
+              {formatSegmentTitle(section) && (
+                <h2
+                  className="mb-4 text-base font-bold text-indigo-900 border-b border-indigo-200 pb-2"
+                  style={{ pageBreakAfter: "avoid" }}
+                >
+                  {formatSegmentTitle(section)}
+                </h2>
+              )}
+              {section.bookings.map((bk) => {
             const hotelRooms = rooms.filter((r) => r.id_hospedaje === bk.id);
             if (hotelRooms.length === 0) return null;
 
@@ -170,10 +255,16 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
               const occupantsWithDates = validOccupants.map((occ) => {
                 const log = logisticsMap[occ.id] || {};
                 const { dateIn, dateOut } = getLogisticsDates(log);
-                return {
-                  ...occ,
+                const clipped = clipDatesToSegment(
                   dateIn,
                   dateOut,
+                  bk,
+                  section.segmentRow,
+                );
+                return {
+                  ...occ,
+                  dateIn: clipped.dateIn,
+                  dateOut: clipped.dateOut,
                   ocupa_cama: occ.ocupa_cama !== false,
                 };
               });
@@ -308,12 +399,22 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
               return parseD(a) - parseD(b);
             });
 
+            const { segIn, segOut } = getBookingSegmentBounds(
+              bk,
+              section.segmentRow,
+            );
+            const stayLabel =
+              segIn && segOut
+                ? `${formatDate(segIn)} – ${formatDate(segOut)}`
+                : null;
+
             return (
               <div key={bk.id} className="mb-8 no-break">
                 <h2>
                   🏨 {bk.hoteles?.nombre || "Hotel sin nombre"}{" "}
                   <span style={{ fontWeight: "normal", fontSize: "0.8em" }}>
                     ({bk.hoteles?.localidades?.localidad})
+                    {stayLabel ? ` · ${stayLabel}` : ""}
                   </span>
                 </h2>
                 <div className="mb-6 no-break">
@@ -526,6 +627,8 @@ const RoomingReportModal = ({ bookings, rooms, onClose, logisticsMap }) => {
               </div>
             );
           })}
+            </div>
+          ))}
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import ConciertosDifusionPanel from "../../components/difusion/ConciertosDifusionPanel";
+import DateInput from "../../components/ui/DateInput";
 import { IconChevronDown, IconMegaphone } from "../../components/ui/Icons";
 import {
   addMonthsToDateStringLocal,
@@ -17,11 +18,8 @@ export default function DifusionGeneral({ supabase, onViewChange }) {
 
   const [programTipoFilter, setProgramTipoFilter] = useState("");
   const [dateFrom, setDateFrom] = useState(() => getTodayDateStringLocal());
-  const [monthsLimit, setMonthsLimit] = useState(3);
-
-  const dateTo = useMemo(
-    () => addMonthsToDateStringLocal(dateFrom, monthsLimit),
-    [dateFrom, monthsLimit],
+  const [dateTo, setDateTo] = useState(() =>
+    addMonthsToDateStringLocal(getTodayDateStringLocal(), 3),
   );
 
   const PROGRAM_TYPES = [
@@ -78,26 +76,26 @@ export default function DifusionGeneral({ supabase, onViewChange }) {
             </select>
           </div>
           <div className="flex-1 min-w-[140px]">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-              Desde
-            </label>
-            <input
-              type="date"
-              className="mt-1 w-full text-sm p-2 border border-slate-200 rounded-lg bg-white"
+            <DateInput
+              label="Desde"
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
+              onChange={(v) => {
+                const nextFrom = v || getTodayDateStringLocal();
+                setDateFrom(nextFrom);
+                if (dateTo && nextFrom > dateTo) {
+                  setDateTo(addMonthsToDateStringLocal(nextFrom, 3));
+                }
+              }}
+              className="mt-1 w-full text-sm p-2 border border-slate-200 rounded-lg bg-white"
             />
           </div>
           <div className="flex-1 min-w-[140px]">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-              Hasta
-            </label>
-            <div className="mt-1 w-full text-sm p-2 border border-slate-100 rounded-lg bg-slate-50 text-slate-600 tabular-nums">
-              {dateTo}
-            </div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Ventana de {monthsLimit} meses desde «Desde»
-            </p>
+            <DateInput
+              label="Hasta"
+              value={dateTo}
+              onChange={(v) => setDateTo(v || dateTo)}
+              className="mt-1 w-full text-sm p-2 border border-slate-200 rounded-lg bg-white"
+            />
           </div>
         </div>
 
@@ -117,7 +115,11 @@ export default function DifusionGeneral({ supabase, onViewChange }) {
         <div className="flex justify-center pb-8">
           <button
             type="button"
-            onClick={() => setMonthsLimit((prev) => prev + 3)}
+            onClick={() =>
+              setDateTo((prev) =>
+                addMonthsToDateStringLocal(prev || dateFrom, 3),
+              )
+            }
             className="flex items-center gap-2 px-6 py-2.5 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-full shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition-all active:scale-95 text-sm"
           >
             <IconChevronDown size={18} />

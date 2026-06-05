@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import { format, parseISO, isToday, isTomorrow, isPast } from "date-fns";
 import { es } from "date-fns/locale";
 import { useAuth } from "../../context/AuthContext";
@@ -13,6 +13,7 @@ import {
   IconX,
   IconUsers,
   IconClock,
+  IconAlertTriangle,
 } from "../../components/ui/Icons";
 import VenueStatusPin from "../../components/ui/VenueStatusPin";
 import CommentButton from "../../components/comments/CommentButton";
@@ -313,22 +314,16 @@ export default function GiraCard({
   };
 
   const renderConcertsCompact = () => {
-    const concerts = (gira.eventos || [])
-      .filter(
-        (e) =>
-          e.tipos_evento?.nombre?.toLowerCase().includes("concierto") ||
-          e.tipos_evento?.nombre?.toLowerCase().includes("función"),
-      )
-      .sort((a, b) =>
-        (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
-      );
-
-    if (concerts.length === 0)
-      return (
-        <div className="text-center opacity-50 text-xs mt-4">
-          Sin conciertos
-        </div>
-      );
+    if (concerts.length === 0) {
+      if (gira.tipo === "Comisión") {
+        return (
+          <div className="text-center opacity-50 text-xs mt-4">
+            Sin conciertos
+          </div>
+        );
+      }
+      return <div className="mt-2 flex justify-start px-1">{renderSinConciertosAlert()}</div>;
+    }
 
     return (
       <div className="flex flex-col h-full">
@@ -482,15 +477,6 @@ export default function GiraCard({
   };
 
   const getConcertListDesktop = () => {
-    const concerts = (gira.eventos || [])
-      .filter(
-        (e) =>
-          e.tipos_evento?.nombre?.toLowerCase().includes("concierto") ||
-          e.tipos_evento?.nombre?.toLowerCase().includes("función"),
-      )
-      .sort((a, b) =>
-        (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
-      );
     if (concerts.length === 0) return null;
     return (
       <div className="text-xs space-y-1 mt-2 border-t border-black/5 pt-2">
@@ -529,6 +515,36 @@ export default function GiraCard({
   const locs = gira.giras_localidades
     ?.map((l) => l.localidades?.localidad)
     .join(", ");
+
+  const concerts = useMemo(
+    () =>
+      (gira.eventos || [])
+        .filter(
+          (e) =>
+            e.tipos_evento?.nombre?.toLowerCase().includes("concierto") ||
+            e.tipos_evento?.nombre?.toLowerCase().includes("función"),
+        )
+        .sort((a, b) =>
+          (a.fecha + a.hora_inicio).localeCompare(b.fecha + b.hora_inicio),
+        ),
+    [gira.eventos],
+  );
+
+  const showSinConciertosAlert =
+    concerts.length === 0 && gira.tipo !== "Comisión";
+
+  const renderSinConciertosAlert = (className = "") => {
+    if (!showSinConciertosAlert) return null;
+    return (
+      <div
+        role="alert"
+        className={`inline-flex w-fit items-center gap-2 rounded-lg border-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 animate-pulse ${className}`}
+      >
+        <IconAlertTriangle size={16} className="shrink-0" />
+        No hay conciertos definidos
+      </div>
+    );
+  };
 
   return (
     <div
@@ -728,6 +744,11 @@ export default function GiraCard({
                 <IconMapPin size={18} className="shrink-0" />
                 <span className="truncate">{locs || "Sin localía"}</span>
               </div>
+              {showSinConciertosAlert ? (
+                <div className="mt-1.5 flex justify-center px-1">
+                  {renderSinConciertosAlert()}
+                </div>
+              ) : null}
               <div className="text-center pb-1">
                 <h3 className="text-sm font-bold text-slate-800 leading-tight line-clamp-2">
                   {gira.nombre_gira}
@@ -837,7 +858,9 @@ export default function GiraCard({
             </div>
           </div>
         </div>
-        {getConcertListDesktop()}
+        {getConcertListDesktop() || (showSinConciertosAlert ? (
+          <div className="mt-2 flex justify-start">{renderSinConciertosAlert()}</div>
+        ) : null)}
 
         <div className="absolute top-2 right-2 z-30 grid grid-cols-2 gap-1 items-start justify-items-end">
           <div className="col-start-2 relative z-[100]">

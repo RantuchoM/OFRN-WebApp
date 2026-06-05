@@ -1,61 +1,85 @@
-import React, { useRef } from "react";
+import React, { useRef, useMemo } from "react";
 import { IconFileText, IconPrinter, IconX } from "../../components/ui/Icons";
-import { differenceInCalendarDays } from "date-fns";
-import { normalize } from "../../utils/giraUtils";
+import { buildInitialOrderSections, getSuggestedRoomsLabel, showSuggestedRooms } from "../../utils/roomingInitialOrder";
 
-// Helper compatible con objetos de evento y strings simples
-const getLogisticsDates = (log) => {
-  let dateIn = null;
-  let dateOut = null;
+function sumSectionTotals(sections) {
+  return sections.reduce(
+    (acc, section) => ({
+      totalPax: acc.totalPax + section.totalPax,
+      totalBedNights: acc.totalBedNights + section.totalBedNights,
+      grandTotalStdNights:
+        acc.grandTotalStdNights + section.grandTotalStdNights,
+      grandTotalPlusNights:
+        acc.grandTotalPlusNights + section.grandTotalPlusNights,
+      totalSuggestedRooms:
+        acc.totalSuggestedRooms + section.totalSuggestedRooms,
+    }),
+    {
+      totalPax: 0,
+      totalBedNights: 0,
+      grandTotalStdNights: 0,
+      grandTotalPlusNights: 0,
+      totalSuggestedRooms: 0,
+    },
+  );
+}
 
-  // Check-In
-  if (log?.checkin) {
-    let dStr;
-    let tStr;
-    if (typeof log.checkin === "object") {
-      // Prioridad: campos de evento ({ fecha, hora_inicio }) y alias ({ date, time, hora })
-      dStr = log.checkin.fecha || log.checkin.date;
-      tStr =
-        log.checkin.hora_inicio ||
-        log.checkin.hora ||
-        log.checkin.time ||
-        log.checkin_time ||
-        "14:00";
-    } else {
-      // Fallback: string plano + hora opcional en la raíz
-      dStr = log.checkin;
-      tStr = log.checkin_time || "14:00";
-    }
-    if (dStr) {
-      const safeTime = (tStr || "14:00").slice(0, 5);
-      dateIn = new Date(`${dStr}T${safeTime}`);
-    }
-  }
-
-  // Check-Out
-  if (log?.checkout) {
-    let dStr;
-    let tStr;
-    if (typeof log.checkout === "object") {
-      dStr = log.checkout.fecha || log.checkout.date;
-      tStr =
-        log.checkout.hora_inicio ||
-        log.checkout.hora ||
-        log.checkout.time ||
-        log.checkout_time ||
-        "10:00";
-    } else {
-      dStr = log.checkout;
-      tStr = log.checkout_time || "10:00";
-    }
-    if (dStr) {
-      const safeTime = (tStr || "10:00").slice(0, 5);
-      dateOut = new Date(`${dStr}T${safeTime}`);
-    }
-  }
-
-  return { dateIn, dateOut };
-};
+function SectionSummaryBox({ title, totals, className = "", bedsPerRoom = 2 }) {
+  const roomsLabel = getSuggestedRoomsLabel(bedsPerRoom);
+  return (
+    <div
+      className={`mb-6 p-4 bg-slate-50 border border-slate-200 rounded-lg flex flex-wrap gap-8 summary-box ${className}`.trim()}
+    >
+      {title && (
+        <div className="w-full text-[10px] font-bold uppercase text-indigo-800 tracking-wide -mb-2">
+          {title}
+        </div>
+      )}
+      <div className="summary-item">
+        <div className="text-xs text-slate-500 uppercase font-bold summary-label">
+          Total Pax
+        </div>
+        <div className="text-2xl font-bold text-slate-800 summary-value">
+          {totals.totalPax}
+        </div>
+      </div>
+      <div className="pl-6 border-l border-slate-200 summary-item summary-divider">
+        <div className="text-xs text-slate-500 uppercase font-bold text-slate-600 summary-label">
+          Total Noches Bás
+        </div>
+        <div className="text-2xl font-bold text-slate-600 summary-value text-slate">
+          {totals.grandTotalStdNights}
+        </div>
+      </div>
+      <div className="summary-item">
+        <div className="text-xs text-slate-500 uppercase font-bold text-amber-700 summary-label">
+          Total Noches Sup
+        </div>
+        <div className="text-2xl font-bold text-amber-600 summary-value text-amber">
+          {totals.grandTotalPlusNights}
+        </div>
+      </div>
+      <div className="pl-6 border-l border-slate-200 summary-item summary-divider">
+        <div className="text-xs text-slate-500 uppercase font-bold text-indigo-700 summary-label">
+          Total Camas
+        </div>
+        <div className="text-2xl font-bold text-indigo-600 summary-value text-indigo">
+          {totals.totalBedNights}
+        </div>
+      </div>
+      {roomsLabel && (
+        <div className="summary-item summary-divider">
+          <div className="text-xs text-slate-500 uppercase font-bold text-slate-700 summary-label">
+            {roomsLabel}
+          </div>
+          <div className="text-2xl font-bold text-slate-800 summary-value">
+            {totals.totalSuggestedRooms}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const InitialOrderReportModal = ({
   roster,
@@ -64,81 +88,101 @@ const InitialOrderReportModal = ({
   adjustmentsByRange = {},
   onClose,
   programName,
+  bookings = [],
+  segmentRows = [],
+  segments = [],
+  cortesCount = 0,
+  excludedPersonIds = [],
+  selectedTramoIndices = null,
+  bedsPerRoom = 2,
 }) => {
     const componentRef = useRef();
+    const showRoomsColumn = showSuggestedRooms(bedsPerRoom);
 
     const handlePrint = () => {
         const printContent = componentRef.current;
+        if (!printContent) return;
         const windowUrl = 'about:blank';
         const uniqueName = new Date();
         const windowName = 'Print' + uniqueName.getTime();
         const printWindow = window.open(windowUrl, windowName, 'left=50000,top=50000,width=0,height=0');
-        
+        if (!printWindow) return;
+
         printWindow.document.write(`
             <html>
                 <head>
                     <title>Pedido Inicial de Alojamiento</title>
                     <style>
-                        body { font-family: 'Segoe UI', sans-serif; padding: 20px; font-size: 12px; color: #334155; }
-                        h1 { font-size: 20px; color: #1e1b4b; border-bottom: 2px solid #1e1b4b; padding-bottom: 10px; margin-bottom: 5px; }
-                        h2 { font-size: 14px; margin-top: 0; color: #64748b; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 30px; }
-                        
-                        /* ESTILOS PARA EL CUADRO DE RESUMEN EN PDF */
+                        * { box-sizing: border-box; }
+                        body { font-family: 'Segoe UI', sans-serif; padding: 0; margin: 0; font-size: 11px; color: #334155; }
+                        .initial-order-print-root { padding: 0; }
+                        h1 { font-size: 16px; color: #1e1b4b; border-bottom: 2px solid #1e1b4b; padding-bottom: 4px; margin: 0 0 2px; }
+                        h2 { font-size: 11px; margin: 0 0 8px; color: #64748b; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+                        h3 { font-size: 10px; margin: 6px 0 3px; color: #475569; font-weight: bold; text-transform: uppercase; }
+                        .tramo-title { font-size: 10px; font-weight: bold; color: #312e81; border-bottom: 1px solid #c7d2fe; padding-bottom: 2px; margin: 8px 0 4px; }
+                        .print-note { display: none; }
+
                         .summary-box {
-                            display: flex; /* Para ponerlos uno al lado del otro */
+                            display: flex;
                             flex-direction: row;
-                            gap: 30px;
-                            padding: 15px;
-                            background-color: #f8fafc !important; /* bg-slate-50 */
+                            flex-wrap: wrap;
+                            gap: 14px;
+                            padding: 8px 10px;
+                            background-color: #f8fafc !important;
                             border: 1px solid #e2e8f0;
-                            border-radius: 8px;
-                            margin-bottom: 20px;
-                            -webkit-print-color-adjust: exact; /* Forzar impresión de fondo */
+                            border-radius: 6px;
+                            margin-bottom: 8px;
+                            -webkit-print-color-adjust: exact;
                             print-color-adjust: exact;
                         }
-                        .summary-item {
-                            display: flex;
-                            flex-direction: column;
-                        }
-                        .summary-divider {
-                            border-left: 1px solid #cbd5e1;
-                            padding-left: 20px;
-                        }
+                        .summary-item { display: flex; flex-direction: column; }
+                        .summary-divider { border-left: 1px solid #cbd5e1; padding-left: 12px; }
                         .summary-label {
-                            font-size: 10px;
+                            font-size: 8px;
                             text-transform: uppercase;
                             font-weight: bold;
                             color: #64748b;
-                            margin-bottom: 4px;
+                            margin-bottom: 2px;
                         }
-                        .summary-value {
-                            font-size: 20px;
-                            font-weight: bold;
-                            color: #1e293b;
-                        }
+                        .summary-value { font-size: 14px; font-weight: bold; color: #1e293b; line-height: 1.1; }
                         .text-indigo { color: #4f46e5 !important; }
                         .text-amber { color: #d97706 !important; }
                         .text-slate { color: #475569 !important; }
 
-                        /* TABLAS */
-                        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px; }
-                        th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: center; }
-                        th { background-color: #f1f5f9 !important; font-weight: 700; color: #475569; text-transform: uppercase; vertical-align: middle; -webkit-print-color-adjust: exact; }
+                        table { width: 100%; border-collapse: collapse; margin-bottom: 6px; font-size: 9px; table-layout: fixed; }
+                        th, td { border: 1px solid #e2e8f0; padding: 3px 4px; text-align: center; overflow: hidden; text-overflow: ellipsis; }
+                        th { background-color: #f1f5f9 !important; font-weight: 700; color: #475569; text-transform: uppercase; vertical-align: middle; font-size: 8px; -webkit-print-color-adjust: exact; }
                         td:first-child { text-align: left; }
-                        
-                        .total-row { background-color: #f8fafc !important; font-weight: bold; color: #0f172a; font-size: 12px; -webkit-print-color-adjust: exact; }
-                        .date-col { font-family: 'Consolas', monospace; color: #0f172a; font-weight: 600; text-align: left; white-space: nowrap;}
+                        .total-row { background-color: #f8fafc !important; font-weight: bold; color: #0f172a; font-size: 9px; -webkit-print-color-adjust: exact; }
+                        .date-col { font-family: 'Consolas', monospace; color: #0f172a; font-weight: 600; text-align: left; white-space: nowrap; font-size: 8px; }
                         .highlight { color: #2563eb; font-weight: bold; }
-                        
                         .bg-std { background-color: #f8fafc !important; -webkit-print-color-adjust: exact; }
                         .bg-plus { background-color: #fff7ed !important; -webkit-print-color-adjust: exact; }
                         .text-std { color: #475569; }
                         .text-plus { color: #b45309; font-weight: bold; }
-                        .text-total { color: #4f46e5; font-weight: bold; font-size: 1.1em; }
+                        .text-total { color: #4f46e5; font-weight: bold; }
+                        .section-tramo-block { page-break-inside: avoid; break-inside: avoid; margin-top: 4px; }
+                        .per-tramo-summary { display: none !important; }
+                        .grand-summary-footer { display: none !important; }
+                        .print-only-top-summary { display: block !important; margin-bottom: 8px; }
+                        .desglose-heading { display: none; }
+                        .screen-only { display: none !important; }
 
                         @media print {
-                            @page { margin: 10mm; }
-                            body { -webkit-print-color-adjust: exact; }
+                            @page { size: A4 portrait; margin: 8mm; }
+                            html, body {
+                                width: 100%;
+                                height: 100%;
+                                margin: 0;
+                                padding: 0;
+                                overflow: hidden;
+                                -webkit-print-color-adjust: exact;
+                                print-color-adjust: exact;
+                            }
+                            .initial-order-print-root {
+                                page-break-inside: avoid;
+                                break-inside: avoid;
+                            }
                             button { display: none !important; }
                         }
                     </style>
@@ -147,130 +191,85 @@ const InitialOrderReportModal = ({
             </html>
         `);
         printWindow.document.close();
-        printWindow.focus();
-        setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
-    };
 
-    const isPersonInPlus = (personId) => {
-        if (!rooms || rooms.length === 0) return false;
-        return rooms.some((r) => {
-            if (r.tipo !== "Plus") return false;
-            const cfg = Array.isArray(r.asignaciones_config)
-                ? r.asignaciones_config
-                : [];
-            // Consideramos "Superior" solo si ocupa cama en una habitación marcada como superior
-            return cfg.some(
-                (c) => c && c.id === personId && c.ocupa_cama !== false,
-            );
-        });
-    };
+        const runPrint = () => {
+            const doc = printWindow.document;
+            const root =
+                doc.querySelector(".initial-order-print-root") || doc.body;
+            const pageHeightPx = ((297 - 16) * 96) / 25.4;
+            const contentHeight = root.scrollHeight;
+            if (contentHeight > pageHeightPx) {
+                const scale = pageHeightPx / contentHeight;
+                root.style.transform = `scale(${scale})`;
+                root.style.transformOrigin = "top left";
+                root.style.width = `${100 / scale}%`;
+                doc.body.style.height = `${Math.ceil(contentHeight * scale)}px`;
+                doc.body.style.overflow = "hidden";
+            }
+            printWindow.focus();
+            printWindow.print();
+            printWindow.close();
+        };
 
-    const dateGroups = {};
-
-    roster.forEach((person) => {
-        const est = normalize(person.estado_gira || person.estado);
-        if (est === "ausente" || est === "baja") return;
-
-        const log = logisticsMap[person.id];
-        if (!log) return;
-
-        // Resolver fechas y horas desde objetos de evento o strings manuales
-        const { dateIn: dIn, dateOut: dOut } = getLogisticsDates(log);
-        if (!dIn || !dOut) return;
-
-        if (isNaN(dIn.getTime()) || isNaN(dOut.getTime())) return;
-
-        const nights = differenceInCalendarDays(dOut, dIn);
-        if (nights <= 0) return; 
-
-        const formatD = (d) => d.toLocaleDateString("es-AR", {day:"2-digit", month:"2-digit"});
-        const formatT = (d) => d.toLocaleTimeString("es-AR", {hour:"2-digit", minute:"2-digit"});
-
-        const key = `${formatD(dIn)} ${formatT(dIn)} - ${formatD(dOut)} ${formatT(dOut)}`;
-        
-        if (!dateGroups[key]) {
-            dateGroups[key] = {
-                rangeLabel: key,
-                checkIn: dIn,
-                checkOut: dOut,
-                nights: nights,
-                baseCount: 0,
-                baseStd: 0,
-                basePlus: 0,
-                baseM: 0,
-                baseF: 0
-            };
-        }
-        
-        const group = dateGroups[key];
-        group.baseCount++;
-        if (isPersonInPlus(person.id)) {
-            group.basePlus++;
+        if (printWindow.document.readyState === "complete") {
+            setTimeout(runPrint, 50);
         } else {
-            group.baseStd++;
+            printWindow.onload = () => setTimeout(runPrint, 50);
         }
-        const isFemale = person.genero === "F";
-        if (isFemale) group.baseF++;
-        else group.baseM++;
-    });
+    };
 
-    const sortedGroups = Object.values(dateGroups).sort(
-      (a, b) => a.checkIn - b.checkIn,
+    const reportSections = useMemo(
+      () =>
+        buildInitialOrderSections({
+          roster,
+          logisticsMap,
+          rooms,
+          bookings,
+          segmentRows,
+          segments,
+          cortesCount,
+          adjustmentsByRange,
+          excludedPersonIds,
+          bedsPerRoom,
+        }),
+      [
+        roster,
+        logisticsMap,
+        rooms,
+        adjustmentsByRange,
+        segments,
+        segmentRows,
+        bookings,
+        cortesCount,
+        excludedPersonIds,
+        bedsPerRoom,
+      ],
     );
 
-    const computedRows = sortedGroups.map((group) => {
-      const adj = adjustmentsByRange[group.rangeLabel] || {};
-      const extraStd = (adj.std_m || 0) + (adj.std_f || 0);
-      const extraPlus = (adj.plus_m || 0) + (adj.plus_f || 0);
-      const stdPax = group.baseStd + extraStd;
-      const plusPax = group.basePlus + extraPlus;
-      const totalRowPax = stdPax + plusPax;
-      const stdNights = stdPax * group.nights;
-      const plusNights = plusPax * group.nights;
-      const totalRowNights = totalRowPax * group.nights;
+    const effectiveSelectedIndices = useMemo(() => {
+      if (Array.isArray(selectedTramoIndices) && selectedTramoIndices.length) {
+        return new Set(selectedTramoIndices);
+      }
+      return new Set(reportSections.map((_, idx) => idx));
+    }, [selectedTramoIndices, reportSections.length]);
 
-      const totalF = group.baseF + (adj.std_f || 0) + (adj.plus_f || 0);
-      const totalM = group.baseM + (adj.std_m || 0) + (adj.plus_m || 0);
-      const roomsF = Math.ceil(totalF / 2);
-      const roomsM = Math.ceil(totalM / 2);
-      const suggestedRooms = roomsF + roomsM;
+    const visibleSections = useMemo(
+      () =>
+        reportSections.filter((_, idx) => effectiveSelectedIndices.has(idx)),
+      [reportSections, effectiveSelectedIndices],
+    );
 
-      return {
-        group,
-        stdPax,
-        plusPax,
-        totalRowPax,
-        stdNights,
-        plusNights,
-        totalRowNights,
-        suggestedRooms,
-      };
-    });
+    /** Varios tramos visibles → layout multi; uno solo → como pedido clásico. */
+    const showMultiLayout = visibleSections.length > 1;
 
-    const totalPax = computedRows.reduce(
-      (acc, row) => acc + row.totalRowPax,
-      0,
-    );
-    const totalBedNights = computedRows.reduce(
-      (acc, row) => acc + row.totalRowNights,
-      0,
-    );
-    const grandTotalStdNights = computedRows.reduce(
-      (acc, row) => acc + row.stdNights,
-      0,
-    );
-    const grandTotalPlusNights = computedRows.reduce(
-      (acc, row) => acc + row.plusNights,
-      0,
-    );
-    const totalStdPax = computedRows.reduce((acc, row) => acc + row.stdPax, 0);
-    const totalPlusPax = computedRows.reduce(
-      (acc, row) => acc + row.plusPax,
-      0,
-    );
-    const totalSuggestedRooms = computedRows.reduce(
-      (acc, row) => acc + row.suggestedRooms,
-      0,
+    const displayTotals = useMemo(() => {
+      if (visibleSections.length === 1) return visibleSections[0];
+      return sumSectionTotals(visibleSections);
+    }, [visibleSections]);
+
+    const grandTotals = useMemo(
+      () => sumSectionTotals(visibleSections),
+      [visibleSections],
     );
 
     return (
@@ -281,7 +280,12 @@ const InitialOrderReportModal = ({
                         <IconFileText size={20} className="text-emerald-600"/> Pedido Inicial de Alojamiento
                     </h3>
                     <div className="flex gap-2">
-                        <button onClick={handlePrint} className="bg-indigo-600 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
+                        <button
+                          type="button"
+                          onClick={handlePrint}
+                          disabled={visibleSections.length === 0}
+                          className="bg-indigo-600 text-white px-3 py-1.5 rounded text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
+                        >
                             <IconPrinter size={16}/> Imprimir
                         </button>
                         <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
@@ -289,95 +293,130 @@ const InitialOrderReportModal = ({
                         </button>
                     </div>
                 </div>
-                
+
                 <div className="flex-1 overflow-auto p-8 bg-white" ref={componentRef}>
+                    <div className="initial-order-print-root">
                     <h1 style={{margin:0}}>Pedido de Plazas</h1>
                     {programName && <h2>{programName}</h2>}
 
-                    {/* CUADRO DE RESUMEN CON CLASES PARA IMPRESIÓN */}
-                    <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-lg flex gap-8 summary-box">
-                        <div className="summary-item">
-                            <div className="text-xs text-slate-500 uppercase font-bold summary-label">Total Pax Únicos</div>
-                            <div className="text-2xl font-bold text-slate-800 summary-value">{totalPax}</div>
-                        </div>
-                        <div className="pl-6 border-l border-slate-200 summary-item summary-divider">
-                            <div className="text-xs text-slate-500 uppercase font-bold text-slate-600 summary-label">Total Noches Bás</div>
-                            <div className="text-2xl font-bold text-slate-600 summary-value text-slate">{grandTotalStdNights}</div>
-                        </div>
-                        <div className="summary-item">
-                            <div className="text-xs text-slate-500 uppercase font-bold text-amber-700 summary-label">Total Noches Sup</div>
-                            <div className="text-2xl font-bold text-amber-600 summary-value text-amber">{grandTotalPlusNights}</div>
-                        </div>
-                        <div className="pl-6 border-l border-slate-200 summary-item summary-divider">
-                            <div className="text-xs text-slate-500 uppercase font-bold text-indigo-700 summary-label">Total General</div>
-                            <div className="text-2xl font-bold text-indigo-600 summary-value text-indigo">{totalBedNights}</div>
-                        </div>
-                        <div className="summary-item summary-divider">
-                            <div className="text-xs text-slate-500 uppercase font-bold text-slate-700 summary-label">Habs Sugeridas (DOBLE)</div>
-                            <div className="text-2xl font-bold text-slate-800 summary-value">{totalSuggestedRooms}</div>
-                        </div>
-                    </div>
+                    {showMultiLayout && (
+                      <div
+                        className="print-only-top-summary"
+                        style={{ display: "none" }}
+                      >
+                        <SectionSummaryBox
+                          title={`Total general (${visibleSections.length} tramos)`}
+                          totals={grandTotals}
+                          bedsPerRoom={bedsPerRoom}
+                        />
+                      </div>
+                    )}
 
-                    <h3>Desglose por Fechas y Categoría</h3>
-                    <p className="text-[10px] text-slate-400 mb-2 italic">
-                        * Referencia: (Pax × Noches) = Total Camas Noche
-                    </p>
+                    {!showMultiLayout && visibleSections.length > 0 && (
+                      <SectionSummaryBox totals={displayTotals} bedsPerRoom={bedsPerRoom} />
+                    )}
 
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Fecha In / Out</th>
-                                <th style={{width: '60px'}}>Noches</th>
-                                <th style={{width: '60px'}}>Total Pax</th>
-                                <th className="bg-std text-std" style={{width: '60px'}}>Pax Bás</th>
-                                <th className="bg-std text-std" style={{width: '80px'}}>Camas Bás</th>
-                                <th className="bg-plus text-plus" style={{width: '60px'}}>Pax Sup</th>
-                                <th className="bg-plus text-plus" style={{width: '80px'}}>Camas Sup</th>
-                                <th style={{width: '100px'}}>Total Camas</th>
-                                <th style={{width: '110px'}}>Habs Sugeridas</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {computedRows.map((row, idx) => {
-                                const { group, stdPax, plusPax, totalRowPax, stdNights, plusNights, totalRowNights, suggestedRooms } = row;
-                                return (
-                                    <tr key={idx}>
-                                        <td className="date-col">{group.rangeLabel}</td>
-                                        <td className="highlight">{group.nights}</td>
-                                        <td>{totalRowPax}</td>
-                                        <td className="bg-std">{stdPax > 0 ? stdPax : '-'}</td>
-                                        <td className="bg-std font-bold">{stdNights > 0 ? stdNights : '-'}</td>
-                                        <td className="bg-plus">{plusPax > 0 ? plusPax : '-'}</td>
-                                        <td className="bg-plus font-bold text-plus">{plusNights > 0 ? plusNights : '-'}</td>
-                                        <td className="text-total">{totalRowNights}</td>
-                                        <td>{suggestedRooms}</td>
-                                    </tr>
-                                );
-                            })}
-                            {sortedGroups.length === 0 && (
-                                <tr>
-                                    <td colSpan="8" style={{textAlign:'center', color: '#94a3b8', padding: '20px'}}>
-                                        No hay requerimientos definidos.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                        {sortedGroups.length > 0 && (
-                            <tfoot>
-                                <tr className="total-row">
-                                    <td style={{textAlign:'right'}}>TOTALES</td>
-                                    <td></td>
-                                    <td>{totalPax}</td>
-                                    <td className="bg-std">{totalStdPax}</td>
-                                    <td className="bg-std">{grandTotalStdNights}</td>
-                                    <td className="bg-plus">{totalPlusPax}</td>
-                                    <td className="bg-plus">{grandTotalPlusNights}</td>
-                                    <td className="text-total">{totalBedNights}</td>
-                                    <td>{totalSuggestedRooms}</td>
-                                </tr>
-                            </tfoot>
+                    {visibleSections.length === 0 && (
+                      <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                        Seleccioná al menos un tramo para ver el pedido.
+                      </p>
+                    )}
+
+                    {visibleSections.map((section, visIdx) => (
+                      <div
+                        key={section.segmentId ?? section.title ?? visIdx}
+                        className={`section-tramo-block${visIdx > 0 ? " mt-8" : ""}`}
+                      >
+                        {showMultiLayout && section.title && (
+                          <div className="tramo-title mb-3 text-sm font-bold text-indigo-900 border-b border-indigo-200 pb-1">
+                            {section.title}
+                          </div>
                         )}
-                    </table>
+                        {showMultiLayout && section.sortedGroups.length > 0 && (
+                          <SectionSummaryBox
+                            className="per-tramo-summary"
+                            title={`Resumen · ${section.title ?? "Gira"}`}
+                            totals={section}
+                            bedsPerRoom={bedsPerRoom}
+                          />
+                        )}
+                        <h3 className="desglose-heading">Desglose por Fechas y Categoría</h3>
+                        <p className="print-note text-[10px] text-slate-400 mb-2 italic">
+                          * Referencia: (Pax × Noches) = Total Camas Noche
+                        </p>
+
+                        <table>
+                          <thead>
+                            <tr>
+                              <th style={{width: '22%'}}>Fecha In / Out</th>
+                              <th style={{width: '7%'}}>Noches</th>
+                              <th style={{width: '8%'}}>Total Pax</th>
+                              <th className="bg-std text-std" style={{width: '8%'}}>Pax Bás</th>
+                              <th className="bg-std text-std" style={{width: '9%'}}>Camas Bás</th>
+                              <th className="bg-plus text-plus" style={{width: '8%'}}>Pax Sup</th>
+                              <th className="bg-plus text-plus" style={{width: '9%'}}>Camas Sup</th>
+                              <th style={{width: '10%'}}>Total Camas</th>
+                              {showRoomsColumn && (
+                                <th style={{width: '11%'}}>Habs Sugeridas</th>
+                              )}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {section.computedRows.map((row, idx) => {
+                              const { group, stdPax, plusPax, totalRowPax, stdNights, plusNights, totalRowNights, suggestedRooms } = row;
+                              return (
+                                <tr key={idx}>
+                                  <td className="date-col">{group.rangeLabel}</td>
+                                  <td className="highlight">{group.nights}</td>
+                                  <td>{totalRowPax}</td>
+                                  <td className="bg-std">{stdPax > 0 ? stdPax : '-'}</td>
+                                  <td className="bg-std font-bold">{stdNights > 0 ? stdNights : '-'}</td>
+                                  <td className="bg-plus">{plusPax > 0 ? plusPax : '-'}</td>
+                                  <td className="bg-plus font-bold text-plus">{plusNights > 0 ? plusNights : '-'}</td>
+                                  <td className="text-total">{totalRowNights}</td>
+                                  {showRoomsColumn && <td>{suggestedRooms}</td>}
+                                </tr>
+                              );
+                            })}
+                            {section.sortedGroups.length === 0 && (
+                              <tr>
+                                <td colSpan={showRoomsColumn ? 9 : 8} style={{textAlign:'center', color: '#94a3b8', padding: '20px'}}>
+                                  No hay requerimientos en este tramo.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                          {section.sortedGroups.length > 0 && (
+                            <tfoot>
+                              <tr className="total-row">
+                                <td style={{textAlign:'right'}}>TOTALES</td>
+                                <td></td>
+                                <td>{section.totalPax}</td>
+                                <td className="bg-std">{section.totalStdPax}</td>
+                                <td className="bg-std">{section.grandTotalStdNights}</td>
+                                <td className="bg-plus">{section.totalPlusPax}</td>
+                                <td className="bg-plus">{section.grandTotalPlusNights}</td>
+                                <td className="text-total">{section.totalBedNights}</td>
+                                {showRoomsColumn && (
+                                  <td>{section.totalSuggestedRooms}</td>
+                                )}
+                              </tr>
+                            </tfoot>
+                          )}
+                        </table>
+                      </div>
+                    ))}
+
+                    {showMultiLayout && (
+                      <div className="grand-summary-footer mt-8 pt-6 border-t border-slate-200">
+                        <SectionSummaryBox
+                          title={`Total general (${visibleSections.length} tramos)`}
+                          totals={grandTotals}
+                          bedsPerRoom={bedsPerRoom}
+                        />
+                      </div>
+                    )}
+                    </div>
                 </div>
             </div>
         </div>

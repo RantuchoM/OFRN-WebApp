@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   IconUtensils,
   IconLoader,
@@ -20,6 +20,12 @@ import TimeInput from "../../components/ui/TimeInput";
 import FoodMatrix from "../../components/logistics/FoodMatrix";
 import { isUserConvoked, ROLES_PRODUCCION } from "../../utils/giraUtils";
 import { isPersonEligibleForMealSlot } from "../../utils/mealLogistics";
+import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
+import {
+  buildSegmentSpecs,
+  formatTramoTitle,
+  isLocalAt,
+} from "../../utils/giraTramos";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner"; 
@@ -520,6 +526,7 @@ const MultiGroupSelect = ({
   showAlert,
   isDirty,
   darkMode = false,
+  compact = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
@@ -561,7 +568,7 @@ const MultiGroupSelect = ({
     <div className="relative w-full" ref={containerRef}>
       <div
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`min-h-[28px] border rounded px-2 py-1 cursor-pointer flex flex-wrap gap-1 items-center transition-all ${
+        className={`${compact ? "min-h-[26px] px-1 py-0.5 gap-0.5" : "min-h-[28px] px-2 py-1 gap-1"} border rounded cursor-pointer flex flex-wrap items-center transition-all ${
           darkMode
             ? "bg-indigo-800 border-indigo-600 text-white hover:border-indigo-400"
             : isDirty ? "bg-amber-50 border-amber-300" : "bg-white border-slate-300"
@@ -577,13 +584,13 @@ const MultiGroupSelect = ({
                   : "text-slate-400 italic"
             }`}
           >
-            {showAlert ? "⚠️ Definir..." : "Seleccionar..."}
+            {showAlert ? (compact ? "⚠️" : "⚠️ Definir...") : compact ? "…" : "Seleccionar..."}
           </span>
         )}
         {value.map((id) => (
           <span
             key={id}
-            className={`text-[9px] px-1 rounded border font-bold ${
+            className={`${compact ? "text-[8px] px-0.5" : "text-[9px] px-1"} rounded border font-bold ${
               darkMode
                 ? "bg-indigo-900 text-indigo-100 border-indigo-700"
                 : "bg-indigo-50 text-indigo-700 border-indigo-100"
@@ -712,23 +719,64 @@ export default function MealsManager({
   );
   const [resettingNames, setResettingNames] = useState(false);
   const debounceRef = useRef({});
+  const [activeSegmentIdx, setActiveSegmentIdx] = useState(0);
+  const {
+    cortes,
+    segmentRows,
+    segments,
+    cortesCount,
+  } = useGiraSegmentos(supabase, gira, {
+    enabled: Boolean(gira?.id),
+  });
+  const segmentSpecs = useMemo(
+    () => buildSegmentSpecs(gira, cortes),
+    [gira, cortes],
+  );
+  const activeSegment = segments[activeSegmentIdx] ?? segments[0] ?? null;
+
+  const isLocalInActiveTramo = useCallback(
+    (person) => {
+      if (!person) return false;
+      if (cortesCount > 0 && activeSegment && segments?.length) {
+        return isLocalAt(
+          person,
+          { fecha: activeSegment.fecha_desde, hora: "12:00" },
+          segments,
+        );
+      }
+      return Boolean(person.is_local);
+    },
+    [cortesCount, activeSegment, segments],
+  );
 
   const groupDefsEffective = useMemo(() => {
     const excluded = new Set(
       (hospedajeExcluidosIds || []).map((id) => Number(id)),
     );
-    return GROUP_DEFS.map((g) =>
-      g.id === "GRP:NO_LOCALES"
-        ? {
-            ...g,
-            filter: (p) =>
-              !p.is_local &&
-              p.estado_gira === "confirmado" &&
-              !excluded.has(Number(p.id)),
-          }
-        : g,
-    );
-  }, [hospedajeExcluidosIds]);
+    return GROUP_DEFS.map((g) => {
+      if (g.id === "GRP:NO_LOCALES") {
+        return {
+          ...g,
+          filter: (p) =>
+            !isLocalInActiveTramo(p) &&
+            p.estado_gira === "confirmado" &&
+            !excluded.has(Number(p.id)),
+        };
+      }
+      if (g.id === "GRP:LOCALES") {
+        return {
+          ...g,
+          filter: (p) =>
+            isLocalInActiveTramo(p) && p.estado_gira === "confirmado",
+        };
+      }
+      return g;
+    });
+  }, [hospedajeExcluidosIds, isLocalInActiveTramo]);
+
+  useEffect(() => {
+    setSelectedRows(new Set());
+  }, [activeSegmentIdx]);
 
   useEffect(() => {
     if (gira?.id) fetchAllData();
@@ -869,8 +917,9 @@ export default function MealsManager({
           fecha: row.fecha,
           servicio: row.servicio,
           convocados: row.convocados,
+          hora: row.hora_inicio,
         },
-        { hospedajeExcluidosIds },
+        { hospedajeExcluidosIds, segments },
       ),
     );
   };
@@ -1062,6 +1111,16 @@ export default function MealsManager({
     if (serviceFilter.size === 0) return [];
     return grid.filter((r) => serviceFilter.has(r.servicio));
   }, [grid, serviceFilter]);
+
+  const visibleGrid = useMemo(() => {
+    if (cortesCount === 0 || !activeSegment) return filteredGrid;
+    const desde = activeSegment.fecha_desde;
+    const hasta = activeSegment.fecha_hasta;
+    if (!desde || !hasta) return filteredGrid;
+    return filteredGrid.filter(
+      (row) => row.fecha && row.fecha >= desde && row.fecha <= hasta,
+    );
+  }, [filteredGrid, activeSegment, cortesCount]);
 
   const realEventIds = useMemo(() => grid.filter((r) => !r.isTemp).map((r) => r.id), [grid]);
 
@@ -1261,6 +1320,47 @@ export default function MealsManager({
         </div>
       </div>
 
+      {cortesCount > 0 && segmentRows.length > 1 && (
+        <div className="bg-white border-b border-slate-200 px-3 py-1 flex gap-1 overflow-x-auto shrink-0">
+          {segmentRows.map((seg, idx) => {
+            const spec = segmentSpecs[idx];
+            const label =
+              spec?.fecha_desde && spec?.fecha_hasta
+                ? formatTramoTitle(idx, spec.fecha_desde, spec.fecha_hasta)
+                : `Tramo ${idx + 1}`;
+            const rowCount = filteredGrid.filter((row) => {
+              if (!spec?.fecha_desde || !spec?.fecha_hasta || !row.fecha) {
+                return false;
+              }
+              return (
+                row.fecha >= spec.fecha_desde && row.fecha <= spec.fecha_hasta
+              );
+            }).length;
+            return (
+              <button
+                key={seg.id}
+                type="button"
+                onClick={() => setActiveSegmentIdx(idx)}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-bold whitespace-nowrap border ${
+                  activeSegmentIdx === idx
+                    ? "bg-indigo-600 text-white border-indigo-600"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                {label}
+                <span
+                  className={`ml-1 opacity-80 ${
+                    activeSegmentIdx === idx ? "text-white" : "text-slate-400"
+                  }`}
+                >
+                  ({rowCount})
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {selectedRows.size > 0 && <BulkEditPanel selectedCount={selectedRows.size} onCancel={() => setSelectedRows(new Set())} onApply={handleBulkApply} catalogs={catalogs} />}
 
       {/* Barra de herramientas flotante para descripción (rich text) */}
@@ -1308,7 +1408,7 @@ export default function MealsManager({
       <div className="flex-1 p-2 md:p-4 overflow-hidden">
         <div className="bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden flex flex-col relative h-full">
           <div className="hidden md:block h-full overflow-auto">
-          <table className="w-full text-left text-sm min-w-[1380px] border-separate border-spacing-0">
+          <table className="w-full text-left text-sm min-w-[1320px] border-separate border-spacing-0">
             <thead className="bg-slate-100 text-slate-500 uppercase font-bold text-[10px] sticky top-0 z-20 shadow-sm">
               <tr>
                 <th className="w-1 border-b border-slate-200"></th>
@@ -1322,14 +1422,24 @@ export default function MealsManager({
                 <th className="px-3 py-3 w-20 border-b border-slate-200">Horario</th>
                 <th className="px-3 py-3 w-44 border-b border-slate-200">Lugar</th>
                 <th className="px-3 py-3 w-64 border-b border-slate-200">Descripción</th>
-                <th className="px-3 py-3 min-w-[150px] border-b border-slate-200">Convocados</th>
+                <th className="px-1 py-3 w-28 max-w-28 border-b border-slate-200">Convocados</th>
                 <th className="px-3 py-3 w-24 text-center border-b border-slate-200">Comensales</th>
                 <th className="px-3 py-3 w-12 text-center border-b border-slate-200">Téc</th>
                 <th className="px-3 py-3 w-10 sticky right-0 bg-slate-100 border-b border-slate-200"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredGrid.map((row) => {
+              {visibleGrid.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={11}
+                    className="px-4 py-8 text-center text-sm text-slate-400 italic"
+                  >
+                    No hay comidas en este tramo con los filtros actuales.
+                  </td>
+                </tr>
+              )}
+              {visibleGrid.map((row) => {
                 const idx = grid.findIndex((r) => r.id === row.id);
                 const eligible = getEligiblePeople(row);
         const isSelected = selectedRows.has(row.id);
@@ -1398,8 +1508,8 @@ export default function MealsManager({
                         placeholder="Descripción..."
                       />
                     </td>
-                    <td className="px-1">
-                      <MultiGroupSelect value={row.convocados} onChange={(v) => handleGridChange(idx, "convocados", v)} catalogs={catalogs} disabled={isSaving} isDirty={isDirty} showAlert={!isTemp && (!row.convocados || row.convocados.length === 0)} />
+                    <td className="px-1 w-28 max-w-28">
+                      <MultiGroupSelect value={row.convocados} onChange={(v) => handleGridChange(idx, "convocados", v)} catalogs={catalogs} disabled={isSaving} isDirty={isDirty} showAlert={!isTemp && (!row.convocados || row.convocados.length === 0)} compact />
                     </td>
                     <td className="px-3 text-center relative">
                       <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-black cursor-pointer transition-all relative tooltip-bridge ${eligible.length > 0 ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-slate-100 text-slate-400"}`} onMouseEnter={() => setExpandedStats(row.id)} onMouseLeave={() => setExpandedStats(null)}>
@@ -1431,7 +1541,12 @@ export default function MealsManager({
           </div>
 
           <div className="md:hidden h-full overflow-y-auto bg-slate-50 p-1.5 space-y-1.5">
-            {filteredGrid.map((row) => {
+            {visibleGrid.length === 0 && (
+              <div className="p-6 text-center text-sm text-slate-400 italic">
+                No hay comidas en este tramo con los filtros actuales.
+              </div>
+            )}
+            {visibleGrid.map((row) => {
               const eligible = getEligiblePeople(row);
               const isDirty = row.dirty;
               const tone =

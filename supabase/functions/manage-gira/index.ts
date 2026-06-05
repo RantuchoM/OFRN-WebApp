@@ -137,6 +137,7 @@ async function duplicateGira(
   // DICCIONARIOS
   const mapTransportes: Record<string, number> = {};
   const mapEventos: Record<string, number> = {};
+  const mapSegmentos: Record<string, number> = {};
 
   // 2. FUENTES
   try {
@@ -385,13 +386,87 @@ async function duplicateGira(
     log(`Error Repertorio: ${e.message}`);
   }
 
-  // 10. HOTELES
+  // 10. SEGMENTOS Y CORTES (antes de hoteles para mapear id_segmento)
+  try {
+    const { data: segmentos } = await supabase
+      .from("giras_tramo_segmentos")
+      .select("*")
+      .eq("id_gira", original.id)
+      .order("indice");
+
+    if (segmentos?.length) {
+      for (const s of segmentos) {
+        const { data: newS, error } = await supabase
+          .from("giras_tramo_segmentos")
+          .insert({
+            id_gira: newGiraId,
+            indice: s.indice,
+            fecha_desde: shiftDate(s.fecha_desde, days),
+            fecha_hasta: shiftDate(s.fecha_hasta, days),
+          })
+          .select("id")
+          .single();
+        if (error) throw error;
+        mapSegmentos[String(s.id)] = newS.id;
+
+        const { data: segLocs } = await supabase
+          .from("giras_tramo_localidades")
+          .select("id_localidad")
+          .eq("id_segmento", s.id);
+        if (segLocs?.length) {
+          await supabase.from("giras_tramo_localidades").insert(
+            segLocs.map((l: any) => ({
+              id_segmento: newS.id,
+              id_localidad: l.id_localidad,
+            }))
+          );
+        }
+      }
+      log(` → OK. ${segmentos.length} segmentos copiados.`);
+    }
+
+    const { data: cortes } = await supabase
+      .from("giras_tramo_cortes")
+      .select("*")
+      .eq("id_gira", original.id)
+      .order("orden");
+
+    if (cortes?.length) {
+      await supabase.from("giras_tramo_cortes").insert(
+        cortes.map((c: any) => ({
+          id_gira: newGiraId,
+          orden: c.orden,
+          fecha: shiftDate(c.fecha, days),
+          hora: c.hora,
+          fecha_checkout: shiftDate(c.fecha_checkout, days),
+          hora_checkout: c.hora_checkout,
+          fecha_checkin: shiftDate(c.fecha_checkin, days),
+          hora_checkin: c.hora_checkin,
+          id_evento: c.id_evento
+            ? mapEventos[String(c.id_evento)] ?? null
+            : null,
+        }))
+      );
+      log(` → OK. ${cortes.length} cortes copiados.`);
+    }
+  } catch (e: any) {
+    log(`Error Segmentos/Cortes: ${e.message}`);
+  }
+
+  // 11. HOTELES
   try {
     const { data: hoteles } = await supabase.from("programas_hospedajes").select("*").eq("id_programa", original.id);
     if (hoteles?.length) {
       const newHoteles = hoteles.map((h: any) => ({
         id_programa: newGiraId,
         id_hotel: h.id_hotel,
+        id_segmento: h.id_segmento
+          ? mapSegmentos[String(h.id_segmento)] ?? null
+          : Object.values(mapSegmentos)[0] ?? null,
+        fecha_checkin: shiftDate(h.fecha_checkin, days),
+        fecha_checkout: shiftDate(h.fecha_checkout, days),
+        hora_checkin: h.hora_checkin,
+        hora_checkout: h.hora_checkout,
       }));
       await supabase.from("programas_hospedajes").insert(newHoteles);
       log(` → OK. ${hoteles.length} hoteles copiados.`);
@@ -400,7 +475,7 @@ async function duplicateGira(
     log(`Error Hoteles: ${e.message}`);
   }
 
-  // 11. DIFUSIÓN
+  // 12. DIFUSIÓN
   try {
     const { data: difusion } = await supabase.from("gira_difusion").select("*").eq("id_gira", original.id);
     if (difusion?.length) {
@@ -544,6 +619,42 @@ async function moveGira(supabase: any, giraId: number, days: number) {
         })
         .eq("id", v.id);
     }
+  }
+
+  log("6. Moviendo cortes y segmentos...");
+  const { data: cortesMove } = await supabase
+    .from("giras_tramo_cortes")
+    .select("id, fecha, fecha_checkout, fecha_checkin")
+    .eq("id_gira", giraId);
+  if (cortesMove?.length) {
+    for (const c of cortesMove) {
+      await supabase
+        .from("giras_tramo_cortes")
+        .update({
+          fecha: shiftDate(c.fecha, days),
+          fecha_checkout: shiftDate(c.fecha_checkout, days),
+          fecha_checkin: shiftDate(c.fecha_checkin, days),
+        })
+        .eq("id", c.id);
+    }
+    log(`   ${cortesMove.length} corte(s) actualizado(s).`);
+  }
+
+  const { data: segmentosMove } = await supabase
+    .from("giras_tramo_segmentos")
+    .select("id, fecha_desde, fecha_hasta")
+    .eq("id_gira", giraId);
+  if (segmentosMove?.length) {
+    for (const s of segmentosMove) {
+      await supabase
+        .from("giras_tramo_segmentos")
+        .update({
+          fecha_desde: shiftDate(s.fecha_desde, days),
+          fecha_hasta: shiftDate(s.fecha_hasta, days),
+        })
+        .eq("id", s.id);
+    }
+    log(`   ${segmentosMove.length} segmento(s) actualizado(s).`);
   }
 
   log("✔ Gira movida correctamente");

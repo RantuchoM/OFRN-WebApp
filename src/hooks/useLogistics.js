@@ -6,11 +6,14 @@ import {
   matchesRule,
   getCategoriaLogistica,
   resolveTransportAdmissionStatus,
+  resolveRuleFieldInstant,
 } from "../utils/giraUtils";
 import {
   resolveLocalidadEfectivaViaticos,
   resolveLocalidadResidencia,
 } from "../utils/integranteDomicilioViaticos";
+import { fetchGiraSegmentosBundle } from "../services/giraSegmentosService";
+import { resolvePersonIsLocal } from "../utils/giraTramos";
 
 // --- 1. RE-EXPORTS PARA COMPATIBILIDAD ---
 /** Incluye categoría EXTERNOS (ver `getCategoriaLogistica` en `giraUtils.js`). */
@@ -45,6 +48,7 @@ export const calculateLogisticsSummary = (
   allRooms = [],
   allLocalities = [],
   allEvents = [],
+  segments = [],
 ) => {
   if (!roster || roster.length === 0) return [];
   const transportMap = Object.fromEntries(
@@ -98,70 +102,86 @@ export const calculateLogisticsSummary = (
       transports_src: "-",
     };
 
-    // --- BLOQUE A: RESOLUCIÓN DE HITOS (NUEVA LÓGICA DE FUERZA DINÁMICA) ---
+    // --- BLOQUE A: RESOLUCIÓN DE HITOS (por campo, localía al instante del hito) ---
 
-    // 1. Calculamos la fuerza de cada regla PARA ESTA PERSONA
-    const rulesWithStrength = logisticsRules
-      .map((r) => {
-        // Usamos la función getMatchStrength que definimos antes
-        // Si no la tienes exportada, puedes pegarla aquí arriba o usar su lógica
-        const strength = getMatchStrength(r, person, allLocalities);
-        return { rule: r, strength };
-      })
-      .filter((item) => item.strength > 0) // Solo las que aplican a este músico
-      .sort((a, b) => a.strength - b.strength); // Ordenamos de menor a mayor fuerza
-
-    // 2. Procesamos las reglas en orden: la más fuerte (Persona) se procesa al final y sobreescribe
-    rulesWithStrength.forEach(({ rule: r, strength }) => {
+    const resolve = (key, legacyDate, legacyTime, svcField, r, strength) => {
       const src = getSourceCode(r);
+      const eventId = r[`id_evento_${key}`];
+      const linkedEvent = eventId
+        ? allEvents.find((e) => String(e.id) === String(eventId))
+        : null;
 
-      const resolve = (key, legacyDate, legacyTime, svcField) => {
-        const eventId = r[`id_evento_${key}`];
-        const linkedEvent = eventId
-          ? allEvents.find((e) => String(e.id) === String(eventId))
-          : null;
+      if (linkedEvent) {
+        log[key] = {
+          ...enrichEvent(linkedEvent),
+          id_evento: linkedEvent.id,
+          isLinked: true,
+          src,
+          ruleId: r.id,
+          field: `id_evento_${key}`,
+          svc: svcField ? r[svcField] : null,
+          strength,
+        };
+      } else if (r[legacyDate]) {
+        log[key] = {
+          date: r[legacyDate],
+          time: r[legacyTime],
+          isLinked: false,
+          src,
+          ruleId: r.id,
+          svc: svcField ? r[svcField] : null,
+          descripcion: r[svcField] || "Manual",
+          strength,
+        };
+      }
+    };
 
-        if (linkedEvent) {
-          log[key] = {
-            ...enrichEvent(linkedEvent),
-            id_evento: linkedEvent.id,
-            isLinked: true,
-            src,
-            ruleId: r.id,
-            field: `id_evento_${key}`,
-            svc: svcField ? r[svcField] : null,
-            strength, // Guardamos la fuerza del match
-          };
-        } else if (r[legacyDate]) {
-          log[key] = {
-            date: r[legacyDate],
-            time: r[legacyTime],
-            isLinked: false,
-            src,
-            ruleId: r.id,
-            svc: svcField ? r[svcField] : null,
-            descripcion: r[svcField] || "Manual",
-            strength,
-          };
-        }
-      };
+    const applyFieldRules = (field, legacyDate, legacyTime, svcField) => {
+      const rulesWithStrength = logisticsRules
+        .map((r) => ({
+          rule: r,
+          strength: getMatchStrength(r, person, allLocalities, {
+            segments,
+            instant: resolveRuleFieldInstant(r, field, allEvents),
+          }),
+        }))
+        .filter((item) => item.strength > 0)
+        .sort((a, b) => a.strength - b.strength);
 
-      resolve("checkin", "fecha_checkin", "hora_checkin", "Check-In");
-      resolve("checkout", "fecha_checkout", "hora_checkout", "Check-Out");
-      resolve(
-        "comida_inicio",
-        "comida_inicio_fecha",
-        "comida_inicio_servicio",
-        "comida_inicio_servicio",
-      );
-      resolve(
-        "comida_fin",
-        "comida_fin_fecha",
-        "comida_fin_servicio",
-        "comida_fin_servicio",
-      );
+      rulesWithStrength.forEach(({ rule: r, strength }) => {
+        resolve(field, legacyDate, legacyTime, svcField, r, strength);
+      });
+    };
 
-      // Provisiones (comidas)
+    applyFieldRules("checkin", "fecha_checkin", "hora_checkin", "Check-In");
+    applyFieldRules("checkout", "fecha_checkout", "hora_checkout", "Check-Out");
+    applyFieldRules(
+      "comida_inicio",
+      "comida_inicio_fecha",
+      "comida_inicio_servicio",
+      "comida_inicio_servicio",
+    );
+    applyFieldRules(
+      "comida_fin",
+      "comida_fin_fecha",
+      "comida_fin_servicio",
+      "comida_fin_servicio",
+    );
+
+    const provRulesWithStrength = logisticsRules
+      .map((r) => ({
+        rule: r,
+        strength: getMatchStrength(r, person, allLocalities, {
+          segments,
+          instant:
+            resolveRuleFieldInstant(r, "checkin", allEvents) ||
+            resolveRuleFieldInstant(r, "checkout", allEvents),
+        }),
+      }))
+      .filter((item) => item.strength > 0)
+      .sort((a, b) => a.strength - b.strength);
+
+    provRulesWithStrength.forEach(({ rule: r }) => {
       if (r.prov_desayuno && r.prov_desayuno !== "-")
         log.prov_des = r.prov_desayuno;
       if (r.prov_almuerzo && r.prov_almuerzo !== "-")
@@ -284,6 +304,8 @@ export function useLogistics(supabase, gira, trigger = 0) {
     regs: [],
     sedes: [],
     events: [],
+    segments: [],
+    cortesCount: 0,
   });
   const [loading, setLoading] = useState(true);
   const giraId = gira?.id;
@@ -292,7 +314,7 @@ export function useLogistics(supabase, gira, trigger = 0) {
     if (!giraId) return;
     setLoading(true);
     try {
-      const [l, a, r, t, locs, regs, sedes, vDet, dCfg, evs, roomsData] =
+      const [l, a, r, t, locs, regs, sedes, vDet, dCfg, evs, roomsData, segmentBundle] =
         await Promise.all([
           supabase
             .from("giras_logistica_reglas")
@@ -341,6 +363,10 @@ export function useLogistics(supabase, gira, trigger = 0) {
             .from("programas_hospedajes")
             .select("id")
             .eq("id_programa", giraId),
+          fetchGiraSegmentosBundle(supabase, giraId, gira).catch(() => ({
+            segments: [],
+            cortesCount: 0,
+          })),
         ]);
 
       // 1. Cálculo de destinos para giraStatsCalculator
@@ -398,6 +424,8 @@ export function useLogistics(supabase, gira, trigger = 0) {
           sedeIds: sedeIdsList,
         },
         mealsMeta: { events: mealEvents, responses: mealResps },
+        segments: segmentBundle?.segments ?? [],
+        cortesCount: segmentBundle?.cortesCount ?? 0,
       });
     } catch (e) {
       console.error("useLogistics Error:", e);
@@ -429,9 +457,13 @@ export function useLogistics(supabase, gira, trigger = 0) {
         db.locs.find((l) => String(l.id) === residenciaId) ||
         locResidencia.objeto;
 
-      // Local de gira: sedes vs localidad de viáticos (comidas, rooming, etc.).
-      const isLocal =
-        locId !== "" && db.sedes.some((sid) => String(sid) === locId);
+      // Local de gira: segmentos dinámicos o sedes planas (0 cortes).
+      const tourLocSet = new Set(db.sedes.map(String));
+      const isLocal = resolvePersonIsLocal(p, {
+        segments: db.segments,
+        tourLocSet,
+        cortesCount: db.cortesCount,
+      });
 
       return {
         ...p,
@@ -454,12 +486,15 @@ export function useLogistics(supabase, gira, trigger = 0) {
       db.rooms,
       db.locs,
       db.events,
+      db.segments,
     );
 
     if (res && Array.isArray(res)) {
       // Adjuntamos la metadata al array para los motores de Dashboard y Stats
       res.viaticosMeta = db.viaticosMeta;
       res.mealsMeta = db.mealsMeta;
+      res.segments = db.segments;
+      res.cortesCount = db.cortesCount;
     }
     return res;
   }, [baseRoster, db]);
@@ -476,6 +511,8 @@ export function useLogistics(supabase, gira, trigger = 0) {
     allRegions: db.regs,
     allEvents: db.events,
     sedeIds: db.sedes,
+    segments: db.segments,
+    cortesCount: db.cortesCount,
     loading: rosterLoading || loading,
     refresh: () => {
       refreshRoster();

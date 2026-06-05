@@ -749,6 +749,97 @@ export const getAllConcertVenues = async (supabase) => {
   }
 };
 
+function decodeConciertoHtmlEntities(input) {
+  return String(input || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function toConciertoObraFirstLine(txt) {
+  if (!txt) return "";
+  const withBreaks = String(txt)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(div|p|li|h[1-6])>/gi, "\n");
+  const plain = withBreaks.replace(/<[^>]*>/g, " ");
+  const decoded = decodeConciertoHtmlEntities(plain)
+    .replace(/\r/g, "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+  return decoded.split("\n")[0]?.trim() || "";
+}
+
+function buildRepertorioFromProgramasRepertorios(programasRepertorios = []) {
+  return (programasRepertorios || [])
+    .sort((a, b) => {
+      const ao = Number(a?.orden ?? 999999);
+      const bo = Number(b?.orden ?? 999999);
+      return ao - bo;
+    })
+    .flatMap((bloque) =>
+      (bloque?.repertorio_obras || [])
+        .filter((row) => !row?.excluir)
+        .sort((a, b) => {
+          const ao = Number(a?.orden ?? 999999);
+          const bo = Number(b?.orden ?? 999999);
+          return ao - bo;
+        })
+        .map((row) => {
+          const obra = row?.obras || {};
+          const comps = (obra?.obras_compositores || [])
+            .filter((oc) => oc?.rol === "compositor" && oc?.compositores)
+            .map((oc) => oc?.compositores)
+            .filter(Boolean);
+          const composerNames = comps
+            .map((c) => [c?.nombre, c?.apellido].filter(Boolean).join(" ").trim())
+            .filter(Boolean);
+          return {
+            compositor: composerNames.length
+              ? composerNames.join("\n")
+              : "Autor Desconocido",
+            titulo: toConciertoObraFirstLine(
+              String(obra?.titulo || "").replace(/\[.*?\]/g, "").trim(),
+            ),
+          };
+        }),
+    );
+}
+
+function getDifusionObservacionesFromProgram(giraDifusion) {
+  const difusionData = Array.isArray(giraDifusion)
+    ? giraDifusion[0] || null
+    : giraDifusion || null;
+  return String(difusionData?.otros_comentarios || "").trim();
+}
+
+function buildFamiliasFromGirasFuentes(girasFuentes = []) {
+  return Array.from(
+    new Set(
+      (girasFuentes || [])
+        .filter((f) => f?.tipo === "FAMILIA" && f?.valor_texto)
+        .map((f) => String(f.valor_texto).trim())
+        .filter(Boolean),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
+}
+
+function buildEnsamblesFromGirasFuentes(girasFuentes = [], ensambleNameMap = new Map()) {
+  return (girasFuentes || [])
+    .filter((f) => f?.tipo === "ENSAMBLE")
+    .map((f) => Number(f?.valor_id))
+    .filter((id) => !Number.isNaN(id) && id > 0)
+    .map((id) => ({
+      id,
+      nombre: ensambleNameMap.get(id) || `Ensamble ${id}`,
+    }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+}
+
 /**
  * Obtiene la grilla completa de conciertos para el módulo de Gestión.
  * Incluye relaciones de programa, venue, ensambles, familias convocadas y repertorio.
@@ -844,30 +935,6 @@ export const getConciertosFullData = async (
       });
     }
 
-    const decodeEntities = (input) =>
-      String(input || "")
-        .replace(/&nbsp;/gi, " ")
-        .replace(/&amp;/gi, "&")
-        .replace(/&quot;/gi, '"')
-        .replace(/&#39;/gi, "'")
-        .replace(/&lt;/gi, "<")
-        .replace(/&gt;/gi, ">");
-
-    const toFirstLine = (txt) => {
-      if (!txt) return "";
-      const withBreaks = String(txt)
-        .replace(/<br\s*\/?>/gi, "\n")
-        .replace(/<\/(div|p|li|h[1-6])>/gi, "\n");
-      const plain = withBreaks.replace(/<[^>]*>/g, " ");
-      const decoded = decodeEntities(plain)
-        .replace(/\r/g, "")
-        .replace(/\u00a0/g, " ")
-        .replace(/[ \t]+/g, " ")
-        .replace(/\n{2,}/g, "\n")
-        .trim();
-      return decoded.split("\n")[0]?.trim() || "";
-    };
-
     return events.map((evt) => {
       const ensamblesEvent = (evt.eventos_ensambles || [])
         .map((ee) => ee?.ensambles)
@@ -900,10 +967,9 @@ export const getConciertosFullData = async (
         .filter((tag) => String(tag).startsWith("FAM:"))
         .map((tag) => String(tag).slice(4).trim())
         .filter(Boolean);
-      const familiasFromProgram = (evt.programas?.giras_fuentes || [])
-        .filter((f) => f?.tipo === "FAMILIA" && f?.valor_texto)
-        .map((f) => String(f.valor_texto).trim())
-        .filter(Boolean);
+      const familiasFromProgram = buildFamiliasFromGirasFuentes(
+        evt.programas?.giras_fuentes,
+      );
       const familiasBase =
         familiasFromConvocados.length > 0
           ? familiasFromConvocados
@@ -912,41 +978,9 @@ export const getConciertosFullData = async (
         a.localeCompare(b),
       );
 
-      const repertorio = (evt.programas?.programas_repertorios || [])
-        .sort((a, b) => {
-          const ao = Number(a?.orden ?? 999999);
-          const bo = Number(b?.orden ?? 999999);
-          return ao - bo;
-        })
-        .flatMap((bloque) =>
-          (bloque?.repertorio_obras || [])
-            .filter((row) => !row?.excluir)
-            .sort((a, b) => {
-              const ao = Number(a?.orden ?? 999999);
-              const bo = Number(b?.orden ?? 999999);
-              return ao - bo;
-            })
-            .map((row) => {
-              const obra = row?.obras || {};
-              const comps = (obra?.obras_compositores || [])
-                .filter((oc) => oc?.rol === "compositor" && oc?.compositores)
-                .map((oc) => oc?.compositores)
-                .filter(Boolean);
-              const composerNames = comps
-                .map((c) => [c?.nombre, c?.apellido].filter(Boolean).join(" ").trim())
-                .filter(Boolean);
-              return {
-                compositor: composerNames.length
-                  ? composerNames.join("\n")
-                  : "Autor Desconocido",
-                titulo: toFirstLine(String(obra?.titulo || "").replace(/\[.*?\]/g, "").trim()),
-              };
-            }),
-        );
-
-      const difusionData = Array.isArray(evt.programas?.gira_difusion)
-        ? evt.programas.gira_difusion[0] || null
-        : evt.programas?.gira_difusion || null;
+      const repertorio = buildRepertorioFromProgramasRepertorios(
+        evt.programas?.programas_repertorios,
+      );
 
       return {
         id: evt.id,
@@ -965,9 +999,13 @@ export const getConciertosFullData = async (
         ensambles,
         familias,
         repertorio,
-        difusion_observaciones: String(difusionData?.otros_comentarios || "").trim(),
+        difusion_observaciones: getDifusionObservacionesFromProgram(
+          evt.programas?.gira_difusion,
+        ),
         difusion_observaciones_updated_at:
-          difusionData?.timestamp_otros_comentarios || null,
+          (Array.isArray(evt.programas?.gira_difusion)
+            ? evt.programas.gira_difusion[0]
+            : evt.programas?.gira_difusion)?.timestamp_otros_comentarios || null,
       };
     });
   } catch (err) {
@@ -1109,4 +1147,96 @@ export const shiftSeatingLine = async (
   };
   const { data, error } = await supabase.rpc("shift_seating_line", payload);
   return { data, error };
+};
+
+/**
+ * Programas (giras) activos en un rango de fechas que no tienen ningún concierto
+ * (evento id_tipo_evento = 1). Excluye Comisión por defecto.
+ */
+export const getProgramasSinConciertos = async (
+  supabase,
+  { dateFrom = null, dateTo = null, programTipoFilter = null, excludeComision = true } = {},
+) => {
+  if (!supabase) return [];
+  try {
+    let q = supabase
+      .from("programas")
+      .select(
+        `id, nombre_gira, nomenclador, mes_letra, tipo, fecha_desde, fecha_hasta,
+         gira_difusion ( otros_comentarios, timestamp_otros_comentarios ),
+         giras_fuentes ( tipo, valor_id, valor_texto ),
+         programas_repertorios (
+           id, orden,
+           repertorio_obras (
+             id, orden, excluir,
+             obras (
+               id, titulo,
+               obras_compositores ( rol, compositores ( nombre, apellido ) )
+             )
+           )
+         )`,
+      )
+      .order("fecha_desde", { ascending: true });
+
+    if (dateFrom) q = q.gte("fecha_hasta", dateFrom);
+    if (dateTo) q = q.lte("fecha_desde", dateTo);
+    if (programTipoFilter) q = q.eq("tipo", programTipoFilter);
+    if (excludeComision) q = q.neq("tipo", "Comisión");
+
+    const { data: programas, error } = await q;
+    if (error) throw error;
+    if (!programas?.length) return [];
+
+    const ids = programas.map((p) => p.id);
+    const { data: conciertos, error: concErr } = await supabase
+      .from("eventos")
+      .select("id_gira")
+      .eq("id_tipo_evento", 1)
+      .eq("is_deleted", false)
+      .in("id_gira", ids);
+
+    if (concErr) throw concErr;
+
+    const withConcerts = new Set((conciertos || []).map((e) => e.id_gira));
+    const sinConciertos = programas.filter((p) => !withConcerts.has(p.id));
+
+    const ensambleIds = new Set();
+    sinConciertos.forEach((p) => {
+      (p.giras_fuentes || [])
+        .filter((f) => f?.tipo === "ENSAMBLE")
+        .forEach((f) => {
+          const id = Number(f?.valor_id);
+          if (!Number.isNaN(id) && id > 0) ensambleIds.add(id);
+        });
+    });
+
+    const ensambleNameMap = new Map();
+    if (ensambleIds.size > 0) {
+      const { data: ensRows, error: ensErr } = await supabase
+        .from("ensambles")
+        .select("id, ensamble")
+        .in("id", Array.from(ensambleIds));
+      if (ensErr) throw ensErr;
+      (ensRows || []).forEach((ens) => {
+        ensambleNameMap.set(Number(ens.id), ens.ensamble || "");
+      });
+    }
+
+    return sinConciertos.map((p) => ({
+      id: p.id,
+      nombre_gira: p.nombre_gira || "",
+      nomenclador: p.nomenclador || "",
+      mes_letra: p.mes_letra || "",
+      tipo: p.tipo || "",
+      fecha_desde: p.fecha_desde,
+      fecha_hasta: p.fecha_hasta,
+      ensambles: buildEnsamblesFromGirasFuentes(p.giras_fuentes, ensambleNameMap),
+      familias: buildFamiliasFromGirasFuentes(p.giras_fuentes),
+      repertorio: buildRepertorioFromProgramasRepertorios(p.programas_repertorios),
+      difusion_observaciones: getDifusionObservacionesFromProgram(p.gira_difusion),
+    }));
+  } catch (err) {
+    console.error("[GiraService] getProgramasSinConciertos:", err);
+    return [];
+  }
 };

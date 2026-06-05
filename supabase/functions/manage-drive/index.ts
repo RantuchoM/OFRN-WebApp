@@ -18,6 +18,10 @@ const GIRAS_ROOT_ID = "1PRWEbGKUBxfhF9HIf2DgpOWKDRwslsCc";
 const ARCHIVO_OBRAS_FOLDER_ID = "10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi";
 /** Carpeta compartida «Para acomodar» (staging antes de archivo oficial). */
 const PARA_ACOMODAR_FOLDER_ID = "10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI";
+/** Carpeta «ENSAMBLES» dentro de Partituras (accesos directos por ensamble). */
+const ENSAMBLES_ROOT_FOLDER_ID = "1KgrMdi_vv3dYxPLsI80iiz3uM9aAgWPi";
+const SHORTCUT_MIME = "application/vnd.google-apps.shortcut";
+const DRIVE_SHARED_OPTS = { supportsAllDrives: true, includeItemsFromAllDrives: true };
 // =================================================================================
 // HELPERS GENERALES
 // =================================================================================
@@ -417,15 +421,377 @@ const getFormattedDateString = (startStr: string, endStr: string) => {
   return `${monthName} ${dateStart.getUTCDate().toString().padStart(2, "0")}-${dateEnd.getUTCDate().toString().padStart(2, "0")}`;
 };
 
+function isEnsambleProgram(tipo: string | undefined | null): boolean {
+  if (!tipo) return false;
+  return tipo.toLowerCase().includes("ensamble");
+}
+
+function getProgramDriveFolderName(prog: {
+  fecha_desde?: string;
+  fecha_hasta?: string;
+  mes_letra?: string | null;
+  zona?: string | null;
+  nomenclador?: string | null;
+}): string {
+  const dateStart = prog.fecha_desde;
+  const [, m] = (dateStart || "").split("-").map(Number);
+  const monthPrefix = prog.mes_letra || (m ? m.toString().padStart(2, "0") : "00");
+  const dateRangeStr = getFormattedDateString(prog.fecha_desde || "", prog.fecha_hasta || "");
+  return `${monthPrefix} - ${dateRangeStr}${prog.zona ? ` ${prog.zona}` : ""} - ${prog.nomenclador || "SinNombre"}`;
+}
+
+function isEnsembleConvocatoriaSource(tipo: string | undefined | null): boolean {
+  const t = (tipo || "").toUpperCase().replace(/\s+/g, "_");
+  return (t === "ENSAMBLE" || t === "ENSAMBLES") && !t.startsWith("EXCL");
+}
+
+function getEnsembleSourceIds(prog: {
+  giras_fuentes?: Array<{ tipo: string; valor_id: number | null }>;
+}): number[] {
+  const ids = (prog.giras_fuentes || [])
+    .filter((f) => isEnsembleConvocatoriaSource(f.tipo) && f.valor_id != null)
+    .map((f) => f.valor_id!);
+  return [...new Set(ids)];
+}
+
+async function syncEnsambleRootFolder(
+  supabase: any,
+  drive: any,
+  ensamble: { id: number; ensamble: string | null; google_drive_folder_id?: string | null },
+): Promise<string | null> {
+  const folderName = (ensamble.ensamble || "").trim() || "Ensamble";
+  let folderId = ensamble.google_drive_folder_id || null;
+
+  try {
+    if (folderId) {
+      await drive.files.update({
+        fileId: folderId,
+        requestBody: { name: folderName },
+        ...DRIVE_SHARED_OPTS,
+      });
+    } else {
+      const q =
+        `'${ENSAMBLES_ROOT_FOLDER_ID}' in parents and mimeType = '${FOLDER_MIME}' ` +
+        `and name = '${folderName.replace(/'/g, "\\'")}' and trashed = false`;
+      const search = await drive.files.list({ q, fields: "files(id)", pageSize: 1, ...DRIVE_SHARED_OPTS });
+      if (search.data.files?.length) {
+        folderId = search.data.files[0].id!;
+      } else {
+        const created = await drive.files.create({
+          requestBody: {
+            name: folderName,
+            mimeType: FOLDER_MIME,
+            parents: [ENSAMBLES_ROOT_FOLDER_ID],
+          },
+          fields: "id",
+          ...DRIVE_SHARED_OPTS,
+        });
+        folderId = created.data.id!;
+      }
+      await supabase
+        .from("ensambles")
+        .update({ google_drive_folder_id: folderId })
+        .eq("id", ensamble.id);
+    }
+  } catch (e) {
+    console.error(`[Drive Error] Carpeta ensamble ${ensamble.id} (${folderName}):`, (e as Error).message);
+    return null;
+  }
+
+  return folderId;
+}
+
+async function findShortcutByTargetInFolder(
+  drive: any,
+  parentFolderId: string,
+  targetId: string,
+): Promise<string | null> {
+  try {
+    const q =
+      `'${parentFolderId}' in parents and mimeType = '${SHORTCUT_MIME}' and trashed = false`;
+    const res = await drive.files.list({
+      q,
+      fields: "files(id, shortcutDetails)",
+      pageSize: 200,
+      ...DRIVE_SHARED_OPTS,
+    });
+    const match = (res.data.files || []).find(
+      (f: { shortcutDetails?: { targetId?: string } }) => f.shortcutDetails?.targetId === targetId,
+    );
+    return match?.id ?? null;
+  } catch (e) {
+    console.error(`[Drive] Error buscando shortcut en carpeta ${parentFolderId}:`, (e as Error).message);
+    return null;
+  }
+}
+
+async function removeEnsambleProgramShortcuts(
+  supabase: any,
+  drive: any,
+  programId: number,
+  ensambleIds?: number[],
+): Promise<number> {
+  let q = supabase
+    .from("programas_ensamble_drive_shortcuts")
+    .select("id, id_ensamble, google_drive_shortcut_id")
+    .eq("id_programa", programId);
+  if (ensambleIds?.length) q = q.in("id_ensamble", ensambleIds);
+  const { data: rows } = await q;
+  let removed = 0;
+
+  for (const row of rows || []) {
+    if (row.google_drive_shortcut_id) {
+      try {
+        await drive.files.delete({ fileId: row.google_drive_shortcut_id, ...DRIVE_SHARED_OPTS });
+      } catch (e) {
+        console.error(`[Drive] Error borrando shortcut ensamble prog ${programId}:`, (e as Error).message);
+      }
+    }
+    await supabase.from("programas_ensamble_drive_shortcuts").delete().eq("id", row.id);
+    removed++;
+  }
+
+  return removed;
+}
+
+async function syncEnsambleProgramShortcuts(
+  supabase: any,
+  drive: any,
+  prog: any,
+): Promise<{ created: number; updated: number; removed: number }> {
+  const stats = { created: 0, updated: 0, removed: 0 };
+
+  if (!isEnsambleProgram(prog.tipo)) {
+    const removed = await removeEnsambleProgramShortcuts(supabase, drive, prog.id);
+    stats.removed = removed;
+    return stats;
+  }
+
+  const programFolderId = prog.google_drive_folder_id;
+  if (!programFolderId) return stats;
+
+  const shortcutName = getProgramDriveFolderName(prog);
+  const currentEnsembleIds = getEnsembleSourceIds(prog);
+
+  const { data: existingRows } = await supabase
+    .from("programas_ensamble_drive_shortcuts")
+    .select("id, id_ensamble, google_drive_shortcut_id")
+    .eq("id_programa", prog.id);
+
+  const existingByEnsamble = new Map(
+    (existingRows || []).map((r: { id_ensamble: number; id: number; google_drive_shortcut_id: string | null }) => [
+      r.id_ensamble,
+      r,
+    ]),
+  );
+
+  const toRemove = (existingRows || [])
+    .filter((r: { id_ensamble: number }) => !currentEnsembleIds.includes(r.id_ensamble))
+    .map((r: { id_ensamble: number }) => r.id_ensamble);
+  if (toRemove.length) {
+    stats.removed += await removeEnsambleProgramShortcuts(supabase, drive, prog.id, toRemove);
+  }
+
+  if (currentEnsembleIds.length === 0) return stats;
+
+  const { data: ensamblesRows } = await supabase
+    .from("ensambles")
+    .select("id, ensamble, google_drive_folder_id")
+    .in("id", currentEnsembleIds);
+
+  for (const ens of ensamblesRows || []) {
+    const ensembleFolderId = await syncEnsambleRootFolder(supabase, drive, ens);
+    if (!ensembleFolderId) continue;
+
+    const prev = existingByEnsamble.get(ens.id) as
+      | { id: number; google_drive_shortcut_id: string | null }
+      | undefined;
+    let shortcutId = prev?.google_drive_shortcut_id ?? null;
+
+    if (shortcutId) {
+      try {
+        const meta = await drive.files.get({ fileId: shortcutId, fields: "trashed", ...DRIVE_SHARED_OPTS });
+        if (meta.data.trashed) shortcutId = null;
+      } catch {
+        shortcutId = null;
+      }
+    }
+
+    if (!shortcutId) {
+      shortcutId = await findShortcutByTargetInFolder(drive, ensembleFolderId, programFolderId);
+    }
+
+    if (shortcutId) {
+      try {
+        await drive.files.update({
+          fileId: shortcutId,
+          requestBody: { name: shortcutName },
+          ...DRIVE_SHARED_OPTS,
+        });
+        stats.updated++;
+      } catch (e) {
+        console.error(`[Drive] Error renombrando shortcut ensamble prog ${prog.id}:`, (e as Error).message);
+        shortcutId = null;
+      }
+    }
+
+    if (!shortcutId) {
+      try {
+        const created = await drive.files.create({
+          requestBody: {
+            name: shortcutName,
+            mimeType: SHORTCUT_MIME,
+            parents: [ensembleFolderId],
+            shortcutDetails: { targetId: programFolderId },
+          },
+          fields: "id",
+          ...DRIVE_SHARED_OPTS,
+        });
+        shortcutId = created.data.id!;
+        stats.created++;
+      } catch (e) {
+        console.error(`[Drive] Error creando shortcut ensamble prog ${prog.id}:`, (e as Error).message);
+        continue;
+      }
+    }
+
+    if (prev) {
+      const { error: updateError } = await supabase
+        .from("programas_ensamble_drive_shortcuts")
+        .update({ google_drive_shortcut_id: shortcutId })
+        .eq("id", prev.id);
+      if (updateError) {
+        console.error(`[DB] Error actualizando shortcut prog ${prog.id} ens ${ens.id}:`, updateError.message);
+      }
+    } else {
+      const { error: upsertError } = await supabase.from("programas_ensamble_drive_shortcuts").upsert(
+        {
+          id_programa: prog.id,
+          id_ensamble: ens.id,
+          google_drive_shortcut_id: shortcutId,
+        },
+        { onConflict: "id_programa,id_ensamble" },
+      );
+      if (upsertError) {
+        console.error(`[DB] Error upsert shortcut prog ${prog.id} ens ${ens.id}:`, upsertError.message);
+      }
+    }
+  }
+
+  return stats;
+}
+
+async function runEnsembleDriveBackfill(supabase: any, drive: any) {
+  const programs: any[] = [];
+  const pageSize = 50;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("programas")
+      .select(`
+        id, fecha_desde, fecha_hasta, mes_letra, zona, nomenclador, google_drive_folder_id, tipo,
+        giras_fuentes(tipo, valor_id)
+      `)
+      .eq("tipo", "Ensamble")
+      .not("google_drive_folder_id", "is", null)
+      .order("id")
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    if (!data?.length) break;
+    programs.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const programIds = programs.map((p) => p.id);
+  if (programIds.length === 0) {
+    return {
+      ensemblesSynced: 0,
+      programsSynced: 0,
+      programsTotal: 0,
+      programsFetched: 0,
+      shortcutsCreated: 0,
+      shortcutsUpdated: 0,
+      shortcutsRemoved: 0,
+    };
+  }
+
+  const ensembleIds = new Set<number>();
+  for (const p of programs || []) {
+    getEnsembleSourceIds(p).forEach((id) => ensembleIds.add(id));
+  }
+
+  let ensemblesSynced = 0;
+  if (ensembleIds.size > 0) {
+    const { data: ensRows } = await supabase
+      .from("ensambles")
+      .select("id, ensamble, google_drive_folder_id")
+      .in("id", [...ensembleIds]);
+    for (const ens of ensRows || []) {
+      const fid = await syncEnsambleRootFolder(supabase, drive, ens);
+      if (fid) ensemblesSynced++;
+    }
+  }
+
+  let programsSynced = 0;
+  let shortcutsCreated = 0;
+  let shortcutsUpdated = 0;
+  let shortcutsRemoved = 0;
+  let programsSkipped = 0;
+
+  const { data: allExistingShortcuts } = await supabase
+    .from("programas_ensamble_drive_shortcuts")
+    .select("id_programa, id_ensamble");
+  const shortcutsByProgram = new Map<number, Set<number>>();
+  for (const row of allExistingShortcuts || []) {
+    if (!shortcutsByProgram.has(row.id_programa)) {
+      shortcutsByProgram.set(row.id_programa, new Set());
+    }
+    shortcutsByProgram.get(row.id_programa)!.add(row.id_ensamble);
+  }
+
+  for (const prog of programs || []) {
+    const neededEnsembles = getEnsembleSourceIds(prog);
+    const existing = shortcutsByProgram.get(prog.id) || new Set<number>();
+    const needsSync =
+      neededEnsembles.length > 0 &&
+      (neededEnsembles.some((id) => !existing.has(id)) ||
+        neededEnsembles.length !== existing.size);
+    if (!needsSync) {
+      programsSkipped++;
+      continue;
+    }
+
+    try {
+      const s = await syncEnsambleProgramShortcuts(supabase, drive, prog);
+      programsSynced++;
+      shortcutsCreated += s.created;
+      shortcutsUpdated += s.updated;
+      shortcutsRemoved += s.removed;
+    } catch (e) {
+      console.error(`[BACKFILL] Error programa ${prog.id}:`, (e as Error).message);
+    }
+  }
+
+  return {
+    ensemblesSynced,
+    programsSynced,
+    programsTotal: programIds.length,
+    programsFetched: programs.length,
+    programsSkipped,
+    shortcutsCreated,
+    shortcutsUpdated,
+    shortcutsRemoved,
+  };
+}
+
 // =================================================================================
 // SYNC METADATA: carpeta raíz del programa (sin tocar repertorio)
 // =================================================================================
 async function syncProgramRootFolder(supabase: any, drive: any, prog: any) {
-  const dateStart = prog.fecha_desde;
-  const [y, m] = (dateStart || "").split("-").map(Number);
-  const monthPrefix = prog.mes_letra || (m ? m.toString().padStart(2, "0") : "00");
-  const dateRangeStr = getFormattedDateString(prog.fecha_desde, prog.fecha_hasta);
-  const fName = `${monthPrefix} - ${dateRangeStr}${prog.zona ? ` ${prog.zona}` : ""} - ${prog.nomenclador || "SinNombre"}`;
+  const fName = getProgramDriveFolderName(prog);
 
   let fId = prog.google_drive_folder_id;
   try {
@@ -536,7 +902,12 @@ async function syncProgramRepertoireShortcuts(supabase: any, drive: any, prog: a
 async function syncOneProgram(supabase: any, drive: any, prog: any) {
   const folderId = await syncProgramRootFolder(supabase, drive, prog);
   const progWithFolder = { ...prog, google_drive_folder_id: folderId };
-  await syncProgramRepertoireShortcuts(supabase, drive, progWithFolder);
+  try {
+    await syncProgramRepertoireShortcuts(supabase, drive, progWithFolder);
+  } catch (e) {
+    console.error(`[SYNC] Repertorio programa ${prog.id}:`, (e as Error).message);
+  }
+  await syncEnsambleProgramShortcuts(supabase, drive, progWithFolder);
 }
 
 // =================================================================================
@@ -1981,7 +2352,7 @@ serve(async (req) => {
 
       const { data: progFull, error: fullError } = await supabase
         .from("programas")
-        .select("id, fecha_desde, fecha_hasta, mes_letra, zona, nomenclador, google_drive_folder_id")
+        .select("id, fecha_desde, fecha_hasta, mes_letra, zona, nomenclador, google_drive_folder_id, tipo, giras_fuentes(*)")
         .eq("id", finalProgramId)
         .single();
 
@@ -1991,13 +2362,16 @@ serve(async (req) => {
       }
 
       const folderId = await syncProgramRootFolder(supabase, drive, progFull);
+      const progWithFolder = { ...progFull, google_drive_folder_id: folderId };
+      const ensembleStats = await syncEnsambleProgramShortcuts(supabase, drive, progWithFolder);
 
       return new Response(
         JSON.stringify({
           success: true,
           programId: finalProgramId,
           folderId,
-          nomencladorUpdated: nomencladorUpdated ?? 0
+          nomencladorUpdated: nomencladorUpdated ?? 0,
+          ensembleShortcuts: ensembleStats,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -2046,6 +2420,16 @@ serve(async (req) => {
       );
     }
 
+    // --- ACCIÓN: BACKFILL carpetas ensambles + accesos directos ---
+    if (action === "sync_ensemble_drive_backfill") {
+      console.log("[BACKFILL] Iniciando sync_ensemble_drive_backfill");
+      const result = await runEnsembleDriveBackfill(supabase, drive);
+      return new Response(
+        JSON.stringify({ success: true, ...result }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // --- ACCIÓN: SYNC / DELETE PROGRAM ---
     if (action === "sync_program" || action === "delete_program") {
       const targetProgramId = programId || body.id || body.id_gira;
@@ -2054,6 +2438,7 @@ serve(async (req) => {
       // delete_program siempre requiere ID
       if (action === "delete_program") {
         if (!targetProgramId) throw new Error("ID de programa no proporcionado para eliminar.");
+        await removeEnsambleProgramShortcuts(supabase, drive, targetProgramId);
         const { data: prog, error: progError } = await supabase
           .from("programas")
           .select("id, google_drive_folder_id")

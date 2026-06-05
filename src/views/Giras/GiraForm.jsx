@@ -31,7 +31,6 @@ import {
   IconSettings,
   IconFileText,
 } from "../../components/ui/Icons";
-import LocationMultiSelect from "../../components/filters/LocationMultiSelect";
 import DateInput from "../../components/ui/DateInput";
 import TimeInput from "../../components/ui/TimeInput";
 import MusicianForm from "../Musicians/MusicianForm";
@@ -39,6 +38,9 @@ import SearchableSelect from "../../components/ui/SearchableSelect";
 import PersonSelectWithCreate from "../../components/filters/PersonSelectWithCreate";
 import LocationSelectWithCreate from "../../components/forms/LocationSelectWithCreate";
 import { getProgramStyle } from "../../utils/giraUtils";
+import { syncSingleSegmentDates } from "../../services/giraSegmentosService";
+import GiraTramosEditor from "./GiraTramosEditor";
+import { useGiraSegmentos } from "../../hooks/useGiraSegmentos";
 
 const ZONA_PRESETS = ["Andina", "Atlántica", "Valle"];
 
@@ -459,6 +461,18 @@ export default function GiraForm({
   );
   const [lastSavedValues, setLastSavedValues] = useState({});
 
+  const giraForSegmentos = useMemo(
+    () => ({ id: giraId, ...formData }),
+    [giraId, formData.fecha_desde, formData.fecha_hasta],
+  );
+  const { invalidateSegmentos } = useGiraSegmentos(
+    supabase,
+    giraForSegmentos,
+    {
+      enabled: !isNew && Boolean(giraId),
+    },
+  );
+
   useEffect(() => {
     if (syncStatus === "saved") {
       const timeout = setTimeout(() => {
@@ -666,6 +680,20 @@ export default function GiraForm({
         .update({ [fieldName]: value })
         .eq("id", giraId);
       if (error) throw error;
+      if (fieldName === "fecha_desde" || fieldName === "fecha_hasta") {
+        const desde =
+          fieldName === "fecha_desde" ? value : formData.fecha_desde;
+        const hasta =
+          fieldName === "fecha_hasta" ? value : formData.fecha_hasta;
+        if (desde && hasta) {
+          try {
+            await syncSingleSegmentDates(supabase, giraId, desde, hasta);
+            invalidateSegmentos();
+          } catch (segErr) {
+            console.warn("syncSingleSegmentDates:", segErr?.message);
+          }
+        }
+      }
       setLastSavedValues((prev) => ({ ...prev, [fieldName]: value ?? "" }));
       if (onRefresh) onRefresh();
       setSyncStatus("saved");
@@ -850,64 +878,6 @@ export default function GiraForm({
         setSyncStatus("saved");
       } catch (error) {
         console.error("Error eliminando integrante de gira:", error);
-        setSyncStatus("error");
-      } finally {
-        setGlobalSaving(false);
-      }
-    }
-  };
-
-  const handleLocationChange = async (newSet) => {
-    const added = [...newSet].filter((x) => !selectedLocations.has(x));
-    const removed = [...selectedLocations].filter((x) => !newSet.has(x));
-    setSelectedLocations(newSet);
-    if (!isNew && enableAutoSave) {
-      setSyncStatus("saving");
-      setGlobalSaving(true);
-      try {
-        if (added.length) {
-          const { error: insertError } = await supabase
-            .from("giras_localidades")
-            .insert(
-              added.map((lid) => ({ id_gira: giraId, id_localidad: lid })),
-            );
-          if (insertError) throw insertError;
-        }
-        if (removed.length) {
-          const { error: deleteError } = await supabase
-            .from("giras_localidades")
-            .delete()
-            .eq("id_gira", giraId)
-            .in("id_localidad", removed);
-          if (deleteError) throw deleteError;
-        }
-        setSyncStatus("saved");
-      } catch (error) {
-        console.error("Error actualizando localidades de gira:", error);
-        setSyncStatus("error");
-      } finally {
-        setGlobalSaving(false);
-      }
-    }
-  };
-
-  const removeLocation = async (locId) => {
-    const newLocs = new Set(selectedLocations);
-    newLocs.delete(locId);
-    setSelectedLocations(newLocs);
-    if (!isNew && enableAutoSave) {
-      setSyncStatus("saving");
-      setGlobalSaving(true);
-      try {
-        const { error } = await supabase
-          .from("giras_localidades")
-          .delete()
-          .eq("id_gira", giraId)
-          .eq("id_localidad", locId);
-        if (error) throw error;
-        setSyncStatus("saved");
-      } catch (error) {
-        console.error("Error eliminando localidad de gira:", error);
         setSyncStatus("error");
       } finally {
         setGlobalSaving(false);
@@ -1202,40 +1172,16 @@ export default function GiraForm({
             ))}
           </datalist>
         </div>
-        <div className="col-span-12 md:col-span-4">
-          <div className="flex items-center gap-1 mb-1 min-h-[16px] overflow-x-auto whitespace-nowrap">
-            <label className="text-[10px] uppercase font-bold text-slate-400 shrink-0">
-              Localía
-            </label>
-            {Array.from(selectedLocations).map((locId) => {
-              const locName = locationsList.find(
-                (l) => l.id === locId,
-              )?.localidad;
-              if (!locName) return null;
-              return (
-                <span
-                  key={locId}
-                  className="inline-flex items-center gap-1 px-1.5 h-4 bg-fixed-indigo-50 text-fixed-indigo-700 border border-fixed-indigo-100 rounded text-[10px] font-bold uppercase leading-none animate-in zoom-in-95 shrink-0"
-                >
-                  {locName}
-                  <button
-                    onClick={() => removeLocation(locId)}
-                    className="hover:text-red-500 rounded-full p-0"
-                  >
-                    <IconX size={10} />
-                  </button>
-                </span>
-              );
-            })}
-          </div>
-          <LocationMultiSelect
-            locations={locationsList}
-            selectedIds={selectedLocations}
-            onChange={handleLocationChange}
-            showLabel={false}
-            buttonClassName="h-[42px]"
+        {!isNew && enableAutoSave && (
+          <GiraTramosEditor
+            supabase={supabase}
+            giraId={giraId}
+            formData={formData}
+            locationsList={locationsList}
+            setSelectedLocations={setSelectedLocations}
+            onRefresh={onRefresh}
           />
-        </div>
+        )}
         <div className="col-span-12 pt-2 border-t border-slate-100 mt-2">
           <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 mb-1">
             <IconFileText size={14} />
@@ -1272,9 +1218,19 @@ export default function GiraForm({
             </button>
           </div>
           {concerts.length === 0 ? (
-            <div className="text-center p-4 border border-dashed border-slate-200 rounded-lg bg-slate-50 text-xs text-slate-400 italic">
-              No hay conciertos cargados para este programa.
-            </div>
+            formData.tipo === "Comisión" ? (
+              <div className="text-center p-4 border border-dashed border-slate-200 rounded-lg bg-slate-50 text-xs text-slate-400 italic">
+                No hay conciertos cargados para este programa.
+              </div>
+            ) : (
+              <div
+                role="alert"
+                className="flex items-center justify-center gap-2 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800 animate-pulse"
+              >
+                <IconAlertTriangle size={18} className="shrink-0" />
+                No hay conciertos definidos
+              </div>
+            )
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {concerts.map((c) => {

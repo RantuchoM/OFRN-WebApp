@@ -103,9 +103,21 @@ CREATE TABLE public.ensambles (
   descripcion text,
   id_familia text,
   id_ensamble_cf bigint,
+  google_drive_folder_id text,
   CONSTRAINT ensambles_pkey PRIMARY KEY (id),
   CONSTRAINT ensambles_id_familia_fkey FOREIGN KEY (id_familia) REFERENCES public.familia(familia),
   CONSTRAINT ensambles_id_ensamble_cf_fkey FOREIGN KEY (id_ensamble_cf) REFERENCES public.ensambles(id)
+);
+CREATE TABLE public.programas_ensamble_drive_shortcuts (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  id_programa bigint NOT NULL,
+  id_ensamble bigint NOT NULL,
+  google_drive_shortcut_id text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT programas_ensamble_drive_shortcuts_pkey PRIMARY KEY (id),
+  CONSTRAINT programas_ensamble_drive_shortcuts_programa_fkey FOREIGN KEY (id_programa) REFERENCES public.programas(id),
+  CONSTRAINT programas_ensamble_drive_shortcuts_ensamble_fkey FOREIGN KEY (id_ensamble) REFERENCES public.ensambles(id),
+  CONSTRAINT programas_ensamble_drive_shortcuts_unique UNIQUE (id_programa, id_ensamble)
 );
 CREATE TABLE public.ensambles_coordinadores (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,

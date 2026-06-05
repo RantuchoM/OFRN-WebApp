@@ -30,6 +30,11 @@ import {
   getMatchStrength,
   getCategoriaLogistica,
 } from "../../hooks/useLogistics";
+import {
+  resolveRulePrimaryInstant,
+  resolveRuleFieldInstant,
+  personIsLocalAtHit,
+} from "../../utils/giraUtils";
 import EventForm from "../../components/forms/EventForm";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
@@ -83,22 +88,48 @@ const MILESTONE_BLOCKS = [
   },
 ];
 
-const isPersonMissingMilestone = (m, milestoneKey) => {
+const isPersonMissingMilestone = (m, milestoneKey, segments) => {
   const l = m.logistics;
-  const isLocal = m.is_local;
   switch (milestoneKey) {
     case "check-in":
-    case "check-out":
-      if (isLocal) return false;
-      return milestoneKey === "check-in"
-        ? !l.checkin?.date
-        : !l.checkout?.date;
+    case "check-out": {
+      const hitKey = milestoneKey === "check-in" ? "checkin" : "checkout";
+      const hit = l[hitKey];
+      let instant = hit?.date
+        ? { fecha: hit.date, hora: hit.time || "12:00" }
+        : null;
+      if (!instant && segments?.length) {
+        const idx = milestoneKey === "check-in" ? 0 : segments.length - 1;
+        const seg = segments[idx];
+        if (seg?.fecha_desde) {
+          instant = { fecha: seg.fecha_desde, hora: "12:00" };
+        }
+      }
+      if (personIsLocalAtHit(m, segments, instant)) return false;
+      return !hit?.date;
+    }
     case "subida":
-    case "bajada":
-      if (isLocal) return false;
-      return milestoneKey === "subida"
-        ? !l.transports[0]?.subidaData?.date
-        : !l.transports[0]?.bajadaData?.date;
+    case "bajada": {
+      const data =
+        milestoneKey === "subida"
+          ? l.transports[0]?.subidaData
+          : l.transports[0]?.bajadaData;
+      let instant = data?.date
+        ? {
+            fecha: data.date,
+            hora: data.time || data.hora || "12:00",
+          }
+        : null;
+      if (!instant && segments?.length) {
+        const idx = milestoneKey === "subida" ? 0 : segments.length - 1;
+        const seg = segments[idx];
+        if (seg?.fecha_desde) {
+          instant = { fecha: seg.fecha_desde, hora: "12:00" };
+        }
+      }
+      if (personIsLocalAtHit(m, segments, instant)) return false;
+      return !data?.date;
+    }
     case "inicio_comida":
       return !l.comida_inicio?.date;
     case "fin_comida":
@@ -135,10 +166,23 @@ const formatDiff = (ms) => {
 };
 
 // Mantiene consistencia con el motor central: NO_LOCALES incluye EXTERNOS.
-const matchesCategoryChip = (chipCategory, personCategory, person) => {
+const matchesCategoryChip = (
+  chipCategory,
+  personCategory,
+  person,
+  context = {},
+) => {
   if (!chipCategory || !personCategory) return false;
-  if (chipCategory === "LOCALES") return Boolean(person?.is_local);
-  if (chipCategory === "NO_LOCALES") return !Boolean(person?.is_local);
+  if (chipCategory === "LOCALES" || chipCategory === "NO_LOCALES") {
+    const isLocal = personIsLocalAtHit(
+      person,
+      context.segments,
+      context.instant,
+    );
+    if (chipCategory === "LOCALES") return isLocal;
+    if (personCategory === "EXTERNOS") return true;
+    return !isLocal;
+  }
   if (chipCategory === personCategory) return true;
   if (chipCategory === "NO_LOCALES" && personCategory === "EXTERNOS")
     return true;
@@ -152,8 +196,18 @@ const personMatchesLogisticsChip = (
   chipId,
   person,
   allLocalities,
+  matchOptions = {},
 ) => {
-  if (getMatchStrength(row, person, allLocalities) <= 0) return false;
+  const { segments, allEvents, fallbackTramoIdx } = matchOptions;
+  let instant = resolveRulePrimaryInstant(row, allEvents);
+  if (!instant?.fecha && segments?.length && fallbackTramoIdx != null) {
+    const seg = segments[fallbackTramoIdx];
+    if (seg?.fecha_desde) {
+      instant = { fecha: seg.fecha_desde, hora: "12:00" };
+    }
+  }
+  if (getMatchStrength(row, person, allLocalities, { segments, instant }) <= 0)
+    return false;
   const pId = String(person.id ?? person.id_integrante);
   const pLoc = person.id_localidad ? String(person.id_localidad) : "";
   const locInfo = (allLocalities || []).find((l) => String(l.id) === pLoc);
@@ -172,19 +226,28 @@ const personMatchesLogisticsChip = (
     case "target_regions":
       return pReg === String(chipId);
     case "target_categories":
-      return matchesCategoryChip(chipId, pCat, person);
+      return matchesCategoryChip(chipId, pCat, person, { segments, instant });
     default:
       return false;
   }
 };
 
 /** Misma lógica que calculateLogisticsSummary: última regla aplicada gana (mayor fuerza; empate → última en el listado). */
-const getWinningLogisticsRule = (person, rules, allLocalities) => {
+const getWinningLogisticsRule = (
+  person,
+  rules,
+  allLocalities,
+  matchOptions = {},
+) => {
   if (!rules?.length) return null;
+  const { segments, allEvents, field = "checkin" } = matchOptions;
   const matched = rules
     .map((r, idx) => ({
       r,
-      s: getMatchStrength(r, person, allLocalities),
+      s: getMatchStrength(r, person, allLocalities, {
+        segments,
+        instant: resolveRuleFieldInstant(r, field, allEvents),
+      }),
       idx,
     }))
     .filter((x) => x.s > 0)
@@ -673,7 +736,11 @@ const TimelineNode = ({
 );
 
 // --- 4. COMPONENTE PRINCIPAL ---
-export default function LogisticsManager({ supabase, gira }) {
+export default function LogisticsManager({
+  supabase,
+  gira,
+  activeTramoIdx = 0,
+}) {
   const {
     summary,
     roster,
@@ -682,6 +749,7 @@ export default function LogisticsManager({ supabase, gira }) {
     sedeIds,
     refresh,
     allLocalities,
+    segments,
   } = useLogistics(supabase, gira);
   const [localRules, setLocalRules] = useState([]);
   const [savingStatus, setSavingStatus] = useState({});
@@ -752,6 +820,15 @@ export default function LogisticsManager({ supabase, gira }) {
     [roster],
   );
 
+  const chipMatchOptions = useMemo(
+    () => ({
+      segments,
+      allEvents,
+      fallbackTramoIdx: activeTramoIdx,
+    }),
+    [segments, allEvents, activeTramoIdx],
+  );
+
   const chipPreviewGrouped = useMemo(() => {
     if (!chipPreviewModal || !roster?.length) return null;
     const { row, chipKey, chipId } = chipPreviewModal;
@@ -764,13 +841,19 @@ export default function LogisticsManager({ supabase, gira }) {
           chipId,
           p,
           allLocalities,
+          chipMatchOptions,
         ),
     );
     const byCity = {};
     filtered.forEach((p) => {
       const city = p.localidades?.localidad || "Sin localidad";
       if (!byCity[city]) byCity[city] = [];
-      const winner = getWinningLogisticsRule(p, logisticsRules, allLocalities);
+      const winner = getWinningLogisticsRule(
+        p,
+        logisticsRules,
+        allLocalities,
+        chipMatchOptions,
+      );
       byCity[city].push({
         person: p,
         overridden: Boolean(
@@ -789,7 +872,13 @@ export default function LogisticsManager({ supabase, gira }) {
     );
     const cities = Object.keys(byCity).sort((a, b) => a.localeCompare(b, "es"));
     return { byCity, cities, total: filtered.length };
-  }, [chipPreviewModal, roster, logisticsRules, allLocalities]);
+  }, [
+    chipPreviewModal,
+    roster,
+    logisticsRules,
+    allLocalities,
+    chipMatchOptions,
+  ]);
 
   const listBeforeMilestoneFilter = useMemo(() => {
     // Excluir ausentes de todos los filtros de la Línea de Tiempo
@@ -805,37 +894,31 @@ export default function LogisticsManager({ supabase, gira }) {
       );
     }
     if (showOnlyMissing) {
-      list = list.filter((m) => {
-        const l = m.logistics;
-        const isLocal = m.is_local;
-        const missingCheckIn = !isLocal && !l.checkin?.date;
-        const missingCheckOut = !isLocal && !l.checkout?.date;
-        const missingSubida = !l.transports[0]?.subidaData?.date;
-        const missingBajada = !l.transports[0]?.bajadaData?.date;
-        return (
-          missingCheckIn || missingCheckOut || missingSubida || missingBajada
-        );
-      });
+      list = list.filter((m) =>
+        ["check-in", "check-out", "subida", "bajada"].some((key) =>
+          isPersonMissingMilestone(m, key, segments),
+        ),
+      );
     }
     return list;
-  }, [summary, searchTerm, showOnlyMissing]);
+  }, [summary, searchTerm, showOnlyMissing, segments]);
 
   const missingCountsByMilestone = useMemo(() => {
     const counts = {};
     MILESTONES.forEach((m) => {
       counts[m.key] = listBeforeMilestoneFilter.filter((p) =>
-        isPersonMissingMilestone(p, m.key),
+        isPersonMissingMilestone(p, m.key, segments),
       ).length;
     });
     return counts;
-  }, [listBeforeMilestoneFilter]);
+  }, [listBeforeMilestoneFilter, segments]);
 
   const groupedSummary = useMemo(() => {
     let list = listBeforeMilestoneFilter;
     if (activeMilestones.size > 0) {
       list = list.filter((m) =>
         Array.from(activeMilestones).some((key) =>
-          isPersonMissingMilestone(m, key),
+          isPersonMissingMilestone(m, key, segments),
         ),
       );
     }
@@ -845,7 +928,7 @@ export default function LogisticsManager({ supabase, gira }) {
       acc[city].push(p);
       return acc;
     }, {});
-  }, [listBeforeMilestoneFilter, activeMilestones]);
+  }, [listBeforeMilestoneFilter, activeMilestones, segments]);
 
   const filteredCount =
     activeMilestones.size > 0
@@ -1600,22 +1683,22 @@ export default function LogisticsManager({ supabase, gira }) {
                     const missingNodes = [
                       {
                         id: "sub",
-                        show: !l.transports[0]?.subidaData?.date,
+                        show: isPersonMissingMilestone(m, "subida", segments),
                         icon: IconBus,
                       },
                       {
                         id: "checkin",
-                        show: !m.is_local && !l.checkin?.date,
+                        show: isPersonMissingMilestone(m, "check-in", segments),
                         icon: IconHotel,
                       },
                       {
                         id: "checkout",
-                        show: !m.is_local && !l.checkout?.date,
+                        show: isPersonMissingMilestone(m, "check-out", segments),
                         icon: IconHotel,
                       },
                       {
                         id: "baj",
-                        show: !l.transports[0]?.bajadaData?.date,
+                        show: isPersonMissingMilestone(m, "bajada", segments),
                         icon: IconBus,
                       },
                     ].filter((n) => n.show);

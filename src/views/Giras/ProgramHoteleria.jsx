@@ -1,35 +1,50 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { IconHotel, IconPlus, IconCalendar, IconLoader, IconTrash, IconBed, IconUsers } from '../../components/ui/Icons';
-import RoomingManager from './RoomingManager'; 
+import RoomingManager from './RoomingManager';
+import { ensureDefaultSegment } from '../../services/giraSegmentosService';
+import { useGiraSegmentos } from '../../hooks/useGiraSegmentos';
+import { buildSegmentSpecs, formatTramoTitle } from '../../utils/giraTramos';
 
 export default function ProgramHoteleria({ supabase, program, onBack }) {
     const [bookings, setBookings] = useState([]);
     const [hotelsList, setHotelsList] = useState([]);
     const [localidadesPrograma, setLocalidadesPrograma] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [activeSegmentIdx, setActiveSegmentIdx] = useState(0);
     
     const [isAdding, setIsAdding] = useState(false);
     const [newBooking, setNewBooking] = useState({ id_hotel: '', fecha_checkin: program.fecha_desde, fecha_checkout: program.fecha_hasta, hora_checkin: '14:00', hora_checkout: '10:00' });
     
-    // NUEVO ESTADO: Mostrar el gestor integral
     const [showFullRooming, setShowFullRooming] = useState(false);
+
+    const { cortes, segmentRows, cortesCount, segments } = useGiraSegmentos(supabase, program);
+    const specs = useMemo(() => buildSegmentSpecs(program, cortes), [program, cortes]);
+
+    const activeSegmentRow = segmentRows[activeSegmentIdx] ?? segmentRows[0] ?? null;
 
     useEffect(() => { 
         loadData();
     }, [program.id]);
 
+    useEffect(() => {
+        if (activeSegmentRow && cortesCount > 0) {
+            setNewBooking(prev => ({
+                ...prev,
+                fecha_checkin: activeSegmentRow.fecha_desde || program.fecha_desde,
+                fecha_checkout: activeSegmentRow.fecha_hasta || program.fecha_hasta,
+            }));
+        }
+    }, [activeSegmentIdx, activeSegmentRow?.id, cortesCount]);
+
     const loadData = async () => {
         setLoading(true);
         
-        // Cargar Hoteles
         const { data: hotels } = await supabase.from('hoteles').select('id, nombre, localidades(localidad)').order('nombre');
         if (hotels) setHotelsList(hotels);
 
-        // Cargar Localidades del Programa
         const { data: locs } = await supabase.from('giras_localidades').select('localidades(localidad)').eq('id_gira', program.id);
         if (locs) setLocalidadesPrograma(locs.map(l => l.localidades.localidad).join(', '));
 
-        // Cargar Bookings
         const { data: bks } = await supabase
             .from('programas_hospedajes')
             .select(`*, hoteles(nombre, localidades(localidad))`)
@@ -40,18 +55,36 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
         setLoading(false);
     };
 
+    const filteredBookings = useMemo(() => {
+        if (cortesCount === 0 || !activeSegmentRow) return bookings;
+        return bookings.filter(b => Number(b.id_segmento) === Number(activeSegmentRow.id));
+    }, [bookings, activeSegmentRow, cortesCount]);
+
     const handleSaveBooking = async () => {
         if (!newBooking.id_hotel) return alert("Selecciona un hotel.");
         setLoading(true);
 
-        const payload = { ...newBooking, id_programa: program.id };
-        const { error } = await supabase.from('programas_hospedajes').insert([payload]);
+        try {
+            let segmentId = activeSegmentRow?.id;
+            if (!segmentId) segmentId = await ensureDefaultSegment(supabase, program.id);
+            const payload = { ...newBooking, id_programa: program.id, id_segmento: segmentId };
+            const { error } = await supabase.from('programas_hospedajes').insert([payload]);
 
-        if (error) alert("Error: El hotel ya está reservado para este programa, o faltan datos.");
-        else {
-            setIsAdding(false);
-            setNewBooking({ id_hotel: '', fecha_checkin: program.fecha_desde, fecha_checkout: program.fecha_hasta, hora_checkin: '14:00', hora_checkout: '10:00' });
-            loadData();
+            if (error) alert("Error: El hotel ya está reservado para este programa, o faltan datos.");
+            else {
+                setIsAdding(false);
+                setNewBooking({
+                    id_hotel: '',
+                    fecha_checkin: activeSegmentRow?.fecha_desde || program.fecha_desde,
+                    fecha_checkout: activeSegmentRow?.fecha_hasta || program.fecha_hasta,
+                    hora_checkin: '14:00',
+                    hora_checkout: '10:00',
+                });
+                loadData();
+            }
+        } catch (err) {
+            console.error(err);
+            alert(err?.message || "Error al guardar reserva.");
         }
         setLoading(false);
     };
@@ -63,12 +96,10 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
         loadData();
     };
 
-    // --- MODO GESTIÓN INTEGRAL ---
     if (showFullRooming) {
         return (
             <RoomingManager 
                 supabase={supabase} 
-                bookings={bookings} // Pasamos TODOS los hoteles
                 program={program} 
                 onBack={() => setShowFullRooming(false)}
             />
@@ -82,9 +113,14 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
         return `${d}/${m}/${y} ${time}`;
     };
 
+    const segmentLabel = (idx) => {
+        const spec = specs[idx];
+        if (!spec || cortesCount === 0) return 'Gira completa';
+        return formatTramoTitle(idx, spec.fecha_desde, spec.fecha_hasta);
+    };
+
     return (
         <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
-            {/* Header */}
             <div className="bg-white p-4 border-b border-slate-200 shadow-sm flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="text-slate-400 hover:text-indigo-600 font-medium text-sm flex items-center gap-1">← Volver</button>
@@ -110,7 +146,25 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
                 </div>
             </div>
 
-            {/* Formulario */}
+            {cortesCount > 0 && segmentRows.length > 1 && (
+                <div className="bg-white border-b border-slate-200 px-4 py-2 flex gap-1 overflow-x-auto shrink-0">
+                    {segmentRows.map((seg, idx) => (
+                        <button
+                            key={seg.id}
+                            type="button"
+                            onClick={() => setActiveSegmentIdx(idx)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border ${
+                                activeSegmentIdx === idx
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-200'
+                            }`}
+                        >
+                            {segmentLabel(idx)}
+                        </button>
+                    ))}
+                </div>
+            )}
+
             {isAdding && (
                 <div className="bg-indigo-50/30 p-4 border-b border-slate-200 animate-in slide-in-from-top-2">
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end max-w-6xl mx-auto">
@@ -134,11 +188,10 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
                 </div>
             )}
 
-            {/* Listado */}
             <div className="flex-1 overflow-y-auto p-4 max-w-6xl mx-auto w-full space-y-4">
                 {loading && <div className="text-center p-8 text-indigo-600"><IconLoader className="animate-spin inline"/> Cargando...</div>}
                 
-                {bookings.map(bk => {
+                {filteredBookings.map(bk => {
                     const hotel = bk.hoteles;
                     return (
                         <div key={bk.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
@@ -158,10 +211,10 @@ export default function ProgramHoteleria({ supabase, program, onBack }) {
                     );
                 })}
 
-                {bookings.length === 0 && !loading && (
+                {filteredBookings.length === 0 && !loading && (
                     <div className="text-center p-12 border-2 border-dashed border-slate-200 rounded-xl text-slate-400">
                         <IconHotel size={32} className="mx-auto mb-2 opacity-20"/>
-                        <p>No hay hoteles asignados. Agrega uno arriba.</p>
+                        <p>{cortesCount > 0 ? 'No hay hoteles en este tramo.' : 'No hay hoteles asignados.'} Agrega uno arriba.</p>
                     </div>
                 )}
             </div>
