@@ -144,7 +144,7 @@ export default function LogisticsDashboard({
   return (
     <div className="flex flex-col h-full bg-slate-50 animate-in fade-in">
       {/* HEADER UNIF ICADO */}
-      <div className="bg-white border-b border-slate-200 shadow-sm px-2.5 sm:px-4 pt-1.5 sm:pt-2.5 pb-0.5 sm:pb-1 flex flex-row items-center justify-between gap-1.5 sm:gap-4 shrink-0 print:hidden relative z-20 min-h-[2.75rem] sm:min-h-[3.25rem]">
+      <div className={`bg-white border-b border-slate-200 shadow-sm px-2.5 sm:px-4 pt-1.5 sm:pt-2.5 pb-0.5 sm:pb-1 flex flex-row items-center justify-between gap-1.5 sm:gap-4 shrink-0 print:hidden relative min-h-[2.75rem] sm:min-h-[3.25rem] ${isMealsMenuOpen ? "z-[100]" : "z-[60]"}`}>
         {/* IZQUIERDA: Botón Volver + Loader */}
         <div className="flex items-center gap-1.5 sm:gap-4 shrink-0">
           <button
@@ -386,7 +386,7 @@ export default function LogisticsDashboard({
 
       {/* DROPDOWN COMIDAS - SOLO MÓVIL (overlay pequeño, alineado a la derecha) */}
       {isMealsMenuOpen && (
-        <div className="lg:hidden fixed right-3 top-[3.6rem] z-50">
+        <div className="lg:hidden fixed right-3 top-[3.6rem] z-[100]">
           <div className="bg-white border border-slate-200 rounded-xl shadow-xl flex flex-col min-w-[160px] py-1">
             <DropdownItem
               active={activeTab === "meals"}

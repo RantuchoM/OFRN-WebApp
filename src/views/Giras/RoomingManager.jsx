@@ -3182,6 +3182,9 @@ export default function RoomingManager({
             supabase={supabase}
             cortes={cortes}
             onUpdated={refreshSegmentos}
+            activeSegmentIdx={activeSegmentIdx}
+            segmentSpecs={segmentSpecs}
+            multiTramoEnabled={segmentRows.length > 1}
           />
         </div>
       )}

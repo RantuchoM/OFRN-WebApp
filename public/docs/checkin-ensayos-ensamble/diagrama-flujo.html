@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Diagrama de flujo — Check-in ensayos de ensamble | OFRN</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --accent: #4338ca;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 1.25rem 1.5rem;
+    }
+    header h1 {
+      margin: 0 0 0.25rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+    header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+      overflow-x: auto;
+    }
+    .card h2 {
+      margin: 0 0 1rem;
+      font-size: 1rem;
+      color: var(--accent);
+    }
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.75rem;
+      font-size: 0.85rem;
+    }
+    .legend-item {
+      padding: 0.6rem 0.75rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #f1f5f9;
+    }
+    .legend-item strong { display: block; margin-bottom: 0.15rem; }
+    footer {
+      text-align: center;
+      padding: 1rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+    .mermaid { min-width: 320px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Diagrama de flujo — Registro de ingreso a ensayos de ensamble</h1>
+    <p>Orquesta Filarmónica de Río Negro (OFRN) · Sistema de check-in con geolocalización</p>
+  </header>
+
+  <main>
+    <div class="card">
+      <h2>Flujo principal del integrante</h2>
+      <pre class="mermaid">
+flowchart TD
+    A([Integrante autenticado<br/>accede a su Agenda]) --> B{¿Es el día<br/>del ensayo?}
+    B -->|No| Z([Check-in no disponible])
+    B -->|Sí| C[Pulsa Registrar hora de llegada]
+    C --> D{¿GPS<br/>disponible?}
+
+    D -->|Sí| E[Dispositivo obtiene coordenadas<br/>alta precisión + precisión en m]
+    E --> F[Servidor valida ensayo<br/>y fecha Argentina]
+    F --> G[Registro modo GPS<br/>hora servidor + coords + distancia a sede]
+    G --> H([Confirmación con hora de ingreso])
+
+    D -->|No| I{¿Alternativa?}
+    I -->|QR compañero| J[Compañero con GPS genera QR<br/>válido 20 s, un solo uso]
+    J --> K[Integrante escanea QR]
+    K --> L[Servidor valida token<br/>y registra modo peer_pase]
+    L --> H
+
+    I -->|Sin ubicación| M[Registro sin coordenadas<br/>modo GPS, coords nulas]
+    M --> F
+
+    G --> O{¿Compañero necesita<br/>pase QR?}
+    O -->|Sí| J
+    O -->|No| P([Fin])
+    H --> P
+      </pre>
+    </div>
+
+    <div class="card">
+      <h2>Flujo de supervisión y auditoría (Gestión)</h2>
+      <pre class="mermaid">
+flowchart LR
+    subgraph GESTION["Gestión → Asistencia a ensayos"]
+        R1[Filtrar fechas y ensambles]
+        R2[Vista matriz o por persona]
+        R3{¿Registro con<br/>coordenadas?}
+        R3 -->|Sí| R4[Ver en mapa<br/>+ distancia a sede]
+        R3 -->|No| R5[Identificar modo<br/>QR / sin GPS]
+        R4 --> R6[Exportar Excel / PDF]
+        R5 --> R6
+        R2 --> R3
+    end
+
+    GESTION --> AUD([Control ex post<br/>RRHH / legisladores])
+      </pre>
+    </div>
+
+    <div class="card">
+      <h2>Leyenda de modalidades de registro</h2>
+      <div class="legend">
+        <div class="legend-item">
+          <strong>GPS directo</strong>
+          Coordenadas propias del integrante. Evidencia geográfica principal.
+        </div>
+        <div class="legend-item">
+          <strong>Pase QR (peer_pase)</strong>
+          Ubicación del compañero presente. Token efímero 20 s, uso único.
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    OFRN · Plataforma de gestión · Documentación en /docs/checkin-ensayos-ensamble/
+  </footer>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "neutral",
+      flowchart: {
+        htmlLabels: true,
+        curve: "basis",
+        padding: 16,
+      },
+      themeVariables: {
+        primaryColor: "#eef2ff",
+        primaryBorderColor: "#4338ca",
+        primaryTextColor: "#0f172a",
+        lineColor: "#64748b",
+        fontSize: "14px",
+      },
+    });
+  </script>
+</body>
+</html>
