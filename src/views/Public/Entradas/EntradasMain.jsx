@@ -208,6 +208,39 @@ function getProgramaNombre(programa) {
   );
 }
 
+/** Título OFRN para entradas (`nombre_gira`), sin nomenclador. */
+function tituloOfrnPrograma(programa) {
+  const titulo = String(programa?.nombre_gira || "").trim();
+  if (titulo) return titulo;
+  const subt = String(programa?.subtitulo || "").trim();
+  if (subt) return subt;
+  return programa?.id ? `Programa #${programa.id}` : "";
+}
+
+/** 115% del aforo (`locaciones.capacidad`) si está cargado. */
+function capacidadEntradasSugeridaDesdeLocacion(locacion) {
+  const cap = Number(locacion?.capacidad);
+  if (!Number.isFinite(cap) || cap <= 0) return null;
+  return Math.max(1, Math.round(cap * 1.15));
+}
+
+function conciertoFormDefaultsDesdeEventoOfrn(ev, prev = {}) {
+  let apertura_reservas_at = prev.apertura_reservas_at || "";
+  if (ev?.fecha) {
+    const hora = String(ev.hora_inicio || "20:00").trim().slice(0, 5);
+    const fechaHora = `${ev.fecha}T${hora}`;
+    const def = defaultAperturaReservasAtFromConcierto(fechaHora);
+    if (def) apertura_reservas_at = isoToDatetimeLocalInput(def.toISOString());
+  }
+  const capSug = capacidadEntradasSugeridaDesdeLocacion(ev?.locaciones);
+  return {
+    ofrn_evento_id: ev?.id ?? "",
+    nombre: tituloOfrnPrograma(ev?.programas),
+    capacidad_maxima: capSug ?? "",
+    apertura_reservas_at,
+  };
+}
+
 /** ISO timestamptz → valor para `<input type="datetime-local" />` (hora local del navegador). */
 function isoToDatetimeLocalInput(iso) {
   if (!iso) return "";
@@ -398,7 +431,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     nombre: "",
     detalle_richtext: "",
     imagen_drive_url: "",
-    capacidad_maxima: 100,
+    capacidad_maxima: "",
     reservas_habilitadas: true,
     activo: true,
     apertura_reservas_at: "",
@@ -434,7 +467,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     const { data: eventosData, error: eventosError } = await supabaseEntradasPublic
       .from("eventos")
       .select(
-        "id, id_gira, fecha, hora_inicio, descripcion, tipos_evento(nombre), locaciones(nombre, localidades(localidad)), programas!eventos_id_gira_fkey(id, nombre_gira, nomenclador, mes_letra, subtitulo, tipo, fecha_desde)",
+        "id, id_gira, fecha, hora_inicio, descripcion, tipos_evento(nombre), locaciones(nombre, capacidad, localidades(localidad)), programas!eventos_id_gira_fkey(id, nombre_gira, nomenclador, mes_letra, subtitulo, tipo, fecha_desde)",
       )
       .eq("is_deleted", false)
       .is("deleted_at", null)
@@ -1565,7 +1598,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
       nombre: "",
       detalle_richtext: "",
       imagen_drive_url: "",
-      capacidad_maxima: 100,
+      capacidad_maxima: "",
       reservas_habilitadas: true,
       activo: true,
       apertura_reservas_at: "",
@@ -1631,8 +1664,14 @@ export default function EntradasMain({ user, profile, onLogout }) {
 
   const submitConcierto = async (event) => {
     event.preventDefault();
+    const cap = Number(conciertoForm.capacidad_maxima);
+    if (!Number.isFinite(cap) || cap < 1) {
+      toast.error("Indicá la capacidad máxima del concierto.");
+      return;
+    }
     await adminUpsertConcierto({
       ...conciertoForm,
+      capacidad_maxima: cap,
       imagen_drive_url: normalizeDriveImageUrlForStorage(conciertoForm.imagen_drive_url),
       apertura_reservas_at: datetimeLocalInputToIso(conciertoForm.apertura_reservas_at),
       limite_recordatorio_at: datetimeLocalInputToIso(conciertoForm.limite_recordatorio_at),
@@ -1863,17 +1902,19 @@ export default function EntradasMain({ user, profile, onLogout }) {
         onChange={(event) => {
           const nextId = event.target.value === "" ? "" : Number(event.target.value);
           const ev = eventosParaSelectorConcierto.find((row) => Number(row.id) === Number(nextId));
-          let apertura_reservas_at = conciertoForm.apertura_reservas_at;
-          if (ev?.fecha) {
-            const hora = String(ev.hora_inicio || "20:00").trim().slice(0, 5);
-            const fechaHora = `${ev.fecha}T${hora}`;
-            const def = defaultAperturaReservasAtFromConcierto(fechaHora);
-            if (def) apertura_reservas_at = isoToDatetimeLocalInput(def.toISOString());
+          if (!ev) {
+            setConciertoForm((prev) => ({
+              ...prev,
+              ofrn_evento_id: "",
+              nombre: "",
+              capacidad_maxima: "",
+              apertura_reservas_at: "",
+            }));
+            return;
           }
           setConciertoForm((prev) => ({
             ...prev,
-            ofrn_evento_id: nextId,
-            apertura_reservas_at,
+            ...conciertoFormDefaultsDesdeEventoOfrn(ev, prev),
           }));
         }}
         className={ui.select}
@@ -1919,8 +1960,14 @@ export default function EntradasMain({ user, profile, onLogout }) {
       <input
         type="number"
         min={1}
-        value={conciertoForm.capacidad_maxima}
-        onChange={(event) => setConciertoForm((prev) => ({ ...prev, capacidad_maxima: Number(event.target.value) }))}
+        value={conciertoForm.capacidad_maxima === "" ? "" : conciertoForm.capacidad_maxima}
+        onChange={(event) => {
+          const raw = event.target.value;
+          setConciertoForm((prev) => ({
+            ...prev,
+            capacidad_maxima: raw === "" ? "" : Number(raw),
+          }));
+        }}
         className={ui.input}
         placeholder="Capacidad máxima"
         required
