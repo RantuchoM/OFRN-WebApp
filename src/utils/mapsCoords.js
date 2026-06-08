@@ -76,6 +76,86 @@ export function isShortGoogleMapsLink(url) {
 }
 
 /**
+ * Texto de búsqueda para geocodificar una locación sin link de Maps.
+ * @param {{ nombre?: string, direccion?: string, localidad?: string, localidades?: { localidad?: string } } | null | undefined} loc
+ * @returns {string | null}
+ */
+export function buildLocacionGeocodeQuery(loc) {
+  if (!loc) return null;
+  const partes = [];
+  if (loc.nombre?.trim()) partes.push(loc.nombre.trim());
+  if (loc.direccion?.trim()) partes.push(loc.direccion.trim());
+  const localidad =
+    loc.localidad?.trim() || loc.localidades?.localidad?.trim() || "";
+  if (localidad) partes.push(localidad);
+  if (partes.length === 0) return null;
+  partes.push("Rio Negro, Argentina");
+  return partes.join(", ");
+}
+
+/**
+ * URL de búsqueda en Google Maps a partir de datos de locación (sin link guardado).
+ * @param {{ nombre?: string, direccion?: string, localidad?: string, localidades?: { localidad?: string } } | null | undefined} loc
+ * @returns {string | null}
+ */
+export function buildLocacionMapsSearchUrl(loc) {
+  const query = buildLocacionGeocodeQuery(loc);
+  if (!query) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+/**
+ * Resuelve coordenadas: primero link_mapa; si no hay o falla, búsqueda por nombre/dirección/localidad.
+ * @param {{ nombre?: string, direccion?: string, link_mapa?: string, localidad?: string, localidades?: { localidad?: string } } | null | undefined} loc
+ * @param {{ fetchImpl?: typeof fetch, supabase?: import('@supabase/supabase-js').SupabaseClient } | typeof fetch} [optionsOrFetch]
+ * @returns {Promise<{ lat: number, lng: number, resolvedFrom: string } | null>}
+ */
+export async function resolveLocacionCoordsFromData(loc, optionsOrFetch) {
+  if (!loc) return null;
+
+  const options =
+    typeof optionsOrFetch === "function"
+      ? { fetchImpl: optionsOrFetch }
+      : optionsOrFetch || {};
+
+  const link = loc.link_mapa?.trim();
+  if (link) {
+    const fromLink = await resolveGoogleMapsLinkCoords(link, optionsOrFetch);
+    if (fromLink) return fromLink;
+  }
+
+  const query = buildLocacionGeocodeQuery(loc);
+  if (!query) return null;
+
+  const localidad =
+    loc.localidad?.trim() || loc.localidades?.localidad?.trim() || undefined;
+
+  if (options.supabase) {
+    const { data } = await options.supabase.functions.invoke(
+      "resolve-maps-coords",
+      {
+        body: {
+          query,
+          nombre: loc.nombre?.trim() || undefined,
+          direccion: loc.direccion?.trim() || undefined,
+          localidad,
+        },
+      },
+    );
+    if (data?.ok && data.lat != null && data.lng != null) {
+      return {
+        lat: Number(data.lat),
+        lng: Number(data.lng),
+        resolvedFrom: data.resolvedFrom || query,
+      };
+    }
+    return null;
+  }
+
+  return null;
+}
+
+/**
  * Resuelve coords desde un link de Google Maps.
  * En el navegador usa Edge Function (evita CORS de Google). En Node usa fetch directo.
  * @param {string | null | undefined} url
@@ -100,13 +180,10 @@ export async function resolveGoogleMapsLinkCoords(url, optionsOrFetch) {
   }
 
   if (options.supabase) {
-    const { data, error } = await options.supabase.functions.invoke(
+    const { data } = await options.supabase.functions.invoke(
       "resolve-maps-coords",
       { body: { url: trimmed } },
     );
-    if (error) {
-      throw new Error(error.message || "No se pudieron obtener coordenadas");
-    }
     if (data?.ok && data.lat != null && data.lng != null) {
       return {
         lat: Number(data.lat),

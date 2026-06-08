@@ -10,7 +10,11 @@ import {
 } from "../ui/Icons";
 import { toast } from "sonner";
 import { getGoogleMapsUrl } from "../../utils/agendaHelpers";
-import { parseGoogleMapsCoords, isShortGoogleMapsLink, resolveGoogleMapsLinkCoords } from "../../utils/mapsCoords";
+import {
+  parseGoogleMapsCoords,
+  isShortGoogleMapsLink,
+  resolveLocacionCoordsFromData,
+} from "../../utils/mapsCoords";
 
 const EMPTY_FORM = {
   id: null,
@@ -135,29 +139,65 @@ export default function LocationManagerModal({
     setView("form");
   };
 
-  const handleCalcCoordsFromLink = async () => {
+  const canCalcCoords = useMemo(() => {
     const link = formData.link_mapa?.trim();
-    if (!link) {
-      toast.error("Pegá un link de Google Maps primero");
+    const localidad = cities.find(
+      (c) => String(c.id) === String(formData.id_localidad),
+    )?.localidad;
+    return Boolean(
+      link ||
+        formData.direccion?.trim() ||
+        localidad ||
+        formData.nombre?.trim(),
+    );
+  }, [
+    formData.link_mapa,
+    formData.direccion,
+    formData.nombre,
+    formData.id_localidad,
+    cities,
+  ]);
+
+  const handleCalcCoords = async () => {
+    const localidad = cities.find(
+      (c) => String(c.id) === String(formData.id_localidad),
+    )?.localidad;
+    if (!canCalcCoords) {
+      toast.error("Completá dirección, localidad o link de Google Maps");
       return;
     }
     setResolvingCoords(true);
     try {
-      const direct = parseGoogleMapsCoords(link);
-      const coords =
-        direct || (await resolveGoogleMapsLinkCoords(link, { supabase }));
+      const coords = await resolveLocacionCoordsFromData(
+        {
+          nombre: formData.nombre,
+          direccion: formData.direccion,
+          link_mapa: formData.link_mapa,
+          localidad,
+        },
+        { supabase },
+      );
       if (!coords) {
-        toast.error("No se pudieron obtener coordenadas de ese link");
+        toast.error(
+          "No se pudieron obtener coordenadas con los datos ingresados",
+        );
         return;
       }
       setFormData((prev) => ({
         ...prev,
         latitud: String(coords.lat),
         longitud: String(coords.lng),
+        ...(!prev.link_mapa?.trim() && coords.resolvedFrom?.startsWith("http")
+          ? { link_mapa: coords.resolvedFrom }
+          : {}),
       }));
-      toast.success("Coordenadas calculadas desde el link");
+      toast.success(
+        formData.link_mapa?.trim()
+          ? "Coordenadas calculadas desde el link"
+          : "Coordenadas calculadas desde dirección y localidad",
+      );
     } catch (err) {
-      toast.error(err?.message || "Error al resolver el link");
+      toast.error(err?.message || "Error al calcular coordenadas");
     } finally {
       setResolvingCoords(false);
     }
@@ -422,8 +462,8 @@ export default function LocationManagerModal({
                     />
                     <button
                       type="button"
-                      disabled={resolvingCoords || !formData.link_mapa?.trim()}
-                      onClick={handleCalcCoordsFromLink}
+                      disabled={resolvingCoords || !canCalcCoords}
+                      onClick={handleCalcCoords}
                       className="mt-1.5 w-full py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 disabled:opacity-50 flex items-center justify-center gap-1.5"
                     >
                       {resolvingCoords ? (
@@ -432,7 +472,7 @@ export default function LocationManagerModal({
                           Calculando…
                         </>
                       ) : (
-                        "Calcular coordenadas desde link"
+                        "Calcular coordenadas"
                       )}
                     </button>
                     {isShortGoogleMapsLink(formData.link_mapa) &&

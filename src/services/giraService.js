@@ -8,6 +8,10 @@ import {
   membershipActiveOnProgramDate,
 } from "../utils/ensembleMembership";
 import { getTodayDateStringLocal } from "../utils/dates";
+import {
+  sortEnsamblesParticipantes,
+  sortFamiliasParticipantes,
+} from "../utils/participantesSort";
 
 /**
  * Resuelve los IDs de los integrantes de una gira:
@@ -818,26 +822,76 @@ function getDifusionObservacionesFromProgram(giraDifusion) {
 }
 
 function buildFamiliasFromGirasFuentes(girasFuentes = []) {
-  return Array.from(
+  const familias = Array.from(
     new Set(
       (girasFuentes || [])
         .filter((f) => f?.tipo === "FAMILIA" && f?.valor_texto)
         .map((f) => String(f.valor_texto).trim())
         .filter(Boolean),
     ),
-  ).sort((a, b) => a.localeCompare(b));
+  );
+  return sortFamiliasParticipantes(familias);
+}
+
+function getExclEnsambleIdsFromGirasFuentes(girasFuentes = []) {
+  return new Set(
+    (girasFuentes || [])
+      .filter((f) => f?.tipo === "EXCL_ENSAMBLE")
+      .map((f) => Number(f?.valor_id))
+      .filter((id) => !Number.isNaN(id) && id > 0),
+  );
+}
+
+/**
+ * Ensambles para Gestión → Conciertos: incluye los de evento/programa
+ * y los marcados explícitamente como EXCL_ENSAMBLE en giras_fuentes.
+ */
+function buildEnsamblesForConciertoGestion(
+  girasFuentes = [],
+  eventosEnsambles = [],
+  ensambleNameMap = new Map(),
+) {
+  const exclIds = getExclEnsambleIdsFromGirasFuentes(girasFuentes);
+  const map = new Map();
+
+  const upsert = (id, nombre, excluido) => {
+    if (!id || id <= 0) return;
+    const label = nombre || ensambleNameMap.get(id) || `Ensamble ${id}`;
+    const prev = map.get(id);
+    if (!prev) {
+      map.set(id, { id, nombre: label, excluido: Boolean(excluido) });
+      return;
+    }
+    if (excluido) prev.excluido = true;
+    if (label && !prev.nombre) prev.nombre = label;
+  };
+
+  (girasFuentes || [])
+    .filter((f) => f?.tipo === "ENSAMBLE")
+    .forEach((f) => {
+      const id = Number(f?.valor_id);
+      upsert(id, ensambleNameMap.get(id), exclIds.has(id));
+    });
+
+  (eventosEnsambles || []).forEach((ee) => {
+    const ens = ee?.ensambles;
+    if (!ens?.id) return;
+    const id = Number(ens.id);
+    upsert(id, ens.ensamble, exclIds.has(id));
+  });
+
+  (girasFuentes || [])
+    .filter((f) => f?.tipo === "EXCL_ENSAMBLE")
+    .forEach((f) => {
+      const id = Number(f?.valor_id);
+      upsert(id, ensambleNameMap.get(id), true);
+    });
+
+  return sortEnsamblesParticipantes(Array.from(map.values()));
 }
 
 function buildEnsamblesFromGirasFuentes(girasFuentes = [], ensambleNameMap = new Map()) {
-  return (girasFuentes || [])
-    .filter((f) => f?.tipo === "ENSAMBLE")
-    .map((f) => Number(f?.valor_id))
-    .filter((id) => !Number.isNaN(id) && id > 0)
-    .map((id) => ({
-      id,
-      nombre: ensambleNameMap.get(id) || `Ensamble ${id}`,
-    }))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  return buildEnsamblesForConciertoGestion(girasFuentes, [], ensambleNameMap);
 }
 
 /**
@@ -869,6 +923,7 @@ export const getConciertosFullData = async (
           nomenclador,
           mes_letra,
           tipo,
+          estado,
           gira_difusion (
             otros_comentarios,
             timestamp_otros_comentarios
@@ -916,7 +971,7 @@ export const getConciertosFullData = async (
         if (!Number.isNaN(eid) && eid > 0) ensambleIdsFromEvents.add(eid);
       });
       (evt.programas?.giras_fuentes || [])
-        .filter((f) => f?.tipo === "ENSAMBLE")
+        .filter((f) => f?.tipo === "ENSAMBLE" || f?.tipo === "EXCL_ENSAMBLE")
         .forEach((f) => {
           const eid = Number(f?.valor_id);
           if (!Number.isNaN(eid) && eid > 0) ensambleIdsFromEvents.add(eid);
@@ -936,32 +991,11 @@ export const getConciertosFullData = async (
     }
 
     return events.map((evt) => {
-      const ensamblesEvent = (evt.eventos_ensambles || [])
-        .map((ee) => ee?.ensambles)
-        .filter(Boolean)
-        .map((ens) => ({
-          id: Number(ens.id),
-          nombre: ens.ensamble || "",
-        }))
-        .filter((ens) => ens.id > 0);
-
-      const ensamblesFromSources = (evt.programas?.giras_fuentes || [])
-        .filter((f) => f?.tipo === "ENSAMBLE")
-        .map((f) => Number(f?.valor_id))
-        .filter((id) => !Number.isNaN(id) && id > 0)
-        .map((id) => ({
-          id,
-          nombre: ensambleNameMap.get(id) || `Ensamble ${id}`,
-        }));
-
-      const ensambleMap = new Map();
-      [...ensamblesFromSources, ...ensamblesEvent].forEach((ens) => {
-        if (!ens || !ens.id) return;
-        if (!ensambleMap.has(ens.id)) ensambleMap.set(ens.id, ens.nombre || "");
-      });
-      const ensambles = Array.from(ensambleMap.entries())
-        .map(([id, nombre]) => ({ id, nombre }))
-        .sort((a, b) => a.nombre.localeCompare(b.nombre));
+      const ensambles = buildEnsamblesForConciertoGestion(
+        evt.programas?.giras_fuentes,
+        evt.eventos_ensambles,
+        ensambleNameMap,
+      );
 
       const familiasFromConvocados = (evt.convocados || [])
         .filter((tag) => String(tag).startsWith("FAM:"))
@@ -974,8 +1008,8 @@ export const getConciertosFullData = async (
         familiasFromConvocados.length > 0
           ? familiasFromConvocados
           : familiasFromProgram;
-      const familias = Array.from(new Set(familiasBase)).sort((a, b) =>
-        a.localeCompare(b),
+      const familias = sortFamiliasParticipantes(
+        Array.from(new Set(familiasBase)),
       );
 
       const repertorio = buildRepertorioFromProgramasRepertorios(
@@ -985,10 +1019,13 @@ export const getConciertosFullData = async (
       return {
         id: evt.id,
         id_gira: evt.id_gira,
+        id_locacion: evt.id_locacion ?? null,
+        id_estado_venue: evt.id_estado_venue ?? null,
         fecha: evt.fecha,
         hora_inicio: evt.hora_inicio,
         audiencia: evt.audiencia,
         tipo_programa: evt.programas?.tipo || "",
+        estado_programa: evt.programas?.estado || "Borrador",
         nombre_gira: evt.programas?.nombre_gira || "",
         nomenclador: evt.programas?.nomenclador || "",
         mes_letra: evt.programas?.mes_letra || "",
@@ -1162,7 +1199,7 @@ export const getProgramasSinConciertos = async (
     let q = supabase
       .from("programas")
       .select(
-        `id, nombre_gira, nomenclador, mes_letra, tipo, fecha_desde, fecha_hasta,
+        `id, nombre_gira, nomenclador, mes_letra, tipo, estado, fecha_desde, fecha_hasta,
          gira_difusion ( otros_comentarios, timestamp_otros_comentarios ),
          giras_fuentes ( tipo, valor_id, valor_texto ),
          programas_repertorios (
@@ -1203,7 +1240,7 @@ export const getProgramasSinConciertos = async (
     const ensambleIds = new Set();
     sinConciertos.forEach((p) => {
       (p.giras_fuentes || [])
-        .filter((f) => f?.tipo === "ENSAMBLE")
+        .filter((f) => f?.tipo === "ENSAMBLE" || f?.tipo === "EXCL_ENSAMBLE")
         .forEach((f) => {
           const id = Number(f?.valor_id);
           if (!Number.isNaN(id) && id > 0) ensambleIds.add(id);
@@ -1228,6 +1265,7 @@ export const getProgramasSinConciertos = async (
       nomenclador: p.nomenclador || "",
       mes_letra: p.mes_letra || "",
       tipo: p.tipo || "",
+      estado: p.estado || "Borrador",
       fecha_desde: p.fecha_desde,
       fecha_hasta: p.fecha_hasta,
       ensambles: buildEnsamblesFromGirasFuentes(p.giras_fuentes, ensambleNameMap),

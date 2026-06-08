@@ -218,3 +218,17 @@ export function formatDisplayDate(dateStr) {
   if (!dateStr || typeof dateStr !== "string") return "";
   return formatDdMmYyyy(dateStr);
 }
+
+/**
+ * Día de la semana en español, minúsculas (ej. "sábado").
+ * @param {string} dateStr - Fecha en formato "yyyy-MM-dd"
+ */
+export function formatWeekdayLongLocal(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return "";
+  const iso = dateStr.slice(0, 10);
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const date = new Date(y, m - 1, d);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("es-AR", { weekday: "long" }).format(date).toLowerCase();
+}

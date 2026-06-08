@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import SearchableSelect from "../ui/SearchableSelect";
 import LocalitySelectWithCreate from "./LocalitySelectWithCreate";
-import { IconPlus, IconLoader } from "../ui/Icons";
+import { IconPlus, IconLoader, IconEdit } from "../ui/Icons";
+import LocationManagerModal from "../locations/LocationManagerModal";
 import { toast } from "sonner";
 
 /**
@@ -20,6 +21,7 @@ export default function LocationSelectWithCreate({
   className = "",
 }) {
   const [modalOpen, setModalOpen] = useState(false);
+  const [editLocationId, setEditLocationId] = useState(null);
   const [newNombre, setNewNombre] = useState("");
   const [newIdLocalidad, setNewIdLocalidad] = useState("");
   const [newDireccion, setNewDireccion] = useState("");
@@ -107,6 +109,16 @@ export default function LocationSelectWithCreate({
           className="border-0 rounded-none h-full"
         />
       </div>
+      {value != null && value !== "" && (
+        <button
+          type="button"
+          onClick={() => setEditLocationId(value)}
+          className="shrink-0 w-8 h-[38px] flex items-center justify-center bg-slate-50 hover:bg-amber-500 text-slate-400 hover:text-white border-l border-slate-300 transition-colors"
+          title="Editar locación seleccionada"
+        >
+          <IconEdit size={14} />
+        </button>
+      )}
       <button
         type="button"
         onClick={() => setModalOpen(true)}
@@ -115,6 +127,17 @@ export default function LocationSelectWithCreate({
       >
         <IconPlus size={18} />
       </button>
+
+      {editLocationId != null && editLocationId !== "" && (
+        <LocationManagerModal
+          supabase={supabase}
+          initialLocationId={editLocationId}
+          onClose={() => setEditLocationId(null)}
+          onSuccess={async () => {
+            if (onRefresh) await onRefresh();
+          }}
+        />
+      )}
 
       {modalOpen &&
         createPortal(

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "../../context/AuthContext";
 import {
   getConciertosFullData,
   getProgramasSinConciertos,
@@ -7,10 +8,16 @@ import { ProgramaSinConciertosGestionRow } from "../../components/giras/Programa
 import { buildMergedConciertosTimeline } from "../../utils/conciertosTimeline";
 import { exportConciertosToExcel } from "../../utils/excelExporter";
 import { exportConciertosToPDF } from "../../utils/agendaPdfExporter";
-import { getTodayDateStringLocal, formatDisplayDate } from "../../utils/dates";
-import ProgramTypeTag from "../../components/giras/ProgramTypeTag";
 import {
-  IconCalendar,
+  getTodayDateStringLocal,
+  formatDisplayDate,
+  formatWeekdayLongLocal,
+} from "../../utils/dates";
+import GestionProgramaCellContent from "../../components/giras/GestionProgramaCellContent";
+import GestionConciertoLocacionCell from "../../components/giras/GestionConciertoLocacionCell";
+import GestionConciertoVenueCell from "../../components/giras/GestionConciertoVenueCell";
+import GestionParticipantesCell from "../../components/giras/GestionParticipantesCell";
+import {
   IconChevronDown,
   IconChevronUp,
   IconDownload,
@@ -22,6 +29,14 @@ const normalize = (val) => String(val || "").trim().toLowerCase();
 
 const formatHora = (raw) => (raw ? String(raw).slice(0, 5) : "-");
 
+function mapLocationsOptions(data) {
+  return (data || []).map((l) => ({
+    id: l.id,
+    label: `${l.nombre} (${l.localidades?.localidad || "Sin localidad"})`,
+    originalName: l.nombre,
+  }));
+}
+
 const formatRepertorioLine = (item) => {
   const compositor = String(item?.compositor || "Autor Desconocido").trim();
   const titulo = String(item?.titulo || "Obra sin título").trim();
@@ -32,6 +47,7 @@ function buildGestionTableRow({
   id,
   programId,
   fecha,
+  fechaWeekday = "",
   hora,
   nomenclador,
   mes_letra,
@@ -40,15 +56,29 @@ function buildGestionTableRow({
   familias = [],
   locacion = "-",
   localidad = "-",
+  id_locacion = null,
+  id_estado_venue = null,
   venue_estado = "-",
   venue_estado_color = "",
   repertorio = [],
   difusion_observaciones = "",
   tipo_programa = "",
+  estado_programa = "Vigente",
 }) {
-  const ensambleLines = ensambles.map((ens) => ens.nombre).filter(Boolean);
+  const ensambleItems = (ensambles || [])
+    .map((ens) => ({
+      id: ens.id,
+      nombre: String(ens.nombre || "").trim(),
+      excluido: Boolean(ens.excluido),
+    }))
+    .filter((ens) => ens.nombre);
   const familiaLines = familias.filter(Boolean);
-  const participantesParts = [...ensambleLines, ...familiaLines];
+  const participantesParts = [
+    ...ensambleItems.map((ens) =>
+      ens.excluido ? `${ens.nombre} (excl.)` : ens.nombre,
+    ),
+    ...familiaLines,
+  ];
   const primeraLineaPrograma = [nomenclador, mes_letra].filter(Boolean).join(" - ");
   const segundaLineaPrograma = nombre_gira || "";
   const programaLabel = [primeraLineaPrograma, segundaLineaPrograma]
@@ -61,12 +91,17 @@ function buildGestionTableRow({
     id,
     programId,
     fecha,
+    fechaWeekday,
     hora,
     programa: programaLabel || "-",
     participantes: participantesParts.join("\n") || "-",
-    participantesEnsamble: ensambleLines,
+    participantesEnsamble: ensambleItems,
     participantesFamilia: familiaLines,
     locacionLocalidad,
+    locacion: locacion || "-",
+    localidad: localidad || "-",
+    idLocacion: id_locacion ?? null,
+    idEstadoVenue: id_estado_venue ?? null,
     estadoVenue: venue_estado || "-",
     estadoVenueColor: venue_estado_color || "",
     repertorio:
@@ -75,6 +110,10 @@ function buildGestionTableRow({
     repertorioLines,
     difusionObservaciones: String(difusion_observaciones || "").trim(),
     tipoPrograma: String(tipo_programa || "").trim(),
+    nomenclador: String(nomenclador || "").trim(),
+    mesLetra: String(mes_letra || "").trim(),
+    nombreGira: String(nombre_gira || "").trim(),
+    estadoPrograma: String(estado_programa || "Borrador").trim(),
   };
 }
 
@@ -103,7 +142,9 @@ function DetailModal({ open, title, subtitle, children, onClose }) {
 }
 
 export default function ConciertosView({ supabase }) {
+  const { userId } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [locacionesOptions, setLocacionesOptions] = useState([]);
   const [rows, setRows] = useState([]);
   const [programasSinConciertos, setProgramasSinConciertos] = useState([]);
   const [dateFrom, setDateFrom] = useState(getTodayDateStringLocal());
@@ -114,6 +155,19 @@ export default function ConciertosView({ supabase }) {
   const [repertorioModalRow, setRepertorioModalRow] = useState(null);
   const [observacionesModalRow, setObservacionesModalRow] = useState(null);
   const [headerExpanded, setHeaderExpanded] = useState(false);
+
+  const fetchLocations = useCallback(async () => {
+    if (!supabase) return;
+    const { data } = await supabase
+      .from("locaciones")
+      .select("id, nombre, localidades(localidad)")
+      .order("nombre");
+    setLocacionesOptions(mapLocationsOptions(data));
+  }, [supabase]);
+
+  useEffect(() => {
+    fetchLocations();
+  }, [fetchLocations]);
 
   const loadConciertos = async () => {
     setLoading(true);
@@ -241,6 +295,7 @@ export default function ConciertosView({ supabase }) {
           id: row.id,
           programId: row.id_gira || null,
           fecha: formatDisplayDate(row.fecha) || row.fecha || "-",
+          fechaWeekday: formatWeekdayLongLocal(row.fecha),
           hora: formatHora(row.hora_inicio),
           nomenclador: row.nomenclador,
           mes_letra: row.mes_letra,
@@ -249,11 +304,14 @@ export default function ConciertosView({ supabase }) {
           familias: row.familias,
           locacion: row.locacion,
           localidad: row.localidad,
+          id_locacion: row.id_locacion,
+          id_estado_venue: row.id_estado_venue,
           venue_estado: row.venue_estado,
           venue_estado_color: row.venue_estado_color,
           repertorio: row.repertorio,
           difusion_observaciones: row.difusion_observaciones,
           tipo_programa: row.tipo_programa,
+          estado_programa: row.estado_programa,
         }),
       );
     });
@@ -272,7 +330,7 @@ export default function ConciertosView({ supabase }) {
         buildGestionTableRow({
           id: `sin-conc-${programa.id}`,
           programId: programa.id,
-          fecha: `${fechaDesde} → ${fechaHasta}`,
+          fecha: `${fechaDesde}\n→ ${fechaHasta}`,
           hora: "—",
           nomenclador: programa.nomenclador,
           mes_letra: programa.mes_letra,
@@ -282,6 +340,7 @@ export default function ConciertosView({ supabase }) {
           repertorio: programa.repertorio,
           difusion_observaciones: programa.difusion_observaciones,
           tipo_programa: programa.tipo,
+          estado_programa: programa.estado,
         }),
       );
     });
@@ -480,7 +539,9 @@ export default function ConciertosView({ supabase }) {
         <table className="min-w-full border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wider text-slate-600">
             <tr>
-              <th className="border-b border-slate-200 px-3 py-2 text-left">Fecha</th>
+              <th className="w-[1%] whitespace-nowrap border-b border-slate-200 px-2 py-2 text-left">
+                Fecha
+              </th>
               <th className="border-b border-slate-200 px-3 py-2 text-left">Hora</th>
               <th className="border-b border-slate-200 px-3 py-2 text-left">Programa</th>
               <th className="border-b border-slate-200 px-3 py-2 text-left">
@@ -533,75 +594,54 @@ export default function ConciertosView({ supabase }) {
 
                 return (
                 <tr key={row.id} className="align-top text-slate-700 odd:bg-white even:bg-slate-50">
-                  <td className="border-b border-slate-100 px-3 py-2">{row.fecha}</td>
-                  <td className="border-b border-slate-100 px-3 py-2">{row.hora}</td>
-                  <td className="border-b border-slate-100 px-3 py-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1 space-y-1">
-                        {row.tipoPrograma ? (
-                          <ProgramTypeTag tipo={row.tipoPrograma} />
-                        ) : null}
-                        <span className="whitespace-pre-wrap">{row.programa}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenProgramAgenda(row.programId)}
-                        disabled={!row.programId}
-                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-                        title="Ir a agenda del programa"
-                      >
-                        <IconCalendar size={13} />
-                      </button>
+                  <td className="w-[1%] whitespace-nowrap border-b border-slate-100 px-2 py-2">
+                    <div className="leading-tight">
+                      <div>{row.fecha}</div>
+                      {row.fechaWeekday ? (
+                        <div className="text-[11px] text-slate-500">{row.fechaWeekday}</div>
+                      ) : null}
                     </div>
                   </td>
-                  <td className="whitespace-pre-wrap border-b border-slate-100 px-3 py-2">
-                    {row.participantesEnsamble.length === 0 &&
-                    row.participantesFamilia.length === 0 ? (
-                      "-"
-                    ) : (
-                      <div className="flex flex-wrap gap-1">
-                        {row.participantesEnsamble.map((name) => (
-                          <span
-                            key={`ens-${row.id}-${name}`}
-                            className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700"
-                          >
-                            {name}
-                          </span>
-                        ))}
-                        {row.participantesFamilia.map((name) => (
-                          <span
-                            key={`fam-${row.id}-${name}`}
-                            className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700"
-                          >
-                            {name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                  <td className="border-b border-slate-100 px-3 py-2">{row.hora}</td>
+                  <td className="border-b border-slate-100 px-3 py-2">
+                    <GestionProgramaCellContent
+                      tipoPrograma={row.tipoPrograma}
+                      nomenclador={row.nomenclador}
+                      mesLetra={row.mesLetra}
+                      nombreGira={row.nombreGira}
+                      estadoPrograma={row.estadoPrograma}
+                      onOpenAgenda={() => handleOpenProgramAgenda(row.programId)}
+                      agendaDisabled={!row.programId}
+                    />
                   </td>
                   <td className="whitespace-pre-wrap border-b border-slate-100 px-3 py-2">
-                    {row.locacionLocalidad}
+                    <GestionParticipantesCell
+                      participantesEnsamble={row.participantesEnsamble}
+                      participantesFamilia={row.participantesFamilia}
+                    />
                   </td>
                   <td className="border-b border-slate-100 px-3 py-2">
-                    {row.estadoVenue && row.estadoVenue !== "-" ? (
-                      <span
-                        className="inline-flex items-center gap-2 rounded-full px-2 py-1 text-[11px] font-semibold"
-                        style={{
-                          backgroundColor: `${row.estadoVenueColor}20`,
-                          color: "#0f172a",
-                        }}
-                      >
-                        <span
-                          className="inline-block h-2 w-2 rounded-full shrink-0"
-                          style={{ backgroundColor: row.estadoVenueColor }}
-                        />
-                        <span>{row.estadoVenue}</span>
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-500">
-                        Sin estado
-                      </span>
-                    )}
+                    <GestionConciertoLocacionCell
+                      supabase={supabase}
+                      eventId={row.id}
+                      idLocacion={row.idLocacion}
+                      locacion={row.locacion}
+                      localidad={row.localidad}
+                      locacionesOptions={locacionesOptions}
+                      onRefreshLocations={fetchLocations}
+                      onUpdated={loadConciertos}
+                    />
+                  </td>
+                  <td className="border-b border-slate-100 px-3 py-2">
+                    <GestionConciertoVenueCell
+                      supabase={supabase}
+                      eventId={row.id}
+                      idEstadoVenue={row.idEstadoVenue}
+                      estadoNombre={row.estadoVenue}
+                      estadoColor={row.estadoVenueColor}
+                      userId={userId ?? null}
+                      onUpdated={loadConciertos}
+                    />
                   </td>
                   <td className="border-b border-slate-100 px-3 py-2">
                     <button

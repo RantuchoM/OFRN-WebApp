@@ -2,6 +2,8 @@ import React from "react";
 import { IconAlertTriangle, IconCalendar, IconMusic } from "../ui/Icons";
 import { formatDisplayDate } from "../../utils/dates";
 import ProgramTypeTag from "./ProgramTypeTag";
+import GestionProgramaCellContent from "./GestionProgramaCellContent";
+import GestionParticipantesCell from "./GestionParticipantesCell";
 
 export function programLabel(p) {
   const line1 = [p.nomenclador, p.mes_letra].filter(Boolean).join(" - ");
@@ -71,9 +73,9 @@ export function ProgramaSinConciertosGestionRow({
 
   return (
     <tr className="bg-amber-50/90 align-top text-slate-700">
-      <td className="border-b border-amber-200 px-3 py-2 text-xs">
-        <div className="space-y-1.5">
-          <span className="whitespace-nowrap">{row.fecha}</span>
+      <td className="w-[1%] border-b border-amber-200 px-2 py-2 text-xs">
+        <div className="flex flex-col items-start gap-1 leading-tight">
+          <span className="whitespace-pre-line">{row.fecha}</span>
           <span className="inline-flex items-center gap-1 rounded-full border border-amber-400 bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-900 animate-pulse">
             <IconAlertTriangle size={10} />
             Sin conciertos
@@ -82,51 +84,26 @@ export function ProgramaSinConciertosGestionRow({
       </td>
       <td className="border-b border-amber-200 px-3 py-2 text-slate-400">{row.hora}</td>
       <td className="border-b border-amber-200 px-3 py-2">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1 space-y-1">
-            {row.tipoPrograma ? <ProgramTypeTag tipo={row.tipoPrograma} /> : null}
-            <span className="whitespace-pre-wrap text-sm">{row.programa}</span>
-          </div>
-          {onOpenProgram ? (
-            <button
-              type="button"
-              onClick={() => onOpenProgram(row.programId)}
-              disabled={!row.programId}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-              title="Ir a agenda del programa"
-            >
-              <IconCalendar size={13} />
-            </button>
-          ) : null}
-        </div>
+        <GestionProgramaCellContent
+          tipoPrograma={row.tipoPrograma}
+          nomenclador={row.nomenclador}
+          mesLetra={row.mesLetra}
+          nombreGira={row.nombreGira}
+          estadoPrograma={row.estadoPrograma}
+          onOpenAgenda={onOpenProgram ? () => onOpenProgram(row.programId) : undefined}
+          agendaDisabled={!row.programId}
+        />
       </td>
       <td className="border-b border-amber-200 px-3 py-2">
-        {row.participantesEnsamble.length === 0 &&
-        row.participantesFamilia.length === 0 ? (
-          "-"
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {row.participantesEnsamble.map((name) => (
-              <span
-                key={`ens-sin-${row.programId}-${name}`}
-                className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700"
-              >
-                {name}
-              </span>
-            ))}
-            {row.participantesFamilia.map((name) => (
-              <span
-                key={`fam-sin-${row.programId}-${name}`}
-                className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700"
-              >
-                {name}
-              </span>
-            ))}
-          </div>
-        )}
+        <GestionParticipantesCell
+          participantesEnsamble={row.participantesEnsamble}
+          participantesFamilia={row.participantesFamilia}
+        />
       </td>
       <td className="border-b border-amber-200 px-3 py-2 text-slate-400">
-        {row.locacionLocalidad}
+        <div className="leading-tight">
+          <div className="text-sm">-</div>
+        </div>
       </td>
       <td className="border-b border-amber-200 px-3 py-2">
         <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-500">
