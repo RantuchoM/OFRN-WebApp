@@ -5,6 +5,7 @@ import ConfirmModal from "../../../components/ui/ConfirmModal";
 import EntradasCompartirConciertoBtn from "../../../components/entradas/EntradasCompartirConciertoBtn";
 import EntradasDisponibilidadBar from "../../../components/entradas/EntradasDisponibilidadBar";
 import EntradasDriveCoverImage from "../../../components/entradas/EntradasDriveCoverImage";
+import EntradasLiveQrScanner from "../../../components/entradas/EntradasLiveQrScanner";
 import EntradasMisReservasSection from "../../../components/entradas/EntradasMisReservasSection";
 import MisReservasQrPanel from "../../../components/entradas/MisReservasQrPanel";
 import {
@@ -311,6 +312,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
   const [conciertosConReservaActiva, setConciertosConReservaActiva] = useState([]);
   const [downloadingPdfReservaId, setDownloadingPdfReservaId] = useState(null);
   const [decodingQrPhoto, setDecodingQrPhoto] = useState(false);
+  const [liveQrScannerOpen, setLiveQrScannerOpen] = useState(false);
   const qrPhotoInputRef = useRef(null);
   const [adminData, setAdminData] = useState({ programas: [], conciertos: [], usuarios: [] });
   const [eventosConcierto, setEventosConcierto] = useState([]);
@@ -1365,6 +1367,29 @@ export default function EntradasMain({ user, profile, onLogout }) {
     } finally {
       setDecodingQrPhoto(false);
     }
+  };
+
+  const handleOpenQrScanner = () => {
+    if (!recepcionConciertoId) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast.message("Cámara en vivo no disponible en este navegador. Usá la foto.");
+      qrPhotoInputRef.current?.click();
+      return;
+    }
+    setLiveQrScannerOpen(true);
+  };
+
+  const handleLiveQrScan = (text) => {
+    setLiveQrScannerOpen(false);
+    if (text?.trim()) {
+      setScannerToken(text.trim());
+      toast.success("Código leído con la cámara.");
+    }
+  };
+
+  const handleQrScannerFallbackPhoto = () => {
+    setLiveQrScannerOpen(false);
+    qrPhotoInputRef.current?.click();
   };
 
   const resetProgramaForm = () => {
@@ -2697,9 +2722,9 @@ export default function EntradasMain({ user, profile, onLogout }) {
               </select>
               <button
                 type="button"
-                title="Escanear QR (cámara)"
-                onClick={() => qrPhotoInputRef.current?.click()}
-                disabled={decodingQrPhoto || !recepcionConciertoId}
+                title="Escanear QR (cámara en vivo)"
+                onClick={handleOpenQrScanner}
+                disabled={decodingQrPhoto || liveQrScannerOpen || !recepcionConciertoId}
                 className={ui.recepcionCamera}
               >
                 {decodingQrPhoto ? <span className="text-[10px] font-bold">…</span> : <IconCamera size={26} className="shrink-0" />}
@@ -3511,6 +3536,14 @@ export default function EntradasMain({ user, profile, onLogout }) {
           </section>
         )}
       </main>
+
+      <EntradasLiveQrScanner
+        open={liveQrScannerOpen}
+        isDark={isDark}
+        onClose={() => setLiveQrScannerOpen(false)}
+        onScan={handleLiveQrScan}
+        onFallbackPhoto={handleQrScannerFallbackPhoto}
+      />
 
       {catalogQrModalReserva && (
         <div
