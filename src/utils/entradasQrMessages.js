@@ -81,3 +81,15 @@ export function formatEntradasValidacionSuccess(result) {
   }
   return "Ingreso registrado.";
 }
+
+/** Toast breve en recepción tras registrar ingreso y limpiar la pantalla. */
+export function formatEntradasRecepcionIngresoSuccess(result) {
+  if (!result?.ok) return "Ingreso registrado.";
+  const n =
+    result.tipo === "entrada"
+      ? 1
+      : Math.max(1, Number(result.pendientes_consumidas ?? 0) || 1);
+  return n === 1
+    ? "Ingresó 1 persona correctamente."
+    : `Ingresaron ${n} personas correctamente.`;
+}

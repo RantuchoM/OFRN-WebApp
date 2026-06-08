@@ -69,7 +69,7 @@ import { formatEntradasConciertoFechaHora as formatConciertoFechaHoraEs } from "
 import {
   formatEntradasPreviewError,
   formatEntradasValidacionError,
-  formatEntradasValidacionSuccess,
+  formatEntradasRecepcionIngresoSuccess,
 } from "../../../utils/entradasQrMessages";
 import { formatEntradasIngresoConRecepcionista } from "../../../utils/entradasIngresoDisplay";
 import { decodeQrFromImageFile } from "../../../utils/qrDecodeFromImage";
@@ -293,8 +293,22 @@ function conciertoEnVentanaCatalogoDosSemanas(concierto, inicioDiaHoy, finDiaVen
   return t >= inicioDiaHoy && t <= finDiaVentanaCatalogo;
 }
 
-function conciertoStatsSinReservasNiIngresos(stats) {
-  return Boolean(stats) && Number(stats.reservadas || 0) === 0 && Number(stats.ingresadas || 0) === 0;
+function motivoBloqueoEliminarConcierto(stats) {
+  if (!stats) return null;
+  if (Number(stats.reservadas || 0) > 0) return "Hay reservas activas en este concierto.";
+  if (Number(stats.ingresadas || 0) > 0) return "Hay entradas ya ingresadas en este concierto.";
+  return null;
+}
+
+function motivoBloqueoEliminarPrograma(conciertos, statsById) {
+  if (!conciertos?.length) return null;
+  for (const c of conciertos) {
+    const st = statsById[c.id];
+    if (!st) continue;
+    if (Number(st.reservadas || 0) > 0) return "Hay reservas activas en algún concierto del programa.";
+    if (Number(st.ingresadas || 0) > 0) return "Hay ingresos registrados en algún concierto del programa.";
+  }
+  return null;
 }
 
 export default function EntradasMain({ user, profile, onLogout }) {
@@ -1262,6 +1276,13 @@ export default function EntradasMain({ user, profile, onLogout }) {
     }
   };
 
+  const clearRecepcionParaNuevoIngreso = () => {
+    setScannerToken("");
+    setManualReservaCode("");
+    setQrPreview(null);
+    setRecepcionOrdenesIngreso(new Set());
+  };
+
   const consumeToken = async ({ forceParcial = false } = {}) => {
     if (!scannerToken.trim() || !recepcionConciertoId) {
       if (!recepcionConciertoId) toast.error("Elegí un concierto en la lista para registrar ingresos.");
@@ -1320,25 +1341,8 @@ export default function EntradasMain({ user, profile, onLogout }) {
         }
         return;
       }
-      toast.success(formatEntradasValidacionSuccess(result));
-      if (esReservaGrupo && scannerToken.trim()) {
-        try {
-          const p = await previewEntradaQr(scannerToken.trim(), recepcionConciertoId);
-          setQrPreview(p);
-          if (!p?.puede_ingresar) {
-            setScannerToken("");
-            setManualReservaCode("");
-          }
-        } catch {
-          setScannerToken("");
-          setManualReservaCode("");
-          setQrPreview(null);
-        }
-      } else {
-        setScannerToken("");
-        setManualReservaCode("");
-        setQrPreview(null);
-      }
+      toast.success(formatEntradasRecepcionIngresoSuccess(result), { duration: 3500 });
+      clearRecepcionParaNuevoIngreso();
       getAdminConciertoStats(recepcionConciertoId)
         .then((s) =>
           setRecepcionQrStats({ ingresadas: s.ingresadas, reservadas: s.reservadas, capacidad: s.capacidad }),
@@ -2054,7 +2058,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
     const conciertoReglas = conciertoParaReglasEntradas(concierto, conciertoForm, { editing: editingThis });
     const vistaSoloRecordatorios = conciertoAdminSoloRecordatoriosProgramados(conciertoReglas);
     const enVentana = conciertoEnVentanaCatalogoDosSemanas(concierto, inicioDiaHoy, finDiaVentanaCatalogo);
-    const puedeEliminarConcierto = conciertoStatsSinReservasNiIngresos(stats);
+    const bloqueoEliminarConcierto = motivoBloqueoEliminarConcierto(stats);
     const muestraCargandoStats = (enVentana || vistaSoloRecordatorios) && loadingStats && !stats;
     const muestraVerStats = !enVentana && !vistaSoloRecordatorios && !stats && !loadingStats;
     const conciertoMailBusy = copyingConciertoMailsKey.startsWith(`${concierto.id}:`);
@@ -2153,7 +2157,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
               </p>
               <p className={`text-xs ${ui.textMuted}`}>{concierto.nombre}</p>
             </div>
-            {puedeEliminarConcierto && (
+            {bloqueoEliminarConcierto ? (
+              <button
+                type="button"
+                title={bloqueoEliminarConcierto}
+                aria-label={bloqueoEliminarConcierto}
+                disabled
+                className={`${ui.btnIconDanger} opacity-35 cursor-not-allowed`}
+              >
+                <IconTrash size={18} />
+              </button>
+            ) : (
               <button
                 type="button"
                 title="Eliminar concierto"
@@ -2193,7 +2207,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
             >
               <IconEdit size={18} />
             </button>
-            {puedeEliminarConcierto && (
+            {bloqueoEliminarConcierto ? (
+              <button
+                type="button"
+                title={bloqueoEliminarConcierto}
+                aria-label={bloqueoEliminarConcierto}
+                disabled
+                className={`${ui.btnIconDanger} opacity-35 cursor-not-allowed`}
+              >
+                <IconTrash size={18} />
+              </button>
+            ) : (
               <button
                 type="button"
                 title="Eliminar concierto"
@@ -3104,15 +3128,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
                       const ofrnPid = getOfrnProgramaIdForEntradaPrograma(programa, listaCompleta);
                       const editingPrograma =
                         programaEditor != null && Number(programaEditor) === Number(programa.id);
-                      const programaStatsCompletas =
-                        listaCompleta.length === 0
-                        || listaCompleta.every((c) => Boolean(adminConciertoStatsById[c.id]));
-                      const programaMuestraEliminar =
-                        listaCompleta.length === 0
-                        || (programaStatsCompletas
-                          && listaCompleta.every((c) =>
-                            conciertoStatsSinReservasNiIngresos(adminConciertoStatsById[c.id]),
-                          ));
+                      const bloqueoEliminarPrograma = motivoBloqueoEliminarPrograma(
+                        listaCompleta,
+                        adminConciertoStatsById,
+                      );
                       const programaLocalidadLabel = localidadLabelDesdeProgramaEntrada(
                         programa,
                         listaCompleta,
@@ -3128,7 +3147,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             <div className="space-y-3">
                               <div className="flex items-start justify-between gap-2">
                                 <h4 className={ui.accentEyebrow}>Editar programa</h4>
-                                {programaMuestraEliminar && (
+                                {bloqueoEliminarPrograma ? (
+                                  <button
+                                    type="button"
+                                    title={bloqueoEliminarPrograma}
+                                    aria-label={bloqueoEliminarPrograma}
+                                    disabled
+                                    className={`${ui.btnIconDanger} opacity-35 cursor-not-allowed`}
+                                  >
+                                    <IconTrash size={18} />
+                                  </button>
+                                ) : (
                                   <button
                                     type="button"
                                     title="Eliminar programa"
@@ -3195,7 +3224,17 @@ export default function EntradasMain({ user, profile, onLogout }) {
                               >
                                 <IconEdit size={18} />
                               </button>
-                              {programaMuestraEliminar && (
+                              {bloqueoEliminarPrograma ? (
+                                <button
+                                  type="button"
+                                  title={bloqueoEliminarPrograma}
+                                  aria-label={bloqueoEliminarPrograma}
+                                  disabled
+                                  className={`${ui.btnIconDanger} opacity-35 cursor-not-allowed`}
+                                >
+                                  <IconTrash size={18} />
+                                </button>
+                              ) : (
                                 <button
                                   type="button"
                                   title="Eliminar programa"
