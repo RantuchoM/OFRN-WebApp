@@ -377,6 +377,24 @@ const ProtectedApp = ({ initialTab }) => {
     }
   }, [isActuallyAdmin]);
 
+  const impersonateOptions = useMemo(
+    () =>
+      orchestraList.map((u) => ({
+        id: u.id,
+        label: `${u.apellido}, ${u.nombre}`,
+        subLabel: getRolesDisplay(u.rol_sistema),
+      })),
+    [orchestraList],
+  );
+
+  const handleImpersonateSelect = (id) => {
+    if (!id) stopImpersonating();
+    else {
+      const target = orchestraList.find((u) => u.id === id);
+      if (target) impersonate(target);
+    }
+  };
+
   // --- ESTADOS PARA SIDEBAR ESCRITORIO ---
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
     () => localStorage.getItem("sidebar_collapsed") === "true",
@@ -1042,47 +1060,66 @@ const ProtectedApp = ({ initialTab }) => {
               <IconMenu size={22} />
             </button>
             {isActuallyAdmin && (
-              <div className="hidden lg:flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
-                {isImpersonating ? (
-                  <div className="flex items-center gap-2 bg-orange-500 text-black px-3 py-1.5 rounded-lg -mx-0.5 -my-0.5">
-                    <span className="text-[10px] font-black uppercase tracking-tighter shrink-0">
-                      Ver como…
-                    </span>
-                    <span className="text-xs font-bold truncate max-w-[140px]">
-                      {user.apellido}, {user.nombre}
-                    </span>
-                    <button
-                      onClick={stopImpersonating}
-                      className="text-black hover:bg-black/10 font-bold text-[10px] uppercase shrink-0 px-1.5 py-0.5 rounded"
-                    >
-                      Salir
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter shrink-0">
-                      Ver como:
-                    </span>
+              <>
+                <div className="hidden lg:flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                  {isImpersonating ? (
+                    <div className="flex items-center gap-2 bg-orange-500 text-black px-3 py-1.5 rounded-lg -mx-0.5 -my-0.5">
+                      <span className="text-[10px] font-black uppercase tracking-tighter shrink-0">
+                        Ver como…
+                      </span>
+                      <span className="text-xs font-bold truncate max-w-[140px]">
+                        {user.apellido}, {user.nombre}
+                      </span>
+                      <button
+                        onClick={stopImpersonating}
+                        className="text-black hover:bg-black/10 font-bold text-[10px] uppercase shrink-0 px-1.5 py-0.5 rounded"
+                      >
+                        Salir
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter shrink-0">
+                        Ver como:
+                      </span>
+                      <SearchableSelect
+                        className="min-w-[200px] !border-0 !bg-transparent !py-0"
+                        placeholder="Buscar integrante..."
+                        options={impersonateOptions}
+                        value=""
+                        onChange={handleImpersonateSelect}
+                      />
+                    </>
+                  )}
+                </div>
+
+                <div className="lg:hidden shrink-0">
+                  {isImpersonating ? (
+                    <div className="flex items-center gap-1 bg-orange-500 text-black px-2 py-1 rounded-lg">
+                      <span className="text-[10px] font-black uppercase tracking-tighter shrink-0">
+                        Ver como…
+                      </span>
+                      <span className="text-[11px] font-bold truncate max-w-[72px]">
+                        {user.apellido}, {user.nombre}
+                      </span>
+                      <button
+                        onClick={stopImpersonating}
+                        className="text-black hover:bg-black/10 font-bold text-[10px] uppercase shrink-0 px-1 rounded"
+                      >
+                        Salir
+                      </button>
+                    </div>
+                  ) : (
                     <SearchableSelect
-                      className="min-w-[200px] !border-0 !bg-transparent !py-0"
-                      placeholder="Buscar integrante..."
-                      options={orchestraList.map((u) => ({
-                        id: u.id,
-                        label: `${u.apellido}, ${u.nombre}`,
-                        subLabel: getRolesDisplay(u.rol_sistema),
-                      }))}
+                      className="w-[108px] [&>div]:!h-8 [&>div]:!text-[11px] [&>div]:!px-2 [&>div]:!rounded-lg"
+                      placeholder="Ver como..."
+                      options={impersonateOptions}
                       value=""
-                      onChange={(id) => {
-                        if (!id) stopImpersonating();
-                        else {
-                          const target = orchestraList.find((u) => u.id === id);
-                          if (target) impersonate(target);
-                        }
-                      }}
+                      onChange={handleImpersonateSelect}
                     />
-                  </>
-                )}
-              </div>
+                  )}
+                </div>
+              </>
             )}
             <h2 className="text-xl font-bold text-slate-800 hidden md:block whitespace-nowrap">
               {allMenuItems.find((m) => m.id === mode)?.label || "Panel"}

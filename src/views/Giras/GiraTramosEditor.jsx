@@ -4,7 +4,6 @@ import {
   IconTrash,
   IconScissors,
   IconLoader,
-  IconMapPin,
   IconX,
 } from "../../components/ui/Icons";
 import LocationMultiSelect from "../../components/filters/LocationMultiSelect";
@@ -15,9 +14,15 @@ import {
   addCorte,
   removeCorte,
   updateCortePosition,
+  updateCorteHotelTransition,
   updateSegmentLocalidades,
 } from "../../services/giraSegmentosService";
 import { buildSegmentSpecs, formatIsoDateDDMM } from "../../utils/giraTramos";
+
+function sliceTime(t) {
+  if (!t) return "";
+  return String(t).slice(0, 5);
+}
 
 function segmentRangeHint(spec) {
   if (!spec) return null;
@@ -25,6 +30,105 @@ function segmentRangeHint(spec) {
   const hasta = formatIsoDateDDMM(spec.fecha_hasta);
   if (!desde && !hasta) return null;
   return `${desde} – ${hasta}`;
+}
+
+function RowDivider() {
+  return (
+    <div
+      className="w-px self-stretch min-h-[3.5rem] bg-slate-200 shrink-0"
+      aria-hidden
+    />
+  );
+}
+
+function FieldGroup({
+  label,
+  labelClassName = "text-indigo-900",
+  children,
+  className = "",
+}) {
+  return (
+    <div className={`flex flex-col gap-1 shrink-0 ${className}`}>
+      <div
+        className={`text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${labelClassName}`}
+      >
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function MiniField({ label, children }) {
+  return (
+    <div className="flex flex-col gap-0.5 shrink-0">
+      <span className="text-[9px] font-semibold text-slate-400 uppercase">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function LocalidadChips({
+  locIds,
+  locationsList,
+  onRemove,
+  disabled,
+  onChange,
+  inline = false,
+}) {
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-1.5 min-h-[32px] ${
+        inline ? "min-w-[10rem]" : ""
+      }`}
+    >
+      {[...locIds].map((locId) => {
+        const name = locationsList.find(
+          (l) => Number(l.id) === Number(locId),
+        )?.localidad;
+        if (!name) return null;
+        return (
+          <span
+            key={locId}
+            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-white text-indigo-800 text-[10px] font-semibold border border-indigo-200 shadow-sm"
+          >
+            {name}
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onRemove(locId)}
+              className="p-0.5 rounded-full text-indigo-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-40"
+              title="Quitar localidad"
+            >
+              <IconX size={10} />
+            </button>
+          </span>
+        );
+      })}
+      {locIds.size === 0 && (
+        <span className="text-[10px] text-slate-400 italic px-1">
+          Sin localidades
+        </span>
+      )}
+      <div
+        className={
+          inline
+            ? "shrink-0 min-w-[140px]"
+            : "w-full sm:w-auto sm:min-w-[180px] sm:max-w-[240px] sm:ml-auto"
+        }
+      >
+        <LocationMultiSelect
+          locations={locationsList}
+          selectedIds={locIds}
+          onChange={onChange}
+          showLabel={false}
+          buttonClassName="h-8 text-xs border-indigo-200"
+        />
+      </div>
+    </div>
+  );
 }
 
 function LocalidadRow({
@@ -53,109 +157,179 @@ function LocalidadRow({
         {index}
       </span>
       <div className="rounded-xl border border-slate-200 bg-white p-3">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
-          <IconMapPin size={13} className="text-indigo-500 shrink-0" />
-          <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-900">
-            Localía {index}
-          </span>
-          {range && (
-            <span className="text-[9px] font-medium text-slate-400">
-              ({range})
-            </span>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5 min-h-[32px]">
-          {[...locIds].map((locId) => {
-            const name = locationsList.find(
-              (l) => Number(l.id) === Number(locId),
-            )?.localidad;
-            if (!name) return null;
-            return (
-              <span
-                key={locId}
-                className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-white text-indigo-800 text-[10px] font-semibold border border-indigo-200 shadow-sm"
-              >
-                {name}
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => removeChip(locId)}
-                  className="p-0.5 rounded-full text-indigo-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-40"
-                  title="Quitar localidad"
-                >
-                  <IconX size={10} />
-                </button>
-              </span>
-            );
-          })}
-          {locIds.size === 0 && (
-            <span className="text-[10px] text-slate-400 italic px-1">
-              Sin localidades
-            </span>
-          )}
-          <div className="w-full sm:w-auto sm:min-w-[180px] sm:max-w-[240px] sm:ml-auto">
-            <LocationMultiSelect
-              locations={locationsList}
-              selectedIds={locIds}
-              onChange={onChange}
-              showLabel={false}
-              buttonClassName="h-8 text-xs border-indigo-200"
-            />
-          </div>
-        </div>
+        <FieldGroup
+          label={`Localía ${index}${range ? ` (${range})` : ""}`}
+          className="min-w-[12rem]"
+        >
+          <LocalidadChips
+            locIds={locIds}
+            locationsList={locationsList}
+            onRemove={removeChip}
+            disabled={disabled}
+            onChange={onChange}
+            inline
+          />
+        </FieldGroup>
       </div>
     </div>
   );
 }
 
-function CorteFields({ fecha, hora, onFechaChange, onHoraChange }) {
+function CorteDateTimeFields({
+  fecha,
+  hora,
+  onFechaChange,
+  onHoraChange,
+  disabled = false,
+}) {
   return (
-    <div className="flex items-center gap-1.5 shrink-0">
-      <DateInput
-        value={fecha}
-        showDayName={false}
-        className="bg-white h-9 text-xs min-w-[7.5rem]"
-        onChange={onFechaChange}
-      />
-      <TimeInput
-        value={hora}
-        className="bg-white h-9 text-xs w-20"
-        onChange={onHoraChange}
-      />
+    <div className="flex items-end gap-1.5">
+      <MiniField label="Fecha">
+        <DateInput
+          value={fecha}
+          showDayName={false}
+          disabled={disabled}
+          className="bg-white h-9 text-xs min-w-[7.5rem]"
+          onChange={onFechaChange}
+        />
+      </MiniField>
+      <MiniField label="Hora">
+        <TimeInput
+          value={hora}
+          disabled={disabled}
+          className="bg-white h-9 text-xs w-20"
+          onChange={onHoraChange}
+        />
+      </MiniField>
     </div>
   );
 }
 
-function CorteRow({ index, corte, onDateChange, onRemove, disabled }) {
+function HotelTransitionFields({ corte, onHotelChange, disabled }) {
   return (
-    <div className="relative pl-8 py-1">
+    <div className="flex items-end gap-1.5">
+      <MiniField label="Out · Fecha">
+        <DateInput
+          value={corte.fecha_checkout || corte.fecha || ""}
+          showDayName={false}
+          className="bg-white h-9 text-xs min-w-[7.5rem]"
+          disabled={disabled}
+          onChange={(val) => onHotelChange(corte, { fecha_checkout: val })}
+        />
+      </MiniField>
+      <MiniField label="Out · Hora">
+        <TimeInput
+          value={sliceTime(corte.hora_checkout) || "10:00"}
+          className="bg-white h-9 text-xs w-20"
+          disabled={disabled}
+          onChange={(val) => onHotelChange(corte, { hora_checkout: val })}
+        />
+      </MiniField>
+      <MiniField label="In · Fecha">
+        <DateInput
+          value={corte.fecha_checkin || corte.fecha || ""}
+          showDayName={false}
+          className="bg-white h-9 text-xs min-w-[7.5rem]"
+          disabled={disabled}
+          onChange={(val) => onHotelChange(corte, { fecha_checkin: val })}
+        />
+      </MiniField>
+      <MiniField label="In · Hora">
+        <TimeInput
+          value={sliceTime(corte.hora_checkin) || "14:00"}
+          className="bg-white h-9 text-xs w-20"
+          disabled={disabled}
+          onChange={(val) => onHotelChange(corte, { hora_checkin: val })}
+        />
+      </MiniField>
+    </div>
+  );
+}
+
+function LocalidadConCorteRow({
+  index,
+  segmentRow,
+  spec,
+  corte,
+  locationsList,
+  locIds,
+  onChange,
+  onCorteDateChange,
+  onCorteHotelChange,
+  onRemoveCorte,
+  disabled,
+}) {
+  const range = segmentRangeHint(spec);
+
+  const removeChip = (locId) => {
+    const next = new Set(locIds);
+    next.delete(locId);
+    onChange(next);
+  };
+
+  return (
+    <div className="relative pl-8">
       <span
-        className="absolute left-0.5 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-md bg-slate-100 text-slate-600 border border-slate-200"
+        className="absolute left-0 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-black text-white shadow-sm"
         aria-hidden
       >
-        <IconScissors size={11} />
+        {index}
       </span>
-      <div className="flex flex-nowrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-        <span className="text-[10px] font-bold uppercase text-slate-700 shrink-0">
-          Corte {index}
-        </span>
-        <CorteFields
-          fecha={corte.fecha || ""}
-          hora={String(corte.hora || "12:00").slice(0, 5)}
-          onFechaChange={(val) =>
-            onDateChange(corte, val, String(corte.hora || "").slice(0, 5))
-          }
-          onHoraChange={(val) => onDateChange(corte, corte.fecha, val)}
-        />
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onRemove(corte.id)}
-          className="h-9 w-9 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 disabled:opacity-40 shrink-0 ml-auto"
-          title="Eliminar corte"
-        >
-          <IconTrash size={14} />
-        </button>
+      <div className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="flex flex-nowrap items-end gap-3 overflow-x-auto">
+          <FieldGroup
+            label={`Localía ${index}${range ? ` (${range})` : ""}`}
+            className="min-w-[12rem] flex-1"
+          >
+            <LocalidadChips
+              locIds={locIds}
+              locationsList={locationsList}
+              onRemove={removeChip}
+              disabled={disabled}
+              onChange={onChange}
+              inline
+            />
+          </FieldGroup>
+
+          <RowDivider />
+
+          <FieldGroup label="Inicio de Nueva Localía" labelClassName="text-indigo-800">
+            <CorteDateTimeFields
+              fecha={corte.fecha || ""}
+              hora={sliceTime(corte.hora) || "12:00"}
+              disabled={disabled}
+              onFechaChange={(val) =>
+                onCorteDateChange(corte, val, sliceTime(corte.hora) || "12:00")
+              }
+              onHoraChange={(val) =>
+                onCorteDateChange(corte, corte.fecha, val)
+              }
+            />
+          </FieldGroup>
+
+          <RowDivider />
+
+          <FieldGroup
+            label="Check-out y Check-in intermedios"
+            labelClassName="text-amber-800"
+          >
+            <HotelTransitionFields
+              corte={corte}
+              onHotelChange={onCorteHotelChange}
+              disabled={disabled}
+            />
+          </FieldGroup>
+
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onRemoveCorte(corte.id)}
+            className="h-9 w-9 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 disabled:opacity-40 shrink-0"
+            title="Eliminar corte y unir localías"
+          >
+            <IconTrash size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -174,20 +348,27 @@ function AddCorteRow({
 }) {
   const inner = (
     <div
-      className={`flex flex-nowrap items-center gap-2 ${
+      className={`flex flex-nowrap items-end gap-3 ${
         inline ? "" : "rounded-lg border border-slate-200 bg-white px-3 py-2"
       }`}
     >
-      <span className="text-[10px] font-bold uppercase text-slate-600 shrink-0 flex items-center gap-1">
-        <IconScissors size={12} className="text-slate-500" />
-        {label}
-      </span>
-      <CorteFields
-        fecha={fecha}
-        hora={hora}
-        onFechaChange={onFechaChange}
-        onHoraChange={onHoraChange}
-      />
+      <FieldGroup
+        label={
+          <span className="inline-flex items-center gap-1">
+            <IconScissors size={12} className="text-indigo-500" />
+            {label}
+          </span>
+        }
+        labelClassName="text-indigo-800"
+      >
+        <CorteDateTimeFields
+          fecha={fecha}
+          hora={hora}
+          disabled={disabled}
+          onFechaChange={onFechaChange}
+          onHoraChange={onHoraChange}
+        />
+      </FieldGroup>
       <button
         type="button"
         disabled={disabled}
@@ -195,7 +376,7 @@ function AddCorteRow({
         className="h-9 px-3 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-40 flex items-center gap-1 shrink-0"
       >
         <IconPlus size={14} />
-        Agregar corte
+        Agregar localía
       </button>
     </div>
   );
@@ -270,7 +451,7 @@ export default function GiraTramosEditor({
   };
 
   const handleRemoveCorte = async (corteId) => {
-    if (!confirm("¿Eliminar este corte? Se unirán los tramos adyacentes."))
+    if (!confirm("¿Eliminar este corte? Se unirán las localías adyacentes."))
       return;
     setBusy(true);
     try {
@@ -312,6 +493,19 @@ export default function GiraTramosEditor({
       await refreshSegmentos();
     } catch (e) {
       console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCorteHotelChange = async (corte, fields) => {
+    setBusy(true);
+    try {
+      await updateCorteHotelTransition(supabase, corte.id, fields);
+      await refreshSegmentos();
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || "Error al guardar check-out/check-in intermedios.");
     } finally {
       setBusy(false);
     }
@@ -372,8 +566,8 @@ export default function GiraTramosEditor({
               Number(l.id_localidad),
             ),
           );
-          const corte = cortes[idx] ?? null;
           const isFirstWithoutCortes = cortesCount === 0 && idx === 0;
+          const corteEntrada = idx > 0 ? cortes[idx - 1] : null;
 
           if (isFirstWithoutCortes) {
             const range = segmentRangeHint(specs[idx]);
@@ -389,86 +583,48 @@ export default function GiraTramosEditor({
                   1
                 </span>
                 <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <div className="flex flex-col lg:flex-row lg:items-end gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
-                        <IconMapPin size={13} className="text-indigo-500 shrink-0" />
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-900">
-                          Localía 1
-                        </span>
-                        {range && (
-                          <span className="text-[9px] font-medium text-slate-400">
-                            ({range})
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1.5 min-h-[32px]">
-                        {[...locIds].map((locId) => {
-                          const name = locationsList.find(
-                            (l) => Number(l.id) === Number(locId),
-                          )?.localidad;
-                          if (!name) return null;
-                          return (
-                            <span
-                              key={locId}
-                              className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-white text-indigo-800 text-[10px] font-semibold border border-indigo-200 shadow-sm"
-                            >
-                              {name}
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => {
-                                  const next = new Set(locIds);
-                                  next.delete(locId);
-                                  handleSegmentLocs(segmentRow, next);
-                                }}
-                                className="p-0.5 rounded-full text-indigo-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-40"
-                              >
-                                <IconX size={10} />
-                              </button>
-                            </span>
-                          );
-                        })}
-                        {locIds.size === 0 && (
-                          <span className="text-[10px] text-slate-400 italic px-1">
-                            Sin localidades
-                          </span>
-                        )}
-                        <div className="w-full sm:w-auto sm:min-w-[160px] sm:max-w-[220px]">
-                          <LocationMultiSelect
-                            locations={locationsList}
-                            selectedIds={locIds}
-                            onChange={(newSet) =>
-                              handleSegmentLocs(segmentRow, newSet)
-                            }
-                            showLabel={false}
-                            buttonClassName="h-8 text-xs border-indigo-200"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="shrink-0 w-full lg:w-auto lg:min-w-[320px] pt-2 lg:pt-0 border-t lg:border-t-0 lg:border-l border-indigo-100 lg:pl-3">
-                      <AddCorteRow
-                        label="Primer corte"
-                        fecha={newCorteFecha}
-                        hora={newCorteHora}
-                        onFechaChange={setNewCorteFecha}
-                        onHoraChange={setNewCorteHora}
-                        onAdd={handleAddCorte}
-                        disabled={busy || !canEdit}
+                  <div className="flex flex-nowrap items-end gap-3 overflow-x-auto">
+                    <FieldGroup
+                      label={`Localía 1${range ? ` (${range})` : ""}`}
+                      className="min-w-[12rem] flex-1"
+                    >
+                      <LocalidadChips
+                        locIds={locIds}
+                        locationsList={locationsList}
+                        onRemove={(locId) => {
+                          const next = new Set(locIds);
+                          next.delete(locId);
+                          handleSegmentLocs(segmentRow, next);
+                        }}
+                        disabled={busy}
+                        onChange={(newSet) =>
+                          handleSegmentLocs(segmentRow, newSet)
+                        }
                         inline
                       />
-                    </div>
+                    </FieldGroup>
+                    <RowDivider />
+                    <AddCorteRow
+                      label="Inicio de Nueva Localía"
+                      fecha={newCorteFecha}
+                      hora={newCorteHora}
+                      onFechaChange={setNewCorteFecha}
+                      onHoraChange={setNewCorteHora}
+                      onAdd={handleAddCorte}
+                      disabled={busy || !canEdit}
+                      inline
+                    />
                   </div>
                 </div>
               </div>
             );
           }
 
-          return (
-            <React.Fragment key={segmentRow.id ?? `seg-${idx}`}>
+          if (idx === 0) {
+            return (
               <LocalidadRow
-                index={idx + 1}
+                key={segmentRow.id ?? `seg-${idx}`}
+                index={1}
                 segmentRow={segmentRow}
                 spec={specs[idx]}
                 locationsList={locationsList}
@@ -476,23 +632,45 @@ export default function GiraTramosEditor({
                 onChange={(newSet) => handleSegmentLocs(segmentRow, newSet)}
                 disabled={busy}
               />
+            );
+          }
 
-              {corte && (
-                <CorteRow
-                  index={idx + 1}
-                  corte={corte}
-                  onDateChange={handleCorteDateChange}
-                  onRemove={handleRemoveCorte}
-                  disabled={busy}
-                />
-              )}
-            </React.Fragment>
+          if (corteEntrada) {
+            return (
+              <LocalidadConCorteRow
+                key={segmentRow.id ?? `seg-${idx}`}
+                index={idx + 1}
+                segmentRow={segmentRow}
+                spec={specs[idx]}
+                corte={corteEntrada}
+                locationsList={locationsList}
+                locIds={locIds}
+                onChange={(newSet) => handleSegmentLocs(segmentRow, newSet)}
+                onCorteDateChange={handleCorteDateChange}
+                onCorteHotelChange={handleCorteHotelChange}
+                onRemoveCorte={handleRemoveCorte}
+                disabled={busy}
+              />
+            );
+          }
+
+          return (
+            <LocalidadRow
+              key={segmentRow.id ?? `seg-${idx}`}
+              index={idx + 1}
+              segmentRow={segmentRow}
+              spec={specs[idx]}
+              locationsList={locationsList}
+              locIds={locIds}
+              onChange={(newSet) => handleSegmentLocs(segmentRow, newSet)}
+              disabled={busy}
+            />
           );
         })}
 
         {cortesCount > 0 && (
           <AddCorteRow
-            label="Nuevo corte"
+            label="Inicio de Nueva Localía"
             fecha={newCorteFecha}
             hora={newCorteHora}
             onFechaChange={setNewCorteFecha}
