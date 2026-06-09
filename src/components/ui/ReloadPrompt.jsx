@@ -11,7 +11,18 @@ export function isEntradasPublicRoute(pathname = "") {
 const VERSION_POLL_MS = 2 * 60 * 1000;
 const ENTRADAS_SW_POLL_MS = 5 * 60 * 1000;
 const RESTART_MESSAGE_MS = 400;
+/** Tras activar el SW, recarga forzada si `controllerchange`/`controlling` no dispara (común en iOS PWA). */
+const RELOAD_FALLBACK_MS = 1200;
 const LOCAL_BUILD_ID = import.meta.env.VITE_APP_BUILD_ID ?? "";
+
+async function applyUpdateWithReload(updateServiceWorker) {
+  try {
+    await updateServiceWorker(true);
+  } catch (error) {
+    console.error("SW update failed", error);
+  }
+  window.setTimeout(() => window.location.reload(), RELOAD_FALLBACK_MS);
+}
 
 async function fetchRemoteBuildId() {
   try {
@@ -97,7 +108,7 @@ function ReloadPrompt() {
   useEffect(() => {
     if (!needRefresh) return;
     if (entradasSilentUpdate) {
-      void updateServiceWorker(true);
+      void applyUpdateWithReload(updateServiceWorker);
       return;
     }
     markUpdateAvailable();
@@ -128,7 +139,7 @@ function ReloadPrompt() {
     restartStartedRef.current = true;
     setIsRestarting(true);
     window.setTimeout(() => {
-      void updateServiceWorker(true);
+      void applyUpdateWithReload(updateServiceWorker);
     }, RESTART_MESSAGE_MS);
   }, [updateServiceWorker]);
 
