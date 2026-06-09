@@ -167,7 +167,11 @@ export function normalizePersonForLocalCheck(person) {
   };
 }
 
-/** Todos los ids de localidad relevantes del integrante (viáticos + residencia + laboral). */
+/**
+ * Localidades de residencia y viáticos del integrante.
+ * La localía del tramo usa ids de `localidades`; no comparar con `id_domicilio_laboral`
+ * (FK a `locaciones`) ni con ids de locación — son espacios de nombres distintos.
+ */
 export function collectPersonLocalidadIds(person) {
   const set = new Set();
   const add = (value) => {
@@ -183,8 +187,6 @@ export function collectPersonLocalidadIds(person) {
   add(p?.id_loc_viaticos);
   add(p?.id_localidad);
   add(p?.id_localidad_residencia);
-  add(p?.id_domicilio_laboral);
-  add(p?.laboral?.id);
   add(p?.localidades?.id);
   add(p?.localidades_residencia?.id);
   add(p?._loc_viaticos?.id);
