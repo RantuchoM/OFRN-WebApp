@@ -389,6 +389,21 @@ export const syncProgramRepertoire = async (supabase, programId) => {
   return retry.data;
 };
 
+export const deleteRepertoireBlockWithDrive = async (supabase, repertoireBlockId) => {
+  const { data, error } = await supabase.functions.invoke("manage-drive", {
+    body: {
+      action: "delete_repertoire_block",
+      repertoireBlockId,
+    },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  if (!data?.success) {
+    throw new Error(data?.message || "No se pudo eliminar el bloque.");
+  }
+  return data;
+};
+
 /**
  * Actualiza la posición de una obra en el repertorio (bloque y orden).
  * @param {object} supabase - Cliente Supabase

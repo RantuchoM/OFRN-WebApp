@@ -79,10 +79,10 @@ export default function GiraCorteTransitionsPanel({
     multiTramoEnabled && segmentSpecs.length > 0
       ? segmentSpecs[activeSegmentIdx] ?? segmentSpecs[0]
       : null;
-  const corteCheckout = activeSpec?.corte_salida ?? null;
-  const corteCheckin = activeSpec?.corte_entrada ?? null;
+  const corteEntrada = activeSpec?.corte_entrada ?? null;
+  const corteSalida = activeSpec?.corte_salida ?? null;
 
-  if (multiTramoEnabled && activeSpec && !corteCheckout && !corteCheckin) {
+  if (multiTramoEnabled && activeSpec && !corteEntrada && !corteSalida) {
     return null;
   }
 
@@ -99,14 +99,14 @@ export default function GiraCorteTransitionsPanel({
             Tramo {activeSegmentIdx + 1}
           </span>
           <TransitionFields
-            corte={corteCheckout}
-            type="checkout"
+            corte={corteEntrada}
+            type="checkin"
             busyId={busyId}
             onSave={saveField}
           />
           <TransitionFields
-            corte={corteCheckin}
-            type="checkin"
+            corte={corteSalida}
+            type="checkout"
             busyId={busyId}
             onSave={saveField}
           />

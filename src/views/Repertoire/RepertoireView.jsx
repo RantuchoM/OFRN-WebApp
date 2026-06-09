@@ -33,8 +33,14 @@ import WorkForm from "./WorkForm";
 import ComposersManager from "./ComposersManager";
 import TagsManager from "./TagsManager";
 import TagMultiSelect from "../../components/filters/TagMultiSelect";
+import RepertoireSelectionBar from "../../components/repertoire/RepertoireSelectionBar";
 import { calculateInstrumentation } from "../../utils/instrumentation";
 import { normalizeForSearch } from "../../utils/sanitize";
+import {
+  loadRepertoireSelection,
+  saveRepertoireSelection,
+  clearRepertoireSelection,
+} from "../../utils/repertoireSelectionStorage";
 
 // --- ICONOS ADICIONALES ---
 const IconColumns = ({ size = 20, className = "" }) => (
@@ -537,6 +543,65 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   const [showLegacyOficialSinDrive, setShowLegacyOficialSinDrive] = useState(false);
 
   const [sortConfig, setSortConfig] = useState({ key: "titulo", direction: "asc" });
+  const [selectionOrderedIds, setSelectionOrderedIds] = useState(
+    () => loadRepertoireSelection().orderedIds,
+  );
+  const [selectionName, setSelectionName] = useState(
+    () => loadRepertoireSelection().name || "",
+  );
+
+  const worksById = useMemo(
+    () => new Map(works.map((w) => [w.id, w])),
+    [works],
+  );
+  const selectedWorks = useMemo(
+    () =>
+      selectionOrderedIds
+        .map((id) => worksById.get(id))
+        .filter(Boolean),
+    [selectionOrderedIds, worksById],
+  );
+  const selectionIdSet = useMemo(
+    () => new Set(selectionOrderedIds),
+    [selectionOrderedIds],
+  );
+
+  const persistSelection = (orderedIds) => {
+    const saved = saveRepertoireSelection(orderedIds, selectionName);
+    setSelectionOrderedIds(saved.orderedIds);
+  };
+
+  const updateSelectionName = (name) => {
+    setSelectionName(name);
+    saveRepertoireSelection(selectionOrderedIds, name);
+  };
+
+  const toggleWorkSelection = (workId) => {
+    setSelectionOrderedIds((prev) => {
+      if (prev.includes(workId)) {
+        const next = prev.filter((id) => id !== workId);
+        saveRepertoireSelection(next);
+        return next;
+      }
+      const next = [...prev, workId];
+      saveRepertoireSelection(next);
+      return next;
+    });
+  };
+
+  const removeFromSelection = (workId) => {
+    setSelectionOrderedIds((prev) => {
+      const next = prev.filter((id) => id !== workId);
+      saveRepertoireSelection(next);
+      return next;
+    });
+  };
+
+  const refreshSelectionWorks = async (workIds) => {
+    const ids = workIds?.length ? workIds : selectionOrderedIds;
+    await Promise.all(ids.map((id) => fetchWorkById(id)));
+  };
+
   const legacyOficialSinDriveCount = useMemo(
     () =>
       works.filter(
@@ -865,6 +930,50 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
     });
   }, [works, filters, selectedTags, instrFilters, stringsFilter, sortConfig, strictMode, showLegacyOficialSinDrive]);
 
+  const filteredWorkIds = useMemo(
+    () => allFilteredWorks.map((w) => w.id),
+    [allFilteredWorks],
+  );
+  const filteredWorkIdSet = useMemo(
+    () => new Set(filteredWorkIds),
+    [filteredWorkIds],
+  );
+  const filteredSelectionState = useMemo(() => {
+    if (filteredWorkIds.length === 0) return "none";
+    const selectedCount = filteredWorkIds.filter((id) =>
+      selectionIdSet.has(id),
+    ).length;
+    if (selectedCount === 0) return "none";
+    if (selectedCount === filteredWorkIds.length) return "all";
+    return "some";
+  }, [filteredWorkIds, selectionIdSet]);
+
+  const filteredSelectAllRef = useRef(null);
+  useEffect(() => {
+    if (filteredSelectAllRef.current) {
+      filteredSelectAllRef.current.indeterminate =
+        filteredSelectionState === "some";
+    }
+  }, [filteredSelectionState]);
+
+  const toggleFilteredSelection = () => {
+    setSelectionOrderedIds((prev) => {
+      const prevSet = new Set(prev);
+      const allFilteredSelected =
+        filteredWorkIds.length > 0 &&
+        filteredWorkIds.every((id) => prevSet.has(id));
+      let next;
+      if (allFilteredSelected) {
+        next = prev.filter((id) => !filteredWorkIdSet.has(id));
+      } else {
+        const toAdd = filteredWorkIds.filter((id) => !prevSet.has(id));
+        next = [...prev, ...toAdd];
+      }
+      saveRepertoireSelection(next);
+      return next;
+    });
+  };
+
   // --- SUB-LISTA PAGINADA ---
   const totalPages = Math.ceil(allFilteredWorks.length / pageSize);
   const paginatedWorks = useMemo(() => {
@@ -873,7 +982,7 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
   }, [allFilteredWorks, currentPage, pageSize]);
 
   const getGridTemplate = () => {
-    let cols = "";
+    let cols = "36px ";
     if (visibleColumns.compositor) cols += "minmax(150px, 1.2fr) ";
     if (visibleColumns.obra) cols += "minmax(200px, 2fr) ";
     if (visibleColumns.arreglador) cols += "minmax(120px, 0.8fr) ";
@@ -998,6 +1107,24 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
         </div>
       </div>
 
+      <RepertoireSelectionBar
+        supabase={supabase}
+        orderedIds={selectionOrderedIds}
+        selectedWorks={selectedWorks}
+        selectionName={selectionName}
+        onSelectionNameChange={updateSelectionName}
+        worksById={worksById}
+        availableTags={availableTags}
+        onUpdateOrder={persistSelection}
+        onRefreshWorks={refreshSelectionWorks}
+        onClear={() => {
+          clearRepertoireSelection();
+          setSelectionOrderedIds([]);
+          setSelectionName("");
+        }}
+        onRemove={removeFromSelection}
+      />
+
       <div className="flex-1 overflow-hidden flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm relative">
         {isAdding || editingId ? (
           <div className="absolute inset-0 z-20 w-full bg-white p-2 sm:p-3 overflow-y-auto overflow-x-hidden">
@@ -1010,6 +1137,23 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                 {/* HEADERS */}
                 <div className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 shadow-sm">
                   <div className="grid gap-4 px-4 py-3 items-end" style={{ gridTemplateColumns: getGridTemplate() }}>
+                    <div
+                      className="flex flex-col items-center justify-end pb-2 gap-0.5"
+                      title="Tildar/destildar todo lo filtrado (no afecta obras fuera del filtro actual)"
+                    >
+                      <input
+                        ref={filteredSelectAllRef}
+                        type="checkbox"
+                        className="w-4 h-4 accent-indigo-600 cursor-pointer disabled:opacity-30"
+                        checked={filteredSelectionState === "all"}
+                        disabled={filteredWorkIds.length === 0}
+                        onChange={toggleFilteredSelection}
+                        aria-label="Tildar o destildar todo lo filtrado"
+                      />
+                      <span className="text-[8px] font-bold text-slate-400 leading-none hidden lg:block">
+                        Filtro
+                      </span>
+                    </div>
                     {visibleColumns.compositor && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("compositor_full")}>Compositor <SortIcon column="compositor_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.compositor} onChange={(e) => setFilters({ ...filters, compositor: e.target.value })} /></div>}
                     {visibleColumns.obra && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("titulo")}>Obra <SortIcon column="titulo" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.titulo} onChange={(e) => setFilters({ ...filters, titulo: e.target.value })} /></div>}
                     {visibleColumns.arreglador && <div className="space-y-2"><div className="flex items-center text-xs font-bold text-slate-500 uppercase cursor-pointer hover:text-indigo-600" onClick={() => handleSort("arreglador_full")}>Arreglador <SortIcon column="arreglador_full" /></div><input className="w-full text-xs p-1.5 border border-slate-300 rounded focus:border-indigo-500 outline-none" placeholder="Buscar..." value={filters.arreglador} onChange={(e) => setFilters({ ...filters, arreglador: e.target.value })} /></div>}
@@ -1104,6 +1248,24 @@ export default function RepertoireView({ supabase, catalogoInstrumentos }) {
                       style={{ gridTemplateColumns: getGridTemplate() }}
                       title={work.estado === "Entregado" ? "Pendiente de validación por Archivista" : undefined}
                     >
+                      <div className="flex items-center justify-center">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                          checked={selectionIdSet.has(work.id)}
+                          onChange={() => toggleWorkSelection(work.id)}
+                          title={
+                            selectionIdSet.has(work.id)
+                              ? "Quitar de la selección"
+                              : "Agregar a la selección"
+                          }
+                          aria-label={
+                            selectionIdSet.has(work.id)
+                              ? "Quitar de la selección"
+                              : "Agregar a la selección"
+                          }
+                        />
+                      </div>
                       {visibleColumns.compositor && <div className="truncate font-medium text-slate-700">{work.compositor_full || <span className="text-slate-300 italic">-</span>}</div>}
                       {visibleColumns.obra && (
                         <div className="min-w-0 flex flex-col justify-center gap-1 w-full">

@@ -39,6 +39,7 @@ import {
   updateWorkPosition,
   normalizeRepertorioBlockOrden,
   seatingItemMatrixPosition,
+  deleteRepertoireBlockWithDrive,
 } from "../../services/giraService";
 import { formatSecondsToTime, inputToSeconds } from "../../utils/time";
 import {
@@ -2118,10 +2119,24 @@ export default function RepertoireManager({
   };
 
   const deleteRepertoireBlock = async (id) => {
-    if (!confirm("¿Eliminar bloque?")) return;
-    await supabase.from("programas_repertorios").delete().eq("id", id);
-    fetchFullRepertoire();
-    autoSyncDrive();
+    if (
+      !confirm(
+        "¿Eliminar bloque? Se borrarán las obras del bloque y su carpeta en Drive.",
+      )
+    ) {
+      return;
+    }
+    setLoading(true);
+    try {
+      await deleteRepertoireBlockWithDrive(supabase, id);
+      fetchFullRepertoire();
+      autoSyncDrive();
+    } catch (err) {
+      console.error("Error eliminando bloque:", err);
+      alert(`Error: ${err.message || "No se pudo eliminar el bloque."}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const updateWorkDetail = async (itemId, field, value) => {

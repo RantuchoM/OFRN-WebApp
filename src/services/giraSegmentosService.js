@@ -380,12 +380,15 @@ export async function updateCorteHotelTransition(supabase, corteId, fields) {
   ];
   const payload = {};
   allowed.forEach((key) => {
-    if (fields[key] !== undefined) {
-      payload[key] =
-        key.startsWith("hora_") && String(fields[key]).length === 5
-          ? `${fields[key]}:00`
-          : fields[key];
+    if (fields[key] === undefined) return;
+    if (key.startsWith("hora_")) {
+      const raw = String(fields[key]).slice(0, 5);
+      if (!/^\d{1,2}:[0-5]\d$/.test(raw)) return;
+      const [h, m] = raw.split(":");
+      payload[key] = `${String(h).padStart(2, "0")}:${m}:00`;
+      return;
     }
+    payload[key] = fields[key];
   });
   if (!Object.keys(payload).length) return;
 

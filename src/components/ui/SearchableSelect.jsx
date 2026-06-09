@@ -3,6 +3,13 @@ import { createPortal } from 'react-dom';
 import { IconSearch, IconX, IconCheck } from './Icons';
 import { normalizeForSearch } from '../../utils/sanitize';
 
+const cleanOptionText = (value) => {
+    if (value == null) return "";
+    const s = String(value).trim();
+    if (s === "null" || s === "undefined") return "";
+    return s;
+};
+
 export default function SearchableSelect({ 
     options = [], // Array de { id, label, subLabel }
     value,        // ID o Array de IDs (si es multi)
@@ -21,32 +28,46 @@ export default function SearchableSelect({
     const [dropdownStyle, setDropdownStyle] = useState({});
     const [isDropUp, setIsDropUp] = useState(false);
 
+    const normalizedOptions = useMemo(
+        () =>
+            options.map((o) => {
+                const label = cleanOptionText(o.label);
+                const subLabel = cleanOptionText(o.subLabel);
+                return {
+                    ...o,
+                    label: label || cleanOptionText(o.id) || "—",
+                    subLabel: subLabel || undefined,
+                };
+            }),
+        [options],
+    );
+
     // Filtrado local (búsqueda insensible a mayúsculas/acentos)
     const filteredOptions = useMemo(() => {
-        if (!search.trim()) return options.slice(0, 300);
+        if (!search.trim()) return normalizedOptions.slice(0, 300);
         const s = normalizeForSearch(search);
-        return options
+        return normalizedOptions
             .filter(
                 (o) =>
                     normalizeForSearch(o.label).includes(s) ||
                     (o.subLabel && normalizeForSearch(o.subLabel).includes(s))
             )
             .slice(0, 80);
-    }, [options, search]);
+    }, [normalizedOptions, search]);
 
     // Calcular etiqueta seleccionada (Single); trim para alinear con datos viejos con espacios
     const selectedLabel = useMemo(() => {
         if (isMulti) return "";
         const v = value == null ? "" : String(value).trim();
-        const found = options.find((o) => String(o.id).trim() === v);
+        const found = normalizedOptions.find((o) => String(o.id).trim() === v);
         return found ? found.label : "";
-    }, [options, value, isMulti]);
+    }, [normalizedOptions, value, isMulti]);
 
     // Calcular etiquetas seleccionadas (Multi)
     const selectedItems = useMemo(() => {
         if (!isMulti || !Array.isArray(value)) return [];
-        return options.filter(o => value.includes(o.id));
-    }, [options, value, isMulti]);
+        return normalizedOptions.filter(o => value.includes(o.id));
+    }, [normalizedOptions, value, isMulti]);
 
     // Posicionamiento del dropdown (inteligente: hacia abajo o hacia arriba)
     useEffect(() => {

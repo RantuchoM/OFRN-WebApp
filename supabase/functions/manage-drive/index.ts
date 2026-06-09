@@ -16,6 +16,8 @@ const PARTICELLA_SETS_ROOT_ID = "1BK8yhY1dvAZRrDwEDXg3VR3QlnmdOH4u";
 const MONTHS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const GIRAS_ROOT_ID = "1PRWEbGKUBxfhF9HIf2DgpOWKDRwslsCc";
 const ARCHIVO_OBRAS_FOLDER_ID = "10JQJW7YX7UNmWciqgJ-EiqaldM_e0Tvi";
+/** Carpeta «Misceláneos» del Archivo (selecciones ad-hoc del catálogo). */
+const ARCHIVO_MISC_FOLDER_ID = "10-gPJSotDGO4yvHXo9pG_Kcg7XAMa5za";
 /** Carpeta compartida «Para acomodar» (staging antes de archivo oficial). */
 const PARA_ACOMODAR_FOLDER_ID = "10ap1aEjq3X9bFRB3z4DQ-F0fB7y3JutI";
 /** Carpeta «ENSAMBLES» dentro de Partituras (accesos directos por ensamble). */
@@ -896,6 +898,153 @@ async function syncProgramRepertoireShortcuts(supabase: any, drive: any, prog: a
   }
 }
 
+function stripHtmlPlain(html: string | undefined | null): string {
+  if (!html) return "";
+  return String(html).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+}
+
+function sanitizeDriveFolderName(name: string): string {
+  return name.trim().slice(0, 200).replace(/[/\\?*:\[\]]/g, "_") || "Selección sin nombre";
+}
+
+// =================================================================================
+// SYNC SELECCIÓN ARCHIVO: carpeta en Misceláneos + shortcuts numerados
+// =================================================================================
+async function syncArchivoSelectionShortcuts(
+  drive: ReturnType<typeof google.drive>,
+  selectionName: string,
+  works: Array<{ link_drive?: string; titulo?: string }>,
+) {
+  const folderName = sanitizeDriveFolderName(selectionName);
+  const listRes = await drive.files.list({
+    q: `'${ARCHIVO_MISC_FOLDER_ID}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`,
+    fields: "files(id, name)",
+    ...DRIVE_SHARED_OPTS,
+  });
+  let selectionFolderId = (listRes.data.files || []).find((f) => f.name === folderName)?.id ?? null;
+
+  if (!selectionFolderId) {
+    const created = await drive.files.create({
+      requestBody: {
+        name: folderName,
+        mimeType: FOLDER_MIME,
+        parents: [ARCHIVO_MISC_FOLDER_ID],
+      },
+      fields: "id, webViewLink",
+      ...DRIVE_SHARED_OPTS,
+    });
+    selectionFolderId = created.data.id ?? null;
+  }
+
+  if (!selectionFolderId) {
+    throw new Error("No se pudo crear la carpeta de selección en Drive.");
+  }
+
+  const driveContent = await drive.files.list({
+    q: `'${selectionFolderId}' in parents and trashed=false`,
+    fields: "files(id, name, mimeType)",
+    ...DRIVE_SHARED_OPTS,
+  });
+  const existingDriveFiles = driveContent.data.files || [];
+  const validShortcutIds = new Set<string>();
+  let shortcutsCreated = 0;
+  let shortcutsUpdated = 0;
+  let skippedNoDrive = 0;
+
+  for (const [index, work] of works.entries()) {
+    const targetId = extractFileId(work.link_drive || "");
+    if (!targetId) {
+      skippedNoDrive += 1;
+      continue;
+    }
+
+    const posNumber = index + 1;
+    let originalFolderName = stripHtmlPlain(work.titulo) || "Sin título";
+    try {
+      const metaObra = await drive.files.get({
+        fileId: targetId,
+        fields: "name",
+        ...DRIVE_SHARED_OPTS,
+      });
+      originalFolderName = metaObra.data.name || originalFolderName;
+    } catch (e) {
+      console.error(`[archivo_selection] Acceso denegado a obra ${targetId}:`, (e as Error).message);
+    }
+
+    const sName = `${posNumber} - ${originalFolderName}`;
+    const prefix = `${posNumber} - `;
+    const existingShortcut = existingDriveFiles.find(
+      (f) => f.mimeType === SHORTCUT_MIME && (f.name === sName || f.name?.startsWith(prefix)),
+    );
+
+    if (existingShortcut?.id) {
+      try {
+        await drive.files.update({
+          fileId: existingShortcut.id,
+          requestBody: {
+            name: sName,
+            shortcutDetails: { targetId },
+          },
+          ...DRIVE_SHARED_OPTS,
+        });
+        validShortcutIds.add(existingShortcut.id);
+        shortcutsUpdated += 1;
+        continue;
+      } catch (e) {
+        console.error(`[archivo_selection] Error actualizando shortcut ${existingShortcut.id}:`, (e as Error).message);
+        try {
+          await drive.files.delete({ fileId: existingShortcut.id, ...DRIVE_SHARED_OPTS });
+        } catch (_) { /* ignore */ }
+      }
+    }
+
+    try {
+      const created = await drive.files.create({
+        requestBody: {
+          name: sName,
+          mimeType: SHORTCUT_MIME,
+          parents: [selectionFolderId],
+          shortcutDetails: { targetId },
+        },
+        fields: "id",
+        ...DRIVE_SHARED_OPTS,
+      });
+      if (created.data.id) {
+        validShortcutIds.add(created.data.id);
+        shortcutsCreated += 1;
+      }
+    } catch (e) {
+      console.error(`[archivo_selection] Error creando shortcut:`, (e as Error).message);
+    }
+  }
+
+  for (const file of existingDriveFiles) {
+    if (file.mimeType === SHORTCUT_MIME && file.id && !validShortcutIds.has(file.id)) {
+      try {
+        await drive.files.delete({ fileId: file.id, ...DRIVE_SHARED_OPTS });
+      } catch (e) {
+        console.error(`[archivo_selection] Error borrando shortcut huérfano:`, (e as Error).message);
+      }
+    }
+  }
+
+  const folderMeta = await drive.files.get({
+    fileId: selectionFolderId,
+    fields: "webViewLink",
+    ...DRIVE_SHARED_OPTS,
+  });
+
+  return {
+    folderId: selectionFolderId,
+    folderUrl: folderMeta.data.webViewLink || `https://drive.google.com/drive/folders/${selectionFolderId}`,
+    folderName,
+    shortcutsCreated,
+    shortcutsUpdated,
+    shortcutsTotal: validShortcutIds.size,
+    skippedNoDrive,
+  };
+}
+
 // =================================================================================
 // SYNC UN PROGRAMA COMPLETO (metadata + repertorio) — compatible con lógica previa
 // =================================================================================
@@ -1161,6 +1310,9 @@ serve(async (req) => {
       // Nuevos parámetros para operaciones de copia simples (server-side bypass)
       destinationFolderId,
       fileId: directFileId,
+      selectionName,
+      works: selectionWorks,
+      repertoireBlockId,
     } = body;
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -2374,6 +2526,83 @@ serve(async (req) => {
           ensembleShortcuts: ensembleStats,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // --- ACCIÓN: SYNC SELECCIÓN ARCHIVO (Misceláneos + shortcuts numerados) ---
+    if (action === "sync_archivo_selection_shortcuts") {
+      if (!selectionName || !String(selectionName).trim()) {
+        throw new Error("Nombre de selección requerido.");
+      }
+      if (!Array.isArray(selectionWorks) || selectionWorks.length === 0) {
+        throw new Error("No hay obras en la selección.");
+      }
+
+      const result = await syncArchivoSelectionShortcuts(
+        drive,
+        String(selectionName).trim(),
+        selectionWorks,
+      );
+
+      return new Response(
+        JSON.stringify({ success: true, ...result }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // --- ACCIÓN: ELIMINAR BLOQUE DE REPERTORIO (+ carpeta Drive) ---
+    if (action === "delete_repertoire_block") {
+      const blockId = repertoireBlockId || body.id_repertorio || body.blockId;
+      if (!blockId) {
+        throw new Error("ID de bloque de repertorio requerido.");
+      }
+
+      const { data: block, error: blockError } = await supabase
+        .from("programas_repertorios")
+        .select("id, id_programa, google_drive_folder_id, nombre")
+        .eq("id", blockId)
+        .single();
+
+      if (blockError || !block) {
+        throw new Error("No se encontró el bloque de repertorio.");
+      }
+
+      if (block.google_drive_folder_id) {
+        try {
+          await drive.files.delete({
+            fileId: block.google_drive_folder_id,
+            ...DRIVE_SHARED_OPTS,
+          });
+        } catch (e) {
+          console.error(
+            `[delete_repertoire_block] Error borrando carpeta ${block.google_drive_folder_id}:`,
+            (e as Error).message,
+          );
+          throw new Error(
+            `No se pudo borrar la carpeta en Drive: ${(e as Error).message}`,
+          );
+        }
+      }
+
+      const { error: obrasError } = await supabase
+        .from("repertorio_obras")
+        .delete()
+        .eq("id_repertorio", blockId);
+      if (obrasError) throw obrasError;
+
+      const { error: blockDeleteError } = await supabase
+        .from("programas_repertorios")
+        .delete()
+        .eq("id", blockId);
+      if (blockDeleteError) throw blockDeleteError;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          programId: block.id_programa,
+          deletedFolderId: block.google_drive_folder_id || null,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
