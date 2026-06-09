@@ -16,12 +16,34 @@ import {
   IconAlertTriangle,
 } from "../../components/ui/Icons";
 import VenueStatusPin from "../../components/ui/VenueStatusPin";
+import LocacionNombreSpan, {
+  resolveLocacionNombre,
+} from "../../components/locations/LocacionNombreSpan";
 import CommentButton from "../../components/comments/CommentButton";
 import RepertoireManager from "../../components/repertoire/RepertoireManager";
 import GiraActionMenu from "./GiraActionMenu";
 import { getProgramStyle, checkIsConvoked } from "../../utils/giraUtils";
 import { getMyRoomingStatus } from "../../services/giraService";
 import { createPortal } from "react-dom";
+
+const sliceTime = (value, fallback) => {
+  if (value == null || value === "") return fallback;
+  const s = String(value);
+  return s.length >= 5 ? s.slice(0, 5) : s;
+};
+
+const formatRoomingMoment = (fecha, hora, fallbackFecha, defaultTime) => {
+  const dateStr = fecha || fallbackFecha;
+  if (!dateStr) {
+    return { dayLabel: null, timeLabel: `${defaultTime} hs` };
+  }
+  const timeStr = sliceTime(hora, defaultTime);
+  const parsed = parseISO(dateStr);
+  return {
+    dayLabel: format(parsed, "EEEE dd/MM", { locale: es }),
+    timeLabel: `${timeStr} hs`,
+  };
+};
 
 const normalizeFamily = (value) =>
   String(value || "")
@@ -343,7 +365,12 @@ export default function GiraCard({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-s font-bold truncate">
-                  {c.locaciones?.nombre || "TBA"}
+                  <LocacionNombreSpan
+                    nombre={c.locaciones?.nombre}
+                    idLocacion={c.id_locacion}
+                    locacion={c.locaciones}
+                    className="font-bold"
+                  />
                 </div>
                 <div className="text-[10px] opacity-70 truncate">
                   {c.locaciones?.localidades?.localidad} •{" "}
@@ -353,7 +380,7 @@ export default function GiraCard({
               <VenueStatusPin
                 eventId={c.id}
                 idEstadoVenue={c.id_estado_venue}
-                label={`${c.locaciones?.nombre || "TBA"} ${c.fecha || ""} ${c.hora_inicio?.slice(0, 5) || ""}`}
+                label={`${resolveLocacionNombre({ nombre: c.locaciones?.nombre, idLocacion: c.id_locacion, locacion: c.locaciones })} ${c.fecha || ""} ${c.hora_inicio?.slice(0, 5) || ""}`}
                 supabase={supabase}
                 size={12}
                 className="shrink-0"
@@ -490,12 +517,19 @@ export default function GiraCard({
                 {formatDate(c.fecha)} - {c.hora_inicio.slice(0, 5)}
               </span>
               <span className="min-w-0 truncate">
-                {`${c.locaciones?.nombre || ""} | ${c.locaciones?.localidades?.localidad || ""}`}
+                <LocacionNombreSpan
+                  nombre={c.locaciones?.nombre}
+                  idLocacion={c.id_locacion}
+                  locacion={c.locaciones}
+                />
+                {c.locaciones?.localidades?.localidad
+                  ? ` | ${c.locaciones.localidades.localidad}`
+                  : ""}
               </span>
               <VenueStatusPin
                 eventId={c.id}
                 idEstadoVenue={c.id_estado_venue}
-                label={`${c.locaciones?.nombre || ""} ${c.fecha || ""} ${c.hora_inicio?.slice(0, 5) || ""}`}
+                label={`${resolveLocacionNombre({ nombre: c.locaciones?.nombre, idLocacion: c.id_locacion, locacion: c.locaciones })} ${c.fecha || ""} ${c.hora_inicio?.slice(0, 5) || ""}`}
                 supabase={supabase}
                 size={12}
                 className="shrink-0"
@@ -1019,10 +1053,10 @@ export default function GiraCard({
             onClick={() => setShowRoomingModal(false)}
           >
             <div
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200"
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="bg-fixed-indigo-600 p-4 text-white flex justify-between items-center">
+              <div className="bg-fixed-indigo-600 p-4 text-white flex justify-between items-center shrink-0">
                 <h3 className="font-bold flex items-center gap-2">
                   <IconHotel size={18} /> Mi Alojamiento
                 </h3>
@@ -1034,77 +1068,115 @@ export default function GiraCard({
                 </button>
               </div>
 
-              <div className="p-5 space-y-4">
+              <div className="p-5 space-y-4 overflow-y-auto">
                 {loadingRooming ? (
                   <div className="py-10 text-center text-slate-400 animate-pulse">
                     Consultando asignación...
                   </div>
-                ) : myRooming ? (
+                ) : myRooming?.assignments?.length > 0 ? (
                   <>
-                    <div>
-                      <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider">
-                        Hotel
-                      </label>
-                      <div className="text-lg font-bold text-slate-800">
-                        {myRooming.hotel}
-                      </div>
-                    </div>
+                    {myRooming.assignments.length > 1 && (
+                      <p className="text-xs text-slate-500">
+                        Tenés {myRooming.assignments.length} alojamientos en esta gira
+                      </p>
+                    )}
+                    {myRooming.assignments.map((assignment, idx) => {
+                      const checkIn = formatRoomingMoment(
+                        assignment.fecha_checkin,
+                        assignment.hora_checkin,
+                        assignment.segmentFechaDesde || gira.fecha_desde,
+                        "14:00",
+                      );
+                      const checkOut = formatRoomingMoment(
+                        assignment.fecha_checkout,
+                        assignment.hora_checkout,
+                        assignment.segmentFechaHasta || gira.fecha_hasta,
+                        "10:00",
+                      );
 
-                    <div className="grid grid-cols-2 gap-4 py-3 border-y border-slate-100">
-                      <div>
-                        <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1">
-                          <IconClock size={10} /> Check-In
-                        </label>
-                        <div className="font-semibold text-slate-700 font-mono">
-                          {gira.fecha_desde ? (
-                            <>
-                              <div>{format(parseISO(gira.fecha_desde), "EEEE dd/MM", { locale: es })}</div>
-                              <div>14:00 hs</div>
-                            </>
-                          ) : (
-                            "14:00 hs"
-                          )}
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1">
-                          <IconClock size={10} /> Check-Out
-                        </label>
-                        <div className="font-semibold text-slate-700 font-mono">
-                          {gira.fecha_hasta ? (
-                            <>
-                              <div>{format(parseISO(gira.fecha_hasta), "EEEE dd/MM", { locale: es })}</div>
-                              <div>10:00 hs</div>
-                            </>
-                          ) : (
-                            "10:00 hs"
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                      return (
+                        <div
+                          key={`${assignment.room?.id ?? idx}-${assignment.hotel}`}
+                          className={`space-y-4 ${
+                            myRooming.assignments.length > 1
+                              ? "rounded-xl border border-slate-200 bg-slate-50/60 p-4"
+                              : ""
+                          }`}
+                        >
+                          {assignment.segmentLabel &&
+                            myRooming.assignments.length > 1 && (
+                              <div className="text-[10px] uppercase font-black text-indigo-600 tracking-wider">
+                                {assignment.segmentLabel}
+                              </div>
+                            )}
 
-                    <div>
-                      <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1 mb-2">
-                        <IconUsers size={12} /> Compañeros/as en habitación
-                      </label>
-                      <div className="space-y-1.5">
-                        {myRooming.mates.length > 0 ? (
-                          myRooming.mates.map((m, i) => (
-                            <div
-                              key={i}
-                              className="bg-slate-50 px-3 py-2.5 rounded-xl text-sm text-slate-700 border border-slate-100 flex items-center gap-2"
-                            >
-                              <div className="w-1.5 h-1.5 rounded-full bg-fixed-indigo-400"></div>
-                              <span className="font-medium">{`${m.apellido}, ${m.nombre}`}</span>
+                          <div>
+                            <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider">
+                              Hotel
+                            </label>
+                            <div className="text-lg font-bold text-slate-800">
+                              {assignment.hotel}
                             </div>
-                          ))
-                        ) : (
-                          <div className="text-sm italic text-slate-400 bg-slate-50 p-3 rounded-xl border border-dashed text-center">
-                            Habitación individual
                           </div>
-                        )}
-                      </div>
-                    </div>
+
+                          <div className="grid grid-cols-2 gap-4 py-3 border-y border-slate-100">
+                            <div>
+                              <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1">
+                                <IconClock size={10} /> Check-In
+                              </label>
+                              <div className="font-semibold text-slate-700 font-mono">
+                                {checkIn.dayLabel ? (
+                                  <>
+                                    <div>{checkIn.dayLabel}</div>
+                                    <div>{checkIn.timeLabel}</div>
+                                  </>
+                                ) : (
+                                  checkIn.timeLabel
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1">
+                                <IconClock size={10} /> Check-Out
+                              </label>
+                              <div className="font-semibold text-slate-700 font-mono">
+                                {checkOut.dayLabel ? (
+                                  <>
+                                    <div>{checkOut.dayLabel}</div>
+                                    <div>{checkOut.timeLabel}</div>
+                                  </>
+                                ) : (
+                                  checkOut.timeLabel
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] uppercase font-black text-slate-400 tracking-wider flex items-center gap-1 mb-2">
+                              <IconUsers size={12} /> Compañeros/as en habitación
+                            </label>
+                            <div className="space-y-1.5">
+                              {assignment.mates.length > 0 ? (
+                                assignment.mates.map((m) => (
+                                  <div
+                                    key={m.id}
+                                    className="bg-white px-3 py-2.5 rounded-xl text-sm text-slate-700 border border-slate-100 flex items-center gap-2"
+                                  >
+                                    <div className="w-1.5 h-1.5 rounded-full bg-fixed-indigo-400"></div>
+                                    <span className="font-medium">{`${m.apellido}, ${m.nombre}`}</span>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-sm italic text-slate-400 bg-white p-3 rounded-xl border border-dashed text-center">
+                                  Habitación individual
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </>
                 ) : (
                   <div className="py-8 text-center px-4">

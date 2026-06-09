@@ -29,7 +29,18 @@ import { PDFDocument } from "pdf-lib";
 import { Toaster, toast } from "sonner";
 import ConfirmDialog from "../../../components/ui/ConfirmDialog";
 import ManualTrigger from "../../../components/manual/ManualTrigger";
-import { useViaticosIndividuales } from "../../../hooks/viaticos/useViaticosIndividuales";
+import ValorDiarioVigenciaAdminModal from "../../../components/viaticos/ValorDiarioVigenciaAdminModal";
+import { useAuth } from "../../../context/AuthContext";
+import {
+  getValorDiarioVigente,
+  listValorDiarioVigencias,
+} from "../../../services/viaticosValorDiarioService";
+import { canAdminValorDiario } from "../../../utils/viaticosValorDiarioAdmin";
+import {
+  calculateDaysDiff,
+  useViaticosIndividuales,
+} from "../../../hooks/viaticos/useViaticosIndividuales";
+import { calcValorDiarioProporcional } from "../../../utils/viaticosValorDiarioProporcional";
 import {
   resolveAsientoHabitualViaticos,
   resolveCiudadOrigenViaticos,
@@ -216,6 +227,13 @@ const MemberSearchSelect = ({ options = [], value, onChange, placeholder }) => {
 };
 
 export default function ViaticosManager({ supabase, giraId }) {
+  const { user, isAdmin } = useAuth();
+  const canAdminVd = canAdminValorDiario({
+    email: user?.mail || user?.email,
+    isAdmin,
+  });
+  const [vigenciaAdminOpen, setVigenciaAdminOpen] = useState(false);
+  const [vigencias, setVigencias] = useState([]);
   const [config, setConfig] = useState({
     valor_diario_base: 0,
     factor_temporada: 0,
@@ -227,7 +245,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     porcentaje_destaques: 100,
     rendicion_fecha: null,
   });
-  const [latestGlobalValue, setLatestGlobalValue] = useState(0);
+  const [vigenteValorDiario, setVigenteValorDiario] = useState(0);
   const saveTimeoutRef = useRef(null);
   const pendingUpdatesRef = useRef({});
 
@@ -283,6 +301,7 @@ export default function ViaticosManager({ supabase, giraId }) {
     config,
     allEvents,
     summary,
+    vigencias,
   );
   const {
     configs: destaquesConfigs,
@@ -412,17 +431,32 @@ export default function ViaticosManager({ supabase, giraId }) {
     }
   }, [giraId, fetchViaticos]);
 
+  useEffect(() => {
+    if (!giraData?.fecha_desde) return;
+    refreshVigencias(giraData.fecha_desde).catch(() => {});
+  }, [giraData?.fecha_desde]);
+
+  const refreshVigencias = async (fechaRef) => {
+    const rows = await listValorDiarioVigencias(supabase);
+    setVigencias(rows);
+    const vigente = await getValorDiarioVigente(fechaRef, supabase);
+    setVigenteValorDiario(vigente);
+    return vigente;
+  };
+
   const fetchConfigGlobal = async () => {
     setLoadingConfig(true);
     try {
-      const { data: maxGlobalData } = await supabase
-        .from("giras_viaticos_config")
-        .select("valor_diario_base")
-        .order("valor_diario_base", { ascending: false })
-        .limit(1)
-        .single();
-      const maxVal = maxGlobalData?.valor_diario_base || 0;
-      setLatestGlobalValue(maxVal);
+      let fechaRef = giraData?.fecha_desde || "";
+      if (!fechaRef) {
+        const { data: prog } = await supabase
+          .from("programas")
+          .select("fecha_desde")
+          .eq("id", giraId)
+          .single();
+        fechaRef = prog?.fecha_desde || "";
+      }
+      const vigenteVal = await refreshVigencias(fechaRef);
 
       const { data: conf } = await supabase
         .from("giras_viaticos_config")
@@ -430,20 +464,18 @@ export default function ViaticosManager({ supabase, giraId }) {
         .eq("id_gira", giraId)
         .single();
       if (conf) {
-        if (!conf.valor_diario_base || conf.valor_diario_base === 0) {
-          setConfig({ ...conf, valor_diario_base: maxVal });
-          if (maxVal > 0)
-            await supabase
-              .from("giras_viaticos_config")
-              .update({ valor_diario_base: maxVal })
-              .eq("id_gira", giraId);
-        } else {
-          setConfig(conf);
+        const merged = { ...conf, valor_diario_base: vigenteVal || 0 };
+        setConfig(merged);
+        if (vigenteVal > 0 && conf.valor_diario_base !== vigenteVal) {
+          await supabase
+            .from("giras_viaticos_config")
+            .update({ valor_diario_base: vigenteVal })
+            .eq("id_gira", giraId);
         }
       } else {
         const { data: newConf } = await supabase
           .from("giras_viaticos_config")
-          .insert([{ id_gira: giraId, valor_diario_base: maxVal }])
+          .insert([{ id_gira: giraId, valor_diario_base: vigenteVal }])
           .select()
           .single();
         if (newConf) setConfig(newConf);
@@ -1435,16 +1467,23 @@ const collectTransportSupportDocs = (personData) => {
         const hasLocalityDaysOverride = Number.isFinite(
           Number(p._diasComputablesLocalidad),
         );
-        if (p.travelData) {
-          const start = new Date(p.travelData.fecha_salida + "T00:00:00");
-          const end = new Date(p.travelData.fecha_llegada + "T00:00:00");
-          const diffDays = Math.round((end - start) / (1000 * 3600 * 24));
-          dias = diffDays < 0 ? 0 : diffDays === 0 ? 0.5 : diffDays;
+        const pctGlobal =
+          config.porcentaje_destaques !== undefined
+            ? parseFloat(config.porcentaje_destaques)
+            : 100;
 
+        if (p.travelData) {
           rich.fecha_salida = p.travelData.fecha_salida;
           rich.hora_salida = p.travelData.hora_salida;
           rich.fecha_llegada = p.travelData.fecha_llegada;
           rich.hora_llegada = p.travelData.hora_llegada;
+
+          dias = calculateDaysDiff(
+            p.travelData.fecha_salida,
+            p.travelData.hora_salida,
+            p.travelData.fecha_llegada,
+            p.travelData.hora_llegada,
+          );
         } else {
           dias = massConfig.backup_dias_computables || 0;
         }
@@ -1453,18 +1492,45 @@ const collectTransportSupportDocs = (personData) => {
         }
         rich.dias_computables = dias;
 
-        const base = parseFloat(config.valor_diario_base || 0);
-        const factor = 1 + parseFloat(config.factor_temporada || 0);
-        const pctGlobal =
-          config.porcentaje_destaques !== undefined
-            ? parseFloat(config.porcentaje_destaques)
-            : 100;
-        const valDiario = Math.round(base * factor * (pctGlobal / 100));
-
-        const computedSub = Math.round(dias * valDiario * 100) / 100;
-        rich.valorDiarioCalc = valDiario;
+        if (
+          p.travelData &&
+          !hasLocalityDaysOverride &&
+          dias > 0
+        ) {
+          const fin = calcValorDiarioProporcional({
+            fechaSalida: p.travelData.fecha_salida,
+            horaSalida: p.travelData.hora_salida,
+            fechaLlegada: p.travelData.fecha_llegada,
+            horaLlegada: p.travelData.hora_llegada,
+            vigencias,
+            fallbackBase: 0,
+            porcentaje: pctGlobal,
+            factorTemporada: config.factor_temporada || 0,
+          });
+          rich.valorDiarioCalc = fin.valorDiarioCalc;
+          rich.subtotal = fin.subtotal;
+        } else if (dias > 0 && vigencias.length > 0) {
+          const fin = calcValorDiarioProporcional({
+            fechaSalida: rich.fecha_salida || p.travelData?.fecha_salida,
+            horaSalida: rich.hora_salida || p.travelData?.hora_salida,
+            fechaLlegada: rich.fecha_llegada || p.travelData?.fecha_llegada,
+            horaLlegada: rich.hora_llegada || p.travelData?.hora_llegada,
+            vigencias,
+            fallbackBase: 0,
+            porcentaje: pctGlobal,
+            factorTemporada: config.factor_temporada || 0,
+          });
+          rich.valorDiarioCalc = fin.valorDiarioCalc;
+          rich.subtotal = fin.subtotal;
+        } else {
+          const base = parseFloat(vigenteValorDiario || 0);
+          const factor = 1 + parseFloat(config.factor_temporada || 0);
+          const valDiario = Math.round(base * factor * (pctGlobal / 100));
+          const computedSub = Math.round(dias * valDiario * 100) / 100;
+          rich.valorDiarioCalc = valDiario;
+          rich.subtotal = computedSub;
+        }
         rich.porcentaje = pctGlobal;
-        rich.subtotal = computedSub;
         rich.subtotal = getAnticipoSubtotalForExport(rich, useHistoricalCalc);
 
         const totalGastos =
@@ -1979,27 +2045,31 @@ const collectTransportSupportDocs = (personData) => {
 
               <div className="flex items-center gap-4 text-sm bg-slate-50 p-2 rounded-lg border border-slate-100">
                 <div className="flex items-center gap-2 border-r border-slate-200 pr-4">
-                  <div className="bg-white px-2 py-1 rounded border border-indigo-100 flex items-center gap-1 shadow-sm">
-                    <span className="text-xs font-bold text-indigo-700">
-                      BASE: $
-                    </span>
-                    <input
-                      type="number"
-                      className="bg-transparent w-20 font-bold text-indigo-700 outline-none"
-                      value={config.valor_diario_base || 0}
-                      onChange={(e) =>
-                        updateConfig("valor_diario_base", e.target.value)
-                      }
-                    />
-                    {latestGlobalValue > config.valor_diario_base && (
-                      <button
-                        onClick={() =>
-                          updateConfig("valor_diario_base", latestGlobalValue)
-                        }
-                      >
-                        <IconRefresh size={14} />
-                      </button>
-                    )}
+                  <div className="bg-white px-2 py-1 rounded border border-indigo-100 flex flex-col gap-0.5 shadow-sm">
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs font-bold text-indigo-700">
+                        BASE:
+                      </span>
+                      <span className="text-xs font-black text-indigo-800">
+                        {vigenteValorDiario > 0
+                          ? `$${Number(vigenteValorDiario).toLocaleString("es-AR")}`
+                          : "—"}
+                      </span>
+                      {canAdminVd ? (
+                        <button
+                          type="button"
+                          title="Histórico y vigencias del valor diario"
+                          onClick={() => setVigenciaAdminOpen(true)}
+                          className="ml-1 text-indigo-600 hover:text-indigo-800"
+                        >
+                          <IconHistory size={14} />
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-tight max-w-[220px]">
+                      Según historial vigente al inicio de la gira. Cada viático
+                      prorratea según sus fechas de viaje.
+                    </p>
                   </div>
                   <div
                     className="flex items-center gap-1 px-2 py-1 rounded border border-amber-100 bg-white shadow-sm cursor-pointer hover:bg-amber-50"
@@ -2254,6 +2324,18 @@ const collectTransportSupportDocs = (personData) => {
           }}
         />
       )}
+
+      <ValorDiarioVigenciaAdminModal
+        open={vigenciaAdminOpen}
+        onClose={() => setVigenciaAdminOpen(false)}
+        vigencias={vigencias}
+        onSaved={async () => {
+          await refreshVigencias(giraData?.fecha_desde || "");
+          await fetchConfigGlobal();
+        }}
+        client={supabase}
+        fechaReferencia={giraData?.fecha_desde || ""}
+      />
     </div>
   );
 }

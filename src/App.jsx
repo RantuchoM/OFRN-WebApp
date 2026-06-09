@@ -93,6 +93,9 @@ const MealsAttendancePersonal = lazy(
 const PublicLinkHandler = lazy(() => import("./views/Public/PublicLinkHandler"));
 const ViaticosManual = lazy(() => import("./views/Public/ViaticosManual"));
 const RendicionesManual = lazy(() => import("./views/Public/RendicionesManual"));
+const ViaticosManualLayout = lazy(
+  () => import("./views/Public/ViaticosManual/ViaticosManualLayout"),
+);
 const TransporteSCRNPage = lazy(
   () => import("./views/Public/TransporteSCRN/TransporteSCRNPage"),
 );
@@ -1429,21 +1432,29 @@ export default function App() {
                 }
               />
               <Route
-                path="/viaticos-manual"
                 element={
                   <LazyRoute>
-                    <ViaticosManual />
+                    <ViaticosManualLayout />
                   </LazyRoute>
                 }
-              />
-              <Route
-                path="/rendiciones-manual"
-                element={
-                  <LazyRoute>
-                    <RendicionesManual />
-                  </LazyRoute>
-                }
-              />
+              >
+                <Route
+                  path="/viaticos-manual"
+                  element={
+                    <LazyRoute>
+                      <ViaticosManual />
+                    </LazyRoute>
+                  }
+                />
+                <Route
+                  path="/rendiciones-manual"
+                  element={
+                    <LazyRoute>
+                      <RendicionesManual />
+                    </LazyRoute>
+                  }
+                />
+              </Route>
               <Route
                 path="/transporte-scrn"
                 element={

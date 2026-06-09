@@ -90,10 +90,36 @@ function escHtml(s: string): string {
 function buildMagicLinkUrl(token: string, app: string): string {
   const baseEntradas = (Deno.env.get("ENTRADAS_PUBLIC_URL") ?? "https://ofrn-web-app.vercel.app").replace(/\/$/, "");
   const baseScrn = (Deno.env.get("SCRN_PUBLIC_URL") ?? baseEntradas).replace(/\/$/, "");
-  const isScrn = app === "scrn";
-  const base = isScrn ? baseScrn : baseEntradas;
-  const path = isScrn ? "/transporte-scrn" : "/entradas";
-  return `${base}${path}?magic=${encodeURIComponent(token)}`;
+  const baseViaticosManual = (Deno.env.get("VIATICOS_MANUAL_PUBLIC_URL") ?? baseEntradas).replace(/\/$/, "");
+  if (app === "scrn") {
+    return `${baseScrn}/transporte-scrn?magic=${encodeURIComponent(token)}`;
+  }
+  if (app === "viaticos_manual") {
+    return `${baseViaticosManual}/viaticos-manual?magic=${encodeURIComponent(token)}`;
+  }
+  return `${baseEntradas}/entradas?magic=${encodeURIComponent(token)}`;
+}
+
+function getAppEmailMeta(app: string): { fromLabel: string; appLabel: string; subject: string } {
+  if (app === "scrn") {
+    return {
+      fromLabel: "Transporte SCRN",
+      appLabel: "Transporte SCRN",
+      subject: "Tu código de acceso - Transporte SCRN",
+    };
+  }
+  if (app === "viaticos_manual") {
+    return {
+      fromLabel: "Viáticos Manual OFRN",
+      appLabel: "Viáticos Manual OFRN",
+      subject: "Tu código de acceso - Viáticos Manual OFRN",
+    };
+  }
+  return {
+    fromLabel: "Entradas OFRN",
+    appLabel: "Entradas OFRN",
+    subject: "Tu código de acceso - Entradas OFRN",
+  };
 }
 
 function buildOtpHtml({
@@ -221,12 +247,7 @@ serve(async (req) => {
     const email = normalizeEmail(body?.email);
     const code = String(body?.code || "").trim();
     const app = String(body?.app || "entradas").trim().toLowerCase();
-    const isScrn = app === "scrn";
-    const fromLabel = isScrn ? "Transporte SCRN" : "Entradas OFRN";
-    const appLabel = isScrn ? "Transporte SCRN" : "Entradas OFRN";
-    const subject = isScrn
-      ? "Tu código de acceso - Transporte SCRN"
-      : "Tu código de acceso - Entradas OFRN";
+    const { fromLabel, appLabel, subject } = getAppEmailMeta(app);
     const ip =
       req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
       || req.headers.get("x-real-ip")

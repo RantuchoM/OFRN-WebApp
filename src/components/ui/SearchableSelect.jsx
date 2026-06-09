@@ -12,6 +12,8 @@ export default function SearchableSelect({
     className = "",
     dropdownMinWidth = 250,
     renderMultiItemActions = null,
+    onCreateWhenEmpty = null,
+    createWhenEmptyLabel = null,
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -225,6 +227,25 @@ export default function SearchableSelect({
                                     </div>
                                 )
                             })
+                        ) : onCreateWhenEmpty ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const query = search.trim();
+                                    onCreateWhenEmpty(query);
+                                    setIsOpen(false);
+                                    setSearch("");
+                                }}
+                                className="w-full px-3 py-3 text-left text-xs border-t border-slate-100 hover:bg-indigo-50 transition"
+                            >
+                                <span className="font-bold text-indigo-700">
+                                    {typeof createWhenEmptyLabel === "function"
+                                        ? createWhenEmptyLabel(search.trim())
+                                        : search.trim()
+                                            ? `Crear nueva persona: ${search.trim()}`
+                                            : "Crear nueva persona"}
+                                </span>
+                            </button>
                         ) : (
                             <div className="p-4 text-center text-slate-400 text-xs italic">No se encontraron resultados.</div>
                         )}

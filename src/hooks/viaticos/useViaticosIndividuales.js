@@ -13,6 +13,7 @@ import {
   scheduleFromParadaRange,
 } from "../../utils/viaticosParadasIntegrante";
 import { calculateDaysDiff } from "../../utils/viaticosDiasComputables";
+import { calcValorDiarioProporcional } from "../../utils/viaticosValorDiarioProporcional";
 
 export { calculateDaysDiff, explainViaticosDiasCalculation } from "../../utils/viaticosDiasComputables";
 
@@ -99,6 +100,7 @@ export function useViaticosIndividuales(
   config,
   allEvents = [],
   logisticsSummary = [],
+  vigencias = [],
 ) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -219,16 +221,22 @@ export function useViaticosIndividuales(
           dias_computables: diasAuto,
         };
 
-        // Cálculos financieros
-        const base = parseFloat(config?.valor_diario_base || 0);
-        const dias = parseFloat(rowWithLogistics.dias_computables || 0);
+        // Cálculos financieros (prorrateo si el viaje cruza un corte de vigencia)
         const rawPct =
           row.porcentaje === 0 || row.porcentaje ? row.porcentaje : 100;
-        const pct = parseFloat(String(rawPct).replace("%", "")) / 100;
-        const basePorcentaje = round2(base * pct);
         const factorTempGlobal = parseFloat(config?.factor_temporada || 0);
-        const valorDiarioCalc = round2(basePorcentaje * (1 + factorTempGlobal));
-        const subtotal = round2(dias * valorDiarioCalc);
+        const fin = calcValorDiarioProporcional({
+          fechaSalida: fechaSal,
+          horaSalida: horaSal,
+          fechaLlegada: fechaLleg,
+          horaLlegada: horaLleg,
+          vigencias,
+          fallbackBase: 0,
+          porcentaje: rawPct,
+          factorTemporada: factorTempGlobal,
+        });
+        const valorDiarioCalc = fin.valorDiarioCalc;
+        const subtotal = fin.subtotal;
         const anticipoParaTotal =
           row.anticipo_custom != null && row.anticipo_custom !== ""
             ? round2(parseFloat(row.anticipo_custom))
@@ -268,7 +276,7 @@ export function useViaticosIndividuales(
         if (byName !== 0) return byName;
         return (a.tramo_orden || 1) - (b.tramo_orden || 1);
       });
-  }, [rows, roster, config, logisticsMap, allEvents, logisticsSummary]);
+  }, [rows, roster, config, logisticsMap, allEvents, logisticsSummary, vigencias]);
 
   // --- ACCIONES ---
 

@@ -15,5 +15,15 @@ export const supabaseEntradasPublic = createClient(SB_URL, SB_KEY, {
     detectSessionInUrl: false,
   },
 });
+
+/** Sesión aislada para viáticos-manual / rendiciones-manual. */
+export const supabaseViaticosManualPublic = createClient(SB_URL, SB_KEY, {
+  auth: {
+    storageKey: "sb-ofrn-viaticos-manual-session",
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+  },
+});
 /** Implementación canónica (incl. EXCL_ENSAMBLE y familias vía instrumentos) en giraService.js */
 export { resolveGiraRosterIds } from "./giraService";

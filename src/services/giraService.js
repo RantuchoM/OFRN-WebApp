@@ -12,6 +12,7 @@ import {
   sortEnsamblesParticipantes,
   sortFamiliasParticipantes,
 } from "../utils/participantesSort";
+import { formatTramoTitle } from "../utils/giraTramos";
 
 /**
  * Resuelve los IDs de los integrantes de una gira:
@@ -500,74 +501,116 @@ export const getMyRoomingStatus = async (supabase, giraId, userId) => {
   try {
     const numericUserId = parseInt(userId);
 
-    // 1. Obtener todos los alojamientos de la gira
-    const { data: bookings, error } = await supabase
-      .from('programas_hospedajes')
-      .select(`
-        id,
-        hoteles (nombre),
-        hospedaje_habitaciones (
+    const [bookingsRes, segmentsRes] = await Promise.all([
+      supabase
+        .from("programas_hospedajes")
+        .select(`
           id,
-          id_integrantes_asignados,
-          tipo,
-          es_matrimonial
-        )
-      `)
-      .eq('id_programa', giraId);
+          fecha_checkin,
+          fecha_checkout,
+          hora_checkin,
+          hora_checkout,
+          id_segmento,
+          hoteles (nombre),
+          hospedaje_habitaciones (
+            id,
+            id_integrantes_asignados,
+            tipo,
+            es_matrimonial
+          )
+        `)
+        .eq("id_programa", giraId)
+        .order("fecha_checkin"),
+      supabase
+        .from("giras_tramo_segmentos")
+        .select("id, indice, fecha_desde, fecha_hasta")
+        .eq("id_gira", giraId)
+        .order("indice"),
+    ]);
 
+    const { data: bookings, error } = bookingsRes;
     if (error) throw error;
-    if (!bookings) return null;
+    if (!bookings?.length) return { assignments: [] };
 
-    let myBooking = null;
-    let myRoom = null;
+    const segmentById = new Map(
+      (segmentsRes.data || []).map((s) => [Number(s.id), s]),
+    );
 
-    // 2. Encontrar la habitación del usuario
-    for (const b of bookings) {
-      const foundRoom = b.hospedaje_habitaciones?.find(r => 
-        r.id_integrantes_asignados?.includes(numericUserId)
+    const assignments = [];
+    const allMateIds = new Set();
+
+    for (const booking of bookings) {
+      const foundRoom = booking.hospedaje_habitaciones?.find((room) =>
+        room.id_integrantes_asignados?.includes(numericUserId),
       );
-      if (foundRoom) {
-        myBooking = b;
-        myRoom = foundRoom;
-        break;
-      }
+      if (!foundRoom) continue;
+
+      const mateIds = (foundRoom.id_integrantes_asignados || []).filter(
+        (id) => id !== numericUserId,
+      );
+      mateIds.forEach((id) => allMateIds.add(id));
+
+      const segment =
+        booking.id_segmento != null
+          ? segmentById.get(Number(booking.id_segmento))
+          : null;
+
+      assignments.push({
+        hotel: booking.hoteles?.nombre || "Sin nombre asignado",
+        fecha_checkin: booking.fecha_checkin,
+        fecha_checkout: booking.fecha_checkout,
+        hora_checkin: booking.hora_checkin,
+        hora_checkout: booking.hora_checkout,
+        segmentIndex: segment?.indice ?? null,
+        segmentLabel: segment
+          ? formatTramoTitle(
+              segment.indice,
+              segment.fecha_desde,
+              segment.fecha_hasta,
+            )
+          : null,
+        segmentFechaDesde: segment?.fecha_desde ?? null,
+        segmentFechaHasta: segment?.fecha_hasta ?? null,
+        mateIds,
+        room: foundRoom,
+      });
     }
 
-    if (!myRoom) return null;
+    if (assignments.length === 0) return { assignments: [] };
 
-    // 3. Obtener nombres de los compañeros y filtrar ausentes
-    const mateIds = myRoom.id_integrantes_asignados.filter(id => id !== numericUserId);
-    
-    let mates = [];
-    if (mateIds.length > 0) {
-      // Traemos los nombres de la tabla maestra de integrantes
-      const { data: matesData } = await supabase
-        .from('integrantes')
-        .select('id, nombre, apellido')
-        .in('id', mateIds);
+    let matesById = new Map();
+    if (allMateIds.size > 0) {
+      const mateIdsArr = [...allMateIds];
+      const [matesRes, ausentesRes] = await Promise.all([
+        supabase
+          .from("integrantes")
+          .select("id, nombre, apellido")
+          .in("id", mateIdsArr),
+        supabase
+          .from("giras_integrantes")
+          .select("id_integrante")
+          .eq("id_gira", giraId)
+          .in("id_integrante", mateIdsArr)
+          .eq("estado", "ausente"),
+      ]);
 
-      // Consultamos quiénes están marcados como ausentes en esta gira puntual
-      const { data: ausentes } = await supabase
-        .from('giras_integrantes')
-        .select('id_integrante')
-        .eq('id_gira', giraId)
-        .in('id_integrante', mateIds)
-        .eq('estado', 'ausente');
-
-      const ausentesSet = new Set(ausentes?.map(a => a.id_integrante) || []);
-      
-      // Filtramos la lista final
-      mates = (matesData || []).filter(m => !ausentesSet.has(m.id));
+      const ausentesSet = new Set(
+        ausentesRes.data?.map((a) => a.id_integrante) || [],
+      );
+      (matesRes.data || [])
+        .filter((m) => !ausentesSet.has(m.id))
+        .forEach((m) => matesById.set(m.id, m));
     }
 
     return {
-      hotel: myBooking.hoteles?.nombre || "Sin nombre asignado",
-      room: myRoom,
-      mates: mates
+      assignments: assignments.map(({ mateIds, ...rest }) => ({
+        ...rest,
+        mates: mateIds.map((id) => matesById.get(id)).filter(Boolean),
+      })),
     };
   } catch (error) {
     console.error("[GiraService] Error en getMyRoomingStatus:", error);
-    return null;
+    return { assignments: [] };
   }
 };
 

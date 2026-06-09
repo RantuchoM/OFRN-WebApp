@@ -65,6 +65,9 @@ import {
 } from "../../utils/agendaHelpers";
 import { getProgramBadgeClasses } from "../../utils/giraUtils";
 import VenueStatusPin from "../ui/VenueStatusPin";
+import LocacionNombreSpan, {
+  shouldShowLocacionEnEvento,
+} from "../locations/LocacionNombreSpan";
 import FeriadoBadge from "./FeriadoBadge";
 import ConnectionBadge from "./ConnectionBadge";
 import DriveSmartButton from "./DriveSmartButton";
@@ -2268,7 +2271,7 @@ export default function UnifiedAgenda({
                                         <IconDownload size={12} /> Mi Bajada
                                       </span>
                                     )}
-                                    {locName && (
+                                    {shouldShowLocacionEnEvento(evt) && (
                                       <div
                                         className={`flex items-start gap-1 text-xs mt-0.5 ${isDeleted ? "text-orange-700" : "text-slate-500"}`}
                                       >
@@ -2284,8 +2287,12 @@ export default function UnifiedAgenda({
                                           <span
                                             className={`font-semibold truncate ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
                                           >
-                                            {locName}{" "}
-                                            {locCity ? `(${locCity})` : ""}
+                                            <LocacionNombreSpan
+                                              nombre={locName}
+                                              idLocacion={evt.id_locacion}
+                                              locacion={evt.locaciones}
+                                            />
+                                            {locCity ? ` (${locCity})` : ""}
                                           </span>
                                           {evt.locaciones?.direccion && (
                                             <a
@@ -2682,7 +2689,7 @@ export default function UnifiedAgenda({
 
                                 {/* COLUMNA 4: LOCACIÓN */}
                                 <div className="col-span-3 min-w-0">
-                                  {locName && (
+                                  {shouldShowLocacionEnEvento(evt) && (
                                     <div
                                       className={`flex items-start gap-1.5 ${isDeleted ? "text-orange-700" : ""}`}
                                     >
@@ -2698,8 +2705,12 @@ export default function UnifiedAgenda({
                                         <span
                                           className={`text-xs font-semibold truncate block ${isDeleted ? "text-orange-700" : "text-slate-700"}`}
                                         >
-                                          {locName}{" "}
-                                          {locCity ? `(${locCity})` : ""}
+                                          <LocacionNombreSpan
+                                            nombre={locName}
+                                            idLocacion={evt.id_locacion}
+                                            locacion={evt.locaciones}
+                                          />
+                                          {locCity ? ` (${locCity})` : ""}
                                         </span>
                                         {evt.locaciones?.direccion && (
                                           <a
