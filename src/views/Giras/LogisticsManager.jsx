@@ -37,6 +37,7 @@ import {
   ruleHasMealMilestones,
   personIsLocalAtHit,
 } from "../../utils/giraUtils";
+import { toInstantKey } from "../../utils/giraTramos";
 import EventForm from "../../components/forms/EventForm";
 import ManualTrigger from "../../components/manual/ManualTrigger";
 
@@ -635,7 +636,13 @@ const EventCellEditor = ({
                     ?.filter((e) =>
                       tipoEventoIds.includes(Number(e.id_tipo_evento)),
                     )
-                    .sort((a, b) => a.fecha.localeCompare(b.fecha))
+                    .sort((a, b) => {
+                      const ka =
+                        toInstantKey(a.fecha, a.hora_inicio) ?? "";
+                      const kb =
+                        toInstantKey(b.fecha, b.hora_inicio) ?? "";
+                      return ka.localeCompare(kb);
+                    })
                     .map((ev) => {
                       const theme = getEventTypeTheme(ev.id_tipo_evento);
                       const eventTypeLabel = getEventTypeLabel(ev.id_tipo_evento);
