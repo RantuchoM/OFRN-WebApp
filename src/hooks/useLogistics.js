@@ -143,6 +143,7 @@ export const calculateLogisticsSummary = (
           strength: getMatchStrength(r, person, allLocalities, {
             segments,
             instant: resolveRuleFieldInstant(r, field, allEvents),
+            field,
           }),
         }))
         .filter((item) => item.strength > 0)

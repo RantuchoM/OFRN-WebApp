@@ -419,6 +419,55 @@ export function isLocalInTramo(
   return isLocalForTramoIndex(person, segments, tramoIndice, segmentRows);
 }
 
+/**
+ * ¿El slot de comida cae dentro del tramo? Respeta `instant_desde` / `instant_hasta`
+ * (hora de corte). Usa `hora_inicio` del evento; si falta, hora representativa del servicio.
+ */
+export function mealBelongsToSegment(
+  meal,
+  segment,
+  tramoIndice,
+  segments = [],
+) {
+  if (!segment || !meal?.fecha) return true;
+
+  const horaRaw = meal.hora_inicio ?? meal.hora;
+  const { fecha: day, hora: slotHora } = horaRaw
+    ? { fecha: String(meal.fecha).slice(0, 10), hora: sliceTime(horaRaw) }
+    : mealSlotToInstant(meal.fecha, meal.servicio);
+
+  const instant = toInstantKey(day, slotHora);
+  if (!instant) return false;
+
+  const start = segment.instant_desde;
+  const end = segment.instant_hasta;
+  if (!start || !end) {
+    const desde = segment.fecha_desde
+      ? String(segment.fecha_desde).slice(0, 10)
+      : null;
+    const hasta = segment.fecha_hasta
+      ? String(segment.fecha_hasta).slice(0, 10)
+      : null;
+    if (desde && hasta) {
+      return day >= desde && day <= hasta;
+    }
+    return true;
+  }
+
+  const idx =
+    tramoIndice != null && !Number.isNaN(Number(tramoIndice))
+      ? Number(tramoIndice)
+      : Number(segment.indice ?? 0);
+  const isLast = idx === (segments?.length ?? 1) - 1;
+
+  return (
+    compareInstantKeys(instant, start) >= 0 &&
+    (isLast
+      ? compareInstantKeys(instant, end) <= 0
+      : compareInstantKeys(instant, end) < 0)
+  );
+}
+
 /** ¿La noche (YYYY-MM-DD) cae dentro del tramo indicado? */
 export function nightBelongsToTramo(fecha, segments, tramoIndice, segmentRow) {
   if (tramoIndice == null || Number.isNaN(Number(tramoIndice))) return true;

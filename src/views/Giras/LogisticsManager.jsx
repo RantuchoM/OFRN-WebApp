@@ -33,6 +33,8 @@ import {
 import {
   resolveRulePrimaryInstant,
   resolveRuleFieldInstant,
+  resolveIsLocalForLogisticsCategory,
+  ruleHasMealMilestones,
   personIsLocalAtHit,
 } from "../../utils/giraUtils";
 import EventForm from "../../components/forms/EventForm";
@@ -174,10 +176,11 @@ const matchesCategoryChip = (
 ) => {
   if (!chipCategory || !personCategory) return false;
   if (chipCategory === "LOCALES" || chipCategory === "NO_LOCALES") {
-    const isLocal = personIsLocalAtHit(
+    const isLocal = resolveIsLocalForLogisticsCategory(
       person,
       context.segments,
       context.instant,
+      context.field,
     );
     if (chipCategory === "LOCALES") return isLocal;
     if (personCategory === "EXTERNOS") return true;
@@ -206,7 +209,14 @@ const personMatchesLogisticsChip = (
       instant = { fecha: seg.fecha_desde, hora: "12:00" };
     }
   }
-  if (getMatchStrength(row, person, allLocalities, { segments, instant }) <= 0)
+  const localeField = ruleHasMealMilestones(row) ? "comida_inicio" : null;
+  if (
+    getMatchStrength(row, person, allLocalities, {
+      segments,
+      instant,
+      field: localeField,
+    }) <= 0
+  )
     return false;
   const pId = String(person.id ?? person.id_integrante);
   const pLoc = person.id_localidad ? String(person.id_localidad) : "";
@@ -226,7 +236,11 @@ const personMatchesLogisticsChip = (
     case "target_regions":
       return pReg === String(chipId);
     case "target_categories":
-      return matchesCategoryChip(chipId, pCat, person, { segments, instant });
+      return matchesCategoryChip(chipId, pCat, person, {
+        segments,
+        instant,
+        field: localeField,
+      });
     default:
       return false;
   }
@@ -247,6 +261,7 @@ const getWinningLogisticsRule = (
       s: getMatchStrength(r, person, allLocalities, {
         segments,
         instant: resolveRuleFieldInstant(r, field, allEvents),
+        field,
       }),
       idx,
     }))

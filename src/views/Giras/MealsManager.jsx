@@ -25,6 +25,7 @@ import {
   buildSegmentSpecs,
   formatTramoTitle,
   isLocalAt,
+  mealBelongsToSegment,
 } from "../../utils/giraTramos";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -1114,13 +1115,19 @@ export default function MealsManager({
 
   const visibleGrid = useMemo(() => {
     if (cortesCount === 0 || !activeSegment) return filteredGrid;
-    const desde = activeSegment.fecha_desde;
-    const hasta = activeSegment.fecha_hasta;
-    if (!desde || !hasta) return filteredGrid;
-    return filteredGrid.filter(
-      (row) => row.fecha && row.fecha >= desde && row.fecha <= hasta,
+    return filteredGrid.filter((row) =>
+      mealBelongsToSegment(
+        {
+          fecha: row.fecha,
+          servicio: row.servicio,
+          hora_inicio: row.hora_inicio,
+        },
+        activeSegment,
+        activeSegmentIdx,
+        segments,
+      ),
     );
-  }, [filteredGrid, activeSegment, cortesCount]);
+  }, [filteredGrid, activeSegment, activeSegmentIdx, cortesCount, segments]);
 
   const realEventIds = useMemo(() => grid.filter((r) => !r.isTemp).map((r) => r.id), [grid]);
 
@@ -1328,14 +1335,19 @@ export default function MealsManager({
               spec?.fecha_desde && spec?.fecha_hasta
                 ? formatTramoTitle(idx, spec.fecha_desde, spec.fecha_hasta)
                 : `Tramo ${idx + 1}`;
-            const rowCount = filteredGrid.filter((row) => {
-              if (!spec?.fecha_desde || !spec?.fecha_hasta || !row.fecha) {
-                return false;
-              }
-              return (
-                row.fecha >= spec.fecha_desde && row.fecha <= spec.fecha_hasta
-              );
-            }).length;
+            const segment = segments[idx] ?? null;
+            const rowCount = filteredGrid.filter((row) =>
+              mealBelongsToSegment(
+                {
+                  fecha: row.fecha,
+                  servicio: row.servicio,
+                  hora_inicio: row.hora_inicio,
+                },
+                segment,
+                idx,
+                segments,
+              ),
+            ).length;
             return (
               <button
                 key={seg.id}

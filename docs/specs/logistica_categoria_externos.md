@@ -16,11 +16,21 @@ Un integrante se clasifica como `EXTERNOS` cuando cumple **todas** estas condici
 
 1. `SOLISTAS`, `DIRECTORES`, `PRODUCCION`, `STAFF`, `CHOFER` — categorías fijas por rol.
 2. `EXTERNOS` — si aplica según las reglas anteriores.
-3. `LOCALES` o `NO_LOCALES` — según `is_local`.
+3. `LOCALES` o `NO_LOCALES` — según `is_local` (flag global del roster).
+
+## Localía en reglas `LOCALES` / `NO_LOCALES` (multi-tramo)
+
+| Hito | Criterio de “local” |
+|------|---------------------|
+| Check-in / Check-out / Bus | Instantáneo del hito (`isLocalAt` en esa fecha/hora) |
+| **Inicio / Fin comida** | **Tramo 0** (`isLocalForTramoIndex(..., 0)`) — sede del viaje, no el tramo del servicio |
+
+El cuadrito Loc/Viaj del header sigue siendo **por tramo seleccionado** (preview operativo). Las reglas de cobertura de comidas con chip `Locales` aplican a quienes residen en las localidades del **primer tramo**.
 
 ## Implementación
 
 - **Fuente de verdad:** `getCategoriaLogistica` en `src/utils/giraUtils.js` (reexportada por `src/hooks/useLogistics.js`).
+- **Localía por hito:** `resolveIsLocalForLogisticsCategory` en `giraUtils.js`; `calculateLogisticsSummary` pasa `field` a `getMatchStrength` en comidas.
 - **Reglas y matching:** `getMatchStrength`, `matchesRule` y `calculateLogisticsSummary` usan el mismo valor devuelto para `target_categories` y alcance `Categoria` en rutas/admisión.
 - **UI:** selectores de categoría incluyen el valor exacto `EXTERNOS` (p. ej. `StopRulesManager.jsx`, `LogisticsManager.jsx`).
 

@@ -1,7 +1,13 @@
 // src/utils/giraUtils.js
 
 import { resolveLocalidadResidencia } from "./integranteDomicilioViaticos";
-import { isLocalAt, isLocalAtMealSlot } from "./giraTramos";
+import {
+  isLocalAt,
+  isLocalAtMealSlot,
+  isLocalForTramoIndex,
+} from "./giraTramos";
+
+const MEAL_RULE_FIELDS = new Set(["comida_inicio", "comida_fin"]);
 
 export const normalize = (str) => (str || "").toLowerCase().trim();
 
@@ -359,9 +365,34 @@ export const personIsLocalAtHit = (person, segments, instant) => {
 };
 
 /**
+ * LOCALE/NO_LOCALES en reglas de comida: localía del tramo 0 (sede del viaje),
+ * no la del instante del servicio. Hotel/bus siguen usando el instante del hito.
+ */
+export const resolveIsLocalForLogisticsCategory = (
+  person,
+  segments,
+  instant,
+  field = null,
+) => {
+  if (MEAL_RULE_FIELDS.has(field) && segments?.length) {
+    return isLocalForTramoIndex(person, segments, 0);
+  }
+  return personIsLocalAtHit(person, segments, instant);
+};
+
+/** Regla con hitos de comida configurados (para preview de chips). */
+export const ruleHasMealMilestones = (rule) =>
+  Boolean(
+    rule?.id_evento_comida_inicio ||
+      rule?.comida_inicio_fecha ||
+      rule?.id_evento_comida_fin ||
+      rule?.comida_fin_fecha,
+  );
+
+/**
  * Compatibilidad de categorías para reglas logísticas.
  * "NO_LOCALES" debe abarcar también perfiles clasificados como "EXTERNOS".
- * Locales / No locales se evalúan en el instante del hito cuando hay segmentos.
+ * Locales / No locales: hotel y bus al instante del hito; comidas al tramo 0.
  */
 const categoryMatches = (
   ruleCategory,
@@ -370,9 +401,14 @@ const categoryMatches = (
   context = {},
 ) => {
   if (!ruleCategory || !personCategory) return false;
-  const { segments, instant } = context;
+  const { segments, instant, field } = context;
   if (ruleCategory === "LOCALES" || ruleCategory === "NO_LOCALES") {
-    const isLocal = personIsLocalAtHit(person, segments, instant);
+    const isLocal = resolveIsLocalForLogisticsCategory(
+      person,
+      segments,
+      instant,
+      field,
+    );
     if (ruleCategory === "LOCALES") return isLocal;
     if (personCategory === "EXTERNOS") return true;
     return !isLocal;
@@ -398,8 +434,8 @@ export const getMatchStrength = (
   if (!rule || !person) return 0;
   if (normalize(person.estado_gira) === "ausente") return 0;
 
-  const { segments, instant } = options;
-  const categoryContext = { segments, instant };
+  const { segments, instant, field } = options;
+  const categoryContext = { segments, instant, field };
 
   const pId = String(person.id ?? person.id_integrante);
   const { pLoc, pReg } = resolvePersonTerritoryIds(person, rule, allLocalities);
@@ -460,8 +496,8 @@ export const matchesRule = (
   if (!rule || !person) return false;
   if (normalize(person.estado_gira) === "ausente") return false;
 
-  const { segments, instant } = options;
-  const categoryContext = { segments, instant };
+  const { segments, instant, field } = options;
+  const categoryContext = { segments, instant, field };
 
   const scope = normalize(rule.alcance);
   const pId = String(person.id ?? person.id_integrante);
