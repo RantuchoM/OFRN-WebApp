@@ -209,7 +209,7 @@ export default function DataView({ supabase }) {
       ],
       // --- AVISO ---
       warning:
-        "📍 Nota: Si editas el nombre de una locación vinculada a un hotel, el nombre del hotel también se actualizará. Si necesitás crear un hotel, hacelo directamente desde la pestaña 'Hoteles' y luego aparecerá aquí",
+        "📍 Nota: Si editas una locación vinculada a un hotel, nombre, dirección, localidad y Google Maps se espejan al hotel. Para crear hoteles, usá la pestaña 'Hoteles'.",
     },
     hoteles: {
       label: "Hoteles",
@@ -224,12 +224,13 @@ export default function DataView({ supabase }) {
           type: "select",
           options: catalogos.localidades,
         },
+        { key: "link_mapa", label: "Google Maps", type: "text" },
         { key: "email", label: "E-mail", type: "text" },
         { key: "telefono", label: "Teléfono", type: "text" },
       ],
       // --- AVISO ---
       warning:
-        "🏨 Nota: Al crear un hotel aquí, se generará automáticamente una locación asociada. No es necesario crearla en la tabla 'locaciones'.",
+        "🏨 Nota: Al crear un hotel aquí, se generará automáticamente una locación asociada (nombre, dirección, localidad y Google Maps se espejan). No hace falta duplicarlo en 'Locaciones'.",
     },
     tipos_evento: {
       label: "Tipos de Evento",

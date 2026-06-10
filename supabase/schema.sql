@@ -744,6 +744,7 @@ CREATE TABLE public.hoteles (
   telefono text,
   email text,
   notas text,
+  link_mapa text,
   id_locacion bigint,
   CONSTRAINT hoteles_pkey PRIMARY KEY (id),
   CONSTRAINT hoteles_id_localidad_fkey FOREIGN KEY (id_localidad) REFERENCES public.localidades(id),
