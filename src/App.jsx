@@ -891,6 +891,7 @@ const ProtectedApp = ({ initialTab }) => {
       return `gira_${searchParams.get("view") || "resumen"}`;
     if (mode === "GIRAS" && !activeGiraId) return "giras_listado";
     if (mode === "MUSIC_TRANSLATION") return "music_translation";
+    if (location.pathname.startsWith("/management")) return "management";
     return tabToMode[currentTab]?.toLowerCase() || "app_intro_general";
   })();
 
