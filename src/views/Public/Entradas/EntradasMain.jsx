@@ -2593,6 +2593,10 @@ export default function EntradasMain({ user, profile, onLogout }) {
                 );
                 const inscriptoRecSel = recordatorioConciertoIds.has(Number(selectedConcierto.id));
                 const busyRecSel = recordatorioBusyId === Number(selectedConcierto.id);
+                const localidadSel = localidadDesdeConciertoEntrada(selectedConcierto);
+                const renderLocalidadSel = localidadSel ? (
+                  <p className={ui.programaLocalidad}>{localidadSel}</p>
+                ) : null;
                 return (
                 <>
                   <p className={ui.accentEyebrow}>Concierto seleccionado</p>
@@ -2615,6 +2619,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                             {selectedConcierto.lugar_nombre}
                           </p>
                         )}
+                        {renderLocalidadSel}
                       </div>
                     </div>
                   ) : tieneReservaEnConcierto(selectedConcierto.id) ? (
@@ -2632,6 +2637,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                         {selectedConcierto.lugar_nombre && (
                           <p className={`text-xs ${ui.textMuted}`}>{selectedConcierto.lugar_nombre}</p>
                         )}
+                        {renderLocalidadSel}
                       </div>
                     </div>
                   ) : (
@@ -2643,6 +2649,7 @@ export default function EntradasMain({ user, profile, onLogout }) {
                       {selectedConcierto.lugar_nombre && (
                         <p className={`text-xs ${ui.textMuted}`}>{selectedConcierto.lugar_nombre}</p>
                       )}
+                      {renderLocalidadSel}
                     </>
                   )}
                   {!reservasAbiertasSel && (

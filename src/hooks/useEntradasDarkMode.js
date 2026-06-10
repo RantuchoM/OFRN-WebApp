@@ -65,7 +65,7 @@ export function entradasUi(isDark) {
     navActive: `entradas-nav-active ${ix} entradas-nav-tab entradas-font-title`,
     section: `${lift} ${d ? "bg-slate-800 rounded-lg border border-slate-700 shadow-sm" : "bg-white rounded-lg border border-[#e8eaed] shadow-sm"}`,
     sectionTitle: `entradas-font-title text-sm font-black uppercase tracking-wide ${d ? "text-slate-400" : "text-slate-500"}`,
-    programaLocalidad: `entradas-font-detail mb-0.5 text-[11px] leading-tight ${d ? "text-slate-500" : "text-slate-500"}`,
+    programaLocalidad: `entradas-font-detail mb-0.5 text-[11px] leading-tight ${d ? "text-slate-100" : "text-slate-500"}`,
     programaTitle: `entradas-programa-title entradas-font-title text-lg font-bold tracking-wide leading-snug ${d ? "text-slate-100" : "text-slate-900"}`,
     card: `${lift} ${ix} ${d ? "rounded-lg border border-slate-600 bg-slate-800/80" : "rounded-lg border border-[#e8eaed] bg-white"}`,
     cardMuted: d
