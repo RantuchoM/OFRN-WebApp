@@ -11,17 +11,45 @@ export function isEntradasPublicRoute(pathname = "") {
 const VERSION_POLL_MS = 2 * 60 * 1000;
 const ENTRADAS_SW_POLL_MS = 5 * 60 * 1000;
 const RESTART_MESSAGE_MS = 400;
-/** Tras activar el SW, recarga forzada si `controllerchange`/`controlling` no dispara (común en iOS PWA). */
-const RELOAD_FALLBACK_MS = 1200;
+/** iOS PWA a veces no dispara `controlling`; recarga única de respaldo. */
+const RELOAD_FALLBACK_MS = 2500;
+const RELOAD_GUARD_KEY = "ofrn:pwa-reload-guard";
+const PRELOAD_RELOAD_KEY = "ofrn:preload-reload";
+const RELOAD_GUARD_WINDOW_MS = 15_000;
+const RELOAD_GUARD_MAX = 2;
 const LOCAL_BUILD_ID = import.meta.env.VITE_APP_BUILD_ID ?? "";
 
-async function applyUpdateWithReload(updateServiceWorker) {
+function readReloadGuard() {
   try {
-    await updateServiceWorker(true);
-  } catch (error) {
-    console.error("SW update failed", error);
+    const raw = sessionStorage.getItem(RELOAD_GUARD_KEY);
+    if (!raw) return { count: 0, startedAt: 0 };
+    return JSON.parse(raw);
+  } catch {
+    return { count: 0, startedAt: 0 };
   }
-  window.setTimeout(() => window.location.reload(), RELOAD_FALLBACK_MS);
+}
+
+function markReloadAttempt() {
+  const now = Date.now();
+  const prev = readReloadGuard();
+  const inWindow = prev.startedAt && now - prev.startedAt < RELOAD_GUARD_WINDOW_MS;
+  const count = inWindow ? prev.count + 1 : 1;
+  const startedAt = inWindow ? prev.startedAt : now;
+  try {
+    sessionStorage.setItem(RELOAD_GUARD_KEY, JSON.stringify({ count, startedAt }));
+  } catch {
+    /* ignore */
+  }
+  return count;
+}
+
+function clearReloadGuards() {
+  try {
+    sessionStorage.removeItem(RELOAD_GUARD_KEY);
+    sessionStorage.removeItem(PRELOAD_RELOAD_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 async function fetchRemoteBuildId() {
@@ -74,13 +102,44 @@ function ReloadPrompt() {
   const entradasSilentUpdate = isEntradasPublicRoute(pathname);
   const swRegistrationRef = useRef(null);
   const restartStartedRef = useRef(false);
+  const reloadPendingRef = useRef(false);
+  const fallbackTimerRef = useRef(null);
   const [isRestarting, setIsRestarting] = useState(false);
-  const [updateAvailable, setUpdateAvailable] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  const reloadPageWithGuard = useCallback(() => {
+    if (reloadPendingRef.current) return false;
+    const count = markReloadAttempt();
+    if (count > RELOAD_GUARD_MAX) {
+      console.warn("[PWA] Recargas repetidas detectadas; se detiene la actualización automática.");
+      reloadPendingRef.current = false;
+      restartStartedRef.current = false;
+      setIsRestarting(false);
+      return false;
+    }
+    reloadPendingRef.current = true;
+    window.location.reload();
+    return true;
+  }, []);
+
+  const clearFallbackTimer = useCallback(() => {
+    if (fallbackTimerRef.current != null) {
+      window.clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleIosFallbackReload = useCallback(() => {
+    clearFallbackTimer();
+    fallbackTimerRef.current = window.setTimeout(() => {
+      fallbackTimerRef.current = null;
+      reloadPageWithGuard();
+    }, RELOAD_FALLBACK_MS);
+  }, [clearFallbackTimer, reloadPageWithGuard]);
 
   const {
     offlineReady: [offlineReady, setOfflineReady],
-    needRefresh: [needRefresh],
+    needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r) {
@@ -89,30 +148,49 @@ function ReloadPrompt() {
     onRegisterError(error) {
       console.error("SW registration error", error);
     },
+    onNeedReload() {
+      clearFallbackTimer();
+      reloadPageWithGuard();
+    },
   });
 
-  const markUpdateAvailable = useCallback(() => {
-    setUpdateAvailable(true);
-    setBannerDismissed(false);
-  }, []);
+  const applyWaitingServiceWorker = useCallback(async () => {
+    const registration = swRegistrationRef.current;
+    if (!registration?.waiting) return false;
+
+    scheduleIosFallbackReload();
+    try {
+      await updateServiceWorker(true);
+      return true;
+    } catch (error) {
+      console.error("SW update failed", error);
+      clearFallbackTimer();
+      reloadPendingRef.current = false;
+      restartStartedRef.current = false;
+      setIsRestarting(false);
+      return false;
+    }
+  }, [clearFallbackTimer, scheduleIosFallbackReload, updateServiceWorker]);
 
   const checkForNewVersion = useCallback(async () => {
     swRegistrationRef.current?.update();
     if (!LOCAL_BUILD_ID) return;
     const remote = await fetchRemoteBuildId();
-    if (remote && remote !== LOCAL_BUILD_ID) {
-      markUpdateAvailable();
+    if (remote && remote === LOCAL_BUILD_ID) {
+      clearReloadGuards();
     }
-  }, [markUpdateAvailable]);
+  }, []);
 
   useEffect(() => {
     if (!needRefresh) return;
     if (entradasSilentUpdate) {
-      void applyUpdateWithReload(updateServiceWorker);
+      if (restartStartedRef.current) return;
+      restartStartedRef.current = true;
+      void applyWaitingServiceWorker();
       return;
     }
-    markUpdateAvailable();
-  }, [entradasSilentUpdate, needRefresh, updateServiceWorker, markUpdateAvailable]);
+    setBannerDismissed(false);
+  }, [entradasSilentUpdate, needRefresh, applyWaitingServiceWorker]);
 
   useEffect(() => {
     if (!LOCAL_BUILD_ID) return undefined;
@@ -136,12 +214,19 @@ function ReloadPrompt() {
 
   const handleApplyUpdate = useCallback(() => {
     if (restartStartedRef.current) return;
+
+    const registration = swRegistrationRef.current;
+    if (!registration?.waiting) {
+      void registration?.update();
+      return;
+    }
+
     restartStartedRef.current = true;
     setIsRestarting(true);
     window.setTimeout(() => {
-      void applyUpdateWithReload(updateServiceWorker);
+      void applyWaitingServiceWorker();
     }, RESTART_MESSAGE_MS);
-  }, [updateServiceWorker]);
+  }, [applyWaitingServiceWorker]);
 
   useEffect(() => {
     if (!offlineReady) return;
@@ -167,15 +252,20 @@ function ReloadPrompt() {
     };
   }, [entradasSilentUpdate]);
 
+  useEffect(() => () => clearFallbackTimer(), [clearFallbackTimer]);
+
   const showBanner =
-    updateAvailable && !entradasSilentUpdate && !isRestarting && !bannerDismissed;
+    needRefresh && !entradasSilentUpdate && !isRestarting && !bannerDismissed;
 
   return (
     <>
       {showBanner && (
         <UpdateAvailableBanner
           onUpdate={handleApplyUpdate}
-          onDismiss={() => setBannerDismissed(true)}
+          onDismiss={() => {
+            setBannerDismissed(true);
+            setNeedRefresh(false);
+          }}
         />
       )}
       {isRestarting && !entradasSilentUpdate && (
